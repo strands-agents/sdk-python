@@ -615,7 +615,7 @@ async def test_process_stream(response, exp_events, agenerator, alist):
 @pytest.mark.parametrize(
     ("response", "exp_events"),
     [
-        # Redacted Message
+        # Redacted Message - Both input and output messages present (input takes priority)
         (
             [
                 {"messageStart": {"role": "assistant"}},
@@ -677,6 +677,138 @@ async def test_process_stream(response, exp_events, agenerator, alist):
                     "stop": (
                         "guardrail_intervened",
                         {"role": "assistant", "content": [{"text": "REDACTED"}]},
+                        {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        {"latencyMs": 1},
+                    )
+                },
+            ],
+        ),
+        # Redacted Message - Input only (redactUserContentMessage)
+        (
+            [
+                {"messageStart": {"role": "assistant"}},
+                {
+                    "contentBlockStart": {"start": {}},
+                },
+                {
+                    "contentBlockDelta": {"delta": {"text": "Hello!"}},
+                },
+                {"contentBlockStop": {}},
+                {
+                    "messageStop": {"stopReason": "guardrail_intervened"},
+                },
+                {
+                    "redactContent": {
+                        "redactUserContentMessage": "INPUT_BLOCKED",
+                    }
+                },
+                {
+                    "metadata": {
+                        "usage": {
+                            "inputTokens": 1,
+                            "outputTokens": 1,
+                            "totalTokens": 1,
+                        },
+                        "metrics": {"latencyMs": 1},
+                    }
+                },
+            ],
+            [
+                {"event": {"messageStart": {"role": "assistant"}}},
+                {"event": {"contentBlockStart": {"start": {}}}},
+                {"event": {"contentBlockDelta": {"delta": {"text": "Hello!"}}}},
+                {"data": "Hello!", "delta": {"text": "Hello!"}},
+                {"event": {"contentBlockStop": {}}},
+                {"event": {"messageStop": {"stopReason": "guardrail_intervened"}}},
+                {
+                    "event": {
+                        "redactContent": {
+                            "redactUserContentMessage": "INPUT_BLOCKED",
+                        }
+                    }
+                },
+                {
+                    "event": {
+                        "metadata": {
+                            "usage": {
+                                "inputTokens": 1,
+                                "outputTokens": 1,
+                                "totalTokens": 1,
+                            },
+                            "metrics": {"latencyMs": 1},
+                        }
+                    }
+                },
+                {
+                    "stop": (
+                        "guardrail_intervened",
+                        {"role": "assistant", "content": [{"text": "INPUT_BLOCKED"}]},
+                        {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        {"latencyMs": 1},
+                    )
+                },
+            ],
+        ),
+        # Redacted Message - Output only (redactAssistantContentMessage)
+        (
+            [
+                {"messageStart": {"role": "assistant"}},
+                {
+                    "contentBlockStart": {"start": {}},
+                },
+                {
+                    "contentBlockDelta": {"delta": {"text": "Hello!"}},
+                },
+                {"contentBlockStop": {}},
+                {
+                    "messageStop": {"stopReason": "guardrail_intervened"},
+                },
+                {
+                    "redactContent": {
+                        "redactAssistantContentMessage": "OUTPUT_BLOCKED",
+                    }
+                },
+                {
+                    "metadata": {
+                        "usage": {
+                            "inputTokens": 1,
+                            "outputTokens": 1,
+                            "totalTokens": 1,
+                        },
+                        "metrics": {"latencyMs": 1},
+                    }
+                },
+            ],
+            [
+                {"event": {"messageStart": {"role": "assistant"}}},
+                {"event": {"contentBlockStart": {"start": {}}}},
+                {"event": {"contentBlockDelta": {"delta": {"text": "Hello!"}}}},
+                {"data": "Hello!", "delta": {"text": "Hello!"}},
+                {"event": {"contentBlockStop": {}}},
+                {"event": {"messageStop": {"stopReason": "guardrail_intervened"}}},
+                {
+                    "event": {
+                        "redactContent": {
+                            "redactAssistantContentMessage": "OUTPUT_BLOCKED",
+                        }
+                    }
+                },
+                {
+                    "event": {
+                        "metadata": {
+                            "usage": {
+                                "inputTokens": 1,
+                                "outputTokens": 1,
+                                "totalTokens": 1,
+                            },
+                            "metrics": {"latencyMs": 1},
+                        }
+                    }
+                },
+                {
+                    "stop": (
+                        "guardrail_intervened",
+                        {"role": "assistant", "content": [{"text": "OUTPUT_BLOCKED"}]},
                         {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
                         {"latencyMs": 1},
                     )
