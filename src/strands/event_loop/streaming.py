@@ -336,18 +336,97 @@ def handle_redact_content(event: RedactContentEvent, state: dict[str, Any]) -> N
         event: Redact Content Event.
         state: The current state of message processing.
     """
-    # Skip if already redacted (handle only the first redactContent event)
-    if state.get("redacted"):
+    # Store both messages for later decision based on trace
+    # AWS Bedrock sends both messages regardless of which guardrail was triggered
+    if event.get("redactUserContentMessage") is not None:
+        state["redactUserContentMessage"] = event["redactUserContentMessage"]
+    if event.get("redactAssistantContentMessage") is not None:
+        state["redactAssistantContentMessage"] = event["redactAssistantContentMessage"]
+
+
+def _check_if_blocked(assessment: dict[str, Any]) -> bool:
+    """Check if any policy in the assessment has BLOCKED action.
+    
+    Args:
+        assessment: Guardrail assessment data
+        
+    Returns:
+        True if any policy has BLOCKED action
+    """
+    # Check word policy
+    word_policy = assessment.get("wordPolicy", {})
+    custom_words = word_policy.get("customWords", [])
+    for word in custom_words:
+        if word.get("action") == "BLOCKED" and word.get("detected"):
+            return True
+    
+    # Check content policy
+    content_policy = assessment.get("contentPolicy", {})
+    filters = content_policy.get("filters", [])
+    for filter_item in filters:
+        if filter_item.get("action") == "BLOCKED":
+            return True
+    
+    # Check sensitive information policy
+    pii_entities = assessment.get("sensitiveInformationPolicy", {}).get("piiEntities", [])
+    for entity in pii_entities:
+        if entity.get("action") == "BLOCKED":
+            return True
+    
+    return False
+
+
+def finalize_redact_message(event: MetadataEvent, state: dict[str, Any]) -> None:
+    """Finalize the redacted message based on trace information.
+    
+    AWS Bedrock sends both redactUserContentMessage and redactAssistantContentMessage
+    regardless of which guardrail was triggered. We need to check the trace to determine
+    which one to use.
+    
+    Args:
+        event: Metadata event containing trace information
+        state: The current state of message processing
+    """
+    # Check if we have redact messages stored
+    if "redactUserContentMessage" not in state and "redactAssistantContentMessage" not in state:
         return
     
-    # Check for input redaction first
-    if event.get("redactUserContentMessage") is not None:
-        state["message"]["content"] = [{"text": event["redactUserContentMessage"]}]
-        state["redacted"] = True
-    # Check for output redaction
-    elif event.get("redactAssistantContentMessage") is not None:
-        state["message"]["content"] = [{"text": event["redactAssistantContentMessage"]}]
-        state["redacted"] = True
+    # Get trace information
+    trace = event.get("trace", {})
+    guardrail = trace.get("guardrail", {})
+    
+    # Check input assessment
+    input_blocked = False
+    input_assessment = guardrail.get("inputAssessment", {})
+    for guardrail_id, assessment in input_assessment.items():
+        if _check_if_blocked(assessment):
+            input_blocked = True
+            break
+    
+    # Check output assessments
+    output_blocked = False
+    output_assessments = guardrail.get("outputAssessments", [])
+    for output_assessment_dict in output_assessments:
+        for guardrail_id, assessments in output_assessment_dict.items():
+            for assessment in assessments:
+                if _check_if_blocked(assessment):
+                    output_blocked = True
+                    break
+            if output_blocked:
+                break
+        if output_blocked:
+            break
+    
+    # Select the appropriate message based on trace
+    if output_blocked and "redactAssistantContentMessage" in state:
+        state["message"]["content"] = [{"text": state["redactAssistantContentMessage"]}]
+    elif input_blocked and "redactUserContentMessage" in state:
+        state["message"]["content"] = [{"text": state["redactUserContentMessage"]}]
+    # Fallback: use input message if trace is unclear but we have redact messages
+    elif "redactUserContentMessage" in state:
+        state["message"]["content"] = [{"text": state["redactUserContentMessage"]}]
+    elif "redactAssistantContentMessage" in state:
+        state["message"]["content"] = [{"text": state["redactAssistantContentMessage"]}]
 
 
 def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | None = None) -> tuple[Usage, Metrics]:
@@ -420,6 +499,8 @@ async def process_stream(
                 int(1000 * (first_byte_time - start_time)) if (start_time and first_byte_time) else None
             )
             usage, metrics = extract_usage_metrics(chunk["metadata"], time_to_first_byte_ms)
+            # Finalize redacted message based on trace information
+            finalize_redact_message(chunk["metadata"], state)
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], state)
 
