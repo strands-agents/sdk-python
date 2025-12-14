@@ -405,15 +405,14 @@ def finalize_redact_message(event: MetadataEvent, state: dict[str, Any]) -> None
     
     # Check output assessments
     output_blocked = False
-    output_assessments = guardrail.get("outputAssessments", [])
-    for output_assessment_dict in output_assessments:
-        for guardrail_id, assessments in output_assessment_dict.items():
+    output_assessments = guardrail.get("outputAssessments", {})
+    # outputAssessments is a dict with guardrail IDs as keys
+    for guardrail_id, assessments in output_assessments.items():
+        if isinstance(assessments, list):
             for assessment in assessments:
                 if _check_if_blocked(assessment):
                     output_blocked = True
                     break
-            if output_blocked:
-                break
         if output_blocked:
             break
     
