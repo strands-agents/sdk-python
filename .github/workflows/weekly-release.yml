@@ -1,0 +1,110 @@
+name: Weekly Release
+
+on:
+  schedule:
+    # Run every Tuesday at 1:00 PM EST (6:00 PM UTC)
+    - cron: '0 18 * * 2'
+  workflow_dispatch: # Allow manual trigger
+    inputs:
+      dry_run:
+        description: 'Dry run mode (test without creating release)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Check for new commits
+      id: check_commits
+      run: |
+        # Get the latest tag
+        latest_tag=$(git tag --sort=-v:refname | head -n 1)
+        
+        if [ -z "$latest_tag" ]; then
+          echo "No existing tags found, will create initial release"
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "latest_tag=" >> $GITHUB_OUTPUT
+        else
+          echo "Latest tag: $latest_tag"
+          
+          # Check if there are any commits since the latest tag
+          commit_count=$(git rev-list ${latest_tag}..HEAD --count)
+          
+          if [ "$commit_count" -eq 0 ]; then
+            echo "No new commits since $latest_tag, skipping release"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Found $commit_count new commit(s) since $latest_tag"
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "latest_tag=$latest_tag" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Calculate next version
+      if: steps.check_commits.outputs.has_changes == 'true'
+      id: version
+      run: |
+        latest_tag="${{ steps.check_commits.outputs.latest_tag }}"
+        
+        if [ -z "$latest_tag" ]; then
+          echo "ERROR: No existing tags found in repository"
+          echo "Please create an initial tag manually (e.g., v1.0.0) before running this workflow"
+          exit 1
+        fi
+        
+        echo "Latest tag: $latest_tag"
+        
+        # Extract version components from tag format vX.Y.Z
+        if [[ $latest_tag =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          major="${BASH_REMATCH[1]}"
+          minor="${BASH_REMATCH[2]}"
+          patch="${BASH_REMATCH[3]}"
+          
+          echo "Extracted version: major=$major, minor=$minor, patch=$patch"
+          
+          # Increment minor version, keep major same, reset patch to 0
+          next_minor=$((minor + 1))
+          new_tag="v${major}.${next_minor}.0"
+          
+          echo "Next version will be: $new_tag"
+          echo "new_tag=$new_tag" >> $GITHUB_OUTPUT
+        else
+          echo "ERROR: Tag format doesn't match expected pattern vX.Y.Z"
+          echo "Latest tag: $latest_tag"
+          echo "Expected format: v1.2.3 (where X, Y, Z are numbers)"
+          exit 1
+        fi
+
+    - name: Create Release (Dry Run)
+      if: steps.check_commits.outputs.has_changes == 'true' && inputs.dry_run == true
+      run: |
+        echo "🧪 DRY RUN MODE - No release will be created"
+        echo "Would create release with tag: ${{ steps.version.outputs.new_tag }}"
+        echo "Title: Release ${{ steps.version.outputs.new_tag }}"
+        echo "Notes: Automated weekly release"
+        echo "Generate release notes: Yes"
+        echo ""
+        echo "✅ Dry run completed successfully"
+
+    - name: Create Release
+      if: steps.check_commits.outputs.has_changes == 'true' && inputs.dry_run != true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        gh release create "${{ steps.version.outputs.new_tag }}" \
+          --title "Release ${{ steps.version.outputs.new_tag }}" \
+          --notes "Automated weekly release" \
+          --generate-notes
