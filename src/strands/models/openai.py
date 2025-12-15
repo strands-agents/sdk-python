@@ -7,7 +7,8 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, AsyncGenerator, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
+from collections.abc import AsyncGenerator
+from typing import Any, Protocol, TypedDict, TypeVar, cast
 
 import openai
 from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
@@ -53,9 +54,9 @@ class OpenAIModel(Model):
         """
 
         model_id: str
-        params: Optional[dict[str, Any]]
+        params: dict[str, Any] | None
 
-    def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[OpenAIConfig]) -> None:
+    def __init__(self, client_args: dict[str, Any] | None = None, **model_config: Unpack[OpenAIConfig]) -> None:
         """Initialize provider instance.
 
         Args:
@@ -203,9 +204,9 @@ class OpenAIModel(Model):
     @classmethod
     def _format_system_messages(
         cls,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         *,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """Format system messages for OpenAI-compatible providers.
@@ -279,9 +280,9 @@ class OpenAIModel(Model):
     def format_request_messages(
         cls,
         messages: Messages,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         *,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """Format an OpenAI compatible messages array.
@@ -426,8 +427,8 @@ class OpenAIModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
@@ -556,8 +557,8 @@ class OpenAIModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model.
 
         Args:

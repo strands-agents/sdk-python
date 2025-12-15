@@ -2,7 +2,8 @@
 
 import abc
 import logging
-from typing import Any, AsyncGenerator, AsyncIterable, Optional, Type, TypeVar, Union
+from collections.abc import AsyncGenerator, AsyncIterable
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -45,8 +46,8 @@ class Model(abc.ABC):
     @abc.abstractmethod
     # pragma: no cover
     def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model.
 
         Args:
@@ -68,8 +69,8 @@ class Model(abc.ABC):
     def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,

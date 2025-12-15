@@ -6,7 +6,8 @@
 import json
 import logging
 import mimetypes
-from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
+from collections.abc import AsyncGenerator
+from typing import Any, TypedDict, TypeVar, cast
 
 import pydantic
 from google import genai
@@ -48,7 +49,7 @@ class GeminiModel(Model):
     def __init__(
         self,
         *,
-        client_args: Optional[dict[str, Any]] = None,
+        client_args: dict[str, Any] | None = None,
         **model_config: Unpack[GeminiConfig],
     ) -> None:
         """Initialize provider instance.
@@ -170,7 +171,7 @@ class GeminiModel(Model):
             for message in messages
         ]
 
-    def _format_request_tools(self, tool_specs: Optional[list[ToolSpec]]) -> list[genai.types.Tool | Any]:
+    def _format_request_tools(self, tool_specs: list[ToolSpec] | None) -> list[genai.types.Tool | Any]:
         """Format tool specs into Gemini tools.
 
         - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Tool
@@ -196,9 +197,9 @@ class GeminiModel(Model):
 
     def _format_request_config(
         self,
-        tool_specs: Optional[list[ToolSpec]],
-        system_prompt: Optional[str],
-        params: Optional[dict[str, Any]],
+        tool_specs: list[ToolSpec] | None,
+        system_prompt: str | None,
+        params: dict[str, Any] | None,
     ) -> genai.types.GenerateContentConfig:
         """Format Gemini request config.
 
@@ -221,9 +222,9 @@ class GeminiModel(Model):
     def _format_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]],
-        system_prompt: Optional[str],
-        params: Optional[dict[str, Any]],
+        tool_specs: list[ToolSpec] | None,
+        system_prompt: str | None,
+        params: dict[str, Any] | None,
     ) -> dict[str, Any]:
         """Format a Gemini streaming request.
 
@@ -342,8 +343,8 @@ class GeminiModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -427,8 +428,8 @@ class GeminiModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model using Gemini's native structured output.
 
         - Docs: https://ai.google.dev/gemini-api/docs/structured-output

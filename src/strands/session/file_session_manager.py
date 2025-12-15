@@ -5,7 +5,7 @@ import logging
 import os
 import shutil
 import tempfile
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from .. import _identifier
 from ..types.exceptions import SessionException
@@ -44,7 +44,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
     def __init__(
         self,
         session_id: str,
-        storage_dir: Optional[str] = None,
+        storage_dir: str | None = None,
         **kwargs: Any,
     ):
         """Initialize FileSession with filesystem storage.
@@ -108,7 +108,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
     def _read_file(self, path: str) -> dict[str, Any]:
         """Read JSON file."""
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return cast(dict[str, Any], json.load(f))
         except json.JSONDecodeError as e:
             raise SessionException(f"Invalid JSON in file {path}: {str(e)}") from e
@@ -140,7 +140,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
 
         return session
 
-    def read_session(self, session_id: str, **kwargs: Any) -> Optional[Session]:
+    def read_session(self, session_id: str, **kwargs: Any) -> Session | None:
         """Read session data."""
         session_file = os.path.join(self._get_session_path(session_id), "session.json")
         if not os.path.exists(session_file):
@@ -169,7 +169,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         session_data = session_agent.to_dict()
         self._write_file(agent_file, session_data)
 
-    def read_agent(self, session_id: str, agent_id: str, **kwargs: Any) -> Optional[SessionAgent]:
+    def read_agent(self, session_id: str, agent_id: str, **kwargs: Any) -> SessionAgent | None:
         """Read agent data."""
         agent_file = os.path.join(self._get_agent_path(session_id, agent_id), "agent.json")
         if not os.path.exists(agent_file):
@@ -199,7 +199,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         session_dict = session_message.to_dict()
         self._write_file(message_file, session_dict)
 
-    def read_message(self, session_id: str, agent_id: str, message_id: int, **kwargs: Any) -> Optional[SessionMessage]:
+    def read_message(self, session_id: str, agent_id: str, message_id: int, **kwargs: Any) -> SessionMessage | None:
         """Read message data."""
         message_path = self._get_message_path(session_id, agent_id, message_id)
         if not os.path.exists(message_path):
@@ -220,7 +220,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         self._write_file(message_file, session_message.to_dict())
 
     def list_messages(
-        self, session_id: str, agent_id: str, limit: Optional[int] = None, offset: int = 0, **kwargs: Any
+        self, session_id: str, agent_id: str, limit: int | None = None, offset: int = 0, **kwargs: Any
     ) -> list[SessionMessage]:
         """List messages for an agent with pagination."""
         messages_dir = os.path.join(self._get_agent_path(session_id, agent_id), "messages")
@@ -269,7 +269,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         session_data = multi_agent.serialize_state()
         self._write_file(multi_agent_file, session_data)
 
-    def read_multi_agent(self, session_id: str, multi_agent_id: str, **kwargs: Any) -> Optional[dict[str, Any]]:
+    def read_multi_agent(self, session_id: str, multi_agent_id: str, **kwargs: Any) -> dict[str, Any] | None:
         """Read multi-agent state from filesystem."""
         multi_agent_file = os.path.join(self._get_multi_agent_path(session_id, multi_agent_id), "multi_agent.json")
         if not os.path.exists(multi_agent_file):

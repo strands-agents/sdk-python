@@ -3,7 +3,7 @@ import json
 import os
 import threading
 import time
-from typing import List, Literal
+from typing import Literal
 
 import pytest
 from mcp import StdioServerParameters, stdio_client
@@ -47,7 +47,7 @@ def start_comprehensive_mcp_server(transport: Literal["sse", "streamable-http"],
                 encoded_image = base64.b64encode(image_file.read())
                 return MCPImageContent(type="image", data=encoded_image, mimeType="image/png")
         except Exception as e:
-            print("Error while generating custom image: {}".format(e))
+            print(f"Error while generating custom image: {e}")
 
     # Prompts
     @mcp.prompt(description="A greeting prompt template")
@@ -366,7 +366,7 @@ def test_mcp_client_embedded_resources_with_agent():
         assert any(["72" in response_text, "partly cloudy" in response_text, "weather" in response_text])
 
 
-def _messages_to_content_blocks(messages: List[Message]) -> List[ToolUse]:
+def _messages_to_content_blocks(messages: list[Message]) -> list[ToolUse]:
     return [block["toolUse"] for message in messages for block in message["content"] if "toolUse" in block]
 
 

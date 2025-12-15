@@ -3,8 +3,6 @@
 These types are modeled after the Bedrock API.
 """
 
-from typing import List, Union
-
 from typing_extensions import TypedDict
 
 
@@ -78,7 +76,7 @@ class DocumentPageLocation(TypedDict, total=False):
 
 
 # Union type for citation locations
-CitationLocation = Union[DocumentCharLocation, DocumentChunkLocation, DocumentPageLocation]
+CitationLocation = DocumentCharLocation | DocumentChunkLocation | DocumentPageLocation
 
 
 class CitationSourceContent(TypedDict, total=False):
@@ -130,7 +128,7 @@ class Citation(TypedDict, total=False):
     """
 
     location: CitationLocation
-    sourceContent: List[CitationSourceContent]
+    sourceContent: list[CitationSourceContent]
     title: str
 
 
@@ -148,5 +146,5 @@ class CitationsContentBlock(TypedDict, total=False):
             citations.
     """
 
-    citations: List[Citation]
-    content: List[CitationGeneratedContent]
+    citations: list[Citation]
+    content: list[CitationGeneratedContent]

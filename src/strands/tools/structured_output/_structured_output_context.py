@@ -1,7 +1,7 @@
 """Context management for structured output in the event loop."""
 
 import logging
-from typing import TYPE_CHECKING, Optional, Type
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
@@ -17,20 +17,20 @@ logger = logging.getLogger(__name__)
 class StructuredOutputContext:
     """Per-invocation context for structured output execution."""
 
-    def __init__(self, structured_output_model: Type[BaseModel] | None = None):
+    def __init__(self, structured_output_model: type[BaseModel] | None = None):
         """Initialize a new structured output context.
 
         Args:
             structured_output_model: Optional Pydantic model type for structured output.
         """
         self.results: dict[str, BaseModel] = {}
-        self.structured_output_model: Type[BaseModel] | None = structured_output_model
+        self.structured_output_model: type[BaseModel] | None = structured_output_model
         self.structured_output_tool: StructuredOutputTool | None = None
         self.forced_mode: bool = False
         self.force_attempted: bool = False
         self.tool_choice: ToolChoice | None = None
         self.stop_loop: bool = False
-        self.expected_tool_name: Optional[str] = None
+        self.expected_tool_name: str | None = None
 
         if structured_output_model:
             self.structured_output_tool = StructuredOutputTool(structured_output_model)
@@ -91,7 +91,7 @@ class StructuredOutputContext:
             return False
         return any(tool_use.get("name") == self.expected_tool_name for tool_use in tool_uses)
 
-    def get_tool_spec(self) -> Optional[ToolSpec]:
+    def get_tool_spec(self) -> ToolSpec | None:
         """Get the tool specification for structured output.
 
         Returns:

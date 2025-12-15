@@ -1,7 +1,7 @@
 """Type definitions for MCP integration."""
 
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Dict
+from typing import Any
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.client.streamable_http import GetSessionIdCallback
@@ -60,4 +60,4 @@ class MCPToolResult(ToolResult):
             that can be processed programmatically by agents or other tools.
     """
 
-    structuredContent: NotRequired[Dict[str, Any]]
+    structuredContent: NotRequired[dict[str, Any]]

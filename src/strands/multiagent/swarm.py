@@ -18,8 +18,9 @@ import copy
 import json
 import logging
 import time
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Mapping, Optional, Tuple, cast
+from typing import Any, Optional, cast
 
 from opentelemetry import trace as trace_api
 
@@ -184,7 +185,7 @@ class SwarmState:
         execution_timeout: float,
         repetitive_handoff_detection_window: int,
         repetitive_handoff_min_unique_agents: int,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Check if the swarm should continue.
 
         Returns: (should_continue, reason)
@@ -239,10 +240,10 @@ class Swarm(MultiAgentBase):
         node_timeout: float = 300.0,
         repetitive_handoff_detection_window: int = 0,
         repetitive_handoff_min_unique_agents: int = 0,
-        session_manager: Optional[SessionManager] = None,
-        hooks: Optional[list[HookProvider]] = None,
+        session_manager: SessionManager | None = None,
+        hooks: list[HookProvider] | None = None,
         id: str = _DEFAULT_SWARM_ID,
-        trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        trace_attributes: Mapping[str, AttributeValue] | None = None,
     ) -> None:
         """Initialize Swarm with agents and configuration.
 

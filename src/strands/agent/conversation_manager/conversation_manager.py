@@ -1,7 +1,7 @@
 """Abstract interface for conversation history management."""
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from ...types.content import Message
 
@@ -30,7 +30,7 @@ class ConversationManager(ABC):
         """
         self.removed_message_count = 0
 
-    def restore_from_session(self, state: dict[str, Any]) -> Optional[list[Message]]:
+    def restore_from_session(self, state: dict[str, Any]) -> list[Message] | None:
         """Restore the Conversation Manager's state from a session.
 
         Args:
@@ -66,7 +66,7 @@ class ConversationManager(ABC):
         pass
 
     @abstractmethod
-    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None, **kwargs: Any) -> None:
+    def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Called when the model's context window is exceeded.
 
         This method should implement the specific strategy for reducing the window size when a context overflow occurs.

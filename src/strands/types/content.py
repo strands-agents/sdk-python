@@ -6,7 +6,7 @@ SDK. These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Dict, List, Literal, Optional
+from typing import Literal
 
 from typing_extensions import TypedDict
 
@@ -23,7 +23,7 @@ class GuardContentText(TypedDict):
         text: The input text details to be evaluated by the guardrail.
     """
 
-    qualifiers: List[Literal["grounding_source", "query", "guard_content"]]
+    qualifiers: list[Literal["grounding_source", "query", "guard_content"]]
     text: str
 
 
@@ -45,7 +45,7 @@ class ReasoningTextBlock(TypedDict, total=False):
         text: The reasoning that the model used to return the output.
     """
 
-    signature: Optional[str]
+    signature: str | None
     text: str
 
 
@@ -120,7 +120,7 @@ class DeltaContent(TypedDict, total=False):
     """
 
     text: str
-    toolUse: Dict[Literal["input"], str]
+    toolUse: dict[Literal["input"], str]
 
 
 class ContentBlockStartToolUse(TypedDict):
@@ -142,7 +142,7 @@ class ContentBlockStart(TypedDict, total=False):
         toolUse: Information about a tool that the model is requesting to use.
     """
 
-    toolUse: Optional[ContentBlockStartToolUse]
+    toolUse: ContentBlockStartToolUse | None
 
 
 class ContentBlockDelta(TypedDict):
@@ -183,9 +183,9 @@ class Message(TypedDict):
         role: The role of the message sender.
     """
 
-    content: List[ContentBlock]
+    content: list[ContentBlock]
     role: Role
 
 
-Messages = List[Message]
+Messages = list[Message]
 """A list of messages representing a conversation."""

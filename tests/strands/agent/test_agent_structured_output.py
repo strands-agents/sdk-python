@@ -1,6 +1,5 @@
 """Tests for Agent structured output functionality."""
 
-from typing import Optional
 from unittest import mock
 from unittest.mock import Mock, patch
 
@@ -28,7 +27,7 @@ class ProductModel(BaseModel):
 
     title: str
     price: float
-    description: Optional[str] = None
+    description: str | None = None
 
 
 @pytest.fixture

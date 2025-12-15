@@ -44,16 +44,13 @@ import asyncio
 import functools
 import inspect
 import logging
+from collections.abc import Callable
 from typing import (
     Annotated,
     Any,
-    Callable,
     Generic,
-    Optional,
     ParamSpec,
-    Type,
     TypeVar,
-    Union,
     cast,
     get_args,
     get_origin,
@@ -183,7 +180,7 @@ class FunctionToolMetadata:
                 # Found the parameter, no need to check further
                 break
 
-    def _create_input_model(self) -> Type[BaseModel]:
+    def _create_input_model(self) -> type[BaseModel]:
         """Create a Pydantic model from function signature for input validation.
 
         This method analyzes the function's signature, type hints, and docstring to create a Pydantic model that can
@@ -463,7 +460,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
 
         functools.update_wrapper(wrapper=self, wrapped=self._tool_func)
 
-    def __get__(self, instance: Any, obj_type: Optional[Type] = None) -> "DecoratedFunctionTool[P, R]":
+    def __get__(self, instance: Any, obj_type: type | None = None) -> "DecoratedFunctionTool[P, R]":
         """Descriptor protocol implementation for proper method binding.
 
         This method enables the decorated function to work correctly when used as a class method.
@@ -666,20 +663,20 @@ def tool(__func: Callable[P, R]) -> DecoratedFunctionTool[P, R]: ...
 # Handle @decorator()
 @overload
 def tool(
-    description: Optional[str] = None,
-    inputSchema: Optional[JSONSchema] = None,
-    name: Optional[str] = None,
+    description: str | None = None,
+    inputSchema: JSONSchema | None = None,
+    name: str | None = None,
     context: bool | str = False,
 ) -> Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]: ...
 # Suppressing the type error because we want callers to be able to use both `tool` and `tool()` at the
 # call site, but the actual implementation handles that and it's not representable via the type-system
 def tool(  # type: ignore
-    func: Optional[Callable[P, R]] = None,
-    description: Optional[str] = None,
-    inputSchema: Optional[JSONSchema] = None,
-    name: Optional[str] = None,
+    func: Callable[P, R] | None = None,
+    description: str | None = None,
+    inputSchema: JSONSchema | None = None,
+    name: str | None = None,
     context: bool | str = False,
-) -> Union[DecoratedFunctionTool[P, R], Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]]:
+) -> DecoratedFunctionTool[P, R] | Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]:
     """Decorator that transforms a Python function into a Strands tool.
 
     This decorator seamlessly enables a function to be called both as a regular Python function and as a Strands tool.

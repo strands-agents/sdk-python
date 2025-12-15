@@ -313,15 +313,13 @@ class StrandsA2AExecutor(AgentExecutor):
                     elif uri_data:
                         # For URI files, create a text representation since Strands ContentBlocks expect bytes
                         content_blocks.append(
-                            ContentBlock(
-                                text="[File: %s (%s)] - Referenced file at: %s" % (file_name, mime_type, uri_data)
-                            )
+                            ContentBlock(text=f"[File: {file_name} ({mime_type})] - Referenced file at: {uri_data}")
                         )
                 elif isinstance(part_root, DataPart):
                     # Handle DataPart - convert structured data to JSON text
                     try:
                         data_text = json.dumps(part_root.data, indent=2)
-                        content_blocks.append(ContentBlock(text="[Structured Data]\n%s" % data_text))
+                        content_blocks.append(ContentBlock(text=f"[Structured Data]\n{data_text}"))
                     except Exception:
                         logger.exception("Failed to serialize data part")
             except Exception:

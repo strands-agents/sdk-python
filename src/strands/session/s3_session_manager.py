@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -47,9 +47,9 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         session_id: str,
         bucket: str,
         prefix: str = "",
-        boto_session: Optional[boto3.Session] = None,
-        boto_client_config: Optional[BotocoreConfig] = None,
-        region_name: Optional[str] = None,
+        boto_session: boto3.Session | None = None,
+        boto_client_config: BotocoreConfig | None = None,
+        region_name: str | None = None,
         **kwargs: Any,
     ):
         """Initialize S3SessionManager with S3 storage.
@@ -130,7 +130,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         agent_path = self._get_agent_path(session_id, agent_id)
         return f"{agent_path}messages/{MESSAGE_PREFIX}{message_id}.json"
 
-    def _read_s3_object(self, key: str) -> Optional[Dict[str, Any]]:
+    def _read_s3_object(self, key: str) -> dict[str, Any] | None:
         """Read JSON object from S3."""
         try:
             response = self.client.get_object(Bucket=self.bucket, Key=key)
@@ -144,7 +144,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         except json.JSONDecodeError as e:
             raise SessionException(f"Invalid JSON in S3 object {key}: {e}") from e
 
-    def _write_s3_object(self, key: str, data: Dict[str, Any]) -> None:
+    def _write_s3_object(self, key: str, data: dict[str, Any]) -> None:
         """Write JSON object to S3."""
         try:
             content = json.dumps(data, indent=2, ensure_ascii=False)
@@ -171,7 +171,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         self._write_s3_object(session_key, session_dict)
         return session
 
-    def read_session(self, session_id: str, **kwargs: Any) -> Optional[Session]:
+    def read_session(self, session_id: str, **kwargs: Any) -> Session | None:
         """Read session data from S3."""
         session_key = f"{self._get_session_path(session_id)}session.json"
         session_data = self._read_s3_object(session_key)
@@ -209,7 +209,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         agent_key = f"{self._get_agent_path(session_id, agent_id)}agent.json"
         self._write_s3_object(agent_key, agent_dict)
 
-    def read_agent(self, session_id: str, agent_id: str, **kwargs: Any) -> Optional[SessionAgent]:
+    def read_agent(self, session_id: str, agent_id: str, **kwargs: Any) -> SessionAgent | None:
         """Read agent data from S3."""
         agent_key = f"{self._get_agent_path(session_id, agent_id)}agent.json"
         agent_data = self._read_s3_object(agent_key)
@@ -236,7 +236,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         message_key = self._get_message_path(session_id, agent_id, message_id)
         self._write_s3_object(message_key, message_dict)
 
-    def read_message(self, session_id: str, agent_id: str, message_id: int, **kwargs: Any) -> Optional[SessionMessage]:
+    def read_message(self, session_id: str, agent_id: str, message_id: int, **kwargs: Any) -> SessionMessage | None:
         """Read message data from S3."""
         message_key = self._get_message_path(session_id, agent_id, message_id)
         message_data = self._read_s3_object(message_key)
@@ -257,8 +257,8 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         self._write_s3_object(message_key, session_message.to_dict())
 
     def list_messages(
-        self, session_id: str, agent_id: str, limit: Optional[int] = None, offset: int = 0, **kwargs: Any
-    ) -> List[SessionMessage]:
+        self, session_id: str, agent_id: str, limit: int | None = None, offset: int = 0, **kwargs: Any
+    ) -> list[SessionMessage]:
         """List messages for an agent with pagination from S3."""
         messages_prefix = f"{self._get_agent_path(session_id, agent_id)}messages/"
         try:
@@ -288,7 +288,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
                 message_keys = message_keys[offset:]
 
             # Load only the required message objects
-            messages: List[SessionMessage] = []
+            messages: list[SessionMessage] = []
             for key in message_keys:
                 message_data = self._read_s3_object(key)
                 if message_data:
@@ -312,7 +312,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         session_data = multi_agent.serialize_state()
         self._write_s3_object(multi_agent_key, session_data)
 
-    def read_multi_agent(self, session_id: str, multi_agent_id: str, **kwargs: Any) -> Optional[dict[str, Any]]:
+    def read_multi_agent(self, session_id: str, multi_agent_id: str, **kwargs: Any) -> dict[str, Any] | None:
         """Read multi-agent state from S3."""
         multi_agent_key = f"{self._get_multi_agent_path(session_id, multi_agent_id)}multi_agent.json"
         return self._read_s3_object(multi_agent_key)
