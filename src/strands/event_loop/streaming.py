@@ -480,7 +480,10 @@ async def process_stream(
         # Track first byte time when we get first content
         if first_byte_time is None and ("contentBlockDelta" in chunk or "contentBlockStart" in chunk):
             first_byte_time = time.time()
-        yield ModelStreamChunkEvent(chunk=chunk)
+        # Don't yield redactContent chunks to stream - they will be processed by
+        # handle_redact_content and finalize_redact_message to select the correct message
+        if "redactContent" not in chunk:
+            yield ModelStreamChunkEvent(chunk=chunk)
 
         if "messageStart" in chunk:
             state["message"] = handle_message_start(chunk["messageStart"], state["message"])
