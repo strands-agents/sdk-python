@@ -555,38 +555,90 @@ class BedrockModel(Model):
 
         return False
 
-    def _generate_redaction_events(self) -> list[StreamEvent]:
-        """Generate redaction events based on configuration.
+    def _generate_redaction_events(self, guardrail_data: dict[str, Any] | None = None) -> list[StreamEvent]:
+        """Generate redaction events based on configuration and which guardrail was triggered.
+
+        Args:
+            guardrail_data: Guardrail trace data to determine which guardrail (input/output) was blocked.
+                           If None, falls back to legacy behavior using config flags only.
 
         Returns:
             List of redaction events to yield.
         """
         events: list[StreamEvent] = []
 
-        if self.config.get("guardrail_redact_input", True):
-            logger.debug("Redacting user input due to guardrail.")
-            events.append(
-                {
-                    "redactContent": {
-                        "redactUserContentMessage": self.config.get(
-                            "guardrail_redact_input_message", "[User input redacted.]"
-                        )
-                    }
-                }
+        # Determine which guardrail was blocked from trace data
+        input_blocked = False
+        output_blocked = False
+
+        if guardrail_data:
+            input_assessment = guardrail_data.get("inputAssessment", {})
+            output_assessments = guardrail_data.get("outputAssessments", {})
+
+            # Check if input guardrail blocked
+            input_blocked = any(
+                self._find_detected_and_blocked_policy(assessment)
+                for assessment in input_assessment.values()
             )
 
-        if self.config.get("guardrail_redact_output", False):
-            logger.debug("Redacting assistant output due to guardrail.")
-            events.append(
-                {
-                    "redactContent": {
-                        "redactAssistantContentMessage": self.config.get(
-                            "guardrail_redact_output_message",
-                            "[Assistant output redacted.]",
-                        )
-                    }
-                }
+            # Check if output guardrail blocked
+            output_blocked = any(
+                self._find_detected_and_blocked_policy(assessment)
+                for assessment in output_assessments.values()
             )
+
+        # Generate appropriate redaction event based on which guardrail was triggered
+        if guardrail_data:
+            # Use trace data to determine which message to send
+            if output_blocked and self.config.get("guardrail_redact_output", False):
+                logger.debug("Redacting assistant output due to output guardrail.")
+                events.append(
+                    {
+                        "redactContent": {
+                            "redactAssistantContentMessage": self.config.get(
+                                "guardrail_redact_output_message",
+                                "[Assistant output redacted.]",
+                            )
+                        }
+                    }
+                )
+            elif input_blocked and self.config.get("guardrail_redact_input", True):
+                logger.debug("Redacting user input due to input guardrail.")
+                events.append(
+                    {
+                        "redactContent": {
+                            "redactUserContentMessage": self.config.get(
+                                "guardrail_redact_input_message", "[User input redacted.]"
+                            )
+                        }
+                    }
+                )
+        else:
+            # Legacy fallback: use config flags only (original behavior)
+            if self.config.get("guardrail_redact_input", True):
+                logger.debug("Redacting user input due to guardrail.")
+                events.append(
+                    {
+                        "redactContent": {
+                            "redactUserContentMessage": self.config.get(
+                                "guardrail_redact_input_message", "[User input redacted.]"
+                            )
+                        }
+                    }
+                )
+
+            if self.config.get("guardrail_redact_output", False):
+                logger.debug("Redacting assistant output due to guardrail.")
+                events.append(
+                    {
+                        "redactContent": {
+                            "redactAssistantContentMessage": self.config.get(
+                                "guardrail_redact_output_message",
+                                "[Assistant output redacted.]",
+                            )
+                        }
+                    }
+                )
 
         return events
 
@@ -691,7 +743,7 @@ class BedrockModel(Model):
                     ):
                         guardrail_data = chunk["metadata"]["trace"]["guardrail"]
                         if self._has_blocked_guardrail(guardrail_data):
-                            for event in self._generate_redaction_events():
+                            for event in self._generate_redaction_events(guardrail_data):
                                 callback(event)
 
                     # Track if we see tool use events
@@ -723,7 +775,8 @@ class BedrockModel(Model):
                     and "guardrail" in response["trace"]
                     and self._has_blocked_guardrail(response["trace"]["guardrail"])
                 ):
-                    for event in self._generate_redaction_events():
+                    guardrail_data = response["trace"]["guardrail"]
+                    for event in self._generate_redaction_events(guardrail_data):
                         callback(event)
 
         except ClientError as e:
