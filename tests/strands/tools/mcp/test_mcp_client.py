@@ -358,12 +358,34 @@ def test_mcp_tool_result_type():
     # Test that structuredContent is optional
     assert "structuredContent" not in result or result.get("structuredContent") is None
 
+    # Test that meta is optional
+    assert "meta" not in result or result.get("meta") is None
+
     # Test with structuredContent
     result_with_structured = MCPToolResult(
         status="success", toolUseId="test-456", content=[{"text": "Test message"}], structuredContent={"key": "value"}
     )
 
     assert result_with_structured["structuredContent"] == {"key": "value"}
+
+    # Test with meta
+    result_with_meta = MCPToolResult(
+        status="success", toolUseId="test-789", content=[{"text": "Test message"}], meta={"request_id": "req123"}
+    )
+
+    assert result_with_meta["meta"] == {"request_id": "req123"}
+
+    # Test with both structuredContent and meta
+    result_with_both = MCPToolResult(
+        status="success",
+        toolUseId="test-999",
+        content=[{"text": "Test message"}],
+        structuredContent={"result": "data"},
+        meta={"request_id": "req456"},
+    )
+
+    assert result_with_both["structuredContent"] == {"result": "data"}
+    assert result_with_both["meta"] == {"request_id": "req456"}
 
 
 def test_call_tool_sync_without_structured_content(mock_transport, mock_session):
@@ -383,6 +405,77 @@ def test_call_tool_sync_without_structured_content(mock_transport, mock_session)
         assert result["content"][0]["text"] == "Test message"
         # structuredContent should be None when not provided by MCP
         assert result.get("structuredContent") is None
+
+
+def test_call_tool_sync_with_meta(mock_transport, mock_session):
+    """Test that call_tool_sync correctly handles meta field."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    meta_data = {"request_id": "abc123", "timestamp": 1234567890}
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[mock_content], _meta=meta_data)
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None)
+
+        assert result["status"] == "success"
+        assert result["toolUseId"] == "test-123"
+        # Content should only contain the text content, not the meta
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"] == "Test message"
+        # Meta should be in its own field
+        assert "meta" in result
+        assert result["meta"] == meta_data
+        assert result["meta"]["request_id"] == "abc123"
+        assert result["meta"]["timestamp"] == 1234567890
+
+
+def test_call_tool_sync_without_meta(mock_transport, mock_session):
+    """Test that call_tool_sync works correctly when no meta is provided."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    mock_session.call_tool.return_value = MCPCallToolResult(
+        isError=False,
+        content=[mock_content],  # No meta
+    )
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        assert result["status"] == "success"
+        assert result["toolUseId"] == "test-123"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"] == "Test message"
+        # meta should be None when not provided by MCP
+        assert result.get("meta") is None
+
+
+def test_call_tool_sync_with_structured_content_and_meta(mock_transport, mock_session):
+    """Test that call_tool_sync correctly handles both structured content and meta."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    structured_content = {"result": 42, "status": "completed"}
+    meta_data = {"request_id": "xyz789", "processing_time_ms": 150}
+    mock_session.call_tool.return_value = MCPCallToolResult(
+        isError=False, content=[mock_content], structuredContent=structured_content, _meta=meta_data
+    )
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None)
+
+        assert result["status"] == "success"
+        assert result["toolUseId"] == "test-123"
+        # Content should only contain the text content
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"] == "Test message"
+        # Structured content should be in its own field
+        assert "structuredContent" in result
+        assert result["structuredContent"] == structured_content
+        # Meta should be in its own field
+        assert "meta" in result
+        assert result["meta"] == meta_data
+        assert result["meta"]["request_id"] == "xyz789"
+        assert result["meta"]["processing_time_ms"] == 150
 
 
 def test_exception_when_future_not_running():
@@ -533,7 +626,7 @@ def test_stop_closes_event_loop():
     mock_thread.join = MagicMock()
     mock_event_loop = MagicMock()
     mock_event_loop.close = MagicMock()
-    
+
     client._background_thread = mock_thread
     client._background_thread_event_loop = mock_event_loop
 
@@ -542,7 +635,7 @@ def test_stop_closes_event_loop():
 
     # Verify thread was joined
     mock_thread.join.assert_called_once()
-    
+
     # Verify event loop was closed
     mock_event_loop.close.assert_called_once()
 

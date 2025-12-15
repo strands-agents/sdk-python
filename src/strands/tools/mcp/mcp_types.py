@@ -58,6 +58,10 @@ class MCPToolResult(ToolResult):
         structuredContent: Optional JSON object containing structured data returned
             by the MCP tool. This allows MCP tools to return complex data structures
             that can be processed programmatically by agents or other tools.
+        meta: Optional JSON object containing metadata about the tool execution
+            returned by the MCP tool. This provides additional context or information
+            about how the tool was executed or processed.
     """
 
     structuredContent: NotRequired[Dict[str, Any]]
+    meta: NotRequired[Dict[str, Any]]

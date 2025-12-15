@@ -19,7 +19,7 @@ import base64
 from typing import Literal
 
 from mcp.server import FastMCP
-from mcp.types import BlobResourceContents, EmbeddedResource, TextResourceContents
+from mcp.types import BlobResourceContents, CallToolResult, EmbeddedResource, TextContent, TextResourceContents
 from pydantic import BaseModel
 
 
@@ -49,6 +49,26 @@ def start_echo_server():
     @mcp.tool(description="Echos response back with structured content", structured_output=True)
     def echo_with_structured_content(to_echo: str) -> EchoResponse:
         return EchoResponse(echoed=to_echo, message_length=len(to_echo))
+
+    @mcp.tool(description="Echos response back with meta field")
+    def echo_with_meta(to_echo: str) -> CallToolResult:
+        """Echo tool that returns CallToolResult with meta field."""
+        return CallToolResult(
+            content=[TextContent(type="text", text=to_echo)],
+            isError=False,
+            _meta={"request_id": "test-request-123", "echo_length": len(to_echo)},
+        )
+
+    @mcp.tool(description="Echos response back with both structured content and meta", structured_output=True)
+    def echo_with_structured_content_and_meta(to_echo: str) -> CallToolResult:
+        """Echo tool that returns CallToolResult with both structured content and meta."""
+        response = EchoResponse(echoed=to_echo, message_length=len(to_echo))
+        return CallToolResult(
+            content=[TextContent(type="text", text=response.model_dump_json())],
+            structuredContent=response.model_dump(),
+            isError=False,
+            _meta={"request_id": "test-request-456", "processing_time_ms": 100},
+        )
 
     @mcp.tool(description="Get current weather information for a location")
     def get_weather(location: Literal["New York", "London", "Tokyo"] = "New York"):
