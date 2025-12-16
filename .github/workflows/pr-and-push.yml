@@ -17,3 +17,15 @@ jobs:
       contents: read
     with:
       ref: ${{ github.event.pull_request.head.sha }}
+
+  check-api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        fetch-depth: 0  # We the need the full Git history.
+    - uses: astral-sh/setup-uv@v6
+      # The following command will compare current changes to latest tag.
+    - run: uvx griffe check --search src --format github strands-agents
