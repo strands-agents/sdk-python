@@ -452,7 +452,7 @@ class Graph(MultiAgentBase):
         self.nodes = nodes
         self.edges = edges
         self.entry_points = entry_points
-        
+
         # Set graph reference on all nodes for interrupt state restoration
         for node in self.nodes.values():
             node.graph = self
@@ -537,7 +537,7 @@ class Graph(MultiAgentBase):
             - result: Final graph result
         """
         self._interrupt_state.resume(task)
-        
+
         if invocation_state is None:
             invocation_state = {}
 
@@ -564,7 +564,7 @@ class Graph(MultiAgentBase):
         span = self.tracer.start_multiagent_span(task, "graph", custom_trace_attributes=self.trace_attributes)
         with trace_api.use_span(span, end_on_exit=True):
             interrupts = []
-            
+
             try:
                 logger.debug(
                     "max_node_executions=<%s>, execution_timeout=<%s>s, node_timeout=<%s>s | graph execution config",
@@ -576,7 +576,7 @@ class Graph(MultiAgentBase):
                 async for event in self._execute_graph(invocation_state):
                     if isinstance(event, MultiAgentNodeInterruptEvent):
                         interrupts = event.interrupts
-                    
+
                     yield event.as_dict()
 
                 # Set final status based on execution results
@@ -622,15 +622,16 @@ class Graph(MultiAgentBase):
         """Execute graph and yield TypedEvent objects."""
         # Make a copy to avoid clearing the list we're about to use
         ready_nodes = self._resume_next_nodes.copy() if self._resume_from_session else list(self.entry_points)
-        
+
         logger.debug(
-            "resume_from_session=<%s>, resume_next_nodes=<%s>, entry_points=<%s>, ready_nodes=<%s> | starting execution",
+            "resume_from_session=<%s>, resume_next_nodes=<%s>, entry_points=<%s>, ready_nodes=<%s> | "
+            "starting execution",
             self._resume_from_session,
             [n.node_id for n in self._resume_next_nodes] if self._resume_next_nodes else [],
             [n.node_id for n in self.entry_points],
-            [n.node_id for n in ready_nodes]
+            [n.node_id for n in ready_nodes],
         )
-        
+
         # Clear resume flags after consuming them once
         if self._resume_from_session:
             self._resume_from_session = False
@@ -652,14 +653,14 @@ class Graph(MultiAgentBase):
 
             # Track if interrupt occurred
             interrupt_detected = False
-            
+
             # Execute current batch
             async for event in self._execute_nodes_parallel(current_batch, invocation_state):
                 # Check for interrupt event
                 if isinstance(event, MultiAgentNodeInterruptEvent):
                     interrupt_detected = True
                 yield event
-            
+
             # Stop execution if interrupted
             if interrupt_detected:
                 break
@@ -668,11 +669,11 @@ class Graph(MultiAgentBase):
             # We add all nodes in current batch as completed batch,
             # because a failure would throw exception and code would not make it here
             newly_ready = self._find_newly_ready_nodes(current_batch)
-            
+
             logger.debug(
                 "completed_batch=<%s>, newly_ready=<%s> | finding next nodes",
                 [n.node_id for n in current_batch],
-                [n.node_id for n in newly_ready]
+                [n.node_id for n in newly_ready],
             )
 
             # Emit handoff event for batch transition if there are nodes to transition to
@@ -857,7 +858,7 @@ class Graph(MultiAgentBase):
         before_event, interrupts = await self.hooks.invoke_callbacks_async(
             BeforeNodeCallEvent(self, node.node_id, invocation_state)
         )
-        
+
         if interrupts:
             yield self._activate_interrupt(node, interrupts)
             return
@@ -875,10 +876,14 @@ class Graph(MultiAgentBase):
             # Check if resuming from interrupt with response
             # For hook interrupts: activated=False at agent level → use original task input
             # For agent interrupts: activated=True at agent level → use interrupt responses
-            if self._interrupt_state.activated and node.node_id in self._interrupt_state.context and self._interrupt_state.context[node.node_id].get("activated"):
+            if (
+                self._interrupt_state.activated
+                and node.node_id in self._interrupt_state.context
+                and self._interrupt_state.context[node.node_id].get("activated")
+            ):
                 # Agent was interrupted - use interrupt response as input
                 node_input = self._interrupt_state.context.get("responses", [])
-                
+
                 # Restore node state from interrupt context (this restores the agent's interrupt state)
                 node.reset_executor_state()
             else:
@@ -933,7 +938,7 @@ class Graph(MultiAgentBase):
                     response_metrics, "accumulated_usage", Usage(inputTokens=0, outputTokens=0, totalTokens=0)
                 )
                 metrics = getattr(response_metrics, "accumulated_metrics", Metrics(latencyMs=0))
-                
+
                 # Check for interrupt and set appropriate status
                 execution_time = round((time.time() - start_time) * 1000)
                 status = Status.INTERRUPTED if agent_response.stop_reason == "interrupt" else Status.COMPLETED
@@ -954,7 +959,7 @@ class Graph(MultiAgentBase):
             if node_result.status == Status.INTERRUPTED:
                 yield self._activate_interrupt(node, node_result.interrupts)
                 return
-            
+
             # Deactivate interrupt state after successful execution
             self._interrupt_state.deactivate()
 
@@ -1096,43 +1101,47 @@ class Graph(MultiAgentBase):
 
     def _activate_interrupt(self, node: GraphNode, interrupts: list[Interrupt]) -> MultiAgentNodeInterruptEvent:
         """Activate the interrupt state.
-        
+
         A Graph may be interrupted either from a BeforeNodeCallEvent hook or from within an agent node.
         In either case, we must manage the interrupt state of both the Graph and the individual agent nodes.
-        
+
         Args:
             node: The interrupted node.
             interrupts: The interrupts raised by the user.
-            
+
         Returns:
             MultiAgentNodeInterruptEvent
         """
-        logger.debug(f"node={node.node_id} | node interrupted")
+        logger.debug("node=<%s> | node interrupted", node.node_id)
         self.state.status = Status.INTERRUPTED
-        
+
         # Save node and graph state for resumption
         node_executor = node.executor
         self._interrupt_state.context[node.node_id] = {
-            "activated": node_executor._interrupt_state.activated if hasattr(node_executor, '_interrupt_state') else False,
-            "interrupt_state": node_executor._interrupt_state.to_dict() if hasattr(node_executor, '_interrupt_state') else {},
-            "state": node_executor.state.get() if hasattr(node_executor, 'state') else {},
-            "messages": node_executor.messages if hasattr(node_executor, 'messages') else [],
+            "activated": node_executor._interrupt_state.activated
+            if hasattr(node_executor, "_interrupt_state")
+            else False,
+            "interrupt_state": node_executor._interrupt_state.to_dict()
+            if hasattr(node_executor, "_interrupt_state")
+            else {},
+            "state": node_executor.state.get() if hasattr(node_executor, "state") else {},
+            "messages": node_executor.messages if hasattr(node_executor, "messages") else [],
         }
-        
+
         self._interrupt_state.interrupts.update({interrupt.id: interrupt for interrupt in interrupts})
         self._interrupt_state.activate()
-        
+
         # Set resume state so graph continues from this node instead of entry points
         self._resume_next_nodes = [node]
         self._resume_from_session = True
-        
+
         return MultiAgentNodeInterruptEvent(node.node_id, interrupts)
 
     def _build_result(self, interrupts: list[Interrupt] | None = None) -> GraphResult:
         """Build graph result from current state."""
         if interrupts is None:
             interrupts = []
-        
+
         return GraphResult(
             status=self.state.status,
             results=self.state.results,
@@ -1184,10 +1193,8 @@ class Graph(MultiAgentBase):
         # Restore interrupt state if present
         if "_internal_state" in payload:
             internal_state = payload["_internal_state"]
-            self._interrupt_state = _InterruptState.from_dict(
-                internal_state.get("interrupt_state", {})
-            )
-        
+            self._interrupt_state = _InterruptState.from_dict(internal_state.get("interrupt_state", {}))
+
         if not payload.get("next_nodes_to_execute"):
             # Reset all nodes
             for node in self.nodes.values():

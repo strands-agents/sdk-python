@@ -222,7 +222,7 @@ async def test_graph_interrupt_reject(graph):
         },
     ]
     tru_cancel_id = None
-    
+
     # Graph raises RuntimeError for cancel_node
     with pytest.raises(RuntimeError, match="node rejected"):
         async for event in graph.stream_async(responses):
