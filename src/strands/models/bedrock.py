@@ -511,7 +511,7 @@ class BedrockModel(Model):
                         }
                         for union_type, fields in allowed.items():
                             if union_type in location:
-                                inner = location[union_type]
+                                inner = location[union_type]  # type: ignore[literal-required]
                                 filtered_citation["location"] = {
                                     union_type: {k: v for k, v in inner.items() if k in fields}
                                 }
