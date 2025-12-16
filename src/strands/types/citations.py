@@ -77,8 +77,38 @@ class DocumentPageLocation(TypedDict, total=False):
     end: int
 
 
+class SearchResultLocation(TypedDict, total=False):
+    """Specifies a search result location within the content array.
+
+    Provides positioning information for cited content using search result index and block positions.
+
+    Attributes:
+        searchResultIndex: The index of the search result content block where the cited content is found. Minimum value of 0.
+        start: The starting position in the content array where the cited content begins. Minimum value of 0.
+        end: The ending position in the content array where the cited content ends. Minimum value of 0.
+    """
+
+    searchResultIndex: int
+    start: int
+    end: int
+
+
+class WebLocation(TypedDict, total=False):
+    """Provides the URL and domain information for the website that was cited when performing a web search.
+
+    Attributes:
+        domain: The domain that was cited when performing a web search.
+        url: The URL that was cited when performing a web search.
+    """
+
+    domain: str
+    url: str
+
+
 # Union type for citation locations
-CitationLocation = Union[DocumentCharLocation, DocumentChunkLocation, DocumentPageLocation]
+CitationLocation = Union[
+    DocumentCharLocation, DocumentChunkLocation, DocumentPageLocation, SearchResultLocation, WebLocation
+]
 
 
 class CitationSourceContent(TypedDict, total=False):
