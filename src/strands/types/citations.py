@@ -1,6 +1,7 @@
 """Citation type definitions for the SDK.
 
 These types are modeled after the Bedrock API.
+https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationLocation.html
 """
 
 from typing import List, Union
@@ -18,11 +19,8 @@ class CitationsConfig(TypedDict):
     enabled: bool
 
 
-class DocumentCharLocation(TypedDict, total=False):
-    """Specifies a character-level location within a document.
-
-    Provides precise positioning information for cited content using
-    start and end character indices.
+class DocumentCharLocationInner(TypedDict, total=False):
+    """Inner content for character-level location within a document.
 
     Attributes:
         documentIndex: The index of the document within the array of documents
@@ -38,11 +36,8 @@ class DocumentCharLocation(TypedDict, total=False):
     end: int
 
 
-class DocumentChunkLocation(TypedDict, total=False):
-    """Specifies a chunk-level location within a document.
-
-    Provides positioning information for cited content using logical
-    document segments or chunks.
+class DocumentChunkLocationInner(TypedDict, total=False):
+    """Inner content for chunk-level location within a document.
 
     Attributes:
         documentIndex: The index of the document within the array of documents
@@ -58,10 +53,8 @@ class DocumentChunkLocation(TypedDict, total=False):
     end: int
 
 
-class DocumentPageLocation(TypedDict, total=False):
-    """Specifies a page-level location within a document.
-
-    Provides positioning information for cited content using page numbers.
+class DocumentPageLocationInner(TypedDict, total=False):
+    """Inner content for page-level location within a document.
 
     Attributes:
         documentIndex: The index of the document within the array of documents
@@ -77,7 +70,37 @@ class DocumentPageLocation(TypedDict, total=False):
     end: int
 
 
-# Union type for citation locations
+class DocumentCharLocation(TypedDict, total=False):
+    """Tagged union wrapper for character-level document location.
+
+    Attributes:
+        documentChar: The character-level location data.
+    """
+
+    documentChar: DocumentCharLocationInner
+
+
+class DocumentChunkLocation(TypedDict, total=False):
+    """Tagged union wrapper for chunk-level document location.
+
+    Attributes:
+        documentChunk: The chunk-level location data.
+    """
+
+    documentChunk: DocumentChunkLocationInner
+
+
+class DocumentPageLocation(TypedDict, total=False):
+    """Tagged union wrapper for page-level document location.
+
+    Attributes:
+        documentPage: The page-level location data.
+    """
+
+    documentPage: DocumentPageLocationInner
+
+
+# Union type for citation locations - tagged union where exactly one key is present
 CitationLocation = Union[DocumentCharLocation, DocumentChunkLocation, DocumentPageLocation]
 
 

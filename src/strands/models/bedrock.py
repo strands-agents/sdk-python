@@ -8,7 +8,20 @@ import json
 import logging
 import os
 import warnings
-from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, ValuesView, cast
+from typing import (
+    Any,
+    AsyncGenerator,
+    Callable,
+    Iterable,
+    Literal,
+    Mapping,
+    Optional,
+    Type,
+    TypeVar,
+    Union,
+    ValuesView,
+    cast,
+)
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -493,23 +506,16 @@ class BedrockModel(Model):
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
         if "citationsContent" in content:
             citations = content["citationsContent"]
-            result = {}
+            citations_result: dict[str, Any] = {}
 
             if "citations" in citations:
-                result["citations"] = []
+                citations_result["citations"] = []
                 for citation in citations["citations"]:
                     filtered_citation: dict[str, Any] = {}
                     if "location" in citation:
-                        location = citation["location"]
-                        filtered_location = {}
-                        # Filter location fields to only include Bedrock-supported ones
-                        if "documentIndex" in location:
-                            filtered_location["documentIndex"] = location["documentIndex"]
-                        if "start" in location:
-                            filtered_location["start"] = location["start"]
-                        if "end" in location:
-                            filtered_location["end"] = location["end"]
-                        filtered_citation["location"] = filtered_location
+                        filtered_location = self._format_citation_location(citation["location"])
+                        if filtered_location:
+                            filtered_citation["location"] = filtered_location
                     if "sourceContent" in citation:
                         filtered_source_content: list[dict[str, Any]] = []
                         for source_content in citation["sourceContent"]:
@@ -519,7 +525,7 @@ class BedrockModel(Model):
                             filtered_citation["sourceContent"] = filtered_source_content
                     if "title" in citation:
                         filtered_citation["title"] = citation["title"]
-                    result["citations"].append(filtered_citation)
+                    citations_result["citations"].append(filtered_citation)
 
             if "content" in citations:
                 filtered_content: list[dict[str, Any]] = []
@@ -527,11 +533,42 @@ class BedrockModel(Model):
                     if "text" in generated_content:
                         filtered_content.append({"text": generated_content["text"]})
                 if filtered_content:
-                    result["content"] = filtered_content
+                    citations_result["content"] = filtered_content
 
-            return {"citationsContent": result}
+            return {"citationsContent": citations_result}
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+
+    def _format_citation_location(self, location: Mapping[str, Any]) -> dict[str, Any]:
+        """Format a citation location preserving the tagged union structure.
+
+        The Bedrock API requires CitationLocation to be a tagged union with exactly one
+        of the following keys: documentChar, documentPage, or documentChunk.
+
+        Args:
+            location: Citation location to format.
+
+        Returns:
+            Formatted location with tagged union structure preserved, or empty dict if invalid.
+
+        See:
+            https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationLocation.html
+        """
+        # Allowed fields for each tagged union type
+        allowed_fields = {
+            "documentChar": ("documentIndex", "start", "end"),
+            "documentPage": ("documentIndex", "start", "end"),
+            "documentChunk": ("documentIndex", "start", "end"),
+        }
+
+        for location_type, fields in allowed_fields.items():
+            if location_type in location:
+                inner = location[location_type]
+                filtered = {k: v for k, v in inner.items() if k in fields}
+                return {location_type: filtered} if filtered else {}
+
+        logger.debug("location_type=<unknown> | unrecognized citation location type, skipping")
+        return {}
 
     def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
         """Check if guardrail data contains any blocked policies.

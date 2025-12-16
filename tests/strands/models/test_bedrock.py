@@ -2070,3 +2070,106 @@ async def test_stream_backward_compatibility_system_prompt(bedrock_client, model
         "system": [{"text": system_prompt}],
     }
     bedrock_client.converse_stream.assert_called_once_with(**expected_request)
+
+
+def test_format_request_message_content_document_char_citation(model):
+    """Test that documentChar citations preserve tagged union structure."""
+    content = {
+        "citationsContent": {
+            "citations": [
+                {
+                    "title": "Doc Citation",
+                    "location": {"documentChar": {"documentIndex": 0, "start": 100, "end": 200}},
+                    "sourceContent": [{"text": "Excerpt"}],
+                }
+            ],
+            "content": [{"text": "Generated text"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    assert result["citationsContent"]["citations"][0]["location"] == {
+        "documentChar": {"documentIndex": 0, "start": 100, "end": 200}
+    }
+
+
+def test_format_request_message_content_document_page_citation(model):
+    """Test that documentPage citations preserve tagged union structure."""
+    content = {
+        "citationsContent": {
+            "citations": [
+                {
+                    "title": "Page Citation",
+                    "location": {"documentPage": {"documentIndex": 0, "start": 2, "end": 3}},
+                    "sourceContent": [{"text": "Page content"}],
+                }
+            ],
+            "content": [{"text": "Generated text"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    assert result["citationsContent"]["citations"][0]["location"] == {
+        "documentPage": {"documentIndex": 0, "start": 2, "end": 3}
+    }
+
+
+def test_format_request_message_content_document_chunk_citation(model):
+    """Test that documentChunk citations preserve tagged union structure."""
+    content = {
+        "citationsContent": {
+            "citations": [
+                {
+                    "title": "Chunk Citation",
+                    "location": {"documentChunk": {"documentIndex": 1, "start": 5, "end": 10}},
+                    "sourceContent": [{"text": "Chunk content"}],
+                }
+            ],
+            "content": [{"text": "Generated text"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    assert result["citationsContent"]["citations"][0]["location"] == {
+        "documentChunk": {"documentIndex": 1, "start": 5, "end": 10}
+    }
+
+
+def test_format_request_message_content_citation_filters_extra_fields(model):
+    """Test that extra fields in citation location inner content are filtered out."""
+    content = {
+        "citationsContent": {
+            "citations": [
+                {
+                    "title": "Citation with extra fields",
+                    "location": {"documentChar": {"documentIndex": 0, "start": 0, "end": 50, "extraField": "ignored"}},
+                    "sourceContent": [{"text": "Content"}],
+                }
+            ],
+            "content": [{"text": "Text"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    # extraField should be filtered out
+    assert result["citationsContent"]["citations"][0]["location"] == {
+        "documentChar": {"documentIndex": 0, "start": 0, "end": 50}
+    }
+
+
+def test_format_request_message_content_citation_unknown_location_type(model):
+    """Test that citations with unknown location types exclude the location field."""
+    content = {
+        "citationsContent": {
+            "citations": [{"title": "Unknown location", "location": {"unknownType": {"field": "value"}}}],
+            "content": [{"text": "Text"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    assert "location" not in result["citationsContent"]["citations"][0]
