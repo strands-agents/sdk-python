@@ -28,4 +28,4 @@ jobs:
         fetch-depth: 0  # We the need the full Git history.
     - uses: astral-sh/setup-uv@v6
       # The following command will compare current changes to latest tag.
-    - run: uvx griffe check --search src --format github strands-agents
+    - run: uvx griffe check --search src --format github strands
