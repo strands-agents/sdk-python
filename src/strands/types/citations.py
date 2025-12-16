@@ -80,12 +80,16 @@ class DocumentPageLocation(TypedDict, total=False):
 class SearchResultLocation(TypedDict, total=False):
     """Specifies a search result location within the content array.
 
-    Provides positioning information for cited content using search result index and block positions.
+    Provides positioning information for cited content using search result index
+        and block positions.
 
     Attributes:
-        searchResultIndex: The index of the search result content block where the cited content is found. Minimum value of 0.
-        start: The starting position in the content array where the cited content begins. Minimum value of 0.
-        end: The ending position in the content array where the cited content ends. Minimum value of 0.
+        searchResultIndex: The index of the search result content block where
+            the cited content is found. Minimum value of 0.
+        start: The starting position in the content array where the cited content
+            begins. Minimum value of 0.
+        end: The ending position in the content array where the cited content ends.
+            Minimum value of 0.
     """
 
     searchResultIndex: int
