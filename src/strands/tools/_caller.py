@@ -19,12 +19,13 @@ from ..types.tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..agent import Agent
+    from ..experimental.bidi.agent import BidiAgent
 
 
 class _ToolCaller:
     """Call tool as a function."""
 
-    def __init__(self, agent: "Agent") -> None:
+    def __init__(self, agent: "Agent | BidiAgent") -> None:
         """Initialize instance.
 
         Args:
@@ -104,7 +105,13 @@ class _ToolCaller:
                 return tool_result
 
             tool_result = run_async(acall)
-            self._agent.conversation_manager.apply_management(self._agent)
+
+            # TODO: https://github.com/strands-agents/sdk-python/issues/1311
+            from ..agent import Agent
+
+            if isinstance(self._agent, Agent):
+                self._agent.conversation_manager.apply_management(self._agent)
+
             return tool_result
 
         return caller
@@ -190,10 +197,7 @@ class _ToolCaller:
         }
 
         # Add to message history
-        await self._agent._append_message(user_msg)
-        await self._agent._append_message(tool_use_msg)
-        await self._agent._append_message(tool_result_msg)
-        await self._agent._append_message(assistant_msg)
+        await self._agent._append_messages(user_msg, tool_use_msg, tool_result_msg, assistant_msg)
 
     def _filter_tool_parameters_for_recording(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
         """Filter input parameters to only include those defined in the tool specification.

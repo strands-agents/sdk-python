@@ -56,7 +56,7 @@ from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
 from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
-from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
+from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException
@@ -543,7 +543,7 @@ class Agent:
 
         Yields:
             An async iterator that yields events. Each event is a dictionary containing
-               information about the current state of processing, such as:
+                information about the current state of processing, such as:
 
                 - data: Text content being generated
                 - complete: Whether this is the final chunk
@@ -621,11 +621,11 @@ class Agent:
         """
         await self.hooks.invoke_callbacks_async(BeforeInvocationEvent(agent=self))
 
+        agent_result: AgentResult | None = None
         try:
             yield InitEventLoopEvent()
 
-            for message in messages:
-                await self._append_message(message)
+            await self._append_messages(*messages)
 
             structured_output_context = StructuredOutputContext(
                 structured_output_model or self._default_structured_output_model
@@ -649,9 +649,13 @@ class Agent:
                         self._session_manager.redact_latest_message(self.messages[-1], self)
                 yield event
 
+            # Capture the result from the final event if available
+            if isinstance(event, EventLoopStopEvent):
+                agent_result = AgentResult(*event["stop"])
+
         finally:
             self.conversation_manager.apply_management(self)
-            await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self))
+            await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self, result=agent_result))
 
     async def _execute_event_loop_cycle(
         self, invocation_state: dict[str, Any], structured_output_context: StructuredOutputContext | None = None
@@ -715,7 +719,7 @@ class Agent:
                 tool_use_ids = [
                     content["toolUse"]["toolUseId"] for content in self.messages[-1]["content"] if "toolUse" in content
                 ]
-                await self._append_message(
+                await self._append_messages(
                     {
                         "role": "user",
                         "content": generate_missing_tool_result_content(tool_use_ids),
@@ -811,10 +815,11 @@ class Agent:
         else:
             return None, None
 
-    async def _append_message(self, message: Message) -> None:
-        """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
-        self.messages.append(message)
-        await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
+    async def _append_messages(self, *messages: Message) -> None:
+        """Appends messages to history and invoke the callbacks for the MessageAddedEvent."""
+        for message in messages:
+            self.messages.append(message)
+            await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
 
     def _redact_user_content(self, content: list[ContentBlock], redact_message: str) -> list[ContentBlock]:
         """Redact user content preserving toolResult blocks.
