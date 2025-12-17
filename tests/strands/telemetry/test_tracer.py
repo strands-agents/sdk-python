@@ -794,6 +794,36 @@ def test_end_agent_span(mock_span):
     mock_span.end.assert_called_once()
 
 
+def test_end_agent_span_with_langfuse_observation_type(mock_span, monkeypatch):
+    """Test ending an agent span with Langfuse observation type to prevent double counting the tokens."""
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://us.cloud.langfuse.com")
+    tracer = Tracer()
+
+    # Mock AgentResult with metrics
+    mock_metrics = mock.MagicMock()
+    mock_metrics.accumulated_usage = {"inputTokens": 50, "outputTokens": 100, "totalTokens": 150}
+
+    mock_response = mock.MagicMock()
+    mock_response.metrics = mock_metrics
+    mock_response.stop_reason = "end_turn"
+    mock_response.__str__ = mock.MagicMock(return_value="Agent response")
+
+    tracer.end_agent_span(mock_span, mock_response)
+    mock_span.set_attribute.assert_any_call("langfuse.observation.type", "span")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 50)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
+    mock_span.add_event.assert_any_call(
+        "gen_ai.choice",
+        attributes={"message": "Agent response", "finish_reason": "end_turn"},
+    )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
+
+
 def test_end_agent_span_latest_conventions(mock_span, monkeypatch):
     """Test ending an agent span with the latest semantic conventions."""
     monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
