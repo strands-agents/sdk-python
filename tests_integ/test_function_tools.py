@@ -4,7 +4,6 @@ Test script for function-based tools
 """
 
 import logging
-from typing import Optional
 
 from strands import Agent, tool
 
@@ -25,7 +24,7 @@ def word_counter(text: str) -> str:
 
 
 @tool(name="count_chars", description="Count characters in text")
-def count_chars(text: str, include_spaces: Optional[bool] = True) -> str:
+def count_chars(text: str, include_spaces: bool | None = True) -> str:
     """
     Count characters in text.
 

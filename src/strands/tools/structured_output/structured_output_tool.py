@@ -6,7 +6,7 @@ with the existing tool execution and error handling infrastructure.
 
 import logging
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Type
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ValidationError
 from typing_extensions import override
@@ -17,7 +17,7 @@ from .structured_output_utils import convert_pydantic_to_tool_spec
 
 logger = logging.getLogger(__name__)
 
-_TOOL_SPEC_CACHE: dict[Type[BaseModel], ToolSpec] = {}
+_TOOL_SPEC_CACHE: dict[type[BaseModel], ToolSpec] = {}
 
 if TYPE_CHECKING:
     from ._structured_output_context import StructuredOutputContext
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 class StructuredOutputTool(AgentTool):
     """Tool implementation for structured output validation."""
 
-    def __init__(self, structured_output_model: Type[BaseModel]) -> None:
+    def __init__(self, structured_output_model: type[BaseModel]) -> None:
         """Initialize a structured output tool.
 
         Args:
@@ -43,7 +43,7 @@ class StructuredOutputTool(AgentTool):
         self._tool_name = self._tool_spec.get("name", "StructuredOutputTool")
 
     @classmethod
-    def _get_tool_spec(cls, structured_output_model: Type[BaseModel]) -> ToolSpec:
+    def _get_tool_spec(cls, structured_output_model: type[BaseModel]) -> ToolSpec:
         """Get a cached tool spec for the given output type.
 
         Args:
@@ -84,7 +84,7 @@ class StructuredOutputTool(AgentTool):
         return "structured_output"
 
     @property
-    def structured_output_model(self) -> Type[BaseModel]:
+    def structured_output_model(self) -> type[BaseModel]:
         """Get the Pydantic model type for this tool.
 
         Returns:

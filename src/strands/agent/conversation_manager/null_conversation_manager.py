@@ -1,6 +1,6 @@
 """Null implementation of conversation management."""
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -28,7 +28,7 @@ class NullConversationManager(ConversationManager):
         """
         pass
 
-    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None, **kwargs: Any) -> None:
+    def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Does not reduce context and raises an exception.
 
         Args:

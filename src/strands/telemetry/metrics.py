@@ -3,8 +3,9 @@
 import logging
 import time
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Optional
 
 import opentelemetry.metrics as metrics_api
 from opentelemetry.metrics import Counter, Histogram, Meter
@@ -23,11 +24,11 @@ class Trace:
     def __init__(
         self,
         name: str,
-        parent_id: Optional[str] = None,
-        start_time: Optional[float] = None,
-        raw_name: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        message: Optional[Message] = None,
+        parent_id: str | None = None,
+        start_time: float | None = None,
+        raw_name: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        message: Message | None = None,
     ) -> None:
         """Initialize a new trace.
 
@@ -42,15 +43,15 @@ class Trace:
         """
         self.id: str = str(uuid.uuid4())
         self.name: str = name
-        self.raw_name: Optional[str] = raw_name
-        self.parent_id: Optional[str] = parent_id
+        self.raw_name: str | None = raw_name
+        self.parent_id: str | None = parent_id
         self.start_time: float = start_time if start_time is not None else time.time()
-        self.end_time: Optional[float] = None
-        self.children: List["Trace"] = []
-        self.metadata: Dict[str, Any] = metadata or {}
-        self.message: Optional[Message] = message
+        self.end_time: float | None = None
+        self.children: list[Trace] = []
+        self.metadata: dict[str, Any] = metadata or {}
+        self.message: Message | None = message
 
-    def end(self, end_time: Optional[float] = None) -> None:
+    def end(self, end_time: float | None = None) -> None:
         """Mark the trace as complete with the given or current timestamp.
 
         Args:
@@ -67,7 +68,7 @@ class Trace:
         """
         self.children.append(child)
 
-    def duration(self) -> Optional[float]:
+    def duration(self) -> float | None:
         """Calculate the duration of this trace.
 
         Returns:
@@ -83,7 +84,7 @@ class Trace:
         """
         self.message = message
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the trace to a dictionary representation.
 
         Returns:
@@ -127,7 +128,7 @@ class ToolMetrics:
         duration: float,
         success: bool,
         metrics_client: "MetricsClient",
-        attributes: Optional[Dict[str, Any]] = None,
+        attributes: dict[str, Any] | None = None,
     ) -> None:
         """Record a new tool call with its outcome.
 
@@ -165,9 +166,9 @@ class EventLoopMetrics:
     """
 
     cycle_count: int = 0
-    tool_metrics: Dict[str, ToolMetrics] = field(default_factory=dict)
-    cycle_durations: List[float] = field(default_factory=list)
-    traces: List[Trace] = field(default_factory=list)
+    tool_metrics: dict[str, ToolMetrics] = field(default_factory=dict)
+    cycle_durations: list[float] = field(default_factory=list)
+    traces: list[Trace] = field(default_factory=list)
     accumulated_usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
 
@@ -178,8 +179,8 @@ class EventLoopMetrics:
 
     def start_cycle(
         self,
-        attributes: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[float, Trace]:
+        attributes: dict[str, Any] | None = None,
+    ) -> tuple[float, Trace]:
         """Start a new event loop cycle and create a trace for it.
 
         Args:
@@ -196,7 +197,7 @@ class EventLoopMetrics:
         self.traces.append(cycle_trace)
         return start_time, cycle_trace
 
-    def end_cycle(self, start_time: float, cycle_trace: Trace, attributes: Optional[Dict[str, Any]] = None) -> None:
+    def end_cycle(self, start_time: float, cycle_trace: Trace, attributes: dict[str, Any] | None = None) -> None:
         """End the current event loop cycle and record its duration.
 
         Args:
@@ -290,7 +291,7 @@ class EventLoopMetrics:
             self._metrics_client.model_time_to_first_token.record(metrics["timeToFirstByteMs"])
         self.accumulated_metrics["latencyMs"] += metrics["latencyMs"]
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Generate a comprehensive summary of all collected metrics.
 
         Returns:
@@ -326,7 +327,7 @@ class EventLoopMetrics:
         return summary
 
 
-def _metrics_summary_to_lines(event_loop_metrics: EventLoopMetrics, allowed_names: Set[str]) -> Iterable[str]:
+def _metrics_summary_to_lines(event_loop_metrics: EventLoopMetrics, allowed_names: set[str]) -> Iterable[str]:
     """Convert event loop metrics to a series of formatted text lines.
 
     Args:
@@ -387,7 +388,7 @@ def _metrics_summary_to_lines(event_loop_metrics: EventLoopMetrics, allowed_name
         yield from _trace_to_lines(trace.to_dict(), allowed_names=allowed_names, indent=1)
 
 
-def _trace_to_lines(trace: Dict, allowed_names: Set[str], indent: int) -> Iterable[str]:
+def _trace_to_lines(trace: dict, allowed_names: set[str], indent: int) -> Iterable[str]:
     """Convert a trace to a series of formatted text lines.
 
     Args:
@@ -419,7 +420,7 @@ def _trace_to_lines(trace: Dict, allowed_names: Set[str], indent: int) -> Iterab
         yield from _trace_to_lines(child, allowed_names, indent + 1)
 
 
-def metrics_to_string(event_loop_metrics: EventLoopMetrics, allowed_names: Optional[Set[str]] = None) -> str:
+def metrics_to_string(event_loop_metrics: EventLoopMetrics, allowed_names: set[str] | None = None) -> str:
     """Convert event loop metrics to a human-readable string representation.
 
     Args:

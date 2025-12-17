@@ -18,8 +18,9 @@ import asyncio
 import copy
 import logging
 import time
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Mapping, Optional, Tuple, cast
+from typing import Any, cast
 
 from opentelemetry import trace as trace_api
 
@@ -90,14 +91,14 @@ class GraphState:
 
     # Graph structure info
     total_nodes: int = 0
-    edges: list[Tuple["GraphNode", "GraphNode"]] = field(default_factory=list)
+    edges: list[tuple["GraphNode", "GraphNode"]] = field(default_factory=list)
     entry_points: list["GraphNode"] = field(default_factory=list)
 
     def should_continue(
         self,
-        max_node_executions: Optional[int],
-        execution_timeout: Optional[float],
-    ) -> Tuple[bool, str]:
+        max_node_executions: int | None,
+        execution_timeout: float | None,
+    ) -> tuple[bool, str]:
         """Check if the graph should continue execution.
 
         Returns: (should_continue, reason)
@@ -123,7 +124,7 @@ class GraphResult(MultiAgentResult):
     completed_nodes: int = 0
     failed_nodes: int = 0
     execution_order: list["GraphNode"] = field(default_factory=list)
-    edges: list[Tuple["GraphNode", "GraphNode"]] = field(default_factory=list)
+    edges: list[tuple["GraphNode", "GraphNode"]] = field(default_factory=list)
     entry_points: list["GraphNode"] = field(default_factory=list)
 
 
@@ -233,13 +234,13 @@ class GraphBuilder:
         self.entry_points: set[GraphNode] = set()
 
         # Configuration options
-        self._max_node_executions: Optional[int] = None
-        self._execution_timeout: Optional[float] = None
-        self._node_timeout: Optional[float] = None
+        self._max_node_executions: int | None = None
+        self._execution_timeout: float | None = None
+        self._node_timeout: float | None = None
         self._reset_on_revisit: bool = False
         self._id: str = _DEFAULT_GRAPH_ID
-        self._session_manager: Optional[SessionManager] = None
-        self._hooks: Optional[list[HookProvider]] = None
+        self._session_manager: SessionManager | None = None
+        self._hooks: list[HookProvider] | None = None
 
     def add_node(self, executor: Agent | MultiAgentBase, node_id: str | None = None) -> GraphNode:
         """Add an Agent or MultiAgentBase instance as a node to the graph."""
@@ -408,14 +409,14 @@ class Graph(MultiAgentBase):
         nodes: dict[str, GraphNode],
         edges: set[GraphEdge],
         entry_points: set[GraphNode],
-        max_node_executions: Optional[int] = None,
-        execution_timeout: Optional[float] = None,
-        node_timeout: Optional[float] = None,
+        max_node_executions: int | None = None,
+        execution_timeout: float | None = None,
+        node_timeout: float | None = None,
         reset_on_revisit: bool = False,
-        session_manager: Optional[SessionManager] = None,
-        hooks: Optional[list[HookProvider]] = None,
+        session_manager: SessionManager | None = None,
+        hooks: list[HookProvider] | None = None,
         id: str = _DEFAULT_GRAPH_ID,
-        trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        trace_attributes: Mapping[str, AttributeValue] | None = None,
     ) -> None:
         """Initialize Graph with execution limits and reset behavior.
 

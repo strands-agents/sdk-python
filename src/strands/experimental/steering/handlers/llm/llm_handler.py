@@ -58,7 +58,7 @@ class LLMSteeringHandler(SteeringHandler):
         self.prompt_mapper = prompt_mapper or DefaultPromptMapper()
         self.model = model
 
-    async def steer(self, agent: "Agent", tool_use: ToolUse, **kwargs: Any) -> SteeringAction:
+    async def steer(self, agent: Agent, tool_use: ToolUse, **kwargs: Any) -> SteeringAction:
         """Provide contextual guidance for tool usage.
 
         Args:

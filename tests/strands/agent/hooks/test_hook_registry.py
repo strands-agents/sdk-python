@@ -1,6 +1,5 @@
 import unittest.mock
 from dataclasses import dataclass
-from typing import List
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -139,7 +138,7 @@ async def test_invoke_callbacks_async_no_registered_callbacks(hook_registry, nor
 @pytest.mark.asyncio
 async def test_invoke_callbacks_async_after_event(hook_registry, after_event):
     """Test that invoke_callbacks_async calls callbacks in reverse order for after events."""
-    call_order: List[str] = []
+    call_order: list[str] = []
 
     def callback1(_event):
         call_order.append("callback1")

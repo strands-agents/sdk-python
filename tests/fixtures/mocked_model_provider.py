@@ -1,5 +1,6 @@
 import json
-from typing import Any, AsyncGenerator, Iterable, Optional, Sequence, Type, TypedDict, TypeVar, Union
+from collections.abc import AsyncGenerator, Iterable, Sequence
+from typing import Any, TypedDict, TypeVar
 
 from pydantic import BaseModel
 
@@ -25,7 +26,7 @@ class MockedModelProvider(Model):
     to stream mock responses as events.
     """
 
-    def __init__(self, agent_responses: Sequence[Union[Message, RedactionMessage]]):
+    def __init__(self, agent_responses: Sequence[Message | RedactionMessage]):
         self.agent_responses = [*agent_responses]
         self.index = 0
 
@@ -33,7 +34,7 @@ class MockedModelProvider(Model):
         return event
 
     def format_request(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self, messages: Messages, tool_specs: list[ToolSpec] | None = None, system_prompt: str | None = None
     ) -> Any:
         return None
 
@@ -45,9 +46,9 @@ class MockedModelProvider(Model):
 
     async def structured_output(
         self,
-        output_model: Type[T],
+        output_model: type[T],
         prompt: Messages,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[Any, None]:
         pass
@@ -55,9 +56,9 @@ class MockedModelProvider(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
-        tool_choice: Optional[Any] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
+        tool_choice: Any | None = None,
         *,
         system_prompt_content=None,
         **kwargs: Any,
@@ -68,7 +69,7 @@ class MockedModelProvider(Model):
 
         self.index += 1
 
-    def map_agent_message_to_events(self, agent_message: Union[Message, RedactionMessage]) -> Iterable[dict[str, Any]]:
+    def map_agent_message_to_events(self, agent_message: Message | RedactionMessage) -> Iterable[dict[str, Any]]:
         stop_reason: StopReason = "end_turn"
         yield {"messageStart": {"role": "assistant"}}
         if agent_message.get("redactedAssistantContent"):

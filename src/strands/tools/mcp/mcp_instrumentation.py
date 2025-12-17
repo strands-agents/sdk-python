@@ -9,9 +9,10 @@ Based on: https://github.com/traceloop/openllmetry/tree/main/packages/openteleme
 Related issue: https://github.com/modelcontextprotocol/modelcontextprotocol/issues/246
 """
 
+from collections.abc import AsyncGenerator, Callable
 from contextlib import _AsyncGeneratorContextManager, asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Callable, Tuple
+from typing import Any
 
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest
@@ -129,7 +130,7 @@ def mcp_instrumentation() -> None:
         @asynccontextmanager
         async def traced_method(
             wrapped: Callable[..., Any], instance: Any, args: Any, kwargs: Any
-        ) -> AsyncGenerator[Tuple[Any, Any], None]:
+        ) -> AsyncGenerator[tuple[Any, Any], None]:
             async with wrapped(*args, **kwargs) as result:
                 try:
                     read_stream, write_stream = result
@@ -139,7 +140,7 @@ def mcp_instrumentation() -> None:
 
         return traced_method
 
-    def session_init_wrapper() -> Callable[[Any, Any, Tuple[Any, ...], dict[str, Any]], None]:
+    def session_init_wrapper() -> Callable[[Any, Any, tuple[Any, ...], dict[str, Any]], None]:
         """Create a wrapper for MCP session initialization.
 
         Wraps session message streams to enable bidirectional context flow.
@@ -151,7 +152,7 @@ def mcp_instrumentation() -> None:
         """
 
         def traced_method(
-            wrapped: Callable[..., Any], instance: Any, args: Tuple[Any, ...], kwargs: dict[str, Any]
+            wrapped: Callable[..., Any], instance: Any, args: tuple[Any, ...], kwargs: dict[str, Any]
         ) -> None:
             wrapped(*args, **kwargs)
             reader = getattr(instance, "_incoming_message_stream_reader", None)

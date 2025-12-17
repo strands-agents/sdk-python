@@ -6,9 +6,10 @@ Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 import logging
 import warnings
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, AsyncIterator, Mapping, Union
+from typing import Any, Union
 
 from .._async import run_async
 from ..agent import AgentResult
@@ -95,7 +96,7 @@ class NodeResult:
             raise TypeError("NodeResult.from_dict: missing 'result'")
         raw = data["result"]
 
-        result: Union[AgentResult, "MultiAgentResult", Exception]
+        result: AgentResult | MultiAgentResult | Exception
         if isinstance(raw, dict) and raw.get("type") == "agent_result":
             result = AgentResult.from_dict(raw)
         elif isinstance(raw, dict) and raw.get("type") == "exception":

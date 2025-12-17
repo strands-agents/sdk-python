@@ -5,7 +5,7 @@ import inspect
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from ..interrupt import _InterruptState
 from .content import Message
@@ -69,7 +69,7 @@ class SessionMessage:
 
     message: Message
     message_id: int
-    redact_message: Optional[Message] = None
+    redact_message: Message | None = None
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 

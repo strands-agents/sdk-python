@@ -1,7 +1,5 @@
 """Tests for StructuredOutputContext class."""
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 from strands.tools.structured_output._structured_output_context import StructuredOutputContext
@@ -13,7 +11,7 @@ class SampleModel(BaseModel):
 
     name: str = Field(..., description="Name field")
     age: int = Field(..., description="Age field", ge=0)
-    email: Optional[str] = Field(None, description="Optional email field")
+    email: str | None = Field(None, description="Optional email field")
 
 
 class AnotherSampleModel(BaseModel):

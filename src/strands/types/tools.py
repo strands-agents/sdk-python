@@ -7,8 +7,9 @@ These types are modeled after the Bedrock API.
 
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
+from typing import Any, Literal, Protocol
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -164,11 +165,7 @@ ToolChoiceAutoDict = dict[Literal["auto"], ToolChoiceAuto]
 ToolChoiceAnyDict = dict[Literal["any"], ToolChoiceAny]
 ToolChoiceToolDict = dict[Literal["tool"], ToolChoiceTool]
 
-ToolChoice = Union[
-    ToolChoiceAutoDict,
-    ToolChoiceAnyDict,
-    ToolChoiceToolDict,
-]
+ToolChoice = ToolChoiceAutoDict | ToolChoiceAnyDict | ToolChoiceToolDict
 """
 Configuration for how the model should choose tools.
 
@@ -201,12 +198,7 @@ class ToolFunc(Protocol):
 
     __name__: str
 
-    def __call__(
-        self, *args: Any, **kwargs: Any
-    ) -> Union[
-        ToolResult,
-        Awaitable[ToolResult],
-    ]:
+    def __call__(self, *args: Any, **kwargs: Any) -> ToolResult | Awaitable[ToolResult]:
         """Function signature for Python decorated and module based tools.
 
         Returns:

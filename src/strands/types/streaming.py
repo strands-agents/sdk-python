@@ -5,8 +5,6 @@ These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Optional, Union
-
 from typing_extensions import TypedDict
 
 from .citations import CitationLocation
@@ -34,7 +32,7 @@ class ContentBlockStartEvent(TypedDict, total=False):
         start: Information about the content block being started.
     """
 
-    contentBlockIndex: Optional[int]
+    contentBlockIndex: int | None
     start: ContentBlockStart
 
 
@@ -102,9 +100,9 @@ class ReasoningContentBlockDelta(TypedDict, total=False):
         text: The reasoning that the model used to return the output.
     """
 
-    redactedContent: Optional[bytes]
-    signature: Optional[str]
-    text: Optional[str]
+    redactedContent: bytes | None
+    signature: str | None
+    text: str | None
 
 
 class ContentBlockDelta(TypedDict, total=False):
@@ -131,7 +129,7 @@ class ContentBlockDeltaEvent(TypedDict, total=False):
         delta: The incremental content update for the content block.
     """
 
-    contentBlockIndex: Optional[int]
+    contentBlockIndex: int | None
     delta: ContentBlockDelta
 
 
@@ -143,7 +141,7 @@ class ContentBlockStopEvent(TypedDict, total=False):
             This is optional to accommodate different model providers.
     """
 
-    contentBlockIndex: Optional[int]
+    contentBlockIndex: int | None
 
 
 class MessageStopEvent(TypedDict, total=False):
@@ -154,7 +152,7 @@ class MessageStopEvent(TypedDict, total=False):
         stopReason: The reason why the model stopped generating content.
     """
 
-    additionalModelResponseFields: Optional[Union[dict, list, int, float, str, bool, None]]
+    additionalModelResponseFields: dict | list | int | float | str | bool | None | None
     stopReason: StopReason
 
 
@@ -168,7 +166,7 @@ class MetadataEvent(TypedDict, total=False):
     """
 
     metrics: Metrics
-    trace: Optional[Trace]
+    trace: Trace | None
     usage: Usage
 
 
@@ -203,8 +201,8 @@ class RedactContentEvent(TypedDict, total=False):
 
     """
 
-    redactUserContentMessage: Optional[str]
-    redactAssistantContentMessage: Optional[str]
+    redactUserContentMessage: str | None
+    redactAssistantContentMessage: str | None
 
 
 class StreamEvent(TypedDict, total=False):

@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 import pytest
 from pydantic import BaseModel, Field
@@ -27,7 +27,7 @@ class TwoUsersWithPlanet(BaseModel):
     """Two users model with planet."""
 
     user1: UserWithPlanet = Field(description="The first user")
-    user2: Optional[UserWithPlanet] = Field(description="The second user", default=None)
+    user2: UserWithPlanet | None = Field(description="The second user", default=None)
 
 
 # Test model with list of same type fields
@@ -250,8 +250,8 @@ def test_convert_pydantic_with_circular_optional_dependenc_not_using_optional_ty
 
 def test_conversion_works_with_fields_that_are_not_marked_as_optional_but_have_a_default_value_which_makes_them_optional():  # noqa E501
     class Family(BaseModel):
-        ages: List[str] = Field(default_factory=list)
-        names: List[str] = Field(default_factory=list)
+        ages: list[str] = Field(default_factory=list)
+        names: list[str] = Field(default_factory=list)
 
     converted_output = convert_pydantic_to_tool_spec(Family)
     expected_output = {
@@ -281,8 +281,8 @@ def test_conversion_works_with_fields_that_are_not_marked_as_optional_but_have_a
 
 def test_marks_fields_as_optional_for_model_w_fields_that_are_not_marked_as_optional_but_have_a_default_value_which_makes_them_optional():  # noqa E501
     class Family(BaseModel):
-        ages: List[str] = Field(default_factory=list)
-        names: List[str] = Field(default_factory=list)
+        ages: list[str] = Field(default_factory=list)
+        names: list[str] = Field(default_factory=list)
 
     converted_output = convert_pydantic_to_tool_spec(Family)
     assert "null" in converted_output["inputSchema"]["json"]["properties"]["ages"]["type"]
@@ -312,14 +312,14 @@ def test_convert_pydantic_with_items_refs():
     """Test that no $refs exist after lists of different components."""
 
     class Address(BaseModel):
-        postal_code: Optional[str] = None
+        postal_code: str | None = None
 
     class Person(BaseModel):
         """Complete person information."""
 
         list_of_items: list[Address]
-        list_of_items_nullable: Optional[list[Address]]
-        list_of_item_or_nullable: list[Optional[Address]]
+        list_of_items_nullable: list[Address] | None
+        list_of_item_or_nullable: list[Address | None]
 
     tool_spec = convert_pydantic_to_tool_spec(Person)
 
@@ -378,7 +378,7 @@ def test_convert_pydantic_with_refs():
         street: str
         city: str
         country: str
-        postal_code: Optional[str] = None
+        postal_code: str | None = None
 
     class Contact(BaseModel):
         address: Address

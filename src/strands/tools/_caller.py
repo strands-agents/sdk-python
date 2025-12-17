@@ -9,7 +9,8 @@ Example:
 
 import json
 import random
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from .._async import run_async
 from ..tools.executors._executor import ToolExecutor

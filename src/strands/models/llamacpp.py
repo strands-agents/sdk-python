@@ -14,15 +14,11 @@ import json
 import logging
 import mimetypes
 import time
+from collections.abc import AsyncGenerator
 from typing import (
     Any,
-    AsyncGenerator,
-    Dict,
-    Optional,
-    Type,
     TypedDict,
     TypeVar,
-    Union,
     cast,
 )
 
@@ -133,12 +129,12 @@ class LlamaCppModel(Model):
         """
 
         model_id: str
-        params: Optional[dict[str, Any]]
+        params: dict[str, Any] | None
 
     def __init__(
         self,
         base_url: str = "http://localhost:8080",
-        timeout: Optional[Union[float, tuple[float, float]]] = None,
+        timeout: float | tuple[float, float] | None = None,
         **model_config: Unpack[LlamaCppConfig],
     ) -> None:
         """Initialize llama.cpp provider instance.
@@ -196,7 +192,7 @@ class LlamaCppModel(Model):
         """
         return self.config  # type: ignore[return-value]
 
-    def _format_message_content(self, content: Union[ContentBlock, Dict[str, Any]]) -> dict[str, Any]:
+    def _format_message_content(self, content: ContentBlock | dict[str, Any]) -> dict[str, Any]:
         """Format a content block for llama.cpp.
 
         Args:
@@ -233,7 +229,7 @@ class LlamaCppModel(Model):
 
         # Handle audio content (not in standard ContentBlock but supported by llama.cpp)
         if "audio" in content:
-            audio_content = cast(Dict[str, Any], content)
+            audio_content = cast(dict[str, Any], content)
             audio_data = base64.b64encode(audio_content["audio"]["source"]["bytes"]).decode("utf-8")
             audio_format = audio_content["audio"].get("format", "wav")
             return {
@@ -284,7 +280,7 @@ class LlamaCppModel(Model):
             "content": [self._format_message_content(content) for content in contents],
         }
 
-    def _format_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+    def _format_messages(self, messages: Messages, system_prompt: str | None = None) -> list[dict[str, Any]]:
         """Format messages for llama.cpp.
 
         Args:
@@ -343,8 +339,8 @@ class LlamaCppModel(Model):
     def _format_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
     ) -> dict[str, Any]:
         """Format a request for the llama.cpp server.
 
@@ -428,7 +424,7 @@ class LlamaCppModel(Model):
                     request[param] = value
 
             # Collect llama.cpp-specific parameters for extra_body
-            extra_body: Dict[str, Any] = {}
+            extra_body: dict[str, Any] = {}
             for param, value in params.items():
                 if param in llamacpp_specific_params:
                     extra_body[param] = value
@@ -511,8 +507,8 @@ class LlamaCppModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
@@ -552,7 +548,7 @@ class LlamaCppModel(Model):
             yield self._format_chunk({"chunk_type": "message_start"})
             yield self._format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
-            tool_calls: Dict[int, list] = {}
+            tool_calls: dict[int, list] = {}
             usage_data = None
             finish_reason = None
 
@@ -706,11 +702,11 @@ class LlamaCppModel(Model):
     @override
     async def structured_output(
         self,
-        output_model: Type[T],
+        output_model: type[T],
         prompt: Messages,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output using llama.cpp's native JSON schema support.
 
         This implementation uses llama.cpp's json_schema parameter to constrain
@@ -753,7 +749,7 @@ class LlamaCppModel(Model):
                     if "text" in delta:
                         response_text += delta["text"]
                 # Forward events to caller
-                yield cast(Dict[str, Union[T, Any]], event)
+                yield cast(dict[str, T | Any], event)
 
             # Parse and validate the JSON response
             data = json.loads(response_text.strip())

@@ -1,5 +1,5 @@
 import unittest.mock
-from typing import Optional, cast
+from typing import cast
 
 import pytest
 from pydantic import BaseModel
@@ -150,7 +150,7 @@ class StructuredOutputModel(BaseModel):
 
     name: str
     value: int
-    optional_field: Optional[str] = None
+    optional_field: str | None = None
 
 
 def test__init__with_structured_output(mock_metrics, simple_message: Message):
