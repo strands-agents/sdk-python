@@ -195,7 +195,6 @@ class TestCitationStreamEvent:
         delta = Mock(spec=ContentBlockDelta)
         citation = Mock(spec=Citation)
         event = CitationStreamEvent(delta, citation)
-        print(event)
         assert event["citation"] == citation
         assert event["delta"] == delta
 
