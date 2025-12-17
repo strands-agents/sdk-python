@@ -681,6 +681,8 @@ class BedrockModel(Model):
             logger.debug("got response from model")
             if streaming:
                 response = self.client.converse_stream(**request)
+                request_id = response.get('ResponseMetadata', {}).get('RequestId')
+                logger.info(f"Bedrock converse_stream requestId: {request_id}")
                 # Track tool use events to fix stopReason for streaming responses
                 has_tool_use = False
                 for chunk in response["stream"]:
@@ -715,6 +717,8 @@ class BedrockModel(Model):
 
             else:
                 response = self.client.converse(**request)
+                request_id = response.get('ResponseMetadata', {}).get('RequestId')
+                logger.info(f"Bedrock converse requestId: {request_id}")
                 for event in self._convert_non_streaming_to_streaming(response):
                     callback(event)
 
