@@ -123,7 +123,7 @@ def test_deprecation_warning_on_import(captured_warnings):
 
     assert len(captured_warnings) == 1
     assert issubclass(captured_warnings[0].category, DeprecationWarning)
-    assert "moved to production with updated names" in str(captured_warnings[0].message)
+    assert "are no longer experimental" in str(captured_warnings[0].message)
 
 
 def test_deprecation_warning_on_import_only_for_experimental(captured_warnings):
