@@ -5,7 +5,7 @@ These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Literal, Optional
+from typing import Any, List, Literal, Optional
 
 from typing_extensions import TypedDict
 
@@ -15,14 +15,18 @@ DocumentFormat = Literal["pdf", "csv", "doc", "docx", "xls", "xlsx", "html", "tx
 """Supported document formats."""
 
 
-class DocumentSource(TypedDict):
+class DocumentSource(TypedDict, total=False):
     """Contains the content of a document.
 
     Attributes:
         bytes: The binary content of the document.
+        text: The text content of the document source.
+        content: The structured content of the document source.
     """
 
     bytes: bytes
+    text: str
+    content: List[Any]
 
 
 class DocumentContent(TypedDict, total=False):
