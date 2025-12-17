@@ -16,11 +16,11 @@ from asyncio import AbstractEventLoop
 from concurrent import futures
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Callable, Coroutine, Dict, Optional, Pattern, Sequence, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Callable, Coroutine, Dict, Optional, Pattern, Sequence, TypeVar, Union, cast
 
 import anyio
 from mcp import ClientSession, ListToolsResult
-from mcp.client.session import ElicitationFnT
+from mcp.client.session import ElicitationFnT, ProgressFnT
 from mcp.types import BlobResourceContents, GetPromptResult, ListPromptsResult, TextResourceContents
 from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import EmbeddedResource as MCPEmbeddedResource
@@ -525,6 +525,77 @@ class MCPClient(ToolProvider):
         except Exception as e:
             logger.exception("tool execution failed")
             return self._handle_tool_execution_error(tool_use_id, e)
+
+    async def call_tool_stream(
+        self,
+        tool_use_id: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: timedelta | None = None,
+    ) -> AsyncGenerator[Union[Any, MCPToolResult], None]:
+        """Asynchronously calls a tool on the MCP server with streaming support.
+
+        This method calls the asynchronous call_tool method on the MCP session,
+        streaming progress updates as they arrive, and finally returning the full result.
+
+        Args:
+            tool_use_id: Unique identifier for this tool use
+            name: Name of the tool to call
+            arguments: Optional arguments to pass to the tool
+            read_timeout_seconds: Optional timeout for the tool call
+
+        Returns:
+            Any: Progress data chunks from the tool execution
+            MCPToolResult: The final result of the tool call
+        """
+        self._log_debug_with_thread("streaming MCP tool '%s' asynchronously with tool_use_id=%s", name, tool_use_id)
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+
+        queue: asyncio.Queue[Any] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+
+        def progress_callback(progress_data: Any) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, progress_data)
+
+        async def _call_tool_async() -> MCPCallToolResult:
+            return await cast(ClientSession, self._background_thread_session).call_tool(
+                name, arguments, read_timeout_seconds, progress_callback=cast(ProgressFnT, progress_callback)
+            )
+
+        task: asyncio.Future[MCPCallToolResult] | None = None
+        try:
+            # Start the tool call on the background thread
+            future = self._invoke_on_background_thread(_call_tool_async())
+            task = asyncio.wrap_future(future)
+
+            # Consume the queue and wait for task completion
+            while True:
+                # Wait for either new data or task completion
+                get_coro = asyncio.create_task(queue.get())
+                done, _ = await asyncio.wait({task, get_coro}, return_when=asyncio.FIRST_COMPLETED)
+
+                # Process queue items first
+                if get_coro in done:
+                    yield get_coro.result()
+                else:
+                    # If we didn't consume the queue item, cancel the get
+                    get_coro.cancel()
+
+                # Check if task is done
+                if task in done:
+                    # Drain any remaining items in the queue
+                    while not queue.empty():
+                        yield queue.get_nowait()
+                    break
+
+            # Yield the final result
+            call_tool_result: MCPCallToolResult = await task
+            yield self._handle_tool_result(tool_use_id, call_tool_result)
+
+        except Exception as e:
+            logger.exception("tool execution failed")
+            yield self._handle_tool_execution_error(tool_use_id, e)
 
     def _handle_tool_execution_error(self, tool_use_id: str, exception: Exception) -> MCPToolResult:
         """Create error ToolResult with consistent logging."""
