@@ -14,6 +14,7 @@ from strands.models.gemini import GeminiModel
 from strands.models.litellm import LiteLLMModel
 from strands.models.llamaapi import LlamaAPIModel
 from strands.models.mistral import MistralModel
+from strands.models.neuronvllm import NeuronVLLMModel
 from strands.models.ollama import OllamaModel
 from strands.models.openai import OpenAIModel
 from strands.models.writer import WriterModel
@@ -56,6 +57,36 @@ class OllamaProviderInfo(ProviderInfo):
         self.mark = mark.skipif(
             not is_server_available,
             reason="Local Ollama endpoint not available at localhost:11434",
+        )
+
+
+class NeuronVLLMProviderInfo(ProviderInfo):
+    """Special case Neuron vLLM as it's dependent on the server being available."""
+
+    def __init__(self) -> None:
+        base_url = os.getenv("NEURON_VLLM_BASE_URL", "http://localhost:8084/v1")
+        model_id = os.getenv("NEURON_VLLM_MODEL_ID", "neuron-llama-3.1-70b-instruct")
+
+        super().__init__(
+            id="neuronvllm",
+            factory=lambda: NeuronVLLMModel(
+                {
+                    "model_id": model_id,
+                    "openai_api_base": base_url,
+                    "openai_api_key": os.getenv("NEURON_VLLM_API_KEY", "EMPTY"),
+                }
+            ),
+        )
+
+        is_server_available = False
+        try:
+            is_server_available = requests.get(base_url).ok
+        except requests.exceptions.ConnectionError:
+            pass
+
+        self.mark = mark.skipif(
+            not is_server_available,
+            reason=f"Local Neuron vLLM endpoint not available at {base_url}",
         )
 
 
@@ -138,6 +169,7 @@ gemini = ProviderInfo(
 )
 
 ollama = OllamaProviderInfo()
+neuronvllm = NeuronVLLMProviderInfo()
 
 
 all_providers = [
