@@ -1,0 +1,172 @@
+name: 'Strands Agent Runner'
+description: 'Execute a Strands agent with the given prompts and configuration'
+inputs:
+  ref:
+    description: 'ref to checkout'
+    required: true
+  system_prompt:
+    description: 'System prompt for the agent'
+    required: true
+  session_id:
+    description: 'Session ID for the agent execution'
+    required: true
+  task_prompt:
+    description: 'Task prompt for the agent'
+    required: true
+  aws_role_arn:
+    description: 'AWS IAM role ARN for authentication'
+    required: true
+  sessions_bucket:
+    description: 'S3 bucket for session storage'
+    required: true
+  write_permission:
+    description: 'If this action runs with write permission. If this is false, you should run the `strands-write-executor` action after this one with write permission.'
+    required: true
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    # Checkout main repo .github directory
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        sparse-checkout: |
+          .github
+
+    # Copy the .github directory to the runner temp directory so the branch content cant overwrite the scripts executed here
+    - name: Copy .github to safe directory
+      shell: bash
+      run: |
+        mkdir -p ${{ runner.temp }}/strands-agent-runner
+        cp -r .github ${{ runner.temp }}/strands-agent-runner
+
+    # Checkout the branch repo to stage the directory for the agent
+    - name: Checkout repository
+      uses: actions/checkout@v5
+      with:
+        ref: ${{ inputs.ref }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '20'
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        enable-cache: true
+        cache-dependency-glob: '${{ runner.temp }}/strands-agent-runner/.github/scripts/python/requirements.txt'
+
+    - name: Install Strands Agents
+      shell: bash
+      run: |
+        echo "📦 Installing from requirements.txt"
+        uv pip install --system -r ${{ runner.temp }}/strands-agent-runner/.github/scripts/python/requirements.txt --quiet
+
+    - name: Configure Git
+      shell: bash
+      run: |
+        git config --global user.name "Strands Agent"
+        git config --global user.email "217235299+strands-agent@users.noreply.github.com"
+        git config --global core.pager cat
+        PAGER=cat
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ inputs.aws_role_arn }}
+        role-session-name: GitHubActions-StrandsAgent-${{ github.run_id }}
+        aws-region: us-west-2
+        mask-aws-account-id: true
+        inline_session_policy: >-
+          {
+            "Version": "2012-10-17",
+            "Statement": [
+              {
+                "Sid":"Bedrock Access",
+                "Effect": "Allow",
+                "Action": [
+                  "bedrock:InvokeModelWithResponseStream",
+                  "bedrock:InvokeModel"
+                ],
+                "Resource": "*"
+              }, {
+                "Effect": "Allow",
+                "Action": [
+                  "s3:PutObject",
+                  "s3:GetObject",
+                  "s3:DeleteObject",
+                ],
+                "Resource": [
+                  "arn:aws:s3:::strands-typescript-project-sessions/*",
+                ]
+              }, {
+                "Effect": "Allow",
+                "Action": "s3:ListBucket",
+                "Resource": [
+                  "arn:aws:s3:::strands-typescript-project-sessions",
+                ]
+              }
+            ]
+          }
+
+
+    - name: Execute strands command
+      shell: bash
+      env:
+        # Write Permission
+        GITHUB_WRITE: ${{ inputs.write_permission }}
+
+        # GitHub Configuration
+        GITHUB_TOKEN: ${{ github.token }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+
+        # Task Configuration
+        INPUT_TASK: ${{ inputs.task_prompt }}
+        INPUT_SYSTEM_PROMPT: ${{ inputs.system_prompt }}
+
+        # AWS Configuration
+        AWS_REGION: 'us-west-2'
+
+        # Session Manager
+        S3_SESSION_BUCKET: ${{ inputs.sessions_bucket }}
+        SESSION_ID: ${{ inputs.session_id }}
+
+        # Strands Env Vars
+        STRANDS_TOOL_CONSOLE_MODE: 'enabled'
+        BYPASS_TOOL_CONSENT: 'true'
+      run: |
+        uv run ${{ runner.temp }}/strands-agent-runner/.github/scripts/python/agent_runner.py "$INPUT_TASK"
+
+    - name: Capture repository state
+      shell: bash
+      run: |
+        mkdir -p .artifact
+        if git diff --quiet HEAD@{upstream} && git diff --quiet --cached; then
+          echo "📭 No changes to capture"
+        else
+          echo "📝 Capturing entire repository state"
+          tar -czf .artifact/repository_state.tar.gz --exclude='.artifact' .
+        fi
+
+    - name: Upload repository state artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: repository-state
+        path: .artifact/repository_state.tar.gz
+        retention-days: 1
+        if-no-files-found: ignore
+
+    - name: Upload artifact for write operations
+      uses: actions/upload-artifact@v4
+      with:
+        name: write-operations
+        path: .artifact/write_operations.jsonl
+        retention-days: 1
+        if-no-files-found: ignore
