@@ -19,7 +19,7 @@ import base64
 from typing import Literal
 
 from mcp.server import FastMCP
-from mcp.types import BlobResourceContents, EmbeddedResource, TextResourceContents
+from mcp.types import BlobResourceContents, CallToolResult, EmbeddedResource, TextContent, TextResourceContents
 from pydantic import BaseModel
 
 
@@ -49,6 +49,16 @@ def start_echo_server():
     @mcp.tool(description="Echos response back with structured content", structured_output=True)
     def echo_with_structured_content(to_echo: str) -> EchoResponse:
         return EchoResponse(echoed=to_echo, message_length=len(to_echo))
+
+    @mcp.tool(description="Echos response back with metadata")
+    def echo_with_metadata(to_echo: str):
+        """Return structured content and metadata in the tool result."""
+
+        return CallToolResult(
+            content=[TextContent(type="text", text=to_echo)],
+            isError=False,
+            _meta={"metadata": {"nested": 1}, "shallow": "val"},
+        )
 
     @mcp.tool(description="Get current weather information for a location")
     def get_weather(location: Literal["New York", "London", "Tokyo"] = "New York"):

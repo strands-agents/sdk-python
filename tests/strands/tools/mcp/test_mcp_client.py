@@ -533,7 +533,7 @@ def test_stop_closes_event_loop():
     mock_thread.join = MagicMock()
     mock_event_loop = MagicMock()
     mock_event_loop.close = MagicMock()
-    
+
     client._background_thread = mock_thread
     client._background_thread_event_loop = mock_event_loop
 
@@ -542,7 +542,7 @@ def test_stop_closes_event_loop():
 
     # Verify thread was joined
     mock_thread.join.assert_called_once()
-    
+
     # Verify event loop was closed
     mock_event_loop.close.assert_called_once()
 
