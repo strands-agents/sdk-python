@@ -198,13 +198,13 @@ class NeuronVLLMModel(Model):
         system_prompt: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
-        tool_spec = ToolSpec(
-            name=output_model.__name__,
-            description=f"Return a {output_model.__name__}",
-            input_schema=output_model.model_json_schema(),
-        )
+        tool_spec: ToolSpec = {
+            "name": output_model.__name__,
+            "description": f"Return a {output_model.__name__}",
+            "inputSchema": {"json": output_model.model_json_schema()},
+        }
         request = self.format_request(messages=prompt, tool_specs=[tool_spec], system_prompt=system_prompt, stream=False)
-        request["tool_choice"] = {"type": "function", "function": {"name": tool_spec.name}}
+        request["tool_choice"] = {"type": "function", "function": {"name": tool_spec["name"]}}
 
         client = AsyncOpenAI(
             api_key=self.config.get("openai_api_key", "EMPTY"),

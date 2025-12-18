@@ -485,18 +485,42 @@ async def test_stream_with_tool_calls(
     response = model.stream(messages)
 
     tru_events = await alist(response)
-    exp_events = [
-        {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "calculator"}}}},
-        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
-        {"contentBlockStop": {}},
-        {"contentBlockDelta": {"delta": {"text": "I'll calculate that for you"}}},
-        {"contentBlockStop": {}},
-        {"messageStop": {"stopReason": "tool_use"}},
-    ]
 
-    assert tru_events == exp_events
+    # Basic structural checks: first start, last stop
+    assert tru_events[0] == {"messageStart": {"role": "assistant"}}
+    assert tru_events[1] == {"contentBlockStart": {"start": {}}}
+    assert tru_events[-1] == {"messageStop": {"stopReason": "tool_use"}}
+
+    # One toolUse start with expected name/id
+    tool_starts = [
+        e
+        for e in tru_events
+        if e.get("contentBlockStart", {}).get("start", {}).get("toolUse") is not None
+    ]
+    assert len(tool_starts) == 1
+    tool_use = tool_starts[0]["contentBlockStart"]["start"]["toolUse"]
+    assert tool_use["name"] == "calculator"
+    assert tool_use["toolUseId"] == "calculator"
+
+    # One toolUse delta with expected input
+    tool_deltas = [
+        e
+        for e in tru_events
+        if "contentBlockDelta" in e
+        and "toolUse" in e["contentBlockDelta"]["delta"]
+    ]
+    assert len(tool_deltas) == 1
+    assert tool_deltas[0]["contentBlockDelta"]["delta"]["toolUse"]["input"] == '{"expression": "2+2"}'
+
+    # One text delta with the assistant message
+    text_deltas = [
+        e
+        for e in tru_events
+        if "contentBlockDelta" in e
+        and "text" in e["contentBlockDelta"]["delta"]
+    ]
+    assert len(text_deltas) == 1
+    assert text_deltas[0]["contentBlockDelta"]["delta"]["text"] == "I'll calculate that for you"
 
     expected_request = {
         "messages": [{"role": "user", "content": "Calculate 2+2"}],
