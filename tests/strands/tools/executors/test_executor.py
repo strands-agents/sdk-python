@@ -209,7 +209,9 @@ async def test_executor_stream_with_trace(
     exp_results = [exp_events[-1].tool_result]
     assert tru_results == exp_results
 
-    tracer.start_tool_call_span.assert_called_once_with(tool_use, cycle_span)
+    tracer.start_tool_call_span.assert_called_once_with(
+        tool_use, cycle_span, custom_trace_attributes=agent.trace_attributes
+    )
     tracer.end_tool_call_span.assert_called_once_with(
         tracer.start_tool_call_span.return_value,
         {"content": [{"text": "sunny"}], "status": "success", "toolUseId": "1"},
@@ -459,3 +461,21 @@ async def test_executor_stream_tool_interrupt_resume(executor, agent, tool_resul
     tru_results = tool_results
     exp_results = [exp_events[-1].tool_result]
     assert tru_results == exp_results
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_updates_invocation_state_with_agent(
+    executor, agent, tool_results, invocation_state, weather_tool, alist
+):
+    """Test that invocation_state is updated with agent reference."""
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+
+    # Start with empty invocation_state to verify agent is added
+    empty_invocation_state = {}
+
+    stream = executor._stream(agent, tool_use, tool_results, empty_invocation_state)
+    await alist(stream)
+
+    # Verify that the invocation_state was updated with the agent
+    assert "agent" in empty_invocation_state
+    assert empty_invocation_state["agent"] is agent

@@ -330,6 +330,9 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("waiting for background thread to join")
             self._background_thread.join()
 
+        if self._background_thread_event_loop is not None:
+            self._background_thread_event_loop.close()
+
         self._log_debug_with_thread("background thread is closed, MCPClient context exited")
 
         # Reset fields to allow instance reuse
@@ -563,6 +566,8 @@ class MCPClient(ToolProvider):
 
         if call_tool_result.structuredContent:
             result["structuredContent"] = call_tool_result.structuredContent
+        if call_tool_result.meta:
+            result["metadata"] = call_tool_result.meta
 
         return result
 

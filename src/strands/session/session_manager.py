@@ -4,6 +4,11 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from ..experimental.hooks.events import (
+    BidiAfterInvocationEvent,
+    BidiAgentInitializedEvent,
+    BidiMessageAddedEvent,
+)
 from ..experimental.hooks.multiagent.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
@@ -15,6 +20,7 @@ from ..types.content import Message
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..experimental.bidi.agent.agent import BidiAgent
     from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
@@ -46,6 +52,12 @@ class SessionManager(HookProvider, ABC):
         registry.add_callback(MultiAgentInitializedEvent, lambda event: self.initialize_multi_agent(event.source))
         registry.add_callback(AfterNodeCallEvent, lambda event: self.sync_multi_agent(event.source))
         registry.add_callback(AfterMultiAgentInvocationEvent, lambda event: self.sync_multi_agent(event.source))
+
+        # Register BidiAgent hooks
+        registry.add_callback(BidiAgentInitializedEvent, lambda event: self.initialize_bidi_agent(event.agent))
+        registry.add_callback(BidiMessageAddedEvent, lambda event: self.append_bidi_message(event.message, event.agent))
+        registry.add_callback(BidiMessageAddedEvent, lambda event: self.sync_bidi_agent(event.agent))
+        registry.add_callback(BidiAfterInvocationEvent, lambda event: self.sync_bidi_agent(event.agent))
 
     @abstractmethod
     def redact_latest_message(self, redact_message: Message, agent: "Agent", **kwargs: Any) -> None:
@@ -113,4 +125,44 @@ class SessionManager(HookProvider, ABC):
             f"{self.__class__.__name__} does not support multi-agent persistence "
             "(initialize_multi_agent). Provide an implementation or use a "
             "SessionManager with session_type=SessionType.MULTI_AGENT."
+        )
+
+    def initialize_bidi_agent(self, agent: "BidiAgent", **kwargs: Any) -> None:
+        """Initialize a bidirectional agent with a session.
+
+        Args:
+            agent: BidiAgent to initialize
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support bidirectional agent persistence "
+            "(initialize_bidi_agent). Provide an implementation or use a "
+            "SessionManager with bidirectional agent support."
+        )
+
+    def append_bidi_message(self, message: Message, agent: "BidiAgent", **kwargs: Any) -> None:
+        """Append a message to the bidirectional agent's session.
+
+        Args:
+            message: Message to add to the agent in the session
+            agent: BidiAgent to append the message to
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support bidirectional agent persistence "
+            "(append_bidi_message). Provide an implementation or use a "
+            "SessionManager with bidirectional agent support."
+        )
+
+    def sync_bidi_agent(self, agent: "BidiAgent", **kwargs: Any) -> None:
+        """Serialize and sync the bidirectional agent with the session storage.
+
+        Args:
+            agent: BidiAgent who should be synchronized with the session storage
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support bidirectional agent persistence "
+            "(sync_bidi_agent). Provide an implementation or use a "
+            "SessionManager with bidirectional agent support."
         )

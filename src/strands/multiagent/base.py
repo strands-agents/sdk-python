@@ -8,33 +8,39 @@ import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, AsyncIterator, Union
+from typing import Any, AsyncIterator, Mapping, Union
 
 from .._async import run_async
 from ..agent import AgentResult
+from ..interrupt import Interrupt
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
+from ..types.traces import AttributeValue
 
 logger = logging.getLogger(__name__)
 
 
 class Status(Enum):
-    """Execution status for both graphs and nodes."""
+    """Execution status for both graphs and nodes.
+
+    Attributes:
+        PENDING: Task has not started execution yet.
+        EXECUTING: Task is currently running.
+        COMPLETED: Task finished successfully.
+        FAILED: Task encountered an error and could not complete.
+        INTERRUPTED: Task was interrupted by user.
+    """
 
     PENDING = "pending"
     EXECUTING = "executing"
     COMPLETED = "completed"
     FAILED = "failed"
+    INTERRUPTED = "interrupted"
 
 
 @dataclass
 class NodeResult:
-    """Unified result from node execution - handles both Agent and nested MultiAgentBase results.
-
-    The status field represents the semantic outcome of the node's work:
-    - COMPLETED: The node's task was successfully accomplished
-    - FAILED: The node's task failed or produced an error
-    """
+    """Unified result from node execution - handles both Agent and nested MultiAgentBase results."""
 
     # Core result data - single AgentResult, nested MultiAgentResult, or Exception
     result: Union[AgentResult, "MultiAgentResult", Exception]
@@ -47,6 +53,7 @@ class NodeResult:
     accumulated_usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
     execution_count: int = 0
+    interrupts: list[Interrupt] = field(default_factory=list)
 
     def get_agent_results(self) -> list[AgentResult]:
         """Get all AgentResult objects from this node, flattened if nested."""
@@ -78,6 +85,7 @@ class NodeResult:
             "accumulated_usage": self.accumulated_usage,
             "accumulated_metrics": self.accumulated_metrics,
             "execution_count": self.execution_count,
+            "interrupts": [interrupt.to_dict() for interrupt in self.interrupts],
         }
 
     @classmethod
@@ -100,6 +108,10 @@ class NodeResult:
         usage = _parse_usage(data.get("accumulated_usage", {}))
         metrics = _parse_metrics(data.get("accumulated_metrics", {}))
 
+        interrupts = []
+        for interrupt_data in data.get("interrupts", []):
+            interrupts.append(Interrupt(**interrupt_data))
+
         return cls(
             result=result,
             execution_time=int(data.get("execution_time", 0)),
@@ -107,17 +119,13 @@ class NodeResult:
             accumulated_usage=usage,
             accumulated_metrics=metrics,
             execution_count=int(data.get("execution_count", 0)),
+            interrupts=interrupts,
         )
 
 
 @dataclass
 class MultiAgentResult:
-    """Result from multi-agent execution with accumulated metrics.
-
-    The status field represents the outcome of the MultiAgentBase execution:
-    - COMPLETED: The execution was successfully accomplished
-    - FAILED: The execution failed or produced an error
-    """
+    """Result from multi-agent execution with accumulated metrics."""
 
     status: Status = Status.PENDING
     results: dict[str, NodeResult] = field(default_factory=lambda: {})
@@ -125,6 +133,7 @@ class MultiAgentResult:
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
     execution_count: int = 0
     execution_time: int = 0
+    interrupts: list[Interrupt] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MultiAgentResult":
@@ -136,6 +145,10 @@ class MultiAgentResult:
         usage = _parse_usage(data.get("accumulated_usage", {}))
         metrics = _parse_metrics(data.get("accumulated_metrics", {}))
 
+        interrupts = []
+        for interrupt_data in data.get("interrupts", []):
+            interrupts.append(Interrupt(**interrupt_data))
+
         multiagent_result = cls(
             status=Status(data["status"]),
             results=results,
@@ -143,6 +156,7 @@ class MultiAgentResult:
             accumulated_metrics=metrics,
             execution_count=int(data.get("execution_count", 0)),
             execution_time=int(data.get("execution_time", 0)),
+            interrupts=interrupts,
         )
         return multiagent_result
 
@@ -156,6 +170,7 @@ class MultiAgentResult:
             "accumulated_metrics": self.accumulated_metrics,
             "execution_count": self.execution_count,
             "execution_time": self.execution_time,
+            "interrupts": [interrupt.to_dict() for interrupt in self.interrupts],
         }
 
 
@@ -237,6 +252,18 @@ class MultiAgentBase(ABC):
     def deserialize_state(self, payload: dict[str, Any]) -> None:
         """Restore orchestrator state from a session dict."""
         raise NotImplementedError
+
+    def _parse_trace_attributes(
+        self, attributes: Mapping[str, AttributeValue] | None = None
+    ) -> dict[str, AttributeValue]:
+        trace_attributes: dict[str, AttributeValue] = {}
+        if attributes:
+            for k, v in attributes.items():
+                if isinstance(v, (str, int, float, bool)) or (
+                    isinstance(v, list) and all(isinstance(x, (str, int, float, bool)) for x in v)
+                ):
+                    trace_attributes[k] = v
+        return trace_attributes
 
 
 # Private helper function to avoid duplicate code
