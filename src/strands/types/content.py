@@ -8,7 +8,7 @@ SDK. These types are modeled after the Bedrock API.
 
 from typing import Dict, List, Literal, Optional
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from .citations import CitationsContentBlock
 from .media import DocumentContent, ImageContent, VideoContent
@@ -129,10 +129,12 @@ class ContentBlockStartToolUse(TypedDict):
     Attributes:
         name: The name of the tool that the model is requesting to use.
         toolUseId: The ID for the tool request.
+        type: Optional type identifier (e.g., "server_tool_use" for server-side tools).
     """
 
     name: str
     toolUseId: str
+    type: NotRequired[str]
 
 
 class ContentBlockStart(TypedDict, total=False):

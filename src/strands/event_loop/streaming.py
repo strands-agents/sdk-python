@@ -185,6 +185,9 @@ def handle_content_block_start(event: ContentBlockStartEvent) -> dict[str, Any]:
         current_tool_use["toolUseId"] = tool_use_data["toolUseId"]
         current_tool_use["name"] = tool_use_data["name"]
         current_tool_use["input"] = ""
+        # Preserve type field for server-side tools (e.g., "server_tool_use" for nova_grounding)
+        if "type" in tool_use_data:
+            current_tool_use["type"] = tool_use_data["type"]
 
     return current_tool_use
 
@@ -280,11 +283,15 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
         tool_use_id = current_tool_use["toolUseId"]
         tool_use_name = current_tool_use["name"]
 
-        tool_use = ToolUse(
-            toolUseId=tool_use_id,
-            name=tool_use_name,
-            input=current_tool_use["input"],
-        )
+        tool_use: ToolUse = {
+            "toolUseId": tool_use_id,
+            "name": tool_use_name,
+            "input": current_tool_use["input"],
+        }
+        # Preserve type field for server-side tools (e.g., "server_tool_use" for nova_grounding)
+        if "type" in current_tool_use:
+            tool_use["type"] = current_tool_use["type"]
+
         content.append({"toolUse": tool_use})
         state["current_tool_use"] = {}
 
