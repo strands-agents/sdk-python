@@ -1,3 +1,6 @@
+"""Neuron-vLLM model provider implementation."""
+
+import importlib.util
 import json
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional, Type, TypeVar, Union, cast
@@ -21,6 +24,8 @@ class NeuronVLLMModel(Model):
     """Neuron-vLLM model provider implementation."""
 
     class NeuronVLLMConfig(TypedDict, total=False):
+        """Configuration for NeuronVLLMModel."""
+
         model_id: str
         max_model_len: Optional[int]
         max_num_seqs: Optional[int]
@@ -38,23 +43,23 @@ class NeuronVLLMModel(Model):
         openai_api_base: Optional[str]
 
     def __init__(self, config: NeuronVLLMConfig):
+        """Initialize the NeuronVLLMModel with the given configuration."""
         validate_config_keys(config, self.NeuronVLLMConfig)
         self.config = config
         self.logger = logging.getLogger(__name__)
         if not config.get("model_id"):
             raise ValueError("model_id is required")
         self._validate_hardware()
-        self.logger.info(f"Initializing NeuronVLLMModel with model: {config['model_id']}")
+        self.logger.info("Initializing NeuronVLLMModel with model: %s", config["model_id"])
 
     def _validate_hardware(self) -> None:
-        try:
-            import torch_neuronx  # type: ignore
+        if importlib.util.find_spec("torch_neuronx") is not None:
             self.logger.info("Neuron hardware validation passed")
-        except ImportError:
+        else:
             self.logger.warning("Neuron libraries not available - running in compatibility mode")
 
     @override
-    def update_config(self, **model_config: Unpack[NeuronVLLMConfig]) -> None:
+    def update_config(self, **model_config: Unpack[NeuronVLLMConfig]) -> None:  # type: ignore[override]
         validate_config_keys(model_config, self.NeuronVLLMConfig)
         self.config.update(model_config)
 
@@ -74,14 +79,28 @@ class NeuronVLLMModel(Model):
             text = f"[Attached document: {name} ({fmt})]"
             return [{"role": role, "content": text}]
         if "toolUse" in content:
-            return [{"role": role, "tool_calls": [{"function": {"name": content["toolUse"]["toolUseId"], "arguments": content["toolUse"]["input"]}}]}]
+            return [
+                {
+                    "role": role,
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": content["toolUse"]["toolUseId"],
+                                "arguments": content["toolUse"]["input"],
+                            }
+                        }
+                    ],
+                }
+            ]
         if "toolResult" in content:
             return [
                 formatted
                 for tool_result in content["toolResult"]["content"]
                 for formatted in self._format_request_message_contents(
                     "tool",
-                    {"text": json.dumps(tool_result["json"])} if "json" in tool_result else cast(ContentBlock, tool_result),
+                    {"text": json.dumps(tool_result["json"])}
+                    if "json" in tool_result
+                    else cast(ContentBlock, tool_result),
                 )
             ]
         raise TypeError(f"Unsupported content type: {next(iter(content))}")
@@ -95,7 +114,13 @@ class NeuronVLLMModel(Model):
             for formatted_message in self._format_request_message_contents(message["role"], content)
         ]
 
-    def format_request(self, messages: Messages, tool_specs: Optional[List[ToolSpec]] = None, system_prompt: Optional[str] = None, stream: bool = True) -> dict[str, Any]:
+    def format_request(
+        self,
+        messages: Messages,
+        tool_specs: Optional[List[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        stream: bool = True,
+    ) -> dict[str, Any]:
         """Return a dictionary suitable for OpenAI Async client."""
         request: dict[str, Any] = {
             "messages": self._format_request_messages(messages, system_prompt),
@@ -115,8 +140,9 @@ class NeuronVLLMModel(Model):
                 }
                 for t in tool_specs
             ]
-        if self.config.get("additional_args"):
-            request.update(self.config["additional_args"])
+        additional_args = self.config.get("additional_args")
+        if additional_args:
+            request.update(additional_args)
         return request
 
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
@@ -140,7 +166,18 @@ class NeuronVLLMModel(Model):
                 reason: StopReason = "tool_use" if event["data"] == "tool_use" else "end_turn"
                 return {"messageStop": {"stopReason": reason}}
             case "metadata":
-                return {"metadata": {"usage": {}, "metrics": {}}}
+                return {
+                    "metadata": {
+                        "usage": {
+                            "inputTokens": 0,
+                            "outputTokens": 0,
+                            "totalTokens": 0,
+                        },
+                        "metrics": {
+                            "latencyMs": 0,
+                        },
+                    },
+                }
             case _:
                 raise RuntimeError(f"Unknown chunk_type: {event['chunk_type']}")
 
@@ -203,7 +240,9 @@ class NeuronVLLMModel(Model):
             "description": f"Return a {output_model.__name__}",
             "inputSchema": {"json": output_model.model_json_schema()},
         }
-        request = self.format_request(messages=prompt, tool_specs=[tool_spec], system_prompt=system_prompt, stream=False)
+        request = self.format_request(
+            messages=prompt, tool_specs=[tool_spec], system_prompt=system_prompt, stream=False
+        )
         request["tool_choice"] = {"type": "function", "function": {"name": tool_spec["name"]}}
 
         client = AsyncOpenAI(

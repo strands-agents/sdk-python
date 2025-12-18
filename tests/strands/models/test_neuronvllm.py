@@ -399,8 +399,14 @@ def test_format_chunk_metadata(model: NeuronVLLMModel) -> None:
     tru_chunk = model.format_chunk(event)
     exp_chunk = {
         "metadata": {
-            "usage": {},
-            "metrics": {},
+            "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "totalTokens": 0,
+            },
+            "metrics": {
+                "latencyMs": 0,
+            },
         },
     }
 
@@ -492,33 +498,19 @@ async def test_stream_with_tool_calls(
     assert tru_events[-1] == {"messageStop": {"stopReason": "tool_use"}}
 
     # One toolUse start with expected name/id
-    tool_starts = [
-        e
-        for e in tru_events
-        if e.get("contentBlockStart", {}).get("start", {}).get("toolUse") is not None
-    ]
+    tool_starts = [e for e in tru_events if e.get("contentBlockStart", {}).get("start", {}).get("toolUse") is not None]
     assert len(tool_starts) == 1
     tool_use = tool_starts[0]["contentBlockStart"]["start"]["toolUse"]
     assert tool_use["name"] == "calculator"
     assert tool_use["toolUseId"] == "calculator"
 
     # One toolUse delta with expected input
-    tool_deltas = [
-        e
-        for e in tru_events
-        if "contentBlockDelta" in e
-        and "toolUse" in e["contentBlockDelta"]["delta"]
-    ]
+    tool_deltas = [e for e in tru_events if "contentBlockDelta" in e and "toolUse" in e["contentBlockDelta"]["delta"]]
     assert len(tool_deltas) == 1
     assert tool_deltas[0]["contentBlockDelta"]["delta"]["toolUse"]["input"] == '{"expression": "2+2"}'
 
     # One text delta with the assistant message
-    text_deltas = [
-        e
-        for e in tru_events
-        if "contentBlockDelta" in e
-        and "text" in e["contentBlockDelta"]["delta"]
-    ]
+    text_deltas = [e for e in tru_events if "contentBlockDelta" in e and "text" in e["contentBlockDelta"]["delta"]]
     assert len(text_deltas) == 1
     assert text_deltas[0]["contentBlockDelta"]["delta"]["text"] == "I'll calculate that for you"
 
@@ -560,5 +552,3 @@ async def test_structured_output(
     tru_result = events[-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result
-
-

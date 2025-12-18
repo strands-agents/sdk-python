@@ -97,5 +97,3 @@ async def test_agent_structured_output_async(agent, weather):
     )
     exp_weather = weather
     assert tru_weather == exp_weather
-
-
