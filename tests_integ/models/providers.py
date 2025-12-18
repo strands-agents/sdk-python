@@ -182,4 +182,5 @@ all_providers = [
     mistral,
     openai,
     writer,
+    neuronvllm,
 ]

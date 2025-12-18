@@ -14,9 +14,9 @@ pytestmark = providers.neuronvllm.mark
 
 @pytest.fixture
 def model() -> NeuronVLLMModel:
-    base_url = os.getenv("NEURON_VLLM_BASE_URL", "http://localhost:8084/v1")
+    base_url = os.getenv("OPENAI_API_BASE_URL", "http://localhost:8084/v1")
     model_id = os.getenv("NEURON_VLLM_MODEL_ID", "neuron-llama-3.1-70b-instruct")
-    api_key = os.getenv("NEURON_VLLM_API_KEY", "EMPTY")
+    api_key = os.getenv("OPENAI_API_KEY", "EMPTY")
 
     return NeuronVLLMModel(
         {
