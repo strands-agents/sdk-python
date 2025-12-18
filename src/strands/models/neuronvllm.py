@@ -67,6 +67,12 @@ class NeuronVLLMModel(Model):
             return [{"role": role, "content": content["text"]}]
         if "image" in content:
             return [{"role": role, "images": [content["image"]["source"]["bytes"]]}]
+        if "document" in content:
+            doc = content["document"]
+            name = doc.get("name", "document")
+            fmt = doc.get("format", "unknown")
+            text = f"[Attached document: {name} ({fmt})]"
+            return [{"role": role, "content": text}]
         if "toolUse" in content:
             return [{"role": role, "tool_calls": [{"function": {"name": content["toolUse"]["toolUseId"], "arguments": content["toolUse"]["input"]}}]}]
         if "toolResult" in content:
