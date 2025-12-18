@@ -720,3 +720,77 @@ async def test_stream_handles_non_json_error(gemini_client, model, messages, cap
 
     assert "Gemini API returned non-JSON error" in caplog.text
     assert f"error_message=<{error_message}>" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_with_injected_client(model_id, agenerator, alist):
+    """Test that stream works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.Mock()
+    mock_injected_client.aio = unittest.mock.AsyncMock()
+
+    mock_injected_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[genai.types.Part(text="Hello")],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    # Create model with injected client
+    model = GeminiModel(client=mock_injected_client, model_id=model_id)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    # Verify events were generated
+    assert len(tru_events) > 0
+
+    # Verify the injected client was used
+    mock_injected_client.aio.models.generate_content_stream.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_structured_output_with_injected_client(model_id, weather_output, alist):
+    """Test that structured_output works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.Mock()
+    mock_injected_client.aio = unittest.mock.AsyncMock()
+
+    mock_injected_client.aio.models.generate_content.return_value = unittest.mock.Mock(
+        parsed=weather_output.model_dump()
+    )
+
+    # Create model with injected client
+    model = GeminiModel(client=mock_injected_client, model_id=model_id)
+
+    messages = [{"role": "user", "content": [{"text": "Generate weather"}]}]
+    stream = model.structured_output(type(weather_output), messages)
+    events = await alist(stream)
+
+    # Verify output was generated
+    assert len(events) == 1
+    assert events[0] == {"output": weather_output}
+
+    # Verify the injected client was used
+    mock_injected_client.aio.models.generate_content.assert_called_once()
+
+
+def test_init_with_both_client_and_client_args_raises_error():
+    """Test that providing both client and client_args raises ValueError."""
+    mock_client = unittest.mock.Mock()
+
+    with pytest.raises(ValueError, match="Only one of 'client' or 'client_args' should be provided"):
+        GeminiModel(client=mock_client, client_args={"api_key": "test"}, model_id="test-model")
