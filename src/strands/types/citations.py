@@ -77,16 +77,55 @@ class DocumentPageLocation(TypedDict, total=False):
     end: int
 
 
+class SearchResultLocation(TypedDict, total=False):
+    """Specifies a search result location within the content array.
+
+    Provides positioning information for cited content using search result
+    index and block positions.
+
+    Attributes:
+        searchResultIndex: The index of the search result content block where
+            the cited content is found. Minimum value of 0.
+        start: The starting position in the content array where the cited
+            content begins. Minimum value of 0.
+        end: The ending position in the content array where the cited
+            content ends. Minimum value of 0.
+    """
+
+    searchResultIndex: int
+    start: int
+    end: int
+
+
+class WebLocation(TypedDict, total=False):
+    """Provides the URL and domain information for a cited website.
+
+    Contains information about the website that was cited when performing
+    a web search.
+
+    Attributes:
+        url: The URL that was cited when performing a web search.
+        domain: The domain that was cited when performing a web search.
+    """
+
+    url: str
+    domain: str
+
+
 # Tagged union type aliases following the ToolChoice pattern
 DocumentCharLocationDict = dict[Literal["documentChar"], DocumentCharLocation]
 DocumentPageLocationDict = dict[Literal["documentPage"], DocumentPageLocation]
 DocumentChunkLocationDict = dict[Literal["documentChunk"], DocumentChunkLocation]
+SearchResultLocationDict = dict[Literal["searchResultLocation"], SearchResultLocation]
+WebLocationDict = dict[Literal["web"], WebLocation]
 
 # Union type for citation locations - tagged union format matching AWS Bedrock API
 CitationLocation = Union[
     DocumentCharLocationDict,
     DocumentPageLocationDict,
     DocumentChunkLocationDict,
+    SearchResultLocationDict,
+    WebLocationDict,
 ]
 
 
