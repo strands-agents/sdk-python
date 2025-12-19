@@ -27,4 +27,8 @@ jobs:
       with:
         fetch-depth: 0  # We the need the full Git history.
     - uses: astral-sh/setup-uv@v6
-    - run: uvx griffe check --search src --format github strands --against "${{ github.event.pull_request.base.sha || github.event.before || 'HEAD' }}"
+    - run: |
+        if ! uvx griffe check --search src --format github strands --against "${{ github.event.pull_request.base.sha || github.event.before || 'HEAD' }}"; then
+          echo "Breaking API changes detected"
+          exit 1
+        fi
