@@ -320,28 +320,13 @@ class BedrockModel(Model):
         Returns:
             Messages containing only the last turn (user + assistant response if exists).
         """
-        if not messages:
-            return []
-
-        # Find the last user message
-        last_user_index = -1
         for i in range(len(messages) - 1, -1, -1):
             if messages[i]["role"] == "user":
-                last_user_index = i
-                break
-
-        if last_user_index == -1:
-            # No user message found, return empty
-            return []
-
-        # Start with the last user message
-        result_messages: Messages = [messages[last_user_index]]
-
-        # Include the assistant's response if it exists (the message after the user message)
-        if last_user_index < len(messages) - 1 and messages[last_user_index + 1]["role"] == "assistant":
-            result_messages.append(messages[last_user_index + 1])
-
-        return result_messages
+                # Include assistant response if it immediately follows
+                if i + 1 < len(messages) and messages[i + 1]["role"] == "assistant":
+                    return [messages[i], messages[i + 1]]
+                return [messages[i]]
+        return []
 
     def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
