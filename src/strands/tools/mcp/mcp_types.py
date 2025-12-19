@@ -1,7 +1,7 @@
 """Type definitions for MCP integration."""
 
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Dict
+from typing import Any
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.client.streamable_http import GetSessionIdCallback
@@ -58,6 +58,10 @@ class MCPToolResult(ToolResult):
         structuredContent: Optional JSON object containing structured data returned
             by the MCP tool. This allows MCP tools to return complex data structures
             that can be processed programmatically by agents or other tools.
+        metadata: Optional arbitrary metadata returned by the MCP tool. This field allows
+            MCP servers to attach custom metadata to tool results (e.g., token usage,
+            performance metrics, or business-specific tracking information).
     """
 
-    structuredContent: NotRequired[Dict[str, Any]]
+    structuredContent: NotRequired[dict[str, Any]]
+    metadata: NotRequired[dict[str, Any]]

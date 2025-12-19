@@ -19,7 +19,7 @@ import copy
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Optional, Tuple, cast
+from typing import Any, AsyncIterator, Callable, Mapping, Optional, Tuple, cast
 
 from opentelemetry import trace as trace_api
 
@@ -38,6 +38,7 @@ from ..session import SessionManager
 from ..telemetry import get_tracer
 from ..types._events import (
     MultiAgentHandoffEvent,
+    MultiAgentNodeCancelEvent,
     MultiAgentNodeStartEvent,
     MultiAgentNodeStopEvent,
     MultiAgentNodeStreamEvent,
@@ -45,6 +46,8 @@ from ..types._events import (
 )
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
+from ..types.multiagent import MultiAgentInput
+from ..types.traces import AttributeValue
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 logger = logging.getLogger(__name__)
@@ -67,7 +70,7 @@ class GraphState:
     """
 
     # Task (with default empty string)
-    task: str | list[ContentBlock] = ""
+    task: MultiAgentInput = ""
 
     # Execution state
     status: Status = Status.PENDING
@@ -412,6 +415,7 @@ class Graph(MultiAgentBase):
         session_manager: Optional[SessionManager] = None,
         hooks: Optional[list[HookProvider]] = None,
         id: str = _DEFAULT_GRAPH_ID,
+        trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         """Initialize Graph with execution limits and reset behavior.
 
@@ -426,6 +430,7 @@ class Graph(MultiAgentBase):
             session_manager: Session manager for persisting graph state and execution history (default: None)
             hooks: List of hook providers for monitoring and extending graph execution behavior (default: None)
             id: Unique graph id (default: None)
+            trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
         """
         super().__init__()
 
@@ -441,6 +446,7 @@ class Graph(MultiAgentBase):
         self.reset_on_revisit = reset_on_revisit
         self.state = GraphState()
         self.tracer = get_tracer()
+        self.trace_attributes: dict[str, AttributeValue] = self._parse_trace_attributes(trace_attributes)
         self.session_manager = session_manager
         self.hooks = HookRegistry()
         if self.session_manager:
@@ -453,10 +459,10 @@ class Graph(MultiAgentBase):
         self._resume_from_session = False
         self.id = id
 
-        self.hooks.invoke_callbacks(MultiAgentInitializedEvent(self))
+        run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
 
     def __call__(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> GraphResult:
         """Invoke the graph synchronously.
 
@@ -472,7 +478,7 @@ class Graph(MultiAgentBase):
         return run_async(lambda: self.invoke_async(task, invocation_state))
 
     async def invoke_async(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> GraphResult:
         """Invoke the graph asynchronously.
 
@@ -496,7 +502,7 @@ class Graph(MultiAgentBase):
         return cast(GraphResult, final_event["result"])
 
     async def stream_async(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream events during graph execution.
 
@@ -516,7 +522,7 @@ class Graph(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
-        self.hooks.invoke_callbacks(BeforeMultiAgentInvocationEvent(self, invocation_state))
+        await self.hooks.invoke_callbacks_async(BeforeMultiAgentInvocationEvent(self, invocation_state))
 
         logger.debug("task=<%s> | starting graph execution", task)
 
@@ -536,7 +542,7 @@ class Graph(MultiAgentBase):
             self.state.status = Status.EXECUTING
             self.state.start_time = start_time
 
-        span = self.tracer.start_multiagent_span(task, "graph")
+        span = self.tracer.start_multiagent_span(task, "graph", custom_trace_attributes=self.trace_attributes)
         with trace_api.use_span(span, end_on_exit=True):
             try:
                 logger.debug(
@@ -569,7 +575,7 @@ class Graph(MultiAgentBase):
                 raise
             finally:
                 self.state.execution_time = round((time.time() - start_time) * 1000)
-                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(self))
+                await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self))
                 self._resume_from_session = False
                 self._resume_next_nodes.clear()
 
@@ -776,8 +782,6 @@ class Graph(MultiAgentBase):
 
     async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> AsyncIterator[Any]:
         """Execute a single node and yield TypedEvent objects."""
-        self.hooks.invoke_callbacks(BeforeNodeCallEvent(self, node.node_id, invocation_state))
-
         # Reset the node's state if reset_on_revisit is enabled, and it's being revisited
         if self.reset_on_revisit and node in self.state.completed_nodes:
             logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
@@ -793,8 +797,20 @@ class Graph(MultiAgentBase):
         )
         yield start_event
 
+        before_event, _ = await self.hooks.invoke_callbacks_async(
+            BeforeNodeCallEvent(self, node.node_id, invocation_state)
+        )
+
         start_time = time.time()
         try:
+            if before_event.cancel_node:
+                cancel_message = (
+                    before_event.cancel_node if isinstance(before_event.cancel_node, str) else "node cancelled by user"
+                )
+                logger.debug("reason=<%s> | cancelling execution", cancel_message)
+                yield MultiAgentNodeCancelEvent(node.node_id, cancel_message)
+                raise RuntimeError(cancel_message)
+
             # Build node input from satisfied dependencies
             node_input = self._build_node_input(node)
 
@@ -920,7 +936,7 @@ class Graph(MultiAgentBase):
             raise
 
         finally:
-            self.hooks.invoke_callbacks(AfterNodeCallEvent(self, node.node_id, invocation_state))
+            await self.hooks.invoke_callbacks_async(AfterNodeCallEvent(self, node.node_id, invocation_state))
 
     def _accumulate_metrics(self, node_result: NodeResult) -> None:
         """Accumulate metrics from a node result."""
@@ -963,7 +979,7 @@ class Graph(MultiAgentBase):
             if isinstance(self.state.task, str):
                 return [ContentBlock(text=self.state.task)]
             else:
-                return self.state.task
+                return cast(list[ContentBlock], self.state.task)
 
         # Combine task with dependency outputs
         node_input = []
@@ -974,7 +990,7 @@ class Graph(MultiAgentBase):
         else:
             # Add task content blocks with a prefix
             node_input.append(ContentBlock(text="Original Task:"))
-            node_input.extend(self.state.task)
+            node_input.extend(cast(list[ContentBlock], self.state.task))
 
         # Add dependency outputs
         node_input.append(ContentBlock(text="\nInputs from previous nodes:"))

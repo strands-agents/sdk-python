@@ -147,7 +147,7 @@ def test_agent_tool_call(agent, hook_provider, agent_tool):
 def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_use):
     """Verify that the correct hook events are emitted as part of __call__."""
 
-    agent("test message")
+    result = agent("test message")
 
     length, events = hook_provider.get_events()
 
@@ -197,7 +197,7 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
 
-    assert next(events) == AfterInvocationEvent(agent=agent)
+    assert next(events) == AfterInvocationEvent(agent=agent, result=result)
 
     assert len(agent.messages) == 4
 
@@ -210,8 +210,10 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
     assert hook_provider.events_received == [BeforeInvocationEvent(agent=agent)]
 
     # iterate the rest
-    async for _ in iterator:
-        pass
+    result = None
+    async for item in iterator:
+        if "result" in item:
+            result = item["result"]
 
     length, events = hook_provider.get_events()
 
@@ -261,7 +263,7 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
 
-    assert next(events) == AfterInvocationEvent(agent=agent)
+    assert next(events) == AfterInvocationEvent(agent=agent, result=result)
 
     assert len(agent.messages) == 4
 

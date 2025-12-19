@@ -1,12 +1,12 @@
 import concurrent
 import unittest.mock
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
 
 import strands
 import strands.telemetry
-from strands.agent.interrupt import InterruptState
+from strands import Agent
 from strands.hooks import (
     AfterModelCallEvent,
     BeforeModelCallEvent,
@@ -14,7 +14,7 @@ from strands.hooks import (
     HookRegistry,
     MessageAddedEvent,
 )
-from strands.interrupt import Interrupt
+from strands.interrupt import Interrupt, _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.executors import SequentialToolExecutor
 from strands.tools.registry import ToolRegistry
@@ -134,6 +134,7 @@ def tool_executor():
 @pytest.fixture
 def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_registry, tool_executor):
     mock = unittest.mock.Mock(name="agent")
+    mock.__class__ = Agent
     mock.config.cache_points = []
     mock.model = model
     mock.system_prompt = system_prompt
@@ -143,7 +144,8 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.event_loop_metrics = EventLoopMetrics()
     mock.hooks = hook_registry
     mock.tool_executor = tool_executor
-    mock._interrupt_state = InterruptState()
+    mock._interrupt_state = _InterruptState()
+    mock.trace_attributes = {}
 
     return mock
 
@@ -739,7 +741,10 @@ async def test_event_loop_cycle_with_parent_span(
 
     # Verify parent_span was used when creating cycle span
     mock_tracer.start_event_loop_cycle_span.assert_called_once_with(
-        invocation_state=unittest.mock.ANY, parent_span=parent_span, messages=messages
+        invocation_state=unittest.mock.ANY,
+        parent_span=parent_span,
+        messages=messages,
+        custom_trace_attributes=unittest.mock.ANY,
     )
 
 
@@ -750,6 +755,7 @@ async def test_request_state_initialization(alist):
     # not setting this to False results in endless recursion
     mock_agent._interrupt_state.activated = False
     mock_agent.event_loop_metrics.start_cycle.return_value = (0, MagicMock())
+    mock_agent.hooks.invoke_callbacks_async = AsyncMock()
 
     # Call without providing request_state
     stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -964,8 +970,9 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
         },
     ]
 
-    agent._interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": tool_results})
+    agent._interrupt_state.context = {"tool_use_message": tool_use_message, "tool_results": tool_results}
     agent._interrupt_state.interrupts[interrupt.id] = interrupt
+    agent._interrupt_state.activate()
 
     interrupt_response = {}
 

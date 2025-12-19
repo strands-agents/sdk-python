@@ -852,3 +852,27 @@ def test_serve_at_root_edge_cases(mock_strands_agent):
     )
     assert server3.mount_path == ""
     assert server3.http_url == "http://api.example.com/v1/agents/team1/agent1/"
+
+
+def test_to_starlette_app_with_app_kwargs(mock_strands_agent):
+    """Test that to_starlette_app passes app_kwargs to the Starlette constructor."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    a2a_agent = A2AServer(mock_strands_agent, skills=[])
+
+    app = a2a_agent.to_starlette_app(app_kwargs={"debug": True})
+
+    assert isinstance(app, Starlette)
+    assert app.debug is True
+
+
+def test_to_fastapi_app_with_app_kwargs(mock_strands_agent):
+    """Test that to_fastapi_app passes app_kwargs to the FastAPI constructor."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    a2a_agent = A2AServer(mock_strands_agent, skills=[])
+
+    app = a2a_agent.to_fastapi_app(app_kwargs={"title": "Custom Agent Title"})
+
+    assert isinstance(app, FastAPI)
+    assert app.title == "Custom Agent Title"

@@ -9,6 +9,8 @@ import importlib
 import sys
 from unittest.mock import Mock
 
+import pytest
+
 from strands.experimental.hooks import (
     AfterModelInvocationEvent,
     AfterToolInvocationEvent,
@@ -80,7 +82,8 @@ def test_after_model_call_event_type_equality():
     assert isinstance(after_model_event, AfterModelCallEvent)
 
 
-def test_experimental_aliases_in_hook_registry():
+@pytest.mark.asyncio
+async def test_experimental_aliases_in_hook_registry():
     """Verify that experimental aliases work with hook registry callbacks."""
     hook_registry = HookRegistry()
     callback_called = False
@@ -103,7 +106,7 @@ def test_experimental_aliases_in_hook_registry():
     )
 
     # Invoke callbacks - should work since alias points to same type
-    hook_registry.invoke_callbacks(test_event)
+    await hook_registry.invoke_callbacks_async(test_event)
 
     assert callback_called
     assert received_event is test_event
@@ -120,7 +123,7 @@ def test_deprecation_warning_on_import(captured_warnings):
 
     assert len(captured_warnings) == 1
     assert issubclass(captured_warnings[0].category, DeprecationWarning)
-    assert "moved to production with updated names" in str(captured_warnings[0].message)
+    assert "are no longer experimental" in str(captured_warnings[0].message)
 
 
 def test_deprecation_warning_on_import_only_for_experimental(captured_warnings):

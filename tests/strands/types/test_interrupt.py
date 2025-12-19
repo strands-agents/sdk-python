@@ -2,8 +2,7 @@ import unittest.mock
 
 import pytest
 
-from strands.agent.interrupt import InterruptState
-from strands.interrupt import Interrupt, InterruptException
+from strands.interrupt import Interrupt, InterruptException, _InterruptState
 from strands.types.interrupt import _Interruptible
 
 
@@ -20,7 +19,7 @@ def interrupt():
 @pytest.fixture
 def agent():
     instance = unittest.mock.Mock()
-    instance._interrupt_state = InterruptState()
+    instance._interrupt_state = _InterruptState()
     return instance
 
 
@@ -78,3 +77,18 @@ def test_interrupt_hook_event_interrupt_response_empty(interrupt, agent, interru
 
     with pytest.raises(InterruptException):
         interrupt_hook_event.interrupt("test_name")
+
+
+def test_interrupt_hook_event_interrupt_response_falsey(interrupt_hook_event):
+    tru_response = interrupt_hook_event.interrupt("test_name", response=False)
+    exp_response = False
+    assert tru_response == exp_response
+
+
+def test_interrupt_hook_event_interrupt_missing_agent():
+    class Event(_Interruptible):
+        pass
+
+    event = Event()
+    with pytest.raises(RuntimeError, match="agent instance attribute not set"):
+        event.interrupt("test_name")

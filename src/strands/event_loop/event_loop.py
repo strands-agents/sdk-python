@@ -133,7 +133,10 @@ async def event_loop_cycle(
     # Create tracer span for this event loop cycle
     tracer = get_tracer()
     cycle_span = tracer.start_event_loop_cycle_span(
-        invocation_state=invocation_state, messages=agent.messages, parent_span=agent.trace_span
+        invocation_state=invocation_state,
+        messages=agent.messages,
+        parent_span=agent.trace_span,
+        custom_trace_attributes=agent.trace_attributes,
     )
     invocation_state["event_loop_cycle_span"] = cycle_span
 
@@ -227,7 +230,7 @@ async def event_loop_cycle(
             )
         structured_output_context.set_forced_mode()
         logger.debug("Forcing structured output tool")
-        agent._append_message(
+        await agent._append_messages(
             {"role": "user", "content": [{"text": "You must format the previous response as structured output."}]}
         )
 
@@ -320,9 +323,10 @@ async def _handle_model_execution(
             messages=agent.messages,
             parent_span=cycle_span,
             model_id=model_id,
+            custom_trace_attributes=agent.trace_attributes,
         )
         with trace_api.use_span(model_invoke_span):
-            agent.hooks.invoke_callbacks(
+            await agent.hooks.invoke_callbacks_async(
                 BeforeModelCallEvent(
                     agent=agent,
                 )
@@ -347,7 +351,7 @@ async def _handle_model_execution(
                 stop_reason, message, usage, metrics = event["stop"]
                 invocation_state.setdefault("request_state", {})
 
-                agent.hooks.invoke_callbacks(
+                await agent.hooks.invoke_callbacks_async(
                     AfterModelCallEvent(
                         agent=agent,
                         stop_response=AfterModelCallEvent.ModelStopResponse(
@@ -368,7 +372,7 @@ async def _handle_model_execution(
                 if model_invoke_span:
                     tracer.end_span_with_error(model_invoke_span, str(e), e)
 
-                agent.hooks.invoke_callbacks(
+                await agent.hooks.invoke_callbacks_async(
                     AfterModelCallEvent(
                         agent=agent,
                         exception=e,
@@ -402,7 +406,7 @@ async def _handle_model_execution(
 
         # Add the response message to the conversation
         agent.messages.append(message)
-        agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
+        await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=message))
 
         # Update metrics
         agent.event_loop_metrics.update_usage(usage)
@@ -483,7 +487,8 @@ async def _handle_tool_execution(
 
     if interrupts:
         # Session state stored on AfterInvocationEvent.
-        agent._interrupt_state.activate(context={"tool_use_message": message, "tool_results": tool_results})
+        agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+        agent._interrupt_state.activate()
 
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
         yield EventLoopStopEvent(
@@ -507,7 +512,7 @@ async def _handle_tool_execution(
     }
 
     agent.messages.append(tool_result_message)
-    agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
+    await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=tool_result_message))
 
     yield ToolResultMessageEvent(message=tool_result_message)
 

@@ -75,6 +75,14 @@ CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE = (
     "https://strandsagents.com/latest/user-guide/concepts/tools/mcp-tools/#mcpclientinitializationerror"
 )
 
+# Non-fatal error patterns that should not cause connection collapse
+_NON_FATAL_ERROR_PATTERNS = [
+    # Occurs when client receives response with unrecognized ID
+    # Can occur after a client-side timeout
+    # See: https://github.com/modelcontextprotocol/python-sdk/blob/c51936f61f35a15f0b1f8fb6887963e5baee1506/src/mcp/shared/session.py#L421
+    "unknown request id",
+]
+
 
 class MCPClient(ToolProvider):
     """Represents a connection to a Model Context Protocol (MCP) server.
@@ -119,10 +127,12 @@ class MCPClient(ToolProvider):
         mcp_instrumentation()
         self._session_id = uuid.uuid4()
         self._log_debug_with_thread("initializing MCPClient connection")
-        # Main thread blocks until future completesock
+        # Main thread blocks until future completes
         self._init_future: futures.Future[None] = futures.Future()
+        # Set within the inner loop as it needs the asyncio loop
+        self._close_future: asyncio.futures.Future[None] | None = None
+        self._close_exception: None | Exception = None
         # Do not want to block other threads while close event is false
-        self._close_event = asyncio.Event()
         self._transport_callable = transport_callable
 
         self._background_thread: threading.Thread | None = None
@@ -288,11 +298,12 @@ class MCPClient(ToolProvider):
         - _background_thread: Thread running the async event loop
         - _background_thread_session: MCP ClientSession (auto-closed by context manager)
         - _background_thread_event_loop: AsyncIO event loop in background thread
-        - _close_event: AsyncIO event to signal thread shutdown
+        - _close_future: AsyncIO future to signal thread shutdown
+        - _close_exception: Exception that caused the background thread shutdown; None if a normal shutdown occurred.
         - _init_future: Future for initialization synchronization
 
         Cleanup order:
-        1. Signal close event to background thread (if session initialized)
+        1. Signal close future to background thread (if session initialized)
         2. Wait for background thread to complete
         3. Reset all state for reuse
 
@@ -303,13 +314,14 @@ class MCPClient(ToolProvider):
         """
         self._log_debug_with_thread("exiting MCPClient context")
 
-        # Only try to signal close event if we have a background thread
+        # Only try to signal close future if we have a background thread
         if self._background_thread is not None:
-            # Signal close event if event loop exists
+            # Signal close future if event loop exists
             if self._background_thread_event_loop is not None:
 
                 async def _set_close_event() -> None:
-                    self._close_event.set()
+                    if self._close_future and not self._close_future.done():
+                        self._close_future.set_result(None)
 
                 # Not calling _invoke_on_background_thread since the session does not need to exist
                 # we only need the thread and event loop to exist.
@@ -317,11 +329,14 @@ class MCPClient(ToolProvider):
 
             self._log_debug_with_thread("waiting for background thread to join")
             self._background_thread.join()
+
+        if self._background_thread_event_loop is not None:
+            self._background_thread_event_loop.close()
+
         self._log_debug_with_thread("background thread is closed, MCPClient context exited")
 
         # Reset fields to allow instance reuse
         self._init_future = futures.Future()
-        self._close_event = asyncio.Event()
         self._background_thread = None
         self._background_thread_session = None
         self._background_thread_event_loop = None
@@ -329,6 +344,11 @@ class MCPClient(ToolProvider):
         self._loaded_tools = None
         self._tool_provider_started = False
         self._consumers = set()
+
+        if self._close_exception:
+            exception = self._close_exception
+            self._close_exception = None
+            raise RuntimeError("Connection to the MCP server was closed") from exception
 
     def list_tools_sync(
         self,
@@ -546,15 +566,10 @@ class MCPClient(ToolProvider):
 
         if call_tool_result.structuredContent:
             result["structuredContent"] = call_tool_result.structuredContent
+        if call_tool_result.meta:
+            result["metadata"] = call_tool_result.meta
 
         return result
-
-    # Raise an exception if the underlying client raises an exception in a message
-    # This happens when the underlying client has an http timeout error
-    async def _handle_error_message(self, message: Exception | Any) -> None:
-        if isinstance(message, Exception):
-            raise message
-        await anyio.lowlevel.checkpoint()
 
     async def _async_background_thread(self) -> None:
         """Asynchronous method that runs in the background thread to manage the MCP connection.
@@ -563,6 +578,10 @@ class MCPClient(ToolProvider):
         signals readiness to the main thread, and waits for a close signal.
         """
         self._log_debug_with_thread("starting async background thread for MCP connection")
+
+        # Initialized here so that it has the asyncio loop
+        self._close_future = asyncio.Future()
+
         try:
             async with self._transport_callable() as (read_stream, write_stream, *_):
                 self._log_debug_with_thread("transport connection established")
@@ -583,8 +602,9 @@ class MCPClient(ToolProvider):
 
                     self._log_debug_with_thread("waiting for close signal")
                     # Keep background thread running until signaled to close.
-                    # Thread is not blocked as this is an asyncio.Event not a threading.Event
-                    await self._close_event.wait()
+                    # Thread is not blocked as this a future
+                    await self._close_future
+
                     self._log_debug_with_thread("close signal received")
         except Exception as e:
             # If we encounter an exception and the future is still running,
@@ -592,16 +612,33 @@ class MCPClient(ToolProvider):
             if not self._init_future.done():
                 self._init_future.set_exception(e)
             else:
+                # _close_future is automatically cancelled by the framework which doesn't provide us with the useful
+                # exception, so instead we store the exception in a different field where stop() can read it
+                self._close_exception = e
+                if self._close_future and not self._close_future.done():
+                    self._close_future.set_result(None)
+
                 self._log_debug_with_thread(
                     "encountered exception on background thread after initialization %s", str(e)
                 )
+
+    # Raise an exception if the underlying client raises an exception in a message
+    # This happens when the underlying client has an http timeout error
+    async def _handle_error_message(self, message: Exception | Any) -> None:
+        if isinstance(message, Exception):
+            error_msg = str(message).lower()
+            if any(pattern in error_msg for pattern in _NON_FATAL_ERROR_PATTERNS):
+                self._log_debug_with_thread("ignoring non-fatal MCP session error", message)
+            else:
+                raise message
+        await anyio.lowlevel.checkpoint()
 
     def _background_task(self) -> None:
         """Sets up and runs the event loop in the background thread.
 
         This method creates a new event loop for the background thread,
         sets it as the current event loop, and runs the async_background_thread
-        coroutine until completion. In this case "until completion" means until the _close_event is set.
+        coroutine until completion. In this case "until completion" means until the _close_future is resolved.
         This allows for a long-running event loop.
         """
         self._log_debug_with_thread("setting up background task event loop")
@@ -699,9 +736,34 @@ class MCPClient(ToolProvider):
         )
 
     def _invoke_on_background_thread(self, coro: Coroutine[Any, Any, T]) -> futures.Future[T]:
-        if self._background_thread_session is None or self._background_thread_event_loop is None:
+        # save a reference to this so that even if it's reset we have the original
+        close_future = self._close_future
+
+        if (
+            self._background_thread_session is None
+            or self._background_thread_event_loop is None
+            or close_future is None
+        ):
             raise MCPClientInitializationError("the client session was not initialized")
-        return asyncio.run_coroutine_threadsafe(coro=coro, loop=self._background_thread_event_loop)
+
+        async def run_async() -> T:
+            # Fix for strands-agents/sdk-python/issues/995 - cancel all pending invocations if/when the session closes
+            invoke_event = asyncio.create_task(coro)
+            tasks: list[asyncio.Task | asyncio.Future] = [
+                invoke_event,
+                close_future,
+            ]
+
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+            if done.pop() == close_future:
+                self._log_debug_with_thread("event loop for the server closed before the invoke completed")
+                raise RuntimeError("Connection to the MCP server was closed")
+            else:
+                return await invoke_event
+
+        invoke_future = asyncio.run_coroutine_threadsafe(coro=run_async(), loop=self._background_thread_event_loop)
+        return invoke_future
 
     def _should_include_tool(self, tool: MCPAgentTool) -> bool:
         """Check if a tool should be included based on constructor filters."""

@@ -202,6 +202,7 @@ class SageMakerAIModel(OpenAIModel):
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
         tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """Format an Amazon SageMaker chat streaming request.
 
@@ -211,6 +212,7 @@ class SageMakerAIModel(OpenAIModel):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation. **Note: This parameter is accepted for
                 interface consistency but is currently ignored for this model provider.**
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             An Amazon SageMaker chat streaming request.
@@ -351,7 +353,7 @@ class SageMakerAIModel(OpenAIModel):
                         logger.info("choice=<%s>", json.dumps(choice, indent=2))
 
                         # Handle text content
-                        if choice["delta"].get("content", None):
+                        if choice["delta"].get("content"):
                             if not text_content_started:
                                 yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
                                 text_content_started = True
@@ -365,7 +367,7 @@ class SageMakerAIModel(OpenAIModel):
                             )
 
                         # Handle reasoning content
-                        if choice["delta"].get("reasoning_content", None):
+                        if choice["delta"].get("reasoning_content"):
                             if not reasoning_content_started:
                                 yield self.format_chunk(
                                     {"chunk_type": "content_start", "data_type": "reasoning_content"}
@@ -390,7 +392,7 @@ class SageMakerAIModel(OpenAIModel):
                             finish_reason = choice["finish_reason"]
                             break
 
-                        if choice.get("usage", None):
+                        if choice.get("usage"):
                             yield self.format_chunk(
                                 {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
                             )
@@ -410,7 +412,7 @@ class SageMakerAIModel(OpenAIModel):
                 # Handle tool calling
                 logger.info("tool_calls=<%s>", json.dumps(tool_calls, indent=2))
                 for tool_deltas in tool_calls.values():
-                    if not tool_deltas[0]["function"].get("name", None):
+                    if not tool_deltas[0]["function"].get("name"):
                         raise Exception("The model did not provide a tool name.")
                     yield self.format_chunk(
                         {"chunk_type": "content_start", "data_type": "tool", "data": ToolCall(**tool_deltas[0])}
@@ -451,7 +453,7 @@ class SageMakerAIModel(OpenAIModel):
                     yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
                 # Handle reasoning content
-                if message.get("reasoning_content", None):
+                if message.get("reasoning_content"):
                     yield self.format_chunk({"chunk_type": "content_start", "data_type": "reasoning_content"})
                     yield self.format_chunk(
                         {
@@ -463,7 +465,7 @@ class SageMakerAIModel(OpenAIModel):
                     yield self.format_chunk({"chunk_type": "content_stop", "data_type": "reasoning_content"})
 
                 # Handle the tool calling, if any
-                if message.get("tool_calls", None) or message_stop_reason == "tool_calls":
+                if message.get("tool_calls") or message_stop_reason == "tool_calls":
                     if not isinstance(message["tool_calls"], list):
                         message["tool_calls"] = [message["tool_calls"]]
                     for tool_call in message["tool_calls"]:
@@ -482,9 +484,9 @@ class SageMakerAIModel(OpenAIModel):
                 # Message close
                 yield self.format_chunk({"chunk_type": "message_stop", "data": message_stop_reason})
                 # Handle usage metadata
-                if final_response_json.get("usage", None):
+                if final_response_json.get("usage"):
                     yield self.format_chunk(
-                        {"chunk_type": "metadata", "data": UsageMetadata(**final_response_json.get("usage", None))}
+                        {"chunk_type": "metadata", "data": UsageMetadata(**final_response_json.get("usage"))}
                     )
         except (
             self.client.exceptions.InternalFailure,
@@ -501,11 +503,12 @@ class SageMakerAIModel(OpenAIModel):
 
     @override
     @classmethod
-    def format_request_tool_message(cls, tool_result: ToolResult) -> dict[str, Any]:
+    def format_request_tool_message(cls, tool_result: ToolResult, **kwargs: Any) -> dict[str, Any]:
         """Format a SageMaker compatible tool message.
 
         Args:
             tool_result: Tool result collected from a tool execution.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             SageMaker compatible tool message with content as a string.
@@ -531,11 +534,12 @@ class SageMakerAIModel(OpenAIModel):
 
     @override
     @classmethod
-    def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
+    def format_request_message_content(cls, content: ContentBlock, **kwargs: Any) -> dict[str, Any]:
         """Format a content block.
 
         Args:
             content: Message content.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             Formatted content block.
@@ -552,7 +556,7 @@ class SageMakerAIModel(OpenAIModel):
                 "thinking": content["reasoningContent"].get("reasoningText", {}).get("text", ""),
                 "type": "thinking",
             }
-        elif not content.get("reasoningContent", None):
+        elif not content.get("reasoningContent"):
             content.pop("reasoningContent", None)
 
         if "video" in content:

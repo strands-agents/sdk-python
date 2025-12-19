@@ -192,6 +192,8 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
     mock_event_7 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_7)])
     mock_event_8 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_8)])
     mock_event_9 = unittest.mock.Mock()
+    mock_event_9.usage.prompt_tokens_details.cached_tokens = 10
+    mock_event_9.usage.cache_creation_input_tokens = 10
 
     litellm_acompletion.side_effect = unittest.mock.AsyncMock(
         return_value=agenerator(
@@ -252,6 +254,8 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
         {
             "metadata": {
                 "usage": {
+                    "cacheReadInputTokens": mock_event_9.usage.prompt_tokens_details.cached_tokens,
+                    "cacheWriteInputTokens": mock_event_9.usage.cache_creation_input_tokens,
                     "inputTokens": mock_event_9.usage.prompt_tokens,
                     "outputTokens": mock_event_9.usage.completion_tokens,
                     "totalTokens": mock_event_9.usage.total_tokens,
@@ -402,3 +406,75 @@ async def test_context_window_maps_to_typed_exception(litellm_acompletion, model
     with pytest.raises(ContextWindowOverflowException):
         async for _ in model.stream([{"role": "user", "content": [{"text": "x"}]}]):
             pass
+
+
+@pytest.mark.asyncio
+async def test_stream_raises_error_when_stream_is_false(model):
+    """Test that stream raises ValueError when stream parameter is explicitly False."""
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+
+    with pytest.raises(ValueError, match="stream parameter cannot be explicitly set to False"):
+        async for _ in model.stream(messages, stream=False):
+            pass
+
+
+def test_format_request_messages_with_system_prompt_content():
+    """Test format_request_messages with system_prompt_content parameter."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    system_prompt_content = [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}]
+
+    result = LiteLLMModel.format_request_messages(messages, system_prompt_content=system_prompt_content)
+
+    expected = [
+        {
+            "role": "system",
+            "content": [
+                {"type": "text", "text": "You are a helpful assistant.", "cache_control": {"type": "ephemeral"}}
+            ],
+        },
+        {"role": "user", "content": [{"text": "Hello", "type": "text"}]},
+    ]
+
+    assert result == expected
+
+
+def test_format_request_messages_backward_compatibility_system_prompt():
+    """Test that system_prompt is converted to system_prompt_content when system_prompt_content is None."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    system_prompt = "You are a helpful assistant."
+
+    result = LiteLLMModel.format_request_messages(messages, system_prompt=system_prompt)
+
+    expected = [
+        {"role": "system", "content": [{"type": "text", "text": "You are a helpful assistant."}]},
+        {"role": "user", "content": [{"text": "Hello", "type": "text"}]},
+    ]
+
+    assert result == expected
+
+
+def test_format_request_messages_cache_point_support():
+    """Test that cache points are properly applied to preceding content blocks."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    system_prompt_content = [
+        {"text": "First instruction."},
+        {"text": "Second instruction."},
+        {"cachePoint": {"type": "default"}},
+        {"text": "Third instruction."},
+    ]
+
+    result = LiteLLMModel.format_request_messages(messages, system_prompt_content=system_prompt_content)
+
+    expected = [
+        {
+            "role": "system",
+            "content": [
+                {"type": "text", "text": "First instruction."},
+                {"type": "text", "text": "Second instruction.", "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": "Third instruction."},
+            ],
+        },
+        {"role": "user", "content": [{"text": "Hello", "type": "text"}]},
+    ]
+
+    assert result == expected

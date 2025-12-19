@@ -509,3 +509,18 @@ async def test_stream(identity_tool, alist):
     tru_events = await alist(stream)
     exp_events = [ToolResultEvent(({"tool_use": 1}, 2))]
     assert tru_events == exp_events
+
+
+def test_normalize_schema_with_anyof():
+    """Test that anyOf properties don't get default type."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "optional_field": {"anyOf": [{"items": {"type": "string"}, "type": "array"}, {"type": "null"}]},
+            "regular_field": {},
+        },
+    }
+    normalized = normalize_schema(schema)
+
+    assert "type" not in normalized["properties"]["optional_field"]
+    assert normalized["properties"]["regular_field"]["type"] == "string"

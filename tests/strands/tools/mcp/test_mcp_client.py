@@ -524,6 +524,33 @@ def test_stop_with_background_thread_but_no_event_loop():
     assert client._background_thread is None
 
 
+def test_stop_closes_event_loop():
+    """Test that stop() properly closes the event loop when it exists."""
+    client = MCPClient(MagicMock())
+
+    # Mock a background thread with event loop
+    mock_thread = MagicMock()
+    mock_thread.join = MagicMock()
+    mock_event_loop = MagicMock()
+    mock_event_loop.close = MagicMock()
+
+    client._background_thread = mock_thread
+    client._background_thread_event_loop = mock_event_loop
+
+    # Should close the event loop and join the thread
+    client.stop(None, None, None)
+
+    # Verify thread was joined
+    mock_thread.join.assert_called_once()
+
+    # Verify event loop was closed
+    mock_event_loop.close.assert_called_once()
+
+    # Verify cleanup occurred
+    assert client._background_thread is None
+    assert client._background_thread_event_loop is None
+
+
 def test_mcp_client_state_reset_after_timeout():
     """Test that all client state is properly reset after timeout."""
 
@@ -688,3 +715,60 @@ def test_call_tool_sync_embedded_unknown_resource_type_dropped(mock_transport, m
         mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
         assert result["status"] == "success"
         assert len(result["content"]) == 0  # Unknown resource type should be dropped
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_non_fatal_error():
+    """Test that _handle_error_message ignores non-fatal errors and logs them."""
+    client = MCPClient(MagicMock())
+
+    # Test the message handler directly with a non-fatal error
+    with patch.object(client, "_log_debug_with_thread") as mock_log:
+        # This should not raise an exception
+        await client._handle_error_message(Exception("unknown request id: abc123"))
+
+        # Verify the non-fatal error was logged as ignored
+        assert mock_log.called
+        call_args = mock_log.call_args[0]
+        assert "ignoring non-fatal MCP session error" in call_args[0]
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_fatal_error():
+    """Test that _handle_error_message raises fatal errors."""
+    client = MCPClient(MagicMock())
+
+    # This should raise the exception
+    with pytest.raises(Exception, match="connection timeout"):
+        await client._handle_error_message(Exception("connection timeout"))
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_non_exception():
+    """Test that _handle_error_message handles non-exception messages."""
+    client = MCPClient(MagicMock())
+
+    # This should not raise an exception
+    await client._handle_error_message("normal message")
+
+
+def test_call_tool_sync_with_meta_and_structured_content(mock_transport, mock_session):
+    """Test that call_tool_sync correctly handles both meta and structuredContent fields."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    metadata = {"tokenUsage": {"inputTokens": 100, "outputTokens": 50}}
+    structured_content = {"result": 42, "status": "completed"}
+    mock_session.call_tool.return_value = MCPCallToolResult(
+        isError=False, content=[mock_content], _meta=metadata, structuredContent=structured_content
+    )
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None)
+
+        assert result["status"] == "success"
+        assert result["toolUseId"] == "test-123"
+        assert "metadata" in result
+        assert result["metadata"] == metadata
+        assert "structuredContent" in result
+        assert result["structuredContent"] == structured_content

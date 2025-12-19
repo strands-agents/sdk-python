@@ -1,12 +1,14 @@
 import asyncio
 import time
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
 import pytest
 
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
+from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
 from strands.hooks.registry import HookRegistry
+from strands.interrupt import Interrupt, _InterruptState
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState
 from strands.session.file_session_manager import FileSessionManager
@@ -22,6 +24,7 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent.id = agent_id or f"{name}_id"
     agent.messages = []
     agent.state = AgentState()  # Add state attribute
+    agent._interrupt_state = _InterruptState()  # Add interrupt state
     agent.tool_registry = Mock()
     agent.tool_registry.registry = {}
     agent.tool_registry.process_tools = Mock()
@@ -1116,6 +1119,9 @@ async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
     state = swarm.serialize_state()
     assert state["type"] == "swarm"
     assert state["id"] == "default_swarm"
+    assert state["_internal_state"] == {
+        "interrupt_state": {"activated": False, "context": {}, "interrupts": {}},
+    }
     assert "status" in state
     assert "node_history" in state
     assert "node_results" in state
@@ -1129,12 +1135,30 @@ async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
         "current_task": "persisted task",
         "next_nodes_to_execute": ["test_agent"],
         "context": {"shared_context": {"test_agent": {"key": "value"}}, "handoff_message": "test handoff"},
+        "_internal_state": {
+            "interrupt_state": {
+                "activated": False,
+                "context": {"a": 1},
+                "interrupts": {
+                    "i1": {
+                        "id": "i1",
+                        "name": "test_name",
+                        "reason": "test_reason",
+                    },
+                },
+            },
+        },
     }
 
-    swarm._from_dict(persisted_state)
+    swarm.deserialize_state(persisted_state)
     assert swarm.state.task == "persisted task"
     assert swarm.state.handoff_message == "test handoff"
     assert swarm.shared_context.context["test_agent"]["key"] == "value"
+    assert swarm._interrupt_state == _InterruptState(
+        activated=False,
+        context={"a": 1},
+        interrupts={"i1": Interrupt(id="i1", name="test_name", reason="test_reason")},
+    )
 
     # Execute swarm to test persistence integration
     result = await swarm.invoke_async("Test persistence")
@@ -1149,3 +1173,177 @@ async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
     assert final_state["status"] == "completed"
     assert len(final_state["node_history"]) == 1
     assert "test_agent" in final_state["node_results"]
+
+
+@pytest.mark.asyncio
+async def test_swarm_handle_handoff():
+    first_agent = create_mock_agent("first")
+    second_agent = create_mock_agent("second")
+
+    swarm = Swarm([first_agent, second_agent])
+
+    async def handoff_stream(*args, **kwargs):
+        yield {"agent_start": True}
+
+        swarm._handle_handoff(swarm.nodes["second"], "test message", {})
+
+        assert swarm.state.current_node.node_id == "first"
+        assert swarm.state.handoff_node.node_id == "second"
+
+        yield {"result": first_agent.return_value}
+
+    first_agent.stream_async = Mock(side_effect=handoff_stream)
+
+    result = await swarm.invoke_async("test")
+    assert result.status == Status.COMPLETED
+
+    tru_node_order = [node.node_id for node in result.node_history]
+    exp_node_order = ["first", "second"]
+    assert tru_node_order == exp_node_order
+
+
+@pytest.mark.parametrize(
+    ("cancel_node", "cancel_message"),
+    [(True, "node cancelled by user"), ("custom cancel message", "custom cancel message")],
+)
+@pytest.mark.asyncio
+async def test_swarm_cancel_node(cancel_node, cancel_message, alist):
+    def cancel_callback(event):
+        event.cancel_node = cancel_node
+        return event
+
+    agent = create_mock_agent("test_agent", "Should not execute")
+    swarm = Swarm([agent])
+    swarm.hooks.add_callback(BeforeNodeCallEvent, cancel_callback)
+
+    stream = swarm.stream_async("test task")
+
+    tru_events = await alist(stream)
+    exp_events = [
+        {
+            "message": cancel_message,
+            "node_id": "test_agent",
+            "type": "multiagent_node_cancel",
+        },
+        {
+            "result": ANY,
+            "type": "multiagent_result",
+        },
+    ]
+    assert tru_events == exp_events
+
+    tru_status = swarm.state.completion_status
+    exp_status = Status.FAILED
+    assert tru_status == exp_status
+
+
+def test_swarm_interrupt_on_before_node_call_event(interrupt_hook):
+    agent = create_mock_agent("test_agent", "Task completed")
+    swarm = Swarm([agent], hooks=[interrupt_hook])
+
+    multiagent_result = swarm("Test task")
+
+    tru_status = multiagent_result.status
+    exp_status = Status.INTERRUPTED
+    assert tru_status == exp_status
+
+    tru_interrupts = multiagent_result.interrupts
+    exp_interrupts = [
+        Interrupt(
+            id=ANY,
+            name="test_name",
+            reason="test_reason",
+        ),
+    ]
+    assert tru_interrupts == exp_interrupts
+
+    interrupt = multiagent_result.interrupts[0]
+    responses = [
+        {
+            "interruptResponse": {
+                "interruptId": interrupt.id,
+                "response": "test_response",
+            },
+        },
+    ]
+    multiagent_result = swarm(responses)
+
+    tru_status = multiagent_result.status
+    exp_status = Status.COMPLETED
+    assert tru_status == exp_status
+
+    assert len(multiagent_result.results) == 1
+    agent_result = multiagent_result.results["test_agent"]
+
+    tru_message = agent_result.result.message["content"][0]["text"]
+    exp_message = "Task completed"
+    assert tru_message == exp_message
+
+
+def test_swarm_interrupt_on_agent(agenerator):
+    exp_interrupts = [
+        Interrupt(
+            id="test_id",
+            name="test_name",
+            reason="test_reason",
+        ),
+    ]
+
+    agent = create_mock_agent("test_agent", "Task completed")
+
+    swarm = Swarm([agent])
+
+    agent.stream_async = Mock()
+    agent.stream_async.return_value = agenerator(
+        [
+            {
+                "result": AgentResult(
+                    message={},
+                    stop_reason="interrupt",
+                    state={},
+                    metrics=None,
+                    interrupts=exp_interrupts,
+                ),
+            },
+        ],
+    )
+    multiagent_result = swarm("Test task")
+
+    tru_status = multiagent_result.status
+    exp_status = Status.INTERRUPTED
+    assert tru_status == exp_status
+
+    tru_interrupts = multiagent_result.interrupts
+    assert tru_interrupts == exp_interrupts
+
+    agent.stream_async = Mock()
+    agent.stream_async.return_value = agenerator(
+        [
+            {
+                "result": AgentResult(
+                    message={},
+                    stop_reason="end_turn",
+                    state={},
+                    metrics=None,
+                ),
+            },
+        ],
+    )
+    swarm._interrupt_state.context["test_agent"]["activated"] = True
+
+    interrupt = multiagent_result.interrupts[0]
+    responses = [
+        {
+            "interruptResponse": {
+                "interruptId": interrupt.id,
+                "response": "test_response",
+            },
+        },
+    ]
+    multiagent_result = swarm(responses)
+
+    tru_status = multiagent_result.status
+    exp_status = Status.COMPLETED
+    assert tru_status == exp_status
+
+    agent.stream_async.assert_called_once_with(responses, invocation_state={})
