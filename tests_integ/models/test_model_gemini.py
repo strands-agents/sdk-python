@@ -189,9 +189,16 @@ def test_agent_structured_output_image_input(assistant_agent, yellow_img, yellow
 
 
 def test_agent_with_gemini_code_execution_tool(gemini_tool_model):
-    # FIXME: Should verify tool usage history, but currently validates by solving a complex calculation
-    system_prompt = "Execute calculations and output only the numerical result. No explanations or units needed."
+    system_prompt = "Generate and run code for all calculations"
     agent = Agent(model=gemini_tool_model, system_prompt=system_prompt)
-    result = agent("Calculate 931567 * 81364")
-    text = result.message.get("content", [{}])[0].get("text", "")
-    assert "75796017388" in text
+    # sample prompt taken from https://ai.google.dev/gemini-api/docs/code-execution
+    result_turn1 = agent(
+        "What is the sum of the first 50 prime numbers? Generate and run code for the calculation, "
+        "and make sure you get all 50."
+    )
+
+    # NOTE: We don't verify tool history because built-in tools are currently represented in message history
+    assert "5117" in str(result_turn1)
+
+    result_turn2 = agent("Summarize that into a single number")
+    assert "5117" in str(result_turn2)
