@@ -24,30 +24,6 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=pydantic.BaseModel)
 
 
-def _validate_gemini_tools(gemini_tools: list[genai.types.Tool]) -> None:
-    """Validate that gemini_tools does not contain FunctionDeclarations.
-
-    Gemini-specific tools should only include tools that cannot be represented
-    as FunctionDeclarations (e.g., GoogleSearch, CodeExecution, ComputerUse).
-    Standard function calling tools should use the tools interface instead.
-
-    Args:
-        gemini_tools: List of Gemini tools to validate
-
-    Raises:
-        ValueError: If any tool contains function_declarations
-    """
-    for tool in gemini_tools:
-        # Check if the tool has function_declarations attribute and it's not empty
-        if hasattr(tool, "function_declarations") and tool.function_declarations:
-            raise ValueError(
-                "gemini_tools should not contain FunctionDeclarations. "
-                "Use the standard tools interface for function calling tools. "
-                "gemini_tools is reserved for Gemini-specific tools like "
-                "GoogleSearch, CodeExecution, ComputerUse, UrlContext, and FileSearch."
-            )
-
-
 class GeminiModel(Model):
     """Google Gemini model provider implementation.
 
@@ -93,7 +69,7 @@ class GeminiModel(Model):
 
         # Validate gemini_tools if provided
         if "gemini_tools" in self.config:
-            _validate_gemini_tools(self.config["gemini_tools"])
+            self._validate_gemini_tools(self.config["gemini_tools"])
 
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -108,7 +84,7 @@ class GeminiModel(Model):
         """
         # Validate gemini_tools if provided
         if "gemini_tools" in model_config:
-            _validate_gemini_tools(model_config["gemini_tools"])
+            self._validate_gemini_tools(model_config["gemini_tools"])
 
         self.config.update(model_config)
 
@@ -492,3 +468,27 @@ class GeminiModel(Model):
         client = genai.Client(**self.client_args).aio
         response = await client.models.generate_content(**request)
         yield {"output": output_model.model_validate(response.parsed)}
+
+    @staticmethod
+    def _validate_gemini_tools(gemini_tools: list[genai.types.Tool]) -> None:
+        """Validate that gemini_tools does not contain FunctionDeclarations.
+
+        Gemini-specific tools should only include tools that cannot be represented
+        as FunctionDeclarations (e.g., GoogleSearch, CodeExecution, ComputerUse).
+        Standard function calling tools should use the tools interface instead.
+
+        Args:
+            gemini_tools: List of Gemini tools to validate
+
+        Raises:
+            ValueError: If any tool contains function_declarations
+        """
+        for tool in gemini_tools:
+            # Check if the tool has function_declarations attribute and it's not empty
+            if hasattr(tool, "function_declarations") and tool.function_declarations:
+                raise ValueError(
+                    "gemini_tools should not contain FunctionDeclarations. "
+                    "Use the standard tools interface for function calling tools. "
+                    "gemini_tools is reserved for Gemini-specific tools like "
+                    "GoogleSearch, CodeExecution, ComputerUse, UrlContext, and FileSearch."
+                )
