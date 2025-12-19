@@ -24,6 +24,7 @@ SESSION_PREFIX = "session_"
 AGENT_PREFIX = "agent_"
 MESSAGE_PREFIX = "message_"
 MULTI_AGENT_PREFIX = "multi_agent_"
+DEFAULT_READ_THREAD_COUNT = 1
 
 
 class S3SessionManager(RepositorySessionManager, SessionRepository):
@@ -72,9 +73,6 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         self.bucket = bucket
         self.prefix = prefix
 
-        # Validate max_parallel_reads
-        if not isinstance(max_parallel_reads, int) or max_parallel_reads < 1:
-            raise ValueError(f"max_parallel_reads must be a positive integer, got {max_parallel_reads}")
         self.max_parallel_reads = max_parallel_reads
 
         session = boto_session or boto3.Session(region_name=region_name)
@@ -321,18 +319,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
 
             # Use ThreadPoolExecutor to fetch messages concurrently
             # Allow per-call override of max_parallel_reads via kwargs, otherwise use instance default
-            max_parallel_reads_override = kwargs.get("max_parallel_reads")
-            if max_parallel_reads_override is not None:
-                if not isinstance(max_parallel_reads_override, int) or max_parallel_reads_override < 1:
-                    raise ValueError(
-                        f"max_parallel_reads must be a positive integer, got {max_parallel_reads_override}"
-                    )
-                max_parallel_reads_value = max_parallel_reads_override
-            else:
-                # Instance default was already validated in __init__, no need to check again
-                max_parallel_reads_value = self.max_parallel_reads
-            
-            max_workers = min(max_parallel_reads_value, len(message_keys))
+            max_workers = min(kwargs.get("max_parallel_reads", self.max_parallel_reads), len(message_keys))
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all read tasks
