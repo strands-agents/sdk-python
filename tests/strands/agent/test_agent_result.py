@@ -201,3 +201,27 @@ def test__str__with_structured_output(mock_metrics, simple_message: Message):
     assert message_string == "Hello world!\n"
     assert "test" not in message_string
     assert "42" not in message_string
+
+
+def test__str__empty_message_with_structured_output(mock_metrics, empty_message: Message):
+    """Test that str() returns structured output JSON when message has no text content."""
+    structured_output = StructuredOutputModel(name="example", value=123, optional_field="optional")
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=empty_message,
+        metrics=mock_metrics,
+        state={},
+        structured_output=structured_output,
+    )
+
+    # When message has no text content, str() should return structured output as JSON
+    message_string = str(result)
+
+    # Verify it's the same as the structured output's JSON representation
+    assert message_string == structured_output.model_dump_json()
+
+    # Verify it contains the expected data
+    assert "example" in message_string
+    assert "123" in message_string
+    assert "optional" in message_string

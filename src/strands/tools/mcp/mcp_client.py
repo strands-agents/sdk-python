@@ -75,6 +75,14 @@ CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE = (
     "https://strandsagents.com/latest/user-guide/concepts/tools/mcp-tools/#mcpclientinitializationerror"
 )
 
+# Non-fatal error patterns that should not cause connection collapse
+_NON_FATAL_ERROR_PATTERNS = [
+    # Occurs when client receives response with unrecognized ID
+    # Can occur after a client-side timeout
+    # See: https://github.com/modelcontextprotocol/python-sdk/blob/c51936f61f35a15f0b1f8fb6887963e5baee1506/src/mcp/shared/session.py#L421
+    "unknown request id",
+]
+
 
 class MCPClient(ToolProvider):
     """Represents a connection to a Model Context Protocol (MCP) server.
@@ -322,6 +330,9 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("waiting for background thread to join")
             self._background_thread.join()
 
+        if self._background_thread_event_loop is not None:
+            self._background_thread_event_loop.close()
+
         self._log_debug_with_thread("background thread is closed, MCPClient context exited")
 
         # Reset fields to allow instance reuse
@@ -555,15 +566,10 @@ class MCPClient(ToolProvider):
 
         if call_tool_result.structuredContent:
             result["structuredContent"] = call_tool_result.structuredContent
+        if call_tool_result.meta:
+            result["metadata"] = call_tool_result.meta
 
         return result
-
-    # Raise an exception if the underlying client raises an exception in a message
-    # This happens when the underlying client has an http timeout error
-    async def _handle_error_message(self, message: Exception | Any) -> None:
-        if isinstance(message, Exception):
-            raise message
-        await anyio.lowlevel.checkpoint()
 
     async def _async_background_thread(self) -> None:
         """Asynchronous method that runs in the background thread to manage the MCP connection.
@@ -615,6 +621,17 @@ class MCPClient(ToolProvider):
                 self._log_debug_with_thread(
                     "encountered exception on background thread after initialization %s", str(e)
                 )
+
+    # Raise an exception if the underlying client raises an exception in a message
+    # This happens when the underlying client has an http timeout error
+    async def _handle_error_message(self, message: Exception | Any) -> None:
+        if isinstance(message, Exception):
+            error_msg = str(message).lower()
+            if any(pattern in error_msg for pattern in _NON_FATAL_ERROR_PATTERNS):
+                self._log_debug_with_thread("ignoring non-fatal MCP session error", message)
+            else:
+                raise message
+        await anyio.lowlevel.checkpoint()
 
     def _background_task(self) -> None:
         """Sets up and runs the event loop in the background thread.

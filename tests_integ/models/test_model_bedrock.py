@@ -210,6 +210,9 @@ def test_document_citations(non_streaming_agent, letter_pdf):
 
     assert any("citationsContent" in content for content in non_streaming_agent.messages[-1]["content"])
 
+    # Validate message structure is valid in multi-turn
+    non_streaming_agent("What is your favorite part?")
+
 
 def test_document_citations_streaming(streaming_agent, letter_pdf):
     content: list[ContentBlock] = [
@@ -227,6 +230,9 @@ def test_document_citations_streaming(streaming_agent, letter_pdf):
     streaming_agent(content)
 
     assert any("citationsContent" in content for content in streaming_agent.messages[-1]["content"])
+
+    # Validate message structure is valid in multi-turn
+    streaming_agent("What is your favorite part?")
 
 
 def test_structured_output_multi_modal_input(streaming_agent, yellow_img, yellow_color):

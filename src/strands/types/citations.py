@@ -3,7 +3,7 @@
 These types are modeled after the Bedrock API.
 """
 
-from typing import List, Union
+from typing import List, Literal, Union
 
 from typing_extensions import TypedDict
 
@@ -77,8 +77,17 @@ class DocumentPageLocation(TypedDict, total=False):
     end: int
 
 
-# Union type for citation locations
-CitationLocation = Union[DocumentCharLocation, DocumentChunkLocation, DocumentPageLocation]
+# Tagged union type aliases following the ToolChoice pattern
+DocumentCharLocationDict = dict[Literal["documentChar"], DocumentCharLocation]
+DocumentPageLocationDict = dict[Literal["documentPage"], DocumentPageLocation]
+DocumentChunkLocationDict = dict[Literal["documentChunk"], DocumentChunkLocation]
+
+# Union type for citation locations - tagged union format matching AWS Bedrock API
+CitationLocation = Union[
+    DocumentCharLocationDict,
+    DocumentPageLocationDict,
+    DocumentChunkLocationDict,
+]
 
 
 class CitationSourceContent(TypedDict, total=False):

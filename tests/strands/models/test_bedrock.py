@@ -2070,3 +2070,76 @@ async def test_stream_backward_compatibility_system_prompt(bedrock_client, model
         "system": [{"text": system_prompt}],
     }
     bedrock_client.converse_stream.assert_called_once_with(**expected_request)
+
+
+@pytest.mark.asyncio
+async def test_citations_content_preserves_tagged_union_structure(bedrock_client, model, alist):
+    """Test that citationsContent preserves AWS Bedrock's required tagged union structure for citation locations.
+
+    This test verifies that when messages contain citationsContent with tagged union CitationLocation objects,
+    the structure is preserved when sent to AWS Bedrock API. AWS Bedrock expects CitationLocation to be a
+    tagged union with exactly one wrapper key (documentChar, documentPage, etc.) containing the location fields.
+    """
+    # Mock the Bedrock response
+    bedrock_client.converse_stream.return_value = {"stream": []}
+
+    # Messages with citationsContent using tagged union CitationLocation structure
+    messages = [
+        {"role": "user", "content": [{"text": "Analyze this document"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "citationsContent": {
+                        "citations": [
+                            {
+                                "location": {"documentChar": {"documentIndex": 0, "start": 150, "end": 300}},
+                                "sourceContent": [
+                                    {"text": "Employee benefits include health insurance and retirement plans"}
+                                ],
+                                "title": "Benefits Section",
+                            },
+                            {
+                                "location": {"documentPage": {"documentIndex": 0, "start": 2, "end": 3}},
+                                "sourceContent": [{"text": "Vacation policy allows 15 days per year"}],
+                                "title": "Vacation Policy",
+                            },
+                        ],
+                        "content": [{"text": "Based on the document, employees receive comprehensive benefits."}],
+                    }
+                }
+            ],
+        },
+    ]
+
+    # Call the public stream method
+    await alist(model.stream(messages))
+
+    # Verify the request sent to Bedrock preserves the tagged union structure
+    bedrock_client.converse_stream.assert_called_once()
+    call_args = bedrock_client.converse_stream.call_args[1]
+
+    # Extract the citationsContent from the formatted messages
+    formatted_messages = call_args["messages"]
+    citations_content = formatted_messages[1]["content"][0]["citationsContent"]
+
+    # Verify the tagged union structure is preserved
+    expected_citations = [
+        {
+            "location": {"documentChar": {"documentIndex": 0, "start": 150, "end": 300}},
+            "sourceContent": [{"text": "Employee benefits include health insurance and retirement plans"}],
+            "title": "Benefits Section",
+        },
+        {
+            "location": {"documentPage": {"documentIndex": 0, "start": 2, "end": 3}},
+            "sourceContent": [{"text": "Vacation policy allows 15 days per year"}],
+            "title": "Vacation Policy",
+        },
+    ]
+
+    assert citations_content["citations"] == expected_citations, (
+        "Citation location tagged union structure was not preserved. "
+        "AWS Bedrock requires CitationLocation to have exactly one wrapper key "
+        "(documentChar, documentPage, documentChunk, searchResultLocation, or web) "
+        "with the location fields nested inside."
+    )
