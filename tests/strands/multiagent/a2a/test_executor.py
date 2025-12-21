@@ -639,11 +639,19 @@ async def test_handle_agent_result_with_none_result(mock_strands_agent, mock_req
     mock_updater.complete = AsyncMock()
     mock_updater.add_artifact = AsyncMock()
 
-    # Call _handle_agent_result with None
+    # Call _handle_agent_result with None (simulating data chunks were sent)
+    executor._current_artifact_id = "test-artifact-id"
+    executor._is_first_chunk = False
     await executor._handle_agent_result(None, mock_updater)
 
-    # Verify completion was called
+    # Verify completion was called and artifact with last_chunk was sent
     mock_updater.complete.assert_called_once()
+    mock_updater.add_artifact.assert_called_once()
+
+    # Verify the artifact was called with empty parts and last_chunk=True
+    call_args = mock_updater.add_artifact.call_args
+    assert call_args[0][0] == []  # Empty parts
+    assert call_args[1]["last_chunk"] is True
 
 
 @pytest.mark.asyncio
@@ -668,16 +676,24 @@ async def test_handle_agent_result_with_result_but_no_message(
     mock_result = MagicMock(spec=SAAgentResult)
     mock_result.message = None
 
-    # Call _handle_agent_result
+    # Call _handle_agent_result (simulating data chunks were sent)
+    executor._current_artifact_id = "test-artifact-id"
+    executor._is_first_chunk = False
     await executor._handle_agent_result(mock_result, mock_updater)
 
-    # Verify completion was called
+    # Verify completion was called and artifact with last_chunk was sent
     mock_updater.complete.assert_called_once()
+    mock_updater.add_artifact.assert_called_once()
+
+    # Verify the artifact was called with empty parts and last_chunk=True
+    call_args = mock_updater.add_artifact.call_args
+    assert call_args[0][0] == []  # Empty parts
+    assert call_args[1]["last_chunk"] is True
 
 
 @pytest.mark.asyncio
 async def test_handle_agent_result_with_content(mock_strands_agent):
-    """Test that _handle_agent_result handles result with content correctly."""
+    """Test that _handle_agent_result handles result with content correctly when chunks were sent."""
     executor = StrandsA2AExecutor(mock_strands_agent)
 
     # Mock TaskUpdater
@@ -689,17 +705,21 @@ async def test_handle_agent_result_with_content(mock_strands_agent):
     mock_result = MagicMock(spec=SAAgentResult)
     mock_result.__str__ = MagicMock(return_value="Test response content")
 
-    # Call _handle_agent_result
+    # Call _handle_agent_result (simulating data chunks were already sent)
+    executor._current_artifact_id = "test-artifact-id"
+    executor._is_first_chunk = False
     await executor._handle_agent_result(mock_result, mock_updater)
 
     # Verify artifact was added and task completed
     mock_updater.add_artifact.assert_called_once()
     mock_updater.complete.assert_called_once()
 
-    # Check that the artifact contains the expected content
-    call_args = mock_updater.add_artifact.call_args[0][0]
-    assert len(call_args) == 1
-    assert call_args[0].root.text == "Test response content"
+    # Check that empty parts were sent with last_chunk=True (since chunks were already sent)
+    call_args = mock_updater.add_artifact.call_args
+    assert call_args[0][0] == []  # Empty parts
+    assert call_args[1]["artifact_id"] == "test-artifact-id"
+    assert call_args[1]["last_chunk"] is True
+    assert call_args[1]["append"] is True
 
 
 def test_handle_conversion_error():
