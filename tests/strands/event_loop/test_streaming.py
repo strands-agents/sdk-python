@@ -900,6 +900,61 @@ async def test_stream_messages(agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_messages_forwards_kwargs(agenerator, alist):
+    """Test that stream_messages forwards kwargs to model.stream()."""
+    mock_model = unittest.mock.MagicMock()
+    mock_model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+
+    stream = strands.event_loop.streaming.stream_messages(
+        mock_model,
+        system_prompt_content=[{"text": "test prompt"}],
+        messages=[{"role": "user", "content": [{"text": "Hello"}]}],
+        tool_specs=[],
+        system_prompt=None,
+        extra_body={"return_token_ids": True},
+    )
+
+    await alist(stream)
+
+    mock_model.stream.assert_called_with(
+        [{"role": "user", "content": [{"text": "Hello"}]}],
+        None,
+        None,
+        tool_choice=None,
+        system_prompt_content=[{"text": "test prompt"}],
+        extra_body={"return_token_ids": True},
+    )
+
+
+@pytest.mark.asyncio
+async def test_process_stream_preserves_additional_model_response_fields(agenerator, alist):
+    """Test that messageStop.additionalModelResponseFields is preserved into the final message."""
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "Hello"}}},
+        {"contentBlockStop": {}},
+        {
+            "messageStop": {
+                "stopReason": "end_turn",
+                "additionalModelResponseFields": {"prompt_token_ids": [1, 2, 3], "token_ids": [4, 5]},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+    message = cast(Message, last_event["stop"][1])
+
+    assert message["additionalModelResponseFields"]["prompt_token_ids"] == [1, 2, 3]
+    assert message["additionalModelResponseFields"]["token_ids"] == [4, 5]
+
+
+@pytest.mark.asyncio
 async def test_stream_messages_with_system_prompt_content(agenerator, alist):
     """Test stream_messages with SystemContentBlock input."""
     mock_model = unittest.mock.MagicMock()
