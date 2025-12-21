@@ -4,6 +4,7 @@ import os
 
 import boto3
 import pytest
+from botocore.exceptions import NoRegionError
 
 logger = logging.getLogger(__name__)
 
@@ -54,20 +55,29 @@ def alist():
 
 def _load_api_keys_from_secrets_manager():
     """Load API keys as environment variables from AWS Secrets Manager."""
-    session = boto3.session.Session()
-    client = session.client(service_name="secretsmanager")
-    if "STRANDS_TEST_API_KEYS_SECRET_NAME" in os.environ:
+    secret_name = os.getenv("STRANDS_TEST_API_KEYS_SECRET_NAME")
+    if secret_name:
         try:
-            secret_name = os.getenv("STRANDS_TEST_API_KEYS_SECRET_NAME")
-            response = client.get_secret_value(SecretId=secret_name)
+            region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
+            if not region:
+                logger.warning(
+                    "STRANDS_TEST_API_KEYS_SECRET_NAME is set but AWS region is not configured; "
+                    "skipping Secrets Manager lookup"
+                )
+            else:
+                session = boto3.session.Session(region_name=region)
+                client = session.client(service_name="secretsmanager", region_name=region)
+                response = client.get_secret_value(SecretId=secret_name)
 
-            if "SecretString" in response:
-                secret = json.loads(response["SecretString"])
-                for key, value in secret.items():
-                    os.environ[f"{key.upper()}_API_KEY"] = str(value)
+                if "SecretString" in response:
+                    secret = json.loads(response["SecretString"])
+                    for key, value in secret.items():
+                        os.environ[f"{key.upper()}_API_KEY"] = str(value)
 
+        except NoRegionError:
+            logger.warning("AWS region not configured; skipping Secrets Manager lookup")
         except Exception as e:
-            logger.warning("Error retrieving secret", e)
+            logger.warning("Error retrieving secret", exc_info=e)
 
     """
     Validate that required environment variables are set when running in GitHub Actions.
