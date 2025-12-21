@@ -16,6 +16,8 @@ from strands.models.llamaapi import LlamaAPIModel
 from strands.models.mistral import MistralModel
 from strands.models.ollama import OllamaModel
 from strands.models.openai import OpenAIModel
+from strands.models.sglang import SGLangModel
+from strands.models.vllm import VLLMModel
 from strands.models.writer import WriterModel
 
 
@@ -56,6 +58,64 @@ class OllamaProviderInfo(ProviderInfo):
         self.mark = mark.skipif(
             not is_server_available,
             reason="Local Ollama endpoint not available at localhost:11434",
+        )
+
+
+class VLLMProviderInfo(ProviderInfo):
+    """Special case vLLM as it's dependent on the server being available."""
+
+    def __init__(self):
+        super().__init__(
+            id="vllm",
+            factory=lambda: VLLMModel(
+                client_args={
+                    "api_key": "EMPTY",
+                    "base_url": os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1"),
+                },
+                model_id=os.getenv("VLLM_MODEL_ID", "AMead10/Llama-3.2-3B-Instruct-AWQ"),
+                params={"max_tokens": 64, "temperature": 0},
+                return_token_ids=True,
+            ),
+        )
+
+        base_url = os.getenv("VLLM_BASE_URL", "http://localhost:8000/v1").rstrip("/")
+        is_server_available = False
+        try:
+            # OpenAI-compatible discovery endpoint.
+            is_server_available = requests.get(f"{base_url}/models", timeout=2).ok
+        except requests.exceptions.RequestException:
+            pass
+
+        self.mark = mark.skipif(
+            not is_server_available,
+            reason=f"Local vLLM endpoint not available at {base_url}",
+        )
+
+
+class SGLangProviderInfo(ProviderInfo):
+    """Special case SGLang as it's dependent on the server being available."""
+
+    def __init__(self):
+        super().__init__(
+            id="sglang",
+            factory=lambda: SGLangModel(
+                base_url=os.getenv("SGLANG_BASE_URL", "http://localhost:30000"),
+                model_id=os.getenv("SGLANG_MODEL_ID"),
+                params={"max_new_tokens": 64, "temperature": 0},
+                return_token_ids=True,
+            ),
+        )
+
+        base_url = os.getenv("SGLANG_BASE_URL", "http://localhost:30000").rstrip("/")
+        is_server_available = False
+        try:
+            is_server_available = requests.get(f"{base_url}/health", timeout=2).ok
+        except requests.exceptions.RequestException:
+            pass
+
+        self.mark = mark.skipif(
+            not is_server_available,
+            reason=f"Local SGLang endpoint not available at {base_url}",
         )
 
 
@@ -138,6 +198,8 @@ gemini = ProviderInfo(
 )
 
 ollama = OllamaProviderInfo()
+vllm = VLLMProviderInfo()
+sglang = SGLangProviderInfo()
 
 
 all_providers = [
