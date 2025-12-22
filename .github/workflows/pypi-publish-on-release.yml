@@ -12,6 +12,8 @@ jobs:
       contents: read
     with:
       ref: ${{ github.event.release.target_commitish }}
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   build:
     name: Build distribution 📦

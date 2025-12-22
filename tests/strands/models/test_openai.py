@@ -13,7 +13,10 @@ from strands.types.exceptions import ContextWindowOverflowException, ModelThrott
 def openai_client():
     with unittest.mock.patch.object(strands.models.openai.openai, "AsyncOpenAI") as mock_client_cls:
         mock_client = unittest.mock.AsyncMock()
-        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        # Make the mock client work as an async context manager
+        mock_client.__aenter__ = unittest.mock.AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = unittest.mock.AsyncMock(return_value=None)
+        mock_client_cls.return_value = mock_client
         yield mock_client
 
 
@@ -616,6 +619,7 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
 
 @pytest.mark.asyncio
 async def test_stream_respects_streaming_flag(openai_client, model_id, alist):
+    """Test that the streaming flag in config is respected."""
     # Model configured to NOT stream
     model = OpenAIModel(client_args={}, model_id=model_id, params={"max_tokens": 1}, streaming=False)
 
@@ -624,6 +628,7 @@ async def test_stream_respects_streaming_flag(openai_client, model_id, alist):
     mock_choice.finish_reason = "stop"
     mock_choice.message = unittest.mock.Mock()
     mock_choice.message.content = "non-stream result"
+    mock_choice.message.tool_calls = None
     mock_response = unittest.mock.Mock()
     mock_response.choices = [mock_choice]
     mock_response.usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
@@ -658,6 +663,45 @@ async def test_stream_respects_streaming_flag(openai_client, model_id, alist):
         },
     ]
     assert tru_events == exp_events
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_tool_call(openai_client, model_id, alist):
+    """Test that tool calls work correctly in non-streaming mode (Fix for #778)."""
+    # Mock a tool call in a non-streaming response
+    mock_tool_call = unittest.mock.Mock()
+    mock_tool_call.id = "t1"
+    mock_tool_call.function.name = "get_weather"
+    mock_tool_call.function.arguments = '{"location": "London"}'
+
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message.content = None
+    mock_choice.message.tool_calls = [mock_tool_call]
+    mock_choice.finish_reason = "tool_calls"
+
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+    mock_response.usage = None
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=mock_response)
+
+    model = OpenAIModel(model_id=model_id, streaming=False)
+    messages = [{"role": "user", "content": [{"text": "What is the weather?"}]}]
+
+    events = await alist(model.stream(messages))
+
+    # Verify tool use events were emitted
+    tool_starts = [e for e in events if "contentBlockStart" in e and "toolUse" in e["contentBlockStart"]["start"]]
+    assert len(tool_starts) == 1
+    assert tool_starts[0]["contentBlockStart"]["start"]["toolUse"]["name"] == "get_weather"
+
+    tool_deltas = [e for e in events if "contentBlockDelta" in e and "toolUse" in e["contentBlockDelta"]["delta"]]
+    assert len(tool_deltas) == 1
+    assert tool_deltas[0]["contentBlockDelta"]["delta"]["toolUse"]["input"] == '{"location": "London"}'
+
+    # Verify stop reason
+    stop_event = next(e for e in events if "messageStop" in e)
+    assert stop_event["messageStop"]["stopReason"] == "tool_use"
 
 
 @pytest.mark.asyncio
@@ -1032,3 +1076,77 @@ def test_format_request_messages_drops_cache_points():
     ]
 
     assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_stream_with_injected_client(model_id, agenerator, alist):
+    """Test that stream works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.AsyncMock()
+    mock_injected_client.close = unittest.mock.AsyncMock()
+
+    mock_delta = unittest.mock.Mock(content="Hello", tool_calls=None, reasoning_content=None)
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
+    mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
+    mock_event_3 = unittest.mock.Mock()
+
+    mock_injected_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3])
+    )
+
+    # Create model with injected client
+    model = OpenAIModel(client=mock_injected_client, model_id=model_id, params={"max_tokens": 1})
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    # Verify events were generated
+    assert len(tru_events) > 0
+
+    # Verify the injected client was used
+    mock_injected_client.chat.completions.create.assert_called_once()
+
+    # Verify the injected client was NOT closed
+    mock_injected_client.close.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_structured_output_with_injected_client(model_id, test_output_model_cls, alist):
+    """Test that structured_output works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.AsyncMock()
+    mock_injected_client.close = unittest.mock.AsyncMock()
+
+    mock_parsed_instance = test_output_model_cls(name="John", age=30)
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message.parsed = mock_parsed_instance
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    mock_injected_client.beta.chat.completions.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    # Create model with injected client
+    model = OpenAIModel(client=mock_injected_client, model_id=model_id, params={"max_tokens": 1})
+
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
+
+    # Verify output was generated
+    assert len(events) == 1
+    assert events[0] == {"output": test_output_model_cls(name="John", age=30)}
+
+    # Verify the injected client was used
+    mock_injected_client.beta.chat.completions.parse.assert_called_once()
+
+    # Verify the injected client was NOT closed
+    mock_injected_client.close.assert_not_called()
+
+
+def test_init_with_both_client_and_client_args_raises_error():
+    """Test that providing both client and client_args raises ValueError."""
+    mock_client = unittest.mock.AsyncMock()
+
+    with pytest.raises(ValueError, match="Only one of 'client' or 'client_args' should be provided"):
+        OpenAIModel(client=mock_client, client_args={"api_key": "test"}, model_id="test-model")

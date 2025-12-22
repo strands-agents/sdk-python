@@ -7,10 +7,15 @@ from typing import Any
 class PrintingCallbackHandler:
     """Handler for streaming text output and tool invocations to stdout."""
 
-    def __init__(self) -> None:
-        """Initialize handler."""
+    def __init__(self, verbose_tool_use: bool = True) -> None:
+        """Initialize handler.
+
+        Args:
+            verbose_tool_use: Print out verbose information about tool calls.
+        """
         self.tool_count = 0
         self.previous_tool_use = None
+        self._verbose_tool_use = verbose_tool_use
 
     def __call__(self, **kwargs: Any) -> None:
         """Stream text output and tool invocations to stdout.
@@ -34,11 +39,12 @@ class PrintingCallbackHandler:
             print(data, end="" if not complete else "\n")
 
         if current_tool_use and current_tool_use.get("name"):
-            tool_name = current_tool_use.get("name", "Unknown tool")
             if self.previous_tool_use != current_tool_use:
                 self.previous_tool_use = current_tool_use
                 self.tool_count += 1
-                print(f"\nTool #{self.tool_count}: {tool_name}")
+                if self._verbose_tool_use:
+                    tool_name = current_tool_use.get("name", "Unknown tool")
+                    print(f"\nTool #{self.tool_count}: {tool_name}")
 
         if complete and data:
             print("\n")

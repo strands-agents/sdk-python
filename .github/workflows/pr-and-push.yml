@@ -17,3 +17,5 @@ jobs:
       contents: read
     with:
       ref: ${{ github.event.pull_request.head.sha }}
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
