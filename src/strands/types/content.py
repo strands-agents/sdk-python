@@ -15,7 +15,7 @@ from .media import DocumentContent, ImageContent, VideoContent
 from .tools import ToolResult, ToolUse
 
 
-class GuardContentText(TypedDict):
+class GuardContentText(TypedDict, total=False):
     """Text content to be evaluated by guardrails.
 
     Attributes:

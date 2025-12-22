@@ -1849,7 +1849,7 @@ def test_format_request_guard_content_with_qualifiers(model, model_id):
         }
     ]
 
-    formatted = model.format_request(messages)
+    formatted = model._format_request(messages)
     guard_block = formatted["messages"][0]["content"][0]["guardContent"]
     assert guard_block == {"text": {"text": "guarded text", "qualifiers": ["q1", "q2"]}}
 
@@ -1863,7 +1863,7 @@ def test_format_request_guard_content_without_qualifiers(model, model_id):
         }
     ]
 
-    formatted = model.format_request(messages)
+    formatted = model._format_request(messages)
     guard_block = formatted["messages"][0]["content"][0]["guardContent"]
     assert guard_block == {"text": {"text": "guarded text no qualifiers"}}
 
