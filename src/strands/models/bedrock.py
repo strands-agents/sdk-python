@@ -209,14 +209,7 @@ class BedrockModel(Model):
         Returns:
             A Bedrock converse stream request.
         """
-        # Filter messages for guardrails if guardrail_last_turn_only is enabled
         messages_for_request = messages
-        if (
-            self.config.get("guardrail_last_turn_only", False)
-            and self.config.get("guardrail_id")
-            and self.config.get("guardrail_version")
-        ):
-            messages_for_request = self._get_last_turn_messages(messages)
 
         if not tool_specs:
             has_tool_content = any(
@@ -237,7 +230,10 @@ class BedrockModel(Model):
 
         return {
             "modelId": self.config["model_id"],
-            "messages": self._format_bedrock_messages(messages_for_request),
+            "messages": self._format_bedrock_messages(
+                messages_for_request,
+                guardrail_last_turn_only=bool(self.config.get("guardrail_last_turn_only", False)),
+            ),
             "system": system_blocks,
             **(
                 {
@@ -308,36 +304,20 @@ class BedrockModel(Model):
             ),
         }
 
-    def _get_last_turn_messages(self, messages: Messages) -> Messages:
-        """Get the last turn messages for guardrail evaluation.
-
-        Returns the latest user message and the assistant's response (if it exists).
-        This reduces the conversation context sent to guardrails when guardrail_last_turn_only is True.
-
-        Args:
-            messages: Full conversation messages.
-
-        Returns:
-            Messages containing only the last turn (user + assistant response if exists).
-        """
-        for i in range(len(messages) - 1, -1, -1):
-            if messages[i]["role"] == "user":
-                # Include assistant response if it immediately follows
-                if i + 1 < len(messages) and messages[i + 1]["role"] == "assistant":
-                    return [messages[i], messages[i + 1]]
-                return [messages[i]]
-        return []
-
-    def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
+    def _format_bedrock_messages(
+        self, messages: Messages, guardrail_last_turn_only: bool = False
+    ) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
 
         This function ensures messages conform to Bedrock's expected format by:
         - Filtering out SDK_UNKNOWN_MEMBER content blocks
         - Eagerly filtering content blocks to only include Bedrock-supported fields
         - Ensuring all message content blocks are properly formatted for the Bedrock API
+        - Optionally wrapping the last user message in guardrailConverseContent blocks
 
         Args:
             messages: List of messages to format
+            guardrail_last_turn_only: If True, wrap the last user message content in guardrailConverseContent blocks
 
         Returns:
             Messages formatted for Bedrock API compatibility
@@ -354,7 +334,15 @@ class BedrockModel(Model):
         filtered_unknown_members = False
         dropped_deepseek_reasoning_content = False
 
-        for message in messages:
+        # Find the index of the last user message if wrapping is enabled
+        last_user_idx = -1
+        if guardrail_last_turn_only:
+            for i in range(len(messages) - 1, -1, -1):
+                if messages[i]["role"] == "user":
+                    last_user_idx = i
+                    break
+
+        for idx, message in enumerate(messages):
             cleaned_content: list[dict[str, Any]] = []
 
             for content_block in message["content"]:
@@ -371,6 +359,11 @@ class BedrockModel(Model):
 
                 # Format content blocks for Bedrock API compatibility
                 formatted_content = self._format_request_message_content(content_block)
+
+                # Wrap text content in guardrailConverseContent if this is the last user message
+                if guardrail_last_turn_only and idx == last_user_idx and "text" in formatted_content:
+                    formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
+
                 cleaned_content.append(formatted_content)
 
             # Create new message with cleaned content (skip if empty)

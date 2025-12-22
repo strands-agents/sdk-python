@@ -2052,81 +2052,6 @@ def test_format_request_filters_output_schema(model, messages, model_id):
     assert tool_spec["inputSchema"] == {"type": "object", "properties": {}}
 
 
-def test_get_last_turn_messages(model):
-    """Test _get_last_turn_messages helper method."""
-    # Test empty messages
-    assert model._get_last_turn_messages([]) == []
-
-    # Test single user message (no assistant response yet)
-    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
-    result = model._get_last_turn_messages(messages)
-    assert len(result) == 1
-    assert result[0]["role"] == "user"
-
-    # Test user-assistant pair (user message with assistant response)
-    messages = [
-        {"role": "user", "content": [{"text": "Hello"}]},
-        {"role": "assistant", "content": [{"text": "Hi"}]},
-        {"role": "user", "content": [{"text": "How are you?"}]},
-        {"role": "assistant", "content": [{"text": "I'm doing well"}]},
-    ]
-    result = model._get_last_turn_messages(messages)
-    assert len(result) == 2
-    assert result[0]["role"] == "user"
-    assert result[0]["content"][0]["text"] == "How are you?"
-    assert result[1]["role"] == "assistant"
-    assert result[1]["content"][0]["text"] == "I'm doing well"
-
-    # Test last user message without assistant response
-    messages = [
-        {"role": "user", "content": [{"text": "Hello"}]},
-        {"role": "assistant", "content": [{"text": "Hi"}]},
-        {"role": "user", "content": [{"text": "How are you?"}]},
-    ]
-    result = model._get_last_turn_messages(messages)
-    assert len(result) == 1
-    assert result[0]["role"] == "user"
-    assert result[0]["content"][0]["text"] == "How are you?"
-
-
-def test_format_request_with_guardrail_last_turn_only(model, model_id):
-    """Test _format_request uses filtered messages when guardrail_last_turn_only=True."""
-    model.update_config(guardrail_id="test-guardrail", guardrail_version="DRAFT", guardrail_last_turn_only=True)
-
-    # Test with last user message only (no assistant response yet)
-    messages = [
-        {"role": "user", "content": [{"text": "First message"}]},
-        {"role": "assistant", "content": [{"text": "First response"}]},
-        {"role": "user", "content": [{"text": "Latest message"}]},
-    ]
-
-    request = model._format_request(messages)
-
-    # Should only include the last user message (no assistant response after it yet)
-    formatted_messages = request["messages"]
-    assert len(formatted_messages) == 1
-    assert formatted_messages[0]["role"] == "user"
-    assert formatted_messages[0]["content"][0]["text"] == "Latest message"
-
-    # Test with last user message + assistant response
-    messages_with_response = [
-        {"role": "user", "content": [{"text": "First message"}]},
-        {"role": "assistant", "content": [{"text": "First response"}]},
-        {"role": "user", "content": [{"text": "How are you?"}]},
-        {"role": "assistant", "content": [{"text": "I'm good"}]},
-    ]
-
-    request2 = model._format_request(messages_with_response)
-
-    # Should include last user + assistant response
-    formatted_messages2 = request2["messages"]
-    assert len(formatted_messages2) == 2
-    assert formatted_messages2[0]["role"] == "user"
-    assert formatted_messages2[0]["content"][0]["text"] == "How are you?"
-    assert formatted_messages2[1]["role"] == "assistant"
-    assert formatted_messages2[1]["content"][0]["text"] == "I'm good"
-
-
 @pytest.mark.asyncio
 async def test_stream_backward_compatibility_system_prompt(bedrock_client, model, messages, alist):
     """Test that system_prompt is converted to system_prompt_content when system_prompt_content is None."""
@@ -2271,3 +2196,82 @@ async def test_citations_content_preserves_tagged_union_structure(bedrock_client
         "(documentChar, documentPage, documentChunk, searchResultLocation, or web) "
         "with the location fields nested inside."
     )
+
+
+@pytest.mark.asyncio
+async def test_format_request_with_guardrail_last_turn_only(model):
+    """Test _format_request passes apply_last_turn flag correctly."""
+    model.update_config(guardrail_id="test-guardrail", guardrail_version="DRAFT", guardrail_last_turn_only=True)
+
+    messages = [
+        {"role": "user", "content": [{"text": "First message"}]},
+        {"role": "assistant", "content": [{"text": "First response"}]},
+        {"role": "user", "content": [{"text": "Latest message"}]},
+    ]
+
+    request = model._format_request(messages)
+
+    # All messages should be in the request
+    formatted_messages = request["messages"]
+    assert len(formatted_messages) == 3
+
+    # Last user message should be wrapped
+    assert "guardContent" in formatted_messages[2]["content"][0]
+    assert formatted_messages[2]["content"][0]["guardContent"]["text"]["text"] == "Latest message"
+
+    # First user message should NOT be wrapped
+    assert "text" in formatted_messages[0]["content"][0]
+    assert formatted_messages[0]["content"][0]["text"] == "First message"
+
+
+def test_format_bedrock_messages_multimodal_content(model):
+    """Test that only text blocks are wrapped, not images."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Look at this image"},
+                {"image": {"format": "png", "source": {"bytes": b"fake_image_data"}}},
+            ],
+        }
+    ]
+
+    result = model._format_bedrock_messages(messages, guardrail_last_turn_only=True)
+
+    # Should have 2 content blocks
+    assert len(result[0]["content"]) == 2
+
+    # Text should be wrapped
+    assert "guardContent" in result[0]["content"][0]
+    assert result[0]["content"][0]["guardContent"]["text"]["text"] == "Look at this image"
+
+    # Image should NOT be wrapped
+    assert "image" in result[0]["content"][1]
+
+
+def test_format_bedrock_messages_wraps_last_user_text(model):
+    """Test that only the last user message text is wrapped in guardContent."""
+    messages = [
+        {"role": "user", "content": [{"text": "First message"}]},
+        {"role": "assistant", "content": [{"text": "First response"}]},
+        {"role": "user", "content": [{"text": "Latest message"}]},
+    ]
+
+    result = model._format_bedrock_messages(messages, guardrail_last_turn_only=True)
+
+    # All messages should be present
+    assert len(result) == 3
+
+    # First user message should NOT be wrapped
+    assert result[0]["role"] == "user"
+    assert "text" in result[0]["content"][0]
+    assert result[0]["content"][0]["text"] == "First message"
+
+    # Assistant message should be unchanged
+    assert result[1]["role"] == "assistant"
+    assert result[1]["content"][0]["text"] == "First response"
+
+    # Last user message should be wrapped in guardContent
+    assert result[2]["role"] == "user"
+    assert "guardContent" in result[2]["content"][0]
+    assert result[2]["content"][0]["guardContent"]["text"]["text"] == "Latest message"
