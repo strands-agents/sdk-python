@@ -6,17 +6,17 @@ This is intended to mimic the behaviors of asyncio.TaskGroup released in Python 
 """
 
 import asyncio
-from typing import Any, Coroutine
+from typing import Any, Coroutine, cast
 
 
 class _TaskGroup:
     """Shim of asyncio.TaskGroup for use in Python 3.10.
 
     Attributes:
-        _tasks: List of tasks in group.
+        _tasks: Set of tasks in group.
     """
 
-    _tasks: list[asyncio.Task]
+    _tasks: set[asyncio.Task]
 
     def create_task(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Task:
         """Create an async task and add to group.
@@ -25,12 +25,12 @@ class _TaskGroup:
             The created task.
         """
         task = asyncio.create_task(coro)
-        self._tasks.append(task)
+        self._tasks.add(task)
         return task
 
     async def __aenter__(self) -> "_TaskGroup":
         """Setup self managed task group context."""
-        self._tasks = []
+        self._tasks = set()
         return self
 
     async def __aexit__(self, *_: Any) -> None:
@@ -42,20 +42,28 @@ class _TaskGroup:
         - The context re-raises CancelledErrors to the caller only if the context itself was cancelled.
         """
         try:
-            await asyncio.gather(*self._tasks)
+            pending_tasks = self._tasks
+            while pending_tasks:
+                done_tasks, pending_tasks = await asyncio.wait(pending_tasks, return_when=asyncio.FIRST_EXCEPTION)
 
-        except (Exception, asyncio.CancelledError) as error:
+                if any(exception := done_task.exception() for done_task in done_tasks if not done_task.cancelled()):
+                    break
+
+            else:  # all tasks completed/cancelled successfully
+                return
+
+            for pending_task in pending_tasks:
+                pending_task.cancel()
+
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
+            raise cast(BaseException, exception)
+
+        except asyncio.CancelledError:  # context itself was cancelled
             for task in self._tasks:
                 task.cancel()
 
             await asyncio.gather(*self._tasks, return_exceptions=True)
-
-            if not isinstance(error, asyncio.CancelledError):
-                raise
-
-            context_task = asyncio.current_task()
-            if context_task and context_task.cancelling() > 0:  # context itself was cancelled
-                raise
+            raise
 
         finally:
-            self._tasks = []
+            self._tasks = set()
