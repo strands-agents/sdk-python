@@ -705,6 +705,38 @@ async def test_stream_non_streaming_tool_call(openai_client, model_id, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_non_streaming_multi_block_response(openai_client, model_id, alist):
+    """Test non-streaming response with multiple content blocks (text and reasoning)."""
+    # Mock a response with a list of blocks
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message.content = [
+        {"reasoningContent": {"reasoningText": {"text": "I will check the weather."}}},
+        {"text": "Checking weather now..."},
+        "Additional string block",
+    ]
+    mock_choice.message.tool_calls = None
+    mock_choice.finish_reason = "stop"
+
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+    mock_response.usage = None
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=mock_response)
+
+    model = OpenAIModel(model_id=model_id, streaming=False)
+    events = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+
+    # Verify both types of content were captured
+    event_contents = [e["contentBlockDelta"]["delta"] for e in events if "contentBlockDelta" in e]
+
+    assert any(
+        "reasoningContent" in c and c["reasoningContent"]["text"] == "I will check the weather." for c in event_contents
+    )
+    assert any("text" in c and c["text"] == "Checking weather now..." for c in event_contents)
+    assert any("text" in c and c["text"] == "Additional string block" for c in event_contents)
+
+
+@pytest.mark.asyncio
 async def test_stream_empty(openai_client, model_id, model, agenerator, alist):
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
 
