@@ -238,6 +238,22 @@ def test_split_tool_message_images_only_image():
     assert len(user_with_image["content"]) == 1
 
 
+def test_split_tool_message_images_non_tool_role():
+    """Test that messages with roles other than 'tool' are ignored."""
+    user_msg = {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+    clean, extra = OpenAIModel._split_tool_message_images(user_msg)
+    assert clean == user_msg
+    assert extra is None
+
+
+def test_split_tool_message_images_invalid_content_type():
+    """Test that messages with non-list content are ignored."""
+    invalid_msg = {"role": "tool", "content": "not a list"}
+    clean, extra = OpenAIModel._split_tool_message_images(invalid_msg)
+    assert clean == invalid_msg
+    assert extra is None
+
+
 def test_format_request_messages_with_tool_result_containing_image():
     """Test that tool results with images are properly split into tool and user messages."""
     messages = [
