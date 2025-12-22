@@ -14,9 +14,10 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..tools import convert_pydantic_to_tool_spec
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException
-from ..types.streaming import StreamEvent
+from ..types.streaming import MetadataEvent, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
 from .openai import OpenAIModel
@@ -81,11 +82,12 @@ class LiteLLMModel(OpenAIModel):
 
     @override
     @classmethod
-    def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
+    def format_request_message_content(cls, content: ContentBlock, **kwargs: Any) -> dict[str, Any]:
         """Format a LiteLLM content block.
 
         Args:
             content: Message content.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             LiteLLM formatted content block.
@@ -111,6 +113,132 @@ class LiteLLMModel(OpenAIModel):
 
         return super().format_request_message_content(content)
 
+    def _stream_switch_content(self, data_type: str, prev_data_type: str | None) -> tuple[list[StreamEvent], str]:
+        """Handle switching to a new content stream.
+
+        Args:
+            data_type: The next content data type.
+            prev_data_type: The previous content data type.
+
+        Returns:
+            Tuple containing:
+            - Stop block for previous content and the start block for the next content.
+            - Next content data type.
+        """
+        chunks = []
+        if data_type != prev_data_type:
+            if prev_data_type is not None:
+                chunks.append(self.format_chunk({"chunk_type": "content_stop", "data_type": prev_data_type}))
+            chunks.append(self.format_chunk({"chunk_type": "content_start", "data_type": data_type}))
+
+        return chunks, data_type
+
+    @override
+    @classmethod
+    def _format_system_messages(
+        cls,
+        system_prompt: Optional[str] = None,
+        *,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """Format system messages for LiteLLM with cache point support.
+
+        Args:
+            system_prompt: System prompt to provide context to the model.
+            system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            List of formatted system messages.
+        """
+        # Handle backward compatibility: if system_prompt is provided but system_prompt_content is None
+        if system_prompt and system_prompt_content is None:
+            system_prompt_content = [{"text": system_prompt}]
+
+        system_content: list[dict[str, Any]] = []
+        for block in system_prompt_content or []:
+            if "text" in block:
+                system_content.append({"type": "text", "text": block["text"]})
+            elif "cachePoint" in block and block["cachePoint"].get("type") == "default":
+                # Apply cache control to the immediately preceding content block
+                # for LiteLLM/Anthropic compatibility
+                if system_content:
+                    system_content[-1]["cache_control"] = {"type": "ephemeral"}
+
+        # Create single system message with content array rather than mulitple system messages
+        return [{"role": "system", "content": system_content}] if system_content else []
+
+    @override
+    @classmethod
+    def format_request_messages(
+        cls,
+        messages: Messages,
+        system_prompt: Optional[str] = None,
+        *,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """Format a LiteLLM compatible messages array with cache point support.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model (for legacy compatibility).
+            system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            A LiteLLM compatible messages array.
+        """
+        formatted_messages = cls._format_system_messages(system_prompt, system_prompt_content=system_prompt_content)
+        formatted_messages.extend(cls._format_regular_messages(messages))
+
+        return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
+
+    @override
+    def format_chunk(self, event: dict[str, Any], **kwargs: Any) -> StreamEvent:
+        """Format a LiteLLM response event into a standardized message chunk.
+
+        This method overrides OpenAI's format_chunk to handle the metadata case
+        with prompt caching support. All other chunk types use the parent implementation.
+
+        Args:
+            event: A response event from the LiteLLM model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            The formatted chunk.
+
+        Raises:
+            RuntimeError: If chunk_type is not recognized.
+        """
+        # Handle metadata case with prompt caching support
+        if event["chunk_type"] == "metadata":
+            usage_data: Usage = {
+                "inputTokens": event["data"].prompt_tokens,
+                "outputTokens": event["data"].completion_tokens,
+                "totalTokens": event["data"].total_tokens,
+            }
+
+            # Only LiteLLM over Anthropic supports cache write tokens
+            # Waiting until a more general approach is available to set cacheWriteInputTokens
+            if tokens_details := getattr(event["data"], "prompt_tokens_details", None):
+                if cached := getattr(tokens_details, "cached_tokens", None):
+                    usage_data["cacheReadInputTokens"] = cached
+            if creation := getattr(event["data"], "cache_creation_input_tokens", None):
+                usage_data["cacheWriteInputTokens"] = creation
+
+            return StreamEvent(
+                metadata=MetadataEvent(
+                    metrics={
+                        "latencyMs": 0,  # TODO
+                    },
+                    usage=usage_data,
+                )
+            )
+        # For all other cases, use the parent implementation
+        return super().format_chunk(event)
+
     @override
     async def stream(
         self,
@@ -119,6 +247,7 @@ class LiteLLMModel(OpenAIModel):
         system_prompt: Optional[str] = None,
         *,
         tool_choice: ToolChoice | None = None,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the LiteLLM model.
@@ -128,17 +257,22 @@ class LiteLLMModel(OpenAIModel):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            system_prompt_content: System prompt content blocks to provide context to the model.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Formatted message chunks from the model.
         """
         logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
+        request = self.format_request(
+            messages, tool_specs, system_prompt, tool_choice, system_prompt_content=system_prompt_content
+        )
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
         try:
+            if kwargs.get("stream") is False:
+                raise ValueError("stream parameter cannot be explicitly set to False")
             response = await litellm.acompletion(**self.client_args, **request)
         except ContextWindowExceededError as e:
             logger.warning("litellm client raised context window overflow")
@@ -146,9 +280,9 @@ class LiteLLMModel(OpenAIModel):
 
         logger.debug("got response from model")
         yield self.format_chunk({"chunk_type": "message_start"})
-        yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
         tool_calls: dict[int, list[Any]] = {}
+        data_type: str | None = None
 
         async for event in response:
             # Defensive: skip events with empty or missing choices
@@ -156,27 +290,35 @@ class LiteLLMModel(OpenAIModel):
                 continue
             choice = event.choices[0]
 
-            if choice.delta.content:
-                yield self.format_chunk(
-                    {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
-                )
-
             if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
+                for chunk in chunks:
+                    yield chunk
+
                 yield self.format_chunk(
                     {
                         "chunk_type": "content_delta",
-                        "data_type": "reasoning_content",
+                        "data_type": data_type,
                         "data": choice.delta.reasoning_content,
                     }
+                )
+
+            if choice.delta.content:
+                chunks, data_type = self._stream_switch_content("text", data_type)
+                for chunk in chunks:
+                    yield chunk
+
+                yield self.format_chunk(
+                    {"chunk_type": "content_delta", "data_type": data_type, "data": choice.delta.content}
                 )
 
             for tool_call in choice.delta.tool_calls or []:
                 tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
             if choice.finish_reason:
+                if data_type:
+                    yield self.format_chunk({"chunk_type": "content_stop", "data_type": data_type})
                 break
-
-        yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
         for tool_deltas in tool_calls.values():
             yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
@@ -238,8 +380,8 @@ class LiteLLMModel(OpenAIModel):
 
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
-        if not response.choices or response.choices[0].finish_reason != "tool_calls":
-            raise ValueError("No tool_calls found in response")
+        if not response.choices:
+            raise ValueError("No choices found in response")
 
         choice = response.choices[0]
         try:

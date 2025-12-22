@@ -7,14 +7,15 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, AsyncGenerator, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
+from contextlib import asynccontextmanager
+from typing import Any, AsyncGenerator, AsyncIterator, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
 
 import openai
 from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
@@ -55,16 +56,39 @@ class OpenAIModel(Model):
         model_id: str
         params: Optional[dict[str, Any]]
 
-    def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[OpenAIConfig]) -> None:
+    def __init__(
+        self,
+        client: Optional[Client] = None,
+        client_args: Optional[dict[str, Any]] = None,
+        **model_config: Unpack[OpenAIConfig],
+    ) -> None:
         """Initialize provider instance.
 
         Args:
-            client_args: Arguments for the OpenAI client.
+            client: Pre-configured OpenAI-compatible client to reuse across requests.
+                When provided, this client will be reused for all requests and will NOT be closed
+                by the model. The caller is responsible for managing the client lifecycle.
+                This is useful for:
+                - Injecting custom client wrappers (e.g., GuardrailsAsyncOpenAI)
+                - Reusing connection pools within a single event loop/worker
+                - Centralizing observability, retries, and networking policy
+                - Pointing to custom model gateways
+                Note: The client should not be shared across different asyncio event loops.
+            client_args: Arguments for the OpenAI client (legacy approach).
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
             **model_config: Configuration options for the OpenAI model.
+
+        Raises:
+            ValueError: If both `client` and `client_args` are provided.
         """
         validate_config_keys(model_config, self.OpenAIConfig)
         self.config = dict(model_config)
+
+        # Validate that only one client configuration method is provided
+        if client is not None and client_args is not None and len(client_args) > 0:
+            raise ValueError("Only one of 'client' or 'client_args' should be provided, not both.")
+
+        self._custom_client = client
         self.client_args = client_args or {}
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -89,11 +113,12 @@ class OpenAIModel(Model):
         return cast(OpenAIModel.OpenAIConfig, self.config)
 
     @classmethod
-    def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
+    def format_request_message_content(cls, content: ContentBlock, **kwargs: Any) -> dict[str, Any]:
         """Format an OpenAI compatible content block.
 
         Args:
             content: Message content.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             OpenAI compatible content block.
@@ -131,11 +156,12 @@ class OpenAIModel(Model):
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
     @classmethod
-    def format_request_message_tool_call(cls, tool_use: ToolUse) -> dict[str, Any]:
+    def format_request_message_tool_call(cls, tool_use: ToolUse, **kwargs: Any) -> dict[str, Any]:
         """Format an OpenAI compatible tool call.
 
         Args:
             tool_use: Tool use requested by the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             OpenAI compatible tool call.
@@ -150,11 +176,12 @@ class OpenAIModel(Model):
         }
 
     @classmethod
-    def format_request_tool_message(cls, tool_result: ToolResult) -> dict[str, Any]:
+    def format_request_tool_message(cls, tool_result: ToolResult, **kwargs: Any) -> dict[str, Any]:
         """Format an OpenAI compatible tool message.
 
         Args:
             tool_result: Tool result collected from a tool execution.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             OpenAI compatible tool message.
@@ -198,26 +225,60 @@ class OpenAIModel(Model):
                 return {"tool_choice": "auto"}
 
     @classmethod
-    def format_request_messages(cls, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
-        """Format an OpenAI compatible messages array.
+    def _format_system_messages(
+        cls,
+        system_prompt: Optional[str] = None,
+        *,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """Format system messages for OpenAI-compatible providers.
+
+        Args:
+            system_prompt: System prompt to provide context to the model.
+            system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            List of formatted system messages.
+        """
+        # Handle backward compatibility: if system_prompt is provided but system_prompt_content is None
+        if system_prompt and system_prompt_content is None:
+            system_prompt_content = [{"text": system_prompt}]
+
+        # TODO: Handle caching blocks https://github.com/strands-agents/sdk-python/issues/1140
+        return [
+            {"role": "system", "content": content["text"]}
+            for content in system_prompt_content or []
+            if "text" in content
+        ]
+
+    @classmethod
+    def _format_regular_messages(cls, messages: Messages, **kwargs: Any) -> list[dict[str, Any]]:
+        """Format regular messages for OpenAI-compatible providers.
 
         Args:
             messages: List of message objects to be processed by the model.
-            system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
-            An OpenAI compatible messages array.
+            List of formatted messages.
         """
-        formatted_messages: list[dict[str, Any]]
-        formatted_messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
+        formatted_messages = []
 
         for message in messages:
             contents = message["content"]
 
+            # Check for reasoningContent and warn user
+            if any("reasoningContent" in content for content in contents):
+                logger.warning(
+                    "reasoningContent is not supported in multi-turn conversations with the Chat Completions API."
+                )
+
             formatted_contents = [
                 cls.format_request_message_content(content)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
             ]
             formatted_tool_calls = [
                 cls.format_request_message_tool_call(content["toolUse"]) for content in contents if "toolUse" in content
@@ -236,14 +297,42 @@ class OpenAIModel(Model):
             formatted_messages.append(formatted_message)
             formatted_messages.extend(formatted_tool_messages)
 
+        return formatted_messages
+
+    @classmethod
+    def format_request_messages(
+        cls,
+        messages: Messages,
+        system_prompt: Optional[str] = None,
+        *,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """Format an OpenAI compatible messages array.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model.
+            system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            An OpenAI compatible messages array.
+        """
+        formatted_messages = cls._format_system_messages(system_prompt, system_prompt_content=system_prompt_content)
+        formatted_messages.extend(cls._format_regular_messages(messages))
+
         return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
 
     def format_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
+        *,
+        system_prompt_content: list[SystemContentBlock] | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """Format an OpenAI compatible chat streaming request.
 
@@ -252,6 +341,8 @@ class OpenAIModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             An OpenAI compatible chat streaming request.
@@ -261,7 +352,9 @@ class OpenAIModel(Model):
                 format.
         """
         return {
-            "messages": self.format_request_messages(messages, system_prompt),
+            "messages": self.format_request_messages(
+                messages, system_prompt, system_prompt_content=system_prompt_content
+            ),
             "model": self.config["model_id"],
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -280,11 +373,12 @@ class OpenAIModel(Model):
             **cast(dict[str, Any], self.config.get("params", {})),
         }
 
-    def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
+    def format_chunk(self, event: dict[str, Any], **kwargs: Any) -> StreamEvent:
         """Format an OpenAI response event into a standardized message chunk.
 
         Args:
             event: A response event from the OpenAI compatible model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             The formatted chunk.
@@ -352,6 +446,34 @@ class OpenAIModel(Model):
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
+    @asynccontextmanager
+    async def _get_client(self) -> AsyncIterator[Any]:
+        """Get an OpenAI client for making requests.
+
+        This context manager handles client lifecycle management:
+        - If an injected client was provided during initialization, it yields that client
+          without closing it (caller manages lifecycle).
+        - Otherwise, creates a new AsyncOpenAI client from client_args and automatically
+          closes it when the context exits.
+
+        Note: We create a new client per request to avoid connection sharing in the underlying
+        httpx client, as the asyncio event loop does not allow connections to be shared.
+        For more details, see https://github.com/encode/httpx/discussions/2959.
+
+        Yields:
+            Client: An OpenAI-compatible client instance.
+        """
+        if self._custom_client is not None:
+            # Use the injected client (caller manages lifecycle)
+            yield self._custom_client
+        else:
+            # Create a new client from client_args
+            # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying
+            # httpx client. The asyncio event loop does not allow connections to be shared. For more details, please
+            # refer to https://github.com/encode/httpx/discussions/2959.
+            async with openai.AsyncOpenAI(**self.client_args) as client:
+                yield client
+
     @override
     async def stream(
         self,
@@ -387,7 +509,7 @@ class OpenAIModel(Model):
         # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
         # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
         # https://github.com/encode/httpx/discussions/2959.
-        async with openai.AsyncOpenAI(**self.client_args) as client:
+        async with self._get_client() as client:
             try:
                 response = await client.chat.completions.create(**request)
             except openai.BadRequestError as e:
@@ -405,9 +527,10 @@ class OpenAIModel(Model):
 
             logger.debug("got response from model")
             yield self.format_chunk({"chunk_type": "message_start"})
-            yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
-
             tool_calls: dict[int, list[Any]] = {}
+            data_type = None
+            finish_reason = None  # Store finish_reason for later use
+            event = None  # Initialize for scope safety
 
             async for event in response:
                 # Defensive: skip events with empty or missing choices
@@ -415,27 +538,34 @@ class OpenAIModel(Model):
                     continue
                 choice = event.choices[0]
 
-                if choice.delta.content:
-                    yield self.format_chunk(
-                        {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
-                    )
-
                 if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                    chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
+                    for chunk in chunks:
+                        yield chunk
                     yield self.format_chunk(
                         {
                             "chunk_type": "content_delta",
-                            "data_type": "reasoning_content",
+                            "data_type": data_type,
                             "data": choice.delta.reasoning_content,
                         }
+                    )
+
+                if choice.delta.content:
+                    chunks, data_type = self._stream_switch_content("text", data_type)
+                    for chunk in chunks:
+                        yield chunk
+                    yield self.format_chunk(
+                        {"chunk_type": "content_delta", "data_type": data_type, "data": choice.delta.content}
                     )
 
                 for tool_call in choice.delta.tool_calls or []:
                     tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
                 if choice.finish_reason:
+                    finish_reason = choice.finish_reason  # Store for use outside loop
+                    if data_type:
+                        yield self.format_chunk({"chunk_type": "content_stop", "data_type": data_type})
                     break
-
-            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
             for tool_deltas in tool_calls.values():
                 yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
@@ -445,16 +575,36 @@ class OpenAIModel(Model):
 
                 yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
-            yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
+            yield self.format_chunk({"chunk_type": "message_stop", "data": finish_reason or "end_turn"})
 
             # Skip remaining events as we don't have use for anything except the final usage payload
             async for event in response:
                 _ = event
 
-            if event.usage:
+            if event and hasattr(event, "usage") and event.usage:
                 yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
 
         logger.debug("finished streaming response from model")
+
+    def _stream_switch_content(self, data_type: str, prev_data_type: str | None) -> tuple[list[StreamEvent], str]:
+        """Handle switching to a new content stream.
+
+        Args:
+            data_type: The next content data type.
+            prev_data_type: The previous content data type.
+
+        Returns:
+            Tuple containing:
+            - Stop block for previous content and the start block for the next content.
+            - Next content data type.
+        """
+        chunks = []
+        if data_type != prev_data_type:
+            if prev_data_type is not None:
+                chunks.append(self.format_chunk({"chunk_type": "content_stop", "data_type": prev_data_type}))
+            chunks.append(self.format_chunk({"chunk_type": "content_start", "data_type": data_type}))
+
+        return chunks, data_type
 
     @override
     async def structured_output(
@@ -478,7 +628,7 @@ class OpenAIModel(Model):
         # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
         # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
         # https://github.com/encode/httpx/discussions/2959.
-        async with openai.AsyncOpenAI(**self.client_args) as client:
+        async with self._get_client() as client:
             try:
                 response: ParsedChatCompletion = await client.beta.chat.completions.parse(
                     model=self.get_config()["model_id"],

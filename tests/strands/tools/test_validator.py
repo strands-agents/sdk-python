@@ -28,7 +28,8 @@ def test_validate_and_prepare_tools():
             "toolUseId": "t1",
         },
         {
-            "name": "INVALID_TOOL_NAME",
+            # This now happens in stream_messages
+            # "name": "INVALID_TOOL_NAME",
             "toolUseId": "t2-invalid",
         },
     ]

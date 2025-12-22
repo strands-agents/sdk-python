@@ -8,19 +8,21 @@ import inspect
 import logging
 import os
 import sys
+import uuid
 import warnings
 from importlib import import_module, util
 from os.path import expanduser
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from typing_extensions import TypedDict, cast
 
-from strands.tools.decorator import DecoratedFunctionTool
-
+from .._async import run_async
+from ..experimental.tools import ToolProvider
+from ..tools.decorator import DecoratedFunctionTool
 from ..types.tools import AgentTool, ToolSpec
 from .loader import load_tool_from_string, load_tools_from_module
-from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
+from .tools import _COMPOSITION_KEYWORDS, PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,8 @@ class ToolRegistry:
         self.registry: Dict[str, AgentTool] = {}
         self.dynamic_tools: Dict[str, AgentTool] = {}
         self.tool_config: Optional[Dict[str, Any]] = None
+        self._tool_providers: List[ToolProvider] = []
+        self._registry_id = str(uuid.uuid4())
 
     def process_tools(self, tools: List[Any]) -> List[str]:
         """Process tools list.
@@ -44,16 +48,19 @@ class ToolRegistry:
         imported modules, @tool decorated functions, or instances of AgentTool.
 
         Args:
-            tools: List of tool specifications.
-                Can be:
-            1. Local file path to a module based tool: `./path/to/module/tool.py`
-            2. Module import path
-              2.1. Path to a module based tool: `strands_tools.file_read`
-              2.2. Path to a module with multiple AgentTool instances (@tool decorated): `tests.fixtures.say_tool`
-              2.3. Path to a module and a specific function: `tests.fixtures.say_tool:say`
-            3. A module for a module based tool
-            4. Instances of AgentTool (@tool decorated functions)
-            5. Dictionaries with name/path keys (deprecated)
+            tools: List of tool specifications. Can be:
+
+                1. Local file path to a module based tool: `./path/to/module/tool.py`
+                2. Module import path
+
+                    2.1. Path to a module based tool: `strands_tools.file_read`
+                    2.2. Path to a module with multiple AgentTool instances (@tool decorated):
+                        `tests.fixtures.say_tool`
+                    2.3. Path to a module and a specific function: `tests.fixtures.say_tool:say`
+
+                3. A module for a module based tool
+                4. Instances of AgentTool (@tool decorated functions)
+                5. Dictionaries with name/path keys (deprecated)
 
 
         Returns:
@@ -118,6 +125,20 @@ class ToolRegistry:
                 elif isinstance(tool, Iterable) and not isinstance(tool, (str, bytes, bytearray)):
                     for t in tool:
                         add_tool(t)
+
+                # Case 5: ToolProvider
+                elif isinstance(tool, ToolProvider):
+                    self._tool_providers.append(tool)
+                    tool.add_consumer(self._registry_id)
+
+                    async def get_tools() -> Sequence[AgentTool]:
+                        return await tool.load_tools()
+
+                    provider_tools = run_async(get_tools)
+
+                    for provider_tool in provider_tools:
+                        self.register_tool(provider_tool)
+                        tool_names.append(provider_tool.tool_name)
                 else:
                     logger.warning("tool=<%s> | unrecognized tool specification", tool)
 
@@ -257,6 +278,32 @@ class ToolRegistry:
                 list(self.registry.keys()),
                 list(self.dynamic_tools.keys()),
             )
+
+    def replace(self, new_tool: AgentTool) -> None:
+        """Replace an existing tool with a new implementation.
+
+        This performs a swap of the tool implementation in the registry.
+        The replacement takes effect on the next agent invocation.
+
+        Args:
+            new_tool: New tool implementation. Its name must match the tool being replaced.
+
+        Raises:
+            ValueError: If the tool doesn't exist.
+        """
+        tool_name = new_tool.tool_name
+
+        if tool_name not in self.registry:
+            raise ValueError(f"Cannot replace tool '{tool_name}' - tool does not exist")
+
+        # Update main registry
+        self.registry[tool_name] = new_tool
+
+        # Update dynamic_tools to match new tool's dynamic status
+        if new_tool.is_dynamic:
+            self.dynamic_tools[tool_name] = new_tool
+        elif tool_name in self.dynamic_tools:
+            del self.dynamic_tools[tool_name]
 
     def get_tools_dirs(self) -> List[Path]:
         """Get all tool directory paths.
@@ -524,6 +571,21 @@ class ToolRegistry:
         tools: List[ToolSpec] = [tool_spec for tool_spec in all_tools.values()]
         return tools
 
+    def register_dynamic_tool(self, tool: AgentTool) -> None:
+        """Register a tool dynamically for temporary use.
+
+        Args:
+            tool: The tool to register dynamically
+
+        Raises:
+            ValueError: If a tool with this name already exists
+        """
+        if tool.tool_name in self.registry or tool.tool_name in self.dynamic_tools:
+            raise ValueError(f"Tool '{tool.tool_name}' already exists")
+
+        self.dynamic_tools[tool.tool_name] = tool
+        logger.debug("Registered dynamic tool: %s", tool.tool_name)
+
     def validate_tool_spec(self, tool_spec: ToolSpec) -> None:
         """Validate tool specification against required schema.
 
@@ -568,7 +630,8 @@ class ToolRegistry:
             if "$ref" in prop_def:
                 continue
 
-            if "type" not in prop_def:
+            has_composition = any(kw in prop_def for kw in _COMPOSITION_KEYWORDS)
+            if "type" not in prop_def and not has_composition:
                 prop_def["type"] = "string"
             if "description" not in prop_def:
                 prop_def["description"] = f"Property {prop_name}"
@@ -640,3 +703,20 @@ class ToolRegistry:
                     logger.warning("tool_name=<%s> | failed to create function tool | %s", name, e)
 
         return tools
+
+    def cleanup(self, **kwargs: Any) -> None:
+        """Synchronously clean up all tool providers in this registry."""
+        # Attempt cleanup of all providers even if one fails to minimize resource leakage
+        exceptions = []
+        for provider in self._tool_providers:
+            try:
+                provider.remove_consumer(self._registry_id)
+                logger.debug("provider=<%s> | removed provider consumer", type(provider).__name__)
+            except Exception as e:
+                exceptions.append(e)
+                logger.error(
+                    "provider=<%s>, error=<%s> | failed to remove provider consumer", type(provider).__name__, e
+                )
+
+        if exceptions:
+            raise exceptions[0]

@@ -2,13 +2,15 @@
 Tests for the SDK tool registry module.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 import strands
+from strands.experimental.tools import ToolProvider
 from strands.tools import PythonAgentTool
 from strands.tools.decorator import DecoratedFunctionTool, tool
+from strands.tools.mcp import MCPClient
 from strands.tools.registry import ToolRegistry
 
 
@@ -260,3 +262,344 @@ def test_register_strands_tools_module_non_callable_function():
         " Tool tool_with_spec_but_non_callable_function function is not callable",
     ):
         tool_registry.process_tools(["tests.fixtures.tool_with_spec_but_non_callable_function"])
+
+
+def test_tool_registry_cleanup_with_mcp_client():
+    """Test that ToolRegistry cleanup properly handles MCP clients without orphaning threads."""
+    # Create a mock MCP client that simulates a real tool provider
+    mock_transport = MagicMock()
+    mock_client = MCPClient(mock_transport)
+
+    # Mock the client to avoid actual network operations
+    mock_client.load_tools = AsyncMock(return_value=[])
+
+    registry = ToolRegistry()
+
+    # Use process_tools to properly register the client
+    registry.process_tools([mock_client])
+
+    # Verify the client was registered as a consumer
+    assert registry._registry_id in mock_client._consumers
+
+    # Test cleanup calls remove_consumer
+    registry.cleanup()
+
+    # Verify cleanup was attempted
+    assert registry._registry_id not in mock_client._consumers
+
+
+def test_tool_registry_cleanup_exception_handling():
+    """Test that ToolRegistry cleanup attempts all providers even if some fail."""
+    # Create mock providers - one that fails, one that succeeds
+    failing_provider = MagicMock()
+    failing_provider.remove_consumer.side_effect = Exception("Cleanup failed")
+
+    working_provider = MagicMock()
+
+    registry = ToolRegistry()
+    registry._tool_providers = [failing_provider, working_provider]
+
+    # Cleanup should attempt both providers and raise the first exception
+    with pytest.raises(Exception, match="Cleanup failed"):
+        registry.cleanup()
+
+    # Verify both providers were attempted
+    failing_provider.remove_consumer.assert_called_once()
+    working_provider.remove_consumer.assert_called_once()
+
+
+def test_tool_registry_cleanup_idempotent():
+    """Test that ToolRegistry cleanup is idempotent."""
+    provider = MagicMock(spec=ToolProvider)
+    provider.load_tools = AsyncMock(return_value=[])
+
+    registry = ToolRegistry()
+
+    # Use process_tools to properly register the provider
+    registry.process_tools([provider])
+
+    # First cleanup should call remove_consumer
+    registry.cleanup()
+    provider.remove_consumer.assert_called_once_with(registry._registry_id)
+
+    # Reset mock call count
+    provider.remove_consumer.reset_mock()
+
+    # Second cleanup should call remove_consumer again (not idempotent yet)
+    # This test documents current behavior - registry cleanup is not idempotent
+    registry.cleanup()
+    provider.remove_consumer.assert_called_once_with(registry._registry_id)
+
+
+def test_tool_registry_process_tools_exception_after_add_consumer():
+    """Test that tool provider is still tracked for cleanup even if load_tools fails."""
+    # Create a mock tool provider that fails during load_tools
+    mock_provider = MagicMock(spec=ToolProvider)
+    mock_provider.add_consumer = MagicMock()
+    mock_provider.remove_consumer = MagicMock()
+
+    async def failing_load_tools():
+        raise Exception("Failed to load tools")
+
+    mock_provider.load_tools = AsyncMock(side_effect=failing_load_tools)
+
+    registry = ToolRegistry()
+
+    # Processing should fail but provider should still be tracked
+    with pytest.raises(ValueError, match="Failed to load tool"):
+        registry.process_tools([mock_provider])
+
+    # Verify provider was added to registry for cleanup tracking
+    assert mock_provider in registry._tool_providers
+
+    # Verify add_consumer was called before the failure
+    mock_provider.add_consumer.assert_called_once_with(registry._registry_id)
+
+    # Cleanup should still work
+    registry.cleanup()
+    mock_provider.remove_consumer.assert_called_once_with(registry._registry_id)
+
+
+def test_tool_registry_add_consumer_before_load_tools():
+    """Test that add_consumer is called before load_tools to ensure cleanup tracking."""
+    # Create a mock tool provider that tracks call order
+    mock_provider = MagicMock(spec=ToolProvider)
+    call_order = []
+
+    def track_add_consumer(*args, **kwargs):
+        call_order.append("add_consumer")
+
+    async def track_load_tools(*args, **kwargs):
+        call_order.append("load_tools")
+        return []
+
+    mock_provider.add_consumer.side_effect = track_add_consumer
+    mock_provider.load_tools = AsyncMock(side_effect=track_load_tools)
+
+    registry = ToolRegistry()
+
+    # Process the tool provider
+    registry.process_tools([mock_provider])
+
+    # Verify add_consumer was called before load_tools
+    assert call_order == ["add_consumer", "load_tools"]
+
+    # Verify the provider was added to the registry for cleanup
+    assert mock_provider in registry._tool_providers
+
+    # Verify add_consumer was called with the registry ID
+    mock_provider.add_consumer.assert_called_once_with(registry._registry_id)
+
+
+def test_validate_tool_spec_with_anyof_property():
+    """Test that validate_tool_spec does not add type: 'string' to anyOf properties.
+
+    This is important for MCP tools that use anyOf for optional/union types like
+    Optional[List[str]]. Adding type: 'string' causes models to return string-encoded
+    JSON instead of proper arrays/objects.
+    """
+    tool_spec = {
+        "name": "test_tool",
+        "description": "A test tool",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "regular_field": {},  # Should get type: "string"
+                    "anyof_field": {
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "null"},
+                        ]
+                    },
+                },
+            }
+        },
+    }
+
+    registry = ToolRegistry()
+    registry.validate_tool_spec(tool_spec)
+
+    props = tool_spec["inputSchema"]["json"]["properties"]
+
+    # Regular field should get default type: "string"
+    assert props["regular_field"]["type"] == "string"
+    assert props["regular_field"]["description"] == "Property regular_field"
+
+    # anyOf field should NOT get type: "string" added
+    assert "type" not in props["anyof_field"], "anyOf property should not have type added"
+    assert "anyOf" in props["anyof_field"], "anyOf should be preserved"
+    assert props["anyof_field"]["description"] == "Property anyof_field"
+
+
+def test_validate_tool_spec_with_composition_keywords():
+    """Test that validate_tool_spec does not add type: 'string' to composition keyword properties.
+
+    JSON Schema composition keywords (anyOf, oneOf, allOf, not) define type constraints.
+    Properties using these should not get a default type added.
+    """
+    tool_spec = {
+        "name": "test_tool",
+        "description": "A test tool",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "regular_field": {},  # Should get type: "string"
+                    "oneof_field": {
+                        "oneOf": [
+                            {"type": "string"},
+                            {"type": "integer"},
+                        ]
+                    },
+                    "allof_field": {
+                        "allOf": [
+                            {"minimum": 0},
+                            {"maximum": 100},
+                        ]
+                    },
+                    "not_field": {"not": {"type": "null"}},
+                },
+            }
+        },
+    }
+
+    registry = ToolRegistry()
+    registry.validate_tool_spec(tool_spec)
+
+    props = tool_spec["inputSchema"]["json"]["properties"]
+
+    # Regular field should get default type: "string"
+    assert props["regular_field"]["type"] == "string"
+
+    # Composition keyword fields should NOT get type: "string" added
+    assert "type" not in props["oneof_field"], "oneOf property should not have type added"
+    assert "oneOf" in props["oneof_field"], "oneOf should be preserved"
+
+    assert "type" not in props["allof_field"], "allOf property should not have type added"
+    assert "allOf" in props["allof_field"], "allOf should be preserved"
+
+    assert "type" not in props["not_field"], "not property should not have type added"
+    assert "not" in props["not_field"], "not should be preserved"
+
+    # All should have descriptions
+    for field in ["oneof_field", "allof_field", "not_field"]:
+        assert props[field]["description"] == f"Property {field}"
+
+
+def test_validate_tool_spec_with_ref_property():
+    """Test that validate_tool_spec does not modify $ref properties."""
+    tool_spec = {
+        "name": "test_tool",
+        "description": "A test tool",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "ref_field": {"$ref": "#/$defs/SomeType"},
+                },
+            }
+        },
+    }
+
+    registry = ToolRegistry()
+    registry.validate_tool_spec(tool_spec)
+
+    props = tool_spec["inputSchema"]["json"]["properties"]
+
+    # $ref field should not be modified
+    assert props["ref_field"] == {"$ref": "#/$defs/SomeType"}
+    assert "type" not in props["ref_field"]
+    assert "description" not in props["ref_field"]
+
+
+def test_tool_registry_replace_existing_tool():
+    """Test replacing an existing tool."""
+    old_tool = MagicMock()
+    old_tool.tool_name = "my_tool"
+    old_tool.is_dynamic = False
+    old_tool.supports_hot_reload = False
+
+    new_tool = MagicMock()
+    new_tool.tool_name = "my_tool"
+    new_tool.is_dynamic = False
+
+    registry = ToolRegistry()
+    registry.register_tool(old_tool)
+    registry.replace(new_tool)
+
+    assert registry.registry["my_tool"] == new_tool
+
+
+def test_tool_registry_replace_nonexistent_tool():
+    """Test replacing a tool that doesn't exist raises ValueError."""
+    new_tool = MagicMock()
+    new_tool.tool_name = "my_tool"
+
+    registry = ToolRegistry()
+
+    with pytest.raises(ValueError, match="Cannot replace tool 'my_tool' - tool does not exist"):
+        registry.replace(new_tool)
+
+
+def test_tool_registry_replace_dynamic_tool():
+    """Test replacing a dynamic tool updates both registries."""
+    old_tool = MagicMock()
+    old_tool.tool_name = "dynamic_tool"
+    old_tool.is_dynamic = True
+    old_tool.supports_hot_reload = True
+
+    new_tool = MagicMock()
+    new_tool.tool_name = "dynamic_tool"
+    new_tool.is_dynamic = True
+
+    registry = ToolRegistry()
+    registry.register_tool(old_tool)
+    registry.replace(new_tool)
+
+    assert registry.registry["dynamic_tool"] == new_tool
+    assert registry.dynamic_tools["dynamic_tool"] == new_tool
+
+
+def test_tool_registry_replace_dynamic_with_non_dynamic():
+    """Test replacing a dynamic tool with non-dynamic tool removes from dynamic_tools."""
+    old_tool = MagicMock()
+    old_tool.tool_name = "my_tool"
+    old_tool.is_dynamic = True
+    old_tool.supports_hot_reload = True
+
+    new_tool = MagicMock()
+    new_tool.tool_name = "my_tool"
+    new_tool.is_dynamic = False
+
+    registry = ToolRegistry()
+    registry.register_tool(old_tool)
+
+    assert "my_tool" in registry.dynamic_tools
+
+    registry.replace(new_tool)
+
+    assert registry.registry["my_tool"] == new_tool
+    assert "my_tool" not in registry.dynamic_tools
+
+
+def test_tool_registry_replace_non_dynamic_with_dynamic():
+    """Test replacing a non-dynamic tool with dynamic tool adds to dynamic_tools."""
+    old_tool = MagicMock()
+    old_tool.tool_name = "my_tool"
+    old_tool.is_dynamic = False
+    old_tool.supports_hot_reload = False
+
+    new_tool = MagicMock()
+    new_tool.tool_name = "my_tool"
+    new_tool.is_dynamic = True
+
+    registry = ToolRegistry()
+    registry.register_tool(old_tool)
+
+    assert "my_tool" not in registry.dynamic_tools
+
+    registry.replace(new_tool)
+
+    assert registry.registry["my_tool"] == new_tool
+    assert registry.dynamic_tools["my_tool"] == new_tool

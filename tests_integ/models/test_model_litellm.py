@@ -1,4 +1,5 @@
 import unittest.mock
+from uuid import uuid4
 
 import pydantic
 import pytest
@@ -121,6 +122,22 @@ async def test_agent_stream_async(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
+def test_agent_invoke_reasoning(agent, model):
+    model.update_config(
+        params={
+            "thinking": {
+                "budget_tokens": 1024,
+                "type": "enabled",
+            },
+        },
+    )
+
+    result = agent("Please reason about the equation 2+2.")
+
+    assert "reasoningContent" in result.message["content"][0]
+    assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
+
+
 def test_structured_output(agent, weather):
     tru_weather = agent.structured_output(type(weather), "The time is 12:00 and the weather is sunny")
     exp_weather = weather
@@ -195,3 +212,25 @@ def test_structured_output_unsupported_model(model, nested_weather):
         # Verify that the tool method was called and schema method was not
         mock_tool.assert_called_once()
         mock_schema.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cache_read_tokens_multi_turn(model):
+    """Integration test for cache read tokens in multi-turn conversation."""
+    from strands.types.content import SystemContentBlock
+
+    system_prompt_content: list[SystemContentBlock] = [
+        # Caching only works when prompts are large
+        {"text": f"You are helpful assistant No. {uuid4()}  Always be concise." * 200},
+        {"cachePoint": {"type": "default"}},
+    ]
+
+    agent = Agent(model=model, system_prompt=system_prompt_content)
+
+    # First turn - establishes cache
+    agent("Hello, what's 2+2?")
+    result = agent("What's 3+3?")
+    result.metrics.accumulated_usage["cacheReadInputTokens"]
+
+    assert result.metrics.accumulated_usage["cacheReadInputTokens"] > 0
+    assert result.metrics.accumulated_usage["cacheWriteInputTokens"] > 0

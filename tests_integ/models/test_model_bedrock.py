@@ -210,6 +210,9 @@ def test_document_citations(non_streaming_agent, letter_pdf):
 
     assert any("citationsContent" in content for content in non_streaming_agent.messages[-1]["content"])
 
+    # Validate message structure is valid in multi-turn
+    non_streaming_agent("What is your favorite part?")
+
 
 def test_document_citations_streaming(streaming_agent, letter_pdf):
     content: list[ContentBlock] = [
@@ -227,6 +230,9 @@ def test_document_citations_streaming(streaming_agent, letter_pdf):
     streaming_agent(content)
 
     assert any("citationsContent" in content for content in streaming_agent.messages[-1]["content"])
+
+    # Validate message structure is valid in multi-turn
+    streaming_agent("What is your favorite part?")
 
 
 def test_structured_output_multi_modal_input(streaming_agent, yellow_img, yellow_color):
@@ -267,3 +273,16 @@ def test_redacted_content_handling():
     assert "reasoningContent" in result.message["content"][0]
     assert "redactedContent" in result.message["content"][0]["reasoningContent"]
     assert isinstance(result.message["content"][0]["reasoningContent"]["redactedContent"], bytes)
+
+
+def test_multi_prompt_system_content():
+    """Test multi-prompt system content blocks."""
+    system_prompt_content = [
+        {"text": "You are a helpful assistant."},
+        {"text": "Always be concise."},
+        {"text": "End responses with 'Done.'"},
+    ]
+
+    agent = Agent(system_prompt=system_prompt_content, load_tools_from_directory=False)
+    # just verifying there is no failure
+    agent("Hello!")

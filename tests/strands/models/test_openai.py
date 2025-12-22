@@ -13,7 +13,10 @@ from strands.types.exceptions import ContextWindowOverflowException, ModelThrott
 def openai_client():
     with unittest.mock.patch.object(strands.models.openai.openai, "AsyncOpenAI") as mock_client_cls:
         mock_client = unittest.mock.AsyncMock()
-        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        # Make the mock client work as an async context manager
+        mock_client.__aenter__ = unittest.mock.AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = unittest.mock.AsyncMock(return_value=None)
+        mock_client_cls.return_value = mock_client
         yield mock_client
 
 
@@ -561,11 +564,13 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
+        {"contentBlockStart": {"start": {}}},  # reasoning_content starts
         {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "\nI'm thinking"}}}},
+        {"contentBlockStop": {}},  # reasoning_content ends
+        {"contentBlockStart": {"start": {}}},  # text starts
         {"contentBlockDelta": {"delta": {"text": "I'll calculate"}}},
         {"contentBlockDelta": {"delta": {"text": "that for you"}}},
-        {"contentBlockStop": {}},
+        {"contentBlockStop": {}},  # text ends
         {
             "contentBlockStart": {
                 "start": {
@@ -631,9 +636,7 @@ async def test_stream_empty(openai_client, model_id, model, agenerator, alist):
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
-        {"messageStop": {"stopReason": "end_turn"}},
+        {"messageStop": {"stopReason": "end_turn"}},  # No content blocks when no content
     ]
 
     assert len(tru_events) == len(exp_events)
@@ -678,10 +681,10 @@ async def test_stream_with_empty_choices(openai_client, model, agenerator, alist
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
+        {"contentBlockStart": {"start": {}}},  # text content starts
         {"contentBlockDelta": {"delta": {"text": "content"}}},
         {"contentBlockDelta": {"delta": {"text": "content"}}},
-        {"contentBlockStop": {}},
+        {"contentBlockStop": {}},  # text content ends
         {"messageStop": {"stopReason": "end_turn"}},
         {
             "metadata": {
@@ -756,6 +759,74 @@ def test_tool_choice_none_no_warning(model, messages, captured_warnings):
     assert len(captured_warnings) == 0
 
 
+@pytest.mark.parametrize(
+    "new_data_type, prev_data_type, expected_chunks, expected_data_type",
+    [
+        ("text", None, [{"contentBlockStart": {"start": {}}}], "text"),
+        (
+            "reasoning_content",
+            "text",
+            [{"contentBlockStop": {}}, {"contentBlockStart": {"start": {}}}],
+            "reasoning_content",
+        ),
+        ("text", "text", [], "text"),
+    ],
+)
+def test__stream_switch_content(model, new_data_type, prev_data_type, expected_chunks, expected_data_type):
+    """Test _stream_switch_content method for content type switching."""
+    chunks, data_type = model._stream_switch_content(new_data_type, prev_data_type)
+    assert chunks == expected_chunks
+    assert data_type == expected_data_type
+
+
+def test_format_request_messages_excludes_reasoning_content():
+    """Test that reasoningContent is excluded from formatted messages."""
+    messages = [
+        {
+            "content": [
+                {"text": "Hello"},
+                {"reasoningContent": {"reasoningText": {"text": "excluded"}}},
+            ],
+            "role": "user",
+        },
+    ]
+
+    tru_result = OpenAIModel.format_request_messages(messages)
+
+    # Only text content should be included
+    exp_result = [
+        {
+            "content": [{"text": "Hello", "type": "text"}],
+            "role": "user",
+        },
+    ]
+    assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+async def test_structured_output_context_overflow_exception(openai_client, model, messages, test_output_model_cls):
+    """Test that structured output also handles context overflow properly."""
+    # Create a mock OpenAI BadRequestError with context_length_exceeded code
+    mock_error = openai.BadRequestError(
+        message="This model's maximum context length is 4096 tokens. However, your messages resulted in 5000 tokens.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "context_length_exceeded"}},
+    )
+    mock_error.code = "context_length_exceeded"
+
+    # Configure the mock client to raise the context overflow error
+    openai_client.beta.chat.completions.parse.side_effect = mock_error
+
+    # Test that the structured_output method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "maximum context length" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
 @pytest.mark.asyncio
 async def test_stream_context_overflow_exception(openai_client, model, messages):
     """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
@@ -801,30 +872,6 @@ async def test_stream_other_bad_request_errors_passthrough(openai_client, model,
 
     # Verify the original exception is raised, not ContextWindowOverflowException
     assert exc_info.value == mock_error
-
-
-@pytest.mark.asyncio
-async def test_structured_output_context_overflow_exception(openai_client, model, messages, test_output_model_cls):
-    """Test that structured output also handles context overflow properly."""
-    # Create a mock OpenAI BadRequestError with context_length_exceeded code
-    mock_error = openai.BadRequestError(
-        message="This model's maximum context length is 4096 tokens. However, your messages resulted in 5000 tokens.",
-        response=unittest.mock.MagicMock(),
-        body={"error": {"code": "context_length_exceeded"}},
-    )
-    mock_error.code = "context_length_exceeded"
-
-    # Configure the mock client to raise the context overflow error
-    openai_client.beta.chat.completions.parse.side_effect = mock_error
-
-    # Test that the structured_output method converts the error properly
-    with pytest.raises(ContextWindowOverflowException) as exc_info:
-        async for _ in model.structured_output(test_output_model_cls, messages):
-            pass
-
-    # Verify the exception message contains the original error
-    assert "maximum context length" in str(exc_info.value)
-    assert exc_info.value.__cause__ == mock_error
 
 
 @pytest.mark.asyncio
@@ -900,3 +947,119 @@ async def test_structured_output_rate_limit_as_throttle(openai_client, model, me
     # Verify the exception message contains the original error
     assert "tokens per min" in str(exc_info.value)
     assert exc_info.value.__cause__ == mock_error
+
+
+def test_format_request_messages_with_system_prompt_content():
+    """Test format_request_messages with system_prompt_content parameter."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    system_prompt_content = [{"text": "You are a helpful assistant."}]
+
+    result = OpenAIModel.format_request_messages(messages, system_prompt_content=system_prompt_content)
+
+    expected = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": [{"text": "Hello", "type": "text"}]},
+    ]
+
+    assert result == expected
+
+
+def test_format_request_messages_with_none_system_prompt_content():
+    """Test format_request_messages with system_prompt_content parameter."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+
+    result = OpenAIModel.format_request_messages(messages)
+
+    expected = [{"role": "user", "content": [{"text": "Hello", "type": "text"}]}]
+
+    assert result == expected
+
+
+def test_format_request_messages_drops_cache_points():
+    """Test that cache points are dropped in OpenAI format_request_messages."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    system_prompt_content = [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}]
+
+    result = OpenAIModel.format_request_messages(messages, system_prompt_content=system_prompt_content)
+
+    # Cache points should be dropped, only text content included
+    expected = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": [{"text": "Hello", "type": "text"}]},
+    ]
+
+    assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_stream_with_injected_client(model_id, agenerator, alist):
+    """Test that stream works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.AsyncMock()
+    mock_injected_client.close = unittest.mock.AsyncMock()
+
+    mock_delta = unittest.mock.Mock(content="Hello", tool_calls=None, reasoning_content=None)
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
+    mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
+    mock_event_3 = unittest.mock.Mock()
+
+    mock_injected_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3])
+    )
+
+    # Create model with injected client
+    model = OpenAIModel(client=mock_injected_client, model_id=model_id, params={"max_tokens": 1})
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    # Verify events were generated
+    assert len(tru_events) > 0
+
+    # Verify the injected client was used
+    mock_injected_client.chat.completions.create.assert_called_once()
+
+    # Verify the injected client was NOT closed
+    mock_injected_client.close.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_structured_output_with_injected_client(model_id, test_output_model_cls, alist):
+    """Test that structured_output works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.AsyncMock()
+    mock_injected_client.close = unittest.mock.AsyncMock()
+
+    mock_parsed_instance = test_output_model_cls(name="John", age=30)
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message.parsed = mock_parsed_instance
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    mock_injected_client.beta.chat.completions.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    # Create model with injected client
+    model = OpenAIModel(client=mock_injected_client, model_id=model_id, params={"max_tokens": 1})
+
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
+
+    # Verify output was generated
+    assert len(events) == 1
+    assert events[0] == {"output": test_output_model_cls(name="John", age=30)}
+
+    # Verify the injected client was used
+    mock_injected_client.beta.chat.completions.parse.assert_called_once()
+
+    # Verify the injected client was NOT closed
+    mock_injected_client.close.assert_not_called()
+
+
+def test_init_with_both_client_and_client_args_raises_error():
+    """Test that providing both client and client_args raises ValueError."""
+    mock_client = unittest.mock.AsyncMock()
+
+    with pytest.raises(ValueError, match="Only one of 'client' or 'client_args' should be provided"):
+        OpenAIModel(client=mock_client, client_args={"api_key": "test"}, model_id="test-model")
