@@ -3,6 +3,7 @@
 - Docs: https://ai.google.dev/api
 """
 
+import base64
 import json
 import logging
 import mimetypes
@@ -165,7 +166,7 @@ class GeminiModel(Model):
             return genai.types.Part(
                 text=content["reasoningContent"]["reasoningText"]["text"],
                 thought=True,
-                thought_signature=thought_signature.encode("utf-8") if thought_signature else None,
+                thought_signature=base64.b64decode(thought_signature) if thought_signature else None,
             )
 
         if "text" in content:
@@ -190,13 +191,26 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
-            return genai.types.Part(
-                function_call=genai.types.FunctionCall(
-                    args=content["toolUse"]["input"],
-                    id=content["toolUse"]["toolUseId"],
-                    name=content["toolUse"]["name"],
-                ),
-            )
+            # Get thought_signature if present (for Gemini thinking models)
+            thought_signature = content["toolUse"].get("thoughtSignature")
+
+            # For Gemini thinking models, function calls require thought_signature.
+            # If missing (e.g., from old session history), convert to text representation
+            # to preserve context without triggering API errors.
+            if thought_signature:
+                return genai.types.Part(
+                    function_call=genai.types.FunctionCall(
+                        args=content["toolUse"]["input"],
+                        id=content["toolUse"]["toolUseId"],
+                        name=content["toolUse"]["name"],
+                    ),
+                    thought_signature=base64.b64decode(thought_signature),
+                )
+            else:
+                # Convert to text representation for backwards compatibility
+                tool_name = content["toolUse"]["name"]
+                tool_input = content["toolUse"]["input"]
+                return genai.types.Part(text=f"[Called tool: {tool_name} with input: {json.dumps(tool_input)}]")
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
@@ -230,20 +244,27 @@ class GeminiModel(Model):
         Return:
             Gemini tool list.
         """
-        tools = [
-            genai.types.Tool(
-                function_declarations=[
-                    genai.types.FunctionDeclaration(
-                        description=tool_spec["description"],
-                        name=tool_spec["name"],
-                        parameters_json_schema=tool_spec["inputSchema"]["json"],
-                    )
-                    for tool_spec in tool_specs or []
-                ],
-            ),
-        ]
+        tools = []
+
+        # Only add function declarations tool if there are tool specs
+        if tool_specs:
+            tools.append(
+                genai.types.Tool(
+                    function_declarations=[
+                        genai.types.FunctionDeclaration(
+                            description=tool_spec["description"],
+                            name=tool_spec["name"],
+                            parameters_json_schema=tool_spec["inputSchema"]["json"],
+                        )
+                        for tool_spec in tool_specs
+                    ],
+                ),
+            )
+
+        # Add any Gemini-specific tools
         if self.config.get("gemini_tools"):
             tools.extend(self.config["gemini_tools"])
+
         return tools
 
     def _format_request_config(
@@ -264,11 +285,19 @@ class GeminiModel(Model):
         Returns:
             Gemini request config.
         """
-        return genai.types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            tools=self._format_request_tools(tool_specs),
+        tools = self._format_request_tools(tool_specs)
+
+        # Build config kwargs, only including tools if there are any
+        config_kwargs = {
+            "system_instruction": system_prompt,
             **(params or {}),
-        )
+        }
+
+        # Only include tools parameter if there are actual tools to pass
+        if tools:
+            config_kwargs["tools"] = tools
+
+        return genai.types.GenerateContentConfig(**config_kwargs)
 
     def _format_request(
         self,
@@ -320,13 +349,19 @@ class GeminiModel(Model):
                         #       that name be set in the equivalent FunctionResponse type. Consequently, we assign
                         #       function name to toolUseId in our tool use block. And another reason, function_call is
                         #       not guaranteed to have id populated.
+                        tool_use_data: dict[str, Any] = {
+                            "name": event["data"].function_call.name,
+                            "toolUseId": event["data"].function_call.name,
+                        }
+                        # Capture thought_signature for Gemini thinking models (base64 encoded)
+                        if event["data"].thought_signature:
+                            tool_use_data["thoughtSignature"] = base64.b64encode(
+                                event["data"].thought_signature
+                            ).decode("ascii")
                         return {
                             "contentBlockStart": {
                                 "start": {
-                                    "toolUse": {
-                                        "name": event["data"].function_call.name,
-                                        "toolUseId": event["data"].function_call.name,
-                                    },
+                                    "toolUse": tool_use_data,
                                 },
                             },
                         }
@@ -350,7 +385,11 @@ class GeminiModel(Model):
                                     "reasoningContent": {
                                         "text": event["data"].text,
                                         **(
-                                            {"signature": event["data"].thought_signature.decode("utf-8")}
+                                            {
+                                                "signature": base64.b64encode(event["data"].thought_signature).decode(
+                                                    "ascii"
+                                                )
+                                            }
                                             if event["data"].thought_signature
                                             else {}
                                         ),
