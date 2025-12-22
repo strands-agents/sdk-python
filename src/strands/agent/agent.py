@@ -562,6 +562,8 @@ class Agent:
         """
         self._interrupt_state.resume(prompt)
 
+        self.event_loop_metrics.reset_usage_metrics()
+
         merged_state = {}
         if kwargs:
             warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
