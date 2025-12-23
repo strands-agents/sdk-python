@@ -17,8 +17,9 @@ async def test_task_group__aexit__():
 
 
 @pytest.mark.asyncio
-async def test_task_group__aexit__exception():
+async def test_task_group__aexit__task_exception():
     wait_event = asyncio.Event()
+
     async def wait():
         await wait_event.wait()
 
@@ -35,14 +36,28 @@ async def test_task_group__aexit__exception():
 
 
 @pytest.mark.asyncio
-async def test_task_group__aexit__cancelled():
+async def test_task_group__aexit__task_cancelled():
+    async def wait():
+        asyncio.current_task().cancel()
+        await asyncio.sleep(0)
+
+    async with _TaskGroup() as task_group:
+        wait_task = task_group.create_task(wait())
+
+    assert wait_task.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_task_group__aexit__context_cancelled():
     wait_event = asyncio.Event()
+
     async def wait():
         await wait_event.wait()
 
     tasks = []
 
     run_event = asyncio.Event()
+
     async def run():
         async with _TaskGroup() as task_group:
             tasks.append(task_group.create_task(wait()))
