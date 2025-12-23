@@ -275,8 +275,8 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             limit: Optional limit on number of messages to return
             offset: Optional offset for pagination
             **kwargs: Additional keyword arguments. Supports:
-                max_parallel_reads: Override the instance-level max_parallel_reads setting
-                    for this call only.
+
+                - max_parallel_reads: Override the instance-level max_parallel_reads setting
 
         Returns:
             List of SessionMessage objects, sorted by message_id.
@@ -321,6 +321,14 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             # Allow per-call override of max_parallel_reads via kwargs, otherwise use instance default
             max_workers = min(kwargs.get("max_parallel_reads", self.max_parallel_reads), len(message_keys))
 
+            # Optimize for single worker case - avoid thread pool overhead
+            if max_workers == 1:
+                for key in message_keys:
+                    message_data = self._read_s3_object(key)
+                    if message_data:
+                        messages.append(SessionMessage.from_dict(message_data))
+                return messages
+
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all read tasks
                 future_to_key = {executor.submit(self._read_s3_object, key): key for key in message_keys}
@@ -334,17 +342,11 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
                 # Process results as they complete
                 for future in as_completed(future_to_key):
                     key = future_to_key[future]
-                    try:
-                        message_data = future.result()
-                        # Store result at the correct index to maintain order
-                        results[key_to_index[key]] = message_data
-                    except Exception as e:
-                        # Log error but continue processing other messages
-                        # Individual failures shouldn't stop the entire operation
-                        logger.warning("key=<%s> | failed to read message from s3", key, exc_info=e)
+                    message_data = future.result()
+                    # Store result at the correct index to maintain order
+                    results[key_to_index[key]] = message_data
 
             # Convert results to SessionMessage objects, filtering out None values
-            # If SessionMessage.from_dict fails, let it propagate - data corruption should be visible
             for message_data in results:
                 if message_data:
                     messages.append(SessionMessage.from_dict(message_data))
