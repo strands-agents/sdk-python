@@ -193,6 +193,44 @@ async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results
 
 
 @pytest.mark.asyncio
+async def test_executor_stream_handles_server_side_tools(
+    executor, agent, tool_results, invocation_state, hook_events, alist
+):
+    """Test that server-side tools (type: server_tool_use) return success with placeholder result.
+
+    Server-side tools like nova_grounding are executed by the model provider (e.g., Bedrock).
+    The executor should return a success result (not error) to satisfy the tool result requirement.
+    """
+    tool_use = {"name": "nova_grounding", "toolUseId": "server-1", "type": "server_tool_use", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    tru_events = await alist(stream)
+    exp_events = [
+        ToolResultEvent({
+            "toolUseId": "server-1",
+            "status": "success",
+            "content": [{"text": "Server-side tool 'nova_grounding' executed by model provider"}],
+        })
+    ]
+    assert tru_events == exp_events
+
+    tru_results = tool_results
+    exp_results = [exp_events[-1].tool_result]
+    assert tru_results == exp_results
+
+    # Hooks should still be invoked for server-side tools
+    tru_hook_after_event = hook_events[-1]
+    exp_hook_after_event = AfterToolCallEvent(
+        agent=agent,
+        selected_tool=None,
+        tool_use=tool_use,
+        invocation_state=invocation_state,
+        result=exp_results[0],
+    )
+    assert tru_hook_after_event == exp_hook_after_event
+
+
+@pytest.mark.asyncio
 async def test_executor_stream_with_trace(
     executor, tracer, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
 ):

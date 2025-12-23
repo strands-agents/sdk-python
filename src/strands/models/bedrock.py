@@ -52,6 +52,18 @@ T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
 
+# Keys in additional_args that may conflict with built-in request construction
+_CONFLICTING_ADDITIONAL_ARGS_KEYS = frozenset(
+    {
+        "toolConfig",
+        "inferenceConfig",
+        "guardrailConfig",
+        "system",
+        "messages",
+        "modelId",
+    }
+)
+
 
 class BedrockModel(Model):
     """AWS Bedrock model provider implementation.
@@ -88,6 +100,9 @@ class BedrockModel(Model):
                 True includes status, False removes status, "auto" determines based on model_id. Defaults to "auto".
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
+            system_tools: List of Bedrock system tool definitions (e.g., nova_grounding).
+                These are server-side tools merged with agent tools in toolConfig.
+                Example: [{"systemTool": {"name": "nova_grounding"}}]
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
         """
@@ -110,6 +125,7 @@ class BedrockModel(Model):
         include_tool_result_status: Optional[Literal["auto"] | bool]
         stop_sequences: Optional[list[str]]
         streaming: Optional[bool]
+        system_tools: Optional[list[dict[str, Any]]]
         temperature: Optional[float]
         top_p: Optional[float]
 
@@ -187,6 +203,21 @@ class BedrockModel(Model):
         """
         return self.config
 
+    def _warn_on_conflicting_additional_args(self) -> None:
+        """Warn if additional_args contains keys that conflict with built-in parameters."""
+        additional_args = self.config.get("additional_args")
+        if not additional_args:
+            return
+
+        for key in _CONFLICTING_ADDITIONAL_ARGS_KEYS:
+            if key in additional_args:
+                warnings.warn(
+                    f"additional_args contains '{key}' which may conflict with built-in request parameters. "
+                    f"Values in additional_args are merged last and may overwrite built-in values.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+
     def _format_request(
         self,
         messages: Messages,
@@ -206,6 +237,8 @@ class BedrockModel(Model):
         Returns:
             A Bedrock converse stream request.
         """
+        self._warn_on_conflicting_additional_args()
+
         if not tool_specs:
             has_tool_content = any(
                 any("toolUse" in block or "toolResult" in block for block in msg.get("content", [])) for msg in messages
@@ -238,18 +271,19 @@ class BedrockModel(Model):
                                         "inputSchema": tool_spec["inputSchema"],
                                     }
                                 }
-                                for tool_spec in tool_specs
+                                for tool_spec in (tool_specs or [])
                             ],
                             *(
                                 [{"cachePoint": {"type": self.config["cache_tools"]}}]
                                 if self.config.get("cache_tools")
                                 else []
                             ),
+                            *(self.config.get("system_tools") or []),
                         ],
                         **({"toolChoice": tool_choice if tool_choice else {"auto": {}}}),
                     }
                 }
-                if tool_specs
+                if tool_specs or self.config.get("system_tools")
                 else {}
             ),
             **(
@@ -672,8 +706,12 @@ class BedrockModel(Model):
             logger.debug("got response from model")
             if streaming:
                 response = self.client.converse_stream(**request)
-                # Track tool use events to fix stopReason for streaming responses
-                has_tool_use = False
+                # Track tool use/result events to fix stopReason for streaming responses
+                # We need to distinguish server-side tools (already executed) from client-side tools
+                tool_use_info: dict[str, str] = {}  # toolUseId -> type (e.g., "server_tool_use")
+                tool_result_ids: set[str] = set()  # IDs of tools with results
+                has_client_tools = False
+
                 for chunk in response["stream"]:
                     if (
                         "metadata" in chunk
@@ -685,22 +723,40 @@ class BedrockModel(Model):
                             for event in self._generate_redaction_events():
                                 callback(event)
 
-                    # Track if we see tool use events
-                    if "contentBlockStart" in chunk and chunk["contentBlockStart"].get("start", {}).get("toolUse"):
-                        has_tool_use = True
+                    # Track tool use events with their types
+                    if "contentBlockStart" in chunk:
+                        tool_use_start = chunk["contentBlockStart"].get("start", {}).get("toolUse")
+                        if tool_use_start:
+                            tool_use_id = tool_use_start.get("toolUseId", "")
+                            tool_type = tool_use_start.get("type", "")
+                            tool_use_info[tool_use_id] = tool_type
+                            # Check if it's a client-side tool (not server_tool_use)
+                            if tool_type != "server_tool_use":
+                                has_client_tools = True
+
+                        # Track tool result events (for server-side tools that were already executed)
+                        tool_result_start = chunk["contentBlockStart"].get("start", {}).get("toolResult")
+                        if tool_result_start:
+                            tool_result_ids.add(tool_result_start.get("toolUseId", ""))
 
                     # Fix stopReason for streaming responses that contain tool use
+                    # BUT: Only override if there are client-side tools without results
                     if (
-                        has_tool_use
-                        and "messageStop" in chunk
+                        "messageStop" in chunk
                         and (message_stop := chunk["messageStop"]).get("stopReason") == "end_turn"
                     ):
-                        # Create corrected chunk with tool_use stopReason
-                        modified_chunk = chunk.copy()
-                        modified_chunk["messageStop"] = message_stop.copy()
-                        modified_chunk["messageStop"]["stopReason"] = "tool_use"
-                        logger.warning("Override stop reason from end_turn to tool_use")
-                        callback(modified_chunk)
+                        # Check if we have client-side tools that need execution
+                        needs_execution = has_client_tools and not set(tool_use_info.keys()).issubset(tool_result_ids)
+
+                        if needs_execution:
+                            # Create corrected chunk with tool_use stopReason
+                            modified_chunk = chunk.copy()
+                            modified_chunk["messageStop"] = message_stop.copy()
+                            modified_chunk["messageStop"]["stopReason"] = "tool_use"
+                            logger.warning("Override stop reason from end_turn to tool_use")
+                            callback(modified_chunk)
+                        else:
+                            callback(chunk)
                     else:
                         callback(chunk)
 
@@ -761,6 +817,43 @@ class BedrockModel(Model):
         finally:
             callback()
             logger.debug("finished streaming response from model")
+
+    def _has_client_side_tools_to_execute(self, message_content: list[dict[str, Any]]) -> bool:
+        """Check if message contains client-side tools that need execution.
+
+        Server-side tools (like nova_grounding) are executed by Bedrock and include
+        toolResult blocks in the response. We should NOT override stopReason to
+        "tool_use" for these tools.
+
+        Args:
+            message_content: The content array from Bedrock response.
+
+        Returns:
+            True if there are client-side tools without results, False otherwise.
+        """
+        tool_use_ids = set()
+        tool_result_ids = set()
+        has_client_tools = False
+
+        for content in message_content:
+            if "toolUse" in content:
+                tool_use = content["toolUse"]
+                tool_use_ids.add(tool_use["toolUseId"])
+
+                # Check if it's a server-side tool (Bedrock executes these)
+                if tool_use.get("type") != "server_tool_use":
+                    has_client_tools = True
+
+            elif "toolResult" in content:
+                # Track which tools already have results
+                tool_result_ids.add(content["toolResult"]["toolUseId"])
+
+        # Only return True if there are client-side tools without results
+        if not has_client_tools:
+            return False
+
+        # Check if all tool uses have corresponding results
+        return not tool_use_ids.issubset(tool_result_ids)
 
     def _convert_non_streaming_to_streaming(self, response: dict[str, Any]) -> Iterable[StreamEvent]:
         """Convert a non-streaming response to the streaming format.
@@ -842,10 +935,12 @@ class BedrockModel(Model):
 
         # Yield messageStop event
         # Fix stopReason for models that return end_turn when they should return tool_use on non-streaming side
+        # BUT: Don't override for server-side tools (like nova_grounding) that are already executed
         current_stop_reason = response["stopReason"]
         if current_stop_reason == "end_turn":
             message_content = response["output"]["message"]["content"]
-            if any("toolUse" in content for content in message_content):
+            # Only override if there are client-side tools that need execution
+            if self._has_client_side_tools_to_execute(message_content):
                 current_stop_reason = "tool_use"
                 logger.warning("Override stop reason from end_turn to tool_use")
 
