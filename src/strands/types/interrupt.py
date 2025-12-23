@@ -71,18 +71,13 @@ Details:
     - Interrupts are session managed in-between return and user response.
 """
 
-from typing import TYPE_CHECKING, Any, Protocol, TypedDict
+from typing import Any, Protocol, TypedDict
 
 from ..interrupt import Interrupt, InterruptException
-
-if TYPE_CHECKING:
-    from ..agent import Agent
 
 
 class _Interruptible(Protocol):
     """Interface that adds interrupt support to hook events and tools."""
-
-    agent: "Agent"
 
     def interrupt(self, name: str, reason: Any = None, response: Any = None) -> Any:
         """Trigger the interrupt with a reason.
@@ -97,12 +92,20 @@ class _Interruptible(Protocol):
 
         Raises:
             InterruptException: If human input is required.
+            RuntimeError: If agent instance attribute not set.
         """
+        for attr_name in ["agent", "source"]:
+            if hasattr(self, attr_name):
+                agent = getattr(self, attr_name)
+                break
+        else:
+            raise RuntimeError("agent instance attribute not set")
+
         id = self._interrupt_id(name)
-        state = self.agent._interrupt_state
+        state = agent._interrupt_state
 
         interrupt_ = state.interrupts.setdefault(id, Interrupt(id, name, reason, response))
-        if interrupt_.response:
+        if interrupt_.response is not None:
             return interrupt_.response
 
         raise InterruptException(interrupt_)

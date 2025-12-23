@@ -500,16 +500,7 @@ class BedrockModel(Model):
                 for citation in citations["citations"]:
                     filtered_citation: dict[str, Any] = {}
                     if "location" in citation:
-                        location = citation["location"]
-                        filtered_location = {}
-                        # Filter location fields to only include Bedrock-supported ones
-                        if "documentIndex" in location:
-                            filtered_location["documentIndex"] = location["documentIndex"]
-                        if "start" in location:
-                            filtered_location["start"] = location["start"]
-                        if "end" in location:
-                            filtered_location["end"] = location["end"]
-                        filtered_citation["location"] = filtered_location
+                        filtered_citation["location"] = citation["location"]
                     if "sourceContent" in citation:
                         filtered_source_content: list[dict[str, Any]] = []
                         for source_content in citation["sourceContent"]:

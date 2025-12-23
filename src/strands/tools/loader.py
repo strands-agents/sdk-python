@@ -17,6 +17,8 @@ from .tools import PythonAgentTool
 
 logger = logging.getLogger(__name__)
 
+_TOOL_MODULE_PREFIX = "_strands_tool_"
+
 
 def load_tool_from_string(tool_string: str) -> List[AgentTool]:
     """Load tools follows strands supported input string formats.
@@ -65,7 +67,7 @@ def load_tools_from_file_path(tool_path: str) -> List[AgentTool]:
 
     module = importlib.util.module_from_spec(spec)
     # Load, or re-load, the module
-    sys.modules[module_name] = module
+    sys.modules[f"{_TOOL_MODULE_PREFIX}{module_name}"] = module
     # Execute the module to run any top level code
     spec.loader.exec_module(module)
 
@@ -200,7 +202,7 @@ class ToolLoader:
                 raise ImportError(f"No loader available for {tool_name}")
 
             module = importlib.util.module_from_spec(spec)
-            sys.modules[tool_name] = module
+            sys.modules[f"{_TOOL_MODULE_PREFIX}{tool_name}"] = module
             spec.loader.exec_module(module)
 
             # Collect function-based tools decorated with @tool

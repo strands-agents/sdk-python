@@ -193,7 +193,7 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
     mock_event_8 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_8)])
     mock_event_9 = unittest.mock.Mock()
     mock_event_9.usage.prompt_tokens_details.cached_tokens = 10
-    mock_event_9.usage.prompt_tokens_details.cache_creation_tokens = 10
+    mock_event_9.usage.cache_creation_input_tokens = 10
 
     litellm_acompletion.side_effect = unittest.mock.AsyncMock(
         return_value=agenerator(
@@ -255,7 +255,7 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
             "metadata": {
                 "usage": {
                     "cacheReadInputTokens": mock_event_9.usage.prompt_tokens_details.cached_tokens,
-                    "cacheWriteInputTokens": mock_event_9.usage.prompt_tokens_details.cache_creation_tokens,
+                    "cacheWriteInputTokens": mock_event_9.usage.cache_creation_input_tokens,
                     "inputTokens": mock_event_9.usage.prompt_tokens,
                     "outputTokens": mock_event_9.usage.completion_tokens,
                     "totalTokens": mock_event_9.usage.total_tokens,
@@ -405,6 +405,16 @@ async def test_context_window_maps_to_typed_exception(litellm_acompletion, model
 
     with pytest.raises(ContextWindowOverflowException):
         async for _ in model.stream([{"role": "user", "content": [{"text": "x"}]}]):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_stream_raises_error_when_stream_is_false(model):
+    """Test that stream raises ValueError when stream parameter is explicitly False."""
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+
+    with pytest.raises(ValueError, match="stream parameter cannot be explicitly set to False"):
+        async for _ in model.stream(messages, stream=False):
             pass
 
 

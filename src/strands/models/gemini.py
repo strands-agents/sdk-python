@@ -40,30 +40,57 @@ class GeminiModel(Model):
             params: Additional model parameters (e.g., temperature).
                 For a complete list of supported parameters, see
                 https://ai.google.dev/api/generate-content#generationconfig.
+            gemini_tools: Gemini-specific tools that are not FunctionDeclarations
+                (e.g., GoogleSearch, CodeExecution, ComputerUse, UrlContext, FileSearch).
+                Use the standard tools interface for function calling tools.
+                For a complete list of supported tools, see
+                https://ai.google.dev/api/caching#Tool
         """
 
         model_id: Required[str]
         params: dict[str, Any]
+        gemini_tools: list[genai.types.Tool]
 
     def __init__(
         self,
         *,
+        client: Optional[genai.Client] = None,
         client_args: Optional[dict[str, Any]] = None,
         **model_config: Unpack[GeminiConfig],
     ) -> None:
         """Initialize provider instance.
 
         Args:
+            client: Pre-configured Gemini client to reuse across requests.
+                When provided, this client will be reused for all requests and will NOT be closed
+                by the model. The caller is responsible for managing the client lifecycle.
+                This is useful for:
+                - Injecting custom client wrappers
+                - Reusing connection pools within a single event loop/worker
+                - Centralizing observability, retries, and networking policy
+                Note: The client should not be shared across different asyncio event loops.
             client_args: Arguments for the underlying Gemini client (e.g., api_key).
                 For a complete list of supported arguments, see https://googleapis.github.io/python-genai/.
             **model_config: Configuration options for the Gemini model.
+
+        Raises:
+            ValueError: If both `client` and `client_args` are provided.
         """
         validate_config_keys(model_config, GeminiModel.GeminiConfig)
         self.config = GeminiModel.GeminiConfig(**model_config)
 
-        logger.debug("config=<%s> | initializing", self.config)
+        # Validate that only one client configuration method is provided
+        if client is not None and client_args is not None and len(client_args) > 0:
+            raise ValueError("Only one of 'client' or 'client_args' should be provided, not both.")
 
+        self._custom_client = client
         self.client_args = client_args or {}
+
+        # Validate gemini_tools if provided
+        if "gemini_tools" in self.config:
+            self._validate_gemini_tools(self.config["gemini_tools"])
+
+        logger.debug("config=<%s> | initializing", self.config)
 
     @override
     def update_config(self, **model_config: Unpack[GeminiConfig]) -> None:  # type: ignore[override]
@@ -72,6 +99,10 @@ class GeminiModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        # Validate gemini_tools if provided
+        if "gemini_tools" in model_config:
+            self._validate_gemini_tools(model_config["gemini_tools"])
+
         self.config.update(model_config)
 
     @override
@@ -82,6 +113,24 @@ class GeminiModel(Model):
             The Gemini model configuration.
         """
         return self.config
+
+    def _get_client(self) -> genai.Client:
+        """Get a Gemini client for making requests.
+
+        This method handles client lifecycle management:
+        - If an injected client was provided during initialization, it returns that client
+          without managing its lifecycle (caller is responsible for cleanup).
+        - Otherwise, creates a new genai.Client from client_args.
+
+        Returns:
+            genai.Client: A Gemini client instance.
+        """
+        if self._custom_client is not None:
+            # Use the injected client (caller manages lifecycle)
+            return self._custom_client
+        else:
+            # Create a new client from client_args
+            return genai.Client(**self.client_args)
 
     def _format_request_content_part(self, content: ContentBlock) -> genai.types.Part:
         """Format content block into a Gemini part instance.
@@ -181,7 +230,7 @@ class GeminiModel(Model):
         Return:
             Gemini tool list.
         """
-        return [
+        tools = [
             genai.types.Tool(
                 function_declarations=[
                     genai.types.FunctionDeclaration(
@@ -193,6 +242,9 @@ class GeminiModel(Model):
                 ],
             ),
         ]
+        if self.config.get("gemini_tools"):
+            tools.extend(self.config["gemini_tools"])
+        return tools
 
     def _format_request_config(
         self,
@@ -365,7 +417,8 @@ class GeminiModel(Model):
         """
         request = self._format_request(messages, tool_specs, system_prompt, self.config.get("params"))
 
-        client = genai.Client(**self.client_args).aio
+        client = self._get_client().aio
+
         try:
             response = await client.models.generate_content_stream(**request)
 
@@ -448,6 +501,30 @@ class GeminiModel(Model):
             "response_schema": output_model.model_json_schema(),
         }
         request = self._format_request(prompt, None, system_prompt, params)
-        client = genai.Client(**self.client_args).aio
+        client = self._get_client().aio
         response = await client.models.generate_content(**request)
         yield {"output": output_model.model_validate(response.parsed)}
+
+    @staticmethod
+    def _validate_gemini_tools(gemini_tools: list[genai.types.Tool]) -> None:
+        """Validate that gemini_tools does not contain FunctionDeclarations.
+
+        Gemini-specific tools should only include tools that cannot be represented
+        as FunctionDeclarations (e.g., GoogleSearch, CodeExecution, ComputerUse).
+        Standard function calling tools should use the tools interface instead.
+
+        Args:
+            gemini_tools: List of Gemini tools to validate
+
+        Raises:
+            ValueError: If any tool contains function_declarations
+        """
+        for tool in gemini_tools:
+            # Check if the tool has function_declarations attribute and it's not empty
+            if hasattr(tool, "function_declarations") and tool.function_declarations:
+                raise ValueError(
+                    "gemini_tools should not contain FunctionDeclarations. "
+                    "Use the standard tools interface for function calling tools. "
+                    "gemini_tools is reserved for Gemini-specific tools like "
+                    "GoogleSearch, CodeExecution, ComputerUse, UrlContext, and FileSearch."
+                )

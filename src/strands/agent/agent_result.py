@@ -38,7 +38,8 @@ class AgentResult:
         """Get the agent's last message as a string.
 
         This method extracts and concatenates all text content from the final message, ignoring any non-text content
-        like images or structured data.
+        like images or structured data. If there's no text content but structured output is present, it serializes
+        the structured output instead.
 
         Returns:
             The agent's last message as a string.
@@ -49,6 +50,10 @@ class AgentResult:
         for item in content_array:
             if isinstance(item, dict) and "text" in item:
                 result += item.get("text", "") + "\n"
+
+        if not result and self.structured_output:
+            result = self.structured_output.model_dump_json()
+
         return result
 
     @classmethod
