@@ -801,4 +801,10 @@ class MCPClient(ToolProvider):
         return False
 
     def _is_session_active(self) -> bool:
-        return self._background_thread is not None and self._background_thread.is_alive()
+        if self._background_thread is None or not self._background_thread.is_alive():
+            return False
+
+        if self._close_future is not None and self._close_future.done():
+            return False
+
+        return True
