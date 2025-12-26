@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from ..interrupt import Interrupt
 from ..telemetry.metrics import EventLoopMetrics
-from ..types.content import Message
+from ..types.content import Message, is_text_block
 from ..types.streaming import StopReason
 
 
@@ -48,8 +48,8 @@ class AgentResult:
 
         result = ""
         for item in content_array:
-            if isinstance(item, dict) and "text" in item:
-                result += item.get("text", "") + "\n"
+            if is_text_block(item):
+                result += item["text"] + "\n"
 
         if not result and self.structured_output:
             result = self.structured_output.model_dump_json()

@@ -1,13 +1,13 @@
 """Sliding window conversation history management."""
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
 from ...hooks import BeforeModelCallEvent, HookRegistry
-from ...types.content import Messages
+from ...types.content import ContentBlockToolResult, Messages, is_tool_result_block
 from ...types.exceptions import ContextWindowOverflowException
 from .conversation_manager import ConversationManager
 
@@ -216,21 +216,23 @@ class SlidingWindowConversationManager(ConversationManager):
         changes_made = False
         tool_result_too_large_message = "The tool result was too large!"
         for i, content in enumerate(message.get("content", [])):
-            if isinstance(content, dict) and "toolResult" in content:
+            if is_tool_result_block(content):
                 tool_result_content_text = next(
                     (item["text"] for item in content["toolResult"]["content"] if "text" in item),
                     "",
                 )
+                # Cast to ensure type narrowing for indexed access
+                content_block = cast(ContentBlockToolResult, message["content"][i])
                 # make the overwriting logic togglable
                 if (
-                    message["content"][i]["toolResult"]["status"] == "error"
+                    content_block["toolResult"]["status"] == "error"
                     and tool_result_content_text == tool_result_too_large_message
                 ):
                     logger.info("ToolResult has already been updated, skipping overwrite")
                     return False
                 # Update status to error with informative message
-                message["content"][i]["toolResult"]["status"] = "error"
-                message["content"][i]["toolResult"]["content"] = [{"text": tool_result_too_large_message}]
+                content_block["toolResult"]["status"] = "error"
+                content_block["toolResult"]["content"] = [{"text": tool_result_too_large_message}]
                 changes_made = True
 
         return changes_made

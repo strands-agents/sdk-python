@@ -10,7 +10,7 @@ from strands.agent.conversation_manager.summarizing_conversation_manager import 
 from strands.agent.state import AgentState
 from strands.interrupt import _InterruptState
 from strands.session.repository_session_manager import RepositorySessionManager
-from strands.types.content import ContentBlock
+from strands.types.content import ContentBlockText
 from strands.types.exceptions import SessionException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 from tests.fixtures.mock_session_repository import MockedSessionRepository
@@ -118,7 +118,7 @@ def test_initialize_restores_existing_agent(session_manager, agent):
     message = SessionMessage(
         message={
             "role": "user",
-            "content": [ContentBlock(text="Hello")],
+            "content": [ContentBlockText(text="Hello")],
         },
         message_id=0,
     )
@@ -153,7 +153,7 @@ def test_initialize_restores_existing_agent_with_summarizing_conversation_manage
     message = SessionMessage(
         message={
             "role": "user",
-            "content": [ContentBlock(text="Hello")],
+            "content": [ContentBlockText(text="Hello")],
         },
         message_id=0,
     )

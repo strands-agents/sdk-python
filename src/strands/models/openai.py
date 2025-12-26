@@ -15,7 +15,17 @@ from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.content import (
+    ContentBlock,
+    Messages,
+    SystemContentBlock,
+    is_document_block,
+    is_image_block,
+    is_reasoning_content_block,
+    is_text_block,
+    is_tool_result_block,
+    is_tool_use_block,
+)
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
@@ -126,7 +136,7 @@ class OpenAIModel(Model):
         Raises:
             TypeError: If the content block type cannot be converted to an OpenAI-compatible format.
         """
-        if "document" in content:
+        if is_document_block(content):
             mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
             file_data = base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8")
             return {
@@ -137,7 +147,7 @@ class OpenAIModel(Model):
                 "type": "file",
             }
 
-        if "image" in content:
+        if is_image_block(content):
             mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
             image_data = base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8")
 
@@ -150,7 +160,7 @@ class OpenAIModel(Model):
                 "type": "image_url",
             }
 
-        if "text" in content:
+        if is_text_block(content):
             return {"text": content["text"], "type": "text"}
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -270,7 +280,7 @@ class OpenAIModel(Model):
             contents = message["content"]
 
             # Check for reasoningContent and warn user
-            if any("reasoningContent" in content for content in contents):
+            if any(is_reasoning_content_block(content) for content in contents):
                 logger.warning(
                     "reasoningContent is not supported in multi-turn conversations with the Chat Completions API."
                 )
@@ -278,15 +288,19 @@ class OpenAIModel(Model):
             formatted_contents = [
                 cls.format_request_message_content(content)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
+                if not (
+                    is_tool_result_block(content) or is_tool_use_block(content) or is_reasoning_content_block(content)
+                )
             ]
             formatted_tool_calls = [
-                cls.format_request_message_tool_call(content["toolUse"]) for content in contents if "toolUse" in content
+                cls.format_request_message_tool_call(content["toolUse"])
+                for content in contents
+                if is_tool_use_block(content)
             ]
             formatted_tool_messages = [
                 cls.format_request_tool_message(content["toolResult"])
                 for content in contents
-                if "toolResult" in content
+                if is_tool_result_block(content)
             ]
 
             formatted_message = {

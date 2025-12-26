@@ -10,7 +10,7 @@ from opentelemetry.trace import (
 )
 
 from strands.telemetry.tracer import JSONEncoder, Tracer, get_tracer, serialize
-from strands.types.content import ContentBlock
+from strands.types.content import ContentBlockText
 from strands.types.interrupt import InterruptResponseContent
 from strands.types.streaming import Metrics, StopReason, Usage
 
@@ -393,7 +393,7 @@ def test_start_swarm_span_with_contentblock_task(mock_tracer):
         mock_span = mock.MagicMock()
         mock_tracer.start_span.return_value = mock_span
 
-        task = [ContentBlock(text="Original Task: foo bar")]
+        task = [ContentBlockText(text="Original Task: foo bar")]
 
         span = tracer.start_multiagent_span(task, "swarm")
 
@@ -411,7 +411,7 @@ def test_start_swarm_span_with_contentblock_task(mock_tracer):
 @pytest.mark.parametrize(
     "task, expected_parts",
     [
-        ([ContentBlock(text="Test message")], [{"type": "text", "content": "Test message"}]),
+        ([ContentBlockText(text="Test message")], [{"type": "text", "content": "Test message"}]),
         (
             [InterruptResponseContent(interruptResponse={"interruptId": "test-id", "response": "approved"})],
             [{"type": "interrupt_response", "id": "test-id", "response": "approved"}],
@@ -446,7 +446,7 @@ def test_start_swarm_span_with_contentblock_task_latest_conventions(mock_tracer,
         mock_span = mock.MagicMock()
         mock_tracer.start_span.return_value = mock_span
 
-        task = [ContentBlock(text="Original Task: foo bar")]
+        task = [ContentBlockText(text="Original Task: foo bar")]
 
         span = tracer.start_multiagent_span(task, "swarm")
 

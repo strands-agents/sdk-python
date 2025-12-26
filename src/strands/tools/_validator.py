@@ -1,7 +1,7 @@
 """Tool validation utilities."""
 
 from ..tools.tools import InvalidToolUseNameException, validate_tool_use
-from ..types.content import Message
+from ..types.content import Message, is_tool_use_block
 from ..types.tools import ToolResult, ToolUse
 
 
@@ -21,7 +21,7 @@ def validate_and_prepare_tools(
     """
     # Extract tool uses from message
     for content in message["content"]:
-        if isinstance(content, dict) and "toolUse" in content:
+        if is_tool_use_block(content):
             tool_uses.append(content["toolUse"])
 
     # Validate tool uses
