@@ -481,6 +481,90 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
                 "redactedContent": b"",
             },
         ),
+        # Reasoning AND Text - both should be captured (Gemini thinking mode)
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "2 + 2 = 4",
+                "reasoningText": "Let me calculate this simple math problem.",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [
+                    {"reasoningContent": {"reasoningText": {"text": "Let me calculate this simple math problem."}}},
+                    {"text": "2 + 2 = 4"},
+                ],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
+        # Reasoning AND Text with signature - both should be captured
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "The answer is 4",
+                "reasoningText": "Thinking about the math",
+                "signature": "test-sig",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [
+                    {
+                        "reasoningContent": {
+                            "reasoningText": {"text": "Thinking about the math", "signature": "test-sig"}
+                        }
+                    },
+                    {"text": "The answer is 4"},
+                ],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "signature": "test-sig",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
+        # Reasoning AND Text with Citations - all should be captured
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "According to the source",
+                "reasoningText": "I need to cite the source",
+                "citationsContent": [
+                    {"location": {"documentChar": {"documentIndex": 0, "start": 0, "end": 10}}, "title": "Source"}
+                ],
+                "redactedContent": b"",
+            },
+            {
+                "content": [
+                    {"reasoningContent": {"reasoningText": {"text": "I need to cite the source"}}},
+                    {
+                        "citationsContent": {
+                            "citations": [
+                                {
+                                    "location": {"documentChar": {"documentIndex": 0, "start": 0, "end": 10}},
+                                    "title": "Source",
+                                }
+                            ],
+                            "content": [{"text": "According to the source"}],
+                        }
+                    },
+                ],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
     ],
 )
 def test_handle_content_block_stop(state, exp_updated_state):
@@ -980,6 +1064,89 @@ async def test_process_stream_redacted(response, exp_events, agenerator, alist):
 
 def _get_message_from_event(event: ModelStopReason) -> Message:
     return cast(Message, event["stop"][1])
+
+
+@pytest.mark.asyncio
+async def test_process_stream_reasoning_and_text_same_block(agenerator, alist):
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"text": "Let me calculate this..."}},
+                "contentBlockIndex": 0,
+            }
+        },
+        {
+            "contentBlockDelta": {
+                "delta": {"text": "2 + 2 = 4"},
+                "contentBlockIndex": 0,
+            }
+        },
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                "metrics": {"latencyMs": 100},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+
+    message = _get_message_from_event(last_event)
+
+    assert len(message["content"]) == 2
+    assert message["content"][0]["reasoningContent"]["reasoningText"]["text"] == "Let me calculate this..."
+    assert message["content"][1]["text"] == "2 + 2 = 4"
+
+
+@pytest.mark.asyncio
+async def test_process_stream_reasoning_and_text_same_block_with_signature(agenerator, alist):
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"text": "Thinking about this..."}},
+                "contentBlockIndex": 0,
+            }
+        },
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"signature": "test-signature"}},
+                "contentBlockIndex": 0,
+            }
+        },
+        {
+            "contentBlockDelta": {
+                "delta": {"text": "The answer is 42"},
+                "contentBlockIndex": 0,
+            }
+        },
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                "metrics": {"latencyMs": 100},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+
+    message = _get_message_from_event(last_event)
+
+    assert len(message["content"]) == 2
+    assert message["content"][0]["reasoningContent"]["reasoningText"]["text"] == "Thinking about this..."
+    assert message["content"][0]["reasoningContent"]["reasoningText"]["signature"] == "test-signature"
+    assert message["content"][1]["text"] == "The answer is 42"
 
 
 @pytest.mark.asyncio
