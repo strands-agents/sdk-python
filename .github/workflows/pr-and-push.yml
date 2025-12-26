@@ -33,8 +33,8 @@ jobs:
       uses: astral-sh/setup-uv@v6
     - name: Check API breaking changes
       run: |
-        if ! uvx griffe check --search src --format github strands --against "${{ github.event.pull_request.base.sha || github.event.before || 'HEAD' }}"; then
-          echo "Breaking API changes detected"
+        if ! uvx griffe check --search src --format github strands --against "main"; then
+          echo "Potential API changes detected (review if actually breaking)"
           exit 1
         fi
 
