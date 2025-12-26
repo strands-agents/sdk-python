@@ -179,6 +179,189 @@ def test_format_request_tool_message():
     assert tru_result == exp_result
 
 
+def test_split_tool_message_images_with_image():
+    """Test that images are extracted from tool messages."""
+    tool_message = {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": [
+            {"type": "text", "text": "Result"},
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,iVBORw0KGgo=", "detail": "auto", "format": "image/png"},
+            },
+        ],
+    }
+
+    tool_clean, user_with_image = OpenAIModel._split_tool_message_images(tool_message)
+
+    # Tool message should now have the original text plus the appended informational text
+    assert tool_clean["role"] == "tool"
+    assert tool_clean["tool_call_id"] == "c1"
+    assert len(tool_clean["content"]) == 2
+    assert tool_clean["content"][0]["type"] == "text"
+    assert tool_clean["content"][0]["text"] == "Result"
+    assert "Tool successfully returned an image" in tool_clean["content"][1]["text"]
+
+    # User message should have the image
+    assert user_with_image is not None
+    assert user_with_image["role"] == "user"
+    assert len(user_with_image["content"]) == 1
+    assert user_with_image["content"][0]["type"] == "image_url"
+
+
+def test_split_tool_message_images_without_image():
+    """Test that tool messages without images are unchanged."""
+    tool_message = {"role": "tool", "tool_call_id": "c1", "content": [{"type": "text", "text": "Result"}]}
+
+    tool_clean, user_with_image = OpenAIModel._split_tool_message_images(tool_message)
+
+    assert tool_clean == tool_message
+    assert user_with_image is None
+
+
+def test_split_tool_message_images_only_image():
+    """Test tool message with only image content."""
+    tool_message = {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}],
+    }
+
+    tool_clean, user_with_image = OpenAIModel._split_tool_message_images(tool_message)
+
+    # Tool message should have default text
+    assert tool_clean["role"] == "tool"
+    assert len(tool_clean["content"]) == 1
+    assert "successfully" in tool_clean["content"][0]["text"].lower()
+
+    # User message should have the image
+    assert user_with_image is not None
+    assert user_with_image["role"] == "user"
+    assert len(user_with_image["content"]) == 1
+
+
+def test_split_tool_message_images_non_tool_role():
+    """Test that messages with roles other than 'tool' are ignored."""
+    user_msg = {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+    clean, extra = OpenAIModel._split_tool_message_images(user_msg)
+    assert clean == user_msg
+    assert extra is None
+
+
+def test_split_tool_message_images_invalid_content_type():
+    """Test that messages with non-list content are ignored."""
+    invalid_msg = {"role": "tool", "content": "not a list"}
+    clean, extra = OpenAIModel._split_tool_message_images(invalid_msg)
+    assert clean == invalid_msg
+    assert extra is None
+
+
+def test_format_request_messages_with_tool_result_containing_image():
+    """Test that tool results with images are properly split into tool and user messages."""
+    messages = [
+        {
+            "content": [{"text": "Run the tool"}],
+            "role": "user",
+        },
+        {
+            "content": [
+                {
+                    "toolUse": {
+                        "input": {},
+                        "name": "image_tool",
+                        "toolUseId": "t1",
+                    },
+                },
+            ],
+            "role": "assistant",
+        },
+        {
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "t1",
+                        "status": "success",
+                        "content": [
+                            {"text": "Image generated"},
+                            {
+                                "image": {
+                                    "format": "png",
+                                    "source": {"bytes": b"fake_image_data"},
+                                }
+                            },
+                        ],
+                    }
+                }
+            ],
+            "role": "user",
+        },
+    ]
+
+    formatted = OpenAIModel.format_request_messages(messages)
+
+    # Find the tool message
+    tool_messages = [msg for msg in formatted if msg.get("role") == "tool"]
+    assert len(tool_messages) == 1
+
+    # Tool message should only have text content
+    tool_msg = tool_messages[0]
+    assert all(c.get("type") != "image_url" for c in tool_msg["content"])
+
+    # There should be a user message right after the tool message with the image
+    tool_msg_idx = formatted.index(tool_msg)
+    assert tool_msg_idx + 1 < len(formatted)
+    user_msg = formatted[tool_msg_idx + 1]
+    assert user_msg["role"] == "user"
+    assert any(c.get("type") == "image_url" for c in user_msg["content"])
+
+
+def test_format_request_messages_with_multiple_images_in_tool_result():
+    """Test tool result with multiple images."""
+    messages = [
+        {
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "t1",
+                        "status": "success",
+                        "content": [
+                            {"text": "Two images generated"},
+                            {
+                                "image": {
+                                    "format": "png",
+                                    "source": {"bytes": b"image1"},
+                                }
+                            },
+                            {
+                                "image": {
+                                    "format": "jpg",
+                                    "source": {"bytes": b"image2"},
+                                }
+                            },
+                        ],
+                    }
+                }
+            ],
+            "role": "user",
+        },
+    ]
+
+    formatted = OpenAIModel.format_request_messages(messages)
+
+    # Find user message with images
+    user_image_msgs = [
+        msg
+        for msg in formatted
+        if msg.get("role") == "user" and any(c.get("type") == "image_url" for c in msg.get("content", []))
+    ]
+    assert len(user_image_msgs) == 1
+
+    # Should have both images
+    image_contents = [c for c in user_image_msgs[0]["content"] if c.get("type") == "image_url"]
+    assert len(image_contents) == 2
+
+
 def test_format_request_tool_choice_auto():
     tool_choice = {"auto": {}}
 

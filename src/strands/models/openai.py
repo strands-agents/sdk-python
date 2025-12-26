@@ -201,6 +201,70 @@ class OpenAIModel(Model):
         }
 
     @classmethod
+    def _split_tool_message_images(
+        cls, tool_message: dict[str, Any]
+    ) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
+        """Split a tool message into text-only tool message and optional user message with images.
+
+        OpenAI API restricts images to user role messages only. This method extracts any image
+        content from a tool message and returns it separately as a user message.
+
+        Args:
+            tool_message: A formatted tool message that may contain images.
+
+        Returns:
+            A tuple of (tool_message_without_images, user_message_with_images_or_None).
+        """
+        if tool_message.get("role") != "tool":
+            return tool_message, None
+
+        content = tool_message.get("content", [])
+        if not isinstance(content, list):
+            return tool_message, None
+
+        # Separate image and non-image content
+        text_content = []
+        image_content = []
+
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "image_url":
+                image_content.append(item)
+            else:
+                text_content.append(item)
+
+        # If no images found, return original message
+        if not image_content:
+            return tool_message, None
+
+        # Let the user know that we are modifying the messages for OpenAI compatibility
+        logger.warning(
+            "tool_call_id=<%s> | Moving image from tool message to a new user message for OpenAI compatibility",
+            tool_message["tool_call_id"],
+        )
+
+        # Append a message to the text content to inform the model about the upcoming image
+        text_content.append(
+            {
+                "type": "text",
+                "text": (
+                    "Tool successfully returned an image. The image is being provided in the following user message."
+                ),
+            }
+        )
+
+        # Create the clean tool message with the updated text content
+        tool_message_clean = {
+            "role": "tool",
+            "tool_call_id": tool_message["tool_call_id"],
+            "content": text_content,
+        }
+
+        # Create user message with only images
+        user_message_with_images = {"role": "user", "content": image_content}
+
+        return tool_message_clean, user_message_with_images
+
+    @classmethod
     def _format_request_tool_choice(cls, tool_choice: ToolChoice | None) -> dict[str, Any]:
         """Format a tool choice for OpenAI compatibility.
 
@@ -295,7 +359,14 @@ class OpenAIModel(Model):
                 **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
             }
             formatted_messages.append(formatted_message)
-            formatted_messages.extend(formatted_tool_messages)
+
+            # Process tool messages to extract images into separate user messages
+            # OpenAI API requires images to be in user role messages only
+            for tool_msg in formatted_tool_messages:
+                tool_msg_clean, user_msg_with_images = cls._split_tool_message_images(tool_msg)
+                formatted_messages.append(tool_msg_clean)
+                if user_msg_with_images:
+                    formatted_messages.append(user_msg_with_images)
 
         return formatted_messages
 
