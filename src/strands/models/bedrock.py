@@ -20,7 +20,20 @@ from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..tools._tool_helpers import noop_tool
-from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.content import (
+    ContentBlock,
+    Messages,
+    SystemContentBlock,
+    is_citations_block,
+    is_document_block,
+    is_guard_content_block,
+    is_image_block,
+    is_reasoning_content_block,
+    is_text_block,
+    is_tool_result_block,
+    is_tool_use_block,
+    is_video_block,
+)
 from ..types.exceptions import (
     ContextWindowOverflowException,
     ModelThrottledException,
@@ -386,7 +399,7 @@ class BedrockModel(Model):
             return {"cachePoint": {"type": content["cachePoint"]["type"]}}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_DocumentBlock.html
-        if "document" in content:
+        if is_document_block(content):
             document = content["document"]
             result: dict[str, Any] = {}
 
@@ -409,14 +422,14 @@ class BedrockModel(Model):
             return {"document": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_GuardrailConverseContentBlock.html
-        if "guardContent" in content:
+        if is_guard_content_block(content):
             guard = content["guardContent"]
             guard_text = guard["text"]
             result = {"text": {"text": guard_text["text"], "qualifiers": guard_text["qualifiers"]}}
             return {"guardContent": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
-        if "image" in content:
+        if is_image_block(content):
             image = content["image"]
             source = image["source"]
             formatted_source = {}
@@ -426,7 +439,7 @@ class BedrockModel(Model):
             return {"image": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ReasoningContentBlock.html
-        if "reasoningContent" in content:
+        if is_reasoning_content_block(content):
             reasoning = content["reasoningContent"]
             result = {}
 
@@ -445,11 +458,11 @@ class BedrockModel(Model):
             return {"reasoningContent": result}
 
         # Pass through text and other simple content types
-        if "text" in content:
+        if is_text_block(content):
             return {"text": content["text"]}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
-        if "toolResult" in content:
+        if is_tool_result_block(content):
             tool_result = content["toolResult"]
             formatted_content: list[dict[str, Any]] = []
             for tool_result_content in tool_result["content"]:
@@ -470,7 +483,7 @@ class BedrockModel(Model):
             return {"toolResult": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolUseBlock.html
-        if "toolUse" in content:
+        if is_tool_use_block(content):
             tool_use = content["toolUse"]
             return {
                 "toolUse": {
@@ -481,7 +494,7 @@ class BedrockModel(Model):
             }
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_VideoBlock.html
-        if "video" in content:
+        if is_video_block(content):
             video = content["video"]
             source = video["source"]
             formatted_source = {}
@@ -491,7 +504,7 @@ class BedrockModel(Model):
             return {"video": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
-        if "citationsContent" in content:
+        if is_citations_block(content):
             citations = content["citationsContent"]
             result = {}
 
@@ -777,7 +790,7 @@ class BedrockModel(Model):
         # Process content blocks
         for content in cast(list[ContentBlock], response["output"]["message"]["content"]):
             # Yield contentBlockStart event if needed
-            if "toolUse" in content:
+            if is_tool_use_block(content):
                 yield {
                     "contentBlockStart": {
                         "start": {
@@ -793,14 +806,14 @@ class BedrockModel(Model):
                 input_value = json.dumps(content["toolUse"]["input"])
 
                 yield {"contentBlockDelta": {"delta": {"toolUse": {"input": input_value}}}}
-            elif "text" in content:
+            elif is_text_block(content):
                 # Then yield the text as a delta
                 yield {
                     "contentBlockDelta": {
                         "delta": {"text": content["text"]},
                     }
                 }
-            elif "reasoningContent" in content:
+            elif is_reasoning_content_block(content):
                 # Then yield the reasoning content as a delta
                 yield {
                     "contentBlockDelta": {
@@ -818,7 +831,7 @@ class BedrockModel(Model):
                             }
                         }
                     }
-            elif "citationsContent" in content:
+            elif is_citations_block(content):
                 # For non-streaming citations, emit text and metadata deltas in sequence
                 # to match streaming behavior where they flow naturally
                 if "content" in content["citationsContent"]:

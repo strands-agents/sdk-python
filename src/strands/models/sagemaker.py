@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Literal, Optional, Type, TypedDict, TypeVar, Union
+from typing import Any, AsyncGenerator, Literal, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -12,7 +12,7 @@ from mypy_boto3_sagemaker_runtime import SageMakerRuntimeClient
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, Messages, is_reasoning_content_block, is_video_block
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec
 from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
@@ -550,16 +550,19 @@ class SageMakerAIModel(OpenAIModel):
         # if "text" in content and not isinstance(content["text"], str):
         #     return {"type": "text", "text": str(content["text"])}
 
-        if "reasoningContent" in content and content["reasoningContent"]:
+        if is_reasoning_content_block(content) and content["reasoningContent"]:
             return {
                 "signature": content["reasoningContent"].get("reasoningText", {}).get("signature", ""),
                 "thinking": content["reasoningContent"].get("reasoningText", {}).get("text", ""),
                 "type": "thinking",
             }
-        elif not content.get("reasoningContent"):
-            content.pop("reasoningContent", None)
+        elif is_reasoning_content_block(content) and not content.get("reasoningContent"):
+            # Cast to dict for mutation before passing to parent
+            mutable_content = cast(dict[str, Any], dict(content))
+            mutable_content.pop("reasoningContent", None)
+            return super().format_request_message_content(cast(ContentBlock, mutable_content))
 
-        if "video" in content:
+        if is_video_block(content):
             return {
                 "type": "video_url",
                 "video_url": {

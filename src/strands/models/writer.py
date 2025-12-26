@@ -13,7 +13,13 @@ import writerai
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import (
+    ContentBlock,
+    Messages,
+    is_text_block,
+    is_tool_result_block,
+    is_tool_use_block,
+)
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
@@ -96,12 +102,15 @@ class WriterModel(Model):
             Raises:
                 TypeError: If the content block type cannot be converted to a Writer-compatible format.
             """
-            if "text" in content:
-                return {"text": content["text"], "type": "text"}
+            # Cast to Dict for runtime key checking
+            content_dict = cast(Dict[str, Any], content)
 
-            if "image" in content:
-                mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
-                image_data = base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8")
+            if "text" in content_dict:
+                return {"text": content_dict["text"], "type": "text"}
+
+            if "image" in content_dict:
+                mime_type = mimetypes.types_map.get(f".{content_dict['image']['format']}", "application/octet-stream")
+                image_data = base64.b64encode(content_dict["image"]["source"]["bytes"]).decode("utf-8")
 
                 return {
                     "image_url": {
@@ -110,7 +119,7 @@ class WriterModel(Model):
                     "type": "image_url",
                 }
 
-            raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+            raise TypeError(f"content_type=<{next(iter(content_dict))}> | unsupported type")
 
         return [
             _format_content_vision(content)
@@ -133,7 +142,7 @@ class WriterModel(Model):
             Raises:
                 TypeError: If the content block type cannot be converted to a Writer-compatible format.
             """
-            if "text" in content:
+            if is_text_block(content):
                 return content["text"]
 
             raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -226,12 +235,12 @@ class WriterModel(Model):
             formatted_tool_calls = [
                 self._format_request_message_tool_call(content["toolUse"])
                 for content in contents
-                if "toolUse" in content
+                if is_tool_use_block(content)
             ]
             formatted_tool_messages = [
                 self._format_request_tool_message(content["toolResult"])
                 for content in contents
-                if "toolResult" in content
+                if is_tool_result_block(content)
             ]
 
             formatted_message = {

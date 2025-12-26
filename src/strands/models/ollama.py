@@ -11,7 +11,14 @@ import ollama
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import (
+    ContentBlock,
+    Messages,
+    is_image_block,
+    is_text_block,
+    is_tool_result_block,
+    is_tool_use_block,
+)
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
@@ -110,13 +117,13 @@ class OllamaModel(Model):
         Raises:
             TypeError: If the content block type cannot be converted to an Ollama-compatible format.
         """
-        if "text" in content:
+        if is_text_block(content):
             return [{"role": role, "content": content["text"]}]
 
-        if "image" in content:
+        if is_image_block(content):
             return [{"role": role, "images": [content["image"]["source"]["bytes"]]}]
 
-        if "toolUse" in content:
+        if is_tool_use_block(content):
             return [
                 {
                     "role": role,
@@ -131,7 +138,7 @@ class OllamaModel(Model):
                 }
             ]
 
-        if "toolResult" in content:
+        if is_tool_result_block(content):
             return [
                 formatted_tool_result_content
                 for tool_result_content in content["toolResult"]["content"]

@@ -23,7 +23,13 @@ from a2a.utils.errors import ServerError
 
 from ...agent.agent import Agent as SAAgent
 from ...agent.agent import AgentResult as SAAgentResult
-from ...types.content import ContentBlock
+from ...types.content import (
+    ContentBlock,
+    ContentBlockDocument,
+    ContentBlockImage,
+    ContentBlockText,
+    ContentBlockVideo,
+)
 from ...types.media import (
     DocumentContent,
     DocumentSource,
@@ -259,7 +265,7 @@ class StrandsA2AExecutor(AgentExecutor):
 
                 if isinstance(part_root, TextPart):
                     # Handle TextPart
-                    content_blocks.append(ContentBlock(text=part_root.text))
+                    content_blocks.append(ContentBlockText(text=part_root.text))
 
                 elif isinstance(part_root, FilePart):
                     # Handle FilePart
@@ -283,7 +289,7 @@ class StrandsA2AExecutor(AgentExecutor):
 
                         if file_type == "image":
                             content_blocks.append(
-                                ContentBlock(
+                                ContentBlockImage(
                                     image=ImageContent(
                                         format=file_format,  # type: ignore
                                         source=ImageSource(bytes=decoded_bytes),
@@ -292,7 +298,7 @@ class StrandsA2AExecutor(AgentExecutor):
                             )
                         elif file_type == "video":
                             content_blocks.append(
-                                ContentBlock(
+                                ContentBlockVideo(
                                     video=VideoContent(
                                         format=file_format,  # type: ignore
                                         source=VideoSource(bytes=decoded_bytes),
@@ -301,7 +307,7 @@ class StrandsA2AExecutor(AgentExecutor):
                             )
                         else:  # document or unknown
                             content_blocks.append(
-                                ContentBlock(
+                                ContentBlockDocument(
                                     document=DocumentContent(
                                         format=file_format,  # type: ignore
                                         name=file_name,
@@ -313,7 +319,7 @@ class StrandsA2AExecutor(AgentExecutor):
                     elif uri_data:
                         # For URI files, create a text representation since Strands ContentBlocks expect bytes
                         content_blocks.append(
-                            ContentBlock(
+                            ContentBlockText(
                                 text="[File: %s (%s)] - Referenced file at: %s" % (file_name, mime_type, uri_data)
                             )
                         )
@@ -321,7 +327,7 @@ class StrandsA2AExecutor(AgentExecutor):
                     # Handle DataPart - convert structured data to JSON text
                     try:
                         data_text = json.dumps(part_root.data, indent=2)
-                        content_blocks.append(ContentBlock(text="[Structured Data]\n%s" % data_text))
+                        content_blocks.append(ContentBlockText(text="[Structured Data]\n%s" % data_text))
                     except Exception:
                         logger.exception("Failed to serialize data part")
             except Exception:

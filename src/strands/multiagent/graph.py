@@ -44,7 +44,7 @@ from ..types._events import (
     MultiAgentNodeStreamEvent,
     MultiAgentResultEvent,
 )
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, ContentBlockText, Messages
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
 from ..types.traces import AttributeValue
@@ -977,32 +977,32 @@ class Graph(MultiAgentBase):
         if not dependency_results:
             # No dependencies - return task as ContentBlocks
             if isinstance(self.state.task, str):
-                return [ContentBlock(text=self.state.task)]
+                return [ContentBlockText(text=self.state.task)]
             else:
                 return cast(list[ContentBlock], self.state.task)
 
         # Combine task with dependency outputs
-        node_input = []
+        node_input: list[ContentBlock] = []
 
         # Add original task
         if isinstance(self.state.task, str):
-            node_input.append(ContentBlock(text=f"Original Task: {self.state.task}"))
+            node_input.append(ContentBlockText(text=f"Original Task: {self.state.task}"))
         else:
             # Add task content blocks with a prefix
-            node_input.append(ContentBlock(text="Original Task:"))
+            node_input.append(ContentBlockText(text="Original Task:"))
             node_input.extend(cast(list[ContentBlock], self.state.task))
 
         # Add dependency outputs
-        node_input.append(ContentBlock(text="\nInputs from previous nodes:"))
+        node_input.append(ContentBlockText(text="\nInputs from previous nodes:"))
 
         for dep_id, node_result in dependency_results.items():
-            node_input.append(ContentBlock(text=f"\nFrom {dep_id}:"))
+            node_input.append(ContentBlockText(text=f"\nFrom {dep_id}:"))
             # Get all agent results from this node (flattened if nested)
             agent_results = node_result.get_agent_results()
             for result in agent_results:
                 agent_name = getattr(result, "agent_name", "Agent")
                 result_text = str(result)
-                node_input.append(ContentBlock(text=f"  - {agent_name}: {result_text}"))
+                node_input.append(ContentBlockText(text=f"  - {agent_name}: {result_text}"))
 
         return node_input
 

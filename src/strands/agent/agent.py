@@ -58,7 +58,16 @@ from ..tools.structured_output._structured_output_context import StructuredOutpu
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput
-from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
+from ..types.content import (
+    CONTENT_BLOCK_KEYS,
+    ContentBlock,
+    ContentBlockText,
+    Message,
+    Messages,
+    SystemContentBlock,
+    is_tool_result_block,
+    is_tool_use_block,
+)
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
@@ -720,7 +729,9 @@ class Agent:
                     "Agents latest message is toolUse, appending a toolResult message to have valid conversation."
                 )
                 tool_use_ids = [
-                    content["toolUse"]["toolUseId"] for content in self.messages[-1]["content"] if "toolUse" in content
+                    content["toolUse"]["toolUseId"]
+                    for content in self.messages[-1]["content"]
+                    if is_tool_use_block(content)
                 ]
                 await self._append_messages(
                     {
@@ -743,7 +754,7 @@ class Agent:
                         messages = cast(Messages, prompt)
 
                     # Check if all items are content blocks
-                    elif all(any(key in ContentBlock.__annotations__.keys() for key in item) for item in prompt):
+                    elif all(any(key in CONTENT_BLOCK_KEYS for key in item) for item in prompt):
                         # Treat as List[ContentBlock] input - convert to user message
                         # This allows invalid structures to be passed through to the model
                         messages = [{"role": "user", "content": cast(list[ContentBlock], prompt)}]
@@ -838,14 +849,14 @@ class Agent:
             - otherwise, the entire content of the message is replaced
                 with a single text block with the redact message.
         """
-        redacted_content = []
+        redacted_content: list[ContentBlock] = []
         for block in content:
-            if "toolResult" in block:
+            if is_tool_result_block(block):
                 block["toolResult"]["content"] = [{"text": redact_message}]
                 redacted_content.append(block)
 
         if not redacted_content:
             # Text content is added only if no toolResult blocks were found
-            redacted_content = [{"text": redact_message}]
+            redacted_content = [ContentBlockText(text=redact_message)]
 
         return redacted_content

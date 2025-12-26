@@ -15,7 +15,14 @@ from llama_api_client import LlamaAPIClient
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import (
+    ContentBlock,
+    Messages,
+    is_image_block,
+    is_text_block,
+    is_tool_result_block,
+    is_tool_use_block,
+)
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
@@ -103,7 +110,7 @@ class LlamaAPIModel(Model):
         Raises:
             TypeError: If the content block type cannot be converted to a LlamaAPI-compatible format.
         """
-        if "image" in content:
+        if is_image_block(content):
             mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
             image_data = base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8")
 
@@ -114,7 +121,7 @@ class LlamaAPIModel(Model):
                 "type": "image_url",
             }
 
-        if "text" in content:
+        if is_text_block(content):
             return {"text": content["text"], "type": "text"}
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -179,17 +186,17 @@ class LlamaAPIModel(Model):
             formatted_contents = [
                 self._format_request_message_content(content)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+                if not (is_tool_result_block(content) or is_tool_use_block(content))
             ]
             formatted_tool_calls = [
                 self._format_request_message_tool_call(content["toolUse"])
                 for content in contents
-                if "toolUse" in content
+                if is_tool_use_block(content)
             ]
             formatted_tool_messages = [
                 self._format_request_tool_message(content["toolResult"])
                 for content in contents
-                if "toolResult" in content
+                if is_tool_result_block(content)
             ]
 
             if message["role"] == "assistant":

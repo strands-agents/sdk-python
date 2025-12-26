@@ -12,7 +12,14 @@ import mistralai
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import (
+    ContentBlock,
+    Messages,
+    is_image_block,
+    is_text_block,
+    is_tool_result_block,
+    is_tool_use_block,
+)
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
@@ -127,10 +134,10 @@ class MistralModel(Model):
         Raises:
             TypeError: If the content block type cannot be converted to a Mistral-compatible format.
         """
-        if "text" in content:
+        if is_text_block(content):
             return content["text"]
 
-        if "image" in content:
+        if is_image_block(content):
             image_data = content["image"]
 
             if "source" in image_data:
@@ -211,13 +218,13 @@ class MistralModel(Model):
             tool_messages: list[dict[str, Any]] = []
 
             for content in contents:
-                if "text" in content:
+                if is_text_block(content):
                     formatted_content = self._format_request_message_content(content)
                     if isinstance(formatted_content, str):
                         text_contents.append(formatted_content)
-                elif "toolUse" in content:
+                elif is_tool_use_block(content):
                     tool_calls.append(self._format_request_message_tool_call(content["toolUse"]))
-                elif "toolResult" in content:
+                elif is_tool_result_block(content):
                     tool_messages.append(self._format_request_tool_message(content["toolResult"]))
 
             if text_contents or tool_calls:

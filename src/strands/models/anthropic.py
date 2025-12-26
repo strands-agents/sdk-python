@@ -15,7 +15,16 @@ from typing_extensions import Required, Unpack, override
 
 from ..event_loop.streaming import process_stream
 from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
-from ..types.content import ContentBlock, Messages
+from ..types.content import (
+    ContentBlock,
+    Messages,
+    is_document_block,
+    is_image_block,
+    is_reasoning_content_block,
+    is_text_block,
+    is_tool_result_block,
+    is_tool_use_block,
+)
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
@@ -108,7 +117,7 @@ class AnthropicModel(Model):
         Raises:
             TypeError: If the content block type cannot be converted to an Anthropic-compatible format.
         """
-        if "document" in content:
+        if is_document_block(content):
             mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
             return {
                 "source": {
@@ -124,7 +133,7 @@ class AnthropicModel(Model):
                 "type": "document",
             }
 
-        if "image" in content:
+        if is_image_block(content):
             return {
                 "source": {
                     "data": base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8"),
@@ -134,17 +143,17 @@ class AnthropicModel(Model):
                 "type": "image",
             }
 
-        if "reasoningContent" in content:
+        if is_reasoning_content_block(content):
             return {
                 "signature": content["reasoningContent"]["reasoningText"]["signature"],
                 "thinking": content["reasoningContent"]["reasoningText"]["text"],
                 "type": "thinking",
             }
 
-        if "text" in content:
+        if is_text_block(content):
             return {"text": content["text"], "type": "text"}
 
-        if "toolUse" in content:
+        if is_tool_use_block(content):
             return {
                 "id": content["toolUse"]["toolUseId"],
                 "input": content["toolUse"]["input"],
@@ -152,7 +161,7 @@ class AnthropicModel(Model):
                 "type": "tool_use",
             }
 
-        if "toolResult" in content:
+        if is_tool_result_block(content):
             return {
                 "content": [
                     self._format_request_message_content(

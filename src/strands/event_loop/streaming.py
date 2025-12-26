@@ -22,7 +22,15 @@ from ..types._events import (
     TypedEvent,
 )
 from ..types.citations import CitationsContentBlock
-from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
+from ..types.content import (
+    ContentBlock,
+    ContentBlockReasoningContent,
+    Message,
+    Messages,
+    SystemContentBlock,
+    is_text_block,
+    is_tool_use_block,
+)
 from ..types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStart,
@@ -69,7 +77,7 @@ def _normalize_messages(messages: Messages) -> Messages:
             # Ensure the tool-uses always have valid names before sending
             # https://github.com/strands-agents/sdk-python/issues/1069
             for item in content:
-                if "toolUse" in item:
+                if is_tool_use_block(item):
                     has_tool_use = True
                     tool_use: ToolUse = item["toolUse"]
 
@@ -82,13 +90,13 @@ def _normalize_messages(messages: Messages) -> Messages:
             if has_tool_use:
                 # Remove blank 'text' items for assistant messages
                 before_len = len(content)
-                content[:] = [item for item in content if "text" not in item or item["text"].strip()]
+                content[:] = [item for item in content if not is_text_block(item) or item["text"].strip()]
                 if not removed_blank_message_content_text and before_len != len(content):
                     removed_blank_message_content_text = True
             else:
                 # Replace blank 'text' with '[blank text]' for assistant messages
                 for item in content:
-                    if "text" in item and not item["text"].strip():
+                    if is_text_block(item) and not item["text"].strip():
                         replaced_blank_message_content_text = True
                         item["text"] = "[blank text]"
 
@@ -136,13 +144,13 @@ def remove_blank_messages_content_text(messages: Messages) -> Messages:
             if has_tool_use:
                 # Remove blank 'text' items for assistant messages
                 before_len = len(content)
-                content[:] = [item for item in content if "text" not in item or item["text"].strip()]
+                content[:] = [item for item in content if not is_text_block(item) or item["text"].strip()]
                 if not removed_blank_message_content_text and before_len != len(content):
                     removed_blank_message_content_text = True
             else:
                 # Replace blank 'text' with '[blank text]' for assistant messages
                 for item in content:
-                    if "text" in item and not item["text"].strip():
+                    if is_text_block(item) and not item["text"].strip():
                         replaced_blank_message_content_text = True
                         item["text"] = "[blank text]"
 
@@ -298,7 +306,7 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
         state["text"] = ""
 
     elif reasoning_text:
-        content_block: ContentBlock = {
+        content_block: ContentBlockReasoningContent = {
             "reasoningContent": {
                 "reasoningText": {
                     "text": state["reasoningText"],

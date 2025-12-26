@@ -30,7 +30,15 @@ import httpx
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import (
+    ContentBlock,
+    Messages,
+    is_document_block,
+    is_image_block,
+    is_text_block,
+    is_tool_result_block,
+    is_tool_use_block,
+)
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
@@ -208,20 +216,22 @@ class LlamaCppModel(Model):
         Raises:
             TypeError: If the content block type cannot be converted to a compatible format.
         """
-        if "document" in content:
-            mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
-            file_data = base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8")
+        if is_document_block(content):
+            doc = content["document"]
+            mime_type = mimetypes.types_map.get(f".{doc['format']}", "application/octet-stream")
+            file_data = base64.b64encode(doc["source"]["bytes"]).decode("utf-8")
             return {
                 "file": {
                     "file_data": f"data:{mime_type};base64,{file_data}",
-                    "filename": content["document"]["name"],
+                    "filename": doc["name"],
                 },
                 "type": "file",
             }
 
-        if "image" in content:
-            mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
-            image_data = base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8")
+        if is_image_block(content):
+            img = content["image"]
+            mime_type = mimetypes.types_map.get(f".{img['format']}", "application/octet-stream")
+            image_data = base64.b64encode(img["source"]["bytes"]).decode("utf-8")
             return {
                 "image_url": {
                     "detail": "auto",
@@ -232,16 +242,17 @@ class LlamaCppModel(Model):
             }
 
         # Handle audio content (not in standard ContentBlock but supported by llama.cpp)
-        if "audio" in content:
-            audio_content = cast(Dict[str, Any], content)
-            audio_data = base64.b64encode(audio_content["audio"]["source"]["bytes"]).decode("utf-8")
-            audio_format = audio_content["audio"].get("format", "wav")
+        # Audio is a llama.cpp-specific extension, not part of the standard ContentBlock type
+        content_dict = cast(Dict[str, Any], content)
+        if "audio" in content_dict:
+            audio_data = base64.b64encode(content_dict["audio"]["source"]["bytes"]).decode("utf-8")
+            audio_format = content_dict["audio"].get("format", "wav")
             return {
                 "type": "input_audio",
                 "input_audio": {"data": audio_data, "format": audio_format},
             }
 
-        if "text" in content:
+        if is_text_block(content):
             return {"text": content["text"], "type": "text"}
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -306,7 +317,7 @@ class LlamaCppModel(Model):
             formatted_contents = [
                 self._format_message_content(content)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+                if not is_tool_result_block(content) and not is_tool_use_block(content)
             ]
             formatted_tool_calls = [
                 self._format_tool_call(
@@ -317,7 +328,7 @@ class LlamaCppModel(Model):
                     }
                 )
                 for content in contents
-                if "toolUse" in content
+                if is_tool_use_block(content)
             ]
             formatted_tool_messages = [
                 self._format_tool_message(
@@ -327,7 +338,7 @@ class LlamaCppModel(Model):
                     }
                 )
                 for content in contents
-                if "toolResult" in content
+                if is_tool_result_block(content)
             ]
 
             formatted_message = {

@@ -14,7 +14,7 @@ from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResul
 from strands.session.file_session_manager import FileSessionManager
 from strands.session.session_manager import SessionManager
 from strands.types._events import MultiAgentNodeStartEvent
-from strands.types.content import ContentBlock
+from strands.types.content import ContentBlockText
 
 
 def create_mock_agent(name, response_text="Default response", metrics=None, agent_id=None, should_fail=False):
@@ -236,7 +236,7 @@ def test_swarm_state_should_continue(mock_swarm):
 async def test_swarm_execution_async(mock_strands_tracer, mock_use_span, mock_swarm, mock_agents):
     """Test asynchronous swarm execution."""
     # Execute swarm
-    task = [ContentBlock(text="Analyze this task"), ContentBlock(text="Additional context")]
+    task = [ContentBlockText(text="Analyze this task"), ContentBlockText(text="Additional context")]
     result = await mock_swarm.invoke_async(task)
 
     # Verify execution results

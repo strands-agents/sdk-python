@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from ..agent.state import AgentState
 from ..tools._tool_helpers import generate_missing_tool_result_content
-from ..types.content import Message
+from ..types.content import Message, is_tool_result_block, is_tool_use_block
 from ..types.exceptions import SessionException
 from ..types.session import (
     Session,
@@ -198,16 +198,16 @@ class RepositorySessionManager(SessionManager):
             # Check all but the latest message in the messages array
             # The latest message being orphaned is handled in the agent class
             if index + 1 < len(messages):
-                if any("toolUse" in content for content in message["content"]):
+                if any(is_tool_use_block(content) for content in message["content"]):
                     tool_use_ids = [
-                        content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content
+                        content["toolUse"]["toolUseId"] for content in message["content"] if is_tool_use_block(content)
                     ]
 
                     # Check if there are more messages after the current toolUse message
                     tool_result_ids = [
                         content["toolResult"]["toolUseId"]
                         for content in messages[index + 1]["content"]
-                        if "toolResult" in content
+                        if is_tool_result_block(content)
                     ]
 
                     missing_tool_use_ids = list(set(tool_use_ids) - set(tool_result_ids))

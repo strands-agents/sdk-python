@@ -9,7 +9,7 @@ from a2a.utils.errors import ServerError
 
 from strands.agent.agent_result import AgentResult as SAAgentResult
 from strands.multiagent.a2a.executor import StrandsA2AExecutor
-from strands.types.content import ContentBlock
+from strands.types.content import ContentBlockText
 
 # Test data constants
 VALID_PNG_BYTES = b"fake_png_data"
@@ -97,7 +97,7 @@ def test_convert_a2a_parts_to_content_blocks_text_part():
     result = executor._convert_a2a_parts_to_content_blocks([part])
 
     assert len(result) == 1
-    assert result[0] == ContentBlock(text="Hello, world!")
+    assert result[0] == ContentBlockText(text="Hello, world!")
 
 
 def test_convert_a2a_parts_to_content_blocks_file_part_image_bytes():
