@@ -133,11 +133,12 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
 
 
 @pytest.mark.parametrize(
-    ("event", "state", "exp_updated_state", "callback_args"),
+    ("event", "event_type", "state", "exp_updated_state", "callback_args"),
     [
         # Tool Use - Existing input
         (
             {"delta": {"toolUse": {"input": '"value"}'}}},
+            {"type": "tool_use_stream"},
             {"current_tool_use": {"input": '{"key": '}},
             {"current_tool_use": {"input": '{"key": "value"}'}},
             {"current_tool_use": {"input": '{"key": "value"}'}},
@@ -145,6 +146,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         # Tool Use - New input
         (
             {"delta": {"toolUse": {"input": '{"key": '}}},
+            {"type": "tool_use_stream"},
             {"current_tool_use": {}},
             {"current_tool_use": {"input": '{"key": '}},
             {"current_tool_use": {"input": '{"key": '}},
@@ -152,6 +154,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         # Text
         (
             {"delta": {"text": " world"}},
+            {},
             {"text": "hello"},
             {"text": "hello world"},
             {"data": " world"},
@@ -159,6 +162,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         # Reasoning - Text - Existing
         (
             {"delta": {"reasoningContent": {"text": "king"}}},
+            {},
             {"reasoningText": "thin"},
             {"reasoningText": "thinking"},
             {"reasoningText": "king", "reasoning": True},
@@ -167,12 +171,14 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         (
             {"delta": {"reasoningContent": {"text": "thin"}}},
             {},
+            {},
             {"reasoningText": "thin"},
             {"reasoningText": "thin", "reasoning": True},
         ),
         # Reasoning - Signature - Existing
         (
             {"delta": {"reasoningContent": {"signature": "ue"}}},
+            {},
             {"signature": "val"},
             {"signature": "value"},
             {"reasoning_signature": "ue", "reasoning": True},
@@ -181,6 +187,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         (
             {"delta": {"reasoningContent": {"signature": "val"}}},
             {},
+            {},
             {"signature": "val"},
             {"reasoning_signature": "val", "reasoning": True},
         ),
@@ -188,12 +195,14 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         pytest.param(
             {"delta": {"reasoningContent": {"redactedContent": b"encoded"}}},
             {},
+            {},
             {"redactedContent": b"encoded"},
             {"reasoningRedactedContent": b"encoded", "reasoning": True},
         ),
         # Reasoning - redactedContent - Existing
         pytest.param(
             {"delta": {"reasoningContent": {"redactedContent": b"data"}}},
+            {},
             {"redactedContent": b"encoded_"},
             {"redactedContent": b"encoded_data"},
             {"reasoningRedactedContent": b"data", "reasoning": True},
@@ -204,6 +213,60 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {},
             {},
             {},
+            {},
+        ),
+        # Citation - New
+        (
+            {
+                "delta": {
+                    "citation": {
+                        "location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}},
+                        "title": "Test Doc",
+                    }
+                }
+            },
+            {},
+            {},
+            {
+                "citationsContent": [
+                    {"location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}}, "title": "Test Doc"}
+                ]
+            },
+            {
+                "citation": {
+                    "location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}},
+                    "title": "Test Doc",
+                }
+            },
+        ),
+        # Citation - Existing
+        (
+            {
+                "delta": {
+                    "citation": {
+                        "location": {"documentPage": {"documentIndex": 1, "start": 5, "end": 6}},
+                        "title": "Another Doc",
+                    }
+                }
+            },
+            {},
+            {
+                "citationsContent": [
+                    {"location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}}, "title": "Test Doc"}
+                ]
+            },
+            {
+                "citationsContent": [
+                    {"location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}}, "title": "Test Doc"},
+                    {"location": {"documentPage": {"documentIndex": 1, "start": 5, "end": 6}}, "title": "Another Doc"},
+                ]
+            },
+            {
+                "citation": {
+                    "location": {"documentPage": {"documentIndex": 1, "start": 5, "end": 6}},
+                    "title": "Another Doc",
+                }
+            },
         ),
         # Empty
         (
@@ -211,11 +274,12 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {},
             {},
             {},
+            {},
         ),
     ],
 )
-def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_updated_state, callback_args):
-    exp_callback_event = {**callback_args, "delta": event["delta"]} if callback_args else {}
+def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, state, exp_updated_state, callback_args):
+    exp_callback_event = {**event_type, **callback_args, "delta": event["delta"]} if callback_args else {}
 
     tru_updated_state, tru_callback_event = strands.event_loop.streaming.handle_content_block_delta(event, state)
 
@@ -283,14 +347,49 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "redactedContent": b"",
             },
         ),
-        # Citations
+        # Text with Citations
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "This is cited text",
+                "reasoningText": "",
+                "citationsContent": [
+                    {"location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}}, "title": "Test Doc"}
+                ],
+                "redactedContent": b"",
+            },
+            {
+                "content": [
+                    {
+                        "citationsContent": {
+                            "citations": [
+                                {
+                                    "location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}},
+                                    "title": "Test Doc",
+                                }
+                            ],
+                            "content": [{"text": "This is cited text"}],
+                        }
+                    }
+                ],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
+        # Citations without text (should not create content block)
         (
             {
                 "content": [],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
-                "citationsContent": [{"citations": [{"text": "test", "source": "test"}]}],
+                "citationsContent": [
+                    {"location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}}, "title": "Test Doc"}
+                ],
                 "redactedContent": b"",
             },
             {
@@ -298,7 +397,9 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
-                "citationsContent": [{"citations": [{"text": "test", "source": "test"}]}],
+                "citationsContent": [
+                    {"location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}}, "title": "Test Doc"}
+                ],
                 "redactedContent": b"",
             },
         ),
@@ -526,6 +627,7 @@ def test_extract_usage_metrics_empty_metadata():
                             "input": '{"key": "value"}',
                         },
                     },
+                    "type": "tool_use_stream",
                 },
                 {
                     "event": {
@@ -562,6 +664,137 @@ def test_extract_usage_metrics_empty_metadata():
                         },
                         {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
                         {"latencyMs": 1},
+                    )
+                },
+            ],
+        ),
+        # Message with Citations
+        (
+            [
+                {"messageStart": {"role": "assistant"}},
+                {"contentBlockStart": {"start": {}}},
+                {"contentBlockDelta": {"delta": {"text": "This is cited text"}}},
+                {
+                    "contentBlockDelta": {
+                        "delta": {
+                            "citation": {
+                                "location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}},
+                                "title": "Test Doc",
+                            }
+                        }
+                    }
+                },
+                {
+                    "contentBlockDelta": {
+                        "delta": {
+                            "citation": {
+                                "location": {"documentPage": {"documentIndex": 1, "start": 5, "end": 6}},
+                                "title": "Another Doc",
+                            }
+                        }
+                    }
+                },
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+                {
+                    "metadata": {
+                        "usage": {"inputTokens": 5, "outputTokens": 10, "totalTokens": 15},
+                        "metrics": {"latencyMs": 100},
+                    }
+                },
+            ],
+            [
+                {"event": {"messageStart": {"role": "assistant"}}},
+                {"event": {"contentBlockStart": {"start": {}}}},
+                {"event": {"contentBlockDelta": {"delta": {"text": "This is cited text"}}}},
+                {"data": "This is cited text", "delta": {"text": "This is cited text"}},
+                {
+                    "event": {
+                        "contentBlockDelta": {
+                            "delta": {
+                                "citation": {
+                                    "location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}},
+                                    "title": "Test Doc",
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "citation": {
+                        "location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}},
+                        "title": "Test Doc",
+                    },
+                    "delta": {
+                        "citation": {
+                            "location": {"documentChar": {"documentIndex": 0, "start": 10, "end": 20}},
+                            "title": "Test Doc",
+                        }
+                    },
+                },
+                {
+                    "event": {
+                        "contentBlockDelta": {
+                            "delta": {
+                                "citation": {
+                                    "location": {"documentPage": {"documentIndex": 1, "start": 5, "end": 6}},
+                                    "title": "Another Doc",
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "citation": {
+                        "location": {"documentPage": {"documentIndex": 1, "start": 5, "end": 6}},
+                        "title": "Another Doc",
+                    },
+                    "delta": {
+                        "citation": {
+                            "location": {"documentPage": {"documentIndex": 1, "start": 5, "end": 6}},
+                            "title": "Another Doc",
+                        }
+                    },
+                },
+                {"event": {"contentBlockStop": {}}},
+                {"event": {"messageStop": {"stopReason": "end_turn"}}},
+                {
+                    "event": {
+                        "metadata": {
+                            "usage": {"inputTokens": 5, "outputTokens": 10, "totalTokens": 15},
+                            "metrics": {"latencyMs": 100},
+                        }
+                    }
+                },
+                {
+                    "stop": (
+                        "end_turn",
+                        {
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "citationsContent": {
+                                        "citations": [
+                                            {
+                                                "location": {
+                                                    "documentChar": {"documentIndex": 0, "start": 10, "end": 20}
+                                                },
+                                                "title": "Test Doc",
+                                            },
+                                            {
+                                                "location": {
+                                                    "documentPage": {"documentIndex": 1, "start": 5, "end": 6}
+                                                },
+                                                "title": "Another Doc",
+                                            },
+                                        ],
+                                        "content": [{"text": "This is cited text"}],
+                                    }
+                                }
+                            ],
+                        },
+                        {"inputTokens": 5, "outputTokens": 10, "totalTokens": 15},
+                        {"latencyMs": 100},
                     )
                 },
             ],

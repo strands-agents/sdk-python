@@ -7,7 +7,8 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, AsyncGenerator, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
+from contextlib import asynccontextmanager
+from typing import Any, AsyncGenerator, AsyncIterator, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
 
 import openai
 from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
@@ -55,16 +56,39 @@ class OpenAIModel(Model):
         model_id: str
         params: Optional[dict[str, Any]]
 
-    def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[OpenAIConfig]) -> None:
+    def __init__(
+        self,
+        client: Optional[Client] = None,
+        client_args: Optional[dict[str, Any]] = None,
+        **model_config: Unpack[OpenAIConfig],
+    ) -> None:
         """Initialize provider instance.
 
         Args:
-            client_args: Arguments for the OpenAI client.
+            client: Pre-configured OpenAI-compatible client to reuse across requests.
+                When provided, this client will be reused for all requests and will NOT be closed
+                by the model. The caller is responsible for managing the client lifecycle.
+                This is useful for:
+                - Injecting custom client wrappers (e.g., GuardrailsAsyncOpenAI)
+                - Reusing connection pools within a single event loop/worker
+                - Centralizing observability, retries, and networking policy
+                - Pointing to custom model gateways
+                Note: The client should not be shared across different asyncio event loops.
+            client_args: Arguments for the OpenAI client (legacy approach).
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
             **model_config: Configuration options for the OpenAI model.
+
+        Raises:
+            ValueError: If both `client` and `client_args` are provided.
         """
         validate_config_keys(model_config, self.OpenAIConfig)
         self.config = dict(model_config)
+
+        # Validate that only one client configuration method is provided
+        if client is not None and client_args is not None and len(client_args) > 0:
+            raise ValueError("Only one of 'client' or 'client_args' should be provided, not both.")
+
+        self._custom_client = client
         self.client_args = client_args or {}
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -422,6 +446,34 @@ class OpenAIModel(Model):
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
+    @asynccontextmanager
+    async def _get_client(self) -> AsyncIterator[Any]:
+        """Get an OpenAI client for making requests.
+
+        This context manager handles client lifecycle management:
+        - If an injected client was provided during initialization, it yields that client
+          without closing it (caller manages lifecycle).
+        - Otherwise, creates a new AsyncOpenAI client from client_args and automatically
+          closes it when the context exits.
+
+        Note: We create a new client per request to avoid connection sharing in the underlying
+        httpx client, as the asyncio event loop does not allow connections to be shared.
+        For more details, see https://github.com/encode/httpx/discussions/2959.
+
+        Yields:
+            Client: An OpenAI-compatible client instance.
+        """
+        if self._custom_client is not None:
+            # Use the injected client (caller manages lifecycle)
+            yield self._custom_client
+        else:
+            # Create a new client from client_args
+            # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying
+            # httpx client. The asyncio event loop does not allow connections to be shared. For more details, please
+            # refer to https://github.com/encode/httpx/discussions/2959.
+            async with openai.AsyncOpenAI(**self.client_args) as client:
+                yield client
+
     @override
     async def stream(
         self,
@@ -457,7 +509,7 @@ class OpenAIModel(Model):
         # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
         # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
         # https://github.com/encode/httpx/discussions/2959.
-        async with openai.AsyncOpenAI(**self.client_args) as client:
+        async with self._get_client() as client:
             try:
                 response = await client.chat.completions.create(**request)
             except openai.BadRequestError as e:
@@ -576,7 +628,7 @@ class OpenAIModel(Model):
         # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
         # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
         # https://github.com/encode/httpx/discussions/2959.
-        async with openai.AsyncOpenAI(**self.client_args) as client:
+        async with self._get_client() as client:
             try:
                 response: ParsedChatCompletion = await client.beta.chat.completions.parse(
                     model=self.get_config()["model_id"],
