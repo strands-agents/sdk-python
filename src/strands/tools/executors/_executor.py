@@ -180,24 +180,38 @@ class ToolExecutor(abc.ABC):
             invocation_state = before_event.invocation_state
 
             if not selected_tool:
-                if tool_func == selected_tool:
+                # Server-side tools (e.g., nova_grounding) are executed by the model provider
+                # and their results are already included in the response. We provide a
+                # placeholder result to satisfy the tool result requirement.
+                if tool_use.get("type") == "server_tool_use":
+                    logger.debug("tool_name=<%s> | server-side tool executed by model provider", tool_name)
+                    result: ToolResult = {
+                        "toolUseId": str(tool_use.get("toolUseId")),
+                        "status": "success",
+                        "content": [{"text": f"Server-side tool '{tool_name}' executed by model provider"}],
+                    }
+                elif tool_func == selected_tool:
                     logger.error(
                         "tool_name=<%s>, available_tools=<%s> | tool not found in registry",
                         tool_name,
                         list(agent.tool_registry.registry.keys()),
                     )
+                    result = {
+                        "toolUseId": str(tool_use.get("toolUseId")),
+                        "status": "error",
+                        "content": [{"text": f"Unknown tool: {tool_name}"}],
+                    }
                 else:
                     logger.debug(
                         "tool_name=<%s>, tool_use_id=<%s> | a hook resulted in a non-existing tool call",
                         tool_name,
                         str(tool_use.get("toolUseId")),
                     )
-
-                result: ToolResult = {
-                    "toolUseId": str(tool_use.get("toolUseId")),
-                    "status": "error",
-                    "content": [{"text": f"Unknown tool: {tool_name}"}],
-                }
+                    result = {
+                        "toolUseId": str(tool_use.get("toolUseId")),
+                        "status": "error",
+                        "content": [{"text": f"Unknown tool: {tool_name}"}],
+                    }
 
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
                     agent, selected_tool, tool_use, invocation_state, result
