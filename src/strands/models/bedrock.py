@@ -336,11 +336,13 @@ class BedrockModel(Model):
 
         # Find the index of the last user message if wrapping is enabled
         last_user_idx = -1
-        if guardrail_last_turn_only:
-            for i in range(len(messages) - 1, -1, -1):
-                if messages[i]["role"] == "user":
-                    last_user_idx = i
-                    break
+        if guardrail_last_turn_only and messages:
+            last_msg = messages[-1]
+            if last_msg["role"] == "user" and any(
+                "text" in block or "image" in block or "document" in block or "video" in block
+                for block in last_msg["content"]
+            ):
+                last_user_idx = len(messages) - 1
 
         for idx, message in enumerate(messages):
             cleaned_content: list[dict[str, Any]] = []
@@ -360,7 +362,7 @@ class BedrockModel(Model):
                 # Format content blocks for Bedrock API compatibility
                 formatted_content = self._format_request_message_content(content_block)
 
-                # Wrap text content in guardrailConverseContent if this is the last user message
+                # Wrap text content in guardrailContent if this is the last user message
                 if guardrail_last_turn_only and idx == last_user_idx and "text" in formatted_content:
                     formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
 
