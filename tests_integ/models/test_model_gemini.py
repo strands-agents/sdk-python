@@ -202,3 +202,35 @@ def test_agent_with_gemini_code_execution_tool(gemini_tool_model):
 
     result_turn2 = agent("Summarize that into a single number")
     assert "5117" in str(result_turn2)
+
+
+def test_agent_with_thinking_captures_reasoning_content():
+    model = GeminiModel(
+        client_args={"api_key": os.getenv("GOOGLE_API_KEY")},
+        model_id="gemini-2.5-flash",
+        params={
+            "thinking_config": {
+                "thinking_budget": 1024,
+                "include_thoughts": True,
+            },
+        },
+    )
+
+    agent = Agent(model=model)
+
+    agent("What is 2+2?")
+
+    last_message = agent.messages[-1]
+    content = last_message["content"]
+
+    has_reasoning = any("reasoningContent" in block for block in content)
+    has_text = any("text" in block for block in content)
+
+    assert has_text, "Text content should be present in the message"
+    assert has_reasoning, "Reasoning content should be captured when thinking mode is enabled"
+
+    reasoning_indices = [i for i, block in enumerate(content) if "reasoningContent" in block]
+    text_indices = [i for i, block in enumerate(content) if "text" in block]
+
+    if reasoning_indices and text_indices:
+        assert min(reasoning_indices) < min(text_indices), "Reasoning should appear before text content"
