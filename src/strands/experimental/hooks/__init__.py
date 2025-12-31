@@ -1,5 +1,7 @@
 """Experimental hook functionality that has not yet reached stability."""
 
+from typing import Any
+
 from .events import (
     BidiAfterConnectionRestartEvent,
     BidiAfterInvocationEvent,
@@ -15,7 +17,7 @@ from .events import (
 # Deprecated aliases are accessed via __getattr__ to emit warnings only on use
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     from . import events
 
     return getattr(events, name)
