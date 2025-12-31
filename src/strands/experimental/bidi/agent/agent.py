@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from .... import _identifier
 from ....agent.state import AgentState
+from ....agent.serializers import StateSerializer
 from ....hooks import HookProvider, HookRegistry
 from ....interrupt import _InterruptState
 from ....tools._caller import _ToolCaller
@@ -73,6 +74,7 @@ class BidiAgent:
         description: str | None = None,
         hooks: list[HookProvider] | None = None,
         state: AgentState | dict | None = None,
+        state_serializer: StateSerializer | None = None,
         session_manager: "SessionManager | None" = None,
         tool_executor: ToolExecutor | None = None,
         **kwargs: Any,
@@ -91,13 +93,16 @@ class BidiAgent:
             description: Description of what the Agent does.
             hooks: Optional list of hook providers to register for lifecycle events.
             state: Stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
+            state_serializer: Serializer for state persistence (e.g., JSONSerializer, PickleSerializer).
+                Cannot be provided together with an AgentState object in 'state' parameter.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             **kwargs: Additional configuration for future extensibility.
 
         Raises:
-            ValueError: If model configuration is invalid or state is invalid type.
+            ValueError: If model configuration is invalid, state is invalid type, or both state (AgentState) and
+                state_serializer are provided.
             TypeError: If model type is unsupported.
         """
         self.model = (
@@ -134,13 +139,16 @@ class BidiAgent:
         # Initialize agent state management
         if state is not None:
             if isinstance(state, dict):
-                self.state = AgentState(state)
+                self.state = AgentState(state, serializer=state_serializer)
             elif isinstance(state, AgentState):
+                if state_serializer is not None:
+                    raise ValueError("Cannot provide both state (AgentState) and state_serializer. "
+                                     "Configure serializer on the AgentState object instead.")
                 self.state = state
             else:
                 raise ValueError("state must be an AgentState object or a dict")
         else:
-            self.state = AgentState()
+            self.state = AgentState(serializer=state_serializer)
 
         # Initialize other components
         self._tool_caller = _ToolCaller(self)

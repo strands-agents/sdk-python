@@ -66,6 +66,7 @@ from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
 )
+from .serializers import StateSerializer
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -121,6 +122,7 @@ class Agent:
         name: Optional[str] = None,
         description: Optional[str] = None,
         state: Optional[Union[AgentState, dict]] = None,
+        state_serializer: Optional[StateSerializer] = None,
         hooks: Optional[list[HookProvider]] = None,
         session_manager: Optional[SessionManager] = None,
         tool_executor: Optional[ToolExecutor] = None,
@@ -168,6 +170,9 @@ class Agent:
                 Defaults to None.
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
+            state_serializer: Serializer for state persistence (e.g., JSONSerializer, PickleSerializer).
+                Cannot be provided together with an AgentState object in 'state' parameter.
+                Defaults to JSONSerializer for backward compatibility.
             hooks: hooks to be added to the agent hook registry
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
@@ -175,7 +180,8 @@ class Agent:
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
 
         Raises:
-            ValueError: If agent id contains path separators.
+            ValueError: If agent id contains path separators, or if both state (AgentState) and state_serializer
+                are provided.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
@@ -231,13 +237,18 @@ class Agent:
         # Initialize agent state management
         if state is not None:
             if isinstance(state, dict):
-                self.state = AgentState(state)
+                self.state = AgentState(state, serializer=state_serializer)
             elif isinstance(state, AgentState):
+                if state_serializer is not None:
+                    raise ValueError(
+                        "Cannot provide both state (AgentState) and state_serializer. "
+                        "Configure serializer on the AgentState object instead."
+                    )
                 self.state = state
             else:
                 raise ValueError("state must be an AgentState object or a dict")
         else:
-            self.state = AgentState()
+            self.state = AgentState(serializer=state_serializer)
 
         self.tool_caller = _ToolCaller(self)
 
