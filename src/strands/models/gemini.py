@@ -426,6 +426,8 @@ class GeminiModel(Model):
             yield self._format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
             tool_used = False
+            candidate = None
+            event = None
             async for event in response:
                 candidates = event.candidates
                 candidate = candidates[0] if candidates else None
@@ -455,7 +457,8 @@ class GeminiModel(Model):
                     "data": "TOOL_USE" if tool_used else (candidate.finish_reason if candidate else "STOP"),
                 }
             )
-            yield self._format_chunk({"chunk_type": "metadata", "data": event.usage_metadata})
+            if event:
+                yield self._format_chunk({"chunk_type": "metadata", "data": event.usage_metadata})
 
         except genai.errors.ClientError as error:
             if not error.message:
