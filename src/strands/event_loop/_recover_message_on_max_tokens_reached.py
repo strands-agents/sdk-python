@@ -7,8 +7,7 @@ handles cases where tool use blocks are incomplete or malformed due to truncatio
 
 import logging
 
-from ..types.content import ContentBlock, Message
-from ..types.tools import ToolUse
+from ..types.content import ContentBlock, Message, is_tool_use_block
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +51,11 @@ def recover_message_on_max_tokens_reached(message: Message) -> Message:
 
     valid_content: list[ContentBlock] = []
     for content in message["content"] or []:
-        tool_use: ToolUse | None = content.get("toolUse")
-        if not tool_use:
+        if not is_tool_use_block(content):
             valid_content.append(content)
             continue
+
+        tool_use = content["toolUse"]
 
         # Replace all tool uses with error messages when max_tokens is reached
         display_name = tool_use.get("name") or "<unknown>"

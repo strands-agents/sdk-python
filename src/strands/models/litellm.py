@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..tools import convert_pydantic_to_tool_spec
-from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.content import ContentBlock, Messages, SystemContentBlock, is_reasoning_content_block, is_video_block
 from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import MetadataEvent, StreamEvent
@@ -95,14 +95,14 @@ class LiteLLMModel(OpenAIModel):
         Raises:
             TypeError: If the content block type cannot be converted to a LiteLLM-compatible format.
         """
-        if "reasoningContent" in content:
+        if is_reasoning_content_block(content):
             return {
                 "signature": content["reasoningContent"]["reasoningText"]["signature"],
                 "thinking": content["reasoningContent"]["reasoningText"]["text"],
                 "type": "thinking",
             }
 
-        if "video" in content:
+        if is_video_block(content):
             return {
                 "type": "video_url",
                 "video_url": {

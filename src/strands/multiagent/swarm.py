@@ -47,7 +47,7 @@ from ..types._events import (
     MultiAgentNodeStreamEvent,
     MultiAgentResultEvent,
 )
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, ContentBlockText, Messages
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
 from ..types.traces import AttributeValue
@@ -842,7 +842,7 @@ class Swarm(MultiAgentBase):
             else:
                 # Prepare context for node
                 context_text = self._build_node_input(node)
-                node_input = [ContentBlock(text=f"Context:\n{context_text}\n\n")]
+                node_input = [ContentBlockText(text=f"Context:\n{context_text}\n\n")]
 
                 # Clear handoff message after it's been included in context
                 self.state.handoff_message = None

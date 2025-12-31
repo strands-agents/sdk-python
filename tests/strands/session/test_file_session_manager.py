@@ -9,7 +9,7 @@ import pytest
 
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.session.file_session_manager import FileSessionManager
-from strands.types.content import ContentBlock
+from strands.types.content import ContentBlockText
 from strands.types.exceptions import SessionException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 
@@ -47,7 +47,7 @@ def sample_message():
     return SessionMessage.from_message(
         message={
             "role": "user",
-            "content": [ContentBlock(text="Hello world")],
+            "content": [ContentBlockText(text="Hello world")],
         },
         index=0,
     )
@@ -263,7 +263,7 @@ def test_list_messages_all(file_manager, sample_session, sample_agent):
         message = SessionMessage(
             message={
                 "role": "user",
-                "content": [ContentBlock(text=f"Message {i}")],
+                "content": [ContentBlockText(text=f"Message {i}")],
             },
             message_id=i,
         )
@@ -287,7 +287,7 @@ def test_list_messages_with_limit(file_manager, sample_session, sample_agent):
         message = SessionMessage(
             message={
                 "role": "user",
-                "content": [ContentBlock(text=f"Message {i}")],
+                "content": [ContentBlockText(text=f"Message {i}")],
             },
             message_id=i,
         )
@@ -310,7 +310,7 @@ def test_list_messages_with_offset(file_manager, sample_session, sample_agent):
         message = SessionMessage(
             message={
                 "role": "user",
-                "content": [ContentBlock(text=f"Message {i}")],
+                "content": [ContentBlockText(text=f"Message {i}")],
             },
             message_id=i,
         )
@@ -341,7 +341,7 @@ def test_update_message(file_manager, sample_session, sample_agent, sample_messa
     file_manager.create_message(sample_session.session_id, sample_agent.agent_id, sample_message)
 
     # Update message
-    sample_message.message["content"] = [ContentBlock(text="Updated content")]
+    sample_message.message["content"] = [ContentBlockText(text="Updated content")]
     file_manager.update_message(sample_session.session_id, sample_agent.agent_id, sample_message)
 
     # Verify update

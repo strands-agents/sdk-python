@@ -6,9 +6,9 @@ SDK. These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict, TypeGuard
 
 from .citations import CitationsContentBlock
 from .media import DocumentContent, ImageContent, VideoContent
@@ -71,32 +71,274 @@ class CachePoint(TypedDict):
     type: str
 
 
-class ContentBlock(TypedDict, total=False):
-    """A block of content for a message that you pass to, or receive from, a model.
+class ContentBlockText(TypedDict):
+    """A content block containing text.
 
     Attributes:
-        cachePoint: A cache point configuration to optimize conversation history.
-        document: A document to include in the message.
-        guardContent: Contains the content to assess with the guardrail.
-        image: Image to include in the message.
-        reasoningContent: Contains content regarding the reasoning that is carried out by the model.
         text: Text to include in the message.
-        toolResult: The result for a tool request that a model makes.
-        toolUse: Information about a tool use request from a model.
-        video: Video to include in the message.
-        citationsContent: Contains the citations for a document.
+        cachePoint: A cache point configuration to optimize conversation history.
     """
 
-    cachePoint: CachePoint
-    document: DocumentContent
-    guardContent: GuardContent
-    image: ImageContent
-    reasoningContent: ReasoningContentBlock
     text: str
-    toolResult: ToolResult
-    toolUse: ToolUse
+    cachePoint: NotRequired[CachePoint]
+
+
+class ContentBlockImage(TypedDict):
+    """A content block containing an image.
+
+    Attributes:
+        image: Image to include in the message.
+        cachePoint: A cache point configuration to optimize conversation history.
+    """
+
+    image: ImageContent
+    cachePoint: NotRequired[CachePoint]
+
+
+class ContentBlockDocument(TypedDict):
+    """A content block containing a document.
+
+    Attributes:
+        document: A document to include in the message.
+        cachePoint: A cache point configuration to optimize conversation history.
+    """
+
+    document: DocumentContent
+    cachePoint: NotRequired[CachePoint]
+
+
+class ContentBlockVideo(TypedDict):
+    """A content block containing a video.
+
+    Attributes:
+        video: Video to include in the message.
+        cachePoint: A cache point configuration to optimize conversation history.
+    """
+
     video: VideoContent
+    cachePoint: NotRequired[CachePoint]
+
+
+class ContentBlockToolUse(TypedDict):
+    """A content block containing a tool use request.
+
+    Attributes:
+        toolUse: Information about a tool use request from a model.
+        cachePoint: A cache point configuration to optimize conversation history.
+    """
+
+    toolUse: ToolUse
+    cachePoint: NotRequired[CachePoint]
+
+
+class ContentBlockToolResult(TypedDict):
+    """A content block containing a tool result.
+
+    Attributes:
+        toolResult: The result for a tool request that a model makes.
+        cachePoint: A cache point configuration to optimize conversation history.
+    """
+
+    toolResult: ToolResult
+    cachePoint: NotRequired[CachePoint]
+
+
+class ContentBlockGuardContent(TypedDict):
+    """A content block containing content to be evaluated by guardrails.
+
+    Attributes:
+        guardContent: Contains the content to assess with the guardrail.
+        cachePoint: A cache point configuration to optimize conversation history.
+    """
+
+    guardContent: GuardContent
+    cachePoint: NotRequired[CachePoint]
+
+
+class ContentBlockReasoningContent(TypedDict):
+    """A content block containing reasoning content.
+
+    Attributes:
+        reasoningContent: Contains content regarding the reasoning that is carried out by the model.
+        cachePoint: A cache point configuration to optimize conversation history.
+    """
+
+    reasoningContent: ReasoningContentBlock
+    cachePoint: NotRequired[CachePoint]
+
+
+class ContentBlockCitations(TypedDict):
+    """A content block containing citations.
+
+    Attributes:
+        citationsContent: Contains the citations for a document.
+        cachePoint: A cache point configuration to optimize conversation history.
+    """
+
     citationsContent: CitationsContentBlock
+    cachePoint: NotRequired[CachePoint]
+
+
+ContentBlock = Union[
+    ContentBlockText,
+    ContentBlockImage,
+    ContentBlockDocument,
+    ContentBlockVideo,
+    ContentBlockToolUse,
+    ContentBlockToolResult,
+    ContentBlockGuardContent,
+    ContentBlockReasoningContent,
+    ContentBlockCitations,
+]
+"""A block of content for a message that you pass to, or receive from, a model.
+
+This is a union type where each variant contains exactly one type of content (text, image, document, video,
+toolUse, toolResult, guardContent, reasoningContent, or citationsContent). Each variant may optionally include
+a cachePoint configuration.
+
+Based on the Bedrock API specification, a ContentBlock must contain one and only one of the content types.
+
+For constructing content blocks, use the specific types:
+- ContentBlockText(text="...")
+- ContentBlockImage(image=...)
+- ContentBlockDocument(document=...)
+- ContentBlockVideo(video=...)
+- ContentBlockToolUse(toolUse=...)
+- ContentBlockToolResult(toolResult=...)
+- ContentBlockGuardContent(guardContent=...)
+- ContentBlockReasoningContent(reasoningContent=...)
+- ContentBlockCitations(citationsContent=...)
+"""
+
+
+# Type alias for content block input that accepts both typed and untyped dicts
+ContentBlockInput = Union[ContentBlock, Dict[str, Any]]
+
+
+# Set of all valid keys that can appear in a ContentBlock
+CONTENT_BLOCK_KEYS = frozenset(
+    {
+        "text",
+        "image",
+        "document",
+        "video",
+        "toolUse",
+        "toolResult",
+        "guardContent",
+        "reasoningContent",
+        "citationsContent",
+        "cachePoint",
+    }
+)
+
+
+# Type guard functions for narrowing ContentBlock union types
+def is_text_block(content: ContentBlockInput) -> TypeGuard[ContentBlockText]:
+    """Check if a content block is a text block.
+
+    Args:
+        content: The content block to check.
+
+    Returns:
+        True if the content block contains text content.
+    """
+    return isinstance(content, dict) and "text" in content
+
+
+def is_image_block(content: ContentBlockInput) -> TypeGuard[ContentBlockImage]:
+    """Check if a content block is an image block.
+
+    Args:
+        content: The content block to check.
+
+    Returns:
+        True if the content block contains image content.
+    """
+    return isinstance(content, dict) and "image" in content
+
+
+def is_document_block(content: ContentBlockInput) -> TypeGuard[ContentBlockDocument]:
+    """Check if a content block is a document block.
+
+    Args:
+        content: The content block to check.
+
+    Returns:
+        True if the content block contains document content.
+    """
+    return isinstance(content, dict) and "document" in content
+
+
+def is_video_block(content: ContentBlockInput) -> TypeGuard[ContentBlockVideo]:
+    """Check if a content block is a video block.
+
+    Args:
+        content: The content block to check.
+
+    Returns:
+        True if the content block contains video content.
+    """
+    return isinstance(content, dict) and "video" in content
+
+
+def is_tool_use_block(content: ContentBlockInput) -> TypeGuard[ContentBlockToolUse]:
+    """Check if a content block is a tool use block.
+
+    Args:
+        content: The content block to check.
+
+    Returns:
+        True if the content block contains tool use content.
+    """
+    return isinstance(content, dict) and "toolUse" in content
+
+
+def is_tool_result_block(content: ContentBlockInput) -> TypeGuard[ContentBlockToolResult]:
+    """Check if a content block is a tool result block.
+
+    Args:
+        content: The content block to check.
+
+    Returns:
+        True if the content block contains tool result content.
+    """
+    return isinstance(content, dict) and "toolResult" in content
+
+
+def is_guard_content_block(content: ContentBlockInput) -> TypeGuard[ContentBlockGuardContent]:
+    """Check if a content block is a guard content block.
+
+    Args:
+        content: The content block to check.
+
+    Returns:
+        True if the content block contains guard content.
+    """
+    return isinstance(content, dict) and "guardContent" in content
+
+
+def is_reasoning_content_block(content: ContentBlockInput) -> TypeGuard[ContentBlockReasoningContent]:
+    """Check if a content block is a reasoning content block.
+
+    Args:
+        content: The content block to check.
+
+    Returns:
+        True if the content block contains reasoning content.
+    """
+    return isinstance(content, dict) and "reasoningContent" in content
+
+
+def is_citations_block(content: ContentBlockInput) -> TypeGuard[ContentBlockCitations]:
+    """Check if a content block is a citations block.
+
+    Args:
+        content: The content block to check.
+
+    Returns:
+        True if the content block contains citations content.
+    """
+    return isinstance(content, dict) and "citationsContent" in content
 
 
 class SystemContentBlock(TypedDict, total=False):

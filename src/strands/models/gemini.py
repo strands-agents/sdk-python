@@ -12,7 +12,16 @@ import pydantic
 from google import genai
 from typing_extensions import Required, Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import (
+    ContentBlock,
+    Messages,
+    is_document_block,
+    is_image_block,
+    is_reasoning_content_block,
+    is_text_block,
+    is_tool_result_block,
+    is_tool_use_block,
+)
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
@@ -143,7 +152,7 @@ class GeminiModel(Model):
         Returns:
             Gemini part.
         """
-        if "document" in content:
+        if is_document_block(content):
             return genai.types.Part(
                 inline_data=genai.types.Blob(
                     data=content["document"]["source"]["bytes"],
@@ -151,7 +160,7 @@ class GeminiModel(Model):
                 ),
             )
 
-        if "image" in content:
+        if is_image_block(content):
             return genai.types.Part(
                 inline_data=genai.types.Blob(
                     data=content["image"]["source"]["bytes"],
@@ -159,7 +168,7 @@ class GeminiModel(Model):
                 ),
             )
 
-        if "reasoningContent" in content:
+        if is_reasoning_content_block(content):
             thought_signature = content["reasoningContent"]["reasoningText"].get("signature")
 
             return genai.types.Part(
@@ -168,10 +177,10 @@ class GeminiModel(Model):
                 thought_signature=thought_signature.encode("utf-8") if thought_signature else None,
             )
 
-        if "text" in content:
+        if is_text_block(content):
             return genai.types.Part(text=content["text"])
 
-        if "toolResult" in content:
+        if is_tool_result_block(content):
             return genai.types.Part(
                 function_response=genai.types.FunctionResponse(
                     id=content["toolResult"]["toolUseId"],
@@ -189,7 +198,7 @@ class GeminiModel(Model):
                 ),
             )
 
-        if "toolUse" in content:
+        if is_tool_use_block(content):
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],

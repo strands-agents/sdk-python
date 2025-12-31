@@ -11,7 +11,7 @@ from moto import mock_aws
 
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.session.s3_session_manager import S3SessionManager
-from strands.types.content import ContentBlock
+from strands.types.content import ContentBlockText
 from strands.types.exceptions import SessionException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 
@@ -66,7 +66,7 @@ def sample_message():
     return SessionMessage.from_message(
         message={
             "role": "user",
-            "content": [ContentBlock(text="test_message")],
+            "content": [ContentBlockText(text="test_message")],
         },
         index=0,
     )
@@ -269,7 +269,7 @@ def test_list_messages_all(s3_manager, sample_session, sample_agent):
         message = SessionMessage(
             {
                 "role": "user",
-                "content": [ContentBlock(text=f"Message {i}")],
+                "content": [ContentBlockText(text=f"Message {i}")],
             },
             i,
         )
@@ -293,7 +293,7 @@ def test_list_messages_with_pagination(s3_manager, sample_session, sample_agent)
         message = SessionMessage.from_message(
             message={
                 "role": "user",
-                "content": [ContentBlock(text="test_message")],
+                "content": [ContentBlockText(text="test_message")],
             },
             index=index,
         )
@@ -316,7 +316,7 @@ def test_update_message(s3_manager, sample_session, sample_agent, sample_message
     s3_manager.create_message(sample_session.session_id, sample_agent.agent_id, sample_message)
 
     # Update message
-    sample_message.message["content"] = [ContentBlock(text="Updated content")]
+    sample_message.message["content"] = [ContentBlockText(text="Updated content")]
     s3_manager.update_message(sample_session.session_id, sample_agent.agent_id, sample_message)
 
     # Verify update
