@@ -405,7 +405,12 @@ async def process_stream(
         elif "contentBlockStop" in chunk:
             state = handle_content_block_stop(state)
         elif "messageStop" in chunk:
-            stop_reason = handle_message_stop(chunk["messageStop"])
+            message_stop = chunk["messageStop"]
+            stop_reason = handle_message_stop(message_stop)
+            additional_fields = message_stop.get("additionalModelResponseFields")
+            if additional_fields is not None:
+                # Preserve provider-specific response fields (e.g., token IDs/logprobs) for downstream consumers.
+                state["message"]["additionalModelResponseFields"] = additional_fields
         elif "metadata" in chunk:
             time_to_first_byte_ms = (
                 int(1000 * (first_byte_time - start_time)) if (start_time and first_byte_time) else None
@@ -453,6 +458,7 @@ async def stream_messages(
         system_prompt,
         tool_choice=tool_choice,
         system_prompt_content=system_prompt_content,
+        **kwargs,
     )
 
     async for event in process_stream(chunks, start_time):

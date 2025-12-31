@@ -338,6 +338,12 @@ async def _handle_model_execution(
             else:
                 tool_specs = agent.tool_registry.get_all_tool_specs()
             try:
+                model_kwargs = invocation_state.get("model_kwargs", {})
+                if model_kwargs is None:
+                    model_kwargs = {}
+                if not isinstance(model_kwargs, dict):
+                    raise TypeError("invocation_state['model_kwargs'] must be a dict if provided.")
+
                 async for event in stream_messages(
                     agent.model,
                     agent.system_prompt,
@@ -345,6 +351,7 @@ async def _handle_model_execution(
                     tool_specs,
                     system_prompt_content=agent._system_prompt_content,
                     tool_choice=structured_output_context.tool_choice,
+                    **model_kwargs,
                 ):
                     yield event
 
