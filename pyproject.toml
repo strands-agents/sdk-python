@@ -55,6 +55,7 @@ sagemaker = [
     "openai>=1.68.0,<2.0.0",  # SageMaker uses OpenAI-compatible interface
 ]
 otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
+greenback = ["greenback>=1.2.0,<2.0.0"]
 docs = [
     "sphinx>=5.0.0,<9.0.0",
     "sphinx-rtd-theme>=1.0.0,<2.0.0",
@@ -79,7 +80,7 @@ bidi = [
 bidi-gemini = ["google-genai>=1.32.0,<2.0.0"]
 bidi-openai = ["websockets>=15.0.0,<16.0.0"]
 
-all = ["strands-agents[a2a,anthropic,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
+all = ["strands-agents[a2a,anthropic,docs,gemini,greenback,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
 bidi-all = ["strands-agents[a2a,bidi,bidi-gemini,bidi-openai,docs,otel]"]
 
 dev = [
