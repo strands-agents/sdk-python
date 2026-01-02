@@ -289,31 +289,34 @@ def test_guardrail_intervention_properly_redacts_tool_result(bedrock_guardrail, 
     assert tool_result["content"][0]["text"] == INPUT_REDACT_MESSAGE
 
 
-def test_guardrail_last_turn_only(boto_session, bedrock_guardrail):
-    """Test that guardrail_last_turn_only only wraps the last user message in guardContent."""
+def test_guardrail_latest_message(boto_session, bedrock_guardrail):
+    """Test that guardrail_latest_user_message wraps both text and image in the latest user message."""
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_guardrail,
         guardrail_version="DRAFT",
-        guardrail_last_turn_only=True,
+        guardrail_latest_message=True,
         boto_session=boto_session,
     )
 
-    # Create agent with pre-existing conversation that contains blocked word
+    # Create agent with multimodal content in latest user message
     agent = Agent(
         model=bedrock_model,
         system_prompt="You are a helpful assistant.",
         callback_handler=None,
         messages=[
-            {"role": "user", "content": [{"text": "CACTUS"}]},
+            {"role": "user", "content": [{"text": "First message"}]},
             {"role": "assistant", "content": [{"text": "Hello!"}]},
-            {"role": "user", "content": [{"text": "How are you?"}]},
+            {
+                "role": "user",
+                "content": [
+                    {"text": "Look at this image"},
+                    {"image": {"format": "png", "source": {"bytes": b"fake_image_data"}}},
+                ],
+            },
         ],
     )
 
-    # With guardrail_last_turn_only=True, the blocked word "CACTUS" in the conversation history
-    # should NOT trigger the guardrail because only the last user message ("How are you?")
-    # gets wrapped in guardContent
-    response = agent("Tell me about plants")
+    response = agent("What do you see?")
     assert response.stop_reason != "guardrail_intervened"
 
 

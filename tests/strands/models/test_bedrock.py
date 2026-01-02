@@ -2199,79 +2199,40 @@ async def test_citations_content_preserves_tagged_union_structure(bedrock_client
 
 
 @pytest.mark.asyncio
-async def test_format_request_with_guardrail_last_turn_only(model):
-    """Test _format_request passes apply_last_turn flag correctly."""
-    model.update_config(guardrail_id="test-guardrail", guardrail_version="DRAFT", guardrail_last_turn_only=True)
+async def test_format_request_with_guardrail_latest_message(model):
+    """Test that guardrail_latest_message wraps the latest user message with text and image."""
+    model.update_config(
+        guardrail_id="test-guardrail",
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+    )
 
     messages = [
         {"role": "user", "content": [{"text": "First message"}]},
         {"role": "assistant", "content": [{"text": "First response"}]},
-        {"role": "user", "content": [{"text": "Latest message"}]},
-    ]
-
-    request = model._format_request(messages)
-
-    # All messages should be in the request
-    formatted_messages = request["messages"]
-    assert len(formatted_messages) == 3
-
-    # Last user message should be wrapped
-    assert "guardContent" in formatted_messages[2]["content"][0]
-    assert formatted_messages[2]["content"][0]["guardContent"]["text"]["text"] == "Latest message"
-
-    # First user message should NOT be wrapped
-    assert "text" in formatted_messages[0]["content"][0]
-    assert formatted_messages[0]["content"][0]["text"] == "First message"
-
-
-def test_format_bedrock_messages_multimodal_content(model):
-    """Test that only text blocks are wrapped, not images."""
-    messages = [
         {
             "role": "user",
             "content": [
                 {"text": "Look at this image"},
                 {"image": {"format": "png", "source": {"bytes": b"fake_image_data"}}},
             ],
-        }
+        },
     ]
 
-    result = model._format_bedrock_messages(messages, guardrail_last_turn_only=True)
+    request = model._format_request(messages)
+    formatted_messages = request["messages"]
 
-    # Should have 2 content blocks
-    assert len(result[0]["content"]) == 2
-
-    # Text should be wrapped
-    assert "guardContent" in result[0]["content"][0]
-    assert result[0]["content"][0]["guardContent"]["text"]["text"] == "Look at this image"
-
-    # Image should NOT be wrapped
-    assert "image" in result[0]["content"][1]
-
-
-def test_format_bedrock_messages_wraps_last_user_text(model):
-    """Test that only the last user message text is wrapped in guardContent."""
-    messages = [
-        {"role": "user", "content": [{"text": "First message"}]},
-        {"role": "assistant", "content": [{"text": "First response"}]},
-        {"role": "user", "content": [{"text": "Latest message"}]},
-    ]
-
-    result = model._format_bedrock_messages(messages, guardrail_last_turn_only=True)
-
-    # All messages should be present
-    assert len(result) == 3
+    # All messages should be in the request
+    assert len(formatted_messages) == 3
 
     # First user message should NOT be wrapped
-    assert result[0]["role"] == "user"
-    assert "text" in result[0]["content"][0]
-    assert result[0]["content"][0]["text"] == "First message"
+    assert "text" in formatted_messages[0]["content"][0]
+    assert formatted_messages[0]["content"][0]["text"] == "First message"
 
-    # Assistant message should be unchanged
-    assert result[1]["role"] == "assistant"
-    assert result[1]["content"][0]["text"] == "First response"
+    # Latest user message text should be wrapped
+    assert "guardContent" in formatted_messages[2]["content"][0]
+    assert formatted_messages[2]["content"][0]["guardContent"]["text"]["text"] == "Look at this image"
 
-    # Last user message should be wrapped in guardContent
-    assert result[2]["role"] == "user"
-    assert "guardContent" in result[2]["content"][0]
-    assert result[2]["content"][0]["guardContent"]["text"]["text"] == "Latest message"
+    # Latest user message image should also be wrapped
+    assert "guardContent" in formatted_messages[2]["content"][1]
+    assert formatted_messages[2]["content"][1]["guardContent"]["image"]["format"] == "png"

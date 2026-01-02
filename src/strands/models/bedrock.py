@@ -82,7 +82,7 @@ class BedrockModel(Model):
             guardrail_redact_input_message: If a Bedrock Input guardrail triggers, replace the input with this message.
             guardrail_redact_output: Flag to redact output if guardrail is triggered. Defaults to False.
             guardrail_redact_output_message: If a Bedrock Output guardrail triggers, replace output with this message.
-            guardrail_last_turn_only: Flag to send only the last turn to guardrails instead of full conversation.
+            guardrail_latest_message: Flag to send only the last turn to guardrails instead of full conversation.
                 Defaults to False.
             max_tokens: Maximum number of tokens to generate in the response
             model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
@@ -107,7 +107,7 @@ class BedrockModel(Model):
         guardrail_redact_input_message: Optional[str]
         guardrail_redact_output: Optional[bool]
         guardrail_redact_output_message: Optional[str]
-        guardrail_last_turn_only: Optional[bool]
+        guardrail_latest_message: Optional[bool]
         max_tokens: Optional[int]
         model_id: str
         include_tool_result_status: Optional[Literal["auto"] | bool]
@@ -202,19 +202,15 @@ class BedrockModel(Model):
         Args:
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
-            system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
 
         Returns:
             A Bedrock converse stream request.
         """
-        messages_for_request = messages
-
         if not tool_specs:
             has_tool_content = any(
-                any("toolUse" in block or "toolResult" in block for block in msg.get("content", []))
-                for msg in messages_for_request
+                any("toolUse" in block or "toolResult" in block for block in msg.get("content", [])) for msg in messages
             )
             if has_tool_content:
                 tool_specs = [noop_tool.tool_spec]
@@ -230,10 +226,7 @@ class BedrockModel(Model):
 
         return {
             "modelId": self.config["model_id"],
-            "messages": self._format_bedrock_messages(
-                messages_for_request,
-                guardrail_last_turn_only=bool(self.config.get("guardrail_last_turn_only", False)),
-            ),
+            "messages": self._format_bedrock_messages(messages),
             "system": system_blocks,
             **(
                 {
@@ -304,9 +297,7 @@ class BedrockModel(Model):
             ),
         }
 
-    def _format_bedrock_messages(
-        self, messages: Messages, guardrail_last_turn_only: bool = False
-    ) -> list[dict[str, Any]]:
+    def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
 
         This function ensures messages conform to Bedrock's expected format by:
@@ -317,7 +308,6 @@ class BedrockModel(Model):
 
         Args:
             messages: List of messages to format
-            guardrail_last_turn_only: If True, wrap the last user message content in guardrailConverseContent blocks
 
         Returns:
             Messages formatted for Bedrock API compatibility
@@ -336,7 +326,8 @@ class BedrockModel(Model):
 
         # Find the index of the last user message if wrapping is enabled
         last_user_idx = -1
-        if guardrail_last_turn_only and messages:
+        guardrail_latest_message = bool(self.config.get("guardrail_latest_message", False))
+        if guardrail_latest_message:
             last_msg = messages[-1]
             if last_msg["role"] == "user" and any(
                 "text" in block or "image" in block or "document" in block or "video" in block
@@ -362,9 +353,12 @@ class BedrockModel(Model):
                 # Format content blocks for Bedrock API compatibility
                 formatted_content = self._format_request_message_content(content_block)
 
-                # Wrap text content in guardrailContent if this is the last user message
-                if guardrail_last_turn_only and idx == last_user_idx and "text" in formatted_content:
-                    formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
+                # Wrap text or image content in guardrailContent if this is the last user message
+                if guardrail_latest_message and idx == last_user_idx:
+                    if "text" in formatted_content:
+                        formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
+                    elif "image" in formatted_content:
+                        formatted_content = {"guardContent": {"image": formatted_content["image"]}}
 
                 cleaned_content.append(formatted_content)
 
