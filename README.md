@@ -169,18 +169,19 @@ response = agent("Tell me about Agentic AI")
 ```
 
 Built-in providers:
- - [Amazon Bedrock](https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/)
- - [Anthropic](https://strandsagents.com/latest/user-guide/concepts/model-providers/anthropic/)
- - [Gemini](https://strandsagents.com/latest/user-guide/concepts/model-providers/gemini/)
- - [Cohere](https://strandsagents.com/latest/user-guide/concepts/model-providers/cohere/)
- - [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
- - [llama.cpp](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamacpp/)
- - [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
- - [MistralAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/mistral/)
- - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
- - [OpenAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)
- - [SageMaker](https://strandsagents.com/latest/user-guide/concepts/model-providers/sagemaker/)
- - [Writer](https://strandsagents.com/latest/user-guide/concepts/model-providers/writer/)
+
+- [Amazon Bedrock](https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/)
+- [Anthropic](https://strandsagents.com/latest/user-guide/concepts/model-providers/anthropic/)
+- [Gemini](https://strandsagents.com/latest/user-guide/concepts/model-providers/gemini/)
+- [Cohere](https://strandsagents.com/latest/user-guide/concepts/model-providers/cohere/)
+- [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
+- [llama.cpp](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamacpp/)
+- [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
+- [MistralAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/mistral/)
+- [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
+- [OpenAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)
+- [SageMaker](https://strandsagents.com/latest/user-guide/concepts/model-providers/sagemaker/)
+- [Writer](https://strandsagents.com/latest/user-guide/concepts/model-providers/writer/)
 
 Custom providers can be implemented using [Custom Providers](https://strandsagents.com/latest/user-guide/concepts/model-providers/custom_model_provider/)
 
@@ -201,9 +202,30 @@ It's also available on GitHub via [strands-agents/tools](https://github.com/stra
 
 > **⚠️ Experimental Feature**: Bidirectional streaming is currently in experimental status. APIs may change in future releases as we refine the feature based on user feedback and evolving model capabilities.
 
-Build real-time voice and audio conversations with persistent streaming connections. Unlike traditional request-response patterns, bidirectional streaming maintains long-running conversations where users can interrupt, provide continuous input, and receive real-time audio responses. Get started with your first BidiAgent by following the [Quickstart](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/experimental/bidirectional-streaming/quickstart) guide. 
+Build real-time voice and audio conversations with persistent streaming connections. Unlike traditional request-response patterns, bidirectional streaming maintains long-running conversations where users can interrupt, provide continuous input, and receive real-time audio responses. Get started with your first BidiAgent by following the [Quickstart](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/experimental/bidirectional-streaming/quickstart) guide.
+
+> **⚠️ Python Version Requirement**: Bidirectional streaming requires Python 3.12 or higher.
+
+**Installation:**
+
+Bidirectional streaming requires additional dependencies depending on the model used. Install with:
+
+```bash
+# Amazon Nova Sonic
+pip install strands-agents[bidi]
+
+# Google Gemini Live
+pip install strands-agents[bidi-gemini]
+
+# OpenAI Realtime API
+pip install strands-agents[bidi-openai]
+
+# Add audio and text I/O support when running the agent on the client machine (demos)
+pip install strands-agents[bidi-io]
+```
 
 **Supported Model Providers:**
+
 - Amazon Nova Sonic (`amazon.nova-sonic-v1:0`)
 - Google Gemini Live (`gemini-2.5-flash-native-audio-preview-09-2025`)
 - OpenAI Realtime API (`gpt-realtime`)
@@ -279,6 +301,7 @@ For detailed guidance & examples, explore our documentation:
 ## Contributing ❤️
 
 We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for details on:
+
 - Reporting bugs & features
 - Development setup
 - Contributing via Pull Requests
@@ -292,4 +315,3 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 ## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
-
