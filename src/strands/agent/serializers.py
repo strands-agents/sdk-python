@@ -2,7 +2,7 @@
 
 This module provides pluggable serialization strategies for AgentState:
 - JSONSerializer: Default serializer, backward compatible, validates on set()
-- PickleSerializer: Supports any Python object, no validation on set()
+- PickleSerializer: Supports any picklable Python object, validates on set()
 - StateSerializer: Protocol for custom serializers
 """
 
@@ -110,8 +110,8 @@ class PickleSerializer:
     """Pickle-based state serializer.
 
     Provides:
-    - Support for any Python object (datetime, UUID, dataclass, Pydantic models, etc.)
-    - No validation on set() (accepts anything)
+    - Support for any picklable Python object (datetime, UUID, dataclass, Pydantic models, etc.)
+    - Validation on set() to catch unpicklable objects (DB connections, file handles, etc.)
 
     Security Warning:
         Pickle can execute arbitrary code during deserialization.
@@ -142,9 +142,18 @@ class PickleSerializer:
         return result
 
     def validate(self, value: Any) -> None:
-        """No-op validation - pickle accepts any Python object.
+        """Validate that a value can be pickled.
 
         Args:
-            value: The value to validate (ignored)
+            value: The value to validate
+
+        Raises:
+            ValueError: If value cannot be pickled
         """
-        pass
+        try:
+            pickle.dumps(value)
+        except TypeError as e:
+            raise ValueError(
+                f"Value is not picklable: {type(value).__name__}. "
+                f"Objects like database connections, file handles, and sockets cannot be serialized."
+            ) from e

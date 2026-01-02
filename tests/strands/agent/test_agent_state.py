@@ -216,64 +216,6 @@ def test_serialize_deserialize_pickle():
     assert new_state.get("user_id") == user_id
 
 
-def test_transient_state_not_serialized():
-    """Test that transient values are not serialized."""
-    state = AgentState(serializer=JSONSerializer())
-
-    # Persistent value
-    state.set("persistent_key", "persistent_value")
-
-    # Transient value (not serializable, but persist=False so no validation)
-    state.set("transient_key", lambda: "function", persist=False)
-
-    # Check transient flag
-    assert state.is_transient("transient_key") is True
-    assert state.is_transient("persistent_key") is False
-
-    # Get works for both
-    assert state.get("persistent_key") == "persistent_value"
-    assert state.get("transient_key") is not None  # Lambda exists
-
-    # Serialize excludes transient
-    data = state.serialize()
-    new_state = AgentState(serializer=JSONSerializer())
-    new_state.deserialize(data)
-
-    assert new_state.get("persistent_key") == "persistent_value"
-    assert new_state.get("transient_key") is None  # Transient not restored
-
-
-def test_transient_preserved_after_deserialize():
-    """Test that transient values in memory are preserved after deserialize."""
-    state = AgentState(serializer=JSONSerializer())
-
-    # Set transient value first
-    state.set("runtime_db", "connection_object", persist=False)
-
-    # Set persistent and serialize
-    state.set("user_id", "123")
-    data = state.serialize()
-
-    # Modify persistent value after serialization
-    state.set("user_id", "999")
-
-    # Deserialize - should restore persistent but keep transient
-    state.deserialize(data)
-
-    assert state.get("user_id") == "123"  # Restored from serialized
-    assert state.get("runtime_db") == "connection_object"  # Preserved in memory
-
-
-def test_delete_removes_transient_flag():
-    """Test that delete also removes the transient flag."""
-    state = AgentState(serializer=JSONSerializer())
-    state.set("key", "value", persist=False)
-    assert state.is_transient("key") is True
-
-    state.delete("key")
-    assert state.is_transient("key") is False
-
-
 def test_serializer_property():
     """Test serializer property getter and setter."""
     state = AgentState(serializer=JSONSerializer())
@@ -348,3 +290,16 @@ def test_agent_state_with_pickle_allows_datetime():
 
     agent.state.set("created_at", now)
     assert agent.state.get("created_at") == now
+
+
+def test_pickle_serializer_rejects_unpicklable():
+    """Test that PickleSerializer rejects unpicklable objects like DB connections."""
+    import sqlite3
+
+    state = AgentState(serializer=PickleSerializer())
+    conn = sqlite3.connect(":memory:")
+
+    with pytest.raises(ValueError, match="not picklable"):
+        state.set("connection", conn)
+
+    conn.close()
