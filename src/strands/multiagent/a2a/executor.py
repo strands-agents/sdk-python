@@ -12,13 +12,14 @@ import base64
 import json
 import logging
 import mimetypes
+import uuid
 from typing import Any, Literal
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
-from a2a.types import DataPart, FilePart, InternalError, Part, TaskState, TextPart, UnsupportedOperationError
-from a2a.utils import new_agent_text_message, new_task
+from a2a.types import DataPart, FilePart, InternalError, Part, TextPart, UnsupportedOperationError
+from a2a.utils import new_task
 from a2a.utils.errors import ServerError
 
 from ...agent.agent import Agent as SAAgent
@@ -104,12 +105,18 @@ class StrandsA2AExecutor(AgentExecutor):
         else:
             raise ValueError("No content blocks available")
 
+        self._current_artifact_id = str(uuid.uuid4())
+        self._is_first_chunk = True
+
         try:
             async for event in self.agent.stream_async(content_blocks):
                 await self._handle_streaming_event(event, updater)
         except Exception:
             logger.exception("Error in streaming execution")
             raise
+        finally:
+            self._current_artifact_id = None
+            self._is_first_chunk = True
 
     async def _handle_streaming_event(self, event: dict[str, Any], updater: TaskUpdater) -> None:
         """Handle a single streaming event from the Strands Agent.
@@ -125,31 +132,42 @@ class StrandsA2AExecutor(AgentExecutor):
         logger.debug("Streaming event: %s", event)
         if "data" in event:
             if text_content := event["data"]:
-                await updater.update_status(
-                    TaskState.working,
-                    new_agent_text_message(
-                        text_content,
-                        updater.context_id,
-                        updater.task_id,
-                    ),
+                await updater.add_artifact(
+                    [Part(root=TextPart(text=text_content))],
+                    artifact_id=self._current_artifact_id,
+                    name="agent_response",
+                    append=not self._is_first_chunk,
                 )
+                self._is_first_chunk = False
         elif "result" in event:
             await self._handle_agent_result(event["result"], updater)
 
     async def _handle_agent_result(self, result: SAAgentResult | None, updater: TaskUpdater) -> None:
         """Handle the final result from the Strands Agent.
 
-        Processes the agent's final result, extracts text content from the response,
-        and adds it as an artifact to the task before marking the task as complete.
+        Sends the final artifact chunk marker and marks the task as complete.
+        If no data chunks were previously sent, includes the result content.
 
         Args:
             result: The agent result object containing the final response, or None if no result.
             updater: The task updater for managing task state and adding the final artifact.
         """
-        if final_content := str(result):
+        if self._is_first_chunk:
+            final_content = str(result) if result else ""
+            parts = [Part(root=TextPart(text=final_content))] if final_content else []
             await updater.add_artifact(
-                [Part(root=TextPart(text=final_content))],
+                parts,
+                artifact_id=self._current_artifact_id,
                 name="agent_response",
+                last_chunk=True,
+            )
+        else:
+            await updater.add_artifact(
+                [],
+                artifact_id=self._current_artifact_id,
+                name="agent_response",
+                append=True,
+                last_chunk=True,
             )
         await updater.complete()
 
