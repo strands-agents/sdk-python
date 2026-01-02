@@ -226,55 +226,6 @@ def test_serializer_property():
     assert isinstance(state.serializer, PickleSerializer)
 
 
-def test_agent_with_state_serializer():
-    """Test Agent constructor with state_serializer parameter."""
-    agent_messages: Messages = [
-        {"role": "assistant", "content": [{"text": "Hello!"}]},
-    ]
-    mocked_model_provider = MockedModelProvider(agent_messages)
-
-    agent = Agent(
-        model=mocked_model_provider,
-        state_serializer=PickleSerializer(),
-    )
-
-    assert isinstance(agent.state.serializer, PickleSerializer)
-
-
-def test_agent_with_state_dict_and_serializer():
-    """Test Agent with dict state and state_serializer parameter."""
-    agent_messages: Messages = [
-        {"role": "assistant", "content": [{"text": "Hello!"}]},
-    ]
-    mocked_model_provider = MockedModelProvider(agent_messages)
-
-    agent = Agent(
-        model=mocked_model_provider,
-        state={"key": "value"},
-        state_serializer=PickleSerializer(),
-    )
-
-    assert isinstance(agent.state.serializer, PickleSerializer)
-    assert agent.state.get("key") == "value"
-
-
-def test_agent_with_agent_state_and_serializer_raises():
-    """Test that providing both AgentState and state_serializer raises error."""
-    agent_messages: Messages = [
-        {"role": "assistant", "content": [{"text": "Hello!"}]},
-    ]
-    mocked_model_provider = MockedModelProvider(agent_messages)
-
-    existing_state = AgentState(serializer=JSONSerializer())
-
-    with pytest.raises(ValueError, match="Cannot provide both state.*and state_serializer"):
-        Agent(
-            model=mocked_model_provider,
-            state=existing_state,
-            state_serializer=PickleSerializer(),
-        )
-
-
 def test_agent_state_with_pickle_allows_datetime():
     """Test using datetime in agent state with PickleSerializer."""
     agent_messages: Messages = [
@@ -285,7 +236,7 @@ def test_agent_state_with_pickle_allows_datetime():
     now = datetime.now()
     agent = Agent(
         model=mocked_model_provider,
-        state_serializer=PickleSerializer(),
+        state=AgentState(serializer=PickleSerializer()),
     )
 
     agent.state.set("created_at", now)
