@@ -84,7 +84,7 @@ async def test_stream_request_default(gemini_client, model, messages, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {"tools": [{"function_declarations": []}]},
+        "config": {},
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
     }
@@ -99,7 +99,6 @@ async def test_stream_request_with_params(gemini_client, model, messages, model_
 
     exp_request = {
         "config": {
-            "tools": [{"function_declarations": []}],
             "temperature": 1,
         },
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
@@ -113,7 +112,7 @@ async def test_stream_request_with_system_prompt(gemini_client, model, messages,
     await anext(model.stream(messages, system_prompt=system_prompt))
 
     exp_request = {
-        "config": {"system_instruction": system_prompt, "tools": [{"function_declarations": []}]},
+        "config": {"system_instruction": system_prompt},
         "contents": [{"parts": [{"text": "test"}], "role": "user"}],
         "model": model_id,
     }
@@ -146,9 +145,7 @@ async def test_stream_request_with_document(content, formatted_part, gemini_clie
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [{"parts": [formatted_part], "role": "user"}],
         "model": model_id,
     }
@@ -173,9 +170,7 @@ async def test_stream_request_with_image(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -203,7 +198,7 @@ async def test_stream_request_with_reasoning(gemini_client, model, model_id):
                 {
                     "reasoningContent": {
                         "reasoningText": {
-                            "signature": "abc",
+                            "signature": "YWJj",  # base64 of "abc"
                             "text": "reasoning_text",
                         },
                     },
@@ -214,9 +209,7 @@ async def test_stream_request_with_reasoning(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -260,6 +253,7 @@ async def test_stream_request_with_tool_spec(gemini_client, model, model_id, too
 
 @pytest.mark.asyncio
 async def test_stream_request_with_tool_use(gemini_client, model, model_id):
+    """Test toolUse with thoughtSignature is sent as function_call."""
     messages = [
         {
             "role": "assistant",
@@ -269,6 +263,7 @@ async def test_stream_request_with_tool_use(gemini_client, model, model_id):
                         "toolUseId": "c1",
                         "name": "calculator",
                         "input": {"expression": "2+2"},
+                        "thoughtSignature": "YWJj",  # base64 of "abc" - required for Gemini thinking models
                     },
                 },
             ],
@@ -277,9 +272,7 @@ async def test_stream_request_with_tool_use(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -289,6 +282,45 @@ async def test_stream_request_with_tool_use(gemini_client, model, model_id):
                             "id": "c1",
                             "name": "calculator",
                         },
+                        "thought_signature": "YWJj",
+                    },
+                ],
+                "role": "model",
+            },
+        ],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_use_no_thought_signature(gemini_client, model, model_id):
+    """Test toolUse without thoughtSignature is converted to text for backwards compatibility."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "c1",
+                        "name": "calculator",
+                        "input": {"expression": "2+2"},
+                        # No thoughtSignature - simulates old session history
+                    },
+                },
+            ],
+        },
+    ]
+    await anext(model.stream(messages))
+
+    # Without thoughtSignature, toolUse is converted to text representation
+    exp_request = {
+        "config": {},
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": '[Called tool: calculator with input: {"expression": "2+2"}]',
                     },
                 ],
                 "role": "model",
@@ -327,9 +359,7 @@ async def test_stream_request_with_tool_results(gemini_client, model, model_id):
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [
             {
                 "parts": [
@@ -371,9 +401,7 @@ async def test_stream_request_with_empty_content(gemini_client, model, model_id)
     await anext(model.stream(messages))
 
     exp_request = {
-        "config": {
-            "tools": [{"function_declarations": []}],
-        },
+        "config": {},
         "contents": [{"parts": [], "role": "user"}],
         "model": model_id,
     }
@@ -497,10 +525,11 @@ async def test_stream_response_reasoning(gemini_client, model, messages, agenera
     )
 
     tru_chunks = await alist(model.stream(messages))
+    # signature is base64 encoded: b"abc" -> "YWJj"
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
-        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "abc", "text": "test reason"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "YWJj", "text": "test reason"}}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
@@ -614,7 +643,6 @@ async def test_structured_output(gemini_client, model, messages, model_id, weath
 
     exp_request = {
         "config": {
-            "tools": [{"function_declarations": []}],
             "response_mime_type": "application/json",
             "response_schema": weather_output.model_json_schema(),
         },
@@ -666,10 +694,10 @@ async def test_stream_request_with_gemini_tools(gemini_client, messages, model_i
 
     await anext(model.stream(messages))
 
+    # When only gemini_tools are provided (no tool_specs), only gemini_tools are included
     exp_request = {
         "config": {
             "tools": [
-                {"function_declarations": []},
                 {"google_search": {}},
             ]
         },
