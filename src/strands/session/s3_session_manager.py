@@ -1,5 +1,6 @@
 """S3-based session manager for cloud storage."""
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
@@ -9,6 +10,7 @@ from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 
 from .. import _identifier
+from .._async import run_async
 from ..types.exceptions import SessionException
 from ..types.session import Session, SessionAgent, SessionMessage
 from .repository_session_manager import RepositorySessionManager
@@ -259,45 +261,56 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
     def list_messages(
         self, session_id: str, agent_id: str, limit: Optional[int] = None, offset: int = 0, **kwargs: Any
     ) -> List[SessionMessage]:
-        """List messages for an agent with pagination from S3."""
-        messages_prefix = f"{self._get_agent_path(session_id, agent_id)}messages/"
-        try:
-            paginator = self.client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=self.bucket, Prefix=messages_prefix)
+        """List messages for an agent with pagination from S3.
 
-            # Collect all message keys and extract their indices
-            message_index_keys: list[tuple[int, str]] = []
-            for page in pages:
-                if "Contents" in page:
-                    for obj in page["Contents"]:
-                        key = obj["Key"]
-                        if key.endswith(".json") and MESSAGE_PREFIX in key:
-                            # Extract the filename part from the full S3 key
-                            filename = key.split("/")[-1]
-                            # Extract index from message_<index>.json format
-                            index = int(filename[len(MESSAGE_PREFIX) : -5])  # Remove prefix and .json suffix
-                            message_index_keys.append((index, key))
+        Uses concurrent async reading for improved performance when reading multiple messages.
+        """
 
-            # Sort by index and extract just the keys
-            message_keys = [k for _, k in sorted(message_index_keys)]
+        async def async_list_messages() -> List[SessionMessage]:
+            messages_prefix = f"{self._get_agent_path(session_id, agent_id)}messages/"
+            try:
+                # List message keys using sync client (listing is fast)
+                paginator = self.client.get_paginator("list_objects_v2")
+                pages = paginator.paginate(Bucket=self.bucket, Prefix=messages_prefix)
 
-            # Apply pagination to keys before loading content
-            if limit is not None:
-                message_keys = message_keys[offset : offset + limit]
-            else:
-                message_keys = message_keys[offset:]
+                # Collect all message keys and extract their indices
+                message_index_keys: list[tuple[int, str]] = []
+                for page in pages:
+                    if "Contents" in page:
+                        for obj in page["Contents"]:
+                            key = obj["Key"]
+                            if key.endswith(".json") and MESSAGE_PREFIX in key:
+                                # Extract the filename part from the full S3 key
+                                filename = key.split("/")[-1]
+                                # Extract index from message_<index>.json format
+                                index = int(filename[len(MESSAGE_PREFIX) : -5])  # Remove prefix and .json suffix
+                                message_index_keys.append((index, key))
 
-            # Load only the required message objects
-            messages: List[SessionMessage] = []
-            for key in message_keys:
-                message_data = self._read_s3_object(key)
-                if message_data:
-                    messages.append(SessionMessage.from_dict(message_data))
+                # Sort by index and extract just the keys
+                message_keys = [k for _, k in sorted(message_index_keys)]
 
-            return messages
+                # Apply pagination to keys before loading content
+                if limit is not None:
+                    message_keys = message_keys[offset : offset + limit]
+                else:
+                    message_keys = message_keys[offset:]
 
-        except ClientError as e:
-            raise SessionException(f"S3 error reading messages: {e}") from e
+                # Read all message objects concurrently using asyncio.to_thread
+                tasks = [asyncio.to_thread(self._read_s3_object, key) for key in message_keys]
+                message_data_list = await asyncio.gather(*tasks)
+
+                # Parse messages and filter out None values
+                messages: List[SessionMessage] = []
+                for message_data in message_data_list:
+                    if message_data:
+                        messages.append(SessionMessage.from_dict(message_data))
+
+                return messages
+
+            except ClientError as e:
+                raise SessionException(f"S3 error reading messages: {e}") from e
+
+        return run_async(async_list_messages)
 
     def _get_multi_agent_path(self, session_id: str, multi_agent_id: str) -> str:
         """Get multi-agent S3 prefix."""
