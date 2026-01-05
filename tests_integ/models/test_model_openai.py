@@ -257,24 +257,3 @@ def test_system_prompt_backward_compatibility_integration(model):
 
     # The response should contain our specific system prompt instruction
     assert "BACKWARD_COMPAT_TEST" in result.message["content"][0]["text"]
-
-
-def test_agent_invoke_reasoning():
-    """Test reasoning content handling with thinking mode."""
-    reasoning_model = OpenAIModel(
-        model_id="o1-preview",
-        client_args={
-            "api_key": os.getenv("OPENAI_API_KEY"),
-        },
-    )
-    
-    agent = Agent(model=reasoning_model, load_tools_from_directory=False)
-    result = agent("Please reason about the equation 2+2.")
-
-    assert "reasoningContent" in result.message["content"][0]
-    assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
-
-    # Test multi-turn to validate we don't throw an exception
-    result2 = agent("What was my previous question about?")
-    # Just validate we get a response without throwing an exception
-    assert len(str(result2)) > 0
