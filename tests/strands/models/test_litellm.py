@@ -586,3 +586,128 @@ async def test_stream_path_validation(litellm_acompletion, api_key, model_id, mo
 
     # Validate we're going down the streaming path (should have stream=True)
     assert called_kwargs.get("stream") is True, f"Expected stream=True, got {called_kwargs.get('stream')}"
+
+
+def test_format_request_message_content_reasoning():
+    """Test formatting reasoning content."""
+    content = {"reasoningContent": {"reasoningText": {"signature": "test_sig", "text": "test_thinking"}}}
+
+    result = LiteLLMModel.format_request_message_content(content)
+    expected = {"signature": "test_sig", "thinking": "test_thinking", "type": "thinking"}
+
+    assert result == expected
+
+
+def test_format_request_message_content_video():
+    """Test formatting video content."""
+    content = {"video": {"source": {"bytes": "base64videodata"}}}
+
+    result = LiteLLMModel.format_request_message_content(content)
+    expected = {"type": "video_url", "video_url": {"detail": "auto", "url": "base64videodata"}}
+
+    assert result == expected
+
+
+def test_apply_proxy_prefix_with_use_litellm_proxy():
+    """Test _apply_proxy_prefix when use_litellm_proxy is True."""
+    model = LiteLLMModel(client_args={"use_litellm_proxy": True}, model_id="openai/gpt-4")
+
+    assert model.get_config()["model_id"] == "litellm_proxy/openai/gpt-4"
+
+
+def test_apply_proxy_prefix_already_has_prefix():
+    """Test _apply_proxy_prefix when model_id already has prefix."""
+    model = LiteLLMModel(client_args={"use_litellm_proxy": True}, model_id="litellm_proxy/openai/gpt-4")
+
+    # Should not add another prefix
+    assert model.get_config()["model_id"] == "litellm_proxy/openai/gpt-4"
+
+
+def test_apply_proxy_prefix_disabled():
+    """Test _apply_proxy_prefix when use_litellm_proxy is False."""
+    model = LiteLLMModel(client_args={"use_litellm_proxy": False}, model_id="openai/gpt-4")
+
+    assert model.get_config()["model_id"] == "openai/gpt-4"
+
+
+def test_format_chunk_metadata_with_cache_tokens():
+    """Test format_chunk for metadata with cache tokens."""
+    model = LiteLLMModel(model_id="test")
+
+    # Mock usage data with cache tokens
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    # Mock cache-related attributes
+    mock_tokens_details = unittest.mock.Mock()
+    mock_tokens_details.cached_tokens = 25
+    mock_usage.prompt_tokens_details = mock_tokens_details
+    mock_usage.cache_creation_input_tokens = 10
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    result = model.format_chunk(event)
+
+    assert result["metadata"]["usage"]["inputTokens"] == 100
+    assert result["metadata"]["usage"]["outputTokens"] == 50
+    assert result["metadata"]["usage"]["totalTokens"] == 150
+    assert result["metadata"]["usage"]["cacheReadInputTokens"] == 25
+    assert result["metadata"]["usage"]["cacheWriteInputTokens"] == 10
+
+
+def test_format_chunk_metadata_without_cache_tokens():
+    """Test format_chunk for metadata without cache tokens."""
+    model = LiteLLMModel(model_id="test")
+
+    # Mock usage data without cache tokens
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+    mock_usage.prompt_tokens_details = None
+    mock_usage.cache_creation_input_tokens = None
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    result = model.format_chunk(event)
+
+    assert result["metadata"]["usage"]["inputTokens"] == 100
+    assert result["metadata"]["usage"]["outputTokens"] == 50
+    assert result["metadata"]["usage"]["totalTokens"] == 150
+    assert "cacheReadInputTokens" not in result["metadata"]["usage"]
+    assert "cacheWriteInputTokens" not in result["metadata"]["usage"]
+
+
+def test_stream_switch_content_same_type():
+    """Test _stream_switch_content when data_type is the same as prev_data_type."""
+    model = LiteLLMModel(model_id="test")
+
+    chunks, data_type = model._stream_switch_content("text", "text")
+
+    assert chunks == []
+    assert data_type == "text"
+
+
+def test_stream_switch_content_different_type_with_prev():
+    """Test _stream_switch_content when switching from one type to another."""
+    model = LiteLLMModel(model_id="test")
+
+    chunks, data_type = model._stream_switch_content("text", "reasoning_content")
+
+    assert len(chunks) == 2
+    assert chunks[0]["contentBlockStop"] == {}
+    assert chunks[1]["contentBlockStart"] == {"start": {}}
+    assert data_type == "text"
+
+
+def test_stream_switch_content_different_type_no_prev():
+    """Test _stream_switch_content when switching to a type with no previous type."""
+    model = LiteLLMModel(model_id="test")
+
+    chunks, data_type = model._stream_switch_content("text", None)
+
+    assert len(chunks) == 1
+    assert chunks[0]["contentBlockStart"] == {"start": {}}
+    assert data_type == "text"
