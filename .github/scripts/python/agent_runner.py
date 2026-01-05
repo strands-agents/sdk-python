@@ -142,13 +142,12 @@ def run_agent(query: str):
 def main() -> None:
     """Main entry point for the agent runner."""
     try:
-        # Read task from command line arguments
-        if len(sys.argv) < 2:
-            raise ValueError("Task argument is required")
-
-        task = " ".join(sys.argv[1:])
-        if not task.strip():
-            raise ValueError("Task cannot be empty")
+        # Prefer INPUT_TASK env var (avoids shell escaping issues), fall back to CLI args
+        task = os.getenv("INPUT_TASK", "").strip()
+        if not task and len(sys.argv) > 1:
+            task = " ".join(sys.argv[1:]).strip()
+        if not task:
+            raise ValueError("Task is required (via INPUT_TASK env var or CLI argument)")
         print(f"🤖 Running agent with task: {task}")
 
         run_agent(task)

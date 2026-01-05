@@ -149,7 +149,7 @@ runs:
         STRANDS_TOOL_CONSOLE_MODE: 'enabled'
         BYPASS_TOOL_CONSENT: 'true'
       run: |
-        uv run --no-project ${{ runner.temp }}/strands-agent-runner/.github/scripts/python/agent_runner.py "$INPUT_TASK"
+        uv run --no-project ${{ runner.temp }}/strands-agent-runner/.github/scripts/python/agent_runner.py
 
     - name: Capture repository state
       shell: bash

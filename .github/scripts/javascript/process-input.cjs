@@ -8,9 +8,10 @@ async function getIssueInfo(github, context, inputs) {
   const issueId = context.eventName === 'workflow_dispatch' 
     ? inputs.issue_id
     : context.payload.issue.number.toString();
+  const commentBody = context.payload.comment?.body || '';
   const command = context.eventName === 'workflow_dispatch'
     ? inputs.command
-    : (context.payload.comment.body.match(/^\/strands\s*(.*?)$/m)?.[1]?.trim() || '');
+    : (commentBody.startsWith('/strands') ? commentBody.slice('/strands'.length).trim() : '');
 
   console.log(`Event: ${context.eventName}, Issue ID: ${issueId}, Command: "${command}"`);
 
@@ -76,10 +77,29 @@ function buildPrompts(mode, issueId, isPullRequest, command, branchName, inputs)
   const scriptFile = scriptFiles[mode] || scriptFiles['refiner'];
   const systemPrompt = fs.readFileSync(scriptFile, 'utf8');
   
+  // Extract the user's feedback/instructions after the mode keyword
+  // e.g., "release-notes Move #123 to Major Features" -> "Move #123 to Major Features"
+  const modeKeywords = {
+    'release-notes': /^(?:release-notes|release notes)\s*/i,
+    'implementer': /^implement\s*/i,
+    'refiner': /^refine\s*/i
+  };
+  
+  const modePattern = modeKeywords[mode];
+  const userFeedback = modePattern ? command.replace(modePattern, '').trim() : command.trim();
+  
   let prompt = (isPullRequest) 
     ? 'The pull request id is:'
     : 'The issue id is:';
-  prompt += `${issueId}\n${command}\nreview and continue`;
+  prompt += `${issueId}\n`;
+  
+  // If there's substantial user feedback beyond just the command keyword, include it as the main instruction
+  // Otherwise, use the default "review and continue" for initial triggers
+  if (userFeedback && userFeedback.length > 0) {
+    prompt += userFeedback;
+  } else {
+    prompt += 'review and continue';
+  }
 
   return { sessionId, systemPrompt, prompt };
 }
