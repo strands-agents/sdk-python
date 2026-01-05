@@ -93,13 +93,9 @@ function buildPrompts(mode, issueId, isPullRequest, command, branchName, inputs)
     : 'The issue id is:';
   prompt += `${issueId}\n`;
   
-  // If there's substantial user feedback beyond just the command keyword, include it as the main instruction
-  // Otherwise, use the default "review and continue" for initial triggers
-  if (userFeedback && userFeedback.length > 0) {
-    prompt += userFeedback;
-  } else {
-    prompt += 'review and continue';
-  }
+  // If there's any user feedback beyond the command keyword, include it as the main instruction, 
+  // otherwise default to "review and continue"
+  prompt += userFeedback || 'review and continue';
 
   return { sessionId, systemPrompt, prompt };
 }
