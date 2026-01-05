@@ -285,7 +285,7 @@ async def test_stream_empty(litellm_acompletion, api_key, model_id, model, agene
 
     mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
     mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
-    mock_event_3 = unittest.mock.Mock()
+    mock_event_3 = unittest.mock.Mock(usage=None)
     mock_event_4 = unittest.mock.Mock(usage=None)
 
     litellm_acompletion.side_effect = unittest.mock.AsyncMock(
@@ -408,16 +408,6 @@ async def test_context_window_maps_to_typed_exception(litellm_acompletion, model
             pass
 
 
-@pytest.mark.asyncio
-async def test_stream_raises_error_when_stream_is_false(model):
-    """Test that stream raises ValueError when stream parameter is explicitly False."""
-    messages = [{"role": "user", "content": [{"text": "test"}]}]
-
-    with pytest.raises(ValueError, match="stream parameter cannot be explicitly set to False"):
-        async for _ in model.stream(messages, stream=False):
-            pass
-
-
 def test_format_request_messages_with_system_prompt_content():
     """Test format_request_messages with system_prompt_content parameter."""
     messages = [{"role": "user", "content": [{"text": "Hello"}]}]
@@ -478,6 +468,9 @@ def test_format_request_messages_cache_point_support():
     ]
 
     assert result == expected
+
+
+@pytest.mark.asyncio
 async def test_stream_non_streaming(litellm_acompletion, api_key, model_id, alist):
     """Test LiteLLM model with streaming disabled (stream=False).
 
@@ -502,7 +495,15 @@ async def test_stream_non_streaming(litellm_acompletion, api_key, model_id, alis
 
     mock_response = unittest.mock.Mock()
     mock_response.choices = [mock_choice]
-    mock_response.usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+    # Create a more explicit usage mock that doesn't have cache-related attributes
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 10
+    mock_usage.completion_tokens = 20
+    mock_usage.total_tokens = 30
+    mock_usage.prompt_tokens_details = None
+    mock_usage.cache_creation_input_tokens = None
+    mock_response.usage = mock_usage
 
     litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=mock_response)
 
@@ -520,8 +521,10 @@ async def test_stream_non_streaming(litellm_acompletion, api_key, model_id, alis
     exp_events = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
-        {"contentBlockDelta": {"delta": {"text": "I'll calculate that for you"}}},
         {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "Let me think about this calculation"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "I'll calculate that for you"}}},
         {"contentBlockStop": {}},
         {
             "contentBlockStart": {
@@ -557,3 +560,29 @@ async def test_stream_non_streaming(litellm_acompletion, api_key, model_id, alis
         "tools": [],
     }
     litellm_acompletion.assert_called_once_with(**expected_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_path_validation(litellm_acompletion, api_key, model_id, model, agenerator, alist):
+    """Test that we're taking the correct streaming path and validate stream parameter."""
+    mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
+    mock_event_2 = unittest.mock.Mock(usage=None)
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=agenerator([mock_event_1, mock_event_2]))
+
+    messages = [{"role": "user", "content": []}]
+    response = model.stream(messages)
+
+    # Consume the response
+    await alist(response)
+
+    # Validate that litellm.acompletion was called with the expected parameters
+    call_args = litellm_acompletion.call_args
+    assert call_args is not None, "litellm.acompletion should have been called"
+
+    # Check if stream parameter is being set
+    called_kwargs = call_args.kwargs
+
+    # Validate we're going down the streaming path (should have stream=True)
+    assert called_kwargs.get("stream") is True, f"Expected stream=True, got {called_kwargs.get('stream')}"
