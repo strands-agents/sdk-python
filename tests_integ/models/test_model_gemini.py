@@ -204,8 +204,9 @@ def test_agent_with_gemini_code_execution_tool(gemini_tool_model):
     assert "5117" in str(result_turn2)
 
 
-def test_agent_with_thinking_captures_reasoning_content():
-    model = GeminiModel(
+def test_agent_invoke_reasoning():
+    """Test reasoning content handling with thinking mode."""
+    reasoning_model = GeminiModel(
         client_args={"api_key": os.getenv("GOOGLE_API_KEY")},
         model_id="gemini-2.5-flash",
         params={
@@ -215,22 +216,14 @@ def test_agent_with_thinking_captures_reasoning_content():
             },
         },
     )
+    
+    agent = Agent(model=reasoning_model, load_tools_from_directory=False)
+    result = agent("Please reason about the equation 2+2.")
 
-    agent = Agent(model=model)
+    assert "reasoningContent" in result.message["content"][0]
+    assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
 
-    agent("What is 2+2?")
-
-    last_message = agent.messages[-1]
-    content = last_message["content"]
-
-    has_reasoning = any("reasoningContent" in block for block in content)
-    has_text = any("text" in block for block in content)
-
-    assert has_text, "Text content should be present in the message"
-    assert has_reasoning, "Reasoning content should be captured when thinking mode is enabled"
-
-    reasoning_indices = [i for i, block in enumerate(content) if "reasoningContent" in block]
-    text_indices = [i for i, block in enumerate(content) if "text" in block]
-
-    if reasoning_indices and text_indices:
-        assert min(reasoning_indices) < min(text_indices), "Reasoning should appear before text content"
+    # Test multi-turn to validate we don't throw an exception
+    result2 = agent("What was my previous question about?")
+    # Just validate we get a response without throwing an exception
+    assert len(str(result2)) > 0

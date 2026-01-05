@@ -137,6 +137,11 @@ def test_agent_invoke_reasoning(agent, model):
     assert "reasoningContent" in result.message["content"][0]
     assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
 
+    # Test multi-turn to validate we don't throw an exception
+    result2 = agent("What was my previous question about?")
+    # Just validate we get a response without throwing an exception
+    assert len(str(result2)) > 0
+
 
 def test_structured_output(agent, weather):
     tru_weather = agent.structured_output(type(weather), "The time is 12:00 and the weather is sunny")

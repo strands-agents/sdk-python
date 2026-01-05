@@ -182,3 +182,31 @@ def test_input_and_max_tokens_exceed_context_limit():
 
     with pytest.raises(ContextWindowOverflowException):
         agent(messages)
+
+
+def test_agent_invoke_reasoning():
+    """Test reasoning content handling with thinking mode."""
+    reasoning_model = AnthropicModel(
+        client_args={
+            "api_key": os.getenv("ANTHROPIC_API_KEY"),
+        },
+        model_id="claude-3-7-sonnet-20250219-v1:0",
+        max_tokens=512,
+        additional_request_fields={
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": 2000,
+            }
+        },
+    )
+    
+    agent = Agent(model=reasoning_model, load_tools_from_directory=False)
+    result = agent("Please reason about the equation 2+2.")
+
+    assert "reasoningContent" in result.message["content"][0]
+    assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
+
+    # Test multi-turn to validate we don't throw an exception
+    result2 = agent("What was my previous question about?")
+    # Just validate we get a response without throwing an exception
+    assert len(str(result2)) > 0
