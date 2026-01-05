@@ -198,7 +198,7 @@ Your IAM role must have these permissions in order to execute:
 3. **Create S3 Bucket** for session storage
 4. **Add GitHub Secrets**:
    - `AWS_ROLE_ARN`: The created role ARN
-   - `S3_SESSION_BUCKET`: The S3 bucket name
+   - `AGENT_SESSIONS_BUCKET`: The S3 bucket name
 
 ## Security
 
