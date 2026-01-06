@@ -3,7 +3,7 @@
 This package includes an abstract base Model class along with concrete implementations for specific providers.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from . import bedrock, model
 from .bedrock import BedrockModel
@@ -40,7 +40,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """Lazy load model implementations only when accessed.
 
     This defers the import of optional dependencies until actually needed.
@@ -85,4 +85,4 @@ def __getattr__(name: str):
         from .writer import WriterModel
 
         return WriterModel
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")
