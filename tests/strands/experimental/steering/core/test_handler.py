@@ -14,7 +14,7 @@ from strands.hooks.registry import HookRegistry
 class TestSteeringHandler(SteeringHandler):
     """Test implementation of SteeringHandler."""
 
-    async def steer(self, agent, tool_use, **kwargs):
+    async def steer_before_tool(self, agent, tool_use, **kwargs):
         return Proceed(reason="Test proceed")
 
 
@@ -31,9 +31,9 @@ def test_register_hooks():
 
     handler.register_hooks(registry)
 
-    # Verify hooks were registered
-    assert registry.add_callback.call_count >= 1
-    registry.add_callback.assert_any_call(BeforeToolCallEvent, handler._provide_steering_guidance)
+    # Verify hooks were registered (tool and model steering hooks)
+    assert registry.add_callback.call_count >= 2
+    registry.add_callback.assert_any_call(BeforeToolCallEvent, handler._provide_tool_steering_guidance)
 
 
 def test_steering_context_initialization():
@@ -65,7 +65,7 @@ async def test_proceed_action_flow():
     """Test complete flow with Proceed action."""
 
     class ProceedHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, agent, tool_use, **kwargs):
             return Proceed(reason="Test proceed")
 
     handler = ProceedHandler()
@@ -73,7 +73,7 @@ async def test_proceed_action_flow():
     tool_use = {"name": "test_tool"}
     event = BeforeToolCallEvent(agent=agent, selected_tool=None, tool_use=tool_use, invocation_state={})
 
-    await handler._provide_steering_guidance(event)
+    await handler._provide_tool_steering_guidance(event)
 
     # Should not modify event for Proceed
     assert not event.cancel_tool
@@ -84,7 +84,7 @@ async def test_guide_action_flow():
     """Test complete flow with Guide action."""
 
     class GuideHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, agent, tool_use, **kwargs):
             return Guide(reason="Test guidance")
 
     handler = GuideHandler()
@@ -92,7 +92,7 @@ async def test_guide_action_flow():
     tool_use = {"name": "test_tool"}
     event = BeforeToolCallEvent(agent=agent, selected_tool=None, tool_use=tool_use, invocation_state={})
 
-    await handler._provide_steering_guidance(event)
+    await handler._provide_tool_steering_guidance(event)
 
     # Should set cancel_tool with guidance message
     expected_message = "Tool call cancelled given new guidance. Test guidance. Consider this approach and continue"
@@ -104,7 +104,7 @@ async def test_interrupt_action_approved_flow():
     """Test complete flow with Interrupt action when approved."""
 
     class InterruptHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, agent, tool_use, **kwargs):
             return Interrupt(reason="Need approval")
 
     handler = InterruptHandler()
@@ -113,7 +113,7 @@ async def test_interrupt_action_approved_flow():
     event.tool_use = tool_use
     event.interrupt = Mock(return_value=True)  # Approved
 
-    await handler._provide_steering_guidance(event)
+    await handler._provide_tool_steering_guidance(event)
 
     event.interrupt.assert_called_once()
 
@@ -123,7 +123,7 @@ async def test_interrupt_action_denied_flow():
     """Test complete flow with Interrupt action when denied."""
 
     class InterruptHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, agent, tool_use, **kwargs):
             return Interrupt(reason="Need approval")
 
     handler = InterruptHandler()
@@ -132,7 +132,7 @@ async def test_interrupt_action_denied_flow():
     event.tool_use = tool_use
     event.interrupt = Mock(return_value=False)  # Denied
 
-    await handler._provide_steering_guidance(event)
+    await handler._provide_tool_steering_guidance(event)
 
     event.interrupt.assert_called_once()
     assert event.cancel_tool.startswith("Manual approval denied:")
@@ -143,7 +143,7 @@ async def test_unknown_action_flow():
     """Test complete flow with unknown action type raises error."""
 
     class UnknownActionHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, agent, tool_use, **kwargs):
             return Mock()  # Not a valid SteeringAction
 
     handler = UnknownActionHandler()
@@ -152,14 +152,14 @@ async def test_unknown_action_flow():
     event = BeforeToolCallEvent(agent=agent, selected_tool=None, tool_use=tool_use, invocation_state={})
 
     with pytest.raises(ValueError, match="Unknown steering action type"):
-        await handler._provide_steering_guidance(event)
+        await handler._provide_tool_steering_guidance(event)
 
 
 def test_register_steering_hooks_override():
     """Test that _register_steering_hooks can be overridden."""
 
     class CustomHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, agent, tool_use, **kwargs):
             return Proceed(reason="Custom")
 
         def register_hooks(self, registry, **kwargs):
@@ -200,7 +200,7 @@ class TestSteeringHandlerWithProvider(SteeringHandler):
         providers = [MockContextProvider(context_callbacks)] if context_callbacks else None
         super().__init__(context_providers=providers)
 
-    async def steer(self, agent, tool_use, **kwargs):
+    async def steer_before_tool(self, agent, tool_use, **kwargs):
         return Proceed(reason="Test proceed")
 
 
@@ -260,8 +260,8 @@ def test_multiple_context_callbacks_registered():
 
     handler.register_hooks(registry)
 
-    # Should register one callback for each context provider plus steering guidance
-    expected_calls = 2 + 1  # 2 callbacks + 1 for steering guidance
+    # Should register one callback for each context provider plus tool and model steering guidance
+    expected_calls = 2 + 2  # 2 callbacks + 2 for steering guidance (tool and model)
     assert registry.add_callback.call_count >= expected_calls
 
 
