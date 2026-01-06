@@ -221,7 +221,7 @@ class SteeringHandler(HookProvider, ABC):
         """Provide contextual guidance to help agent navigate complex workflows.
 
         .. deprecated::
-            Use :meth:`steer_before_tool` instead. This method will be removed in a future version.
+            Use `steer_before_tool` instead. This method will be removed in a future version.
 
         Args:
             agent: The agent instance
