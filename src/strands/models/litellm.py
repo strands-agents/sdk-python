@@ -5,6 +5,7 @@
 
 import json
 import logging
+import uuid
 from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import litellm
@@ -321,7 +322,11 @@ class LiteLLMModel(OpenAIModel):
                 break
 
         for tool_deltas in tool_calls.values():
-            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
+            first_delta = tool_deltas[0]
+            if not first_delta.id:
+                first_delta.id = f"call_{uuid.uuid4()}"
+
+            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": first_delta})
 
             for tool_delta in tool_deltas:
                 yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})
