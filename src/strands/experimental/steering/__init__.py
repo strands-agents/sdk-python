@@ -23,7 +23,7 @@ from .context_providers.ledger_provider import (
     LedgerBeforeToolCall,
     LedgerProvider,
 )
-from .core.action import Guide, Interrupt, Proceed, SteeringAction
+from .core.action import Guide, Interrupt, ModelSteeringAction, Proceed, SteeringAction, ToolSteeringAction
 from .core.context import SteeringContextCallback, SteeringContextProvider
 from .core.handler import SteeringHandler
 
@@ -32,6 +32,8 @@ from .handlers.llm import LLMPromptMapper, LLMSteeringHandler
 
 __all__ = [
     "SteeringAction",
+    "ToolSteeringAction",
+    "ModelSteeringAction",
     "Proceed",
     "Guide",
     "Interrupt",
