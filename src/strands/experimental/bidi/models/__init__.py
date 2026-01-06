@@ -1,6 +1,6 @@
 """Bidirectional model interfaces and implementations."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .model import BidiModel, BidiModelTimeoutError
 from .nova_sonic import BidiNovaSonicModel
@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     """
     Lazy load bidi model implementations only when accessed.
     
@@ -35,4 +35,4 @@ def __getattr__(name: str):
         from .openai_realtime import BidiOpenAIRealtimeModel
 
         return BidiOpenAIRealtimeModel
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+    raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")
