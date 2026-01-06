@@ -82,7 +82,7 @@ class BedrockModel(Model):
             guardrail_redact_input_message: If a Bedrock Input guardrail triggers, replace the input with this message.
             guardrail_redact_output: Flag to redact output if guardrail is triggered. Defaults to False.
             guardrail_redact_output_message: If a Bedrock Output guardrail triggers, replace output with this message.
-            guardrail_latest_message: Flag to send only the last turn to guardrails instead of full conversation.
+            guardrail_latest_message: Flag to send only the lastest user message to guardrails.
                 Defaults to False.
             max_tokens: Maximum number of tokens to generate in the response
             model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
@@ -324,16 +324,7 @@ class BedrockModel(Model):
         filtered_unknown_members = False
         dropped_deepseek_reasoning_content = False
 
-        # Find the index of the last user message if wrapping is enabled
-        last_user_idx = -1
-        guardrail_latest_message = bool(self.config.get("guardrail_latest_message", False))
-        if guardrail_latest_message:
-            last_msg = messages[-1]
-            if last_msg["role"] == "user" and any(
-                "text" in block or "image" in block or "document" in block or "video" in block
-                for block in last_msg["content"]
-            ):
-                last_user_idx = len(messages) - 1
+        guardrail_latest_message = self.config.get("guardrail_latest_message", False)
 
         for idx, message in enumerate(messages):
             cleaned_content: list[dict[str, Any]] = []
@@ -354,7 +345,12 @@ class BedrockModel(Model):
                 formatted_content = self._format_request_message_content(content_block)
 
                 # Wrap text or image content in guardrailContent if this is the last user message
-                if guardrail_latest_message and idx == last_user_idx:
+                if (
+                    guardrail_latest_message
+                    and idx == len(messages) - 1
+                    and message["role"] == "user"
+                    and ("text" in formatted_content or "image" in formatted_content)
+                ):
                     if "text" in formatted_content:
                         formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
                     elif "image" in formatted_content:

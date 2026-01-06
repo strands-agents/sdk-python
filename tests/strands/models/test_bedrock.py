@@ -2229,6 +2229,10 @@ async def test_format_request_with_guardrail_latest_message(model):
     assert "text" in formatted_messages[0]["content"][0]
     assert formatted_messages[0]["content"][0]["text"] == "First message"
 
+    # Assistant message should NOT be wrapped
+    assert "text" in formatted_messages[1]["content"][0]
+    assert formatted_messages[1]["content"][0]["text"] == "First response"
+
     # Latest user message text should be wrapped
     assert "guardContent" in formatted_messages[2]["content"][0]
     assert formatted_messages[2]["content"][0]["guardContent"]["text"]["text"] == "Look at this image"
