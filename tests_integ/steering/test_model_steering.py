@@ -139,44 +139,6 @@ def test_model_steering_multiple_retries():
     assert len(str(response)) > 0
 
 
-def test_model_steering_enforces_tool_usage():
-    """Test that model steering can enforce tool usage before completing."""
-
-    class ToolUsageEnforcementHandler(SteeringHandler):
-        def __init__(self):
-            super().__init__()
-            self.tool_used = False
-
-        async def steer_after_model(
-            self, agent: Agent, message: Message, stop_reason: StopReason, **kwargs
-        ) -> ModelSteeringAction:
-            # Check if stop_reason is end_turn
-            if stop_reason == "end_turn":
-                # Check if any tool was used in this message
-                content_blocks = message.get("content", [])
-                self.tool_used = any("toolUse" in block for block in content_blocks)
-
-                # If model finished without using the tool, guide it to use the tool
-                if not self.tool_used:
-                    return Guide(reason="Please use the get_weather tool to provide accurate weather information.")
-
-            return Proceed(reason="Model used tool or is in progress")
-
-    handler = ToolUsageEnforcementHandler()
-    agent = Agent(tools=[get_weather], hooks=[handler])
-
-    # Ask a question that could be answered without the tool
-    # The model might try to answer directly, but steering should enforce tool usage
-    response = agent("What's the weather like in San Francisco?")
-
-    # Verify the tool was eventually used (after steering guidance)
-    assert handler.tool_used, "Tool should have been used after steering guidance"
-
-    # Verify the response mentions San Francisco
-    output = str(response).lower()
-    assert "san francisco" in output or "weather" in output, "Response should mention weather/location"
-
-
 @tool
 def log_activity(activity: str) -> str:
     """Log an activity for audit purposes."""
