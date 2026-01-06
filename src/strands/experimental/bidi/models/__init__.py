@@ -1,21 +1,14 @@
 """Bidirectional model interfaces and implementations."""
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .model import BidiModel, BidiModelTimeoutError
 from .nova_sonic import BidiNovaSonicModel
-
-# Type checking imports for static analysis
-if TYPE_CHECKING:
-    from .gemini_live import BidiGeminiLiveModel
-    from .openai_realtime import BidiOpenAIRealtimeModel
 
 __all__ = [
     "BidiModel",
     "BidiModelTimeoutError",
     "BidiNovaSonicModel",
-    "BidiGeminiLiveModel",
-    "BidiOpenAIRealtimeModel",
 ]
 
 
