@@ -7,12 +7,6 @@ from strands.types.content import Message
 from strands.types.streaming import StopReason
 
 
-@tool
-def get_weather(city: str) -> str:
-    """Get the weather for a city."""
-    return f"The weather in {city} is sunny and 72°F"
-
-
 class SimpleModelSteeringHandler(SteeringHandler):
     """Simple handler that steers only on model responses."""
 
