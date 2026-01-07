@@ -543,6 +543,143 @@ def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
     assert tru_request == exp_request
 
 
+def test_format_request_system_tools_only(model, messages, model_id):
+    """System tools work without agent tools."""
+    system_tools = [{"systemTool": {"name": "nova_grounding"}}]
+    model.update_config(system_tools=system_tools)
+
+    tru_request = model._format_request(messages, tool_specs=None)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [{"systemTool": {"name": "nova_grounding"}}],
+            "toolChoice": {"auto": {}},
+        },
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_system_tools_with_agent_tools(model, messages, model_id, tool_spec):
+    """System tools are merged after agent tools."""
+    system_tools = [{"systemTool": {"name": "nova_grounding"}}]
+    model.update_config(system_tools=system_tools)
+
+    tru_request = model._format_request(messages, tool_specs=[tool_spec])
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [
+                {"toolSpec": tool_spec},
+                {"systemTool": {"name": "nova_grounding"}},
+            ],
+            "toolChoice": {"auto": {}},
+        },
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_system_tools_with_cache(model, messages, model_id, tool_spec, cache_type):
+    """System tools appear after cache_tools."""
+    system_tools = [{"systemTool": {"name": "nova_grounding"}}]
+    model.update_config(system_tools=system_tools, cache_tools=cache_type)
+
+    tru_request = model._format_request(messages, tool_specs=[tool_spec])
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [
+                {"toolSpec": tool_spec},
+                {"cachePoint": {"type": cache_type}},
+                {"systemTool": {"name": "nova_grounding"}},
+            ],
+            "toolChoice": {"auto": {}},
+        },
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_empty_system_tools(model, messages, model_id):
+    """Empty system_tools list doesn't add toolConfig."""
+    model.update_config(system_tools=[])
+
+    tru_request = model._format_request(messages, tool_specs=None)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_multiple_system_tools(model, messages, model_id):
+    """Multiple system tools are all included."""
+    system_tools = [
+        {"systemTool": {"name": "nova_grounding"}},
+        {"systemTool": {"name": "another_tool"}},
+    ]
+    model.update_config(system_tools=system_tools)
+
+    tru_request = model._format_request(messages, tool_specs=None)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [
+                {"systemTool": {"name": "nova_grounding"}},
+                {"systemTool": {"name": "another_tool"}},
+            ],
+            "toolChoice": {"auto": {}},
+        },
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_warns_on_conflicting_toolconfig(model, messages, model_id):
+    """Warning is emitted when additional_args contains toolConfig."""
+    model.update_config(additional_args={"toolConfig": {"tools": []}})
+
+    with pytest.warns(UserWarning, match="additional_args contains 'toolConfig'"):
+        model._format_request(messages, tool_specs=None)
+
+
+def test_format_request_warns_on_conflicting_inferenceconfig(model, messages, model_id):
+    """Warning is emitted when additional_args contains inferenceConfig."""
+    model.update_config(additional_args={"inferenceConfig": {"maxTokens": 100}})
+
+    with pytest.warns(UserWarning, match="additional_args contains 'inferenceConfig'"):
+        model._format_request(messages, tool_specs=None)
+
+
+def test_format_request_no_warning_for_safe_additional_args(model, messages, model_id):
+    """No warning for non-conflicting additional_args keys."""
+    model.update_config(additional_args={"customField": "value"})
+
+    # Should not emit any warnings
+    import warnings
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        model._format_request(messages, tool_specs=None)
+        assert len(w) == 0
+
+
 @pytest.mark.asyncio
 async def test_stream_throttling_exception_from_event_stream_error(bedrock_client, model, messages, alist):
     error_message = "Rate exceeded"
@@ -2196,3 +2333,171 @@ async def test_citations_content_preserves_tagged_union_structure(bedrock_client
         "(documentChar, documentPage, documentChunk, searchResultLocation, or web) "
         "with the location fields nested inside."
     )
+
+
+
+def test_has_client_side_tools_to_execute_with_client_tools(model):
+    """Test that client-side tools are correctly identified as needing execution."""
+    message_content = [
+        {
+            "toolUse": {
+                "toolUseId": "tool-123",
+                "name": "my_tool",
+                "input": {"param": "value"},
+            }
+        }
+    ]
+
+    assert model._has_client_side_tools_to_execute(message_content) is True
+
+
+def test_has_client_side_tools_to_execute_with_server_tools(model):
+    """Test that server-side tools (like nova_grounding) are NOT identified as needing execution."""
+    message_content = [
+        {
+            "toolUse": {
+                "toolUseId": "tool-123",
+                "name": "nova_grounding",
+                "type": "server_tool_use",
+                "input": {},
+            }
+        },
+        {
+            "toolResult": {
+                "toolUseId": "tool-123",
+                "content": [{"text": "Grounding result"}],
+            }
+        },
+    ]
+
+    assert model._has_client_side_tools_to_execute(message_content) is False
+
+
+def test_has_client_side_tools_to_execute_with_mixed_tools(model):
+    """Test mixed server and client tools - should return True if client tools need execution."""
+    message_content = [
+        # Server-side tool with result
+        {
+            "toolUse": {
+                "toolUseId": "server-tool-123",
+                "name": "nova_grounding",
+                "type": "server_tool_use",
+                "input": {},
+            }
+        },
+        {
+            "toolResult": {
+                "toolUseId": "server-tool-123",
+                "content": [{"text": "Grounding result"}],
+            }
+        },
+        # Client-side tool without result
+        {
+            "toolUse": {
+                "toolUseId": "client-tool-456",
+                "name": "my_tool",
+                "input": {"param": "value"},
+            }
+        },
+    ]
+
+    assert model._has_client_side_tools_to_execute(message_content) is True
+
+
+def test_has_client_side_tools_to_execute_with_no_tools(model):
+    """Test that no tools returns False."""
+    message_content = [{"text": "Just some text"}]
+
+    assert model._has_client_side_tools_to_execute(message_content) is False
+
+
+@pytest.mark.asyncio
+async def test_stream_server_tool_use_does_not_override_stop_reason(bedrock_client, alist, messages):
+    """Test that stopReason is NOT overridden for server-side tools like nova_grounding."""
+    model = BedrockModel(model_id="amazon.nova-premier-v1:0")
+    model.client = bedrock_client
+
+    # Simulate streaming response with server-side tool use and result
+    bedrock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {
+                "contentBlockStart": {
+                    "start": {
+                        "toolUse": {
+                            "toolUseId": "tool-123",
+                            "name": "nova_grounding",
+                            "type": "server_tool_use",
+                        }
+                    }
+                }
+            },
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": "{}"}}}},
+            {"contentBlockStop": {}},
+            {
+                "contentBlockStart": {
+                    "start": {
+                        "toolResult": {
+                            "toolUseId": "tool-123",
+                        }
+                    }
+                }
+            },
+            {"contentBlockDelta": {"delta": {"text": "Grounding result"}}},
+            {"contentBlockStop": {}},
+            {"contentBlockStart": {"start": {}}},
+            {"contentBlockDelta": {"delta": {"text": "Final response"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    }
+
+    events = await alist(model.stream(messages))
+
+    # Find the messageStop event
+    message_stop_event = next(e for e in events if "messageStop" in e)
+
+    # Verify stopReason was NOT overridden (should remain end_turn for server-side tools)
+    assert message_stop_event["messageStop"]["stopReason"] == "end_turn"
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_server_tool_use_does_not_override_stop_reason(bedrock_client, alist, messages):
+    """Test that stopReason is NOT overridden for server-side tools in non-streaming mode."""
+    model = BedrockModel(model_id="amazon.nova-premier-v1:0", streaming=False)
+    model.client = bedrock_client
+
+    bedrock_client.converse.return_value = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "tool-123",
+                            "name": "nova_grounding",
+                            "type": "server_tool_use",
+                            "input": {},
+                        }
+                    },
+                    {
+                        "toolResult": {
+                            "toolUseId": "tool-123",
+                            "content": [{"text": "Grounding result"}],
+                        }
+                    },
+                    {"text": "Final response based on grounding"},
+                ],
+            }
+        },
+        "stopReason": "end_turn",
+        "usage": {"inputTokens": 10, "outputTokens": 20},
+    }
+
+    events = await alist(model.stream(messages))
+
+    # Find the messageStop event
+    message_stop_event = next(e for e in events if "messageStop" in e)
+
+    # Verify stopReason was NOT overridden (should remain end_turn for server-side tools)
+    assert message_stop_event["messageStop"]["stopReason"] == "end_turn"

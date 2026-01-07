@@ -124,6 +124,11 @@ def test_handle_message_start():
             {"start": {"toolUse": {"toolUseId": "test", "name": "test"}}},
             {"toolUseId": "test", "name": "test", "input": ""},
         ),
+        # Server-side tool with type field (e.g., nova_grounding)
+        (
+            {"start": {"toolUse": {"toolUseId": "server-1", "name": "nova_grounding", "type": "server_tool_use"}}},
+            {"toolUseId": "server-1", "name": "nova_grounding", "input": "", "type": "server_tool_use"},
+        ),
     ],
 )
 def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use):
@@ -321,6 +326,39 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
+        # Server-side tool with type field (e.g., nova_grounding)
+        (
+            {
+                "content": [],
+                "current_tool_use": {
+                    "toolUseId": "server-1",
+                    "name": "nova_grounding",
+                    "input": "{}",
+                    "type": "server_tool_use",
+                },
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "server-1",
+                            "name": "nova_grounding",
+                            "input": {},
+                            "type": "server_tool_use",
+                        }
+                    }
+                ],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",

@@ -57,11 +57,13 @@ class ToolUse(TypedDict):
             Can be any JSON-serializable type.
         name: The name of the tool to invoke.
         toolUseId: A unique identifier for this specific tool use request.
+        type: Optional type identifier for the tool use (e.g., "server_tool_use" for server-side tools).
     """
 
     input: Any
     name: str
     toolUseId: str
+    type: NotRequired[str]
 
 
 class ToolResultContent(TypedDict, total=False):
