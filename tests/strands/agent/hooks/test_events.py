@@ -5,9 +5,11 @@ import pytest
 from strands.agent.agent_result import AgentResult
 from strands.hooks import (
     AfterInvocationEvent,
+    AfterModelCallEvent,
     AfterToolCallEvent,
     AgentInitializedEvent,
     BeforeInvocationEvent,
+    BeforeModelCallEvent,
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
@@ -49,7 +51,7 @@ def initialized_event(agent):
 
 @pytest.fixture
 def start_request_event(agent):
-    return BeforeInvocationEvent(agent=agent)
+    return BeforeInvocationEvent(agent=agent, invocation_state={})
 
 
 @pytest.fixture
@@ -59,7 +61,7 @@ def messaged_added_event(agent):
 
 @pytest.fixture
 def end_request_event(agent):
-    return AfterInvocationEvent(agent=agent)
+    return AfterInvocationEvent(agent=agent, invocation_state={})
 
 
 @pytest.fixture
@@ -152,10 +154,43 @@ def test_after_invocation_event_properties_not_writable(agent):
         state={},
     )
 
-    event = AfterInvocationEvent(agent=agent, result=None)
+    event = AfterInvocationEvent(agent=agent, invocation_state={}, result=None)
 
     with pytest.raises(AttributeError, match="Property result is not writable"):
         event.result = mock_result
 
     with pytest.raises(AttributeError, match="Property agent is not writable"):
         event.agent = Mock()
+
+    with pytest.raises(AttributeError, match="Property invocation_state is not writable"):
+        event.invocation_state = {}
+
+
+def test_invocation_state_is_available_in_invocation_events(agent):
+    """Test that invocation_state is accessible in BeforeInvocationEvent and AfterInvocationEvent."""
+    invocation_state = {"session_id": "test-123", "request_id": "req-456"}
+
+    before_event = BeforeInvocationEvent(agent=agent, invocation_state=invocation_state)
+    assert before_event.invocation_state == invocation_state
+    assert before_event.invocation_state["session_id"] == "test-123"
+    assert before_event.invocation_state["request_id"] == "req-456"
+
+    after_event = AfterInvocationEvent(agent=agent, invocation_state=invocation_state, result=None)
+    assert after_event.invocation_state == invocation_state
+    assert after_event.invocation_state["session_id"] == "test-123"
+    assert after_event.invocation_state["request_id"] == "req-456"
+
+
+def test_invocation_state_is_available_in_model_call_events(agent):
+    """Test that invocation_state is accessible in BeforeModelCallEvent and AfterModelCallEvent."""
+    invocation_state = {"session_id": "test-123", "request_id": "req-456"}
+
+    before_event = BeforeModelCallEvent(agent=agent, invocation_state=invocation_state)
+    assert before_event.invocation_state == invocation_state
+    assert before_event.invocation_state["session_id"] == "test-123"
+    assert before_event.invocation_state["request_id"] == "req-456"
+
+    after_event = AfterModelCallEvent(agent=agent, invocation_state=invocation_state)
+    assert after_event.invocation_state == invocation_state
+    assert after_event.invocation_state["session_id"] == "test-123"
+    assert after_event.invocation_state["request_id"] == "req-456"

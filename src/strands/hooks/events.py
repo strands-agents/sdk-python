@@ -43,9 +43,14 @@ class BeforeInvocationEvent(HookEvent):
       - Agent.__call__
       - Agent.stream_async
       - Agent.structured_output
+
+    Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
     """
 
-    pass
+    invocation_state: dict[str, Any]
 
 
 @dataclass
@@ -65,11 +70,15 @@ class AfterInvocationEvent(HookEvent):
       - Agent.structured_output
 
     Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
         result: The result of the agent invocation, if available.
             This will be None when invoked from structured_output methods, as those return typed output directly rather
             than AgentResult.
     """
 
+    invocation_state: dict[str, Any]
     result: "AgentResult | None" = None
 
     @property
@@ -182,9 +191,14 @@ class BeforeModelCallEvent(HookEvent):
     that will be sent to the model.
 
     Note: This event is not fired for invocations to structured_output.
+
+    Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
     """
 
-    pass
+    invocation_state: dict[str, Any]
 
 
 @dataclass
@@ -213,6 +227,9 @@ class AfterModelCallEvent(HookEvent):
           conversation history
 
     Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
         stop_response: The model response data if invocation was successful, None if failed.
         exception: Exception if the model invocation failed, None if successful.
         retry: Whether to retry the model invocation. Can be set by hook callbacks
@@ -232,6 +249,7 @@ class AfterModelCallEvent(HookEvent):
         message: Message
         stop_reason: StopReason
 
+    invocation_state: dict[str, Any]
     stop_response: Optional[ModelStopResponse] = None
     exception: Optional[Exception] = None
     retry: bool = False
