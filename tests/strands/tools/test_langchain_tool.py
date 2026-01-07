@@ -189,3 +189,25 @@ async def test_langchain_tool_decorator_execution() -> None:
     result = results[0]["tool_result"]
     assert result["status"] == "success"
     assert "Hello, World!" in result["content"][0]["text"]
+
+
+# Tests for _convert_result_to_content
+
+
+def test_convert_result_string() -> None:
+    """Test converting a string result."""
+    tool = LangChainTool(MockBaseTool())
+    content = tool._convert_result_to_content("hello world")
+
+    assert content == [{"text": "hello world"}]
+
+
+def test_convert_result_non_string_raises() -> None:
+    """Test that non-string results raise ValueError."""
+    tool = LangChainTool(MockBaseTool())
+
+    with pytest.raises(ValueError, match="Unsupported LangChain result type"):
+        tool._convert_result_to_content({"key": "value"})
+
+    with pytest.raises(ValueError, match="Unsupported LangChain result type"):
+        tool._convert_result_to_content(42)

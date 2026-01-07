@@ -25,11 +25,16 @@ Example:
 
 from __future__ import annotations
 
+import logging
+from typing import Any
+
 from langchain_core.tools import BaseTool as LangChainBaseTool
 from typing_extensions import override
 
 from strands.types._events import ToolResultEvent
 from strands.types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
+
+logger = logging.getLogger(__name__)
 
 
 class LangChainTool(AgentTool):
@@ -184,11 +189,38 @@ class LangChainTool(AgentTool):
         tool_input = tool_use.get("input", {})
 
         result = await self._langchain_tool.ainvoke(tool_input)
+        content = self._convert_result_to_content(result)
 
         yield ToolResultEvent(
             {
                 "toolUseId": tool_use_id,
                 "status": "success",
-                "content": [{"text": str(result)}],
+                "content": content,
             }
+        )
+
+    def _convert_result_to_content(self, result: Any) -> list[dict[str, Any]]:
+        """Convert a LangChain tool result to Strands content format.
+
+        LangChain tools can return various content types defined in TOOL_MESSAGE_BLOCK_TYPES:
+        https://github.com/langchain-ai/langchain/blob/master/libs/core/langchain_core/tools/base.py
+
+        Currently only string results are supported. Support for other types (text blocks,
+        image, json, document, etc.) will be added in future versions.
+
+        Args:
+            result: The result from a LangChain tool invocation.
+
+        Returns:
+            A list of content blocks in Strands format.
+
+        Raises:
+            ValueError: If the result type is not supported.
+        """
+        # TODO: Expand support for other LangChain content types (text blocks, image, json, etc.)
+        if isinstance(result, str):
+            return [{"text": result}]
+
+        raise ValueError(
+            f"Unsupported LangChain result type: {type(result).__name__}. Only string results are currently supported."
         )
