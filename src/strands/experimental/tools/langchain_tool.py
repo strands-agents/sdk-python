@@ -15,11 +15,11 @@ Example:
     from strands.experimental.tools import LangChainTool
 
     @langchain_tool
-    def search(query: str) -> str:
-        '''Search for information.'''
-        return f"Results for: {query}"
+    def calculator(a: int, b: int) -> int:
+        '''Add two numbers.'''
+        return a + b
 
-    agent = Agent(tools=[LangChainTool(search)])
+    agent = Agent(tools=[LangChainTool(calculator)])
     ```
 """
 
@@ -43,21 +43,49 @@ class LangChainTool(AgentTool):
         from langchain_core.tools import tool as langchain_tool
 
         @langchain_tool
-        def search(query: str) -> str:
-            '''Search for information.'''
-            return f"Results for: {query}"
+        def calculator(a: int, b: int) -> int:
+            '''Add two numbers.'''
+            return a + b
 
         # Wrap as Strands tool
-        strands_search = LangChainTool(search)
+        strands_calculator = LangChainTool(calculator)
 
         # Use with Strands Agent
-        agent = Agent(tools=[strands_search])
+        agent = Agent(tools=[strands_calculator])
         ```
     """
 
     _langchain_tool: LangChainBaseTool
     _tool_name: str
     _tool_spec: ToolSpec
+
+    def __init__(
+        self,
+        tool: LangChainBaseTool,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        """Initialize with a LangChain BaseTool.
+
+        Args:
+            tool: A LangChain BaseTool instance.
+            name: Optional override for the tool name.
+            description: Optional override for the tool description.
+        """
+        super().__init__()
+
+        self._langchain_tool = tool
+        self._tool_name = name or tool.name
+
+        tool_description = description or tool.description or f"Tool: {self._tool_name}"
+
+        # Build tool spec
+        input_schema = self._build_input_schema(tool)
+        self._tool_spec: ToolSpec = {
+            "name": self._tool_name,
+            "description": tool_description,
+            "inputSchema": {"json": input_schema},
+        }
 
     @staticmethod
     def _build_input_schema(tool: LangChainBaseTool) -> dict[str, object]:
@@ -91,9 +119,9 @@ class LangChainTool(AgentTool):
                 "required": [],
             }
 
-        # Remove Pydantic-specific fields that aren't needed for tool input schemas:
+        # Remove fields that aren't needed for tool input schemas:
         # - title: Pydantic adds the class name, not useful for tool schemas
-        # - additionalProperties: Pydantic validation field, not needed by model providers
+        # - additionalProperties: validation constraint, not needed by model providers
         schema.pop("title", None)
         schema.pop("additionalProperties", None)
 
@@ -103,43 +131,6 @@ class LangChainTool(AgentTool):
         schema.setdefault("required", [])
 
         return schema
-
-    def __init__(
-        self,
-        tool: LangChainBaseTool,
-        name: str | None = None,
-        description: str | None = None,
-    ) -> None:
-        """Initialize with a LangChain BaseTool.
-
-        Args:
-            tool: A LangChain BaseTool instance (including StructuredTool from @tool decorator).
-            name: Optional override for the tool name.
-            description: Optional override for the tool description.
-
-        Raises:
-            ValueError: If tool is not a valid LangChain tool.
-        """
-        if not isinstance(tool, LangChainBaseTool):
-            raise ValueError(
-                f"Tool must be a LangChain BaseTool instance, got {type(tool).__name__}. "
-                "Use @tool decorator or subclass BaseTool."
-            )
-
-        super().__init__()
-
-        self._langchain_tool = tool
-        self._tool_name = name or tool.name
-
-        tool_description = description or tool.description or f"Tool: {self._tool_name}"
-
-        # Build tool spec
-        input_schema = self._build_input_schema(tool)
-        self._tool_spec: ToolSpec = {
-            "name": self._tool_name,
-            "description": tool_description,
-            "inputSchema": {"json": input_schema},
-        }
 
     @property
     def tool_name(self) -> str:

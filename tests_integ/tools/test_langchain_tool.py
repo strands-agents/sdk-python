@@ -51,18 +51,22 @@ def calculator(a: int, b: int, operation: str) -> str:
     return f"Result: {result}"
 
 
-# LangChain BaseTool subclass (async)
+# LangChain BaseTool subclass
+class GreetingInput(BaseModel):
+    """Input for greeting tool."""
+
+    person_name: str = Field(description="Name of the person to greet")
+
+
 class GreetingTool(BaseTool):
     """A tool that generates greetings."""
 
     name: str = "greeting"
     description: str = "Generate a greeting for a person"
+    args_schema: type[BaseModel] = GreetingInput
 
-    def _run(self, name: str) -> str:
-        return f"Hello, {name}! Welcome!"
-
-    async def _arun(self, name: str) -> str:
-        return f"Hello, {name}! Welcome!"
+    def _run(self, person_name: str) -> str:
+        return f"Hello, {person_name}! Welcome!"
 
 
 # StructuredTool.from_function()
@@ -106,7 +110,7 @@ def test_langchain_basetool_subclass():
     strands_tool = LangChainTool(greeting_tool)
     agent = Agent(tools=[strands_tool])
 
-    result = agent.tool.greeting(name="Alice")
+    result = agent.tool.greeting(person_name="Alice")
 
     assert result["status"] == "success"
     assert "Hello, Alice" in result["content"][0]["text"]
@@ -188,7 +192,7 @@ def test_multiple_langchain_tools():
     assert calc_result["status"] == "success"
     assert "4" in calc_result["content"][0]["text"]
 
-    greet_result = agent.tool.greeting(name="Bob")
+    greet_result = agent.tool.greeting(person_name="Bob")
     assert greet_result["status"] == "success"
     assert "Hello, Bob" in greet_result["content"][0]["text"]
 
@@ -274,9 +278,16 @@ def test_tool_spec_basetool_subclass_in_registry():
         "description": "Generate a greeting for a person",
         "inputSchema": {
             "json": {
+                "description": "Input for greeting tool.",
                 "type": "object",
-                "properties": {},
-                "required": [],
+                "properties": {
+                    "person_name": {
+                        "title": "Person Name",
+                        "type": "string",
+                        "description": "Name of the person to greet",
+                    },
+                },
+                "required": ["person_name"],
             }
         },
     }
