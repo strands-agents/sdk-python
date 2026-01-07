@@ -30,7 +30,7 @@ from langchain_core.tools import BaseTool as LangChainBaseTool
 from typing_extensions import override
 
 from strands.types._events import ToolResultEvent
-from strands.types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
+from strands.types.tools import AgentTool, ToolGenerator, ToolResultContent, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +197,7 @@ class LangChainTool(AgentTool):
             }
         )
 
-    def _convert_result_to_content(self, result: Any) -> list[dict[str, Any]]:
+    def _convert_result_to_content(self, result: Any) -> list[ToolResultContent]:
         """Convert a LangChain tool result to Strands content format.
 
         LangChain tools can return various content types defined in TOOL_MESSAGE_BLOCK_TYPES:
