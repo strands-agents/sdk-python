@@ -23,7 +23,7 @@ class SimpleModelSteeringHandler(SteeringHandler):
         self.call_count = 0
 
     async def steer_after_model(
-        self, agent: Agent, message: Message, stop_reason: StopReason, **kwargs
+        self, *, agent: Agent, message: Message, stop_reason: StopReason, **kwargs
     ) -> ModelSteeringAction:
         """Steer after model response."""
         self.call_count += 1
@@ -75,7 +75,7 @@ def test_model_steering_guide_influences_retry_response():
             self.retry_done = False
 
         async def steer_after_model(
-            self, agent: Agent, message: Message, stop_reason: StopReason, **kwargs
+            self, *, agent: Agent, message: Message, stop_reason: StopReason, **kwargs
         ) -> ModelSteeringAction:
             if not self.retry_done:
                 self.retry_done = True
@@ -109,7 +109,7 @@ def test_model_steering_multiple_retries():
             self.call_count = 0
 
         async def steer_after_model(
-            self, agent: Agent, message: Message, stop_reason: StopReason, **kwargs
+            self, *, agent: Agent, message: Message, stop_reason: StopReason, **kwargs
         ) -> ModelSteeringAction:
             self.call_count += 1
 
@@ -160,7 +160,7 @@ def test_model_steering_forces_tool_usage_on_unrelated_prompt():
             self.guidance_given = False
 
         async def steer_after_model(
-            self, agent: Agent, message: Message, stop_reason: StopReason, **kwargs
+            self, *, agent: Agent, message: Message, stop_reason: StopReason, **kwargs
         ) -> ModelSteeringAction:
             # Only check when model is trying to end the turn
             if stop_reason != "end_turn":

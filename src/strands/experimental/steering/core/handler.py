@@ -35,7 +35,6 @@ SteeringAction handling for steer_after_model:
 """
 
 import logging
-import warnings
 from abc import ABC
 from typing import TYPE_CHECKING, Any
 
@@ -96,7 +95,7 @@ class SteeringHandler(HookProvider, ABC):
         logger.debug("tool_name=<%s> | providing tool steering guidance", tool_name)
 
         try:
-            action = await self.steer_before_tool(event.agent, event.tool_use)
+            action = await self.steer_before_tool(agent=event.agent, tool_use=event.tool_use)
         except Exception as e:
             logger.debug("tool_name=<%s>, error=<%s> | tool steering handler guidance failed", tool_name, e)
             return
@@ -141,7 +140,7 @@ class SteeringHandler(HookProvider, ABC):
 
         try:
             action = await self.steer_after_model(
-                event.agent, event.stop_response.message, event.stop_response.stop_reason
+                agent=event.agent, message=event.stop_response.message, stop_reason=event.stop_response.stop_reason
             )
         except Exception as e:
             logger.debug("error=<%s> | model steering handler guidance failed", e)
@@ -167,7 +166,7 @@ class SteeringHandler(HookProvider, ABC):
         else:
             raise ValueError(f"Unknown steering action type for model response: {action}")
 
-    async def steer_before_tool(self, agent: "Agent", tool_use: ToolUse, **kwargs: Any) -> ToolSteeringAction:
+    async def steer_before_tool(self, *, agent: "Agent", tool_use: ToolUse, **kwargs: Any) -> ToolSteeringAction:
         """Provide contextual guidance before tool execution.
 
         This method is called before a tool is executed, allowing the handler to:
@@ -191,7 +190,7 @@ class SteeringHandler(HookProvider, ABC):
         return Proceed(reason="Default implementation: allowing tool execution")
 
     async def steer_after_model(
-        self, agent: "Agent", message: Message, stop_reason: StopReason, **kwargs: Any
+        self, *, agent: "Agent", message: Message, stop_reason: StopReason, **kwargs: Any
     ) -> ModelSteeringAction:
         """Provide contextual guidance after model response.
 
@@ -216,27 +215,3 @@ class SteeringHandler(HookProvider, ABC):
             Override this method to implement custom model steering logic
         """
         return Proceed(reason="Default implementation: accepting model response")
-
-    async def steer(self, agent: "Agent", tool_use: ToolUse, **kwargs: Any) -> SteeringAction:
-        """Provide contextual guidance to help agent navigate complex workflows.
-
-        .. deprecated::
-            Use `steer_before_tool` instead. This method will be removed in a future version.
-
-        Args:
-            agent: The agent instance
-            tool_use: The tool use object with name and arguments
-            **kwargs: Additional keyword arguments for guidance evaluation
-
-        Returns:
-            SteeringAction indicating how to guide the agent's next action
-
-        Note:
-            Access steering context via self.steering_context
-        """
-        warnings.warn(
-            "steer() is deprecated and will be removed in a future version. Use steer_before_tool() instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return await self.steer_before_tool(agent, tool_use, **kwargs)
