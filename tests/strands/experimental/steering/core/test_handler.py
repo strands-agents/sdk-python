@@ -1,6 +1,5 @@
 """Unit tests for steering handler base class."""
 
-import warnings
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -15,7 +14,7 @@ from strands.hooks.registry import HookRegistry
 class TestSteeringHandler(SteeringHandler):
     """Test implementation of SteeringHandler."""
 
-    async def steer_before_tool(self, agent, tool_use, **kwargs):
+    async def steer_before_tool(self, *, agent, tool_use, **kwargs):
         return Proceed(reason="Test proceed")
 
 
@@ -66,7 +65,7 @@ async def test_proceed_action_flow():
     """Test complete flow with Proceed action."""
 
     class ProceedHandler(SteeringHandler):
-        async def steer_before_tool(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Proceed(reason="Test proceed")
 
     handler = ProceedHandler()
@@ -85,7 +84,7 @@ async def test_guide_action_flow():
     """Test complete flow with Guide action."""
 
     class GuideHandler(SteeringHandler):
-        async def steer_before_tool(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Guide(reason="Test guidance")
 
     handler = GuideHandler()
@@ -105,7 +104,7 @@ async def test_interrupt_action_approved_flow():
     """Test complete flow with Interrupt action when approved."""
 
     class InterruptHandler(SteeringHandler):
-        async def steer_before_tool(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Interrupt(reason="Need approval")
 
     handler = InterruptHandler()
@@ -124,7 +123,7 @@ async def test_interrupt_action_denied_flow():
     """Test complete flow with Interrupt action when denied."""
 
     class InterruptHandler(SteeringHandler):
-        async def steer_before_tool(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Interrupt(reason="Need approval")
 
     handler = InterruptHandler()
@@ -144,7 +143,7 @@ async def test_unknown_action_flow():
     """Test complete flow with unknown action type raises error."""
 
     class UnknownActionHandler(SteeringHandler):
-        async def steer_before_tool(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Mock()  # Not a valid SteeringAction
 
     handler = UnknownActionHandler()
@@ -160,7 +159,7 @@ def test_register_steering_hooks_override():
     """Test that _register_steering_hooks can be overridden."""
 
     class CustomHandler(SteeringHandler):
-        async def steer_before_tool(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Proceed(reason="Custom")
 
         def register_hooks(self, registry, **kwargs):
@@ -201,7 +200,7 @@ class TestSteeringHandlerWithProvider(SteeringHandler):
         providers = [MockContextProvider(context_callbacks)] if context_callbacks else None
         super().__init__(context_providers=providers)
 
-    async def steer_before_tool(self, agent, tool_use, **kwargs):
+    async def steer_before_tool(self, *, agent, tool_use, **kwargs):
         return Proceed(reason="Test proceed")
 
 
@@ -285,7 +284,7 @@ async def test_model_steering_proceed_action_flow():
     """Test model steering with Proceed action."""
 
     class ModelProceedHandler(SteeringHandler):
-        async def steer_after_model(self, agent, message, stop_reason, **kwargs):
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
             return Proceed(reason="Model response accepted")
 
     handler = ModelProceedHandler()
@@ -309,7 +308,7 @@ async def test_model_steering_guide_action_flow():
     """Test model steering with Guide action sets retry and adds message."""
 
     class ModelGuideHandler(SteeringHandler):
-        async def steer_after_model(self, agent, message, stop_reason, **kwargs):
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
             return Guide(reason="Please improve your response")
 
     handler = ModelGuideHandler()
@@ -342,7 +341,7 @@ async def test_model_steering_skips_when_no_stop_response():
             super().__init__()
             self.steer_called = False
 
-        async def steer_after_model(self, agent, message, stop_reason, **kwargs):
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
             self.steer_called = True
             return Proceed(reason="Should not be called")
 
@@ -361,7 +360,7 @@ async def test_model_steering_unknown_action_raises_error():
     """Test model steering with unknown action type raises error."""
 
     class UnknownModelActionHandler(SteeringHandler):
-        async def steer_after_model(self, agent, message, stop_reason, **kwargs):
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
             return Mock()  # Not a valid ModelSteeringAction
 
     handler = UnknownModelActionHandler()
@@ -382,7 +381,7 @@ async def test_model_steering_exception_handling():
     """Test model steering handles exceptions gracefully."""
 
     class ExceptionModelHandler(SteeringHandler):
-        async def steer_after_model(self, agent, message, stop_reason, **kwargs):
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
             raise RuntimeError("Test exception")
 
     handler = ExceptionModelHandler()
@@ -407,7 +406,7 @@ async def test_tool_steering_exception_handling():
     """Test tool steering handles exceptions gracefully."""
 
     class ExceptionToolHandler(SteeringHandler):
-        async def steer_before_tool(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             raise RuntimeError("Test exception")
 
     handler = ExceptionToolHandler()
@@ -431,7 +430,7 @@ async def test_default_steer_before_tool_returns_proceed():
     tool_use = {"name": "test_tool"}
 
     # Call the parent's default implementation
-    result = await SteeringHandler.steer_before_tool(handler, agent, tool_use)
+    result = await SteeringHandler.steer_before_tool(handler, agent=agent, tool_use=tool_use)
 
     assert isinstance(result, Proceed)
     assert "Default implementation" in result.reason
@@ -446,28 +445,10 @@ async def test_default_steer_after_model_returns_proceed():
     stop_reason = "end_turn"
 
     # Call the parent's default implementation
-    result = await SteeringHandler.steer_after_model(handler, agent, message, stop_reason)
+    result = await SteeringHandler.steer_after_model(handler, agent=agent, message=message, stop_reason=stop_reason)
 
     assert isinstance(result, Proceed)
     assert "Default implementation" in result.reason
-
-
-# Deprecated steer() method test
-@pytest.mark.asyncio
-async def test_deprecated_steer_method_emits_warning():
-    """Test deprecated steer() method emits DeprecationWarning."""
-    handler = TestSteeringHandler()
-    agent = Mock()
-    tool_use = {"name": "test_tool"}
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        result = await handler.steer(agent, tool_use)
-
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
-        assert "steer() is deprecated" in str(w[0].message)
-        assert isinstance(result, Proceed)
 
 
 def test_register_hooks_registers_model_steering():

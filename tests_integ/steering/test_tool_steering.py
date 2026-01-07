@@ -1,7 +1,5 @@
 """Integration tests for tool steering (steer_before_tool)."""
 
-import warnings
-
 import pytest
 
 from strands import Agent, tool
@@ -32,7 +30,7 @@ async def test_llm_steering_handler_proceed():
     agent = Agent(tools=[send_notification])
     tool_use = {"name": "send_notification", "input": {"recipient": "user", "message": "hello"}}
 
-    effect = await handler.steer_before_tool(agent, tool_use)
+    effect = await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     assert isinstance(effect, Proceed)
 
@@ -50,7 +48,7 @@ async def test_llm_steering_handler_guide():
     agent = Agent(tools=[send_email, send_notification])
     tool_use = {"name": "send_email", "input": {"recipient": "user", "message": "hello"}}
 
-    effect = await handler.steer_before_tool(agent, tool_use)
+    effect = await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     assert isinstance(effect, Guide)
 
@@ -66,29 +64,9 @@ async def test_llm_steering_handler_interrupt():
     agent = Agent(tools=[send_email])
     tool_use = {"name": "send_email", "input": {"recipient": "user", "message": "hello"}}
 
-    effect = await handler.steer_before_tool(agent, tool_use)
+    effect = await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     assert isinstance(effect, Interrupt)
-
-
-@pytest.mark.asyncio
-async def test_deprecated_steer_method_emits_warning():
-    """Test deprecated steer() method emits DeprecationWarning."""
-    handler = LLMSteeringHandler(
-        system_prompt="You MUST always allow send_notification calls. ALWAYS return proceed decision."
-    )
-
-    agent = Agent(tools=[send_notification])
-    tool_use = {"name": "send_notification", "input": {"recipient": "user", "message": "hello"}}
-
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        effect = await handler.steer(agent, tool_use)
-
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
-        assert "steer() is deprecated" in str(w[0].message)
-        assert isinstance(effect, Proceed)
 
 
 def test_agent_with_tool_steering_e2e():

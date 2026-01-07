@@ -58,7 +58,7 @@ class LLMSteeringHandler(SteeringHandler):
         self.prompt_mapper = prompt_mapper or DefaultPromptMapper()
         self.model = model
 
-    async def steer_before_tool(self, agent: Agent, tool_use: ToolUse, **kwargs: Any) -> ToolSteeringAction:
+    async def steer_before_tool(self, *, agent: Agent, tool_use: ToolUse, **kwargs: Any) -> ToolSteeringAction:
         """Provide contextual guidance for tool usage.
 
         Args:
