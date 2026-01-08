@@ -1540,6 +1540,118 @@ async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
 
 
 @pytest.mark.asyncio
+async def test_request_id_logging_streaming_default_level(bedrock_client, model, messages, caplog, alist):
+    """Test that request ID is logged at DEBUG level by default for streaming."""
+    import logging
+
+    caplog.set_level(logging.DEBUG, logger="strands.models.bedrock")
+
+    bedrock_client.converse_stream.return_value = {
+        "ResponseMetadata": {"RequestId": "test-request-id-123"},
+        "stream": [],
+    }
+
+    await alist(model.stream(messages))
+
+    assert any(
+        record.levelno == logging.DEBUG and "request_id=<test-request-id-123>" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_id_logging_non_streaming_default_level(bedrock_client, messages, caplog, alist):
+    """Test that request ID is logged at DEBUG level by default for non-streaming."""
+    import logging
+
+    model = BedrockModel(model_id="m1", streaming=False)
+    caplog.set_level(logging.DEBUG, logger="strands.models.bedrock")
+
+    bedrock_client.converse.return_value = {
+        "ResponseMetadata": {"RequestId": "test-request-id-456"},
+        "output": {"message": {"role": "assistant", "content": [{"text": "response"}]}},
+        "stopReason": "end_turn",
+    }
+
+    await alist(model.stream(messages))
+
+    assert any(
+        record.levelno == logging.DEBUG and "request_id=<test-request-id-456>" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_id_logging_custom_level(bedrock_client, messages, caplog, alist):
+    """Test that request ID is logged at custom level when configured."""
+    import logging
+
+    model = BedrockModel(model_id="m1", logging_config={"request_id_level": logging.INFO})
+    caplog.set_level(logging.DEBUG, logger="strands.models.bedrock")
+
+    bedrock_client.converse_stream.return_value = {
+        "ResponseMetadata": {"RequestId": "test-request-id-789"},
+        "stream": [],
+    }
+
+    await alist(model.stream(messages))
+
+    assert any(
+        record.levelno == logging.INFO and "request_id=<test-request-id-789>" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_id_logging_on_exception(bedrock_client, model, messages, caplog, alist):
+    """Test that request ID is logged when an exception occurs."""
+    import logging
+
+    caplog.set_level(logging.DEBUG, logger="strands.models.bedrock")
+
+    error_response = {
+        "Error": {"Code": "ValidationException", "Message": "Some error"},
+        "ResponseMetadata": {"RequestId": "test-request-id-error"},
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConverseStream")
+
+    with pytest.raises(ClientError):
+        await alist(model.stream(messages))
+
+    assert any(
+        record.levelno == logging.DEBUG
+        and "request_id=<test-request-id-error>" in record.message
+        and "failed" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_id_logging_on_exception_custom_level(bedrock_client, messages, caplog, alist):
+    """Test that request ID is logged at custom level when an exception occurs."""
+    import logging
+
+    model = BedrockModel(model_id="m1", logging_config={"request_id_level": logging.WARNING})
+    caplog.set_level(logging.DEBUG, logger="strands.models.bedrock")
+
+    error_response = {
+        "Error": {"Code": "ValidationException", "Message": "Some error"},
+        "ResponseMetadata": {"RequestId": "test-request-id-warn"},
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConverseStream")
+
+    with pytest.raises(ClientError):
+        await alist(model.stream(messages))
+
+    assert any(
+        record.levelno == logging.WARNING
+        and "request_id=<test-request-id-warn>" in record.message
+        and "failed" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
 async def test_stream_stop_reason_override_streaming(bedrock_client, model, messages, alist):
     """Test that stopReason is overridden from end_turn to tool_use in streaming mode when tool use is detected."""
     bedrock_client.converse_stream.return_value = {
