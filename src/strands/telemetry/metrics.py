@@ -179,6 +179,21 @@ class AgentInvocation:
     cycles: list[EventLoopCycleMetric] = field(default_factory=list)
     usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
 
+    @property
+    def initial_input_tokens(self) -> int:
+        """Get the input tokens from the first LLM call in this invocation."""
+        return self.cycles[0].usage["inputTokens"] if self.cycles else 0
+
+    @property
+    def final_input_tokens(self) -> int:
+        """Get the input tokens from the last LLM call in this invocation."""
+        return self.cycles[-1].usage["inputTokens"] if self.cycles else 0
+
+    @property
+    def context_growth_tokens(self) -> int:
+        """Get the context growth (final - initial) during this invocation."""
+        return self.final_input_tokens - self.initial_input_tokens
+
 
 @dataclass
 class EventLoopMetrics:
@@ -215,6 +230,24 @@ class EventLoopMetrics:
             The most recent AgentInvocation, or None if no invocations exist.
         """
         return self.agent_invocations[-1] if self.agent_invocations else None
+
+    @property
+    def initial_input_tokens(self) -> int:
+        """Get the input tokens from the first LLM call of the latest invocation."""
+        invocation = self.latest_agent_invocation
+        return invocation.initial_input_tokens if invocation else 0
+
+    @property
+    def final_input_tokens(self) -> int:
+        """Get the input tokens from the last LLM call of the latest invocation."""
+        invocation = self.latest_agent_invocation
+        return invocation.final_input_tokens if invocation else 0
+
+    @property
+    def context_growth_tokens(self) -> int:
+        """Get the context growth (final - initial) of the latest invocation."""
+        invocation = self.latest_agent_invocation
+        return invocation.context_growth_tokens if invocation else 0
 
     def start_cycle(
         self,
@@ -394,6 +427,9 @@ class EventLoopMetrics:
             "agent_invocations": [
                 {
                     "usage": invocation.usage,
+                    "initial_input_tokens": invocation.initial_input_tokens,
+                    "final_input_tokens": invocation.final_input_tokens,
+                    "context_growth_tokens": invocation.context_growth_tokens,
                     "cycles": [
                         {"event_loop_cycle_id": cycle.event_loop_cycle_id, "usage": cycle.usage}
                         for cycle in invocation.cycles
@@ -401,6 +437,9 @@ class EventLoopMetrics:
                 }
                 for invocation in self.agent_invocations
             ],
+            "initial_input_tokens": self.initial_input_tokens,
+            "final_input_tokens": self.final_input_tokens,
+            "context_growth_tokens": self.context_growth_tokens,
         }
         return summary
 

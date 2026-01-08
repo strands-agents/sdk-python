@@ -416,6 +416,9 @@ def test_event_loop_metrics_get_summary(trace, tool, event_loop_metrics, mock_ge
         "total_cycles": 0,
         "total_duration": 0,
         "traces": [],
+        "initial_input_tokens": 0,
+        "final_input_tokens": 0,
+        "context_growth_tokens": 0,
     }
 
     assert tru_summary == exp_summary
@@ -566,3 +569,152 @@ def test_reset_usage_metrics(usage, event_loop_metrics, mock_get_meter_provider)
 
     # Verify accumulated_usage is NOT cleared
     assert event_loop_metrics.accumulated_usage["inputTokens"] == 11
+
+
+class TestAgentInvocationContextSizeMetrics:
+    """Tests for AgentInvocation context size metrics."""
+
+    def test_initial_input_tokens_no_cycles(self):
+        """Test initial_input_tokens returns 0 when no cycles exist."""
+        invocation = strands.telemetry.metrics.AgentInvocation()
+        assert invocation.initial_input_tokens == 0
+
+    def test_final_input_tokens_no_cycles(self):
+        """Test final_input_tokens returns 0 when no cycles exist."""
+        invocation = strands.telemetry.metrics.AgentInvocation()
+        assert invocation.final_input_tokens == 0
+
+    def test_context_growth_tokens_no_cycles(self):
+        """Test context_growth_tokens returns 0 when no cycles exist."""
+        invocation = strands.telemetry.metrics.AgentInvocation()
+        assert invocation.context_growth_tokens == 0
+
+    def test_initial_input_tokens_single_cycle(self):
+        """Test initial_input_tokens with a single cycle."""
+        cycle = strands.telemetry.metrics.EventLoopCycleMetric(
+            event_loop_cycle_id="cycle-1",
+            usage=Usage(inputTokens=1000, outputTokens=100, totalTokens=1100),
+        )
+        invocation = strands.telemetry.metrics.AgentInvocation(cycles=[cycle])
+        assert invocation.initial_input_tokens == 1000
+
+    def test_final_input_tokens_single_cycle(self):
+        """Test final_input_tokens with a single cycle (same as initial)."""
+        cycle = strands.telemetry.metrics.EventLoopCycleMetric(
+            event_loop_cycle_id="cycle-1",
+            usage=Usage(inputTokens=1000, outputTokens=100, totalTokens=1100),
+        )
+        invocation = strands.telemetry.metrics.AgentInvocation(cycles=[cycle])
+        assert invocation.final_input_tokens == 1000
+
+    def test_context_growth_tokens_single_cycle(self):
+        """Test context_growth_tokens with a single cycle (should be 0)."""
+        cycle = strands.telemetry.metrics.EventLoopCycleMetric(
+            event_loop_cycle_id="cycle-1",
+            usage=Usage(inputTokens=1000, outputTokens=100, totalTokens=1100),
+        )
+        invocation = strands.telemetry.metrics.AgentInvocation(cycles=[cycle])
+        assert invocation.context_growth_tokens == 0
+
+    def test_context_size_metrics_multiple_cycles(self):
+        """Test context size metrics with multiple cycles (typical tool use scenario)."""
+        cycles = [
+            strands.telemetry.metrics.EventLoopCycleMetric(
+                event_loop_cycle_id="cycle-1",
+                usage=Usage(inputTokens=10000, outputTokens=500, totalTokens=10500),
+            ),
+            strands.telemetry.metrics.EventLoopCycleMetric(
+                event_loop_cycle_id="cycle-2",
+                usage=Usage(inputTokens=15000, outputTokens=300, totalTokens=15300),
+            ),
+            strands.telemetry.metrics.EventLoopCycleMetric(
+                event_loop_cycle_id="cycle-3",
+                usage=Usage(inputTokens=20000, outputTokens=200, totalTokens=20200),
+            ),
+        ]
+        invocation = strands.telemetry.metrics.AgentInvocation(cycles=cycles)
+
+        assert invocation.initial_input_tokens == 10000
+        assert invocation.final_input_tokens == 20000
+        assert invocation.context_growth_tokens == 10000
+
+
+class TestEventLoopMetricsContextSizeProperties:
+    """Tests for EventLoopMetrics convenience properties for context size metrics."""
+
+    def test_initial_input_tokens_no_invocations(self, event_loop_metrics):
+        """Test initial_input_tokens returns 0 when no invocations exist."""
+        assert event_loop_metrics.initial_input_tokens == 0
+
+    def test_final_input_tokens_no_invocations(self, event_loop_metrics):
+        """Test final_input_tokens returns 0 when no invocations exist."""
+        assert event_loop_metrics.final_input_tokens == 0
+
+    def test_context_growth_tokens_no_invocations(self, event_loop_metrics):
+        """Test context_growth_tokens returns 0 when no invocations exist."""
+        assert event_loop_metrics.context_growth_tokens == 0
+
+    def test_context_size_metrics_with_invocation(self, event_loop_metrics, mock_get_meter_provider):
+        """Test context size metrics from EventLoopMetrics with actual invocation."""
+        event_loop_metrics.reset_usage_metrics()
+
+        # First cycle - initial context
+        event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "cycle-1"})
+        event_loop_metrics.update_usage(Usage(inputTokens=10000, outputTokens=500, totalTokens=10500))
+
+        # Second cycle - after tool use
+        event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "cycle-2"})
+        event_loop_metrics.update_usage(Usage(inputTokens=15000, outputTokens=300, totalTokens=15300))
+
+        # Third cycle - final context
+        event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "cycle-3"})
+        event_loop_metrics.update_usage(Usage(inputTokens=20000, outputTokens=200, totalTokens=20200))
+
+        assert event_loop_metrics.initial_input_tokens == 10000
+        assert event_loop_metrics.final_input_tokens == 20000
+        assert event_loop_metrics.context_growth_tokens == 10000
+
+    def test_context_size_metrics_returns_latest_invocation(self, event_loop_metrics, mock_get_meter_provider):
+        """Test that context size metrics return values from the latest invocation."""
+        # First invocation
+        event_loop_metrics.reset_usage_metrics()
+        event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "inv1-cycle-1"})
+        event_loop_metrics.update_usage(Usage(inputTokens=5000, outputTokens=100, totalTokens=5100))
+
+        # Second invocation (latest)
+        event_loop_metrics.reset_usage_metrics()
+        event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "inv2-cycle-1"})
+        event_loop_metrics.update_usage(Usage(inputTokens=8000, outputTokens=200, totalTokens=8200))
+        event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "inv2-cycle-2"})
+        event_loop_metrics.update_usage(Usage(inputTokens=12000, outputTokens=150, totalTokens=12150))
+
+        # Should return metrics from latest invocation only
+        assert event_loop_metrics.initial_input_tokens == 8000
+        assert event_loop_metrics.final_input_tokens == 12000
+        assert event_loop_metrics.context_growth_tokens == 4000
+
+
+class TestGetSummaryContextSizeMetrics:
+    """Tests for context size metrics in get_summary() output."""
+
+    def test_get_summary_includes_context_size_metrics(self, event_loop_metrics, mock_get_meter_provider):
+        """Test that get_summary includes context size metrics."""
+        event_loop_metrics.reset_usage_metrics()
+        event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "cycle-1"})
+        event_loop_metrics.update_usage(Usage(inputTokens=10000, outputTokens=500, totalTokens=10500))
+        event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "cycle-2"})
+        event_loop_metrics.update_usage(Usage(inputTokens=15000, outputTokens=300, totalTokens=15300))
+
+        summary = event_loop_metrics.get_summary()
+
+        # Check top-level metrics
+        assert summary["initial_input_tokens"] == 10000
+        assert summary["final_input_tokens"] == 15000
+        assert summary["context_growth_tokens"] == 5000
+
+        # Check per-invocation metrics
+        assert len(summary["agent_invocations"]) == 1
+        invocation_summary = summary["agent_invocations"][0]
+        assert invocation_summary["initial_input_tokens"] == 10000
+        assert invocation_summary["final_input_tokens"] == 15000
+        assert invocation_summary["context_growth_tokens"] == 5000
