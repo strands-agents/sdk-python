@@ -200,9 +200,24 @@ class AfterModelCallEvent(HookEvent):
 
     Note: This event is not fired for invocations to structured_output.
 
+    Model Retrying:
+        When ``retry_model`` is set to True by a hook callback, the agent will discard
+        the current model response and invoke the model again. This has important
+        implications for streaming consumers:
+
+        - Streaming events from the discarded response will have already been emitted
+          to callers before the retry occurs. Agent invokers consuming streamed events
+          should be prepared to handle this scenario, potentially by tracking retry state
+          or implementing idempotent event processing
+        - The original model message is thrown away internally and not added to the
+          conversation history
+
     Attributes:
         stop_response: The model response data if invocation was successful, None if failed.
         exception: Exception if the model invocation failed, None if successful.
+        retry: Whether to retry the model invocation. Can be set by hook callbacks
+            to trigger a retry. When True, the current response is discarded and the
+            model is called again. Defaults to False.
     """
 
     @dataclass
@@ -219,6 +234,10 @@ class AfterModelCallEvent(HookEvent):
 
     stop_response: Optional[ModelStopResponse] = None
     exception: Optional[Exception] = None
+    retry: bool = False
+
+    def _can_write(self, name: str) -> bool:
+        return name == "retry"
 
     @property
     def should_reverse_callbacks(self) -> bool:

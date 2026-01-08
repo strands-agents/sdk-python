@@ -142,6 +142,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.tool_registry = tool_registry
     mock.thread_pool = thread_pool
     mock.event_loop_metrics = EventLoopMetrics()
+    mock.event_loop_metrics.reset_usage_metrics()
     mock.hooks = hook_registry
     mock.tool_executor = tool_executor
     mock._interrupt_state = _InterruptState()

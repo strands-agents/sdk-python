@@ -289,6 +289,51 @@ def test_guardrail_intervention_properly_redacts_tool_result(bedrock_guardrail, 
     assert tool_result["content"][0]["text"] == INPUT_REDACT_MESSAGE
 
 
+def test_guardrail_latest_message(boto_session, bedrock_guardrail, yellow_img):
+    """Test that guardrail_latest_user_message wraps both text and image in the latest user message."""
+    bedrock_model = BedrockModel(
+        guardrail_id=bedrock_guardrail,
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+        boto_session=boto_session,
+    )
+
+    # Create agent with valid content
+    agent1 = Agent(
+        model=bedrock_model,
+        system_prompt="You are a helpful assistant.",
+        callback_handler=None,
+        messages=[
+            {"role": "user", "content": [{"text": "First message"}]},
+            {"role": "assistant", "content": [{"text": "Hello!"}]},
+        ],
+    )
+
+    response = agent1("What do you see?")
+    assert response.stop_reason != "guardrail_intervened"
+
+    # Create agent with multimodal content in latest user message
+    agent2 = Agent(
+        model=bedrock_model,
+        system_prompt="You are a helpful assistant.",
+        callback_handler=None,
+        messages=[
+            {"role": "user", "content": [{"text": "First message"}]},
+            {"role": "assistant", "content": [{"text": "Hello!"}]},
+            {
+                "role": "user",
+                "content": [
+                    {"text": "CACTUS"},
+                    {"image": {"format": "png", "source": {"bytes": yellow_img}}},
+                ],
+            },
+        ],
+    )
+
+    response = agent2("What do you see?")
+    assert response.stop_reason == "guardrail_intervened"
+
+
 def test_guardrail_input_intervention_properly_redacts_in_session(boto_session, bedrock_guardrail, temp_dir):
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_guardrail,

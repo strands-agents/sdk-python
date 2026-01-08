@@ -161,7 +161,7 @@ class CitationStreamEvent(ModelStreamEvent):
 
     def __init__(self, delta: ContentBlockDelta, citation: Citation) -> None:
         """Initialize with delta and citation content."""
-        super().__init__({"callback": {"citation": citation, "delta": delta}})
+        super().__init__({"citation": citation, "delta": delta})
 
 
 class ReasoningTextStreamEvent(ModelStreamEvent):

@@ -30,7 +30,7 @@ from ....types.content import Message, Messages
 from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ...tools import ToolProvider
-from .._async import stop_all
+from .._async import _TaskGroup, stop_all
 from ..models.model import BidiModel
 from ..models.nova_sonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
@@ -390,7 +390,7 @@ class BidiAgent:
             for start in [*input_starts, *output_starts]:
                 await start(self)
 
-            async with asyncio.TaskGroup() as task_group:
+            async with _TaskGroup() as task_group:
                 inputs_task = task_group.create_task(run_inputs())
                 task_group.create_task(run_outputs(inputs_task))
 

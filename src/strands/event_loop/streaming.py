@@ -289,12 +289,13 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
         state["current_tool_use"] = {}
 
     elif text:
-        content.append({"text": text})
-        state["text"] = ""
         if citations_content:
-            citations_block: CitationsContentBlock = {"citations": citations_content}
+            citations_block: CitationsContentBlock = {"citations": citations_content, "content": [{"text": text}]}
             content.append({"citationsContent": citations_block})
             state["citationsContent"] = []
+        else:
+            content.append({"text": text})
+        state["text"] = ""
 
     elif reasoning_text:
         content_block: ContentBlock = {

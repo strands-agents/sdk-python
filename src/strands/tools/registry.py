@@ -279,6 +279,32 @@ class ToolRegistry:
                 list(self.dynamic_tools.keys()),
             )
 
+    def replace(self, new_tool: AgentTool) -> None:
+        """Replace an existing tool with a new implementation.
+
+        This performs a swap of the tool implementation in the registry.
+        The replacement takes effect on the next agent invocation.
+
+        Args:
+            new_tool: New tool implementation. Its name must match the tool being replaced.
+
+        Raises:
+            ValueError: If the tool doesn't exist.
+        """
+        tool_name = new_tool.tool_name
+
+        if tool_name not in self.registry:
+            raise ValueError(f"Cannot replace tool '{tool_name}' - tool does not exist")
+
+        # Update main registry
+        self.registry[tool_name] = new_tool
+
+        # Update dynamic_tools to match new tool's dynamic status
+        if new_tool.is_dynamic:
+            self.dynamic_tools[tool_name] = new_tool
+        elif tool_name in self.dynamic_tools:
+            del self.dynamic_tools[tool_name]
+
     def get_tools_dirs(self) -> List[Path]:
         """Get all tool directory paths.
 

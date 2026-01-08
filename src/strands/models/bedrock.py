@@ -82,6 +82,8 @@ class BedrockModel(Model):
             guardrail_redact_input_message: If a Bedrock Input guardrail triggers, replace the input with this message.
             guardrail_redact_output: Flag to redact output if guardrail is triggered. Defaults to False.
             guardrail_redact_output_message: If a Bedrock Output guardrail triggers, replace output with this message.
+            guardrail_latest_message: Flag to send only the lastest user message to guardrails.
+                Defaults to False.
             max_tokens: Maximum number of tokens to generate in the response
             model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
             include_tool_result_status: Flag to include status field in tool results.
@@ -105,6 +107,7 @@ class BedrockModel(Model):
         guardrail_redact_input_message: Optional[str]
         guardrail_redact_output: Optional[bool]
         guardrail_redact_output_message: Optional[str]
+        guardrail_latest_message: Optional[bool]
         max_tokens: Optional[int]
         model_id: str
         include_tool_result_status: Optional[Literal["auto"] | bool]
@@ -199,7 +202,6 @@ class BedrockModel(Model):
         Args:
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
-            system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
 
@@ -302,6 +304,7 @@ class BedrockModel(Model):
         - Filtering out SDK_UNKNOWN_MEMBER content blocks
         - Eagerly filtering content blocks to only include Bedrock-supported fields
         - Ensuring all message content blocks are properly formatted for the Bedrock API
+        - Optionally wrapping the last user message in guardrailConverseContent blocks
 
         Args:
             messages: List of messages to format
@@ -321,7 +324,9 @@ class BedrockModel(Model):
         filtered_unknown_members = False
         dropped_deepseek_reasoning_content = False
 
-        for message in messages:
+        guardrail_latest_message = self.config.get("guardrail_latest_message", False)
+
+        for idx, message in enumerate(messages):
             cleaned_content: list[dict[str, Any]] = []
 
             for content_block in message["content"]:
@@ -338,6 +343,19 @@ class BedrockModel(Model):
 
                 # Format content blocks for Bedrock API compatibility
                 formatted_content = self._format_request_message_content(content_block)
+
+                # Wrap text or image content in guardrailContent if this is the last user message
+                if (
+                    guardrail_latest_message
+                    and idx == len(messages) - 1
+                    and message["role"] == "user"
+                    and ("text" in formatted_content or "image" in formatted_content)
+                ):
+                    if "text" in formatted_content:
+                        formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
+                    elif "image" in formatted_content:
+                        formatted_content = {"guardContent": {"image": formatted_content["image"]}}
+
                 cleaned_content.append(formatted_content)
 
             # Create new message with cleaned content (skip if empty)
@@ -500,16 +518,7 @@ class BedrockModel(Model):
                 for citation in citations["citations"]:
                     filtered_citation: dict[str, Any] = {}
                     if "location" in citation:
-                        location = citation["location"]
-                        filtered_location = {}
-                        # Filter location fields to only include Bedrock-supported ones
-                        if "documentIndex" in location:
-                            filtered_location["documentIndex"] = location["documentIndex"]
-                        if "start" in location:
-                            filtered_location["start"] = location["start"]
-                        if "end" in location:
-                            filtered_location["end"] = location["end"]
-                        filtered_citation["location"] = filtered_location
+                        filtered_citation["location"] = citation["location"]
                     if "sourceContent" in citation:
                         filtered_source_content: list[dict[str, Any]] = []
                         for source_content in citation["sourceContent"]:

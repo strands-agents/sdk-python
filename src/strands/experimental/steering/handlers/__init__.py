@@ -1,3 +1,5 @@
 """Steering handler implementations."""
 
-__all__ = []
+from typing import Sequence
+
+__all__: Sequence[str] = []

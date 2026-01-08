@@ -197,6 +197,8 @@ strands-agents/
 ├── docs/                                 # Developer documentation
 │   ├── README.md                         # Docs folder overview
 │   ├── STYLE_GUIDE.md                    # Code style conventions
+│   ├── HOOKS.md                          # Hooks system guide
+│   ├── PR.md                             # PR description guidelines
 │   └── MCP_CLIENT_ARCHITECTURE.md        # MCP threading architecture
 │
 ├── pyproject.toml                        # Project config (build, deps, tools)
@@ -230,7 +232,18 @@ pre-commit install -t pre-commit -t commit-msg # Install hooks
 4. Commit with conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`)
 5. Push and open PR
 
-### 3. Quality Gates
+### 3. Pull Request Guidelines
+
+When creating pull requests, you MUST follow the guidelines in PR.md. Key principles:
+
+Focus on WHY: Explain motivation and user impact, not implementation details
+Document public API changes: Show before/after code examples
+Be concise: Use prose over bullet lists; avoid exhaustive checklists
+Target senior engineers: Assume familiarity with the SDK
+Exclude implementation details: Leave these to code comments and diffs
+See PR.md for the complete guidance and template.
+
+### 4. Quality Gates
 
 Pre-commit hooks run automatically on commit:
 - Formatting (ruff)
@@ -474,4 +487,5 @@ hatch build                    # Build package
 - [docs/](./docs/) - Developer documentation
   - [STYLE_GUIDE.md](./docs/STYLE_GUIDE.md) - Code style conventions
   - [HOOKS.md](./docs/HOOKS.md) - Hooks system guide
+  - [PR.md](./docs/PR.md) - PR description guidelines
   - [MCP_CLIENT_ARCHITECTURE.md](./docs/MCP_CLIENT_ARCHITECTURE.md) - MCP threading design

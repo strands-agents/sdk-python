@@ -7,7 +7,8 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, AsyncGenerator, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
+from contextlib import asynccontextmanager
+from typing import Any, AsyncGenerator, AsyncIterator, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
 
 import openai
 from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
@@ -55,16 +56,39 @@ class OpenAIModel(Model):
         model_id: str
         params: Optional[dict[str, Any]]
 
-    def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[OpenAIConfig]) -> None:
+    def __init__(
+        self,
+        client: Optional[Client] = None,
+        client_args: Optional[dict[str, Any]] = None,
+        **model_config: Unpack[OpenAIConfig],
+    ) -> None:
         """Initialize provider instance.
 
         Args:
-            client_args: Arguments for the OpenAI client.
+            client: Pre-configured OpenAI-compatible client to reuse across requests.
+                When provided, this client will be reused for all requests and will NOT be closed
+                by the model. The caller is responsible for managing the client lifecycle.
+                This is useful for:
+                - Injecting custom client wrappers (e.g., GuardrailsAsyncOpenAI)
+                - Reusing connection pools within a single event loop/worker
+                - Centralizing observability, retries, and networking policy
+                - Pointing to custom model gateways
+                Note: The client should not be shared across different asyncio event loops.
+            client_args: Arguments for the OpenAI client (legacy approach).
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
             **model_config: Configuration options for the OpenAI model.
+
+        Raises:
+            ValueError: If both `client` and `client_args` are provided.
         """
         validate_config_keys(model_config, self.OpenAIConfig)
         self.config = dict(model_config)
+
+        # Validate that only one client configuration method is provided
+        if client is not None and client_args is not None and len(client_args) > 0:
+            raise ValueError("Only one of 'client' or 'client_args' should be provided, not both.")
+
+        self._custom_client = client
         self.client_args = client_args or {}
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -177,6 +201,70 @@ class OpenAIModel(Model):
         }
 
     @classmethod
+    def _split_tool_message_images(
+        cls, tool_message: dict[str, Any]
+    ) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
+        """Split a tool message into text-only tool message and optional user message with images.
+
+        OpenAI API restricts images to user role messages only. This method extracts any image
+        content from a tool message and returns it separately as a user message.
+
+        Args:
+            tool_message: A formatted tool message that may contain images.
+
+        Returns:
+            A tuple of (tool_message_without_images, user_message_with_images_or_None).
+        """
+        if tool_message.get("role") != "tool":
+            return tool_message, None
+
+        content = tool_message.get("content", [])
+        if not isinstance(content, list):
+            return tool_message, None
+
+        # Separate image and non-image content
+        text_content = []
+        image_content = []
+
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "image_url":
+                image_content.append(item)
+            else:
+                text_content.append(item)
+
+        # If no images found, return original message
+        if not image_content:
+            return tool_message, None
+
+        # Let the user know that we are modifying the messages for OpenAI compatibility
+        logger.warning(
+            "tool_call_id=<%s> | Moving image from tool message to a new user message for OpenAI compatibility",
+            tool_message["tool_call_id"],
+        )
+
+        # Append a message to the text content to inform the model about the upcoming image
+        text_content.append(
+            {
+                "type": "text",
+                "text": (
+                    "Tool successfully returned an image. The image is being provided in the following user message."
+                ),
+            }
+        )
+
+        # Create the clean tool message with the updated text content
+        tool_message_clean = {
+            "role": "tool",
+            "tool_call_id": tool_message["tool_call_id"],
+            "content": text_content,
+        }
+
+        # Create user message with only images
+        user_message_with_images = {"role": "user", "content": image_content}
+
+        return tool_message_clean, user_message_with_images
+
+    @classmethod
     def _format_request_tool_choice(cls, tool_choice: ToolChoice | None) -> dict[str, Any]:
         """Format a tool choice for OpenAI compatibility.
 
@@ -271,7 +359,14 @@ class OpenAIModel(Model):
                 **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
             }
             formatted_messages.append(formatted_message)
-            formatted_messages.extend(formatted_tool_messages)
+
+            # Process tool messages to extract images into separate user messages
+            # OpenAI API requires images to be in user role messages only
+            for tool_msg in formatted_tool_messages:
+                tool_msg_clean, user_msg_with_images = cls._split_tool_message_images(tool_msg)
+                formatted_messages.append(tool_msg_clean)
+                if user_msg_with_images:
+                    formatted_messages.append(user_msg_with_images)
 
         return formatted_messages
 
@@ -422,6 +517,34 @@ class OpenAIModel(Model):
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
+    @asynccontextmanager
+    async def _get_client(self) -> AsyncIterator[Any]:
+        """Get an OpenAI client for making requests.
+
+        This context manager handles client lifecycle management:
+        - If an injected client was provided during initialization, it yields that client
+          without closing it (caller manages lifecycle).
+        - Otherwise, creates a new AsyncOpenAI client from client_args and automatically
+          closes it when the context exits.
+
+        Note: We create a new client per request to avoid connection sharing in the underlying
+        httpx client, as the asyncio event loop does not allow connections to be shared.
+        For more details, see https://github.com/encode/httpx/discussions/2959.
+
+        Yields:
+            Client: An OpenAI-compatible client instance.
+        """
+        if self._custom_client is not None:
+            # Use the injected client (caller manages lifecycle)
+            yield self._custom_client
+        else:
+            # Create a new client from client_args
+            # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying
+            # httpx client. The asyncio event loop does not allow connections to be shared. For more details, please
+            # refer to https://github.com/encode/httpx/discussions/2959.
+            async with openai.AsyncOpenAI(**self.client_args) as client:
+                yield client
+
     @override
     async def stream(
         self,
@@ -457,7 +580,7 @@ class OpenAIModel(Model):
         # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
         # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
         # https://github.com/encode/httpx/discussions/2959.
-        async with openai.AsyncOpenAI(**self.client_args) as client:
+        async with self._get_client() as client:
             try:
                 response = await client.chat.completions.create(**request)
             except openai.BadRequestError as e:
@@ -576,7 +699,7 @@ class OpenAIModel(Model):
         # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
         # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
         # https://github.com/encode/httpx/discussions/2959.
-        async with openai.AsyncOpenAI(**self.client_args) as client:
+        async with self._get_client() as client:
             try:
                 response: ParsedChatCompletion = await client.beta.chat.completions.parse(
                     model=self.get_config()["model_id"],

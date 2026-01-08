@@ -667,6 +667,10 @@ class Tracer:
                 )
 
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
+                if "langfuse" in os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "") or "langfuse" in os.getenv(
+                    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""
+                ):
+                    attributes.update({"langfuse.observation.type": "span"})
                 accumulated_usage = response.metrics.accumulated_usage
                 attributes.update(
                     {

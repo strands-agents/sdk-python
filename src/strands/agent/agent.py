@@ -250,6 +250,9 @@ class Agent:
         if self._session_manager:
             self.hooks.add_hook(self._session_manager)
 
+        # Allow conversation_managers to subscribe to hooks
+        self.hooks.add_hook(self.conversation_manager)
+
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
 
         if hooks:
@@ -561,6 +564,8 @@ class Agent:
             ```
         """
         self._interrupt_state.resume(prompt)
+
+        self.event_loop_metrics.reset_usage_metrics()
 
         merged_state = {}
         if kwargs:
