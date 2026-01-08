@@ -2241,3 +2241,22 @@ async def test_format_request_with_guardrail_latest_message(model):
     # Latest user message image should also be wrapped
     assert "guardContent" in formatted_messages[2]["content"][1]
     assert formatted_messages[2]["content"][1]["guardContent"]["image"]["format"] == "png"
+
+
+def test_cache_config_auto_sets_model_attribute(bedrock_client):
+    """Test that cache_config with strategy='auto' sets the cache_config attribute on the model."""
+    from strands.models import CacheConfig
+
+    model = BedrockModel(model_id="test-model", cache_config=CacheConfig(strategy="auto"))
+
+    assert model.cache_config is not None
+    assert model.cache_config.strategy == "auto"
+    assert model.get_config().get("cache_config") is not None
+
+
+def test_cache_config_none_by_default(bedrock_client):
+    """Test that cache_config is None by default."""
+    model = BedrockModel(model_id="test-model")
+
+    assert model.cache_config is None
+    assert model.get_config().get("cache_config") is None

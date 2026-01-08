@@ -3,7 +3,8 @@
 import abc
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable
-from typing import Any, TypeVar
+from dataclasses import dataclass
+from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel
 
@@ -16,12 +17,38 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+@dataclass
+class CacheConfig:
+    """Configuration for prompt caching.
+
+    Attributes:
+        strategy: Caching strategy to use.
+            - "auto": Automatically inject cachePoint at optimal positions
+    """
+
+    strategy: Literal["auto"] = "auto"
+
+
 class Model(abc.ABC):
     """Abstract base class for Agent model providers.
 
     This class defines the interface for all model implementations in the Strands Agents SDK. It provides a
     standardized way to configure and process requests for different AI model providers.
+
+    Attributes:
+        cache_config: Optional configuration for prompt caching.
     """
+
+    cache_config: Optional[CacheConfig] = None
+
+    @property
+    def supports_caching(self) -> bool:
+        """Whether this model supports prompt caching.
+
+        Override in subclasses to indicate caching support.
+        Returns False by default.
+        """
+        return False
 
     @abc.abstractmethod
     # pragma: no cover

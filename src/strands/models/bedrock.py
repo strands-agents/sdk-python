@@ -29,7 +29,7 @@ from ..types.exceptions import (
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
-from .model import Model
+from .model import CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +73,9 @@ class BedrockModel(Model):
             additional_args: Any additional arguments to include in the request
             additional_request_fields: Additional fields to include in the Bedrock request
             additional_response_field_paths: Additional response field paths to extract
-            cache_prompt: Cache point type for the system prompt
-            cache_tools: Cache point type for tools
+            cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
+            cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
+            cache_tools: Cache point type for tools (deprecated, use cache_config)
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
             guardrail_version: Version of the guardrail to apply
@@ -99,6 +100,7 @@ class BedrockModel(Model):
         additional_request_fields: dict[str, Any] | None
         additional_response_field_paths: list[str] | None
         cache_prompt: str | None
+        cache_config: CacheConfig | None
         cache_tools: str | None
         guardrail_id: str | None
         guardrail_trace: Literal["enabled", "disabled", "enabled_full"] | None
@@ -147,6 +149,9 @@ class BedrockModel(Model):
         )
         self.update_config(**model_config)
 
+        # Set cache_config on base Model class for Agent to detect
+        self.cache_config = self.config.get("cache_config")
+
         logger.debug("config=<%s> | initializing", self.config)
 
         # Add strands-agents to the request user agent
@@ -171,6 +176,16 @@ class BedrockModel(Model):
         )
 
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
+
+    @property
+    @override
+    def supports_caching(self) -> bool:
+        """Whether this model supports prompt caching.
+
+        Returns True for Claude models on Bedrock.
+        """
+        model_id = self.config.get("model_id", "").lower()
+        return "claude" in model_id or "anthropic" in model_id
 
     @override
     def update_config(self, **model_config: Unpack[BedrockConfig]) -> None:  # type: ignore
@@ -322,6 +337,71 @@ class BedrockModel(Model):
 
         return {"additionalModelRequestFields": additional_fields}
 
+    def _inject_cache_point(self, messages: Messages) -> None:
+        """Inject a cache point at the end of the last assistant message.
+
+        This enables prompt caching for multi-turn conversations by placing a single
+        cache point that covers system prompt, tools, and conversation history.
+
+        The cache point is automatically moved to the latest assistant message on each
+        model call, ensuring optimal cache utilization with minimal write overhead.
+
+        Args:
+            messages: List of messages to inject cache point into (modified in place).
+        """
+        if not messages:
+            return
+
+        # Step 1: Find all existing cache points and the last assistant message
+        cache_point_positions: list[tuple[int, int]] = []  # [(msg_idx, block_idx), ...]
+        last_assistant_idx: int | None = None
+
+        for msg_idx, msg in enumerate(messages):
+            # Track last assistant message
+            if msg.get("role") == "assistant":
+                last_assistant_idx = msg_idx
+
+            content = msg.get("content", [])
+            if not isinstance(content, list):
+                continue
+
+            for block_idx, block in enumerate(content):
+                if isinstance(block, dict) and "cachePoint" in block:
+                    cache_point_positions.append((msg_idx, block_idx))
+
+        # Step 2: If no assistant message yet, nothing to cache
+        if last_assistant_idx is None:
+            logger.debug("No assistant message in conversation - skipping cache point")
+            return
+
+        last_assistant_content = messages[last_assistant_idx].get("content", [])
+        if not isinstance(last_assistant_content, list) or len(last_assistant_content) == 0:
+            logger.debug("Last assistant message has no content - skipping cache point")
+            return
+
+        # Step 3: Check if cache point already exists at the end of last assistant message
+        last_block = last_assistant_content[-1]
+        if isinstance(last_block, dict) and "cachePoint" in last_block:
+            logger.debug("Cache point already exists at end of last assistant message")
+            return
+
+        # Step 4: Remove ALL existing cache points (we only want 1 at the end)
+        # Process in reverse order to avoid index shifting issues
+        for msg_idx, block_idx in reversed(cache_point_positions):
+            msg_content = messages[msg_idx].get("content", [])
+            if isinstance(msg_content, list) and block_idx < len(msg_content):
+                del msg_content[block_idx]
+                logger.debug(f"Removed old cache point at msg {msg_idx} block {block_idx}")
+
+        # Step 5: Add single cache point at the end of the last assistant message
+        cache_block: ContentBlock = {"cachePoint": {"type": "default"}}
+
+        # Re-fetch content in case it was modified by deletion
+        last_assistant_content = messages[last_assistant_idx].get("content", [])
+        if isinstance(last_assistant_content, list):
+            last_assistant_content.append(cache_block)
+            logger.debug(f"Added cache point at end of assistant message {last_assistant_idx}")
+
     def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
 
@@ -330,6 +410,7 @@ class BedrockModel(Model):
         - Eagerly filtering content blocks to only include Bedrock-supported fields
         - Ensuring all message content blocks are properly formatted for the Bedrock API
         - Optionally wrapping the last user message in guardrailConverseContent blocks
+        - Injecting cache points when cache_config is set with strategy="auto"
 
         Args:
             messages: List of messages to format
@@ -344,6 +425,11 @@ class BedrockModel(Model):
             content blocks to remove any additional fields before sending to Bedrock.
             https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ContentBlock.html
         """
+        # Inject cache point if cache_config is set with strategy="auto"
+        cache_config = self.config.get("cache_config")
+        if cache_config and cache_config.strategy == "auto" and self.supports_caching:
+            self._inject_cache_point(messages)
+
         cleaned_messages: list[dict[str, Any]] = []
 
         filtered_unknown_members = False
