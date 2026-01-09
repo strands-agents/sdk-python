@@ -88,8 +88,18 @@ class A2AAgent:
         if not self.description and self._agent_card.description:
             self.description = self._agent_card.description
 
-        logger.info("agent=<%s>, endpoint=<%s> | discovered agent card", self.name, self.endpoint)
+        logger.debug("agent=<%s>, endpoint=<%s> | discovered agent card", self.name, self.endpoint)
         return self._agent_card
+
+    def _create_default_factory(self) -> ClientFactory:
+        """Create default A2A client factory with non-streaming config.
+
+        Returns:
+            Configured ClientFactory instance.
+        """
+        httpx_client = self._get_httpx_client()
+        config = ClientConfig(httpx_client=httpx_client, streaming=False)
+        return ClientFactory(config)
 
     async def _get_a2a_client(self) -> Client:
         """Get or create the A2A client for this agent.
@@ -99,16 +109,7 @@ class A2AAgent:
         """
         if self._a2a_client is None:
             agent_card = await self._get_agent_card()
-
-            if self._a2a_client_factory is not None:
-                # Use provided factory
-                factory = self._a2a_client_factory
-            else:
-                # Create default factory
-                httpx_client = self._get_httpx_client()
-                config = ClientConfig(httpx_client=httpx_client, streaming=False)
-                factory = ClientFactory(config)
-
+            factory = self._a2a_client_factory or self._create_default_factory()
             self._a2a_client = factory.create(agent_card)
         return self._a2a_client
 
@@ -130,7 +131,7 @@ class A2AAgent:
         client = await self._get_a2a_client()
         message = convert_input_to_message(prompt)
 
-        logger.info("agent=<%s>, endpoint=<%s> | sending message", self.name, self.endpoint)
+        logger.debug("agent=<%s>, endpoint=<%s> | sending message", self.name, self.endpoint)
         return client.send_message(message)
 
     def _is_complete_event(self, event: A2AResponse) -> bool:
@@ -174,6 +175,8 @@ class A2AAgent:
     ) -> AgentResult:
         """Asynchronously invoke the remote A2A agent.
 
+        Delegates to stream_async and returns the final result.
+
         Args:
             prompt: Input to the agent (string, message list, or content blocks).
             **kwargs: Additional arguments (ignored).
@@ -185,10 +188,15 @@ class A2AAgent:
             ValueError: If prompt is None.
             RuntimeError: If no response received from agent.
         """
-        async for event in await self._send_message(prompt):
-            return convert_response_to_agent_result(event)
+        result = None
+        async for event in self.stream_async(prompt, **kwargs):
+            if "result" in event:
+                result = event["result"]
 
-        raise RuntimeError("No response received from A2A agent")
+        if result is None:
+            raise RuntimeError("No response received from A2A agent")
+
+        return result
 
     def __call__(
         self,
@@ -243,11 +251,42 @@ class A2AAgent:
             result = convert_response_to_agent_result(final_event)
             yield AgentResultEvent(result)
 
+    async def aclose(self) -> None:
+        """Close the HTTP client if owned by this agent.
+
+        This should be called explicitly when done with the agent,
+        or use the agent as an async context manager.
+        """
+        if self._owns_client and self._httpx_client is not None:
+            await self._httpx_client.aclose()
+            self._httpx_client = None
+
+    async def __aenter__(self) -> "A2AAgent":
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Async context manager exit."""
+        await self.aclose()
+
     def __del__(self) -> None:
-        """Clean up resources when agent is garbage collected."""
+        """Best-effort cleanup on garbage collection.
+
+        Note: This may not work reliably. Users should call aclose() explicitly
+        or use the agent as an async context manager for guaranteed cleanup.
+        """
         if self._owns_client and self._httpx_client is not None:
             try:
-                client = self._httpx_client
-                run_async(lambda: client.aclose())
+                # Only attempt cleanup if event loop is accessible
+                import asyncio
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    if loop and not loop.is_closed():
+                        # Schedule cleanup task if loop is running
+                        loop.create_task(self._httpx_client.aclose())
+                except RuntimeError:
+                    # No event loop running, cleanup not possible
+                    pass
             except Exception:
                 pass  # Best effort cleanup, ignore errors in __del__

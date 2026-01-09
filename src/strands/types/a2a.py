@@ -10,7 +10,19 @@ A2AResponse: TypeAlias = tuple[Task, TaskStatusUpdateEvent | TaskArtifactUpdateE
 
 
 class A2AStreamEvent(TypedEvent):
-    """Event that wraps streamed A2A types."""
+    """Event emitted for every update received from the remote A2A server.
+
+    This event wraps all A2A response types during streaming, including:
+    - Partial task updates (TaskArtifactUpdateEvent)
+    - Status updates (TaskStatusUpdateEvent)
+    - Complete messages (Message)
+    - Final task completions
+
+    The event is emitted for EVERY update from the server, regardless of whether
+    it represents a complete or partial response. When streaming completes, an
+    AgentResultEvent containing the final AgentResult is also emitted after all
+    A2AStreamEvents.
+    """
 
     def __init__(self, a2a_event: A2AResponse) -> None:
         """Initialize with A2A event.
