@@ -2182,3 +2182,46 @@ def test_agent_skips_fix_for_valid_conversation(mock_model, agenerator):
     # Should not have added any toolResult messages
     # Only the new user message and assistant response should be added
     assert len(agent.messages) == original_length + 2
+
+
+def test_cache_config_does_not_mutate_original_messages(mock_model, agenerator):
+    """Test that cache_config injection does not mutate the original agent.messages."""
+    from strands.models import CacheConfig
+
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "Response"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    # Simulate a mock BedrockModel with cache_config
+    mock_model.get_config = unittest.mock.MagicMock(
+        return_value={"cache_config": CacheConfig(strategy="auto"), "model_id": "us.anthropic.claude-sonnet-4-v1:0"}
+    )
+
+    # Initial messages with assistant response (no cache point)
+    initial_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there!"}]},
+    ]
+
+    agent = Agent(model=mock_model, messages=copy.deepcopy(initial_messages))
+
+    # Store deep copy of messages before invocation
+    messages_before = copy.deepcopy(agent.messages)
+
+    # Invoke agent
+    agent("Follow up question")
+
+    # Check that original assistant message content was not mutated with cachePoint
+    # The assistant message at index 1 should still only have the text block
+    original_assistant_content = messages_before[1]["content"]
+    current_assistant_content = agent.messages[1]["content"]
+
+    # Both should have the same structure (no cache point added to agent.messages)
+    assert len(original_assistant_content) == len(current_assistant_content)
+    assert "cachePoint" not in current_assistant_content[-1]
