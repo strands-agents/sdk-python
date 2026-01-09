@@ -1,0 +1,21 @@
+Collecting ruff
+  Downloading ruff-0.14.10-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (26 kB)
+Collecting mypy
+  Downloading mypy-1.19.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.2 kB)
+Requirement already satisfied: typing_extensions>=4.6.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from mypy) (4.15.0)
+Collecting mypy_extensions>=1.0.0 (from mypy)
+  Downloading mypy_extensions-1.1.0-py3-none-any.whl.metadata (1.1 kB)
+Collecting pathspec>=0.9.0 (from mypy)
+  Using cached pathspec-0.12.1-py3-none-any.whl.metadata (21 kB)
+Collecting librt>=0.6.2 (from mypy)
+  Downloading librt-0.7.7-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (1.3 kB)
+Downloading ruff-0.14.10-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (14.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 14.2/14.2 MB 154.0 MB/s  0:00:00
+Downloading mypy-1.19.1-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (13.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 13.6/13.6 MB 225.8 MB/s  0:00:00
+Downloading librt-0.7.7-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (189 kB)
+Downloading mypy_extensions-1.1.0-py3-none-any.whl (5.0 kB)
+Using cached pathspec-0.12.1-py3-none-any.whl (31 kB)
+Installing collected packages: ruff, pathspec, mypy_extensions, librt, mypy
+
+Successfully installed librt-0.7.7 mypy-1.19.1 mypy_extensions-1.1.0 pathspec-0.12.1 ruff-0.14.10

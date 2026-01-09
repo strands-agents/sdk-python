@@ -1,0 +1,47 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.11, pytest-9.0.2, pluggy-1.6.0 -- /opt/hostedtoolcache/Python/3.13.11/x64/bin/python
+cachedir: .pytest_cache
+rootdir: /home/runner/work/sdk-python/sdk-python
+configfile: pyproject.toml
+plugins: anyio-4.12.0, asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collecting ... collected 36 items
+
+tests/strands/session/test_s3_session_manager.py::test_init_s3_session_manager PASSED [  2%]
+tests/strands/session/test_s3_session_manager.py::test_init_s3_session_manager_with_config PASSED [  5%]
+tests/strands/session/test_s3_session_manager.py::test_init_s3_session_manager_with_existing_user_agent PASSED [  8%]
+tests/strands/session/test_s3_session_manager.py::test_create_session PASSED [ 11%]
+tests/strands/session/test_s3_session_manager.py::test_create_session_already_exists PASSED [ 13%]
+tests/strands/session/test_s3_session_manager.py::test_read_session PASSED [ 16%]
+tests/strands/session/test_s3_session_manager.py::test_read_nonexistent_session PASSED [ 19%]
+tests/strands/session/test_s3_session_manager.py::test_delete_session PASSED [ 22%]
+tests/strands/session/test_s3_session_manager.py::test_create_agent PASSED [ 25%]
+tests/strands/session/test_s3_session_manager.py::test_read_agent PASSED [ 27%]
+tests/strands/session/test_s3_session_manager.py::test_read_nonexistent_agent PASSED [ 30%]
+tests/strands/session/test_s3_session_manager.py::test_update_agent PASSED [ 33%]
+tests/strands/session/test_s3_session_manager.py::test_update_nonexistent_agent PASSED [ 36%]
+tests/strands/session/test_s3_session_manager.py::test_create_message PASSED [ 38%]
+tests/strands/session/test_s3_session_manager.py::test_read_message PASSED [ 41%]
+tests/strands/session/test_s3_session_manager.py::test_read_nonexistent_message PASSED [ 44%]
+tests/strands/session/test_s3_session_manager.py::test_list_messages_all PASSED [ 47%]
+tests/strands/session/test_s3_session_manager.py::test_list_messages_with_pagination PASSED [ 50%]
+tests/strands/session/test_s3_session_manager.py::test_update_message PASSED [ 52%]
+tests/strands/session/test_s3_session_manager.py::test_update_nonexistent_message PASSED [ 55%]
+tests/strands/session/test_s3_session_manager.py::test__get_session_path_invalid_session_id[a/../b] PASSED [ 58%]
+tests/strands/session/test_s3_session_manager.py::test__get_session_path_invalid_session_id[a/b] PASSED [ 61%]
+tests/strands/session/test_s3_session_manager.py::test__get_agent_path_invalid_agent_id[a/../b] PASSED [ 63%]
+tests/strands/session/test_s3_session_manager.py::test__get_agent_path_invalid_agent_id[a/b] PASSED [ 66%]
+tests/strands/session/test_s3_session_manager.py::test__get_message_path_invalid_message_id[../../../secret] PASSED [ 69%]
+tests/strands/session/test_s3_session_manager.py::test__get_message_path_invalid_message_id[../../attack] PASSED [ 72%]
+tests/strands/session/test_s3_session_manager.py::test__get_message_path_invalid_message_id[../escape] PASSED [ 75%]
+tests/strands/session/test_s3_session_manager.py::test__get_message_path_invalid_message_id[path/traversal] PASSED [ 77%]
+tests/strands/session/test_s3_session_manager.py::test__get_message_path_invalid_message_id[not_an_int] PASSED [ 80%]
+tests/strands/session/test_s3_session_manager.py::test__get_message_path_invalid_message_id[None] PASSED [ 83%]
+tests/strands/session/test_s3_session_manager.py::test__get_message_path_invalid_message_id[message_id6] PASSED [ 86%]
+tests/strands/session/test_s3_session_manager.py::test_create_multi_agent PASSED [ 88%]
+tests/strands/session/test_s3_session_manager.py::test_read_multi_agent PASSED [ 91%]
+tests/strands/session/test_s3_session_manager.py::test_read_nonexistent_multi_agent PASSED [ 94%]
+tests/strands/session/test_s3_session_manager.py::test_update_multi_agent PASSED [ 97%]
+tests/strands/session/test_s3_session_manager.py::test_update_nonexistent_multi_agent PASSED [100%]
+
+============================== 36 passed in 8.10s ==============================

@@ -1,0 +1,72 @@
+Obtaining file:///home/runner/work/sdk-python/sdk-python
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Installing backend dependencies: started
+  Installing backend dependencies: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: boto3<2.0.0,>=1.26.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from strands-agents==0.1.dev1+g695ca6654) (1.42.21)
+Requirement already satisfied: botocore<2.0.0,>=1.29.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from strands-agents==0.1.dev1+g695ca6654) (1.42.21)
+Requirement already satisfied: docstring-parser<1.0,>=0.15 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from strands-agents==0.1.dev1+g695ca6654) (0.17.0)
+Requirement already satisfied: jsonschema<5.0.0,>=4.0.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from strands-agents==0.1.dev1+g695ca6654) (4.25.1)
+Requirement already satisfied: mcp<2.0.0,>=1.11.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from strands-agents==0.1.dev1+g695ca6654) (1.25.0)
+Requirement already satisfied: opentelemetry-api<2.0.0,>=1.30.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from strands-agents==0.1.dev1+g695ca6654) (1.39.1)
+Requirement already satisfied: opentelemetry-instrumentation-threading<1.00b0,>=0.51b0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from strands-agents==0.1.dev1+g695ca6654) (0.60b1)
+Requirement already satisfied: opentelemetry-sdk<2.0.0,>=1.30.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from strands-agents==0.1.dev1+g695ca6654) (1.39.1)
+Requirement already satisfied: pydantic<3.0.0,>=2.4.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from strands-agents==0.1.dev1+g695ca6654) (2.12.5)
+Requirement already satisfied: typing-extensions<5.0.0,>=4.13.2 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from strands-agents==0.1.dev1+g695ca6654) (4.15.0)
+Requirement already satisfied: watchdog<7.0.0,>=6.0.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from strands-agents==0.1.dev1+g695ca6654) (6.0.0)
+Requirement already satisfied: jmespath<2.0.0,>=0.7.1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from boto3<2.0.0,>=1.26.0->strands-agents==0.1.dev1+g695ca6654) (1.0.1)
+Requirement already satisfied: s3transfer<0.17.0,>=0.16.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from boto3<2.0.0,>=1.26.0->strands-agents==0.1.dev1+g695ca6654) (0.16.0)
+Requirement already satisfied: python-dateutil<3.0.0,>=2.1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from botocore<2.0.0,>=1.29.0->strands-agents==0.1.dev1+g695ca6654) (2.9.0.post0)
+Requirement already satisfied: urllib3!=2.2.0,<3,>=1.25.4 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from botocore<2.0.0,>=1.29.0->strands-agents==0.1.dev1+g695ca6654) (2.6.2)
+Requirement already satisfied: attrs>=22.2.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from jsonschema<5.0.0,>=4.0.0->strands-agents==0.1.dev1+g695ca6654) (25.4.0)
+Requirement already satisfied: jsonschema-specifications>=2023.03.6 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from jsonschema<5.0.0,>=4.0.0->strands-agents==0.1.dev1+g695ca6654) (2025.9.1)
+Requirement already satisfied: referencing>=0.28.4 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from jsonschema<5.0.0,>=4.0.0->strands-agents==0.1.dev1+g695ca6654) (0.37.0)
+Requirement already satisfied: rpds-py>=0.7.1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from jsonschema<5.0.0,>=4.0.0->strands-agents==0.1.dev1+g695ca6654) (0.30.0)
+Requirement already satisfied: anyio>=4.5 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (4.12.0)
+Requirement already satisfied: httpx-sse>=0.4 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (0.4.3)
+Requirement already satisfied: httpx>=0.27.1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (0.28.1)
+Requirement already satisfied: pydantic-settings>=2.5.2 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (2.12.0)
+Requirement already satisfied: pyjwt>=2.10.1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from pyjwt[crypto]>=2.10.1->mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (2.10.1)
+Requirement already satisfied: python-multipart>=0.0.9 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (0.0.21)
+Requirement already satisfied: sse-starlette>=1.6.1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (3.1.2)
+Requirement already satisfied: starlette>=0.27 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (0.50.0)
+Requirement already satisfied: typing-inspection>=0.4.1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (0.4.2)
+Requirement already satisfied: uvicorn>=0.31.1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (0.40.0)
+Requirement already satisfied: importlib-metadata<8.8.0,>=6.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from opentelemetry-api<2.0.0,>=1.30.0->strands-agents==0.1.dev1+g695ca6654) (8.7.1)
+Requirement already satisfied: zipp>=3.20 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from importlib-metadata<8.8.0,>=6.0->opentelemetry-api<2.0.0,>=1.30.0->strands-agents==0.1.dev1+g695ca6654) (3.23.0)
+Requirement already satisfied: opentelemetry-instrumentation==0.60b1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from opentelemetry-instrumentation-threading<1.00b0,>=0.51b0->strands-agents==0.1.dev1+g695ca6654) (0.60b1)
+Requirement already satisfied: wrapt<2.0.0,>=1.0.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from opentelemetry-instrumentation-threading<1.00b0,>=0.51b0->strands-agents==0.1.dev1+g695ca6654) (1.17.3)
+Requirement already satisfied: opentelemetry-semantic-conventions==0.60b1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from opentelemetry-instrumentation==0.60b1->opentelemetry-instrumentation-threading<1.00b0,>=0.51b0->strands-agents==0.1.dev1+g695ca6654) (0.60b1)
+Requirement already satisfied: packaging>=18.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from opentelemetry-instrumentation==0.60b1->opentelemetry-instrumentation-threading<1.00b0,>=0.51b0->strands-agents==0.1.dev1+g695ca6654) (25.0)
+Requirement already satisfied: annotated-types>=0.6.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from pydantic<3.0.0,>=2.4.0->strands-agents==0.1.dev1+g695ca6654) (0.7.0)
+Requirement already satisfied: pydantic-core==2.41.5 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from pydantic<3.0.0,>=2.4.0->strands-agents==0.1.dev1+g695ca6654) (2.41.5)
+Requirement already satisfied: six>=1.5 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from python-dateutil<3.0.0,>=2.1->botocore<2.0.0,>=1.29.0->strands-agents==0.1.dev1+g695ca6654) (1.17.0)
+Requirement already satisfied: idna>=2.8 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from anyio>=4.5->mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (3.11)
+Requirement already satisfied: certifi in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from httpx>=0.27.1->mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (2026.1.4)
+Requirement already satisfied: httpcore==1.* in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from httpx>=0.27.1->mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (1.0.9)
+Requirement already satisfied: h11>=0.16 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from httpcore==1.*->httpx>=0.27.1->mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (0.16.0)
+Requirement already satisfied: python-dotenv>=0.21.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from pydantic-settings>=2.5.2->mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (1.2.1)
+Requirement already satisfied: cryptography>=3.4.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from pyjwt[crypto]>=2.10.1->mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (46.0.3)
+Requirement already satisfied: cffi>=2.0.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from cryptography>=3.4.0->pyjwt[crypto]>=2.10.1->mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (2.0.0)
+Requirement already satisfied: pycparser in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from cffi>=2.0.0->cryptography>=3.4.0->pyjwt[crypto]>=2.10.1->mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (2.23)
+Requirement already satisfied: click>=7.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from uvicorn>=0.31.1->mcp<2.0.0,>=1.11.0->strands-agents==0.1.dev1+g695ca6654) (8.3.1)
+Building wheels for collected packages: strands-agents
+  Building editable for strands-agents (pyproject.toml): started
+  Building editable for strands-agents (pyproject.toml): finished with status 'done'
+  Created wheel for strands-agents: filename=strands_agents-0.1.dev1+g695ca6654-py3-none-any.whl size=10022 sha256=99f2c3ed0190d2d6d4558208e27db0ee7a370d327368839c5b2b1dab4d3ff7be
+  Stored in directory: /tmp/pip-ephem-wheel-cache-tcbl7msa/wheels/94/60/63/fc2d04fbd73b5e7d5ee8ee2c7af924f44becb4b085a98d9503
+Successfully built strands-agents
+Installing collected packages: strands-agents
+  Attempting uninstall: strands-agents
+    Found existing installation: strands-agents 1.21.0
+    Uninstalling strands-agents-1.21.0:
+      Successfully uninstalled strands-agents-1.21.0
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+strands-agents-tools 0.2.19 requires strands-agents>=1.0.0, but you have strands-agents 0.1.dev1+g695ca6654 which is incompatible.
+Successfully installed strands-agents-0.1.dev1+g695ca6654

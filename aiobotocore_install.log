@@ -1,0 +1,34 @@
+Collecting aiobotocore
+  Downloading aiobotocore-3.1.0-py3-none-any.whl.metadata (26 kB)
+Requirement already satisfied: aiohttp<4.0.0,>=3.12.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from aiobotocore) (3.13.3)
+Collecting aioitertools<1.0.0,>=0.5.1 (from aiobotocore)
+  Downloading aioitertools-0.13.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting botocore<1.42.20,>=1.41.0 (from aiobotocore)
+  Downloading botocore-1.42.19-py3-none-any.whl.metadata (5.9 kB)
+Requirement already satisfied: python-dateutil<3.0.0,>=2.1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from aiobotocore) (2.9.0.post0)
+Requirement already satisfied: jmespath<2.0.0,>=0.7.1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from aiobotocore) (1.0.1)
+Requirement already satisfied: multidict<7.0.0,>=6.0.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from aiobotocore) (6.7.0)
+Requirement already satisfied: wrapt<3.0.0,>=1.10.10 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from aiobotocore) (1.17.3)
+Requirement already satisfied: aiohappyeyeballs>=2.5.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from aiohttp<4.0.0,>=3.12.0->aiobotocore) (2.6.1)
+Requirement already satisfied: aiosignal>=1.4.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from aiohttp<4.0.0,>=3.12.0->aiobotocore) (1.4.0)
+Requirement already satisfied: attrs>=17.3.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from aiohttp<4.0.0,>=3.12.0->aiobotocore) (25.4.0)
+Requirement already satisfied: frozenlist>=1.1.1 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from aiohttp<4.0.0,>=3.12.0->aiobotocore) (1.8.0)
+Requirement already satisfied: propcache>=0.2.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from aiohttp<4.0.0,>=3.12.0->aiobotocore) (0.4.1)
+Requirement already satisfied: yarl<2.0,>=1.17.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from aiohttp<4.0.0,>=3.12.0->aiobotocore) (1.22.0)
+Requirement already satisfied: urllib3!=2.2.0,<3,>=1.25.4 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from botocore<1.42.20,>=1.41.0->aiobotocore) (2.6.2)
+Requirement already satisfied: six>=1.5 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from python-dateutil<3.0.0,>=2.1->aiobotocore) (1.17.0)
+Requirement already satisfied: idna>=2.0 in /opt/hostedtoolcache/Python/3.13.11/x64/lib/python3.13/site-packages (from yarl<2.0,>=1.17.0->aiohttp<4.0.0,>=3.12.0->aiobotocore) (3.11)
+Downloading aiobotocore-3.1.0-py3-none-any.whl (87 kB)
+Downloading aioitertools-0.13.0-py3-none-any.whl (24 kB)
+Downloading botocore-1.42.19-py3-none-any.whl (14.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 14.6/14.6 MB 126.9 MB/s  0:00:00
+Installing collected packages: aioitertools, botocore, aiobotocore
+  Attempting uninstall: botocore
+    Found existing installation: botocore 1.42.21
+    Uninstalling botocore-1.42.21:
+      Successfully uninstalled botocore-1.42.21
+
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+strands-agents-tools 0.2.19 requires strands-agents>=1.0.0, but you have strands-agents 0.1.dev1+g695ca6654 which is incompatible.
+boto3 1.42.21 requires botocore<1.43.0,>=1.42.21, but you have botocore 1.42.19 which is incompatible.
+Successfully installed aiobotocore-3.1.0 aioitertools-0.13.0 botocore-1.42.19
