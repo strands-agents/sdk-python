@@ -103,15 +103,15 @@ class BidiAgent:
         self.model = (
             BidiNovaSonicModel()
             if not model
-            else BidiNovaSonicModel(model_id=model)
-            if isinstance(model, str)
-            else model
+            else BidiNovaSonicModel(model_id=model) if isinstance(model, str) else model
         )
         self.system_prompt = system_prompt
         self.messages = messages or []
 
         # Agent identification
-        self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
+        self.agent_id = _identifier.validate(
+            agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT
+        )
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
 
@@ -222,7 +222,9 @@ class BidiAgent:
             ```
         """
         if self._started:
-            raise RuntimeError("agent already started | call stop before starting again")
+            raise RuntimeError(
+                "agent already started | call stop before starting again"
+            )
 
         logger.debug("agent starting")
         await self._loop.start(invocation_state)
@@ -264,7 +266,9 @@ class BidiAgent:
 
         elif isinstance(input_data, dict) and "type" in input_data:
             input_type = input_data["type"]
-            input_data = {key: value for key, value in input_data.items() if key != "type"}
+            input_data = {
+                key: value for key, value in input_data.items() if key != "type"
+            }
             if input_type == "bidi_text_input":
                 input_event = BidiTextInputEvent(**input_data)
             elif input_type == "bidi_audio_input":
@@ -272,10 +276,14 @@ class BidiAgent:
             elif input_type == "bidi_image_input":
                 input_event = BidiImageInputEvent(**input_data)
             else:
-                raise ValueError(f"input_type=<{input_type}> | input type not supported")
+                raise ValueError(
+                    f"input_type=<{input_type}> | input type not supported"
+                )
 
         else:
-            raise ValueError("invalid input | must be str, BidiInputEvent, or event dict")
+            raise ValueError(
+                "invalid input | must be str, BidiInputEvent, or event dict"
+            )
 
         await self._loop.send(input_event)
 
@@ -304,7 +312,9 @@ class BidiAgent:
         self._started = False
         await self._loop.stop()
 
-    async def __aenter__(self, invocation_state: dict[str, Any] | None = None) -> "BidiAgent":
+    async def __aenter__(
+        self, invocation_state: dict[str, Any] | None = None
+    ) -> "BidiAgent":
         """Async context manager entry point.
 
         Automatically starts the bidirectional connection when entering the context.
@@ -331,7 +341,10 @@ class BidiAgent:
         await self.stop()
 
     async def run(
-        self, inputs: list[BidiInput], outputs: list[BidiOutput], invocation_state: dict[str, Any] | None = None
+        self,
+        inputs: list[BidiInput],
+        outputs: list[BidiOutput],
+        invocation_state: dict[str, Any] | None = None,
     ) -> None:
         """Run the agent using provided IO channels for bidirectional communication.
 
@@ -341,6 +354,10 @@ class BidiAgent:
             invocation_state: Optional context to pass to tools during execution.
                 This allows passing custom data (user_id, session_id, database connections, etc.)
                 that tools can access via their invocation_state parameter.
+
+        Note:
+            Using BidiAudioIO or BidiTextIO requires installing the bidi-io extra:
+                pip install strands-agents[bidi-io]
 
         Example:
             ```python
@@ -385,8 +402,12 @@ class BidiAgent:
         try:
             await self.start(invocation_state)
 
-            input_starts = [input_.start for input_ in inputs if isinstance(input_, BidiInput)]
-            output_starts = [output.start for output in outputs if isinstance(output, BidiOutput)]
+            input_starts = [
+                input_.start for input_ in inputs if isinstance(input_, BidiInput)
+            ]
+            output_starts = [
+                output.start for output in outputs if isinstance(output, BidiOutput)
+            ]
             for start in [*input_starts, *output_starts]:
                 await start(self)
 
@@ -395,8 +416,12 @@ class BidiAgent:
                 task_group.create_task(run_outputs(inputs_task))
 
         finally:
-            input_stops = [input_.stop for input_ in inputs if isinstance(input_, BidiInput)]
-            output_stops = [output.stop for output in outputs if isinstance(output, BidiOutput)]
+            input_stops = [
+                input_.stop for input_ in inputs if isinstance(input_, BidiInput)
+            ]
+            output_stops = [
+                output.stop for output in outputs if isinstance(output, BidiOutput)
+            ]
 
             await stop_all(*input_stops, *output_stops, self.stop)
 
@@ -412,4 +437,6 @@ class BidiAgent:
         async with self._message_lock:
             for message in messages:
                 self.messages.append(message)
-                await self.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self, message=message))
+                await self.hooks.invoke_callbacks_async(
+                    BidiMessageAddedEvent(agent=self, message=message)
+                )
