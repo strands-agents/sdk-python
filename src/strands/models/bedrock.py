@@ -32,6 +32,21 @@ from .model import Model
 
 logger = logging.getLogger(__name__)
 
+
+class _ModelLoggingConfig(TypedDict, total=False):
+    """Configuration for model logging behavior.
+
+    Attributes:
+        request_id_level: Log level for request ID logging. Defaults to logging.DEBUG.
+    """
+
+    request_id_level: int
+
+
+_DEFAULT_MODEL_LOGGING_CONFIG: _ModelLoggingConfig = {
+    "request_id_level": logging.DEBUG,
+}
+
 # See: `BedrockModel._get_default_model_with_warning` for why we need both
 DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 _DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-20250514-v1:0"
@@ -123,6 +138,7 @@ class BedrockModel(Model):
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
         endpoint_url: Optional[str] = None,
+        logging_config: Optional[_ModelLoggingConfig] = None,
         **model_config: Unpack[BedrockConfig],
     ):
         """Initialize provider instance.
@@ -133,6 +149,7 @@ class BedrockModel(Model):
             region_name: AWS region to use for the Bedrock service.
                 Defaults to the AWS_REGION environment variable if set, or "us-west-2" if not set.
             endpoint_url: Custom endpoint URL for VPC endpoints (PrivateLink)
+            logging_config: Configuration for model logging behavior.
             **model_config: Configuration options for the Bedrock model.
         """
         if region_name and boto_session:
@@ -168,6 +185,8 @@ class BedrockModel(Model):
             endpoint_url=endpoint_url,
             region_name=resolved_region,
         )
+
+        self.logging_config: _ModelLoggingConfig = {**_DEFAULT_MODEL_LOGGING_CONFIG, **(logging_config or {})}
 
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
@@ -690,6 +709,10 @@ class BedrockModel(Model):
             logger.debug("got response from model")
             if streaming:
                 response = self.client.converse_stream(**request)
+                request_id = response.get("ResponseMetadata", {}).get("RequestId")
+                logger.log(
+                    self.logging_config["request_id_level"], "request_id=<%s> | bedrock converse_stream", request_id
+                )
                 # Track tool use events to fix stopReason for streaming responses
                 has_tool_use = False
                 for chunk in response["stream"]:
@@ -724,6 +747,8 @@ class BedrockModel(Model):
 
             else:
                 response = self.client.converse(**request)
+                request_id = response.get("ResponseMetadata", {}).get("RequestId")
+                logger.log(self.logging_config["request_id_level"], "request_id=<%s> | bedrock converse", request_id)
                 for event in self._convert_non_streaming_to_streaming(response):
                     callback(event)
 
@@ -736,6 +761,9 @@ class BedrockModel(Model):
                         callback(event)
 
         except ClientError as e:
+            request_id = e.response.get("ResponseMetadata", {}).get("RequestId")
+            logger.log(self.logging_config["request_id_level"], "request_id=<%s> | bedrock request failed", request_id)
+
             error_message = str(e)
 
             if (
