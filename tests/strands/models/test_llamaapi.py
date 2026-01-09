@@ -417,16 +417,16 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
 
 
 @pytest.mark.asyncio
-async def test_tool_choice_not_supported_warns(model, messages, captured_warnings, alist):
+async def test_tool_choice_not_supported_warns(model, messages, captured_warnings, alist, agenerator):
     """Test that non-None toolChoice emits warning for unsupported providers."""
     tool_choice = {"auto": {}}
 
-    with unittest.mock.patch.object(model.client.chat.completions, "create") as mock_create:
+    with unittest.mock.patch.object(model.client.chat.completions, "create", new_callable=unittest.mock.AsyncMock) as mock_create:
         mock_chunk = unittest.mock.Mock()
         mock_chunk.event.event_type = "start"
         mock_chunk.event.stop_reason = "stop"
 
-        mock_create.return_value = [mock_chunk]
+        mock_create.return_value = agenerator([mock_chunk])
 
         response = model.stream(messages, tool_choice=tool_choice)
         await alist(response)
@@ -436,14 +436,14 @@ async def test_tool_choice_not_supported_warns(model, messages, captured_warning
 
 
 @pytest.mark.asyncio
-async def test_tool_choice_none_no_warning(model, messages, captured_warnings, alist):
+async def test_tool_choice_none_no_warning(model, messages, captured_warnings, alist, agenerator):
     """Test that None toolChoice doesn't emit warning."""
-    with unittest.mock.patch.object(model.client.chat.completions, "create") as mock_create:
+    with unittest.mock.patch.object(model.client.chat.completions, "create", new_callable=unittest.mock.AsyncMock) as mock_create:
         mock_chunk = unittest.mock.Mock()
         mock_chunk.event.event_type = "start"
         mock_chunk.event.stop_reason = "stop"
 
-        mock_create.return_value = [mock_chunk]
+        mock_create.return_value = agenerator([mock_chunk])
 
         response = model.stream(messages, tool_choice=None)
         await alist(response)
