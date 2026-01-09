@@ -398,6 +398,8 @@ async def test_stream(llamaapi_client, model, agenerator, alist):
         "tools": [],
     }
     llamaapi_client.chat.completions.create.assert_called_once_with(**expected_request)
+
+
 def test_config_validation_warns_on_unknown_keys(llamaapi_client, captured_warnings):
     """Test that unknown config keys emit a warning."""
     LlamaAPIModel(model_id="test-model", invalid_param="test")
@@ -421,7 +423,9 @@ async def test_tool_choice_not_supported_warns(model, messages, captured_warning
     """Test that non-None toolChoice emits warning for unsupported providers."""
     tool_choice = {"auto": {}}
 
-    with unittest.mock.patch.object(model.client.chat.completions, "create", new_callable=unittest.mock.AsyncMock) as mock_create:
+    with unittest.mock.patch.object(
+        model.client.chat.completions, "create", new_callable=unittest.mock.AsyncMock
+    ) as mock_create:
         mock_chunk = unittest.mock.Mock()
         mock_chunk.event.event_type = "start"
         mock_chunk.event.stop_reason = "stop"
@@ -438,7 +442,9 @@ async def test_tool_choice_not_supported_warns(model, messages, captured_warning
 @pytest.mark.asyncio
 async def test_tool_choice_none_no_warning(model, messages, captured_warnings, alist, agenerator):
     """Test that None toolChoice doesn't emit warning."""
-    with unittest.mock.patch.object(model.client.chat.completions, "create", new_callable=unittest.mock.AsyncMock) as mock_create:
+    with unittest.mock.patch.object(
+        model.client.chat.completions, "create", new_callable=unittest.mock.AsyncMock
+    ) as mock_create:
         mock_chunk = unittest.mock.Mock()
         mock_chunk.event.event_type = "start"
         mock_chunk.event.stop_reason = "stop"
