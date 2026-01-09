@@ -58,22 +58,15 @@ async def test_a2a_agent_stream_async(a2a_server):
 
 
 @pytest.mark.asyncio
-async def test_a2a_agent_with_streaming_client_config(a2a_server):
-    """Test with streaming=True client configuration."""
+async def test_a2a_agent_with_non_streaming_client_config(a2a_server):
+    """Test with streaming=False client configuration (non-default)."""
     httpx_client = httpx.AsyncClient(timeout=300)
-    config = ClientConfig(httpx_client=httpx_client, streaming=True)
+    config = ClientConfig(httpx_client=httpx_client, streaming=False)
     factory = ClientFactory(config)
 
     try:
         a2a_agent = A2AAgent(endpoint=a2a_server, a2a_client_factory=factory)
-
-        events = []
-        async for event in a2a_agent.stream_async("Hello there!"):
-            events.append(event)
-
-        assert len(events) >= 2
-        assert events[0]["type"] == "a2a_stream"
-        assert "result" in events[-1]
-        assert events[-1]["result"].stop_reason == "end_turn"
+        result = await a2a_agent.invoke_async("Hello there!")
+        assert result.stop_reason == "end_turn"
     finally:
         await httpx_client.aclose()

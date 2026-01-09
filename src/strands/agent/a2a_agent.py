@@ -92,13 +92,13 @@ class A2AAgent:
         return self._agent_card
 
     def _create_default_factory(self) -> ClientFactory:
-        """Create default A2A client factory with non-streaming config.
+        """Create default A2A client factory with streaming config.
 
         Returns:
             Configured ClientFactory instance.
         """
         httpx_client = self._get_httpx_client()
-        config = ClientConfig(httpx_client=httpx_client, streaming=False)
+        config = ClientConfig(httpx_client=httpx_client, streaming=True)
         return ClientFactory(config)
 
     async def _get_a2a_client(self) -> Client:
