@@ -75,7 +75,7 @@ class BedrockModel(Model):
             additional_response_field_paths: Additional response field paths to extract
             cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
             cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
-            cache_tools: Cache point type for tools (deprecated, use cache_config)
+            cache_tools: Cache point type for tools
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
             guardrail_version: Version of the guardrail to apply
@@ -149,9 +149,6 @@ class BedrockModel(Model):
         )
         self.update_config(**model_config)
 
-        # Set cache_config on base Model class for Agent to detect
-        self.cache_config = self.config.get("cache_config")
-
         logger.debug("config=<%s> | initializing", self.config)
 
         # Add strands-agents to the request user agent
@@ -178,7 +175,6 @@ class BedrockModel(Model):
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
     @property
-    @override
     def supports_caching(self) -> bool:
         """Whether this model supports prompt caching.
 
@@ -352,53 +348,51 @@ class BedrockModel(Model):
         if not messages:
             return
 
-        # Step 1: Find all existing cache points and the last assistant message
-        cache_point_positions: list[tuple[int, int]] = []  # [(msg_idx, block_idx), ...]
+        # Loop backwards through messages:
+        # 1. Find first assistant message and add cache point there
+        # 2. Remove any other cache points along the way
         last_assistant_idx: int | None = None
 
-        for msg_idx, msg in enumerate(messages):
-            # Track last assistant message
-            if msg.get("role") == "assistant":
+        for msg_idx in range(len(messages) - 1, -1, -1):
+            msg = messages[msg_idx]
+            content = msg.get("content", [])
+
+            # Remove any cache points in this message's content (iterate backwards to avoid index issues)
+            for block_idx in range(len(content) - 1, -1, -1):
+                if "cachePoint" in content[block_idx]:
+                    # If this is the last assistant message and cache point is at the end, keep it
+                    if (
+                        last_assistant_idx is None
+                        and msg.get("role") == "assistant"
+                        and block_idx == len(content) - 1
+                    ):
+                        # This is where we want the cache point - mark and continue
+                        last_assistant_idx = msg_idx
+                        logger.debug(f"Cache point already at end of last assistant message {msg_idx}")
+                        continue
+
+                    # Remove cache points that aren't at the target position
+                    del content[block_idx]
+                    logger.warning(f"Removed existing cache point at msg {msg_idx} block {block_idx}")
+
+            # If we haven't found an assistant message yet, check if this is one
+            if last_assistant_idx is None and msg.get("role") == "assistant":
                 last_assistant_idx = msg_idx
 
-            content = msg.get("content", [])
-            if not isinstance(content, list):
-                continue
-
-            for block_idx, block in enumerate(content):
-                if isinstance(block, dict) and "cachePoint" in block:
-                    cache_point_positions.append((msg_idx, block_idx))
-
-        # Step 2: If no assistant message yet, nothing to cache
+        # If no assistant message found, nothing to cache
         if last_assistant_idx is None:
             logger.debug("No assistant message in conversation - skipping cache point")
             return
 
-        last_assistant_content = messages[last_assistant_idx].get("content", [])
-        if not isinstance(last_assistant_content, list) or len(last_assistant_content) == 0:
-            logger.debug("Last assistant message has no content - skipping cache point")
+        # Check if cache point was already found at the right position
+        last_assistant_content = messages[last_assistant_idx]["content"]
+        if last_assistant_content and "cachePoint" in last_assistant_content[-1]:
+            # Already has cache point at the end
             return
 
-        # Step 3: Check if cache point already exists at the end of last assistant message
-        last_block = last_assistant_content[-1]
-        if isinstance(last_block, dict) and "cachePoint" in last_block:
-            logger.debug("Cache point already exists at end of last assistant message")
-            return
-
-        # Step 4: Remove ALL existing cache points (we only want 1 at the end)
-        # Process in reverse order to avoid index shifting issues
-        for msg_idx, block_idx in reversed(cache_point_positions):
-            msg_content = messages[msg_idx].get("content", [])
-            if isinstance(msg_content, list) and block_idx < len(msg_content):
-                del msg_content[block_idx]
-                logger.debug(f"Removed old cache point at msg {msg_idx} block {block_idx}")
-
-        # Step 5: Add single cache point at the end of the last assistant message
-        cache_block: ContentBlock = {"cachePoint": {"type": "default"}}
-
-        # Re-fetch content in case it was modified by deletion
-        last_assistant_content = messages[last_assistant_idx].get("content", [])
-        if isinstance(last_assistant_content, list):
+        # Add cache point at the end of the last assistant message
+        if last_assistant_content:
+            cache_block: ContentBlock = {"cachePoint": {"type": "default"}}
             last_assistant_content.append(cache_block)
             logger.debug(f"Added cache point at end of assistant message {last_assistant_idx}")
 

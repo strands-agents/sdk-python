@@ -34,21 +34,7 @@ class Model(abc.ABC):
 
     This class defines the interface for all model implementations in the Strands Agents SDK. It provides a
     standardized way to configure and process requests for different AI model providers.
-
-    Attributes:
-        cache_config: Optional configuration for prompt caching.
     """
-
-    cache_config: Optional[CacheConfig] = None
-
-    @property
-    def supports_caching(self) -> bool:
-        """Whether this model supports prompt caching.
-
-        Override in subclasses to indicate caching support.
-        Returns False by default.
-        """
-        return False
 
     @abc.abstractmethod
     # pragma: no cover
