@@ -27,14 +27,38 @@ class GuardContentText(TypedDict):
     text: str
 
 
-class GuardContent(TypedDict):
+class GuardrailConverseImageSource(TypedDict):
+    """Contains the image source (bytes) for the guardrail converse image block.
+
+    Attributes:
+        bytes: The binary content of the image.
+    """
+
+    bytes: bytes
+
+
+class GuardContentImage(TypedDict):
+    """Image content to be evaluated by guardrails.
+
+    Attributes:
+        format: The format of the image (png or jpeg).
+        source: The image source containing the binary content.
+    """
+
+    format: Literal["png", "jpeg"]
+    source: GuardrailConverseImageSource
+
+
+class GuardContent(TypedDict, total=False):
     """Content block to be evaluated by guardrails.
 
     Attributes:
         text: Text within content block to be evaluated by the guardrail.
+        image: Image within content block to be evaluated by the guardrail.
     """
 
     text: GuardContentText
+    image: GuardContentImage
 
 
 class ReasoningTextBlock(TypedDict, total=False):
