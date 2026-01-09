@@ -58,15 +58,6 @@ async def test_a2a_agent_stream_async(a2a_server):
 
 
 @pytest.mark.asyncio
-async def test_a2a_agent_context_manager(a2a_server):
-    """Test async context manager for proper cleanup."""
-    async with A2AAgent(endpoint=a2a_server) as agent:
-        result = await agent.invoke_async("Hello there!")
-        assert result.stop_reason == "end_turn"
-    # Cleanup should happen automatically
-
-
-@pytest.mark.asyncio
 async def test_a2a_agent_with_streaming_client_config(a2a_server):
     """Test with streaming=True client configuration."""
     httpx_client = httpx.AsyncClient(timeout=300)

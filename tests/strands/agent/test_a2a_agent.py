@@ -229,3 +229,40 @@ async def test_stream_async_no_prompt(a2a_agent):
     with pytest.raises(ValueError, match="prompt is required"):
         async for _ in a2a_agent.stream_async(None):
             pass
+
+
+def test_del_cleanup_owned_client():
+    """Test that __del__ cleans up owned httpx client."""
+    agent = A2AAgent(endpoint="http://localhost:8000")
+    mock_client = MagicMock()
+    mock_client.aclose = AsyncMock()
+    agent._httpx_client = mock_client
+    agent._owns_client = True
+
+    with patch("strands.agent.a2a_agent.run_async") as mock_run_async:
+        agent.__del__()
+        mock_run_async.assert_called_once()
+
+
+def test_del_no_cleanup_external_client():
+    """Test that __del__ does not clean up external client."""
+    external_factory = MagicMock()
+    agent = A2AAgent(endpoint="http://localhost:8000", a2a_client_factory=external_factory)
+    mock_client = MagicMock()
+    agent._httpx_client = mock_client
+
+    with patch("strands.agent.a2a_agent.run_async") as mock_run_async:
+        agent.__del__()
+        mock_run_async.assert_not_called()
+
+
+def test_del_handles_exception():
+    """Test that __del__ handles exceptions gracefully."""
+    agent = A2AAgent(endpoint="http://localhost:8000")
+    mock_client = MagicMock()
+    agent._httpx_client = mock_client
+    agent._owns_client = True
+
+    with patch("strands.agent.a2a_agent.run_async", side_effect=RuntimeError("Event loop error")):
+        # Should not raise - __del__ should catch exceptions
+        agent.__del__()

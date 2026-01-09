@@ -251,42 +251,11 @@ class A2AAgent:
             result = convert_response_to_agent_result(final_event)
             yield AgentResultEvent(result)
 
-    async def aclose(self) -> None:
-        """Close the HTTP client if owned by this agent.
-
-        This should be called explicitly when done with the agent,
-        or use the agent as an async context manager.
-        """
-        if self._owns_client and self._httpx_client is not None:
-            await self._httpx_client.aclose()
-            self._httpx_client = None
-
-    async def __aenter__(self) -> "A2AAgent":
-        """Async context manager entry."""
-        return self
-
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        """Async context manager exit."""
-        await self.aclose()
-
     def __del__(self) -> None:
-        """Best-effort cleanup on garbage collection.
-
-        Note: This may not work reliably. Users should call aclose() explicitly
-        or use the agent as an async context manager for guaranteed cleanup.
-        """
+        """Best-effort cleanup on garbage collection."""
         if self._owns_client and self._httpx_client is not None:
             try:
-                # Only attempt cleanup if event loop is accessible
-                import asyncio
-
-                try:
-                    loop = asyncio.get_running_loop()
-                    if loop and not loop.is_closed():
-                        # Schedule cleanup task if loop is running
-                        loop.create_task(self._httpx_client.aclose())
-                except RuntimeError:
-                    # No event loop running, cleanup not possible
-                    pass
+                client = self._httpx_client
+                run_async(lambda: client.aclose())
             except Exception:
                 pass  # Best effort cleanup, ignore errors in __del__
