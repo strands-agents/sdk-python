@@ -202,3 +202,25 @@ def test_composite_handler_forwards_to_all_handlers():
     # Verify each handler was called with the same arguments
     for handler in mock_handlers:
         handler.assert_called_once_with(**kwargs)
+
+
+def test_verbose_tool_use_default():
+    """Test that _verbose_tool_use defaults to True."""
+    handler = PrintingCallbackHandler()
+    assert handler._verbose_tool_use is True
+
+
+def test_verbose_tool_use_disabled(mock_print):
+    """Test that tool use output is suppressed when verbose_tool_use=False but counting still works."""
+    handler = PrintingCallbackHandler(verbose_tool_use=False)
+    assert handler._verbose_tool_use is False
+
+    current_tool_use = {"name": "test_tool", "input": {"param": "value"}}
+    handler(current_tool_use=current_tool_use)
+
+    # Should not print tool information when verbose_tool_use is False
+    mock_print.assert_not_called()
+
+    # Should still update tool count and previous_tool_use
+    assert handler.tool_count == 1
+    assert handler.previous_tool_use == current_tool_use

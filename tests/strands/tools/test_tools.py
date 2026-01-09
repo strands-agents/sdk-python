@@ -9,6 +9,7 @@ from strands.tools.tools import (
     validate_tool_use,
     validate_tool_use_name,
 )
+from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolUse
 
 
@@ -486,7 +487,7 @@ def test_tool_type(identity_tool):
 
 @pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
 def test_supports_hot_reload(identity_tool):
-    assert not identity_tool.supports_hot_reload
+    assert identity_tool.supports_hot_reload
 
 
 @pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
@@ -506,5 +507,20 @@ async def test_stream(identity_tool, alist):
     stream = identity_tool.stream({"tool_use": 1}, {"a": 2})
 
     tru_events = await alist(stream)
-    exp_events = [({"tool_use": 1}, 2)]
+    exp_events = [ToolResultEvent(({"tool_use": 1}, 2))]
     assert tru_events == exp_events
+
+
+def test_normalize_schema_with_anyof():
+    """Test that anyOf properties don't get default type."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "optional_field": {"anyOf": [{"items": {"type": "string"}, "type": "array"}, {"type": "null"}]},
+            "regular_field": {},
+        },
+    }
+    normalized = normalize_schema(schema)
+
+    assert "type" not in normalized["properties"]["optional_field"]
+    assert normalized["properties"]["regular_field"]["type"] == "string"

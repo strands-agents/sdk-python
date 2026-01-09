@@ -9,6 +9,7 @@ from typing import Optional, Union
 
 from typing_extensions import TypedDict
 
+from .citations import CitationLocation
 from .content import ContentBlockStart, Role
 from .event_loop import Metrics, StopReason, Usage
 from .guardrails import Trace
@@ -57,6 +58,41 @@ class ContentBlockDeltaToolUse(TypedDict):
     input: str
 
 
+class CitationSourceContentDelta(TypedDict, total=False):
+    """Contains incremental updates to source content text during streaming.
+
+    Allows clients to build up the cited content progressively during
+    streaming responses.
+
+    Attributes:
+        text: An incremental update to the text content from the source
+            document that is being cited.
+    """
+
+    text: str
+
+
+class CitationsDelta(TypedDict, total=False):
+    """Contains incremental updates to citation information during streaming.
+
+    This allows clients to build up citation data progressively as the
+    response is generated.
+
+    Attributes:
+        location: Specifies the precise location within a source document
+            where cited content can be found. This can include character-level
+            positions, page numbers, or document chunks depending on the
+            document type and indexing method.
+        sourceContent: The specific content from the source document that was
+            referenced or cited in the generated response.
+        title: The title or identifier of the source document being cited.
+    """
+
+    location: CitationLocation
+    sourceContent: list[CitationSourceContentDelta]
+    title: str
+
+
 class ReasoningContentBlockDelta(TypedDict, total=False):
     """Delta for reasoning content block in a streaming response.
 
@@ -83,6 +119,7 @@ class ContentBlockDelta(TypedDict, total=False):
     reasoningContent: ReasoningContentBlockDelta
     text: str
     toolUse: ContentBlockDeltaToolUse
+    citation: CitationsDelta
 
 
 class ContentBlockDeltaEvent(TypedDict, total=False):

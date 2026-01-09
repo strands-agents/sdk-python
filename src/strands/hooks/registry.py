@@ -7,22 +7,22 @@ functions, supporting both individual callback registration and bulk registratio
 via hook provider objects.
 """
 
+import inspect
+import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Awaitable, Generator, Generic, Protocol, Type, TypeVar, runtime_checkable
+
+from ..interrupt import Interrupt, InterruptException
 
 if TYPE_CHECKING:
     from ..agent import Agent
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
-class HookEvent:
-    """Base class for all hook events.
-
-    Attributes:
-        agent: The agent instance that triggered this event.
-    """
-
-    agent: "Agent"
+class BaseHookEvent:
+    """Base class for all hook events."""
 
     @property
     def should_reverse_callbacks(self) -> bool:
@@ -66,13 +66,25 @@ class HookEvent:
         raise AttributeError(f"Property {name} is not writable")
 
 
-TEvent = TypeVar("TEvent", bound=HookEvent, contravariant=True)
+@dataclass
+class HookEvent(BaseHookEvent):
+    """Base class for single agent hook events.
+
+    Attributes:
+        agent: The agent instance that triggered this event.
+    """
+
+    agent: "Agent"
+
+
+TEvent = TypeVar("TEvent", bound=BaseHookEvent, contravariant=True)
 """Generic for adding callback handlers - contravariant to allow adding handlers which take in base classes."""
 
-TInvokeEvent = TypeVar("TInvokeEvent", bound=HookEvent)
+TInvokeEvent = TypeVar("TInvokeEvent", bound=BaseHookEvent)
 """Generic for invoking events - non-contravariant to enable returning events."""
 
 
+@runtime_checkable
 class HookProvider(Protocol):
     """Protocol for objects that provide hook callbacks to an agent.
 
@@ -84,8 +96,8 @@ class HookProvider(Protocol):
         ```python
         class MyHookProvider(HookProvider):
             def register_hooks(self, registry: HookRegistry) -> None:
-                hooks.add_callback(StartRequestEvent, self.on_request_start)
-                hooks.add_callback(EndRequestEvent, self.on_request_end)
+                registry.add_callback(StartRequestEvent, self.on_request_start)
+                registry.add_callback(EndRequestEvent, self.on_request_end)
 
         agent = Agent(hooks=[MyHookProvider()])
         ```
@@ -112,10 +124,15 @@ class HookCallback(Protocol, Generic[TEvent]):
         ```python
         def my_callback(event: StartRequestEvent) -> None:
             print(f"Request started for agent: {event.agent.name}")
+
+        # Or
+
+        async def my_callback(event: StartRequestEvent) -> None:
+            # await an async operation
         ```
     """
 
-    def __call__(self, event: TEvent) -> None:
+    def __call__(self, event: TEvent) -> None | Awaitable[None]:
         """Handle a hook event.
 
         Args:
@@ -154,6 +171,10 @@ class HookRegistry:
             registry.add_callback(StartRequestEvent, my_handler)
             ```
         """
+        # Related issue: https://github.com/strands-agents/sdk-python/issues/330
+        if event_type.__name__ == "AgentInitializedEvent" and inspect.iscoroutinefunction(callback):
+            raise ValueError("AgentInitializedEvent can only be registered with a synchronous callback")
+
         callbacks = self._registered_callbacks.setdefault(event_type, [])
         callbacks.append(callback)
 
@@ -179,21 +200,71 @@ class HookRegistry:
         """
         hook.register_hooks(self)
 
-    def invoke_callbacks(self, event: TInvokeEvent) -> TInvokeEvent:
+    async def invoke_callbacks_async(self, event: TInvokeEvent) -> tuple[TInvokeEvent, list[Interrupt]]:
         """Invoke all registered callbacks for the given event.
 
         This method finds all callbacks registered for the event's type and
-        invokes them in the appropriate order. For events with is_after_callback=True,
-        callbacks are invoked in reverse registration order.
+        invokes them in the appropriate order. For events with should_reverse_callbacks=True,
+        callbacks are invoked in reverse registration order. Any exceptions raised by callback
+        functions will propagate to the caller.
+
+        Additionally, this method aggregates interrupts raised by the user to instantiate human-in-the-loop workflows.
 
         Args:
             event: The event to dispatch to registered callbacks.
 
+        Returns:
+            The event dispatched to registered callbacks and any interrupts raised by the user.
+
         Raises:
-            Any exceptions raised by callback functions will propagate to the caller.
+            ValueError: If interrupt name is used more than once.
+
+        Example:
+            ```python
+            event = StartRequestEvent(agent=my_agent)
+            await registry.invoke_callbacks_async(event)
+            ```
+        """
+        interrupts: dict[str, Interrupt] = {}
+
+        for callback in self.get_callbacks_for(event):
+            try:
+                if inspect.iscoroutinefunction(callback):
+                    await callback(event)
+                else:
+                    callback(event)
+
+            except InterruptException as exception:
+                interrupt = exception.interrupt
+                if interrupt.name in interrupts:
+                    message = f"interrupt_name=<{interrupt.name}> | interrupt name used more than once"
+                    logger.error(message)
+                    raise ValueError(message) from exception
+
+                # Each callback is allowed to raise their own interrupt.
+                interrupts[interrupt.name] = interrupt
+
+        return event, list(interrupts.values())
+
+    def invoke_callbacks(self, event: TInvokeEvent) -> tuple[TInvokeEvent, list[Interrupt]]:
+        """Invoke all registered callbacks for the given event.
+
+        This method finds all callbacks registered for the event's type and
+        invokes them in the appropriate order. For events with should_reverse_callbacks=True,
+        callbacks are invoked in reverse registration order. Any exceptions raised by callback
+        functions will propagate to the caller.
+
+        Additionally, this method aggregates interrupts raised by the user to instantiate human-in-the-loop workflows.
+
+        Args:
+            event: The event to dispatch to registered callbacks.
 
         Returns:
-            The event dispatched to registered callbacks.
+            The event dispatched to registered callbacks and any interrupts raised by the user.
+
+        Raises:
+            RuntimeError: If at least one callback is async.
+            ValueError: If interrupt name is used more than once.
 
         Example:
             ```python
@@ -201,16 +272,46 @@ class HookRegistry:
             registry.invoke_callbacks(event)
             ```
         """
-        for callback in self.get_callbacks_for(event):
-            callback(event)
+        callbacks = list(self.get_callbacks_for(event))
+        interrupts: dict[str, Interrupt] = {}
 
-        return event
+        if any(inspect.iscoroutinefunction(callback) for callback in callbacks):
+            raise RuntimeError(f"event=<{event}> | use invoke_callbacks_async to invoke async callback")
+
+        for callback in callbacks:
+            try:
+                callback(event)
+            except InterruptException as exception:
+                interrupt = exception.interrupt
+                if interrupt.name in interrupts:
+                    message = f"interrupt_name=<{interrupt.name}> | interrupt name used more than once"
+                    logger.error(message)
+                    raise ValueError(message) from exception
+
+                # Each callback is allowed to raise their own interrupt.
+                interrupts[interrupt.name] = interrupt
+
+        return event, list(interrupts.values())
+
+    def has_callbacks(self) -> bool:
+        """Check if the registry has any registered callbacks.
+
+        Returns:
+            True if there are any registered callbacks, False otherwise.
+
+        Example:
+            ```python
+            if registry.has_callbacks():
+                print("Registry has callbacks registered")
+            ```
+        """
+        return bool(self._registered_callbacks)
 
     def get_callbacks_for(self, event: TEvent) -> Generator[HookCallback[TEvent], None, None]:
         """Get callbacks registered for the given event in the appropriate order.
 
         This method returns callbacks in registration order for normal events,
-        or reverse registration order for events that have is_after_callback=True.
+        or reverse registration order for events that have should_reverse_callbacks=True.
         This enables proper cleanup ordering for teardown events.
 
         Args:

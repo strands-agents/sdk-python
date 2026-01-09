@@ -5,11 +5,14 @@ These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
+import uuid
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
+from .interrupt import _Interruptible
 from .media import DocumentContent, ImageContent
 
 JSONSchema = dict
@@ -23,11 +26,15 @@ class ToolSpec(TypedDict):
         description: A human-readable description of what the tool does.
         inputSchema: JSON Schema defining the expected input parameters.
         name: The unique name of the tool.
+        outputSchema: Optional JSON Schema defining the expected output format.
+            Note: Not all model providers support this field. Providers that don't
+            support it should filter it out before sending to their API.
     """
 
     description: str
     inputSchema: JSONSchema
     name: str
+    outputSchema: NotRequired[JSONSchema]
 
 
 class Tool(TypedDict):
@@ -117,10 +124,50 @@ class ToolChoiceTool(TypedDict):
     name: str
 
 
+@dataclass
+class ToolContext(_Interruptible):
+    """Context object containing framework-provided data for decorated tools.
+
+    This object provides access to framework-level information that may be useful
+    for tool implementations.
+
+    Attributes:
+        tool_use: The complete ToolUse object containing tool invocation details.
+        agent: The Agent or BidiAgent instance executing this tool, providing access to conversation history,
+               model configuration, and other agent state.
+        invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
+                          agent.invoke_async(), etc.).
+
+    Note:
+        This class is intended to be instantiated by the SDK. Direct construction by users
+        is not supported and may break in future versions as new fields are added.
+    """
+
+    tool_use: ToolUse
+    agent: Any  # Agent or BidiAgent - using Any for backwards compatibility
+    invocation_state: dict[str, Any]
+
+    def _interrupt_id(self, name: str) -> str:
+        """Unique id for the interrupt.
+
+        Args:
+            name: User defined name for the interrupt.
+
+        Returns:
+            Interrupt id.
+        """
+        return f"v1:tool_call:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
+
+
+# Individual ToolChoice type aliases
+ToolChoiceAutoDict = dict[Literal["auto"], ToolChoiceAuto]
+ToolChoiceAnyDict = dict[Literal["any"], ToolChoiceAny]
+ToolChoiceToolDict = dict[Literal["tool"], ToolChoiceTool]
+
 ToolChoice = Union[
-    dict[Literal["auto"], ToolChoiceAuto],
-    dict[Literal["any"], ToolChoiceAny],
-    dict[Literal["tool"], ToolChoiceTool],
+    ToolChoiceAutoDict,
+    ToolChoiceAnyDict,
+    ToolChoiceToolDict,
 ]
 """
 Configuration for how the model should choose tools.
@@ -221,10 +268,11 @@ class AgentTool(ABC):
 
         Args:
             tool_use: The tool use request containing tool ID and parameters.
-            invocation_state: Context for the tool invocation, including agent state.
+            invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
+                              agent.invoke_async(), etc.).
             **kwargs: Additional keyword arguments for future extensibility.
 
-        Yield:
+        Yields:
             Tool events with the last being the tool result.
         """
         ...

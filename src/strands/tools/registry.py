@@ -8,17 +8,21 @@ import inspect
 import logging
 import os
 import sys
+import uuid
+import warnings
 from importlib import import_module, util
 from os.path import expanduser
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from typing_extensions import TypedDict, cast
 
-from strands.tools.decorator import DecoratedFunctionTool
-
+from .._async import run_async
+from ..experimental.tools import ToolProvider
+from ..tools.decorator import DecoratedFunctionTool
 from ..types.tools import AgentTool, ToolSpec
-from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
+from .loader import load_tool_from_string, load_tools_from_module
+from .tools import _COMPOSITION_KEYWORDS, PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
 
@@ -34,76 +38,121 @@ class ToolRegistry:
         self.registry: Dict[str, AgentTool] = {}
         self.dynamic_tools: Dict[str, AgentTool] = {}
         self.tool_config: Optional[Dict[str, Any]] = None
+        self._tool_providers: List[ToolProvider] = []
+        self._registry_id = str(uuid.uuid4())
 
     def process_tools(self, tools: List[Any]) -> List[str]:
-        """Process tools list that can contain tool names, paths, imported modules, or functions.
+        """Process tools list.
+
+        Process list of tools that can contain local file path string, module import path string,
+        imported modules, @tool decorated functions, or instances of AgentTool.
 
         Args:
-            tools: List of tool specifications.
-                Can be:
+            tools: List of tool specifications. Can be:
 
-                - String tool names (e.g., "calculator")
-                - File paths (e.g., "/path/to/tool.py")
-                - Imported Python modules (e.g., a module object)
-                - Functions decorated with @tool
-                - Dictionaries with name/path keys
-                - Instance of an AgentTool
+                1. Local file path to a module based tool: `./path/to/module/tool.py`
+                2. Module import path
+
+                    2.1. Path to a module based tool: `strands_tools.file_read`
+                    2.2. Path to a module with multiple AgentTool instances (@tool decorated):
+                        `tests.fixtures.say_tool`
+                    2.3. Path to a module and a specific function: `tests.fixtures.say_tool:say`
+
+                3. A module for a module based tool
+                4. Instances of AgentTool (@tool decorated functions)
+                5. Dictionaries with name/path keys (deprecated)
+
 
         Returns:
             List of tool names that were processed.
         """
         tool_names = []
 
-        for tool in tools:
-            # Case 1: String file path
-            if isinstance(tool, str):
-                # Extract tool name from path
-                tool_name = os.path.basename(tool).split(".")[0]
-                self.load_tool_from_filepath(tool_name=tool_name, tool_path=tool)
-                tool_names.append(tool_name)
+        def add_tool(tool: Any) -> None:
+            try:
+                # String based tool
+                # Can be a file path, a module path, or a module path with a targeted function. Examples:
+                # './path/to/tool.py'
+                # 'my.module.tool'
+                # 'my.module.tool:tool_name'
+                if isinstance(tool, str):
+                    tools = load_tool_from_string(tool)
+                    for a_tool in tools:
+                        a_tool.mark_dynamic()
+                        self.register_tool(a_tool)
+                        tool_names.append(a_tool.tool_name)
 
-            # Case 2: Dictionary with name and path
-            elif isinstance(tool, dict) and "name" in tool and "path" in tool:
-                self.load_tool_from_filepath(tool_name=tool["name"], tool_path=tool["path"])
-                tool_names.append(tool["name"])
+                # Dictionary with name and path
+                elif isinstance(tool, dict) and "name" in tool and "path" in tool:
+                    tools = load_tool_from_string(tool["path"])
 
-            # Case 3: Dictionary with path only
-            elif isinstance(tool, dict) and "path" in tool:
-                tool_name = os.path.basename(tool["path"]).split(".")[0]
-                self.load_tool_from_filepath(tool_name=tool_name, tool_path=tool["path"])
-                tool_names.append(tool_name)
+                    tool_found = False
+                    for a_tool in tools:
+                        if a_tool.tool_name == tool["name"]:
+                            a_tool.mark_dynamic()
+                            self.register_tool(a_tool)
+                            tool_names.append(a_tool.tool_name)
+                            tool_found = True
 
-            # Case 4: Imported Python module
-            elif hasattr(tool, "__file__") and inspect.ismodule(tool):
-                # Get the module file path
-                module_path = tool.__file__
-                # Extract the tool name from the module name
-                tool_name = tool.__name__.split(".")[-1]
+                    if not tool_found:
+                        raise ValueError(f'Tool "{tool["name"]}" not found in "{tool["path"]}"')
 
-                # Check for TOOL_SPEC in module to validate it's a Strands tool
-                if hasattr(tool, "TOOL_SPEC") and hasattr(tool, tool_name) and module_path:
-                    self.load_tool_from_filepath(tool_name=tool_name, tool_path=module_path)
-                    tool_names.append(tool_name)
+                # Dictionary with path only
+                elif isinstance(tool, dict) and "path" in tool:
+                    tools = load_tool_from_string(tool["path"])
+
+                    for a_tool in tools:
+                        a_tool.mark_dynamic()
+                        self.register_tool(a_tool)
+                        tool_names.append(a_tool.tool_name)
+
+                # Imported Python module
+                elif hasattr(tool, "__file__") and inspect.ismodule(tool):
+                    # Extract the tool name from the module name
+                    module_tool_name = tool.__name__.split(".")[-1]
+
+                    tools = load_tools_from_module(tool, module_tool_name)
+                    for a_tool in tools:
+                        self.register_tool(a_tool)
+                        tool_names.append(a_tool.tool_name)
+
+                # Case 5: AgentTools (which also covers @tool)
+                elif isinstance(tool, AgentTool):
+                    self.register_tool(tool)
+                    tool_names.append(tool.tool_name)
+
+                # Case 6: Nested iterable (list, tuple, etc.) - add each sub-tool
+                elif isinstance(tool, Iterable) and not isinstance(tool, (str, bytes, bytearray)):
+                    for t in tool:
+                        add_tool(t)
+
+                # Case 5: ToolProvider
+                elif isinstance(tool, ToolProvider):
+                    self._tool_providers.append(tool)
+                    tool.add_consumer(self._registry_id)
+
+                    async def get_tools() -> Sequence[AgentTool]:
+                        return await tool.load_tools()
+
+                    provider_tools = run_async(get_tools)
+
+                    for provider_tool in provider_tools:
+                        self.register_tool(provider_tool)
+                        tool_names.append(provider_tool.tool_name)
                 else:
-                    function_tools = self._scan_module_for_tools(tool)
-                    for function_tool in function_tools:
-                        self.register_tool(function_tool)
-                        tool_names.append(function_tool.tool_name)
+                    logger.warning("tool=<%s> | unrecognized tool specification", tool)
 
-                    if not function_tools:
-                        logger.warning("tool_name=<%s>, module_path=<%s> | invalid agent tool", tool_name, module_path)
+            except Exception as e:
+                exception_str = str(e)
+                logger.exception("tool_name=<%s> | failed to load tool", tool)
+                raise ValueError(f"Failed to load tool {tool}: {exception_str}") from e
 
-            # Case 5: AgentTools (which also covers @tool)
-            elif isinstance(tool, AgentTool):
-                self.register_tool(tool)
-                tool_names.append(tool.tool_name)
-            else:
-                logger.warning("tool=<%s> | unrecognized tool specification", tool)
-
+        for tool in tools:
+            add_tool(tool)
         return tool_names
 
     def load_tool_from_filepath(self, tool_name: str, tool_path: str) -> None:
-        """Load a tool from a file path.
+        """DEPRECATED: Load a tool from a file path.
 
         Args:
             tool_name: Name of the tool.
@@ -113,6 +162,13 @@ class ToolRegistry:
             FileNotFoundError: If the tool file is not found.
             ValueError: If the tool cannot be loaded.
         """
+        warnings.warn(
+            "load_tool_from_filepath is deprecated and will be removed in Strands SDK 2.0. "
+            "`process_tools` automatically handles loading tools from a filepath.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         from .loader import ToolLoader
 
         try:
@@ -120,11 +176,11 @@ class ToolRegistry:
             if not os.path.exists(tool_path):
                 raise FileNotFoundError(f"Tool file not found: {tool_path}")
 
-            loaded_tool = ToolLoader.load_tool(tool_path, tool_name)
-            loaded_tool.mark_dynamic()
-
-            # Because we're explicitly registering the tool we don't need an allowlist
-            self.register_tool(loaded_tool)
+            loaded_tools = ToolLoader.load_tools(tool_path, tool_name)
+            for t in loaded_tools:
+                t.mark_dynamic()
+                # Because we're explicitly registering the tool we don't need an allowlist
+                self.register_tool(t)
         except Exception as e:
             exception_str = str(e)
             logger.exception("tool_name=<%s> | failed to load tool", tool_name)
@@ -183,6 +239,13 @@ class ToolRegistry:
             tool.is_dynamic,
         )
 
+        # Check duplicate tool name, throw on duplicate tool names except if hot_reloading is enabled
+        if tool.tool_name in self.registry and not tool.supports_hot_reload:
+            raise ValueError(
+                f"Tool name '{tool.tool_name}' already exists. Cannot register tools with exact same name."
+            )
+
+        # Check for normalized name conflicts (- vs _)
         if self.registry.get(tool.tool_name) is None:
             normalized_name = tool.tool_name.replace("-", "_")
 
@@ -215,6 +278,32 @@ class ToolRegistry:
                 list(self.registry.keys()),
                 list(self.dynamic_tools.keys()),
             )
+
+    def replace(self, new_tool: AgentTool) -> None:
+        """Replace an existing tool with a new implementation.
+
+        This performs a swap of the tool implementation in the registry.
+        The replacement takes effect on the next agent invocation.
+
+        Args:
+            new_tool: New tool implementation. Its name must match the tool being replaced.
+
+        Raises:
+            ValueError: If the tool doesn't exist.
+        """
+        tool_name = new_tool.tool_name
+
+        if tool_name not in self.registry:
+            raise ValueError(f"Cannot replace tool '{tool_name}' - tool does not exist")
+
+        # Update main registry
+        self.registry[tool_name] = new_tool
+
+        # Update dynamic_tools to match new tool's dynamic status
+        if new_tool.is_dynamic:
+            self.dynamic_tools[tool_name] = new_tool
+        elif tool_name in self.dynamic_tools:
+            del self.dynamic_tools[tool_name]
 
     def get_tools_dirs(self) -> List[Path]:
         """Get all tool directory paths.
@@ -361,7 +450,7 @@ class ToolRegistry:
             logger.exception("tool_name=<%s> | failed to reload tool", tool_name)
             raise
 
-    def initialize_tools(self, load_tools_from_directory: bool = True) -> None:
+    def initialize_tools(self, load_tools_from_directory: bool = False) -> None:
         """Initialize all tools by discovering and loading them dynamically from all tool directories.
 
         Args:
@@ -482,6 +571,21 @@ class ToolRegistry:
         tools: List[ToolSpec] = [tool_spec for tool_spec in all_tools.values()]
         return tools
 
+    def register_dynamic_tool(self, tool: AgentTool) -> None:
+        """Register a tool dynamically for temporary use.
+
+        Args:
+            tool: The tool to register dynamically
+
+        Raises:
+            ValueError: If a tool with this name already exists
+        """
+        if tool.tool_name in self.registry or tool.tool_name in self.dynamic_tools:
+            raise ValueError(f"Tool '{tool.tool_name}' already exists")
+
+        self.dynamic_tools[tool.tool_name] = tool
+        logger.debug("Registered dynamic tool: %s", tool.tool_name)
+
     def validate_tool_spec(self, tool_spec: ToolSpec) -> None:
         """Validate tool specification against required schema.
 
@@ -526,7 +630,8 @@ class ToolRegistry:
             if "$ref" in prop_def:
                 continue
 
-            if "type" not in prop_def:
+            has_composition = any(kw in prop_def for kw in _COMPOSITION_KEYWORDS)
+            if "type" not in prop_def and not has_composition:
                 prop_def["type"] = "string"
             if "description" not in prop_def:
                 prop_def["description"] = f"Property {prop_name}"
@@ -598,3 +703,20 @@ class ToolRegistry:
                     logger.warning("tool_name=<%s> | failed to create function tool | %s", name, e)
 
         return tools
+
+    def cleanup(self, **kwargs: Any) -> None:
+        """Synchronously clean up all tool providers in this registry."""
+        # Attempt cleanup of all providers even if one fails to minimize resource leakage
+        exceptions = []
+        for provider in self._tool_providers:
+            try:
+                provider.remove_consumer(self._registry_id)
+                logger.debug("provider=<%s> | removed provider consumer", type(provider).__name__)
+            except Exception as e:
+                exceptions.append(e)
+                logger.error(
+                    "provider=<%s>, error=<%s> | failed to remove provider consumer", type(provider).__name__, e
+                )
+
+        if exceptions:
+            raise exceptions[0]

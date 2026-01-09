@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 import pytest
 from pydantic import BaseModel, Field
@@ -157,6 +157,7 @@ def test_convert_pydantic_to_tool_spec_multiple_same_type():
                     "user2": {
                         "type": ["object", "null"],
                         "description": "The second user",
+                        "title": "UserWithPlanet",
                         "properties": {
                             "name": {"description": "The name of the user", "title": "Name", "type": "string"},
                             "age": {
@@ -208,6 +209,85 @@ def test_convert_pydantic_with_missing_refs():
         convert_pydantic_to_tool_spec(NodeWithCircularRef)
 
 
+def test_convert_pydantic_with_circular_required_dependency():
+    """Test that the tool handles circular dependencies gracefully."""
+
+    class NodeWithCircularRef(BaseModel):
+        """A node with a circular reference to itself."""
+
+        name: str = Field(description="The name of the node")
+        parent: "NodeWithCircularRef"
+
+    with pytest.raises(ValueError, match="Circular reference detected and not supported"):
+        convert_pydantic_to_tool_spec(NodeWithCircularRef)
+
+
+def test_convert_pydantic_with_circular_optional_dependency():
+    """Test that the tool handles circular dependencies gracefully."""
+
+    class NodeWithCircularRef(BaseModel):
+        """A node with a circular reference to itself."""
+
+        name: str = Field(description="The name of the node")
+        parent: Optional["NodeWithCircularRef"] = None
+
+    with pytest.raises(ValueError, match="Circular reference detected and not supported"):
+        convert_pydantic_to_tool_spec(NodeWithCircularRef)
+
+
+def test_convert_pydantic_with_circular_optional_dependenc_not_using_optional_typing():
+    """Test that the tool handles circular dependencies gracefully."""
+
+    class NodeWithCircularRef(BaseModel):
+        """A node with a circular reference to itself."""
+
+        name: str = Field(description="The name of the node")
+        parent: "NodeWithCircularRef" = None
+
+    with pytest.raises(ValueError, match="Circular reference detected and not supported"):
+        convert_pydantic_to_tool_spec(NodeWithCircularRef)
+
+
+def test_conversion_works_with_fields_that_are_not_marked_as_optional_but_have_a_default_value_which_makes_them_optional():  # noqa E501
+    class Family(BaseModel):
+        ages: List[str] = Field(default_factory=list)
+        names: List[str] = Field(default_factory=list)
+
+    converted_output = convert_pydantic_to_tool_spec(Family)
+    expected_output = {
+        "name": "Family",
+        "description": "Family structured output tool",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "ages": {
+                        "items": {"type": "string"},
+                        "title": "Ages",
+                        "type": ["array", "null"],
+                    },
+                    "names": {
+                        "items": {"type": "string"},
+                        "title": "Names",
+                        "type": ["array", "null"],
+                    },
+                },
+                "title": "Family",
+            }
+        },
+    }
+    assert converted_output == expected_output
+
+
+def test_marks_fields_as_optional_for_model_w_fields_that_are_not_marked_as_optional_but_have_a_default_value_which_makes_them_optional():  # noqa E501
+    class Family(BaseModel):
+        ages: List[str] = Field(default_factory=list)
+        names: List[str] = Field(default_factory=list)
+
+    converted_output = convert_pydantic_to_tool_spec(Family)
+    assert "null" in converted_output["inputSchema"]["json"]["properties"]["ages"]["type"]
+
+
 def test_convert_pydantic_with_custom_description():
     """Test that custom descriptions override model docstrings."""
 
@@ -226,3 +306,120 @@ def test_convert_pydantic_with_empty_docstring():
 
     tool_spec = convert_pydantic_to_tool_spec(EmptyDocUser)
     assert tool_spec["description"] == "EmptyDocUser structured output tool"
+
+
+def test_convert_pydantic_with_items_refs():
+    """Test that no $refs exist after lists of different components."""
+
+    class Address(BaseModel):
+        postal_code: Optional[str] = None
+
+    class Person(BaseModel):
+        """Complete person information."""
+
+        list_of_items: list[Address]
+        list_of_items_nullable: Optional[list[Address]]
+        list_of_item_or_nullable: list[Optional[Address]]
+
+    tool_spec = convert_pydantic_to_tool_spec(Person)
+
+    expected_spec = {
+        "description": "Complete person information.",
+        "inputSchema": {
+            "json": {
+                "description": "Complete person information.",
+                "properties": {
+                    "list_of_item_or_nullable": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "properties": {"postal_code": {"type": ["string", "null"]}},
+                                    "title": "Address",
+                                    "type": "object",
+                                },
+                                {"type": "null"},
+                            ]
+                        },
+                        "title": "List Of Item Or Nullable",
+                        "type": "array",
+                    },
+                    "list_of_items": {
+                        "items": {
+                            "properties": {"postal_code": {"type": ["string", "null"]}},
+                            "title": "Address",
+                            "type": "object",
+                        },
+                        "title": "List Of Items",
+                        "type": "array",
+                    },
+                    "list_of_items_nullable": {
+                        "items": {
+                            "properties": {"postal_code": {"type": ["string", "null"]}},
+                            "title": "Address",
+                            "type": "object",
+                        },
+                        "type": ["array", "null"],
+                    },
+                },
+                "required": ["list_of_items", "list_of_item_or_nullable"],
+                "title": "Person",
+                "type": "object",
+            }
+        },
+        "name": "Person",
+    }
+    assert tool_spec == expected_spec
+
+
+def test_convert_pydantic_with_refs():
+    """Test that no $refs exist after processing complex hierarchies."""
+
+    class Address(BaseModel):
+        street: str
+        city: str
+        country: str
+        postal_code: Optional[str] = None
+
+    class Contact(BaseModel):
+        address: Address
+
+    class Person(BaseModel):
+        """Complete person information."""
+
+        contact: Contact = Field(description="Contact methods")
+
+    tool_spec = convert_pydantic_to_tool_spec(Person)
+
+    expected_spec = {
+        "description": "Complete person information.",
+        "inputSchema": {
+            "json": {
+                "description": "Complete person information.",
+                "properties": {
+                    "contact": {
+                        "description": "Contact methods",
+                        "properties": {
+                            "address": {
+                                "properties": {
+                                    "city": {"title": "City", "type": "string"},
+                                    "country": {"title": "Country", "type": "string"},
+                                    "postal_code": {"type": ["string", "null"]},
+                                    "street": {"title": "Street", "type": "string"},
+                                },
+                                "required": ["street", "city", "country"],
+                                "title": "Address",
+                                "type": "object",
+                            }
+                        },
+                        "required": ["address"],
+                        "type": "object",
+                    }
+                },
+                "required": ["contact"],
+                "title": "Person",
+                "type": "object",
+            }
+        },
+        "name": "Person",
+    }
+    assert tool_spec == expected_spec

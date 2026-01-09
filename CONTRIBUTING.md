@@ -25,6 +25,29 @@ Please try to include as much information as you can. Details like these are inc
 * Anything unusual about your environment or deployment
 
 
+## Finding contributions to work on
+Looking at the existing issues is a great way to find something to contribute to. We label issues that are well-defined and ready for community contributions with the "ready for contribution" label.
+
+Check our [Ready for Contribution](../../issues?q=is%3Aissue%20state%3Aopen%20label%3A%22ready%20for%20contribution%22) issues for items you can work on.
+
+Before starting work on any issue:
+1. Check if someone is already assigned or working on it
+2. Comment on the issue to express your interest and ask any clarifying questions
+3. Wait for maintainer confirmation before beginning significant work
+
+
+## Development Tenets
+Our team follows these core principles when designing and implementing features. These tenets help us make consistent decisions, resolve trade-offs, and maintain the quality and coherence of the SDK. When contributing, please consider how your changes align with these principles:
+
+1. **Simple at any scale:** We believe that simple things should be simple. The same clean abstractions that power a weekend prototype should scale effortlessly to production workloads. We reject the notion that enterprise-grade means enterprise-complicated - Strands remains approachable whether it's your first agent or your millionth.
+2. **Extensible by design:** We allow for as much configuration as possible, from hooks to model providers, session managers, tools, etc. We meet customers where they are with flexible extension points that are simple to integrate with.
+3. **Composability:** Primitives are building blocks with each other. Each feature of Strands is developed with all other features in mind, they are consistent and complement one another.
+4. **The obvious path is the happy path:** Through intuitive naming, helpful error messages, and thoughtful API design, we guide developers toward correct patterns and away from common pitfalls.
+5. **We are accessible to humans and agents:** Strands is designed for both humans and AI to understand equally well. We don’t take shortcuts on curated DX for humans and we go the extra mile to make sure coding assistants can help you use those interfaces the right way.
+6. **Embrace common standards:** We respect what came before, and do not want to reinvent something that is already widely adopted or done better.
+
+When proposing solutions or reviewing code, we reference these principles to guide our decisions. If two approaches seem equally valid, we choose the one that best aligns with our tenets.
+
 ## Development Environment
 
 This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as the build backend and [hatch](https://hatch.pypa.io/latest/) for development workflow management.
@@ -33,12 +56,7 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
 
 1. Entering virtual environment using `hatch` (recommended), then launch your IDE in the new shell.
    ```bash
-   hatch shell dev
-   ```
-
-   Alternatively, install development dependencies in a manually created virtual environment:
-   ```bash
-   pip install -e ".[dev]" && pip install -e ".[litellm]"
+   hatch shell
    ```
 
 
@@ -62,6 +80,10 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
    ```bash
    hatch test
    ```
+   Or run them with coverage:
+   ```bash
+   hatch test -c
+   ```
 
 6. Run integration tests:
    ```bash
@@ -70,7 +92,7 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
 
 ### Pre-commit Hooks
 
-We use [pre-commit](https://pre-commit.com/) to automatically run quality checks before each commit. The hook will run `hatch run format`, `hatch run lint`, `hatch run test`, and `hatch run cz check` on when you make a commit, ensuring code consistency.
+We use [pre-commit](https://pre-commit.com/) to automatically run quality checks before each commit. The hook will run `hatch run format`, `hatch run lint`, `hatch run test`, and `hatch run cz check` when you make a commit, ensuring code consistency.
 
 The pre-commit hook is installed with:
 
@@ -100,7 +122,7 @@ hatch fmt --linter
 
 If you're using an IDE like VS Code or PyCharm, consider configuring it to use these tools automatically.
 
-For additional details on styling, please see our dedicated [Style Guide](./STYLE_GUIDE.md).
+For additional details on styling, please see our dedicated [Style Guide](./docs/STYLE_GUIDE.md).
 
 
 ## Contributing via Pull Requests
@@ -109,6 +131,8 @@ Contributions via pull requests are much appreciated. Before sending us a pull r
 1. You are working against the latest source on the *main* branch.
 2. You check existing open, and recently merged, pull requests to make sure someone else hasn't addressed the problem already.
 3. You open an issue to discuss any significant work - we would hate for your time to be wasted.
+
+For guidance on writing effective PR descriptions, see our [PR Description Guidelines](./docs/PR.md).
 
 To send us a pull request, please:
 
@@ -120,14 +144,6 @@ To send us a pull request, please:
 6. Commit to your branch using clear commit messages following the [Conventional Commits](https://www.conventionalcommits.org) specification.
 7. Send us a pull request, answering any default questions in the pull request interface.
 8. Pay attention to any automated CI failures reported in the pull request, and stay involved in the conversation.
-
-
-## Finding contributions to work on
-Looking at the existing issues is a great way to find something to contribute to.
-
-You can check:
-- Our known bugs list in [Bug Reports](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Abug) for issues that need fixing
-- Feature requests in [Feature Requests](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Aenhancement) for new functionality to implement
 
 
 ## Code of Conduct

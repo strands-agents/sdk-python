@@ -160,7 +160,7 @@ def test_summarization_with_context_overflow(model):
 
     # First message should be the summary (assistant message)
     summary_message = agent.messages[0]
-    assert summary_message["role"] == "assistant"
+    assert summary_message["role"] == "user"
     assert len(summary_message["content"]) > 0
 
     # Verify the summary contains actual text content
@@ -362,7 +362,7 @@ def test_dedicated_summarization_agent(model, summarization_model):
 
     # Get the summary message
     summary_message = agent.messages[0]
-    assert summary_message["role"] == "assistant"
+    assert summary_message["role"] == "user"
 
     # Extract summary text
     summary_text = None
@@ -372,3 +372,39 @@ def test_dedicated_summarization_agent(model, summarization_model):
             break
 
     assert summary_text
+
+
+def test_summarization_with_tool_messages_and_no_tools():
+    agent = Agent(
+        messages=[
+            {"role": "user", "content": [{"text": "What is the current time?"}]},
+            {
+                "role": "assistant",
+                "content": [{"toolUse": {"toolUseId": "t1", "name": "time_tool", "input": {}}}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": "t1",
+                            "content": [{"text": "12:00"}],
+                            "status": "success",
+                        }
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "The current time is 12:00."}]},
+            {"role": "user", "content": [{"text": "Thank you"}]},
+            {"role": "assistant", "content": [{"text": "You are welcome."}]},
+        ],
+    )
+
+    conversation_manager = SummarizingConversationManager(summary_ratio=1, preserve_recent_messages=2)
+    conversation_manager.reduce_context(agent)
+
+    assert len(agent.tool_names) == 0
+    assert len(agent.messages) == 3
+
+    summary = str(agent.messages[0]).lower()
+    assert "12:00" in summary

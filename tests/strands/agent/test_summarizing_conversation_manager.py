@@ -1,14 +1,13 @@
-from typing import TYPE_CHECKING, cast
+from typing import cast
 from unittest.mock import Mock, patch
 
 import pytest
 
+from strands.agent.agent import Agent
 from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException
-
-if TYPE_CHECKING:
-    from strands.agent.agent import Agent
+from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
 class MockAgent:
@@ -20,6 +19,8 @@ class MockAgent:
         self.messages = []
         self.model = Mock()
         self.call_tracker = Mock()
+        self.tool_registry = Mock()
+        self.tool_names = []
 
     def __call__(self, prompt):
         """Mock agent call that returns a summary."""
@@ -100,7 +101,7 @@ def test_reduce_context_with_summarization(summarizing_manager, mock_agent):
     assert len(mock_agent.messages) == 4
 
     # First message should be the summary
-    assert mock_agent.messages[0]["role"] == "assistant"
+    assert mock_agent.messages[0]["role"] == "user"
     first_content = mock_agent.messages[0]["content"][0]
     assert "text" in first_content and "This is a summary of the conversation." in first_content["text"]
 
@@ -439,7 +440,7 @@ def test_reduce_context_tool_pair_adjustment_works_with_forward_search():
     assert len(mock_agent.messages) == 2
 
     # First message should be the summary
-    assert mock_agent.messages[0]["role"] == "assistant"
+    assert mock_agent.messages[0]["role"] == "user"
     summary_content = mock_agent.messages[0]["content"][0]
     assert "text" in summary_content and "This is a summary of the conversation." in summary_content["text"]
 
@@ -564,3 +565,75 @@ def test_reduce_context_adjustment_returns_zero():
     # The adjustment method will return 0, which should trigger line 122-123
     with pytest.raises(ContextWindowOverflowException, match="insufficient messages for summarization"):
         manager.reduce_context(mock_agent)
+
+
+def test_summarizing_conversation_manager_properly_records_removed_message_count():
+    mock_model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "Summary"}]},
+            {"role": "assistant", "content": [{"text": "Summary"}]},
+        ]
+    )
+
+    simple_messages: Messages = [
+        {"role": "user", "content": [{"text": "Message 1"}]},
+        {"role": "assistant", "content": [{"text": "Response 1"}]},
+        {"role": "user", "content": [{"text": "Message 2"}]},
+        {"role": "assistant", "content": [{"text": "Response 1"}]},
+        {"role": "user", "content": [{"text": "Message 3"}]},
+        {"role": "assistant", "content": [{"text": "Response 3"}]},
+        {"role": "user", "content": [{"text": "Message 4"}]},
+        {"role": "assistant", "content": [{"text": "Response 4"}]},
+    ]
+    agent = Agent(model=mock_model, messages=simple_messages)
+    manager = SummarizingConversationManager(summary_ratio=0.5, preserve_recent_messages=1)
+
+    assert manager._summary_message is None
+    assert manager.removed_message_count == 0
+
+    manager.reduce_context(agent)
+    # Assert the oldest message is the sumamry message
+    assert manager._summary_message["content"][0]["text"] == "Summary"
+    # There are 8 messages in the agent messages array, since half will be summarized,
+    # 4 will remain plus 1 summary message = 5
+    assert (len(agent.messages)) == 5
+    # Half of the messages were summarized and removed: 8/2 = 4
+    assert manager.removed_message_count == 4
+
+    manager.reduce_context(agent)
+    assert manager._summary_message["content"][0]["text"] == "Summary"
+    # After the first summary, 5 messages remain. Summarizing again will lead to:
+    # 5 - (int(5/2)) (messages to be sumamrized) + 1 (new summary message) = 5 - 2 + 1 = 4
+    assert (len(agent.messages)) == 4
+    # Half of the messages were summarized and removed: int(5/2) = 2
+    # However, one of the messages that was summarized was the previous summary message,
+    # so we dont count this toward the total:
+    # 4 (Previously removed messages) + 2 (removed messages) - 1 (Previous summary message) = 5
+    assert manager.removed_message_count == 5
+
+
+@patch("strands.agent.conversation_manager.summarizing_conversation_manager.ToolRegistry")
+def test_summarizing_conversation_manager_generate_summary_with_noop_tool(mock_registry_cls, summarizing_manager):
+    mock_registry = mock_registry_cls.return_value
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    agent = create_mock_agent()
+
+    original_tool_registry = agent.tool_registry
+    summarizing_manager._generate_summary(messages, agent)
+
+    assert original_tool_registry == agent.tool_registry
+    mock_registry.register_tool.assert_called_once()
+
+
+@patch("strands.agent.conversation_manager.summarizing_conversation_manager.ToolRegistry")
+def test_summarizing_conversation_manager_generate_summary_with_tools(mock_registry_cls, summarizing_manager):
+    mock_registry = mock_registry_cls.return_value
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    agent = create_mock_agent()
+    agent.tool_names = ["test_tool"]
+
+    summarizing_manager._generate_summary(messages, agent)
+
+    mock_registry.register_tool.assert_not_called()

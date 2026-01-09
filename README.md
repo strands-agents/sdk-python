@@ -1,7 +1,7 @@
 <div align="center">
   <div>
     <a href="https://strandsagents.com">
-      <img src="https://strandsagents.com/latest/assets/logo-auto.svg" alt="Strands Agents" width="55px" height="105px">
+      <img src="https://strandsagents.com/latest/assets/logo-github.svg" alt="Strands Agents" width="55px" height="105px">
     </a>
   </div>
 
@@ -37,7 +37,7 @@ Strands Agents is a simple yet powerful SDK that takes a model-driven approach t
 ## Feature Overview
 
 - **Lightweight & Flexible**: Simple agent loop that just works and is fully customizable
-- **Model Agnostic**: Support for Amazon Bedrock, Anthropic, LiteLLM, Llama, Ollama, OpenAI, and custom providers
+- **Model Agnostic**: Support for Amazon Bedrock, Anthropic, Gemini, LiteLLM, Llama, Ollama, OpenAI, Writer, and custom providers
 - **Advanced Capabilities**: Multi-agent systems, autonomous agents, and streaming support
 - **Built-in MCP**: Native support for Model Context Protocol (MCP) servers, enabling access to thousands of pre-built tools
 
@@ -55,7 +55,7 @@ agent = Agent(tools=[calculator])
 agent("What is the square root of 1764")
 ```
 
-> **Note**: For the default Amazon Bedrock model provider, you'll need AWS credentials configured and model access enabled for Claude 3.7 Sonnet in the us-west-2 region. See the [Quickstart Guide](https://strandsagents.com/) for details on configuring other model providers.
+> **Note**: For the default Amazon Bedrock model provider, you'll need AWS credentials configured and model access enabled for Claude 4 Sonnet in the us-west-2 region. See the [Quickstart Guide](https://strandsagents.com/) for details on configuring other model providers.
 
 ## Installation
 
@@ -91,6 +91,17 @@ agent = Agent(tools=[word_count])
 response = agent("How many words are in this sentence?")
 ```
 
+**Hot Reloading from Directory:**
+Enable automatic tool loading and reloading from the `./tools/` directory:
+
+```python
+from strands import Agent
+
+# Agent will watch ./tools/ directory for changes
+agent = Agent(load_tools_from_directory=True)
+response = agent("Use any tools you find in the tools directory")
+```
+
 ### MCP Support
 
 Seamlessly integrate Model Context Protocol (MCP) servers:
@@ -118,6 +129,8 @@ from strands import Agent
 from strands.models import BedrockModel
 from strands.models.ollama import OllamaModel
 from strands.models.llamaapi import LlamaAPIModel
+from strands.models.gemini import GeminiModel
+from strands.models.llamacpp import LlamaCppModel
 
 # Bedrock
 bedrock_model = BedrockModel(
@@ -126,6 +139,17 @@ bedrock_model = BedrockModel(
   streaming=True, # Enable/disable streaming
 )
 agent = Agent(model=bedrock_model)
+agent("Tell me about Agentic AI")
+
+# Google Gemini
+gemini_model = GeminiModel(
+  client_args={
+    "api_key": "your_gemini_api_key",
+  },
+  model_id="gemini-2.5-flash",
+  params={"temperature": 0.7}
+)
+agent = Agent(model=gemini_model)
 agent("Tell me about Agentic AI")
 
 # Ollama
@@ -147,10 +171,16 @@ response = agent("Tell me about Agentic AI")
 Built-in providers:
  - [Amazon Bedrock](https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/)
  - [Anthropic](https://strandsagents.com/latest/user-guide/concepts/model-providers/anthropic/)
+ - [Gemini](https://strandsagents.com/latest/user-guide/concepts/model-providers/gemini/)
+ - [Cohere](https://strandsagents.com/latest/user-guide/concepts/model-providers/cohere/)
  - [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
+ - [llama.cpp](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamacpp/)
  - [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
+ - [MistralAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/mistral/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
  - [OpenAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)
+ - [SageMaker](https://strandsagents.com/latest/user-guide/concepts/model-providers/sagemaker/)
+ - [Writer](https://strandsagents.com/latest/user-guide/concepts/model-providers/writer/)
 
 Custom providers can be implemented using [Custom Providers](https://strandsagents.com/latest/user-guide/concepts/model-providers/custom_model_provider/)
 
@@ -166,6 +196,74 @@ agent("What is the square root of 1764")
 ```
 
 It's also available on GitHub via [strands-agents/tools](https://github.com/strands-agents/tools).
+
+### Bidirectional Streaming
+
+> **⚠️ Experimental Feature**: Bidirectional streaming is currently in experimental status. APIs may change in future releases as we refine the feature based on user feedback and evolving model capabilities.
+
+Build real-time voice and audio conversations with persistent streaming connections. Unlike traditional request-response patterns, bidirectional streaming maintains long-running conversations where users can interrupt, provide continuous input, and receive real-time audio responses. Get started with your first BidiAgent by following the [Quickstart](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/experimental/bidirectional-streaming/quickstart) guide. 
+
+**Supported Model Providers:**
+- Amazon Nova Sonic (`amazon.nova-sonic-v1:0`)
+- Google Gemini Live (`gemini-2.5-flash-native-audio-preview-09-2025`)
+- OpenAI Realtime API (`gpt-realtime`)
+
+**Quick Example:**
+
+```python
+import asyncio
+from strands.experimental.bidi import BidiAgent
+from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
+from strands.experimental.bidi.tools import stop_conversation
+from strands_tools import calculator
+
+async def main():
+    # Create bidirectional agent with audio model
+    model = BidiNovaSonicModel()
+    agent = BidiAgent(model=model, tools=[calculator, stop_conversation])
+
+    # Setup audio and text I/O
+    audio_io = BidiAudioIO()
+    text_io = BidiTextIO()
+
+    # Run with real-time audio streaming
+    # Say "stop conversation" to gracefully end the conversation
+    await agent.run(
+        inputs=[audio_io.input()],
+        outputs=[audio_io.output(), text_io.output()]
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+**Configuration Options:**
+
+```python
+# Configure audio settings
+model = BidiNovaSonicModel(
+    provider_config={
+        "audio": {
+            "input_rate": 16000,
+            "output_rate": 16000,
+            "voice": "matthew"
+        },
+        "inference": {
+            "max_tokens": 2048,
+            "temperature": 0.7
+        }
+    }
+)
+
+# Configure I/O devices
+audio_io = BidiAudioIO(
+    input_device_index=0,  # Specific microphone
+    output_device_index=1,  # Specific speaker
+    input_buffer_size=10,
+    output_buffer_size=10
+)
+```
 
 ## Documentation
 
@@ -195,8 +293,3 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
 
-## ⚠️ Preview Status
-
-Strands Agents is currently in public preview. During this period:
-- APIs may change as we refine the SDK
-- We welcome feedback and contributions

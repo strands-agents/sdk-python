@@ -168,9 +168,9 @@ def test_setup_console_exporter(mock_resource, mock_tracer_provider, mock_consol
     telemetry = StrandsTelemetry()
     # Set the tracer_provider directly
     telemetry.tracer_provider = mock_tracer_provider.return_value
-    telemetry.setup_console_exporter()
+    telemetry.setup_console_exporter(foo="bar")
 
-    mock_console_exporter.assert_called_once()
+    mock_console_exporter.assert_called_once_with(foo="bar")
     mock_simple_processor.assert_called_once_with(mock_console_exporter.return_value)
 
     mock_tracer_provider.return_value.add_span_processor.assert_called()
@@ -182,9 +182,9 @@ def test_setup_otlp_exporter(mock_resource, mock_tracer_provider, mock_otlp_expo
     telemetry = StrandsTelemetry()
     # Set the tracer_provider directly
     telemetry.tracer_provider = mock_tracer_provider.return_value
-    telemetry.setup_otlp_exporter()
+    telemetry.setup_otlp_exporter(foo="bar")
 
-    mock_otlp_exporter.assert_called_once()
+    mock_otlp_exporter.assert_called_once_with(foo="bar")
     mock_batch_processor.assert_called_once_with(mock_otlp_exporter.return_value)
 
     mock_tracer_provider.return_value.add_span_processor.assert_called()

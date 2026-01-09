@@ -1,3 +1,4 @@
+.DS_Store
 build
 __pycache__*
 .coverage*
@@ -10,3 +11,6 @@ __pycache__*
 .vscode
 dist
 repl_state
+.kiro
+uv.lock
+.audio_cache

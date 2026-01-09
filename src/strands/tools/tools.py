@@ -12,9 +12,16 @@ from typing import Any
 
 from typing_extensions import override
 
+from ..types._events import ToolResultEvent
 from ..types.tools import AgentTool, ToolFunc, ToolGenerator, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
+
+_COMPOSITION_KEYWORDS = ("anyOf", "oneOf", "allOf", "not")
+"""JSON Schema composition keywords that define type constraints.
+
+Properties with these should not get a default type: "string" added.
+"""
 
 
 class InvalidToolUseNameException(Exception):
@@ -87,7 +94,9 @@ def _normalize_property(prop_name: str, prop_def: Any) -> dict[str, Any]:
     if "$ref" in normalized_prop:
         return normalized_prop
 
-    normalized_prop.setdefault("type", "string")
+    has_composition = any(kw in normalized_prop for kw in _COMPOSITION_KEYWORDS)
+    if not has_composition:
+        normalized_prop.setdefault("type", "string")
     normalized_prop.setdefault("description", f"Property {prop_name}")
     return normalized_prop
 
@@ -189,6 +198,15 @@ class PythonAgentTool(AgentTool):
         return self._tool_spec
 
     @property
+    def supports_hot_reload(self) -> bool:
+        """Check if this tool supports automatic reloading when modified.
+
+        Returns:
+            Always true for function-based tools.
+        """
+        return True
+
+    @property
     def tool_type(self) -> str:
         """Identifies this as a Python-based tool implementation.
 
@@ -207,11 +225,11 @@ class PythonAgentTool(AgentTool):
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
-        Tool events with the last being the tool result.
+            Tool events with the last being the tool result.
         """
         if inspect.iscoroutinefunction(self._tool_func):
             result = await self._tool_func(tool_use, **invocation_state)
+            yield ToolResultEvent(result)
         else:
             result = await asyncio.to_thread(self._tool_func, tool_use, **invocation_state)
-
-        yield result
+            yield ToolResultEvent(result)

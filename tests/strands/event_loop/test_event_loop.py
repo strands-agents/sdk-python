@@ -1,31 +1,39 @@
 import concurrent
 import unittest.mock
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
 
 import strands
 import strands.telemetry
-from strands.event_loop.event_loop import run_tool
-from strands.experimental.hooks import (
-    AfterModelInvocationEvent,
-    AfterToolInvocationEvent,
-    BeforeModelInvocationEvent,
-    BeforeToolInvocationEvent,
-)
+from strands import Agent
 from strands.hooks import (
-    HookProvider,
+    AfterModelCallEvent,
+    BeforeModelCallEvent,
+    BeforeToolCallEvent,
     HookRegistry,
+    MessageAddedEvent,
 )
+from strands.interrupt import Interrupt, _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
+from strands.tools.executors import SequentialToolExecutor
 from strands.tools.registry import ToolRegistry
-from strands.types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
+from strands.types._events import EventLoopStopEvent
+from strands.types.exceptions import (
+    ContextWindowOverflowException,
+    EventLoopException,
+    MaxTokensReachedException,
+    ModelThrottledException,
+)
 from tests.fixtures.mock_hook_provider import MockHookProvider
+from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
 @pytest.fixture
-def mock_time():
-    with unittest.mock.patch.object(strands.event_loop.event_loop, "time") as mock:
+def mock_sleep():
+    with unittest.mock.patch.object(
+        strands.event_loop.event_loop.asyncio, "sleep", new_callable=unittest.mock.AsyncMock
+    ) as mock:
         yield mock
 
 
@@ -113,21 +121,20 @@ def hook_registry():
 
 @pytest.fixture
 def hook_provider(hook_registry):
-    provider = MockHookProvider(
-        event_types=[
-            BeforeToolInvocationEvent,
-            AfterToolInvocationEvent,
-            BeforeModelInvocationEvent,
-            AfterModelInvocationEvent,
-        ]
-    )
+    provider = MockHookProvider(event_types="all")
     hook_registry.add_hook(provider)
     return provider
 
 
 @pytest.fixture
-def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_registry):
+def tool_executor():
+    return SequentialToolExecutor()
+
+
+@pytest.fixture
+def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_registry, tool_executor):
     mock = unittest.mock.Mock(name="agent")
+    mock.__class__ = Agent
     mock.config.cache_points = []
     mock.model = model
     mock.system_prompt = system_prompt
@@ -135,7 +142,11 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.tool_registry = tool_registry
     mock.thread_pool = thread_pool
     mock.event_loop_metrics = EventLoopMetrics()
+    mock.event_loop_metrics.reset_usage_metrics()
     mock.hooks = hook_registry
+    mock.tool_executor = tool_executor
+    mock._interrupt_state = _InterruptState()
+    mock.trace_attributes = {}
 
     return mock
 
@@ -167,7 +178,7 @@ async def test_event_loop_cycle_text_response(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
@@ -178,7 +189,7 @@ async def test_event_loop_cycle_text_response(
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_text_response_throttling(
-    mock_time,
+    mock_sleep,
     agent,
     model,
     agenerator,
@@ -199,7 +210,7 @@ async def test_event_loop_cycle_text_response_throttling(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
@@ -207,12 +218,12 @@ async def test_event_loop_cycle_text_response_throttling(
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
     # Verify that sleep was called once with the initial delay
-    mock_time.sleep.assert_called_once()
+    mock_sleep.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_exponential_backoff(
-    mock_time,
+    mock_sleep,
     agent,
     model,
     agenerator,
@@ -237,7 +248,7 @@ async def test_event_loop_cycle_exponential_backoff(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     # Verify the final response
     assert tru_stop_reason == "end_turn"
@@ -246,13 +257,13 @@ async def test_event_loop_cycle_exponential_backoff(
 
     # Verify that sleep was called with increasing delays
     # Initial delay is 4, then 8, then 16
-    assert mock_time.sleep.call_count == 3
-    assert mock_time.sleep.call_args_list == [call(4), call(8), call(16)]
+    assert mock_sleep.call_count == 3
+    assert mock_sleep.call_args_list == [call(4), call(8), call(16)]
 
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_text_response_throttling_exceeded(
-    mock_time,
+    mock_sleep,
     agent,
     model,
     alist,
@@ -273,7 +284,7 @@ async def test_event_loop_cycle_text_response_throttling_exceeded(
         )
         await alist(stream)
 
-    mock_time.sleep.assert_has_calls(
+    mock_sleep.assert_has_calls(
         [
             call(4),
             call(8),
@@ -300,8 +311,10 @@ async def test_event_loop_cycle_text_response_error(
         await alist(stream)
 
 
+@patch("strands.event_loop.event_loop.recover_message_on_max_tokens_reached")
 @pytest.mark.asyncio
 async def test_event_loop_cycle_tool_result(
+    mock_recover_message,
     agent,
     model,
     system_prompt,
@@ -326,13 +339,16 @@ async def test_event_loop_cycle_tool_result(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
     exp_request_state = {}
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
+
+    # Verify that recover_message_on_max_tokens_reached was NOT called for tool_use stop reason
+    mock_recover_message.assert_not_called()
 
     model.stream.assert_called_with(
         [
@@ -365,6 +381,8 @@ async def test_event_loop_cycle_tool_result(
         ],
         tool_registry.get_all_tool_specs(),
         "p1",
+        tool_choice=None,
+        system_prompt_content=unittest.mock.ANY,
     )
 
 
@@ -438,7 +456,7 @@ async def test_event_loop_cycle_stop(
         invocation_state={"request_state": {"stop_event_loop": True}},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "tool_use"
     exp_message = {
@@ -473,7 +491,7 @@ async def test_cycle_exception(
     ]
 
     tru_stop_event = None
-    exp_stop_event = {"callback": {"force_stop": True, "force_stop_reason": "Invalid error presented"}}
+    exp_stop_event = {"force_stop": True, "force_stop_reason": "Invalid error presented"}
 
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -556,6 +574,53 @@ async def test_event_loop_tracing_with_model_error(
     mock_tracer.end_span_with_error.assert_called_once_with(model_span, "Input too long", model.stream.side_effect)
 
 
+@pytest.mark.asyncio
+async def test_event_loop_cycle_max_tokens_exception(
+    agent,
+    model,
+    agenerator,
+    alist,
+):
+    """Test that max_tokens stop reason calls _recover_message_on_max_tokens_reached then MaxTokensReachedException."""
+
+    model.stream.side_effect = [
+        agenerator(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": "asdf",
+                                "input": {},  # empty
+                            },
+                        },
+                    },
+                },
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "max_tokens"}},
+            ]
+        ),
+    ]
+
+    # Call event_loop_cycle, expecting it to raise MaxTokensReachedException
+    expected_message = (
+        "Agent has reached an unrecoverable state due to max_tokens limit. "
+        "For more information see: "
+        "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
+    )
+    with pytest.raises(MaxTokensReachedException, match=expected_message):
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state={},
+        )
+        await alist(stream)
+
+    # Verify the exception message contains the expected content
+    assert len(agent.messages) == 2
+    assert "tool use was incomplete due" in agent.messages[1]["content"][0]["text"]
+
+
 @patch("strands.event_loop.event_loop.get_tracer")
 @pytest.mark.asyncio
 async def test_event_loop_tracing_with_tool_execution(
@@ -627,7 +692,7 @@ async def test_event_loop_tracing_with_throttling_exception(
     ]
 
     # Mock the time.sleep function to speed up the test
-    with patch("strands.event_loop.event_loop.time.sleep"):
+    with patch("strands.event_loop.event_loop.asyncio.sleep", new_callable=unittest.mock.AsyncMock):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
             invocation_state={},
@@ -677,7 +742,10 @@ async def test_event_loop_cycle_with_parent_span(
 
     # Verify parent_span was used when creating cycle span
     mock_tracer.start_event_loop_cycle_span.assert_called_once_with(
-        invocation_state=unittest.mock.ANY, parent_span=parent_span, messages=messages
+        invocation_state=unittest.mock.ANY,
+        parent_span=parent_span,
+        messages=messages,
+        custom_trace_attributes=unittest.mock.ANY,
     )
 
 
@@ -685,7 +753,10 @@ async def test_event_loop_cycle_with_parent_span(
 async def test_request_state_initialization(alist):
     # Create a mock agent
     mock_agent = MagicMock()
+    # not setting this to False results in endless recursion
+    mock_agent._interrupt_state.activated = False
     mock_agent.event_loop_metrics.start_cycle.return_value = (0, MagicMock())
+    mock_agent.hooks.invoke_callbacks_async = AsyncMock()
 
     # Call without providing request_state
     stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -693,7 +764,7 @@ async def test_request_state_initialization(alist):
         invocation_state={},
     )
     events = await alist(stream)
-    _, _, _, tru_request_state = events[-1]["stop"]
+    _, _, _, tru_request_state, _, _ = events[-1]["stop"]
 
     # Verify request_state was initialized to empty dict
     assert tru_request_state == {}
@@ -705,7 +776,7 @@ async def test_request_state_initialization(alist):
         invocation_state={"request_state": initial_request_state},
     )
     events = await alist(stream)
-    _, _, _, tru_request_state = events[-1]["stop"]
+    _, _, _, tru_request_state, _, _ = events[-1]["stop"]
 
     # Verify existing request_state was preserved
     assert tru_request_state == initial_request_state
@@ -756,261 +827,7 @@ async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, a
 
 
 @pytest.mark.asyncio
-async def test_run_tool(agent, tool, alist):
-    process = run_tool(
-        agent,
-        tool_use={"toolUseId": "tool_use_id", "name": tool.tool_name, "input": {"random_string": "a_string"}},
-        invocation_state={},
-    )
-
-    tru_result = (await alist(process))[-1]
-    exp_result = {"toolUseId": "tool_use_id", "status": "success", "content": [{"text": "a_string"}]}
-
-    assert tru_result == exp_result
-
-
-@pytest.mark.asyncio
-async def test_run_tool_missing_tool(agent, alist):
-    process = run_tool(
-        agent,
-        tool_use={"toolUseId": "missing", "name": "missing", "input": {}},
-        invocation_state={},
-    )
-
-    tru_events = await alist(process)
-    exp_events = [
-        {
-            "toolUseId": "missing",
-            "status": "error",
-            "content": [{"text": "Unknown tool: missing"}],
-        },
-    ]
-
-    assert tru_events == exp_events
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hooks(agent, hook_provider, tool_times_2, alist):
-    """Test that the correct hooks are emitted."""
-
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
-        invocation_state={},
-    )
-    await alist(process)
-
-    assert len(hook_provider.events_received) == 2
-
-    assert hook_provider.events_received[0] == BeforeToolInvocationEvent(
-        agent=agent,
-        selected_tool=tool_times_2,
-        tool_use={"input": {"x": 5}, "name": "multiply_by_2", "toolUseId": "test"},
-        invocation_state=ANY,
-    )
-
-    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
-        agent=agent,
-        selected_tool=tool_times_2,
-        exception=None,
-        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
-        result={"toolUseId": "test", "status": "success", "content": [{"text": "10"}]},
-        invocation_state=ANY,
-    )
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hooks_on_missing_tool(agent, hook_provider, alist):
-    """Test that AfterToolInvocation hook is invoked even when tool throws exception."""
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "test", "name": "missing_tool", "input": {"x": 5}},
-        invocation_state={},
-    )
-    await alist(process)
-
-    assert len(hook_provider.events_received) == 2
-
-    assert hook_provider.events_received[0] == BeforeToolInvocationEvent(
-        agent=agent,
-        selected_tool=None,
-        tool_use={"input": {"x": 5}, "name": "missing_tool", "toolUseId": "test"},
-        invocation_state=ANY,
-    )
-
-    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
-        agent=agent,
-        selected_tool=None,
-        tool_use={"input": {"x": 5}, "name": "missing_tool", "toolUseId": "test"},
-        invocation_state=ANY,
-        result={"content": [{"text": "Unknown tool: missing_tool"}], "status": "error", "toolUseId": "test"},
-        exception=None,
-    )
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hook_after_tool_invocation_on_exception(agent, tool_registry, hook_provider, alist):
-    """Test that AfterToolInvocation hook is invoked even when tool throws exception."""
-    error = ValueError("Tool failed")
-
-    failing_tool = MagicMock()
-    failing_tool.tool_name = "failing_tool"
-
-    failing_tool.stream.side_effect = error
-
-    tool_registry.register_tool(failing_tool)
-
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "test", "name": "failing_tool", "input": {"x": 5}},
-        invocation_state={},
-    )
-    await alist(process)
-
-    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
-        agent=agent,
-        selected_tool=failing_tool,
-        tool_use={"input": {"x": 5}, "name": "failing_tool", "toolUseId": "test"},
-        invocation_state=ANY,
-        result={"content": [{"text": "Error: Tool failed"}], "status": "error", "toolUseId": "test"},
-        exception=error,
-    )
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hook_before_tool_invocation_updates(agent, tool_times_5, hook_registry, hook_provider, alist):
-    """Test that modifying properties on BeforeToolInvocation takes effect."""
-
-    updated_tool_use = {"toolUseId": "modified", "name": "replacement_tool", "input": {"x": 3}}
-
-    def modify_hook(event: BeforeToolInvocationEvent):
-        # Modify selected_tool to use replacement_tool
-        event.selected_tool = tool_times_5
-        # Modify tool_use to change toolUseId
-        event.tool_use = updated_tool_use
-
-    hook_registry.add_callback(BeforeToolInvocationEvent, modify_hook)
-
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "original", "name": "original_tool", "input": {"x": 1}},
-        invocation_state={},
-    )
-    result = (await alist(process))[-1]
-
-    # Should use replacement_tool (5 * 3 = 15) instead of original_tool (1 * 2 = 2)
-    assert result == {"toolUseId": "modified", "status": "success", "content": [{"text": "15"}]}
-
-    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
-        agent=agent,
-        selected_tool=tool_times_5,
-        tool_use=updated_tool_use,
-        invocation_state=ANY,
-        result={"content": [{"text": "15"}], "status": "success", "toolUseId": "modified"},
-        exception=None,
-    )
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hook_after_tool_invocation_updates(agent, tool_times_2, hook_registry, alist):
-    """Test that modifying properties on AfterToolInvocation takes effect."""
-
-    updated_result = {"toolUseId": "modified", "status": "success", "content": [{"text": "modified_result"}]}
-
-    def modify_hook(event: AfterToolInvocationEvent):
-        # Modify result to change the output
-        event.result = updated_result
-
-    hook_registry.add_callback(AfterToolInvocationEvent, modify_hook)
-
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
-        invocation_state={},
-    )
-
-    result = (await alist(process))[-1]
-    assert result == updated_result
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hook_after_tool_invocation_updates_with_missing_tool(agent, hook_registry, alist):
-    """Test that modifying properties on AfterToolInvocation takes effect."""
-
-    updated_result = {"toolUseId": "modified", "status": "success", "content": [{"text": "modified_result"}]}
-
-    def modify_hook(event: AfterToolInvocationEvent):
-        # Modify result to change the output
-        event.result = updated_result
-
-    hook_registry.add_callback(AfterToolInvocationEvent, modify_hook)
-
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "test", "name": "missing_tool", "input": {"x": 5}},
-        invocation_state={},
-    )
-
-    result = (await alist(process))[-1]
-    assert result == updated_result
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hook_update_result_with_missing_tool(agent, tool_registry, hook_registry, alist):
-    """Test that modifying properties on AfterToolInvocation takes effect."""
-
-    @strands.tool
-    def test_quota():
-        return "9"
-
-    tool_registry.register_tool(test_quota)
-
-    class ExampleProvider(HookProvider):
-        def register_hooks(self, registry: "HookRegistry") -> None:
-            registry.add_callback(BeforeToolInvocationEvent, self.before_tool_call)
-            registry.add_callback(AfterToolInvocationEvent, self.after_tool_call)
-
-        def before_tool_call(self, event: BeforeToolInvocationEvent):
-            if event.tool_use.get("name") == "test_quota":
-                event.selected_tool = None
-
-        def after_tool_call(self, event: AfterToolInvocationEvent):
-            if event.tool_use.get("name") == "test_quota":
-                event.result = {
-                    "status": "error",
-                    "toolUseId": "test",
-                    "content": [{"text": "This tool has been used too many times!"}],
-                }
-
-    hook_registry.add_hook(ExampleProvider())
-
-    with patch.object(strands.event_loop.event_loop, "logger") as mock_logger:
-        process = run_tool(
-            agent=agent,
-            tool_use={"toolUseId": "test", "name": "test_quota", "input": {"x": 5}},
-            invocation_state={},
-        )
-
-        result = (await alist(process))[-1]
-
-    assert result == {
-        "status": "error",
-        "toolUseId": "test",
-        "content": [{"text": "This tool has been used too many times!"}],
-    }
-
-    assert mock_logger.debug.call_args_list == [
-        call("tool_use=<%s> | streaming", {"toolUseId": "test", "name": "test_quota", "input": {"x": 5}}),
-        call(
-            "tool_name=<%s>, tool_use_id=<%s> | a hook resulted in a non-existing tool call",
-            "test_quota",
-            "test",
-        ),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_event_loop_cycle_exception_model_hooks(mock_time, agent, model, agenerator, alist, hook_provider):
+async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, agenerator, alist, hook_provider):
     """Test that model hooks are correctly emitted even when throttled."""
     # Set up the model to raise throttling exceptions multiple times before succeeding
     exception = ModelThrottledException("ThrottlingException | ConverseStream")
@@ -1034,26 +851,225 @@ async def test_event_loop_cycle_exception_model_hooks(mock_time, agent, model, a
 
     count, events = hook_provider.get_events()
 
-    assert count == 8
+    assert count == 9
 
     # 1st call - throttled
-    assert next(events) == BeforeModelInvocationEvent(agent=agent)
-    assert next(events) == AfterModelInvocationEvent(agent=agent, stop_response=None, exception=exception)
+    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
 
     # 2nd call - throttled
-    assert next(events) == BeforeModelInvocationEvent(agent=agent)
-    assert next(events) == AfterModelInvocationEvent(agent=agent, stop_response=None, exception=exception)
+    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
 
     # 3rd call - throttled
-    assert next(events) == BeforeModelInvocationEvent(agent=agent)
-    assert next(events) == AfterModelInvocationEvent(agent=agent, stop_response=None, exception=exception)
+    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
 
     # 4th call - successful
-    assert next(events) == BeforeModelInvocationEvent(agent=agent)
-    assert next(events) == AfterModelInvocationEvent(
+    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == AfterModelCallEvent(
         agent=agent,
-        stop_response=AfterModelInvocationEvent.ModelStopResponse(
+        stop_response=AfterModelCallEvent.ModelStopResponse(
             message={"content": [{"text": "test text"}], "role": "assistant"}, stop_reason="end_turn"
         ),
         exception=None,
     )
+
+    # Final message
+    assert next(events) == MessageAddedEvent(
+        agent=agent, message={"content": [{"text": "test text"}], "role": "assistant"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator, alist):
+    def interrupt_callback(event):
+        event.interrupt("test_name", "test reason")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
+
+    model.stream.side_effect = [agenerator(tool_stream)]
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={})
+    events = await alist(stream)
+
+    tru_stop_reason, _, _, _, tru_interrupts, _ = events[-1]["stop"]
+    exp_stop_reason = "interrupt"
+    exp_interrupts = [
+        Interrupt(
+            id="v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+            name="test_name",
+            reason="test reason",
+        ),
+    ]
+
+    assert tru_stop_reason == exp_stop_reason and tru_interrupts == exp_interrupts
+
+    tru_state = agent._interrupt_state.to_dict()
+    exp_state = {
+        "activated": True,
+        "context": {
+            "tool_results": [],
+            "tool_use_message": {
+                "content": [
+                    {
+                        "toolUse": {
+                            "input": {"random_string": "abcdEfghI123"},
+                            "name": "tool_for_testing",
+                            "toolUseId": "t1",
+                        },
+                    },
+                ],
+                "role": "assistant",
+            },
+        },
+        "interrupts": {
+            "v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9": {
+                "id": "v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+                "name": "test_name",
+                "reason": "test reason",
+                "response": None,
+            },
+        },
+    }
+    assert tru_state == exp_state
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_2, agenerator, alist):
+    interrupt = Interrupt(
+        id="v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+        name="test_name",
+        reason="test reason",
+        response="test response",
+    )
+
+    tool_use_message = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "t1",
+                    "name": "tool_for_testing",
+                    "input": {"random_string": "test input"},
+                }
+            },
+            {
+                "toolUse": {
+                    "toolUseId": "t2",
+                    "name": "tool_times_2",
+                    "input": {},
+                }
+            },
+        ],
+    }
+    tool_results = [
+        {
+            "toolUseId": "t2",
+            "status": "success",
+            "content": [{"text": "t2 result"}],
+        },
+    ]
+
+    agent._interrupt_state.context = {"tool_use_message": tool_use_message, "tool_results": tool_results}
+    agent._interrupt_state.interrupts[interrupt.id] = interrupt
+    agent._interrupt_state.activate()
+
+    interrupt_response = {}
+
+    def interrupt_callback(event):
+        interrupt_response["response"] = event.interrupt("test_name", "test reason")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
+
+    model.stream.side_effect = [agenerator([{"contentBlockStop": {}}])]
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={})
+    events = await alist(stream)
+
+    tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
+    exp_stop_reason = "end_turn"
+    assert tru_stop_reason == exp_stop_reason
+
+    tru_result_message = agent.messages[-2]
+    exp_result_message = {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "t2",
+                    "status": "success",
+                    "content": [{"text": "t2 result"}],
+                },
+            },
+            {
+                "toolResult": {
+                    "toolUseId": "t1",
+                    "status": "success",
+                    "content": [{"text": "test input"}],
+                },
+            },
+        ],
+    }
+    assert tru_result_message == exp_result_message
+
+    tru_response = interrupt_response["response"]
+    exp_response = "test response"
+    assert tru_response == exp_response
+
+    tru_state = agent._interrupt_state.to_dict()
+    exp_state = {
+        "activated": False,
+        "context": {},
+        "interrupts": {},
+    }
+    assert tru_state == exp_state
+
+
+@pytest.mark.asyncio
+async def test_invalid_tool_names_adds_tool_uses(agent, model, alist):
+    model.stream = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "tool_use_id",
+                            "name": "invalid tool",
+                            "input": "{}",
+                        }
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "I invoked a tool!"}]},
+        ]
+    ).stream
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state={},
+    )
+    events = await alist(stream)
+
+    # ensure that we got end_turn and not tool_use
+    assert events[-1] == EventLoopStopEvent(
+        stop_reason="end_turn",
+        message={"content": [{"text": "I invoked a tool!"}], "role": "assistant"},
+        metrics=ANY,
+        request_state={},
+    )
+
+    # Ensure that an "invalid tool name" message was added properly
+    assert agent.messages[-2] == {
+        "content": [
+            {
+                "toolResult": {
+                    "content": [{"text": "Error: tool_name=<invalid tool> | invalid tool name pattern"}],
+                    "status": "error",
+                    "toolUseId": "tool_use_id",
+                }
+            }
+        ],
+        "role": "user",
+    }

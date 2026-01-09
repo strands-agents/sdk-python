@@ -11,7 +11,7 @@ from opentelemetry.metrics import Counter, Histogram, Meter
 
 from ..telemetry import metrics_constants as constants
 from ..types.content import Message
-from ..types.streaming import Metrics, Usage
+from ..types.event_loop import Metrics, Usage
 from ..types.tools import ToolUse
 
 logger = logging.getLogger(__name__)
@@ -152,6 +152,34 @@ class ToolMetrics:
 
 
 @dataclass
+class EventLoopCycleMetric:
+    """Aggregated metrics for a single event loop cycle.
+
+    Attributes:
+        event_loop_cycle_id: Current eventLoop cycle id.
+        usage: Total token usage for the entire cycle (succeeded model invocation, excluding tool invocations).
+    """
+
+    event_loop_cycle_id: str
+    usage: Usage
+
+
+@dataclass
+class AgentInvocation:
+    """Metrics for a single agent invocation.
+
+    AgentInvocation contains all the event loop cycles and accumulated token usage for that invocation.
+
+    Attributes:
+        cycles: List of event loop cycles that occurred during this invocation.
+        usage: Accumulated token usage for this invocation across all cycles.
+    """
+
+    cycles: list[EventLoopCycleMetric] = field(default_factory=list)
+    usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
+
+
+@dataclass
 class EventLoopMetrics:
     """Aggregated metrics for an event loop's execution.
 
@@ -159,15 +187,17 @@ class EventLoopMetrics:
         cycle_count: Number of event loop cycles executed.
         tool_metrics: Metrics for each tool used, keyed by tool name.
         cycle_durations: List of durations for each cycle in seconds.
+        agent_invocations: Agent invocation metrics containing cycles and usage data.
         traces: List of execution traces.
-        accumulated_usage: Accumulated token usage across all model invocations.
+        accumulated_usage: Accumulated token usage across all model invocations (across all requests).
         accumulated_metrics: Accumulated performance metrics across all model invocations.
     """
 
     cycle_count: int = 0
-    tool_metrics: Dict[str, ToolMetrics] = field(default_factory=dict)
-    cycle_durations: List[float] = field(default_factory=list)
-    traces: List[Trace] = field(default_factory=list)
+    tool_metrics: dict[str, ToolMetrics] = field(default_factory=dict)
+    cycle_durations: list[float] = field(default_factory=list)
+    agent_invocations: list[AgentInvocation] = field(default_factory=list)
+    traces: list[Trace] = field(default_factory=list)
     accumulated_usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
 
@@ -176,14 +206,23 @@ class EventLoopMetrics:
         """Get the singleton MetricsClient instance."""
         return MetricsClient()
 
+    @property
+    def latest_agent_invocation(self) -> Optional[AgentInvocation]:
+        """Get the most recent agent invocation.
+
+        Returns:
+            The most recent AgentInvocation, or None if no invocations exist.
+        """
+        return self.agent_invocations[-1] if self.agent_invocations else None
+
     def start_cycle(
         self,
-        attributes: Optional[Dict[str, Any]] = None,
+        attributes: Dict[str, Any],
     ) -> Tuple[float, Trace]:
         """Start a new event loop cycle and create a trace for it.
 
         Args:
-            attributes: attributes of the metrics.
+            attributes: attributes of the metrics, including event_loop_cycle_id.
 
         Returns:
             A tuple containing the start time and the cycle trace object.
@@ -194,6 +233,14 @@ class EventLoopMetrics:
         start_time = time.time()
         cycle_trace = Trace(f"Cycle {self.cycle_count}", start_time=start_time)
         self.traces.append(cycle_trace)
+
+        self.agent_invocations[-1].cycles.append(
+            EventLoopCycleMetric(
+                event_loop_cycle_id=attributes["event_loop_cycle_id"],
+                usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
+            )
+        )
+
         return start_time, cycle_trace
 
     def end_cycle(self, start_time: float, cycle_trace: Trace, attributes: Optional[Dict[str, Any]] = None) -> None:
@@ -252,17 +299,53 @@ class EventLoopMetrics:
         )
         tool_trace.end()
 
+    def _accumulate_usage(self, target: Usage, source: Usage) -> None:
+        """Helper method to accumulate usage from source to target.
+
+        Args:
+            target: The Usage object to accumulate into.
+            source: The Usage object to accumulate from.
+        """
+        target["inputTokens"] += source["inputTokens"]
+        target["outputTokens"] += source["outputTokens"]
+        target["totalTokens"] += source["totalTokens"]
+
+        if "cacheReadInputTokens" in source:
+            target["cacheReadInputTokens"] = target.get("cacheReadInputTokens", 0) + source["cacheReadInputTokens"]
+
+        if "cacheWriteInputTokens" in source:
+            target["cacheWriteInputTokens"] = target.get("cacheWriteInputTokens", 0) + source["cacheWriteInputTokens"]
+
     def update_usage(self, usage: Usage) -> None:
         """Update the accumulated token usage with new usage data.
 
         Args:
             usage: The usage data to add to the accumulated totals.
         """
+        # Record metrics to OpenTelemetry
         self._metrics_client.event_loop_input_tokens.record(usage["inputTokens"])
         self._metrics_client.event_loop_output_tokens.record(usage["outputTokens"])
-        self.accumulated_usage["inputTokens"] += usage["inputTokens"]
-        self.accumulated_usage["outputTokens"] += usage["outputTokens"]
-        self.accumulated_usage["totalTokens"] += usage["totalTokens"]
+
+        # Handle optional cached token metrics for OpenTelemetry
+        if "cacheReadInputTokens" in usage:
+            self._metrics_client.event_loop_cache_read_input_tokens.record(usage["cacheReadInputTokens"])
+        if "cacheWriteInputTokens" in usage:
+            self._metrics_client.event_loop_cache_write_input_tokens.record(usage["cacheWriteInputTokens"])
+
+        self._accumulate_usage(self.accumulated_usage, usage)
+        self._accumulate_usage(self.agent_invocations[-1].usage, usage)
+
+        if self.agent_invocations[-1].cycles:
+            current_cycle = self.agent_invocations[-1].cycles[-1]
+            self._accumulate_usage(current_cycle.usage, usage)
+
+    def reset_usage_metrics(self) -> None:
+        """Start a new agent invocation by creating a new AgentInvocation.
+
+        This should be called at the start of a new request to begin tracking
+        a new agent invocation with fresh usage and cycle data.
+        """
+        self.agent_invocations.append(AgentInvocation())
 
     def update_metrics(self, metrics: Metrics) -> None:
         """Update the accumulated performance metrics with new metrics data.
@@ -271,6 +354,8 @@ class EventLoopMetrics:
             metrics: The metrics data to add to the accumulated totals.
         """
         self._metrics_client.event_loop_latency.record(metrics["latencyMs"])
+        if metrics.get("timeToFirstByteMs") is not None:
+            self._metrics_client.model_time_to_first_token.record(metrics["timeToFirstByteMs"])
         self.accumulated_metrics["latencyMs"] += metrics["latencyMs"]
 
     def get_summary(self) -> Dict[str, Any]:
@@ -305,6 +390,16 @@ class EventLoopMetrics:
             "traces": [trace.to_dict() for trace in self.traces],
             "accumulated_usage": self.accumulated_usage,
             "accumulated_metrics": self.accumulated_metrics,
+            "agent_invocations": [
+                {
+                    "usage": invocation.usage,
+                    "cycles": [
+                        {"event_loop_cycle_id": cycle.event_loop_cycle_id, "usage": cycle.usage}
+                        for cycle in invocation.cycles
+                    ],
+                }
+                for invocation in self.agent_invocations
+            ],
         }
         return summary
 
@@ -325,11 +420,21 @@ def _metrics_summary_to_lines(event_loop_metrics: EventLoopMetrics, allowed_name
         f"├─ Cycles: total={summary['total_cycles']}, avg_time={summary['average_cycle_time']:.3f}s, "
         f"total_time={summary['total_duration']:.3f}s"
     )
-    yield (
-        f"├─ Tokens: in={summary['accumulated_usage']['inputTokens']}, "
-        f"out={summary['accumulated_usage']['outputTokens']}, "
-        f"total={summary['accumulated_usage']['totalTokens']}"
-    )
+
+    # Build token display with optional cached tokens
+    token_parts = [
+        f"in={summary['accumulated_usage']['inputTokens']}",
+        f"out={summary['accumulated_usage']['outputTokens']}",
+        f"total={summary['accumulated_usage']['totalTokens']}",
+    ]
+
+    # Add cached token info if present
+    if summary["accumulated_usage"].get("cacheReadInputTokens"):
+        token_parts.append(f"cache_read_input_tokens={summary['accumulated_usage']['cacheReadInputTokens']}")
+    if summary["accumulated_usage"].get("cacheWriteInputTokens"):
+        token_parts.append(f"cache_write_input_tokens={summary['accumulated_usage']['cacheWriteInputTokens']}")
+
+    yield f"├─ Tokens: {', '.join(token_parts)}"
     yield f"├─ Bedrock Latency: {summary['accumulated_metrics']['latencyMs']}ms"
 
     yield "├─ Tool Usage:"
@@ -421,7 +526,9 @@ class MetricsClient:
     event_loop_latency: Histogram
     event_loop_input_tokens: Histogram
     event_loop_output_tokens: Histogram
-
+    event_loop_cache_read_input_tokens: Histogram
+    event_loop_cache_write_input_tokens: Histogram
+    model_time_to_first_token: Histogram
     tool_call_count: Counter
     tool_success_count: Counter
     tool_error_count: Counter
@@ -473,4 +580,13 @@ class MetricsClient:
         )
         self.event_loop_output_tokens = self.meter.create_histogram(
             name=constants.STRANDS_EVENT_LOOP_OUTPUT_TOKENS, unit="token"
+        )
+        self.event_loop_cache_read_input_tokens = self.meter.create_histogram(
+            name=constants.STRANDS_EVENT_LOOP_CACHE_READ_INPUT_TOKENS, unit="token"
+        )
+        self.event_loop_cache_write_input_tokens = self.meter.create_histogram(
+            name=constants.STRANDS_EVENT_LOOP_CACHE_WRITE_INPUT_TOKENS, unit="token"
+        )
+        self.model_time_to_first_token = self.meter.create_histogram(
+            name=constants.STRANDS_MODEL_TIME_TO_FIRST_TOKEN, unit="ms"
         )

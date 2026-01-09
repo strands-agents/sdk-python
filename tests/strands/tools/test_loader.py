@@ -1,11 +1,13 @@
 import os
 import re
+import sys
+import tempfile
 import textwrap
 
 import pytest
 
 from strands.tools.decorator import DecoratedFunctionTool
-from strands.tools.loader import ToolLoader
+from strands.tools.loader import _TOOL_MODULE_PREFIX, ToolLoader, load_tools_from_file_path
 from strands.tools.tools import PythonAgentTool
 
 
@@ -235,3 +237,110 @@ def test_load_tool_invalid_ext(tmp_path):
 def test_load_tool_no_spec(tool_path):
     with pytest.raises(AttributeError, match="Tool no_spec missing TOOL_SPEC"):
         ToolLoader.load_tool(tool_path, "no_spec")
+
+    with pytest.raises(AttributeError, match="Tool no_spec missing TOOL_SPEC"):
+        ToolLoader.load_tools(tool_path, "no_spec")
+
+    with pytest.raises(AttributeError, match="Tool no_spec missing TOOL_SPEC"):
+        ToolLoader.load_python_tool(tool_path, "no_spec")
+
+    with pytest.raises(AttributeError, match="Tool no_spec missing TOOL_SPEC"):
+        ToolLoader.load_python_tools(tool_path, "no_spec")
+
+
+@pytest.mark.parametrize(
+    "tool_path",
+    [
+        textwrap.dedent(
+            """
+            import strands
+
+            @strands.tools.tool
+            def alpha():
+                return "alpha"
+
+            @strands.tools.tool
+            def bravo():
+                return "bravo"
+            """
+        )
+    ],
+    indirect=True,
+)
+def test_load_python_tool_path_multiple_function_based(tool_path):
+    # load_python_tools, load_tools returns a list when multiple decorated tools are present
+    loaded_python_tools = ToolLoader.load_python_tools(tool_path, "alpha")
+
+    assert isinstance(loaded_python_tools, list)
+    assert len(loaded_python_tools) == 2
+    assert all(isinstance(t, DecoratedFunctionTool) for t in loaded_python_tools)
+    names = {t.tool_name for t in loaded_python_tools}
+    assert names == {"alpha", "bravo"}
+
+    loaded_tools = ToolLoader.load_tools(tool_path, "alpha")
+
+    assert isinstance(loaded_tools, list)
+    assert len(loaded_tools) == 2
+    assert all(isinstance(t, DecoratedFunctionTool) for t in loaded_tools)
+    names = {t.tool_name for t in loaded_tools}
+    assert names == {"alpha", "bravo"}
+
+
+@pytest.mark.parametrize(
+    "tool_path",
+    [
+        textwrap.dedent(
+            """
+            import strands
+
+            @strands.tools.tool
+            def alpha():
+                return "alpha"
+
+            @strands.tools.tool
+            def bravo():
+                return "bravo"
+            """
+        )
+    ],
+    indirect=True,
+)
+def test_load_tool_path_returns_single_tool(tool_path):
+    # loaded_python_tool and loaded_tool returns single item
+    loaded_python_tool = ToolLoader.load_python_tool(tool_path, "alpha")
+    loaded_tool = ToolLoader.load_tool(tool_path, "alpha")
+
+    assert loaded_python_tool.tool_name == "alpha"
+    assert loaded_tool.tool_name == "alpha"
+
+
+def test_load_tools_from_file_path_module_spec_missing():
+    with tempfile.NamedTemporaryFile() as f:
+        with pytest.raises(ImportError, match=f"Could not create spec for {os.path.basename(f.name)}"):
+            load_tools_from_file_path(f.name)
+
+
+def test_tool_module_prefix_prevents_collision():
+    """Test that tool modules are loaded with prefix to prevent sys.modules collisions."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(
+            textwrap.dedent("""
+            import strands
+
+            @strands.tools.tool
+            def test_tool():
+                return "test"
+        """)
+        )
+        f.flush()
+
+        # Load the tool
+        tools = load_tools_from_file_path(f.name)
+
+        # Check that module is in sys.modules with prefix
+        module_name = os.path.basename(f.name).split(".")[0]
+        prefixed_name = f"{_TOOL_MODULE_PREFIX}{module_name}"
+
+        assert prefixed_name in sys.modules
+        assert len(tools) == 1
+        assert tools[0].tool_name == "test_tool"

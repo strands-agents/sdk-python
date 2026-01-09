@@ -4,6 +4,7 @@ import pytest
 import strands
 from strands import Agent
 from strands.models import BedrockModel
+from strands.types.content import ContentBlock
 
 
 @pytest.fixture
@@ -27,12 +28,20 @@ def non_streaming_model():
 
 @pytest.fixture
 def streaming_agent(streaming_model, system_prompt):
-    return Agent(model=streaming_model, system_prompt=system_prompt, load_tools_from_directory=False)
+    return Agent(
+        model=streaming_model,
+        system_prompt=system_prompt,
+        load_tools_from_directory=False,
+    )
 
 
 @pytest.fixture
 def non_streaming_agent(non_streaming_model, system_prompt):
-    return Agent(model=non_streaming_model, system_prompt=system_prompt, load_tools_from_directory=False)
+    return Agent(
+        model=non_streaming_model,
+        system_prompt=system_prompt,
+        load_tools_from_directory=False,
+    )
 
 
 @pytest.fixture
@@ -184,6 +193,48 @@ def test_invoke_multi_modal_input(streaming_agent, yellow_img):
     assert "yellow" in text
 
 
+def test_document_citations(non_streaming_agent, letter_pdf):
+    content: list[ContentBlock] = [
+        {
+            "document": {
+                "name": "letter to shareholders",
+                "source": {"bytes": letter_pdf},
+                "citations": {"enabled": True},
+                "context": "This is a letter to shareholders",
+                "format": "pdf",
+            },
+        },
+        {"text": "What does the document say about artificial intelligence? Use citations to back up your answer."},
+    ]
+    non_streaming_agent(content)
+
+    assert any("citationsContent" in content for content in non_streaming_agent.messages[-1]["content"])
+
+    # Validate message structure is valid in multi-turn
+    non_streaming_agent("What is your favorite part?")
+
+
+def test_document_citations_streaming(streaming_agent, letter_pdf):
+    content: list[ContentBlock] = [
+        {
+            "document": {
+                "name": "letter to shareholders",
+                "source": {"bytes": letter_pdf},
+                "citations": {"enabled": True},
+                "context": "This is a letter to shareholders",
+                "format": "pdf",
+            },
+        },
+        {"text": "What does the document say about artificial intelligence? Use citations to back up your answer."},
+    ]
+    streaming_agent(content)
+
+    assert any("citationsContent" in content for content in streaming_agent.messages[-1]["content"])
+
+    # Validate message structure is valid in multi-turn
+    streaming_agent("What is your favorite part?")
+
+
 def test_structured_output_multi_modal_input(streaming_agent, yellow_img, yellow_color):
     content = [
         {"text": "Is this image red, blue, or yellow?"},
@@ -199,3 +250,39 @@ def test_structured_output_multi_modal_input(streaming_agent, yellow_img, yellow
     tru_color = streaming_agent.structured_output(type(yellow_color), content)
     exp_color = yellow_color
     assert tru_color == exp_color
+
+
+def test_redacted_content_handling():
+    """Test redactedContent handling with thinking mode."""
+    bedrock_model = BedrockModel(
+        model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        additional_request_fields={
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": 2000,
+            }
+        },
+    )
+
+    agent = Agent(name="test_redact", model=bedrock_model)
+    # https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#example-working-with-redacted-thinking-blocks
+    result = agent(
+        "ANTHROPIC_MAGIC_STRING_TRIGGER_REDACTED_THINKING_46C9A13E193C177646C7398A98432ECCCE4C1253D5E2D82641AC0E52CC2876CB"
+    )
+
+    assert "reasoningContent" in result.message["content"][0]
+    assert "redactedContent" in result.message["content"][0]["reasoningContent"]
+    assert isinstance(result.message["content"][0]["reasoningContent"]["redactedContent"], bytes)
+
+
+def test_multi_prompt_system_content():
+    """Test multi-prompt system content blocks."""
+    system_prompt_content = [
+        {"text": "You are a helpful assistant."},
+        {"text": "Always be concise."},
+        {"text": "End responses with 'Done.'"},
+    ]
+
+    agent = Agent(system_prompt=system_prompt_content, load_tools_from_directory=False)
+    # just verifying there is no failure
+    agent("Hello!")
