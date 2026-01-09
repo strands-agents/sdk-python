@@ -188,7 +188,7 @@ class A2AAgent:
             ValueError: If prompt is None.
             RuntimeError: If no response received from agent.
         """
-        result = None
+        result: AgentResult | None = None
         async for event in self.stream_async(prompt, **kwargs):
             if "result" in event:
                 result = event["result"]
