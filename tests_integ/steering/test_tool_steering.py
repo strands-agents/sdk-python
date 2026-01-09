@@ -1,4 +1,4 @@
-"""Integration tests for LLM steering handler."""
+"""Integration tests for tool steering (steer_before_tool)."""
 
 import pytest
 
@@ -30,7 +30,7 @@ async def test_llm_steering_handler_proceed():
     agent = Agent(tools=[send_notification])
     tool_use = {"name": "send_notification", "input": {"recipient": "user", "message": "hello"}}
 
-    effect = await handler.steer(agent, tool_use)
+    effect = await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     assert isinstance(effect, Proceed)
 
@@ -48,7 +48,7 @@ async def test_llm_steering_handler_guide():
     agent = Agent(tools=[send_email, send_notification])
     tool_use = {"name": "send_email", "input": {"recipient": "user", "message": "hello"}}
 
-    effect = await handler.steer(agent, tool_use)
+    effect = await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     assert isinstance(effect, Guide)
 
@@ -64,12 +64,12 @@ async def test_llm_steering_handler_interrupt():
     agent = Agent(tools=[send_email])
     tool_use = {"name": "send_email", "input": {"recipient": "user", "message": "hello"}}
 
-    effect = await handler.steer(agent, tool_use)
+    effect = await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     assert isinstance(effect, Interrupt)
 
 
-def test_agent_with_steering_e2e():
+def test_agent_with_tool_steering_e2e():
     """End-to-end test of agent with steering handler guiding tool choice."""
     handler = LLMSteeringHandler(
         system_prompt=(
