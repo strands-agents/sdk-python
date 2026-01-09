@@ -16,11 +16,14 @@ Usage:
 """
 
 import base64
+import json
 from typing import Literal
 
 from mcp.server import FastMCP
 from mcp.types import BlobResourceContents, CallToolResult, EmbeddedResource, TextContent, TextResourceContents
 from pydantic import BaseModel
+
+TEST_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
 
 
 class EchoResponse(BaseModel):
@@ -101,6 +104,22 @@ def start_echo_server():
                     ),
                 )
             ]
+
+    # Resources
+    @mcp.resource("test://static-text")
+    def static_text_resource() -> str:
+        """A static text resource for testing"""
+        return "This is the content of the static text resource."
+
+    @mcp.resource("test://static-binary")
+    def static_binary_resource() -> bytes:
+        """A static binary resource (image) for testing"""
+        return base64.b64decode(TEST_IMAGE_BASE64)
+
+    @mcp.resource("test://template/{id}/data")
+    def template_resource(id: str) -> str:
+        """A resource template with parameter substitution"""
+        return json.dumps({"id": id, "templateTest": True, "data": f"Data for ID: {id}"})
 
     mcp.run(transport="stdio")
 

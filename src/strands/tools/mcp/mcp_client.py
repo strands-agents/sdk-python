@@ -21,11 +21,20 @@ from typing import Any, Callable, Coroutine, Dict, Optional, Pattern, Sequence, 
 import anyio
 from mcp import ClientSession, ListToolsResult
 from mcp.client.session import ElicitationFnT
-from mcp.types import BlobResourceContents, GetPromptResult, ListPromptsResult, TextResourceContents
+from mcp.types import (
+    BlobResourceContents,
+    GetPromptResult,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ReadResourceResult,
+    TextResourceContents,
+)
 from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import EmbeddedResource as MCPEmbeddedResource
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
+from pydantic import AnyUrl
 from typing_extensions import Protocol, TypedDict
 
 from ...experimental.tools import ToolProvider
@@ -448,6 +457,82 @@ class MCPClient(ToolProvider):
         self._log_debug_with_thread("received prompt from MCP server")
 
         return get_prompt_result
+
+    def list_resources_sync(self, pagination_token: Optional[str] = None) -> ListResourcesResult:
+        """Synchronously retrieves the list of available resources from the MCP server.
+
+        This method calls the asynchronous list_resources method on the MCP session
+        and returns the raw ListResourcesResult with pagination support.
+
+        Args:
+            pagination_token: Optional token for pagination
+
+        Returns:
+            ListResourcesResult: The raw MCP response containing resources and pagination info
+        """
+        self._log_debug_with_thread("listing MCP resources synchronously")
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+
+        async def _list_resources_async() -> ListResourcesResult:
+            return await cast(ClientSession, self._background_thread_session).list_resources(cursor=pagination_token)
+
+        list_resources_result: ListResourcesResult = self._invoke_on_background_thread(_list_resources_async()).result()
+        self._log_debug_with_thread("received %d resources from MCP server", len(list_resources_result.resources))
+
+        return list_resources_result
+
+    def read_resource_sync(self, uri: AnyUrl | str) -> ReadResourceResult:
+        """Synchronously reads a resource from the MCP server.
+
+        Args:
+            uri: The URI of the resource to read
+
+        Returns:
+            ReadResourceResult: The resource content from the MCP server
+        """
+        self._log_debug_with_thread("reading MCP resource synchronously: %s", uri)
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+
+        async def _read_resource_async() -> ReadResourceResult:
+            # Convert string to AnyUrl if needed
+            resource_uri = AnyUrl(uri) if isinstance(uri, str) else uri
+            return await cast(ClientSession, self._background_thread_session).read_resource(resource_uri)
+
+        read_resource_result: ReadResourceResult = self._invoke_on_background_thread(_read_resource_async()).result()
+        self._log_debug_with_thread("received resource content from MCP server")
+
+        return read_resource_result
+
+    def list_resource_templates_sync(self, pagination_token: Optional[str] = None) -> ListResourceTemplatesResult:
+        """Synchronously retrieves the list of available resource templates from the MCP server.
+
+        Resource templates define URI patterns that can be used to access resources dynamically.
+
+        Args:
+            pagination_token: Optional token for pagination
+
+        Returns:
+            ListResourceTemplatesResult: The raw MCP response containing resource templates and pagination info
+        """
+        self._log_debug_with_thread("listing MCP resource templates synchronously")
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+
+        async def _list_resource_templates_async() -> ListResourceTemplatesResult:
+            return await cast(ClientSession, self._background_thread_session).list_resource_templates(
+                cursor=pagination_token
+            )
+
+        list_resource_templates_result: ListResourceTemplatesResult = self._invoke_on_background_thread(
+            _list_resource_templates_async()
+        ).result()
+        self._log_debug_with_thread(
+            "received %d resource templates from MCP server", len(list_resource_templates_result.resourceTemplates)
+        )
+
+        return list_resource_templates_result
 
     def call_tool_sync(
         self,

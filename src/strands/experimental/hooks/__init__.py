@@ -1,18 +1,27 @@
 """Experimental hook functionality that has not yet reached stability."""
 
+from typing import Any
+
 from .events import (
-    AfterModelInvocationEvent,
-    AfterToolInvocationEvent,
-    BeforeModelInvocationEvent,
-    BeforeToolInvocationEvent,
+    BidiAfterConnectionRestartEvent,
     BidiAfterInvocationEvent,
     BidiAfterToolCallEvent,
     BidiAgentInitializedEvent,
+    BidiBeforeConnectionRestartEvent,
     BidiBeforeInvocationEvent,
     BidiBeforeToolCallEvent,
     BidiInterruptionEvent,
     BidiMessageAddedEvent,
 )
+
+# Deprecated aliases are accessed via __getattr__ to emit warnings only on use
+
+
+def __getattr__(name: str) -> Any:
+    from . import events
+
+    return getattr(events, name)
+
 
 __all__ = [
     "BeforeToolInvocationEvent",
@@ -27,4 +36,6 @@ __all__ = [
     "BidiBeforeToolCallEvent",
     "BidiAfterToolCallEvent",
     "BidiInterruptionEvent",
+    "BidiBeforeConnectionRestartEvent",
+    "BidiAfterConnectionRestartEvent",
 ]

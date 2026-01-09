@@ -10,7 +10,7 @@ via hook provider objects.
 import inspect
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Awaitable, Generator, Generic, Protocol, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Awaitable, Generator, Generic, Protocol, Type, TypeVar, runtime_checkable
 
 from ..interrupt import Interrupt, InterruptException
 
@@ -84,6 +84,7 @@ TInvokeEvent = TypeVar("TInvokeEvent", bound=BaseHookEvent)
 """Generic for invoking events - non-contravariant to enable returning events."""
 
 
+@runtime_checkable
 class HookProvider(Protocol):
     """Protocol for objects that provide hook callbacks to an agent.
 
