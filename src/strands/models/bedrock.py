@@ -196,6 +196,7 @@ class BedrockModel(Model):
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt_content: Optional[list[SystemContentBlock]] = None,
         tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
 
@@ -204,6 +205,7 @@ class BedrockModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments
 
         Returns:
             A Bedrock converse stream request.
@@ -643,7 +645,9 @@ class BedrockModel(Model):
         if system_prompt and system_prompt_content is None:
             system_prompt_content = [{"text": system_prompt}]
 
-        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice)
+        thread = asyncio.to_thread(
+            self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice, **kwargs
+        )
         task = asyncio.create_task(thread)
 
         while True:
@@ -662,6 +666,7 @@ class BedrockModel(Model):
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt_content: Optional[list[SystemContentBlock]] = None,
         tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
     ) -> None:
         """Stream conversation with the Bedrock model.
 
@@ -674,6 +679,7 @@ class BedrockModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt_content: System prompt content blocks to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            **kwargs: Additional keyword arguments
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
@@ -681,7 +687,7 @@ class BedrockModel(Model):
         """
         try:
             logger.debug("formatting request")
-            request = self._format_request(messages, tool_specs, system_prompt_content, tool_choice)
+            request = self._format_request(messages, tool_specs, system_prompt_content, tool_choice, **kwargs)
             logger.debug("request=<%s>", request)
 
             logger.debug("invoking model")
