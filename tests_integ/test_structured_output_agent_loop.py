@@ -132,16 +132,23 @@ class NameWithValidation(BaseModel):
 
 @tool
 def calculator(operation: str, a: float, b: float) -> float:
-    """Simple calculator tool for testing."""
-    if operation == "add":
+    """Simple calculator tool for testing.
+
+    Args:
+        operation: The operation to perform. One of: add, subtract, multiply, divide, power
+        a: The first number
+        b: The second number
+    """
+    op = operation.lower().strip()
+    if op in ("add", "+"):
         return a + b
-    elif operation == "subtract":
+    elif op in ("subtract", "-", "sub"):
         return a - b
-    elif operation == "multiply":
+    elif op in ("multiply", "*", "mul"):
         return a * b
-    elif operation == "divide":
-        return b / a if a != 0 else 0
-    elif operation == "power":
+    elif op in ("divide", "/", "div"):
+        return a / b if b != 0 else 0
+    elif op in ("power", "**", "pow"):
         return a**b
     else:
         return 0
