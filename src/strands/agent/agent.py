@@ -124,6 +124,7 @@ class Agent:
         hooks: Optional[list[HookProvider]] = None,
         session_manager: Optional[SessionManager] = None,
         tool_executor: Optional[ToolExecutor] = None,
+        retry_strategy: Optional[HookProvider] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -173,6 +174,9 @@ class Agent:
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
+            retry_strategy: Strategy for retrying model calls on throttling or other transient errors.
+                Defaults to ModelRetryStrategy with max_attempts=6, initial_delay=4s, max_delay=240s.
+                Pass NoopRetryStrategy to disable retries, or implement a custom HookProvider for custom retry logic.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -245,6 +249,11 @@ class Agent:
 
         self._interrupt_state = _InterruptState()
 
+        # Initialize retry strategy
+        from .retry import ModelRetryStrategy
+
+        self._retry_strategy = retry_strategy if retry_strategy is not None else ModelRetryStrategy()
+
         # Initialize session management functionality
         self._session_manager = session_manager
         if self._session_manager:
@@ -252,6 +261,9 @@ class Agent:
 
         # Allow conversation_managers to subscribe to hooks
         self.hooks.add_hook(self.conversation_manager)
+
+        # Register retry strategy as a hook
+        self.hooks.add_hook(self._retry_strategy)
 
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
 
@@ -288,6 +300,15 @@ class Agent:
                   - None: Clear the system prompt
         """
         self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(value)
+
+    @property
+    def retry_strategy(self) -> HookProvider:
+        """Get the retry strategy for this agent.
+
+        Returns:
+            The retry strategy hook provider.
+        """
+        return self._retry_strategy
 
     @property
     def tool(self) -> _ToolCaller:

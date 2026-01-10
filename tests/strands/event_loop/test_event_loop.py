@@ -31,9 +31,7 @@ from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 @pytest.fixture
 def mock_sleep():
-    with unittest.mock.patch.object(
-        strands.event_loop.event_loop.asyncio, "sleep", new_callable=unittest.mock.AsyncMock
-    ) as mock:
+    with patch.object(strands.agent.retry.asyncio, "sleep", new_callable=AsyncMock) as mock:
         yield mock
 
 
@@ -116,7 +114,13 @@ def tool_stream(tool):
 
 @pytest.fixture
 def hook_registry():
-    return HookRegistry()
+    from strands.agent.retry import ModelRetryStrategy
+
+    registry = HookRegistry()
+    # Register default retry strategy
+    retry_strategy = ModelRetryStrategy()
+    retry_strategy.register_hooks(registry)
+    return registry
 
 
 @pytest.fixture
@@ -133,6 +137,8 @@ def tool_executor():
 
 @pytest.fixture
 def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_registry, tool_executor):
+    from strands.agent.retry import ModelRetryStrategy
+
     mock = unittest.mock.Mock(name="agent")
     mock.__class__ = Agent
     mock.config.cache_points = []
@@ -147,6 +153,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.tool_executor = tool_executor
     mock._interrupt_state = _InterruptState()
     mock.trace_attributes = {}
+    mock.retry_strategy = ModelRetryStrategy()
 
     return mock
 
@@ -692,7 +699,9 @@ async def test_event_loop_tracing_with_throttling_exception(
     ]
 
     # Mock the time.sleep function to speed up the test
-    with patch("strands.event_loop.event_loop.asyncio.sleep", new_callable=unittest.mock.AsyncMock):
+    import asyncio
+
+    with patch.object(asyncio, "sleep", new_callable=unittest.mock.AsyncMock):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
             invocation_state={},
@@ -855,15 +864,21 @@ async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, 
 
     # 1st call - throttled
     assert next(events) == BeforeModelCallEvent(agent=agent)
-    assert next(events) == AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
+    expected_after = AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
+    expected_after.retry = True
+    assert next(events) == expected_after
 
     # 2nd call - throttled
     assert next(events) == BeforeModelCallEvent(agent=agent)
-    assert next(events) == AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
+    expected_after = AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
+    expected_after.retry = True
+    assert next(events) == expected_after
 
     # 3rd call - throttled
     assert next(events) == BeforeModelCallEvent(agent=agent)
-    assert next(events) == AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
+    expected_after = AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
+    expected_after.retry = True
+    assert next(events) == expected_after
 
     # 4th call - successful
     assert next(events) == BeforeModelCallEvent(agent=agent)
