@@ -9,6 +9,7 @@ Tests the unified BidiOpenAIRealtimeModel interface including:
 """
 
 import base64
+import itertools
 import json
 import unittest.mock
 
@@ -522,7 +523,7 @@ async def test_receive_lifecycle_events(mock_websocket, model):
 @unittest.mock.patch("strands.experimental.bidi.models.openai_realtime.time.time")
 @pytest.mark.asyncio
 async def test_receive_timeout(mock_time, model):
-    mock_time.side_effect = [1, 2]
+    mock_time.side_effect = itertools.count()
     model.timeout_s = 1
 
     await model.start()
