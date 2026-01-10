@@ -9,6 +9,7 @@ with the MCP service.
 
 import asyncio
 import base64
+import contextvars
 import logging
 import threading
 import uuid
@@ -179,7 +180,11 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError("the client session is currently running")
 
         self._log_debug_with_thread("entering MCPClient context")
-        self._background_thread = threading.Thread(target=self._background_task, args=[], daemon=True)
+        # Copy context vars to propagate to the background thread
+        # This ensures that context set in the main thread is accessible in the background thread
+        # See: https://github.com/strands-agents/sdk-python/issues/1440
+        ctx = contextvars.copy_context()
+        self._background_thread = threading.Thread(target=ctx.run, args=(self._background_task,), daemon=True)
         self._background_thread.start()
         self._log_debug_with_thread("background thread started, waiting for ready event")
         try:
