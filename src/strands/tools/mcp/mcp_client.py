@@ -8,6 +8,7 @@ with the MCP service.
 """
 
 import asyncio
+import contextvars
 import base64
 import logging
 import threading
@@ -178,8 +179,11 @@ class MCPClient(ToolProvider):
         if self._is_session_active():
             raise MCPClientInitializationError("the client session is currently running")
 
+        # Copy current context to propagate contextvars to background thread
+        ctx = contextvars.copy_context()
         self._log_debug_with_thread("entering MCPClient context")
-        self._background_thread = threading.Thread(target=self._background_task, args=[], daemon=True)
+        # Use ctx.run to ensure contextvars from the calling thread are accessible in the background thread
+        self._background_thread = threading.Thread(target=ctx.run, args=(self._background_task,), daemon=True)
         self._background_thread.start()
         self._log_debug_with_thread("background thread started, waiting for ready event")
         try:
