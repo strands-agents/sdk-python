@@ -201,9 +201,9 @@ class FunctionToolMetadata:
             if self._is_special_parameter(name):
                 continue
 
-            # Use param.annotation directly to get the raw type hint. Using get_type_hints()
-            # can cause inconsistent behavior across Python versions for complex Annotated types.
-            param_type = param.annotation
+            # Use self.type_hints to get resolved type hints. This handles __future__ annotations correctly.
+            # For Pydantic 2.12+, string annotations from __future__ must be resolved.
+            param_type = self.type_hints.get(name, param.annotation)
             if param_type is inspect.Parameter.empty:
                 param_type = Any
             default = ... if param.default is inspect.Parameter.empty else param.default
