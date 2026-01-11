@@ -10,10 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-import pytest
-
 from strands import tool
-from strands.types.tools import ToolUse
 
 
 def test_tool_with_literal_type_from_future_annotations():
