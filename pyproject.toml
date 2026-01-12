@@ -77,7 +77,7 @@ bidi = [
     "smithy-aws-core>=0.0.1; python_version>='3.12'",
 ]
 bidi-gemini = ["google-genai>=1.32.0,<2.0.0"]
-bidi-openai = ["websockets>=15.0.0,<16.0.0"]
+bidi-openai = ["websockets>=15.0.0,<17.0.0"]
 
 all = ["strands-agents[a2a,anthropic,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
 bidi-all = ["strands-agents[a2a,bidi,bidi-gemini,bidi-openai,docs,otel]"]
