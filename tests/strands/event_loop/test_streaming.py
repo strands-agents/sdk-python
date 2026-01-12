@@ -1117,7 +1117,6 @@ async def test_stream_messages(agenerator, alist):
         "test prompt",
         tool_choice=None,
         system_prompt_content=[{"text": "test prompt"}],
-        invocation_state=None,
     )
 
 
@@ -1151,7 +1150,6 @@ async def test_stream_messages_with_system_prompt_content(agenerator, alist):
         None,
         tool_choice=None,
         system_prompt_content=system_prompt_content,
-        invocation_state=None,
     )
 
 
@@ -1185,7 +1183,6 @@ async def test_stream_messages_single_text_block_backwards_compatibility(agenera
         "You are a helpful assistant.",
         tool_choice=None,
         system_prompt_content=system_prompt_content,
-        invocation_state=None,
     )
 
 
@@ -1217,7 +1214,6 @@ async def test_stream_messages_empty_system_prompt_content(agenerator, alist):
         None,
         tool_choice=None,
         system_prompt_content=[],
-        invocation_state=None,
     )
 
 
@@ -1249,7 +1245,6 @@ async def test_stream_messages_none_system_prompt_content(agenerator, alist):
         None,
         tool_choice=None,
         system_prompt_content=None,
-        invocation_state=None,
     )
 
     # Ensure that we're getting typed events coming out of process_stream
