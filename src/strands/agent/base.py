@@ -3,7 +3,8 @@
 Defines the minimal interface that all agent types must implement.
 """
 
-from typing import Any, AsyncIterator, Protocol, runtime_checkable
+from collections.abc import AsyncIterator
+from typing import Any, Protocol, runtime_checkable
 
 from ..types.agent import AgentInput
 from .agent_result import AgentResult

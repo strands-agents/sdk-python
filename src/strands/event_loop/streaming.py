@@ -4,7 +4,8 @@ import json
 import logging
 import time
 import warnings
-from typing import Any, AsyncGenerator, AsyncIterable, Optional
+from collections.abc import AsyncGenerator, AsyncIterable
+from typing import Any
 
 from ..models.model import Model
 from ..tools import InvalidToolUseNameException
@@ -419,12 +420,12 @@ async def process_stream(
 
 async def stream_messages(
     model: Model,
-    system_prompt: Optional[str],
+    system_prompt: str | None,
     messages: Messages,
     tool_specs: list[ToolSpec],
     *,
-    tool_choice: Optional[Any] = None,
-    system_prompt_content: Optional[list[SystemContentBlock]] = None,
+    tool_choice: Any | None = None,
+    system_prompt_content: list[SystemContentBlock] | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Streams messages to the model and processes the response.

@@ -1,6 +1,5 @@
 """Tests for StructuredOutputTool class."""
 
-from typing import List, Optional
 from unittest.mock import MagicMock
 
 import pytest
@@ -23,8 +22,8 @@ class ComplexModel(BaseModel):
 
     title: str = Field(..., description="Title field")
     count: int = Field(..., ge=0, le=100, description="Count between 0 and 100")
-    tags: List[str] = Field(default_factory=list, description="List of tags")
-    metadata: Optional[dict] = Field(None, description="Optional metadata")
+    tags: list[str] = Field(default_factory=list, description="List of tags")
+    metadata: dict | None = Field(None, description="Optional metadata")
 
 
 class ValidationTestModel(BaseModel):

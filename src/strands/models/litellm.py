@@ -5,7 +5,8 @@
 
 import json
 import logging
-from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
+from collections.abc import AsyncGenerator
+from typing import Any, TypedDict, TypeVar, cast
 
 import litellm
 from litellm.exceptions import ContextWindowExceededError
@@ -42,9 +43,9 @@ class LiteLLMModel(OpenAIModel):
         """
 
         model_id: str
-        params: Optional[dict[str, Any]]
+        params: dict[str, Any] | None
 
-    def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[LiteLLMConfig]) -> None:
+    def __init__(self, client_args: dict[str, Any] | None = None, **model_config: Unpack[LiteLLMConfig]) -> None:
         """Initialize provider instance.
 
         Args:
@@ -137,9 +138,9 @@ class LiteLLMModel(OpenAIModel):
     @classmethod
     def _format_system_messages(
         cls,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         *,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """Format system messages for LiteLLM with cache point support.
@@ -174,9 +175,9 @@ class LiteLLMModel(OpenAIModel):
     def format_request_messages(
         cls,
         messages: Messages,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         *,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """Format a LiteLLM compatible messages array with cache point support.
@@ -243,11 +244,11 @@ class LiteLLMModel(OpenAIModel):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the LiteLLM model.
@@ -295,8 +296,8 @@ class LiteLLMModel(OpenAIModel):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model.
 
         Some models do not support native structured output via response_format.
@@ -322,7 +323,7 @@ class LiteLLMModel(OpenAIModel):
         yield {"output": result}
 
     async def _structured_output_using_response_schema(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None
     ) -> T:
         """Get structured output using native response_format support."""
         response = await litellm.acompletion(
@@ -350,7 +351,7 @@ class LiteLLMModel(OpenAIModel):
             raise ValueError(f"Failed to parse or load content into model: {e}") from e
 
     async def _structured_output_using_tool(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None
     ) -> T:
         """Get structured output using tool calling fallback."""
         tool_spec = convert_pydantic_to_tool_spec(output_model)

@@ -224,6 +224,7 @@ select = [
   "G",   # logging format
   "I",   # isort
   "LOG", # logging
+  "UP"   # pyupgrade
 ]
 
 [tool.ruff.lint.per-file-ignores]

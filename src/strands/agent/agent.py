@@ -11,15 +11,10 @@ The Agent interface supports two complementary interaction patterns:
 
 import logging
 import warnings
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncGenerator,
-    AsyncIterator,
-    Callable,
-    Mapping,
-    Optional,
-    Type,
     TypeVar,
     Union,
     cast,
@@ -104,26 +99,24 @@ class Agent:
 
     def __init__(
         self,
-        model: Union[Model, str, None] = None,
-        messages: Optional[Messages] = None,
-        tools: Optional[list[Union[str, dict[str, str], "ToolProvider", Any]]] = None,
-        system_prompt: Optional[str | list[SystemContentBlock]] = None,
-        structured_output_model: Optional[Type[BaseModel]] = None,
-        callback_handler: Optional[
-            Union[Callable[..., Any], _DefaultCallbackHandlerSentinel]
-        ] = _DEFAULT_CALLBACK_HANDLER,
-        conversation_manager: Optional[ConversationManager] = None,
+        model: Model | str | None = None,
+        messages: Messages | None = None,
+        tools: list[Union[str, dict[str, str], "ToolProvider", Any]] | None = None,
+        system_prompt: str | list[SystemContentBlock] | None = None,
+        structured_output_model: type[BaseModel] | None = None,
+        callback_handler: Callable[..., Any] | _DefaultCallbackHandlerSentinel | None = _DEFAULT_CALLBACK_HANDLER,
+        conversation_manager: ConversationManager | None = None,
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = False,
-        trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        trace_attributes: Mapping[str, AttributeValue] | None = None,
         *,
-        agent_id: Optional[str] = None,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        state: Optional[Union[AgentState, dict]] = None,
-        hooks: Optional[list[HookProvider]] = None,
-        session_manager: Optional[SessionManager] = None,
-        tool_executor: Optional[ToolExecutor] = None,
+        agent_id: str | None = None,
+        name: str | None = None,
+        description: str | None = None,
+        state: AgentState | dict | None = None,
+        hooks: list[HookProvider] | None = None,
+        session_manager: SessionManager | None = None,
+        tool_executor: ToolExecutor | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -189,7 +182,7 @@ class Agent:
         # If not provided, create a new PrintingCallbackHandler instance
         # If explicitly set to None, use null_callback_handler
         # Otherwise use the passed callback_handler
-        self.callback_handler: Union[Callable[..., Any], PrintingCallbackHandler]
+        self.callback_handler: Callable[..., Any] | PrintingCallbackHandler
         if isinstance(callback_handler, _DefaultCallbackHandlerSentinel):
             self.callback_handler = PrintingCallbackHandler()
         elif callback_handler is None:
@@ -226,7 +219,7 @@ class Agent:
 
         # Initialize tracer instance (no-op if not configured)
         self.tracer = get_tracer()
-        self.trace_span: Optional[trace_api.Span] = None
+        self.trace_span: trace_api.Span | None = None
 
         # Initialize agent state management
         if state is not None:
@@ -319,7 +312,7 @@ class Agent:
         prompt: AgentInput = None,
         *,
         invocation_state: dict[str, Any] | None = None,
-        structured_output_model: Type[BaseModel] | None = None,
+        structured_output_model: type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -360,7 +353,7 @@ class Agent:
         prompt: AgentInput = None,
         *,
         invocation_state: dict[str, Any] | None = None,
-        structured_output_model: Type[BaseModel] | None = None,
+        structured_output_model: type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -397,7 +390,7 @@ class Agent:
 
         return cast(AgentResult, event["result"])
 
-    def structured_output(self, output_model: Type[T], prompt: AgentInput = None) -> T:
+    def structured_output(self, output_model: type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
@@ -428,7 +421,7 @@ class Agent:
 
         return run_async(lambda: self.structured_output_async(output_model, prompt))
 
-    async def structured_output_async(self, output_model: Type[T], prompt: AgentInput = None) -> T:
+    async def structured_output_async(self, output_model: type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
@@ -523,7 +516,7 @@ class Agent:
         prompt: AgentInput = None,
         *,
         invocation_state: dict[str, Any] | None = None,
-        structured_output_model: Type[BaseModel] | None = None,
+        structured_output_model: type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -612,7 +605,7 @@ class Agent:
         self,
         messages: Messages,
         invocation_state: dict[str, Any],
-        structured_output_model: Type[BaseModel] | None = None,
+        structured_output_model: type[BaseModel] | None = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
 
@@ -774,8 +767,8 @@ class Agent:
 
     def _end_agent_trace_span(
         self,
-        response: Optional[AgentResult] = None,
-        error: Optional[Exception] = None,
+        response: AgentResult | None = None,
+        error: Exception | None = None,
     ) -> None:
         """Ends a trace span for the agent.
 

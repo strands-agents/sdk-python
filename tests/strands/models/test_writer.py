@@ -1,5 +1,5 @@
 import unittest.mock
-from typing import Any, List
+from typing import Any
 
 import pytest
 
@@ -266,7 +266,7 @@ def test_format_request_with_unsupported_type(model, content, content_type):
 
 
 class AsyncStreamWrapper:
-    def __init__(self, items: List[Any]):
+    def __init__(self, items: list[Any]):
         self.items = items
 
     def __aiter__(self):
@@ -277,7 +277,7 @@ class AsyncStreamWrapper:
             yield item
 
 
-async def mock_streaming_response(items: List[Any]):
+async def mock_streaming_response(items: list[Any]):
     return AsyncStreamWrapper(items)
 
 

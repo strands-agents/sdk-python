@@ -3,8 +3,9 @@
 This module defines the AgentResult class which encapsulates the complete response from an agent's processing cycle.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence, cast
+from typing import Any, cast
 
 from pydantic import BaseModel
 

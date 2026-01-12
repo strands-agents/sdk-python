@@ -3,8 +3,9 @@
 import json
 import logging
 import os
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Literal, Optional, Type, TypedDict, TypeVar, Union
+from typing import Any, Literal, TypedDict, TypeVar
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -37,7 +38,7 @@ class UsageMetadata:
     total_tokens: int
     completion_tokens: int
     prompt_tokens: int
-    prompt_tokens_details: Optional[int] = 0
+    prompt_tokens_details: int | None = 0
 
 
 @dataclass
@@ -49,8 +50,8 @@ class FunctionCall:
         arguments: Arguments to pass to the function
     """
 
-    name: Union[str, dict[Any, Any]]
-    arguments: Union[str, dict[Any, Any]]
+    name: str | dict[Any, Any]
+    arguments: str | dict[Any, Any]
 
     def __init__(self, **kwargs: dict[str, str]):
         """Initialize function call.
@@ -108,12 +109,12 @@ class SageMakerAIModel(OpenAIModel):
 
         max_tokens: int
         stream: bool
-        temperature: Optional[float]
-        top_p: Optional[float]
-        top_k: Optional[int]
-        stop: Optional[list[str]]
-        tool_results_as_user_messages: Optional[bool]
-        additional_args: Optional[dict[str, Any]]
+        temperature: float | None
+        top_p: float | None
+        top_k: int | None
+        stop: list[str] | None
+        tool_results_as_user_messages: bool | None
+        additional_args: dict[str, Any] | None
 
     class SageMakerAIEndpointConfig(TypedDict, total=False):
         """Configuration options for SageMaker models.
@@ -127,17 +128,17 @@ class SageMakerAIModel(OpenAIModel):
 
         endpoint_name: str
         region_name: str
-        inference_component_name: Union[str, None]
-        target_model: Union[Optional[str], None]
-        target_variant: Union[Optional[str], None]
-        additional_args: Optional[dict[str, Any]]
+        inference_component_name: str | None
+        target_model: str | None | None
+        target_variant: str | None | None
+        additional_args: dict[str, Any] | None
 
     def __init__(
         self,
         endpoint_config: SageMakerAIEndpointConfig,
         payload_config: SageMakerAIPayloadSchema,
-        boto_session: Optional[boto3.Session] = None,
-        boto_client_config: Optional[BotocoreConfig] = None,
+        boto_session: boto3.Session | None = None,
+        boto_client_config: BotocoreConfig | None = None,
     ):
         """Initialize provider instance.
 
@@ -199,8 +200,8 @@ class SageMakerAIModel(OpenAIModel):
     def format_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
@@ -300,8 +301,8 @@ class SageMakerAIModel(OpenAIModel):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
@@ -572,8 +573,8 @@ class SageMakerAIModel(OpenAIModel):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model.
 
         Args:

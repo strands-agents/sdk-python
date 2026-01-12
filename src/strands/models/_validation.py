@@ -1,14 +1,15 @@
 """Configuration validation utilities for model providers."""
 
 import warnings
-from typing import Any, Mapping, Type
+from collections.abc import Mapping
+from typing import Any
 
 from typing_extensions import get_type_hints
 
 from ..types.tools import ToolChoice
 
 
-def validate_config_keys(config_dict: Mapping[str, Any], config_class: Type) -> None:
+def validate_config_keys(config_dict: Mapping[str, Any], config_class: type) -> None:
     """Validate that config keys match the TypedDict fields.
 
     Args:

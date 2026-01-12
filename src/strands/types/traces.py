@@ -1,20 +1,20 @@
 """Tracing type definitions for the SDK."""
 
-from typing import List, Mapping, Optional, Sequence, Union
+from collections.abc import Mapping, Sequence
 
-AttributeValue = Union[
-    str,
-    bool,
-    float,
-    int,
-    List[str],
-    List[bool],
-    List[float],
-    List[int],
-    Sequence[str],
-    Sequence[bool],
-    Sequence[int],
-    Sequence[float],
-]
+AttributeValue = (
+    str
+    | bool
+    | float
+    | int
+    | list[str]
+    | list[bool]
+    | list[float]
+    | list[int]
+    | Sequence[str]
+    | Sequence[bool]
+    | Sequence[int]
+    | Sequence[float]
+)
 
-Attributes = Optional[Mapping[str, AttributeValue]]
+Attributes = Mapping[str, AttributeValue] | None
