@@ -36,7 +36,11 @@ FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
 @pytest.fixture
 def mock_model(request):
     async def stream(*args, **kwargs):
-        result = mock.mock_stream(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+        # Skip deep copy of invocation_state which contains non-serializable objects (agent, spans, etc.)
+        copied_kwargs = {
+            key: value if key == "invocation_state" else copy.deepcopy(value) for key, value in kwargs.items()
+        }
+        result = mock.mock_stream(*copy.deepcopy(args), **copied_kwargs)
         # If result is already an async generator, yield from it
         if hasattr(result, "__aiter__"):
             async for item in result:
@@ -325,7 +329,7 @@ def test_agent__call__(
                 system_prompt,
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
-                invocation_state=None,
+                invocation_state=unittest.mock.ANY,
             ),
             unittest.mock.call(
                 [
@@ -364,7 +368,7 @@ def test_agent__call__(
                 system_prompt,
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
-                invocation_state=None,
+                invocation_state=unittest.mock.ANY,
             ),
         ],
     )
@@ -486,7 +490,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         unittest.mock.ANY,
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
-        invocation_state=None,
+        invocation_state=unittest.mock.ANY,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -632,7 +636,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         unittest.mock.ANY,
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
-        invocation_state=None,
+        invocation_state=unittest.mock.ANY,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
