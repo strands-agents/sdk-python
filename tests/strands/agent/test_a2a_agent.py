@@ -266,3 +266,183 @@ def test_del_handles_exception():
     with patch("strands.agent.a2a_agent.run_async", side_effect=RuntimeError("Event loop error")):
         # Should not raise - __del__ should catch exceptions
         agent.__del__()
+
+
+def test_get_httpx_client_creates_client_with_timeout():
+    """Test that _get_httpx_client creates client with configured timeout."""
+    agent = A2AAgent(endpoint="http://localhost:8000", timeout=120)
+
+    client = agent._get_httpx_client()
+
+    assert client is not None
+    assert agent._httpx_client is client
+    assert client.timeout.connect == 120
+
+
+def test_create_default_factory_uses_streaming():
+    """Test _create_default_factory creates factory with streaming enabled."""
+    agent = A2AAgent(endpoint="http://localhost:8000")
+
+    with patch("strands.agent.a2a_agent.ClientConfig") as mock_config_class:
+        with patch("strands.agent.a2a_agent.ClientFactory"):
+            agent._create_default_factory()
+
+            # Verify streaming=True is passed - this is the key behavior
+            call_kwargs = mock_config_class.call_args[1]
+            assert call_kwargs["streaming"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_a2a_client_uses_provided_factory(mock_agent_card):
+    """Test _get_a2a_client uses provided factory instead of creating default."""
+    external_factory = MagicMock()
+    mock_client = MagicMock()
+    external_factory.create.return_value = mock_client
+
+    agent = A2AAgent(endpoint="http://localhost:8000", a2a_client_factory=external_factory)
+
+    with patch.object(agent, "_get_agent_card", return_value=mock_agent_card):
+        client = await agent._get_a2a_client()
+
+        assert client is mock_client
+        external_factory.create.assert_called_once_with(mock_agent_card)
+
+
+def test_is_complete_event_message(a2a_agent):
+    """Test _is_complete_event returns True for Message."""
+    mock_message = MagicMock(spec=Message)
+
+    assert a2a_agent._is_complete_event(mock_message) is True
+
+
+def test_is_complete_event_tuple_with_none_update(a2a_agent):
+    """Test _is_complete_event returns True for tuple with None update event."""
+    mock_task = MagicMock()
+
+    assert a2a_agent._is_complete_event((mock_task, None)) is True
+
+
+def test_is_complete_event_artifact_last_chunk(a2a_agent):
+    """Test _is_complete_event handles TaskArtifactUpdateEvent last_chunk flag."""
+    from a2a.types import TaskArtifactUpdateEvent
+
+    mock_task = MagicMock()
+
+    # last_chunk=True -> complete
+    event_complete = MagicMock(spec=TaskArtifactUpdateEvent)
+    event_complete.last_chunk = True
+    assert a2a_agent._is_complete_event((mock_task, event_complete)) is True
+
+    # last_chunk=False -> not complete
+    event_incomplete = MagicMock(spec=TaskArtifactUpdateEvent)
+    event_incomplete.last_chunk = False
+    assert a2a_agent._is_complete_event((mock_task, event_incomplete)) is False
+
+    # last_chunk=None -> not complete
+    event_none = MagicMock(spec=TaskArtifactUpdateEvent)
+    event_none.last_chunk = None
+    assert a2a_agent._is_complete_event((mock_task, event_none)) is False
+
+
+def test_is_complete_event_status_update(a2a_agent):
+    """Test _is_complete_event handles TaskStatusUpdateEvent state."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent
+
+    mock_task = MagicMock()
+
+    # completed state -> complete
+    event_completed = MagicMock(spec=TaskStatusUpdateEvent)
+    event_completed.status = MagicMock()
+    event_completed.status.state = TaskState.completed
+    assert a2a_agent._is_complete_event((mock_task, event_completed)) is True
+
+    # working state -> not complete
+    event_working = MagicMock(spec=TaskStatusUpdateEvent)
+    event_working.status = MagicMock()
+    event_working.status.state = TaskState.working
+    assert a2a_agent._is_complete_event((mock_task, event_working)) is False
+
+    # no status -> not complete
+    event_no_status = MagicMock(spec=TaskStatusUpdateEvent)
+    event_no_status.status = None
+    assert a2a_agent._is_complete_event((mock_task, event_no_status)) is False
+
+
+def test_is_complete_event_unknown_type(a2a_agent):
+    """Test _is_complete_event returns False for unknown event types."""
+    assert a2a_agent._is_complete_event("unknown") is False
+
+
+@pytest.mark.asyncio
+async def test_stream_async_tracks_complete_events(a2a_agent, mock_agent_card):
+    """Test stream_async uses last complete event for final result."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent
+
+    mock_task = MagicMock()
+    mock_task.artifacts = None
+
+    # First event: incomplete
+    incomplete_event = MagicMock(spec=TaskStatusUpdateEvent)
+    incomplete_event.status = MagicMock()
+    incomplete_event.status.state = TaskState.working
+    incomplete_event.status.message = None
+
+    # Second event: complete
+    complete_event = MagicMock(spec=TaskStatusUpdateEvent)
+    complete_event.status = MagicMock()
+    complete_event.status.state = TaskState.completed
+    complete_event.status.message = MagicMock()
+    complete_event.status.message.parts = []
+
+    async def mock_send_message(*args, **kwargs):
+        yield (mock_task, incomplete_event)
+        yield (mock_task, complete_event)
+
+    with patch.object(a2a_agent, "_get_agent_card", return_value=mock_agent_card):
+        with patch("strands.agent.a2a_agent.ClientFactory") as mock_factory_class:
+            mock_client = AsyncMock()
+            mock_client.send_message = mock_send_message
+            mock_factory = MagicMock()
+            mock_factory.create.return_value = mock_client
+            mock_factory_class.return_value = mock_factory
+
+            events = []
+            async for event in a2a_agent.stream_async("Hello"):
+                events.append(event)
+
+            # Should have 2 stream events + 1 result event
+            assert len(events) == 3
+            assert "result" in events[2]
+
+
+@pytest.mark.asyncio
+async def test_stream_async_falls_back_to_last_event(a2a_agent, mock_agent_card):
+    """Test stream_async falls back to last event when no complete event."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent
+
+    mock_task = MagicMock()
+    mock_task.artifacts = None
+
+    incomplete_event = MagicMock(spec=TaskStatusUpdateEvent)
+    incomplete_event.status = MagicMock()
+    incomplete_event.status.state = TaskState.working
+    incomplete_event.status.message = None
+
+    async def mock_send_message(*args, **kwargs):
+        yield (mock_task, incomplete_event)
+
+    with patch.object(a2a_agent, "_get_agent_card", return_value=mock_agent_card):
+        with patch("strands.agent.a2a_agent.ClientFactory") as mock_factory_class:
+            mock_client = AsyncMock()
+            mock_client.send_message = mock_send_message
+            mock_factory = MagicMock()
+            mock_factory.create.return_value = mock_client
+            mock_factory_class.return_value = mock_factory
+
+            events = []
+            async for event in a2a_agent.stream_async("Hello"):
+                events.append(event)
+
+            # Should have 1 stream event + 1 result event (falls back to last)
+            assert len(events) == 2
+            assert "result" in events[1]

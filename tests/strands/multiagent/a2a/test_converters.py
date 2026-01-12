@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 from a2a.types import Message as A2AMessage
-from a2a.types import Part, Role, TextPart
+from a2a.types import Part, Role, TaskArtifactUpdateEvent, TaskStatusUpdateEvent, TextPart
 
 from strands.agent.agent_result import AgentResult
 from strands.multiagent.a2a.converters import (
@@ -113,3 +113,85 @@ def test_convert_multiple_parts_response():
     assert len(result.message["content"]) == 2
     assert result.message["content"][0]["text"] == "First"
     assert result.message["content"][1]["text"] == "Second"
+
+
+# --- New tests for coverage ---
+
+
+def test_convert_message_list_finds_last_user_message():
+    """Test that message list conversion finds the last user message."""
+    messages = [
+        {"role": "user", "content": [{"text": "First"}]},
+        {"role": "assistant", "content": [{"text": "Response"}]},
+        {"role": "user", "content": [{"text": "Second"}]},
+    ]
+
+    message = convert_input_to_message(messages)
+
+    assert message.parts[0].root.text == "Second"
+
+
+def test_convert_content_blocks_skips_non_text():
+    """Test that non-text content blocks are skipped."""
+    content_blocks = [{"text": "Hello"}, {"image": "data"}, {"text": "World"}]
+
+    parts = convert_content_blocks_to_parts(content_blocks)
+
+    assert len(parts) == 2
+
+
+def test_convert_task_artifact_update_event():
+    """Test converting TaskArtifactUpdateEvent to AgentResult."""
+    mock_task = MagicMock()
+    mock_part = MagicMock()
+    mock_part.root.text = "Streamed artifact"
+    mock_artifact = MagicMock()
+    mock_artifact.parts = [mock_part]
+
+    mock_event = MagicMock(spec=TaskArtifactUpdateEvent)
+    mock_event.artifact = mock_artifact
+
+    result = convert_response_to_agent_result((mock_task, mock_event))
+
+    assert result.message["content"][0]["text"] == "Streamed artifact"
+
+
+def test_convert_task_status_update_event():
+    """Test converting TaskStatusUpdateEvent to AgentResult."""
+    mock_task = MagicMock()
+    mock_part = MagicMock()
+    mock_part.root.text = "Status message"
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_status = MagicMock()
+    mock_status.message = mock_message
+
+    mock_event = MagicMock(spec=TaskStatusUpdateEvent)
+    mock_event.status = mock_status
+
+    result = convert_response_to_agent_result((mock_task, mock_event))
+
+    assert result.message["content"][0]["text"] == "Status message"
+
+
+def test_convert_response_handles_missing_data():
+    """Test that response conversion handles missing/malformed data gracefully."""
+    # TaskArtifactUpdateEvent with no artifact
+    mock_event = MagicMock(spec=TaskArtifactUpdateEvent)
+    mock_event.artifact = None
+    result = convert_response_to_agent_result((MagicMock(), mock_event))
+    assert len(result.message["content"]) == 0
+
+    # TaskStatusUpdateEvent with no status
+    mock_event = MagicMock(spec=TaskStatusUpdateEvent)
+    mock_event.status = None
+    result = convert_response_to_agent_result((MagicMock(), mock_event))
+    assert len(result.message["content"]) == 0
+
+    # Task artifact without parts attribute
+    mock_task = MagicMock()
+    mock_artifact = MagicMock(spec=[])
+    del mock_artifact.parts
+    mock_task.artifacts = [mock_artifact]
+    result = convert_response_to_agent_result((mock_task, None))
+    assert len(result.message["content"]) == 0
