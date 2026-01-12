@@ -346,6 +346,7 @@ async def _handle_model_execution(
                     tool_specs,
                     system_prompt_content=agent._system_prompt_content,
                     tool_choice=structured_output_context.tool_choice,
+                    invocation_state=invocation_state,
                 ):
                     yield event
 
