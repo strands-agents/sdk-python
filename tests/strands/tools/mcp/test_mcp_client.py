@@ -924,3 +924,21 @@ def test_list_resource_templates_sync_session_not_active():
 
     with pytest.raises(MCPClientInitializationError, match="client session is not running"):
         client.list_resource_templates_sync()
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_with_percent_in_message():
+    """Test that _handle_error_message handles messages containing % characters without string formatting errors.
+
+    This is a regression test for issue #1244 where MCP error messages containing '%' characters
+    (e.g., from URLs like "https://example.com/path?param=value%20encoded") would cause a
+    TypeError: not all arguments converted during string formatting.
+    """
+    client = MCPClient(MagicMock())
+
+    # Test with a message that contains % characters (like URL-encoded strings)
+    # This simulates the error that occurs when MCP servers return messages with % in them
+    error_with_percent = Exception("unknown request id: abc%20123%30def")
+
+    # This should not raise TypeError and should not raise the exception (since it's non-fatal)
+    await client._handle_error_message(error_with_percent)

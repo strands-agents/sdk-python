@@ -713,7 +713,7 @@ class MCPClient(ToolProvider):
         if isinstance(message, Exception):
             error_msg = str(message).lower()
             if any(pattern in error_msg for pattern in _NON_FATAL_ERROR_PATTERNS):
-                self._log_debug_with_thread("ignoring non-fatal MCP session error", message)
+                self._log_debug_with_thread("ignoring non-fatal MCP session error: %s", message)
             else:
                 raise message
         await anyio.lowlevel.checkpoint()

@@ -73,6 +73,7 @@ class Model(abc.ABC):
         *,
         tool_choice: ToolChoice | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
+        invocation_state: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> AsyncIterable[StreamEvent]:
         """Stream conversation with the model.
@@ -89,6 +90,7 @@ class Model(abc.ABC):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks for advanced features like caching.
+            invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
