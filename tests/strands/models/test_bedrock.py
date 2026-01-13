@@ -1090,6 +1090,7 @@ async def test_stream_with_streaming_false(bedrock_client, alist, messages):
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "test"}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn", "additionalModelResponseFields": None}},
@@ -1157,6 +1158,7 @@ async def test_stream_with_streaming_false_and_reasoning(bedrock_client, alist, 
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "Thinking really hard...."}}}},
         {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "123"}}}},
         {"contentBlockStop": {}},
@@ -1195,6 +1197,7 @@ async def test_stream_and_reasoning_no_signature(bedrock_client, alist, messages
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "Thinking really hard...."}}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "tool_use", "additionalModelResponseFields": None}},
@@ -1222,6 +1225,7 @@ async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "test"}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "tool_use", "additionalModelResponseFields": None}},
@@ -1263,6 +1267,7 @@ async def test_stream_input_guardrails(bedrock_client, alist, messages):
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "test"}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn", "additionalModelResponseFields": None}},
@@ -1314,6 +1319,7 @@ async def test_stream_output_guardrails(bedrock_client, alist, messages):
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "test"}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn", "additionalModelResponseFields": None}},
@@ -1367,6 +1373,7 @@ async def test_stream_output_guardrails_redacts_output(bedrock_client, alist, me
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "test"}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn", "additionalModelResponseFields": None}},
