@@ -39,7 +39,7 @@ from notebook import notebook
 from str_replace_based_edit_tool import str_replace_based_edit_tool
 
 # Strands configuration constants
-STRANDS_MODEL_ID = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+STRANDS_MODEL_ID = "global.anthropic.claude-opus-4-5-20251101-v1:0"
 STRANDS_MAX_TOKENS = 64000
 STRANDS_BUDGET_TOKENS = 8000
 STRANDS_REGION = "us-west-2"

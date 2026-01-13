@@ -10,6 +10,7 @@ The Agent interface supports two complementary interaction patterns:
 """
 
 import logging
+import threading
 import warnings
 from typing import (
     TYPE_CHECKING,
@@ -59,7 +60,7 @@ from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
-from ..types.exceptions import ContextWindowOverflowException
+from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
 from .conversation_manager import (
@@ -244,6 +245,11 @@ class Agent:
         self.hooks = HookRegistry()
 
         self._interrupt_state = _InterruptState()
+
+        # Initialize lock for guarding concurrent invocations
+        # Using threading.Lock instead of asyncio.Lock because run_async() creates
+        # separate event loops in different threads, so asyncio.Lock wouldn't work
+        self._invocation_lock = threading.Lock()
 
         # Initialize session management functionality
         self._session_manager = session_manager
@@ -554,6 +560,7 @@ class Agent:
                 - And other event data provided by the callback handler
 
         Raises:
+            ConcurrencyException: If another invocation is already in progress on this agent instance.
             Exception: Any exceptions from the agent invocation will be propagated to the caller.
 
         Example:
@@ -563,50 +570,63 @@ class Agent:
                     yield event["data"]
             ```
         """
-        self._interrupt_state.resume(prompt)
+        # Acquire lock to prevent concurrent invocations
+        # Using threading.Lock instead of asyncio.Lock because run_async() creates
+        # separate event loops in different threads
+        acquired = self._invocation_lock.acquire(blocking=False)
+        if not acquired:
+            raise ConcurrencyException(
+                "Agent is already processing a request. Concurrent invocations are not supported."
+            )
 
-        self.event_loop_metrics.reset_usage_metrics()
+        try:
+            self._interrupt_state.resume(prompt)
 
-        merged_state = {}
-        if kwargs:
-            warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
-            merged_state.update(kwargs)
-            if invocation_state is not None:
-                merged_state["invocation_state"] = invocation_state
-        else:
-            if invocation_state is not None:
-                merged_state = invocation_state
+            self.event_loop_metrics.reset_usage_metrics()
 
-        callback_handler = self.callback_handler
-        if kwargs:
-            callback_handler = kwargs.get("callback_handler", self.callback_handler)
+            merged_state = {}
+            if kwargs:
+                warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
+                merged_state.update(kwargs)
+                if invocation_state is not None:
+                    merged_state["invocation_state"] = invocation_state
+            else:
+                if invocation_state is not None:
+                    merged_state = invocation_state
 
-        # Process input and get message to add (if any)
-        messages = await self._convert_prompt_to_messages(prompt)
+            callback_handler = self.callback_handler
+            if kwargs:
+                callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
-        self.trace_span = self._start_agent_trace_span(messages)
+            # Process input and get message to add (if any)
+            messages = await self._convert_prompt_to_messages(prompt)
 
-        with trace_api.use_span(self.trace_span):
-            try:
-                events = self._run_loop(messages, merged_state, structured_output_model)
+            self.trace_span = self._start_agent_trace_span(messages)
 
-                async for event in events:
-                    event.prepare(invocation_state=merged_state)
+            with trace_api.use_span(self.trace_span):
+                try:
+                    events = self._run_loop(messages, merged_state, structured_output_model)
 
-                    if event.is_callback_event:
-                        as_dict = event.as_dict()
-                        callback_handler(**as_dict)
-                        yield as_dict
+                    async for event in events:
+                        event.prepare(invocation_state=merged_state)
 
-                result = AgentResult(*event["stop"])
-                callback_handler(result=result)
-                yield AgentResultEvent(result=result).as_dict()
+                        if event.is_callback_event:
+                            as_dict = event.as_dict()
+                            callback_handler(**as_dict)
+                            yield as_dict
 
-                self._end_agent_trace_span(response=result)
+                    result = AgentResult(*event["stop"])
+                    callback_handler(result=result)
+                    yield AgentResultEvent(result=result).as_dict()
 
-            except Exception as e:
-                self._end_agent_trace_span(error=e)
-                raise
+                    self._end_agent_trace_span(response=result)
+
+                except Exception as e:
+                    self._end_agent_trace_span(error=e)
+                    raise
+
+        finally:
+            self._invocation_lock.release()
 
     async def _run_loop(
         self,
