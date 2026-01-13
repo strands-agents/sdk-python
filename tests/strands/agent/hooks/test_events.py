@@ -177,13 +177,6 @@ def test_before_invocation_event_messages_default_none(agent):
     assert event.messages is None
 
 
-def test_before_invocation_event_messages_set_on_init(agent, sample_messages):
-    """Test that BeforeInvocationEvent.messages can be set on initialization."""
-    event = BeforeInvocationEvent(agent=agent, messages=sample_messages)
-    assert event.messages is sample_messages
-    assert event.messages == [{"role": "user", "content": [{"text": "Hello, agent!"}]}]
-
-
 def test_before_invocation_event_messages_writable(agent, sample_messages):
     """Test that BeforeInvocationEvent.messages can be modified in-place for guardrail redaction."""
     event = BeforeInvocationEvent(agent=agent, messages=sample_messages)

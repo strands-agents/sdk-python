@@ -39,12 +39,6 @@ class BeforeInvocationEvent(HookEvent):
     before any model inference or tool execution occurs. Hook providers can
     use this event to perform request-level setup, logging, or validation.
 
-    The messages attribute provides access to the input messages for this invocation,
-    allowing hooks to inspect or modify message content before processing. This is
-    particularly useful for implementing input guardrails (e.g., PII detection,
-    content moderation, prompt attack prevention) that need to run before messages
-    are added to the agent's conversation history.
-
     This event is triggered at the beginning of the following api calls:
       - Agent.__call__
       - Agent.stream_async
@@ -52,8 +46,7 @@ class BeforeInvocationEvent(HookEvent):
 
     Attributes:
         messages: The input messages for this invocation. Can be modified by hooks
-            to redact or transform content before processing. May be None for
-            backward compatibility or when invoked from deprecated methods.
+            to redact or transform content before processing.
     """
 
     messages: Messages | None = None
