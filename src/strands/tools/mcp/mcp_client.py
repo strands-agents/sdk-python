@@ -120,6 +120,8 @@ class MCPClient(ToolProvider):
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
         elicitation_callback: ElicitationFnT | None = None,
+        default_task_ttl_ms: int = 60000,
+        default_task_poll_timeout_seconds: float = 300.0,
     ) -> None:
         """Initialize a new MCP Server connection.
 
@@ -130,6 +132,10 @@ class MCPClient(ToolProvider):
             tool_filters: Optional filters to apply to tools.
             prefix: Optional prefix for tool names.
             elicitation_callback: Optional callback function to handle elicitation requests from the MCP server.
+            default_task_ttl_ms: Default time-to-live in milliseconds for task-augmented tool calls.
+                Defaults to 60000 (1 minute).
+            default_task_poll_timeout_seconds: Default timeout in seconds for polling task completion.
+                Defaults to 300.0 (5 minutes).
         """
         self._startup_timeout = startup_timeout
         self._tool_filters = tool_filters
@@ -153,6 +159,12 @@ class MCPClient(ToolProvider):
         self._loaded_tools: list[MCPAgentTool] | None = None
         self._tool_provider_started = False
         self._consumers: set[Any] = set()
+
+        # Task support caching
+        self._default_task_ttl_ms = default_task_ttl_ms
+        self._default_task_poll_timeout_seconds = default_task_poll_timeout_seconds
+        self._server_task_capable: bool | None = None
+        self._tool_task_support_cache: dict[str, str | None] = {}
 
     def __enter__(self) -> "MCPClient":
         """Context manager entry point which initializes the MCP server connection.
@@ -358,6 +370,8 @@ class MCPClient(ToolProvider):
         self._loaded_tools = None
         self._tool_provider_started = False
         self._consumers = set()
+        self._server_task_capable = None
+        self._tool_task_support_cache = {}
 
         if self._close_exception:
             exception = self._close_exception
@@ -392,14 +406,37 @@ class MCPClient(ToolProvider):
         effective_prefix = self._prefix if prefix is None else prefix
         effective_filters = self._tool_filters if tool_filters is None else tool_filters
 
-        async def _list_tools_async() -> ListToolsResult:
-            return await cast(ClientSession, self._background_thread_session).list_tools(cursor=pagination_token)
+        async def _list_tools_and_cache_capabilities_async() -> ListToolsResult:
+            session = cast(ClientSession, self._background_thread_session)
+            list_tools_result = await session.list_tools(cursor=pagination_token)
 
-        list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
+            # Cache server task capability while we have an active session
+            # This avoids needing a separate async call later during call_tool_*
+            if self._server_task_capable is None:
+                caps = session.get_server_capabilities()
+                self._server_task_capable = (
+                    caps is not None
+                    and caps.tasks is not None
+                    and caps.tasks.requests is not None
+                    and caps.tasks.requests.tools is not None
+                    and caps.tasks.requests.tools.call is not None
+                )
+
+            return list_tools_result
+
+        list_tools_response: ListToolsResult = self._invoke_on_background_thread(
+            _list_tools_and_cache_capabilities_async()
+        ).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
 
         mcp_tools = []
         for tool in list_tools_response.tools:
+            # Cache taskSupport for task-augmented execution decisions
+            task_support = None
+            if tool.execution is not None and tool.execution.taskSupport is not None:
+                task_support = tool.execution.taskSupport
+            self._tool_task_support_cache[tool.name] = task_support
+
             # Apply prefix if specified
             if effective_prefix:
                 prefixed_name = f"{effective_prefix}_{tool.name}"
@@ -539,6 +576,45 @@ class MCPClient(ToolProvider):
 
         return list_resource_templates_result
 
+    def _create_call_tool_coroutine(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None,
+        read_timeout_seconds: timedelta | None,
+    ) -> Coroutine[Any, Any, MCPCallToolResult]:
+        """Create the appropriate coroutine for calling a tool.
+
+        This method encapsulates the decision logic for whether to use task-augmented
+        execution or direct call_tool, returning the appropriate coroutine.
+
+        Args:
+            name: Name of the tool to call.
+            arguments: Optional arguments to pass to the tool.
+            read_timeout_seconds: Optional timeout for the tool call.
+
+        Returns:
+            A coroutine that will execute the tool call.
+        """
+        use_task = self._should_use_task(name)
+
+        if use_task:
+            self._log_debug_with_thread("tool=<%s> | using task-augmented execution", name)
+            poll_timeout = self._convert_timeout_for_polling(read_timeout_seconds)
+
+            async def _call_as_task() -> MCPCallToolResult:
+                return await self._call_tool_as_task_and_poll_async(name, arguments, poll_timeout_seconds=poll_timeout)
+
+            return _call_as_task()
+        else:
+            self._log_debug_with_thread("tool=<%s> | using direct call_tool", name)
+
+            async def _call_tool_direct() -> MCPCallToolResult:
+                return await cast(ClientSession, self._background_thread_session).call_tool(
+                    name, arguments, read_timeout_seconds
+                )
+
+            return _call_tool_direct()
+
     def call_tool_sync(
         self,
         tool_use_id: str,
@@ -548,10 +624,8 @@ class MCPClient(ToolProvider):
     ) -> MCPToolResult:
         """Synchronously calls a tool on the MCP server.
 
-        This method calls the asynchronous call_tool method on the MCP session
-        and converts the result to the ToolResult format. If the MCP tool returns
-        structured content, it will be included as the last item in the content array
-        of the returned ToolResult.
+        This method automatically uses task-augmented execution when appropriate,
+        based on server capabilities and tool-level taskSupport settings.
 
         Args:
             tool_use_id: Unique identifier for this tool use
@@ -566,13 +640,9 @@ class MCPClient(ToolProvider):
         if not self._is_session_active():
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
-        async def _call_tool_async() -> MCPCallToolResult:
-            return await cast(ClientSession, self._background_thread_session).call_tool(
-                name, arguments, read_timeout_seconds
-            )
-
         try:
-            call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(_call_tool_async()).result()
+            coro = self._create_call_tool_coroutine(name, arguments, read_timeout_seconds)
+            call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(coro).result()
             return self._handle_tool_result(tool_use_id, call_tool_result)
         except Exception as e:
             logger.exception("tool execution failed")
@@ -587,8 +657,8 @@ class MCPClient(ToolProvider):
     ) -> MCPToolResult:
         """Asynchronously calls a tool on the MCP server.
 
-        This method calls the asynchronous call_tool method on the MCP session
-        and converts the result to the MCPToolResult format.
+        This method automatically uses task-augmented execution when appropriate,
+        based on server capabilities and tool-level taskSupport settings.
 
         Args:
             tool_use_id: Unique identifier for this tool use
@@ -603,13 +673,9 @@ class MCPClient(ToolProvider):
         if not self._is_session_active():
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
-        async def _call_tool_async() -> MCPCallToolResult:
-            return await cast(ClientSession, self._background_thread_session).call_tool(
-                name, arguments, read_timeout_seconds
-            )
-
         try:
-            future = self._invoke_on_background_thread(_call_tool_async())
+            coro = self._create_call_tool_coroutine(name, arguments, read_timeout_seconds)
+            future = self._invoke_on_background_thread(coro)
             call_tool_result: MCPCallToolResult = await asyncio.wrap_future(future)
             return self._handle_tool_result(tool_use_id, call_tool_result)
         except Exception as e:
@@ -898,3 +964,205 @@ class MCPClient(ToolProvider):
             return False
 
         return True
+
+    def _has_server_task_support(self) -> bool:
+        """Check if the MCP server supports task-augmented tool calls.
+
+        Returns the cached capability value that was populated during list_tools_sync().
+        If list_tools_sync() hasn't been called yet, returns False (conservative default).
+
+        The capability is cached during list_tools_sync() to avoid needing a separate
+        async call during call_tool_*() operations.
+
+        Returns:
+            True if server supports task-augmented tool calls, False otherwise.
+        """
+        # Return cached value, defaulting to False if not yet populated
+        # The cache is populated during list_tools_sync()
+        return self._server_task_capable or False
+
+    def _get_tool_task_support(self, tool_name: str) -> str | None:
+        """Get the taskSupport setting for a tool.
+
+        Returns the cached taskSupport value for the given tool name.
+        The cache is populated during list_tools_sync().
+
+        Args:
+            tool_name: Name of the tool to look up.
+
+        Returns:
+            The taskSupport value ('required', 'optional', 'forbidden') or None if not cached.
+        """
+        return self._tool_task_support_cache.get(tool_name)
+
+    def _should_use_task(self, tool_name: str) -> bool:
+        """Determine if task-augmented execution should be used for a tool.
+
+        Implements the MCP spec decision matrix:
+        - If server doesn't support tasks: MUST NOT use tasks (returns False)
+        - If tool taskSupport is None or 'forbidden': MUST NOT use tasks (returns False)
+        - If tool taskSupport is 'required' and server supports: use tasks (returns True)
+        - If tool taskSupport is 'optional' and server supports: prefer tasks (returns True)
+
+        Per MCP spec, server capability check takes precedence over tool-level settings.
+
+        Args:
+            tool_name: Name of the tool to check.
+
+        Returns:
+            True if task-augmented execution should be used, False otherwise.
+        """
+        # Server capability check comes first (per MCP spec)
+        if not self._has_server_task_support():
+            return False
+
+        task_support = self._get_tool_task_support(tool_name)
+
+        # Use tasks for 'required' or 'optional' when server supports
+        if task_support == "required" or task_support == "optional":
+            return True
+
+        # Default: 'forbidden', None, or unknown -> don't use tasks
+        return False
+
+    def _convert_timeout_for_polling(self, read_timeout_seconds: timedelta | None) -> float | None:
+        """Convert a timedelta timeout to seconds for task polling.
+
+        When task-augmented execution is used, the read_timeout_seconds parameter
+        (which is a timedelta) needs to be converted to a float for the polling timeout.
+
+        Args:
+            read_timeout_seconds: Optional timedelta timeout from the call_tool API.
+
+        Returns:
+            Float seconds if timeout was specified, None to use default.
+        """
+        return read_timeout_seconds.total_seconds() if read_timeout_seconds else None
+
+    def _create_task_error_result(self, message: str) -> MCPCallToolResult:
+        """Create an error MCPCallToolResult with consistent formatting.
+
+        This helper reduces duplication in task error handling paths.
+
+        Args:
+            message: The error message to include in the result.
+
+        Returns:
+            MCPCallToolResult with isError=True and the message as text content.
+        """
+        return MCPCallToolResult(
+            isError=True,
+            content=[MCPTextContent(type="text", text=message)],
+        )
+
+    # ==================================================================================
+    # Task-Augmented Tool Execution
+    # ==================================================================================
+    #
+    # The MCP spec defines task-augmented execution for long-running tools. The flow is:
+    #
+    #   1. Check server capability (tasks.requests.tools.call) and tool setting (taskSupport)
+    #   2. If using tasks: call_tool_as_task() -> poll_task() -> get_task_result()
+    #   3. If not using tasks: call_tool() directly
+    #
+    # See: https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks
+    # ==================================================================================
+
+    async def _call_tool_as_task_and_poll_async(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        ttl_ms: int | None = None,
+        poll_timeout_seconds: float | None = None,
+    ) -> MCPCallToolResult:
+        """Call a tool using task-augmented execution and poll until completion.
+
+        This method implements the MCP task workflow:
+        1. Creates a task via call_tool_as_task
+        2. Polls using poll_task until terminal status (with timeout protection)
+        3. Gets the final result using get_task_result
+
+        Args:
+            name: Name of the tool to call.
+            arguments: Optional arguments to pass to the tool.
+            ttl_ms: Task time-to-live in milliseconds. Uses default_task_ttl_ms if not specified.
+            poll_timeout_seconds: Timeout for polling in seconds. Uses default_task_poll_timeout_seconds if not
+                specified.
+
+        Returns:
+            MCPCallToolResult: The final tool result after task completion.
+        """
+        session = cast(ClientSession, self._background_thread_session)
+        ttl = ttl_ms or self._default_task_ttl_ms
+        timeout = poll_timeout_seconds or self._default_task_poll_timeout_seconds
+
+        # Step 1: Create the task
+        self._log_debug_with_thread("tool=<%s> | calling tool as task with ttl=%d ms", name, ttl)
+        create_result = await session.experimental.call_tool_as_task(
+            name=name,
+            arguments=arguments,
+            ttl=ttl,
+        )
+        task_id = create_result.task.taskId
+        self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task created", name, task_id)
+
+        # Step 2: Poll until terminal status (with timeout protection)
+        # Note: Using asyncio.wait_for() instead of asyncio.timeout() for Python 3.10 compatibility
+        async def _poll_until_terminal() -> Any:
+            """Inner function to poll task status until terminal state."""
+            final = None
+            async for status in session.experimental.poll_task(task_id):
+                self._log_debug_with_thread(
+                    "tool=<%s>, task_id=<%s>, status=<%s> | task status update",
+                    name,
+                    task_id,
+                    status.status,
+                )
+                final = status
+            return final
+
+        try:
+            final_status = await asyncio.wait_for(_poll_until_terminal(), timeout=timeout)
+        except asyncio.TimeoutError:
+            self._log_debug_with_thread(
+                "tool=<%s>, task_id=<%s>, timeout=<%s> | task polling timed out", name, task_id, timeout
+            )
+            return self._create_task_error_result(f"Task {task_id} polling timed out after {timeout} seconds")
+
+        # Step 3: Handle terminal status
+        if final_status is None:
+            self._log_debug_with_thread("tool=<%s>, task_id=<%s> | polling completed without status", name, task_id)
+            return self._create_task_error_result(f"Task {task_id} polling completed without status")
+
+        if final_status.status == "failed":
+            error_msg = final_status.statusMessage or "Task failed"
+            self._log_debug_with_thread("tool=<%s>, task_id=<%s>, error=<%s> | task failed", name, task_id, error_msg)
+            return self._create_task_error_result(error_msg)
+
+        if final_status.status == "cancelled":
+            self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task was cancelled", name, task_id)
+            return self._create_task_error_result("Task was cancelled")
+
+        # Step 4: Get the actual result for completed tasks (with error handling for race conditions)
+        if final_status.status == "completed":
+            self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task completed, fetching result", name, task_id)
+            try:
+                result = await session.experimental.get_task_result(task_id, MCPCallToolResult)
+                self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task result retrieved", name, task_id)
+                return result
+            except Exception as e:
+                # Handle race condition: task completed but result retrieval failed
+                # (e.g., result expired, network error, server restarted)
+                self._log_debug_with_thread(
+                    "tool=<%s>, task_id=<%s>, error=<%s> | failed to retrieve task result", name, task_id, str(e)
+                )
+                return self._create_task_error_result(f"Task completed but result retrieval failed: {str(e)}")
+
+        # Unexpected status - return as error
+        self._log_debug_with_thread(
+            "tool=<%s>, task_id=<%s>, status=<%s> | unexpected task status",
+            name,
+            task_id,
+            final_status.status,
+        )
+        return self._create_task_error_result(f"Unexpected task status: {final_status.status}")
