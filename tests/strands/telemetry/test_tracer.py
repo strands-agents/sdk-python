@@ -1477,7 +1477,8 @@ def test_start_agent_span_with_system_prompt(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "ResearchAgent")
-        mock_span.set_attribute.assert_any_call("gen_ai.agent.system_prompt", system_prompt)
+        expected_value = json.dumps([{"type": "text", "content": system_prompt}])
+        mock_span.set_attribute.assert_any_call("gen_ai.system_instructions", expected_value)
         assert span is not None
 
 
@@ -1499,7 +1500,7 @@ def test_start_agent_span_without_system_prompt(mock_tracer):
 
         # Verify system_prompt attribute is NOT set when not provided
         set_attribute_calls = [call[0] for call in mock_span.set_attribute.call_args_list]
-        system_prompt_calls = [call for call in set_attribute_calls if call[0] == "gen_ai.agent.system_prompt"]
+        system_prompt_calls = [call for call in set_attribute_calls if call[0] == "gen_ai.system_instructions"]
         assert len(system_prompt_calls) == 0
         assert span is not None
 
@@ -1523,6 +1524,6 @@ def test_start_agent_span_with_empty_system_prompt(mock_tracer):
 
         # Verify system_prompt attribute is NOT set when empty
         set_attribute_calls = [call[0] for call in mock_span.set_attribute.call_args_list]
-        system_prompt_calls = [call for call in set_attribute_calls if call[0] == "gen_ai.agent.system_prompt"]
+        system_prompt_calls = [call for call in set_attribute_calls if call[0] == "gen_ai.system_instructions"]
         assert len(system_prompt_calls) == 0
         assert span is not None
