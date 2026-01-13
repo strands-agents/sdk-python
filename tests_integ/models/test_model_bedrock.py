@@ -286,3 +286,39 @@ def test_multi_prompt_system_content():
     agent = Agent(system_prompt=system_prompt_content, load_tools_from_directory=False)
     # just verifying there is no failure
     agent("Hello!")
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_contentBlockStart_for_text(non_streaming_model, alist):
+    """Test that contentBlockStart is emitted before contentBlockDelta for text blocks in non-streaming mode.
+    
+    This is a regression test for issue #1460: contentBlockStart event not fired for first contentBlock.
+    """
+    messages = [{"role": "user", "content": [{"text": "Hi, how are you?"}]}]
+    
+    # Collect all events
+    events = await alist(non_streaming_model.stream(messages))
+    
+    # Find the sequence of events
+    event_types = []
+    for event in events:
+        if "messageStart" in event:
+            event_types.append("messageStart")
+        elif "contentBlockStart" in event:
+            event_types.append("contentBlockStart")
+        elif "contentBlockDelta" in event:
+            event_types.append("contentBlockDelta")
+        elif "contentBlockStop" in event:
+            event_types.append("contentBlockStop")
+        elif "messageStop" in event:
+            event_types.append("messageStop")
+    
+    # Verify the correct sequence: messageStart -> contentBlockStart -> contentBlockDelta -> contentBlockStop -> messageStop
+    assert event_types[0] == "messageStart", "First event should be messageStart"
+    assert event_types[1] == "contentBlockStart", "Second event should be contentBlockStart"
+    assert event_types[2] == "contentBlockDelta", "Third event should be contentBlockDelta"
+    
+    # Verify contentBlockStart comes before first contentBlockDelta
+    first_delta_index = event_types.index("contentBlockDelta")
+    assert "contentBlockStart" in event_types[:first_delta_index], \
+        "contentBlockStart must appear before first contentBlockDelta"

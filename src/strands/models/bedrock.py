@@ -812,6 +812,9 @@ class BedrockModel(Model):
 
                 yield {"contentBlockDelta": {"delta": {"toolUse": {"input": input_value}}}}
             elif "text" in content:
+                # Yield contentBlockStart event for text blocks
+                yield {"contentBlockStart": {"start": {}}}
+
                 # Then yield the text as a delta
                 yield {
                     "contentBlockDelta": {
@@ -819,6 +822,9 @@ class BedrockModel(Model):
                     }
                 }
             elif "reasoningContent" in content:
+                # Yield contentBlockStart event for reasoning blocks
+                yield {"contentBlockStart": {"start": {}}}
+
                 # Then yield the reasoning content as a delta
                 yield {
                     "contentBlockDelta": {
@@ -837,6 +843,9 @@ class BedrockModel(Model):
                         }
                     }
             elif "citationsContent" in content:
+                # Yield contentBlockStart event for citations blocks
+                yield {"contentBlockStart": {"start": {}}}
+
                 # For non-streaming citations, emit text and metadata deltas in sequence
                 # to match streaming behavior where they flow naturally
                 if "content" in content["citationsContent"]:
