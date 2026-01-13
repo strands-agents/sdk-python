@@ -644,7 +644,7 @@ class Agent:
         Yields:
             Events from the event loop cycle.
         """
-        await self.hooks.invoke_callbacks_async(BeforeInvocationEvent(agent=self))
+        await self.hooks.invoke_callbacks_async(BeforeInvocationEvent(agent=self, messages=messages))
 
         agent_result: AgentResult | None = None
         try:

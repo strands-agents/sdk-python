@@ -12,7 +12,7 @@ from typing_extensions import override
 if TYPE_CHECKING:
     from ..agent.agent_result import AgentResult
 
-from ..types.content import Message
+from ..types.content import Message, Messages
 from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
@@ -39,13 +39,27 @@ class BeforeInvocationEvent(HookEvent):
     before any model inference or tool execution occurs. Hook providers can
     use this event to perform request-level setup, logging, or validation.
 
+    The messages attribute provides access to the input messages for this invocation,
+    allowing hooks to inspect or modify message content before processing. This is
+    particularly useful for implementing input guardrails (e.g., PII detection,
+    content moderation, prompt attack prevention) that need to run before messages
+    are added to the agent's conversation history.
+
     This event is triggered at the beginning of the following api calls:
       - Agent.__call__
       - Agent.stream_async
       - Agent.structured_output
+
+    Attributes:
+        messages: The input messages for this invocation. Can be modified by hooks
+            to redact or transform content before processing. May be None for
+            backward compatibility or when invoked from deprecated methods.
     """
 
-    pass
+    messages: Messages | None = None
+
+    def _can_write(self, name: str) -> bool:
+        return name == "messages"
 
 
 @dataclass
