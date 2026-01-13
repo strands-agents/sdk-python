@@ -56,6 +56,33 @@ class AgentResult:
 
         return result
 
+    def to_graph_input_text(self) -> str:
+        """Get text representation for graph node input, including both text and structured output.
+
+        This method is specifically designed for graph node transitions where both text content
+        and structured output need to be preserved and passed to the next node.
+
+        Returns:
+            String containing both text content and structured output (if present).
+        """
+        content_array = self.message.get("content", [])
+
+        result = ""
+        for item in content_array:
+            if isinstance(item, dict) and "text" in item:
+                result += item.get("text", "") + "\n"
+
+        # If structured output exists, append it regardless of whether text is present
+        if self.structured_output:
+            if result:
+                # Both text and structured output exist
+                result += "\nStructured Output:\n" + self.structured_output.model_dump_json() + "\n"
+            else:
+                # Only structured output exists
+                result = self.structured_output.model_dump_json()
+
+        return result
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgentResult":
         """Rehydrate an AgentResult from persisted JSON.
