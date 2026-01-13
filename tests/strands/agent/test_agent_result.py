@@ -186,7 +186,7 @@ def test__init__structured_output_defaults_to_none(mock_metrics, simple_message:
 
 
 def test__str__with_structured_output(mock_metrics, simple_message: Message):
-    """Test that str() includes BOTH text and structured_output in JSON format (Option 1 fix for #1461)."""
+    """Test that str() includes BOTH text and structured_output in JSON format."""
     structured_output = StructuredOutputModel(name="test", value=42)
 
     result = AgentResult(
@@ -197,7 +197,7 @@ def test__str__with_structured_output(mock_metrics, simple_message: Message):
         structured_output=structured_output,
     )
 
-    # Option 1: str() should now include BOTH text AND structured output in JSON format
+    # str() should now include BOTH text AND structured output in JSON format
     message_string = str(result)
     # Output should be valid JSON
     parsed = json.loads(message_string)

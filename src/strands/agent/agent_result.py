@@ -66,7 +66,7 @@ class AgentResult:
                             if isinstance(content, dict) and "text" in content:
                                 result += content.get("text", "") + "\n"
 
-        # Handle structured output
+        # Always include structured output when present
         if self.structured_output:
             structured_data = self.structured_output.model_dump()
             if result:

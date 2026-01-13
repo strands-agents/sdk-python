@@ -1,4 +1,4 @@
-"""Tests for AgentResult.__str__ method with Option 1 behavior.
+"""Tests for AgentResult.__str__ method including structured output.
 
 This module tests that __str__ properly includes both text and structured output
 when both exist (fix for issue #1461).
@@ -25,7 +25,7 @@ class SampleOutput(BaseModel):
 
 
 class TestAgentResultStrOption1:
-    """Tests for Option 1 behavior: __str__ includes both text and structured output in JSON format."""
+    """Tests for __str__ includes both text and structured output in JSON format."""
 
     def test_str_text_only(self):
         """Test __str__ with only text content."""
@@ -52,7 +52,7 @@ class TestAgentResultStrOption1:
     def test_str_both_text_and_structured_output(self):
         """Test __str__ includes BOTH text and structured output when both exist.
 
-        This is the key fix for issue #1461 - Option 1 with JSON format.
+        This is the key fix for issue #1461 - JSON format.
         Output should be JSON-parseable.
         """
         structured = SampleOutput(name="test", value=42)
