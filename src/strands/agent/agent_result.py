@@ -56,6 +56,36 @@ class AgentResult:
 
         return result
 
+    def to_node_output(self) -> str:
+        """Get a complete representation for graph node transitions.
+
+        This method generates output suitable for passing between graph nodes,
+        including both text content and structured output when present. Unlike
+        __str__, this method always includes structured output alongside text
+        to ensure no data is lost during graph transitions.
+
+        Returns:
+            A string representation containing both text and structured output.
+        """
+        parts = []
+
+        # Extract text content from message
+        content_array = self.message.get("content", [])
+        text_content = ""
+        for item in content_array:
+            if isinstance(item, dict) and "text" in item:
+                text_content += item.get("text", "") + "\n"
+
+        if text_content:
+            parts.append(text_content.rstrip("\n"))
+
+        # Include structured output when present
+        if self.structured_output:
+            structured_json = self.structured_output.model_dump_json()
+            parts.append(f"[Structured Output]: {structured_json}")
+
+        return "\n".join(parts) if parts else ""
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgentResult":
         """Rehydrate an AgentResult from persisted JSON.

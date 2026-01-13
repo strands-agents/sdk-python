@@ -1001,7 +1001,7 @@ class Graph(MultiAgentBase):
             agent_results = node_result.get_agent_results()
             for result in agent_results:
                 agent_name = getattr(result, "agent_name", "Agent")
-                result_text = str(result)
+                result_text = result.to_node_output() if hasattr(result, "to_node_output") else str(result)
                 node_input.append(ContentBlock(text=f"  - {agent_name}: {result_text}"))
 
         return node_input

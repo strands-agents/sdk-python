@@ -225,3 +225,86 @@ def test__str__empty_message_with_structured_output(mock_metrics, empty_message:
     assert "example" in message_string
     assert "123" in message_string
     assert "optional" in message_string
+
+
+# Tests for to_node_output() method - graph node transitions
+def test_to_node_output_text_only(mock_metrics, simple_message: Message):
+    """Test to_node_output() with text-only message returns just the text."""
+    result = AgentResult(stop_reason="end_turn", message=simple_message, metrics=mock_metrics, state={})
+
+    node_output = result.to_node_output()
+    assert node_output == "Hello world!"
+    assert "[Structured Output]" not in node_output
+
+
+def test_to_node_output_structured_output_only(mock_metrics, empty_message: Message):
+    """Test to_node_output() with only structured_output."""
+    structured_output = StructuredOutputModel(name="test", value=42)
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=empty_message,
+        metrics=mock_metrics,
+        state={},
+        structured_output=structured_output,
+    )
+
+    node_output = result.to_node_output()
+    assert "[Structured Output]:" in node_output
+    assert '"name":"test"' in node_output
+    assert '"value":42' in node_output
+
+
+def test_to_node_output_text_and_structured_output(mock_metrics, simple_message: Message):
+    """Test to_node_output() includes BOTH text AND structured_output when present."""
+    structured_output = StructuredOutputModel(name="test", value=42)
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=simple_message,
+        metrics=mock_metrics,
+        state={},
+        structured_output=structured_output,
+    )
+
+    node_output = result.to_node_output()
+
+    # Should contain both text and structured output
+    assert "Hello world!" in node_output
+    assert "[Structured Output]:" in node_output
+    assert '"name":"test"' in node_output
+    assert '"value":42' in node_output
+
+
+def test_to_node_output_empty_message_no_structured_output(mock_metrics, empty_message: Message):
+    """Test to_node_output() with empty message and no structured_output returns empty string."""
+    result = AgentResult(stop_reason="end_turn", message=empty_message, metrics=mock_metrics, state={})
+
+    node_output = result.to_node_output()
+    assert node_output == ""
+
+
+def test_to_node_output_complex_message(mock_metrics, complex_message: Message):
+    """Test to_node_output() with complex message containing multiple text blocks."""
+    structured_output = StructuredOutputModel(name="complex", value=999, optional_field="extra")
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=complex_message,
+        metrics=mock_metrics,
+        state={},
+        structured_output=structured_output,
+    )
+
+    node_output = result.to_node_output()
+
+    # Should contain all text blocks
+    assert "First paragraph" in node_output
+    assert "Second paragraph" in node_output
+    assert "Third paragraph" in node_output
+
+    # Should contain structured output
+    assert "[Structured Output]:" in node_output
+    assert '"name":"complex"' in node_output
+    assert '"value":999' in node_output
+    assert '"optional_field":"extra"' in node_output
