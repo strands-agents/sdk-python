@@ -605,7 +605,10 @@ class Tracer:
             attributes["gen_ai.request.model"] = model_id
 
         if system_prompt:
-            attributes["gen_ai.agent.system_prompt"] = system_prompt
+        if system_prompt:
+            # Format system_prompt according to OTEL semantic conventions
+            # See: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/
+            attributes["gen_ai.system_instructions"] = serialize([{"type": "text", "content": system_prompt}])
 
         if tools:
             attributes["gen_ai.agent.tools"] = serialize(tools)
