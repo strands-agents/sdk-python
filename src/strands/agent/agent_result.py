@@ -3,6 +3,7 @@
 This module defines the AgentResult class which encapsulates the complete response from an agent's processing cycle.
 """
 
+import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
@@ -38,9 +39,15 @@ class AgentResult:
     def __str__(self) -> str:
         """Get the agent's last message as a string.
 
-        This method extracts and concatenates all text content from the final message.
-        If structured output is present, it is always appended to the result (serialized as JSON),
-        ensuring both text and structured data are included when both exist.
+        This method extracts and concatenates all text content from the final message,
+        including text from both "text" blocks and "citationsContent" blocks.
+        
+        When both text and structured output exist, the output is JSON-formatted so users
+        can parse it programmatically:
+        {"text": "...", "structured_output": {...}}
+
+        When only text exists, returns the raw text.
+        When only structured output exists, returns the JSON of the structured output.
 
         Returns:
             The agent's last message as a string, including any structured output.
@@ -59,15 +66,17 @@ class AgentResult:
                             if isinstance(content, dict) and "text" in content:
                                 result += content.get("text", "") + "\n"
 
-        # Always include structured output when present (Option 1 from #1461)
+        # Handle structured output
         if self.structured_output:
-            structured_json = self.structured_output.model_dump_json()
+            structured_data = self.structured_output.model_dump()
             if result:
-                # Both text and structured output exist - include both
-                result = result.rstrip("\n") + "\n\n[Structured Output]\n" + structured_json + "\n"
+                # Both text and structured output exist - return JSON-parseable format
+                # Preserve text as-is (don't strip)
+                combined = {"text": result, "structured_output": structured_data}
+                return json.dumps(combined)
             else:
-                # Only structured output exists
-                result = structured_json
+                # Only structured output exists - return just the structured output JSON
+                return self.structured_output.model_dump_json()
 
         return result
 

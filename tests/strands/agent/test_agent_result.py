@@ -1,3 +1,4 @@
+import json
 import unittest.mock
 from typing import cast
 
@@ -185,7 +186,7 @@ def test__init__structured_output_defaults_to_none(mock_metrics, simple_message:
 
 
 def test__str__with_structured_output(mock_metrics, simple_message: Message):
-    """Test that str() includes BOTH text and structured_output (Option 1 fix for #1461)."""
+    """Test that str() includes BOTH text and structured_output in JSON format (Option 1 fix for #1461)."""
     structured_output = StructuredOutputModel(name="test", value=42)
 
     result = AgentResult(
@@ -196,12 +197,13 @@ def test__str__with_structured_output(mock_metrics, simple_message: Message):
         structured_output=structured_output,
     )
 
-    # Option 1: str() should now include BOTH text AND structured output
+    # Option 1: str() should now include BOTH text AND structured output in JSON format
     message_string = str(result)
-    assert "Hello world!" in message_string
-    assert "[Structured Output]" in message_string
-    assert "test" in message_string
-    assert "42" in message_string
+    # Output should be valid JSON
+    parsed = json.loads(message_string)
+    assert parsed["text"] == "Hello world!"
+    assert parsed["structured_output"]["name"] == "test"
+    assert parsed["structured_output"]["value"] == 42
 
 
 def test__str__empty_message_with_structured_output(mock_metrics, empty_message: Message):

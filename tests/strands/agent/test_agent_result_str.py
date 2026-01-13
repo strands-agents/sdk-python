@@ -2,9 +2,15 @@
 
 This module tests that __str__ properly includes both text and structured output
 when both exist (fix for issue #1461).
+
+The output format when both text and structured output exist is JSON:
+{"text": "...", "structured_output": {...}}
+
+This allows users to parse the output programmatically.
 """
 
-import pytest
+import json
+
 from pydantic import BaseModel
 
 from strands.agent.agent_result import AgentResult
@@ -19,7 +25,7 @@ class SampleOutput(BaseModel):
 
 
 class TestAgentResultStrOption1:
-    """Tests for Option 1 behavior: __str__ includes both text and structured output."""
+    """Tests for Option 1 behavior: __str__ includes both text and structured output in JSON format."""
 
     def test_str_text_only(self):
         """Test __str__ with only text content."""
@@ -45,8 +51,9 @@ class TestAgentResultStrOption1:
 
     def test_str_both_text_and_structured_output(self):
         """Test __str__ includes BOTH text and structured output when both exist.
-        
-        This is the key fix for issue #1461 - Option 1.
+
+        This is the key fix for issue #1461 - Option 1 with JSON format.
+        Output should be JSON-parseable.
         """
         structured = SampleOutput(name="test", value=42)
         result = AgentResult(
@@ -57,10 +64,11 @@ class TestAgentResultStrOption1:
             structured_output=structured,
         )
         output = str(result)
-        # Should include both text AND structured output
-        assert "Here is the analysis" in output
-        assert "[Structured Output]" in output
-        assert '{"name":"test","value":42}' in output
+        # Output should be valid JSON
+        parsed = json.loads(output)
+        assert parsed["text"] == "Here is the analysis"
+        assert parsed["structured_output"]["name"] == "test"
+        assert parsed["structured_output"]["value"] == 42
 
     def test_str_multiple_text_blocks_with_structured_output(self):
         """Test __str__ with multiple text blocks and structured output."""
@@ -79,10 +87,12 @@ class TestAgentResultStrOption1:
             structured_output=structured,
         )
         output = str(result)
-        assert "First paragraph." in output
-        assert "Second paragraph." in output
-        assert "[Structured Output]" in output
-        assert '{"name":"multi","value":100}' in output
+        # Output should be valid JSON
+        parsed = json.loads(output)
+        assert "First paragraph." in parsed["text"]
+        assert "Second paragraph." in parsed["text"]
+        assert parsed["structured_output"]["name"] == "multi"
+        assert parsed["structured_output"]["value"] == 100
 
     def test_str_empty_message_no_structured_output(self):
         """Test __str__ with empty message and no structured output."""
@@ -124,16 +134,18 @@ class TestAgentResultStrOption1:
             structured_output=structured,
         )
         output = str(result)
-        assert "Processing complete." in output
-        assert "[Structured Output]" in output
-        assert '{"name":"mixed","value":50}' in output
-        # toolUse should not appear in string output
-        assert "toolUse" not in output
-        assert "helper" not in output
+        # Output should be valid JSON
+        parsed = json.loads(output)
+        assert parsed["text"] == "Processing complete."
+        assert parsed["structured_output"]["name"] == "mixed"
+        assert parsed["structured_output"]["value"] == 50
+        # toolUse should not appear in the text
+        assert "toolUse" not in parsed["text"]
+        assert "helper" not in parsed["text"]
 
-    def test_str_format_structure(self):
-        """Test the exact format of __str__ output with both text and structured output."""
-        structured = SampleOutput(name="format", value=99)
+    def test_str_json_parseable(self):
+        """Test that output with both text and structured output is JSON-parseable."""
+        structured = SampleOutput(name="parseable", value=99)
         result = AgentResult(
             stop_reason="end_turn",
             message={"role": "assistant", "content": [{"text": "Result text"}]},
@@ -142,8 +154,9 @@ class TestAgentResultStrOption1:
             structured_output=structured,
         )
         output = str(result)
-        # Verify the format: text followed by structured output section
-        lines = output.strip().split("\n")
-        assert lines[0] == "Result text"
-        assert "[Structured Output]" in output
-        assert lines[-1] == '{"name":"format","value":99}'
+        # Should be valid JSON that can be parsed
+        parsed = json.loads(output)
+        assert "text" in parsed
+        assert "structured_output" in parsed
+        assert parsed["text"] == "Result text"
+        assert parsed["structured_output"] == {"name": "parseable", "value": 99}
