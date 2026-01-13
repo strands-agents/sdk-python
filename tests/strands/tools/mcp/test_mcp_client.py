@@ -46,6 +46,8 @@ def mock_transport():
 def mock_session():
     mock_session = AsyncMock()
     mock_session.initialize = AsyncMock()
+    # Default: no task support (get_server_capabilities is sync, not async!)
+    mock_session.get_server_capabilities = MagicMock(return_value=None)
 
     # Create a mock context manager for ClientSession
     mock_session_cm = AsyncMock()
