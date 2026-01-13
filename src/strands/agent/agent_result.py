@@ -38,12 +38,12 @@ class AgentResult:
     def __str__(self) -> str:
         """Get the agent's last message as a string.
 
-        This method extracts and concatenates all text content from the final message, ignoring any non-text content
-        like images or structured data. If there's no text content but structured output is present, it serializes
-        the structured output instead.
+        This method extracts and concatenates all text content from the final message.
+        If structured output is present, it is always appended to the result (serialized as JSON),
+        ensuring both text and structured data are included when both exist.
 
         Returns:
-            The agent's last message as a string.
+            The agent's last message as a string, including any structured output.
         """
         content_array = self.message.get("content", [])
 
@@ -59,8 +59,15 @@ class AgentResult:
                             if isinstance(content, dict) and "text" in content:
                                 result += content.get("text", "") + "\n"
 
-        if not result and self.structured_output:
-            result = self.structured_output.model_dump_json()
+        # Always include structured output when present (Option 1 from #1461)
+        if self.structured_output:
+            structured_json = self.structured_output.model_dump_json()
+            if result:
+                # Both text and structured output exist - include both
+                result = result.rstrip("\n") + "\n\n[Structured Output]\n" + structured_json + "\n"
+            else:
+                # Only structured output exists
+                result = structured_json
 
         return result
 

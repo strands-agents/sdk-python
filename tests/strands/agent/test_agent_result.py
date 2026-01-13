@@ -185,7 +185,7 @@ def test__init__structured_output_defaults_to_none(mock_metrics, simple_message:
 
 
 def test__str__with_structured_output(mock_metrics, simple_message: Message):
-    """Test that str() is not affected by structured_output."""
+    """Test that str() includes BOTH text and structured_output (Option 1 fix for #1461)."""
     structured_output = StructuredOutputModel(name="test", value=42)
 
     result = AgentResult(
@@ -196,11 +196,12 @@ def test__str__with_structured_output(mock_metrics, simple_message: Message):
         structured_output=structured_output,
     )
 
-    # The string representation should only include the message text, not structured output
+    # Option 1: str() should now include BOTH text AND structured output
     message_string = str(result)
-    assert message_string == "Hello world!\n"
-    assert "test" not in message_string
-    assert "42" not in message_string
+    assert "Hello world!" in message_string
+    assert "[Structured Output]" in message_string
+    assert "test" in message_string
+    assert "42" in message_string
 
 
 def test__str__empty_message_with_structured_output(mock_metrics, empty_message: Message):
