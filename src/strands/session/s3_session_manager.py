@@ -24,7 +24,6 @@ SESSION_PREFIX = "session_"
 AGENT_PREFIX = "agent_"
 MESSAGE_PREFIX = "message_"
 MULTI_AGENT_PREFIX = "multi_agent_"
-DEFAULT_READ_THREAD_COUNT = 1
 
 
 class S3SessionManager(RepositorySessionManager, SessionRepository):
@@ -64,16 +63,10 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             boto_session: Optional boto3 session
             boto_client_config: Optional boto3 client configuration
             region_name: AWS region for S3 storage
-            max_parallel_reads: Maximum number of parallel S3 read operations for list_messages().
-                Defaults to 1 (sequential) for backward compatibility and safety.
-                Set to a higher value (e.g., 10) for better performance with many messages.
-                Can be overridden per-call via list_messages() kwargs.
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.bucket = bucket
         self.prefix = prefix
-
-        self.max_parallel_reads = max_parallel_reads
 
         session = boto_session or boto3.Session(region_name=region_name)
 
@@ -274,15 +267,12 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             agent_id: ID of the agent
             limit: Optional limit on number of messages to return
             offset: Optional offset for pagination
-            **kwargs: Additional keyword arguments. Supports:
-
-                - max_parallel_reads: Override the instance-level max_parallel_reads setting
+            **kwargs: Additional keyword arguments
 
         Returns:
             List of SessionMessage objects, sorted by message_id.
 
         Raises:
-            ValueError: If max_parallel_reads override is not a positive integer.
             SessionException: If S3 error occurs during message retrieval.
         """
         messages_prefix = f"{self._get_agent_path(session_id, agent_id)}messages/"
@@ -317,19 +307,15 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             if not message_keys:
                 return messages
 
-            # Use ThreadPoolExecutor to fetch messages concurrently
-            # Allow per-call override of max_parallel_reads via kwargs, otherwise use instance default
-            max_workers = min(kwargs.get("max_parallel_reads", self.max_parallel_reads), len(message_keys))
-
             # Optimize for single worker case - avoid thread pool overhead
-            if max_workers == 1:
+            if len(message_keys) == 1:
                 for key in message_keys:
                     message_data = self._read_s3_object(key)
                     if message_data:
                         messages.append(SessionMessage.from_dict(message_data))
                 return messages
 
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            with ThreadPoolExecutor() as executor:
                 # Submit all read tasks
                 future_to_key = {executor.submit(self._read_s3_object, key): key for key in message_keys}
 

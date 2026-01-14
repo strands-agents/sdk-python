@@ -201,10 +201,11 @@ def test__init__region_precedence(mock_client_method, session_cls):
 def test__init__with_endpoint_url(mock_client_method):
     """Test that BedrockModel uses the provided endpoint_url for VPC endpoints."""
     custom_endpoint = "https://vpce-12345-abcde.bedrock-runtime.us-west-2.vpce.amazonaws.com"
-    BedrockModel(endpoint_url=custom_endpoint)
-    mock_client_method.assert_called_with(
-        region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=custom_endpoint
-    )
+    with unittest.mock.patch.object(os, "environ", {}):
+        BedrockModel(endpoint_url=custom_endpoint)
+        mock_client_method.assert_called_with(
+            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=custom_endpoint
+        )
 
 
 def test__init__with_region_and_session_raises_value_error():
