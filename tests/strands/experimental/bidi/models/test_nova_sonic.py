@@ -607,21 +607,21 @@ def test_nova_sonic_model_constants():
 
 
 @pytest.mark.asyncio
-async def test_create_nova_sonic_v1_helper(boto_session, mock_client):
-    """Test the create_nova_sonic_v1 helper function."""
-    from strands.experimental.bidi.models.model import NOVA_SONIC_V1_MODEL_ID, create_nova_sonic_v1
-
+async def test_nova_sonic_v1_instantiation(boto_session, mock_client):
+    """Test direct instantiation with Nova Sonic v1 model ID."""
     _ = mock_client  # Ensure mock is active
 
     # Test default creation
-    model = create_nova_sonic_v1(client_config={"boto_session": boto_session})
+    model = BidiNovaSonicModel(model_id=NOVA_SONIC_V1_MODEL_ID, client_config={"boto_session": boto_session})
     assert model.model_id == NOVA_SONIC_V1_MODEL_ID
     assert model.region == "us-east-1"
 
     # Test with custom config
     provider_config = {"audio": {"voice": "joanna", "output_rate": 24000}}
     client_config = {"boto_session": boto_session}
-    model_custom = create_nova_sonic_v1(provider_config=provider_config, client_config=client_config)
+    model_custom = BidiNovaSonicModel(
+        model_id=NOVA_SONIC_V1_MODEL_ID, provider_config=provider_config, client_config=client_config
+    )
 
     assert model_custom.model_id == NOVA_SONIC_V1_MODEL_ID
     assert model_custom.config["audio"]["voice"] == "joanna"
@@ -629,21 +629,21 @@ async def test_create_nova_sonic_v1_helper(boto_session, mock_client):
 
 
 @pytest.mark.asyncio
-async def test_create_nova_sonic_v2_helper(boto_session, mock_client):
-    """Test the create_nova_sonic_v2 helper function."""
-    from strands.experimental.bidi.models.model import NOVA_SONIC_V2_MODEL_ID, create_nova_sonic_v2
-
+async def test_nova_sonic_v2_instantiation(boto_session, mock_client):
+    """Test direct instantiation with Nova Sonic v2 model ID."""
     _ = mock_client  # Ensure mock is active
 
     # Test default creation
-    model = create_nova_sonic_v2(client_config={"boto_session": boto_session})
+    model = BidiNovaSonicModel(model_id=NOVA_SONIC_V2_MODEL_ID, client_config={"boto_session": boto_session})
     assert model.model_id == NOVA_SONIC_V2_MODEL_ID
     assert model.region == "us-east-1"
 
     # Test with custom config
     provider_config = {"audio": {"voice": "ruth", "input_rate": 48000}, "inference": {"temperature": 0.8}}
     client_config = {"boto_session": boto_session}
-    model_custom = create_nova_sonic_v2(provider_config=provider_config, client_config=client_config)
+    model_custom = BidiNovaSonicModel(
+        model_id=NOVA_SONIC_V2_MODEL_ID, provider_config=provider_config, client_config=client_config
+    )
 
     assert model_custom.model_id == NOVA_SONIC_V2_MODEL_ID
     assert model_custom.config["audio"]["voice"] == "ruth"
@@ -673,18 +673,18 @@ async def test_nova_sonic_v2_direct_instantiation(boto_session, mock_client):
 @pytest.mark.asyncio
 async def test_nova_sonic_v1_v2_compatibility(boto_session, mock_client):
     """Test that v1 and v2 models have the same interface and behavior."""
-    from strands.experimental.bidi.models.model import create_nova_sonic_v1, create_nova_sonic_v2
-
     _ = mock_client  # Ensure mock is active
 
     # Create both models with same config
-    config = {
-        "provider_config": {"audio": {"voice": "matthew"}},
-        "client_config": {"boto_session": boto_session},
-    }
+    provider_config = {"audio": {"voice": "matthew"}}
+    client_config = {"boto_session": boto_session}
 
-    model_v1 = create_nova_sonic_v1(**config)
-    model_v2 = create_nova_sonic_v2(**config)
+    model_v1 = BidiNovaSonicModel(
+        model_id=NOVA_SONIC_V1_MODEL_ID, provider_config=provider_config, client_config=client_config
+    )
+    model_v2 = BidiNovaSonicModel(
+        model_id=NOVA_SONIC_V2_MODEL_ID, provider_config=provider_config, client_config=client_config
+    )
 
     # Both should have the same interface
     assert hasattr(model_v1, "start")
@@ -709,22 +709,16 @@ async def test_nova_sonic_v1_v2_compatibility(boto_session, mock_client):
 
 @pytest.mark.asyncio
 async def test_nova_sonic_exports():
-    """Test that new constants and functions are properly exported."""
+    """Test that model ID constants are properly exported."""
     # Test imports from main models module
     from strands.experimental.bidi.models import (
         NOVA_SONIC_V1_MODEL_ID,
         NOVA_SONIC_V2_MODEL_ID,
-        create_nova_sonic_v1,
-        create_nova_sonic_v2,
     )
 
     # Verify constants
     assert NOVA_SONIC_V1_MODEL_ID == "amazon.nova-sonic-v1:0"
     assert NOVA_SONIC_V2_MODEL_ID == "amazon.nova-2-sonic-v1:0"
-
-    # Verify functions are callable
-    assert callable(create_nova_sonic_v1)
-    assert callable(create_nova_sonic_v2)
 
 
 @pytest.mark.asyncio
