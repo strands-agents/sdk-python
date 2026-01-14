@@ -53,7 +53,6 @@ class A2AAgent(AgentBase):
         self.description = description
         self.timeout = timeout
         self._httpx_client: httpx.AsyncClient | None = None
-        self._owns_client = a2a_client_factory is None
         self._agent_card: AgentCard | None = None
         self._a2a_client: Client | None = None
         self._a2a_client_factory: ClientFactory | None = a2a_client_factory
@@ -254,7 +253,7 @@ class A2AAgent(AgentBase):
 
     def __del__(self) -> None:
         """Best-effort cleanup on garbage collection."""
-        if self._owns_client and self._httpx_client is not None:
+        if self._httpx_client is not None:
             try:
                 client = self._httpx_client
                 run_async(lambda: client.aclose())

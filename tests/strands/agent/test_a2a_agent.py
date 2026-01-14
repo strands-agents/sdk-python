@@ -59,7 +59,6 @@ def test_init_with_external_a2a_client_factory():
     external_factory = MagicMock()
     agent = A2AAgent(endpoint="http://localhost:8000", a2a_client_factory=external_factory)
     assert agent._a2a_client_factory is external_factory
-    assert not agent._owns_client
 
 
 @pytest.mark.asyncio
@@ -231,25 +230,22 @@ async def test_stream_async_no_prompt(a2a_agent):
             pass
 
 
-def test_del_cleanup_owned_client():
-    """Test that __del__ cleans up owned httpx client."""
+def test_del_cleanup_httpx_client():
+    """Test that __del__ cleans up httpx client."""
     agent = A2AAgent(endpoint="http://localhost:8000")
     mock_client = MagicMock()
     mock_client.aclose = AsyncMock()
     agent._httpx_client = mock_client
-    agent._owns_client = True
 
     with patch("strands.agent.a2a_agent.run_async") as mock_run_async:
         agent.__del__()
         mock_run_async.assert_called_once()
 
 
-def test_del_no_cleanup_external_client():
-    """Test that __del__ does not clean up external client."""
-    external_factory = MagicMock()
-    agent = A2AAgent(endpoint="http://localhost:8000", a2a_client_factory=external_factory)
-    mock_client = MagicMock()
-    agent._httpx_client = mock_client
+def test_del_no_cleanup_when_no_client():
+    """Test that __del__ does nothing when no httpx client exists."""
+    agent = A2AAgent(endpoint="http://localhost:8000")
+    # _httpx_client is None by default
 
     with patch("strands.agent.a2a_agent.run_async") as mock_run_async:
         agent.__del__()
@@ -261,7 +257,6 @@ def test_del_handles_exception():
     agent = A2AAgent(endpoint="http://localhost:8000")
     mock_client = MagicMock()
     agent._httpx_client = mock_client
-    agent._owns_client = True
 
     with patch("strands.agent.a2a_agent.run_async", side_effect=RuntimeError("Event loop error")):
         # Should not raise - __del__ should catch exceptions
