@@ -889,7 +889,11 @@ class Graph(MultiAgentBase):
                     raise ValueError(f"Node '{node.node_id}' did not produce a result event")
 
                 if multi_agent_result.status == Status.INTERRUPTED:
-                    raise NotImplementedError(f"node_id={node.node_id} | user raised interrupt from a multi agent node")
+                    raise NotImplementedError(
+                        f"node_id=<{node.node_id}>, "
+                        "issue=<https://github.com/strands-agents/sdk-python/issues/204> "
+                        "| user raised interrupt from a multi agent node"
+                    )
 
                 node_result = NodeResult(
                     result=multi_agent_result,
@@ -919,7 +923,11 @@ class Graph(MultiAgentBase):
                     node.executor.messages.pop()  # remove interrupted tool use message
                     node.executor._interrupt_state.deactivate()
 
-                    raise NotImplementedError(f"node_id={node.node_id} | user raised interrupt from an agent node")
+                    raise NotImplementedError(
+                        f"node_id=<{node.node_id}>, "
+                        "issue=<https://github.com/strands-agents/sdk-python/issues/204> "
+                        "| user raised interrupt from an agent node"
+                    )
 
                 # Extract metrics with defaults
                 response_metrics = getattr(agent_response, "metrics", None)
