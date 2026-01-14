@@ -26,6 +26,10 @@ from ..types.events import (
 
 logger = logging.getLogger(__name__)
 
+# Nova Sonic model identifiers
+NOVA_SONIC_V1_MODEL_ID = "amazon.nova-sonic-v1:0"
+NOVA_SONIC_V2_MODEL_ID = "amazon.nova-2-sonic-v1:0"
+
 
 @runtime_checkable
 class BidiModel(Protocol):
@@ -133,3 +137,77 @@ class BidiModelTimeoutError(Exception):
         super().__init__(self, message)
 
         self.restart_config = restart_config
+
+
+def create_nova_sonic_v1(
+    provider_config: dict[str, Any] | None = None,
+    client_config: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> "BidiModel":
+    """Create a Nova Sonic v1 bidirectional model instance.
+
+    Convenience function to create a BidiNovaSonicModel configured for Nova Sonic v1.
+
+    Args:
+        provider_config: Model behavior configuration (audio, inference settings).
+        client_config: AWS authentication configuration (boto_session OR region, not both).
+        **kwargs: Additional configuration options.
+
+    Returns:
+        BidiNovaSonicModel instance configured for Nova Sonic v1.
+
+    Example:
+        ```python
+        model = create_nova_sonic_v1()
+        # or with custom config
+        model = create_nova_sonic_v1(
+            provider_config={"audio": {"voice": "joanna"}},
+            client_config={"region": "us-west-2"}
+        )
+        ```
+    """
+    from .nova_sonic import BidiNovaSonicModel
+
+    return BidiNovaSonicModel(
+        model_id=NOVA_SONIC_V1_MODEL_ID,
+        provider_config=provider_config,
+        client_config=client_config,
+        **kwargs,
+    )
+
+
+def create_nova_sonic_v2(
+    provider_config: dict[str, Any] | None = None,
+    client_config: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> "BidiModel":
+    """Create a Nova Sonic v2 bidirectional model instance.
+
+    Convenience function to create a BidiNovaSonicModel configured for Nova Sonic v2.
+
+    Args:
+        provider_config: Model behavior configuration (audio, inference settings).
+        client_config: AWS authentication configuration (boto_session OR region, not both).
+        **kwargs: Additional configuration options.
+
+    Returns:
+        BidiNovaSonicModel instance configured for Nova Sonic v2.
+
+    Example:
+        ```python
+        model = create_nova_sonic_v2()
+        # or with custom config
+        model = create_nova_sonic_v2(
+            provider_config={"audio": {"voice": "joanna"}},
+            client_config={"region": "us-west-2"}
+        )
+        ```
+    """
+    from .nova_sonic import BidiNovaSonicModel
+
+    return BidiNovaSonicModel(
+        model_id=NOVA_SONIC_V2_MODEL_ID,
+        provider_config=provider_config,
+        client_config=client_config,
+        **kwargs,
+    )

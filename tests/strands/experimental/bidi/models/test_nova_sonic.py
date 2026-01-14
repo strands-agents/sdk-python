@@ -18,11 +18,27 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 import pytest_asyncio
-from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationException
+
+# Mock AWS SDK imports for unit tests
+try:
+    from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationException
+except ImportError:
+    # Create mock exceptions for testing
+    class ModelTimeoutException(Exception):
+        def __init__(self, message):
+            self.message = message
+            super().__init__(message)
+
+    class ValidationException(Exception):
+        def __init__(self, message):
+            self.message = message
+            super().__init__(message)
 
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.models.nova_sonic import (
     BidiNovaSonicModel,
+    NOVA_SONIC_V1_MODEL_ID,
+    NOVA_SONIC_V2_MODEL_ID,
 )
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
@@ -577,6 +593,190 @@ async def test_default_audio_rates_in_events(model_id, boto_session):
     assert result.sample_rate == 16000  # Default output rate
     assert result.channels == 1  # Default channels
     assert result.format == "pcm"
+
+
+# Nova Sonic v2 Support Tests
+
+
+def test_nova_sonic_model_constants():
+    """Test that Nova Sonic model ID constants are correctly defined."""
+    from strands.experimental.bidi.models.model import NOVA_SONIC_V1_MODEL_ID, NOVA_SONIC_V2_MODEL_ID
+
+    assert NOVA_SONIC_V1_MODEL_ID == "amazon.nova-sonic-v1:0"
+    assert NOVA_SONIC_V2_MODEL_ID == "amazon.nova-2-sonic-v1:0"
+
+
+@pytest.mark.asyncio
+async def test_create_nova_sonic_v1_helper(boto_session, mock_client):
+    """Test the create_nova_sonic_v1 helper function."""
+    from strands.experimental.bidi.models.model import NOVA_SONIC_V1_MODEL_ID, create_nova_sonic_v1
+
+    _ = mock_client  # Ensure mock is active
+
+    # Test default creation
+    model = create_nova_sonic_v1(client_config={"boto_session": boto_session})
+    assert model.model_id == NOVA_SONIC_V1_MODEL_ID
+    assert model.region == "us-east-1"
+
+    # Test with custom config
+    provider_config = {"audio": {"voice": "joanna", "output_rate": 24000}}
+    client_config = {"boto_session": boto_session}
+    model_custom = create_nova_sonic_v1(provider_config=provider_config, client_config=client_config)
+
+    assert model_custom.model_id == NOVA_SONIC_V1_MODEL_ID
+    assert model_custom.config["audio"]["voice"] == "joanna"
+    assert model_custom.config["audio"]["output_rate"] == 24000
+
+
+@pytest.mark.asyncio
+async def test_create_nova_sonic_v2_helper(boto_session, mock_client):
+    """Test the create_nova_sonic_v2 helper function."""
+    from strands.experimental.bidi.models.model import NOVA_SONIC_V2_MODEL_ID, create_nova_sonic_v2
+
+    _ = mock_client  # Ensure mock is active
+
+    # Test default creation
+    model = create_nova_sonic_v2(client_config={"boto_session": boto_session})
+    assert model.model_id == NOVA_SONIC_V2_MODEL_ID
+    assert model.region == "us-east-1"
+
+    # Test with custom config
+    provider_config = {"audio": {"voice": "ruth", "input_rate": 48000}, "inference": {"temperature": 0.8}}
+    client_config = {"boto_session": boto_session}
+    model_custom = create_nova_sonic_v2(provider_config=provider_config, client_config=client_config)
+
+    assert model_custom.model_id == NOVA_SONIC_V2_MODEL_ID
+    assert model_custom.config["audio"]["voice"] == "ruth"
+    assert model_custom.config["audio"]["input_rate"] == 48000
+    assert model_custom.config["inference"]["temperature"] == 0.8
+
+
+@pytest.mark.asyncio
+async def test_nova_sonic_v2_direct_instantiation(boto_session, mock_client):
+    """Test direct instantiation with Nova Sonic v2 model ID."""
+    from strands.experimental.bidi.models.model import NOVA_SONIC_V2_MODEL_ID
+
+    _ = mock_client  # Ensure mock is active
+
+    # Test direct instantiation with v2 model ID
+    model = BidiNovaSonicModel(model_id=NOVA_SONIC_V2_MODEL_ID, client_config={"boto_session": boto_session})
+    assert model.model_id == NOVA_SONIC_V2_MODEL_ID
+    assert model.region == "us-east-1"
+
+    # Test with string literal
+    model_literal = BidiNovaSonicModel(
+        model_id="amazon.nova-2-sonic-v1:0", client_config={"boto_session": boto_session}
+    )
+    assert model_literal.model_id == "amazon.nova-2-sonic-v1:0"
+
+
+@pytest.mark.asyncio
+async def test_nova_sonic_v1_v2_compatibility(boto_session, mock_client):
+    """Test that v1 and v2 models have the same interface and behavior."""
+    from strands.experimental.bidi.models.model import create_nova_sonic_v1, create_nova_sonic_v2
+
+    _ = mock_client  # Ensure mock is active
+
+    # Create both models with same config
+    config = {
+        "provider_config": {"audio": {"voice": "matthew"}},
+        "client_config": {"boto_session": boto_session},
+    }
+
+    model_v1 = create_nova_sonic_v1(**config)
+    model_v2 = create_nova_sonic_v2(**config)
+
+    # Both should have the same interface
+    assert hasattr(model_v1, "start")
+    assert hasattr(model_v1, "stop")
+    assert hasattr(model_v1, "send")
+    assert hasattr(model_v1, "receive")
+
+    assert hasattr(model_v2, "start")
+    assert hasattr(model_v2, "stop")
+    assert hasattr(model_v2, "send")
+    assert hasattr(model_v2, "receive")
+
+    # Both should have the same config structure
+    assert model_v1.config["audio"]["voice"] == model_v2.config["audio"]["voice"]
+    assert model_v1.region == model_v2.region
+
+    # Only model_id should differ
+    assert model_v1.model_id != model_v2.model_id
+    assert model_v1.model_id == "amazon.nova-sonic-v1:0"
+    assert model_v2.model_id == "amazon.nova-2-sonic-v1:0"
+
+
+@pytest.mark.asyncio
+async def test_nova_sonic_exports():
+    """Test that new constants and functions are properly exported."""
+    # Test imports from main models module
+    from strands.experimental.bidi.models import (
+        NOVA_SONIC_V1_MODEL_ID,
+        NOVA_SONIC_V2_MODEL_ID,
+        create_nova_sonic_v1,
+        create_nova_sonic_v2,
+    )
+
+    # Verify constants
+    assert NOVA_SONIC_V1_MODEL_ID == "amazon.nova-sonic-v1:0"
+    assert NOVA_SONIC_V2_MODEL_ID == "amazon.nova-2-sonic-v1:0"
+
+    # Verify functions are callable
+    assert callable(create_nova_sonic_v1)
+    assert callable(create_nova_sonic_v2)
+
+
+@pytest.mark.asyncio
+async def test_backward_compatibility(boto_session, mock_client):
+    """Test that existing code continues to work (backward compatibility)."""
+    _ = mock_client  # Ensure mock is active
+
+    # Test that default behavior now uses v2 (updated default)
+    model_default = BidiNovaSonicModel(client_config={"boto_session": boto_session})
+    assert model_default.model_id == NOVA_SONIC_V2_MODEL_ID
+
+    # Test that existing explicit v1 usage still works
+    model_explicit_v1 = BidiNovaSonicModel(
+        model_id=NOVA_SONIC_V1_MODEL_ID, client_config={"boto_session": boto_session}
+    )
+    assert model_explicit_v1.model_id == NOVA_SONIC_V1_MODEL_ID
+
+    # Test that explicit v2 usage works
+    model_explicit_v2 = BidiNovaSonicModel(
+        model_id=NOVA_SONIC_V2_MODEL_ID, client_config={"boto_session": boto_session}
+    )
+    assert model_explicit_v2.model_id == NOVA_SONIC_V2_MODEL_ID
+
+
+@pytest.mark.asyncio
+async def test_turn_detection_v1_validation(boto_session, mock_client):
+    """Test that turn_detection raises error when used with v1 model."""
+    _ = mock_client  # Ensure mock is active
+
+    # Test that turn_detection with v1 raises ValueError
+    with pytest.raises(ValueError, match="turn_detection is only supported in Nova Sonic v2"):
+        BidiNovaSonicModel(
+            model_id=NOVA_SONIC_V1_MODEL_ID,
+            provider_config={"turn_detection": {"endpointingSensitivity": "MEDIUM"}},
+            client_config={"boto_session": boto_session},
+        )
+
+    # Test that turn_detection with v2 works fine
+    model_v2 = BidiNovaSonicModel(
+        model_id=NOVA_SONIC_V2_MODEL_ID,
+        provider_config={"turn_detection": {"endpointingSensitivity": "MEDIUM"}},
+        client_config={"boto_session": boto_session},
+    )
+    assert model_v2.config["turn_detection"]["endpointingSensitivity"] == "MEDIUM"
+
+    # Test that empty turn_detection dict doesn't raise error for v1
+    model_v1_empty = BidiNovaSonicModel(
+        model_id=NOVA_SONIC_V1_MODEL_ID,
+        provider_config={"turn_detection": {}},
+        client_config={"boto_session": boto_session},
+    )
+    assert model_v1_empty.model_id == NOVA_SONIC_V1_MODEL_ID
 
 
 # Error Handling Tests

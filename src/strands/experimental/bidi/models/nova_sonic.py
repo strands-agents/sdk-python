@@ -60,7 +60,7 @@ from ..types.events import (
     BidiUsageEvent,
 )
 from ..types.model import AudioConfig
-from .model import BidiModel, BidiModelTimeoutError
+from .model import BidiModel, BidiModelTimeoutError, NOVA_SONIC_V1_MODEL_ID, NOVA_SONIC_V2_MODEL_ID
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +110,7 @@ class BidiNovaSonicModel(BidiModel):
 
     def __init__(
         self,
-        model_id: str = "amazon.nova-sonic-v1:0",
+        model_id: str = NOVA_SONIC_V2_MODEL_ID,
         provider_config: dict[str, Any] | None = None,
         client_config: dict[str, Any] | None = None,
         **kwargs: Any,
@@ -119,18 +119,31 @@ class BidiNovaSonicModel(BidiModel):
 
         Args:
             model_id: Model identifier (default: amazon.nova-sonic-v1:0)
-            provider_config: Model behavior (audio, inference settings)
+            provider_config: Model behavior configuration including:
+                - audio: Audio input/output settings (sample rate, voice, etc.)
+                - inference: Model inference settings (max_tokens, temperature, top_p)
+                - turn_detection: Turn detection configuration (v2 only feature)
+                  - endpointingSensitivity: "HIGH" | "MEDIUM" | "LOW" (optional)
             client_config: AWS authentication (boto_session OR region, not both)
             **kwargs: Reserved for future parameters.
         """
         # Store model ID
         self.model_id = model_id
 
+        # Validate turn_detection is only used with v2
+        provider_config = provider_config or {}
+        if "turn_detection" in provider_config and provider_config["turn_detection"]:
+            if model_id == NOVA_SONIC_V1_MODEL_ID:
+                raise ValueError(
+                    f"turn_detection is only supported in Nova Sonic v2. "
+                    f"Current model_id: {model_id}. Use {NOVA_SONIC_V2_MODEL_ID} instead."
+                )
+
         # Resolve client config with defaults
         self._client_config = self._resolve_client_config(client_config or {})
 
         # Resolve provider config with defaults
-        self.config = self._resolve_provider_config(provider_config or {})
+        self.config = self._resolve_provider_config(provider_config)
 
         # Store session and region for later use
         self._session = self._client_config["boto_session"]
@@ -182,6 +195,7 @@ class BidiNovaSonicModel(BidiModel):
                 **config.get("audio", {}),
             },
             "inference": config.get("inference", {}),
+            "turn_detection": config.get("turn_detection", {}),
         }
         return resolved
 
@@ -269,10 +283,22 @@ class BidiNovaSonicModel(BidiModel):
 
     def _log_event_type(self, nova_event: dict[str, Any]) -> None:
         """Log specific Nova Sonic event types for debugging."""
+        # Log the full event structure for detailed debugging
+        event_keys = list(nova_event.keys())
+        logger.debug("event_keys=<%s> | nova sonic event received", event_keys)
+        
         if "usageEvent" in nova_event:
-            logger.debug("usage=<%s> | nova usage event received", nova_event["usageEvent"])
+            usage = nova_event["usageEvent"]
+            logger.debug(
+                "input_tokens=<%s>, output_tokens=<%s> | nova usage event",
+                usage.get("totalInputTokens", 0),
+                usage.get("totalOutputTokens", 0),
+            )
+            logger.debug("usage_details=<%s> | nova usage event full details", json.dumps(usage, indent=2))
         elif "textOutput" in nova_event:
-            logger.debug("nova text output received")
+            text_content = nova_event["textOutput"].get("content", "")
+            logger.debug("text_length=<%d>, text_preview=<%s> | nova text output", len(text_content), text_content[:100])
+            logger.debug("text_output_details=<%s> | nova text output full details", json.dumps(nova_event["textOutput"], indent=2)[:500])
         elif "toolUse" in nova_event:
             tool_use = nova_event["toolUse"]
             logger.debug(
@@ -280,10 +306,26 @@ class BidiNovaSonicModel(BidiModel):
                 tool_use["toolName"],
                 tool_use["toolUseId"],
             )
+            logger.debug("tool_use_details=<%s> | nova tool use full details", json.dumps(tool_use, indent=2)[:500])
         elif "audioOutput" in nova_event:
             audio_content = nova_event["audioOutput"]["content"]
             audio_bytes = base64.b64decode(audio_content)
             logger.debug("audio_bytes=<%d> | nova audio output received", len(audio_bytes))
+        elif "completionStart" in nova_event:
+            completion_id = nova_event["completionStart"].get("completionId", "unknown")
+            logger.debug("completion_id=<%s> | nova completion started", completion_id)
+        elif "completionEnd" in nova_event:
+            completion_data = nova_event["completionEnd"]
+            logger.debug(
+                "completion_id=<%s>, stop_reason=<%s> | nova completion ended",
+                completion_data.get("completionId", "unknown"),
+                completion_data.get("stopReason", "unknown"),
+            )
+        elif "stopReason" in nova_event:
+            logger.debug("stop_reason=<%s> | nova stop reason event", nova_event["stopReason"])
+        else:
+            # Log any other event types
+            logger.debug("event_payload=<%s> | nova sonic event details", json.dumps(nova_event, indent=2)[:500])
 
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive Nova Sonic events and convert to provider-agnostic format.
@@ -312,14 +354,23 @@ class BidiNovaSonicModel(BidiModel):
                 raise BidiModelTimeoutError(error.message) from error
 
             if not event_data:
+                logger.debug("received empty event data, continuing")
                 continue
 
-            nova_event = json.loads(event_data.value.bytes_.decode("utf-8"))["event"]
+            # Decode and parse the event
+            raw_bytes = event_data.value.bytes_.decode("utf-8")
+            logger.debug("raw_event_size=<%d> | received nova sonic event", len(raw_bytes))
+            
+            nova_event = json.loads(raw_bytes)["event"]
             self._log_event_type(nova_event)
 
             model_event = self._convert_nova_event(nova_event)
             if model_event:
+                event_type = model_event.get("type", "unknown") if isinstance(model_event, dict) else type(model_event).__name__
+                logger.debug("converted_event_type=<%s> | yielding converted event", event_type)
                 yield model_event
+            else:
+                logger.debug("event_not_converted | nova event did not produce output event")
 
     async def send(self, content: BidiInputEvent | ToolResultEvent) -> None:
         """Unified send method for all content types. Sends the given content to Nova Sonic.
@@ -335,15 +386,29 @@ class BidiNovaSonicModel(BidiModel):
         if not self._connection_id:
             raise RuntimeError("model not started | call start before sending")
 
+        # Log what we're sending
+        content_type = type(content).__name__
+        logger.debug("content_type=<%s> | sending content to nova sonic", content_type)
+
         if isinstance(content, BidiTextInputEvent):
+            text_preview = content.text[:100] if len(content.text) > 100 else content.text
+            logger.debug("text_length=<%d>, text_preview=<%s> | sending text content", len(content.text), text_preview)
             await self._send_text_content(content.text)
         elif isinstance(content, BidiAudioInputEvent):
+            audio_size = len(base64.b64decode(content.audio)) if content.audio else 0
+            logger.debug("audio_bytes=<%d>, format=<%s> | sending audio content", audio_size, content.format)
             await self._send_audio_content(content)
         elif isinstance(content, ToolResultEvent):
             tool_result = content.get("tool_result")
             if tool_result:
+                logger.debug(
+                    "tool_use_id=<%s>, content_blocks=<%d> | sending tool result",
+                    tool_result.get("toolUseId", "unknown"),
+                    len(tool_result.get("content", [])),
+                )
                 await self._send_tool_result(tool_result)
         else:
+            logger.error("content_type=<%s> | unsupported content type", content_type)
             raise ValueError(f"content_type={type(content)} | content not supported")
 
     async def _start_audio_connection(self) -> None:
@@ -583,7 +648,26 @@ class BidiNovaSonicModel(BidiModel):
     def _get_connection_start_event(self) -> str:
         """Generate Nova Sonic connection start event."""
         inference_config = {_NOVA_INFERENCE_CONFIG_KEYS[key]: value for key, value in self.config["inference"].items()}
-        return json.dumps({"event": {"sessionStart": {"inferenceConfiguration": inference_config}}})
+        
+        session_start_event: dict[str, Any] = {
+            "event": {
+                "sessionStart": {
+                    "inferenceConfiguration": inference_config
+                }
+            }
+        }
+        
+        # Add turn detection configuration if provided (v2 feature)
+        turn_detection_config = self.config.get("turn_detection", {})
+        if turn_detection_config:
+            # Validate endpointingSensitivity value
+            sensitivity = turn_detection_config.get("endpointingSensitivity")
+            if sensitivity and sensitivity not in ["HIGH", "MEDIUM", "LOW"]:
+                raise ValueError(f"Invalid endpointingSensitivity: {sensitivity}. Must be HIGH, MEDIUM, or LOW")
+            
+            session_start_event["event"]["sessionStart"]["turnDetectionConfiguration"] = turn_detection_config
+        
+        return json.dumps(session_start_event)
 
     def _get_prompt_start_event(self, tools: list[ToolSpec]) -> str:
         """Generate Nova Sonic prompt start event with tool configuration."""
@@ -759,9 +843,18 @@ class BidiNovaSonicModel(BidiModel):
         """
         async with self._send_lock:
             for event in events:
+                # Log the event being sent
+                try:
+                    event_dict = json.loads(event)
+                    event_type = list(event_dict.get("event", {}).keys())[0] if event_dict.get("event") else "unknown"
+                    logger.debug("event_type=<%s> | sending nova sonic event", event_type)
+                    logger.debug("event_payload=<%s> | nova sonic event details", json.dumps(event_dict, indent=2)[:500])
+                except (json.JSONDecodeError, IndexError):
+                    logger.debug("event=<%s> | sending nova sonic event (raw)", event[:200])
+                
                 bytes_data = event.encode("utf-8")
                 chunk = InvokeModelWithBidirectionalStreamInputChunk(
                     value=BidirectionalInputPayloadPart(bytes_=bytes_data)
                 )
                 await self._stream.input_stream.send(chunk)
-                logger.debug("nova sonic event sent successfully")
+                logger.debug("event_type=<%s> | nova sonic event sent successfully", event_type)

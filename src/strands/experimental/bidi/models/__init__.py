@@ -2,11 +2,22 @@
 
 from typing import Any
 
-from .model import BidiModel, BidiModelTimeoutError
+from .model import (
+    BidiModel,
+    BidiModelTimeoutError,
+    NOVA_SONIC_V1_MODEL_ID,
+    NOVA_SONIC_V2_MODEL_ID,
+    create_nova_sonic_v1,
+    create_nova_sonic_v2,
+)
 
 __all__ = [
     "BidiModel",
     "BidiModelTimeoutError",
+    "NOVA_SONIC_V1_MODEL_ID",
+    "NOVA_SONIC_V2_MODEL_ID",
+    "create_nova_sonic_v1",
+    "create_nova_sonic_v2",
 ]
 
 
