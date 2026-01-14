@@ -160,14 +160,7 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
 
     assert length == 12
 
-    # Verify BeforeInvocationEvent includes messages
-    before_event = next(events)
-    assert isinstance(before_event, BeforeInvocationEvent)
-    assert before_event.agent == agent
-    assert before_event.messages is not None
-    assert len(before_event.messages) == 1
-    assert before_event.messages[0]["role"] == "user"
-
+    assert next(events) == BeforeInvocationEvent(agent=agent, messages=agent.messages[0:1])
     assert next(events) == MessageAddedEvent(
         agent=agent,
         message=agent.messages[0],
@@ -224,12 +217,8 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
 
     # Verify first event is BeforeInvocationEvent with messages
     assert len(hook_provider.events_received) == 1
-    before_event = hook_provider.events_received[0]
-    assert isinstance(before_event, BeforeInvocationEvent)
-    assert before_event.agent == agent
-    assert before_event.messages is not None
-    assert len(before_event.messages) == 1
-    assert before_event.messages[0]["role"] == "user"
+    assert hook_provider.events_received[0].messages is not None
+    assert hook_provider.events_received[0].messages[0]["role"] == "user"
 
     # iterate the rest
     result = None
@@ -241,13 +230,7 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
 
     assert length == 12
 
-    # Verify BeforeInvocationEvent includes messages
-    before_event_2 = next(events)
-    assert isinstance(before_event_2, BeforeInvocationEvent)
-    assert before_event_2.agent == agent
-    assert before_event_2.messages is not None
-    assert len(before_event_2.messages) == 1
-
+    assert next(events) == BeforeInvocationEvent(agent=agent, messages=agent.messages[0:1])
     assert next(events) == MessageAddedEvent(
         agent=agent,
         message=agent.messages[0],
