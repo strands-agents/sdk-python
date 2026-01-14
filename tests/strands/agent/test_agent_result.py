@@ -39,6 +39,46 @@ def empty_message():
     return {"role": "assistant", "content": []}
 
 
+@pytest.fixture
+def citations_message():
+    """Message with citationsContent block."""
+    return {
+        "role": "assistant",
+        "content": [
+            {
+                "citationsContent": {
+                    "citations": [
+                        {
+                            "title": "Source Document",
+                            "location": {"document": {"pageNumber": 1}},
+                            "sourceContent": [{"text": "source text"}],
+                        }
+                    ],
+                    "content": [{"text": "This is cited text from the document."}],
+                }
+            }
+        ],
+    }
+
+
+@pytest.fixture
+def mixed_text_and_citations_message():
+    """Message with both plain text and citationsContent blocks."""
+    return {
+        "role": "assistant",
+        "content": [
+            {"text": "Introduction paragraph"},
+            {
+                "citationsContent": {
+                    "citations": [{"title": "Doc", "location": {}, "sourceContent": []}],
+                    "content": [{"text": "Cited content here."}],
+                }
+            },
+            {"text": "Conclusion paragraph"},
+        ],
+    }
+
+
 def test__init__(mock_metrics, simple_message: Message):
     """Test that AgentResult can be properly initialized with all required fields."""
     stop_reason: StopReason = "end_turn"
@@ -98,6 +138,24 @@ def test__str__non_dict_content(mock_metrics):
 
     message_string = str(result)
     assert message_string == "Valid text\nMore valid text\n"
+
+
+def test__str__with_citations_content(mock_metrics, citations_message: Message):
+    """Test that str() extracts text from citationsContent blocks."""
+    result = AgentResult(stop_reason="end_turn", message=citations_message, metrics=mock_metrics, state={})
+
+    message_string = str(result)
+    assert message_string == "This is cited text from the document.\n"
+
+
+def test__str__mixed_text_and_citations_content(mock_metrics, mixed_text_and_citations_message: Message):
+    """Test that str() works with both plain text and citationsContent blocks."""
+    result = AgentResult(
+        stop_reason="end_turn", message=mixed_text_and_citations_message, metrics=mock_metrics, state={}
+    )
+
+    message_string = str(result)
+    assert message_string == "Introduction paragraph\nCited content here.\nConclusion paragraph\n"
 
 
 def test_to_dict(mock_metrics, simple_message: Message):
@@ -201,7 +259,7 @@ def test__str__with_structured_output(mock_metrics, simple_message: Message):
     message_string = str(result)
     # Output should be valid JSON
     parsed = json.loads(message_string)
-    assert parsed["text"] == "Hello world!"
+    assert parsed["text"] == "Hello world!\n"
     assert parsed["structured_output"]["name"] == "test"
     assert parsed["structured_output"]["value"] == 42
 
@@ -230,59 +288,164 @@ def test__str__empty_message_with_structured_output(mock_metrics, empty_message:
     assert "optional" in message_string
 
 
-@pytest.fixture
-def citations_message():
-    """Message with citationsContent block."""
-    return {
-        "role": "assistant",
-        "content": [
-            {
-                "citationsContent": {
-                    "citations": [
-                        {
-                            "title": "Source Document",
-                            "location": {"document": {"pageNumber": 1}},
-                            "sourceContent": [{"text": "source text"}],
-                        }
-                    ],
-                    "content": [{"text": "This is cited text from the document."}],
-                }
-            }
-        ],
-    }
-
-
-@pytest.fixture
-def mixed_text_and_citations_message():
-    """Message with both plain text and citationsContent blocks."""
-    return {
-        "role": "assistant",
-        "content": [
-            {"text": "Introduction paragraph"},
-            {
-                "citationsContent": {
-                    "citations": [{"title": "Doc", "location": {}, "sourceContent": []}],
-                    "content": [{"text": "Cited content here."}],
-                }
-            },
-            {"text": "Conclusion paragraph"},
-        ],
-    }
-
-
-def test__str__with_citations_content(mock_metrics, citations_message: Message):
-    """Test that str() extracts text from citationsContent blocks."""
-    result = AgentResult(stop_reason="end_turn", message=citations_message, metrics=mock_metrics, state={})
-
-    message_string = str(result)
-    assert message_string == "This is cited text from the document.\n"
-
-
-def test__str__mixed_text_and_citations_content(mock_metrics, mixed_text_and_citations_message: Message):
-    """Test that str() works with both plain text and citationsContent blocks."""
+def test__str__structured_output_only():
+    """Test __str__ with only structured output (no text)."""
+    structured = StructuredOutputModel(name="test", value=42)
     result = AgentResult(
-        stop_reason="end_turn", message=mixed_text_and_citations_message, metrics=mock_metrics, state={}
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": []},
+        metrics=EventLoopMetrics(),
+        state={},
+        structured_output=structured,
+    )
+    # Should return just the structured output JSON
+    output = str(result)
+    parsed = json.loads(output)
+    assert parsed["name"] == "test"
+    assert parsed["value"] == 42
+
+
+def test__str__both_text_and_structured_output():
+    """Test __str__ includes BOTH text and structured output when both exist.
+
+    Output should be JSON-parseable with text and structured_output fields.
+    """
+    structured = StructuredOutputModel(name="test", value=42)
+    result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"text": "Here is the analysis"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+        structured_output=structured,
+    )
+    output = str(result)
+    # Output should be valid JSON
+    parsed = json.loads(output)
+    assert parsed["text"] == "Here is the analysis\n"
+    assert parsed["structured_output"]["name"] == "test"
+    assert parsed["structured_output"]["value"] == 42
+
+
+def test__str__multiple_text_blocks_with_structured_output():
+    """Test __str__ with multiple text blocks and structured output."""
+    structured = StructuredOutputModel(name="multi", value=100)
+    result = AgentResult(
+        stop_reason="end_turn",
+        message={
+            "role": "assistant",
+            "content": [
+                {"text": "First paragraph."},
+                {"text": "Second paragraph."},
+            ],
+        },
+        metrics=EventLoopMetrics(),
+        state={},
+        structured_output=structured,
+    )
+    output = str(result)
+    # Output should be valid JSON
+    parsed = json.loads(output)
+    assert "First paragraph." in parsed["text"]
+    assert "Second paragraph." in parsed["text"]
+    assert parsed["structured_output"]["name"] == "multi"
+    assert parsed["structured_output"]["value"] == 100
+
+
+def test__str__non_text_content_only():
+    """Test __str__ with only non-text content (e.g., toolUse)."""
+    result = AgentResult(
+        stop_reason="tool_use",
+        message={
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "123", "name": "test_tool", "input": {}}}],
+        },
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+    assert str(result) == ""
+
+
+def test__str__mixed_content_with_structured_output():
+    """Test __str__ with mixed content (text + toolUse) and structured output."""
+    structured = StructuredOutputModel(name="mixed", value=50)
+    result = AgentResult(
+        stop_reason="end_turn",
+        message={
+            "role": "assistant",
+            "content": [
+                {"text": "Processing complete."},
+                {"toolUse": {"toolUseId": "456", "name": "helper", "input": {}}},
+            ],
+        },
+        metrics=EventLoopMetrics(),
+        state={},
+        structured_output=structured,
+    )
+    output = str(result)
+    # Output should be valid JSON
+    parsed = json.loads(output)
+    assert parsed["text"] == "Processing complete.\n"
+    assert parsed["structured_output"]["name"] == "mixed"
+    assert parsed["structured_output"]["value"] == 50
+    # toolUse should not appear in the text
+    assert "toolUse" not in parsed["text"]
+    assert "helper" not in parsed["text"]
+
+
+def test__str__json_parseable():
+    """Test that output with both text and structured output is JSON-parseable."""
+    structured = StructuredOutputModel(name="parseable", value=99)
+    result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"text": "Result text"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+        structured_output=structured,
+    )
+    output = str(result)
+    # Should be valid JSON that can be parsed
+    parsed = json.loads(output)
+    assert "text" in parsed
+    assert "structured_output" in parsed
+    assert parsed["text"] == "Result text\n"
+    assert parsed["structured_output"] == {"name": "parseable", "value": 99, "optional_field": None}
+
+
+def test__str__citations_with_structured_output(mock_metrics, citations_message: Message):
+    """Test that str() includes BOTH citationsContent text and structured_output."""
+    structured_output = StructuredOutputModel(name="cited", value=77)
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=citations_message,
+        metrics=mock_metrics,
+        state={},
+        structured_output=structured_output,
     )
 
     message_string = str(result)
-    assert message_string == "Introduction paragraph\nCited content here.\nConclusion paragraph\n"
+    # Output should be valid JSON with both text and structured output
+    parsed = json.loads(message_string)
+    assert parsed["text"] == "This is cited text from the document.\n"
+    assert parsed["structured_output"]["name"] == "cited"
+    assert parsed["structured_output"]["value"] == 77
+
+
+def test__str__mixed_text_citations_with_structured_output(mock_metrics, mixed_text_and_citations_message: Message):
+    """Test that str() handles plain text, citations, and structured output together."""
+    structured_output = StructuredOutputModel(name="complex", value=999)
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=mixed_text_and_citations_message,
+        metrics=mock_metrics,
+        state={},
+        structured_output=structured_output,
+    )
+
+    message_string = str(result)
+    # Output should be valid JSON
+    parsed = json.loads(message_string)
+    assert parsed["text"] == "Introduction paragraph\nCited content here.\nConclusion paragraph\n"
+    assert parsed["structured_output"]["name"] == "complex"
+    assert parsed["structured_output"]["value"] == 999
