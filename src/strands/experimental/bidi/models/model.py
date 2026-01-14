@@ -26,10 +26,6 @@ from ..types.events import (
 
 logger = logging.getLogger(__name__)
 
-# Nova Sonic model identifiers
-NOVA_SONIC_V1_MODEL_ID = "amazon.nova-sonic-v1:0"
-NOVA_SONIC_V2_MODEL_ID = "amazon.nova-2-sonic-v1:0"
-
 
 @runtime_checkable
 class BidiModel(Protocol):

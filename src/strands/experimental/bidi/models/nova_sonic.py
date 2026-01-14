@@ -60,9 +60,13 @@ from ..types.events import (
     BidiUsageEvent,
 )
 from ..types.model import AudioConfig
-from .model import BidiModel, BidiModelTimeoutError, NOVA_SONIC_V1_MODEL_ID, NOVA_SONIC_V2_MODEL_ID
+from .model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
+
+# Nova Sonic model identifiers
+NOVA_SONIC_V1_MODEL_ID = "amazon.nova-sonic-v1:0"
+NOVA_SONIC_V2_MODEL_ID = "amazon.nova-2-sonic-v1:0"
 
 _NOVA_INFERENCE_CONFIG_KEYS = {
     "max_tokens": "maxTokens",
@@ -130,13 +134,21 @@ class BidiNovaSonicModel(BidiModel):
         # Store model ID
         self.model_id = model_id
 
-        # Validate turn_detection is only used with v2
+        # Validate turn_detection configuration
         provider_config = provider_config or {}
         if "turn_detection" in provider_config and provider_config["turn_detection"]:
             if model_id == NOVA_SONIC_V1_MODEL_ID:
                 raise ValueError(
                     f"turn_detection is only supported in Nova Sonic v2. "
                     f"Current model_id: {model_id}. Use {NOVA_SONIC_V2_MODEL_ID} instead."
+                )
+            
+            # Validate endpointingSensitivity value if provided
+            sensitivity = provider_config["turn_detection"].get("endpointingSensitivity")
+            if sensitivity and sensitivity not in ["HIGH", "MEDIUM", "LOW"]:
+                raise ValueError(
+                    f"Invalid endpointingSensitivity: {sensitivity}. "
+                    f"Must be HIGH, MEDIUM, or LOW"
                 )
 
         # Resolve client config with defaults
@@ -660,11 +672,6 @@ class BidiNovaSonicModel(BidiModel):
         # Add turn detection configuration if provided (v2 feature)
         turn_detection_config = self.config.get("turn_detection", {})
         if turn_detection_config:
-            # Validate endpointingSensitivity value
-            sensitivity = turn_detection_config.get("endpointingSensitivity")
-            if sensitivity and sensitivity not in ["HIGH", "MEDIUM", "LOW"]:
-                raise ValueError(f"Invalid endpointingSensitivity: {sensitivity}. Must be HIGH, MEDIUM, or LOW")
-            
             session_start_event["event"]["sessionStart"]["turnDetectionConfiguration"] = turn_detection_config
         
         return json.dumps(session_start_event)

@@ -600,7 +600,7 @@ async def test_default_audio_rates_in_events(model_id, boto_session):
 
 def test_nova_sonic_model_constants():
     """Test that Nova Sonic model ID constants are correctly defined."""
-    from strands.experimental.bidi.models.model import NOVA_SONIC_V1_MODEL_ID, NOVA_SONIC_V2_MODEL_ID
+    from strands.experimental.bidi.models.nova_sonic import NOVA_SONIC_V1_MODEL_ID, NOVA_SONIC_V2_MODEL_ID
 
     assert NOVA_SONIC_V1_MODEL_ID == "amazon.nova-sonic-v1:0"
     assert NOVA_SONIC_V2_MODEL_ID == "amazon.nova-2-sonic-v1:0"
@@ -654,7 +654,7 @@ async def test_nova_sonic_v2_instantiation(boto_session, mock_client):
 @pytest.mark.asyncio
 async def test_nova_sonic_v2_direct_instantiation(boto_session, mock_client):
     """Test direct instantiation with Nova Sonic v2 model ID."""
-    from strands.experimental.bidi.models.model import NOVA_SONIC_V2_MODEL_ID
+    from strands.experimental.bidi.models.nova_sonic import NOVA_SONIC_V2_MODEL_ID
 
     _ = mock_client  # Ensure mock is active
 
@@ -771,6 +771,37 @@ async def test_turn_detection_v1_validation(boto_session, mock_client):
         client_config={"boto_session": boto_session},
     )
     assert model_v1_empty.model_id == NOVA_SONIC_V1_MODEL_ID
+
+
+@pytest.mark.asyncio
+async def test_turn_detection_sensitivity_validation(boto_session, mock_client):
+    """Test that endpointingSensitivity is validated at initialization."""
+    _ = mock_client  # Ensure mock is active
+
+    # Test invalid sensitivity value raises ValueError at init
+    with pytest.raises(ValueError, match="Invalid endpointingSensitivity.*Must be HIGH, MEDIUM, or LOW"):
+        BidiNovaSonicModel(
+            model_id=NOVA_SONIC_V2_MODEL_ID,
+            provider_config={"turn_detection": {"endpointingSensitivity": "INVALID"}},
+            client_config={"boto_session": boto_session},
+        )
+
+    # Test valid sensitivity values work
+    for sensitivity in ["HIGH", "MEDIUM", "LOW"]:
+        model = BidiNovaSonicModel(
+            model_id=NOVA_SONIC_V2_MODEL_ID,
+            provider_config={"turn_detection": {"endpointingSensitivity": sensitivity}},
+            client_config={"boto_session": boto_session},
+        )
+        assert model.config["turn_detection"]["endpointingSensitivity"] == sensitivity
+
+    # Test that turn_detection without sensitivity works (sensitivity is optional)
+    model_no_sensitivity = BidiNovaSonicModel(
+        model_id=NOVA_SONIC_V2_MODEL_ID,
+        provider_config={"turn_detection": {}},
+        client_config={"boto_session": boto_session},
+    )
+    assert "endpointingSensitivity" not in model_no_sensitivity.config["turn_detection"]
 
 
 # Error Handling Tests

@@ -248,8 +248,8 @@ from strands.experimental.bidi.models import BidiNovaSonicModel
 model = BidiNovaSonicModel(
     provider_config={
         "audio": {
-            "input_sample_rate": 16000,
-            "output_sample_rate": 16000,
+            "input_rate": 16000,
+            "output_rate": 16000,
             "voice": "matthew"
         },
         "turn_detection": {
