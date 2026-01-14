@@ -122,7 +122,7 @@ class BidiNovaSonicModel(BidiModel):
         """Initialize Nova Sonic bidirectional model.
 
         Args:
-            model_id: Model identifier (default: amazon.nova-sonic-v1:0)
+            model_id: Model identifier (default: amazon.nova-2-sonic-v1:0)
             provider_config: Model behavior configuration including:
                 - audio: Audio input/output settings (sample rate, voice, etc.)
                 - inference: Model inference settings (max_tokens, temperature, top_p)
@@ -130,6 +130,10 @@ class BidiNovaSonicModel(BidiModel):
                   - endpointingSensitivity: "HIGH" | "MEDIUM" | "LOW" (optional)
             client_config: AWS authentication (boto_session OR region, not both)
             **kwargs: Reserved for future parameters.
+
+        Raises:
+            ValueError: If turn_detection is used with v1 model.
+            ValueError: If endpointingSensitivity is not HIGH, MEDIUM, or LOW.
         """
         # Store model ID
         self.model_id = model_id
