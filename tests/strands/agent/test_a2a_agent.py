@@ -38,7 +38,7 @@ def test_init_with_defaults():
     assert agent.timeout == 300
     assert agent._agent_card is None
     assert agent.name is None
-    assert agent.description == ""
+    assert agent.description is None
 
 
 def test_init_with_name_and_description():
