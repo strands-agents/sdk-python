@@ -313,7 +313,7 @@ async def test_non_streaming_contentBlockStart_for_text(non_streaming_model, ali
         elif "messageStop" in event:
             event_types.append("messageStop")
     
-    # Verify the correct sequence: messageStart -> contentBlockStart -> contentBlockDelta -> contentBlockStop -> messageStop
+    # Verify correct event sequence
     assert event_types[0] == "messageStart", "First event should be messageStart"
     assert event_types[1] == "contentBlockStart", "Second event should be contentBlockStart"
     assert event_types[2] == "contentBlockDelta", "Third event should be contentBlockDelta"
