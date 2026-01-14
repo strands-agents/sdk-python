@@ -19,13 +19,14 @@ from ..types._events import AgentResultEvent
 from ..types.a2a import A2AResponse, A2AStreamEvent
 from ..types.agent import AgentInput
 from .agent_result import AgentResult
+from .base import AgentBase
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 300
 
 
-class A2AAgent:
+class A2AAgent(AgentBase):
     """Client wrapper for remote A2A agents."""
 
     def __init__(
