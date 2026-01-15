@@ -35,13 +35,14 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    cast,
     get_args,
     get_origin,
     get_type_hints,
     overload,
 )
 
-from .registry import BaseHookEvent, HookProvider, HookRegistry
+from .registry import BaseHookEvent, HookCallback, HookProvider, HookRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -269,7 +270,7 @@ class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
             **kwargs: Additional keyword arguments (unused, for protocol compatibility).
         """
         for event_type in self._metadata.event_types:
-            registry.add_callback(event_type, self._func)
+            registry.add_callback(event_type, cast(HookCallback[BaseHookEvent], self._func))
 
     def __call__(self, event: TEvent) -> Any:
         """Allow direct invocation for testing.
@@ -336,6 +337,7 @@ def hook(__func: F) -> DecoratedFunctionHook[Any]: ...
 # Handle @hook(event=...)
 @overload
 def hook(
+    *,
     event: Optional[Type[BaseHookEvent]] = None,
     events: Optional[Sequence[Type[BaseHookEvent]]] = None,
 ) -> Callable[[F], DecoratedFunctionHook[Any]]: ...
