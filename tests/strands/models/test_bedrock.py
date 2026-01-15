@@ -2308,5 +2308,8 @@ def test_format_request_s3_location_video_source(model, model_id):
     formatted_request = model._format_request(messages)
 
     video_block = formatted_request["messages"][0]["content"][0]["video"]
-    expected = {"format": "mp4", "source": {"s3Location": {"uri": "s3://bucket/video.mp4", "bucketOwner": "123456789012"}}}
+    expected = {
+        "format": "mp4",
+        "source": {"s3Location": {"uri": "s3://bucket/video.mp4", "bucketOwner": "123456789012"}},
+    }
     assert video_block == expected
