@@ -414,9 +414,13 @@ class BedrockModel(Model):
             if "format" in document:
                 result["format"] = document["format"]
 
-            # Handle source
+            # Handle source (supports both bytes and s3Location)
             if "source" in document:
-                result["source"] = {"bytes": document["source"]["bytes"]}
+                source = document["source"]
+                if "bytes" in source:
+                    result["source"] = {"bytes": source["bytes"]}
+                elif "s3Location" in source:
+                    result["source"] = {"s3Location": source["s3Location"]}
 
             # Handle optional fields
             if "citations" in document and document["citations"] is not None:
@@ -437,9 +441,11 @@ class BedrockModel(Model):
         if "image" in content:
             image = content["image"]
             source = image["source"]
-            formatted_source = {}
+            formatted_source: dict[str, Any] = {}
             if "bytes" in source:
                 formatted_source = {"bytes": source["bytes"]}
+            elif "s3Location" in source:
+                formatted_source = {"s3Location": source["s3Location"]}
             result = {"format": image["format"], "source": formatted_source}
             return {"image": result}
 
@@ -502,9 +508,11 @@ class BedrockModel(Model):
         if "video" in content:
             video = content["video"]
             source = video["source"]
-            formatted_source = {}
+            formatted_source: dict[str, Any] = {}
             if "bytes" in source:
                 formatted_source = {"bytes": source["bytes"]}
+            elif "s3Location" in source:
+                formatted_source = {"s3Location": source["s3Location"]}
             result = {"format": video["format"], "source": formatted_source}
             return {"video": result}
 

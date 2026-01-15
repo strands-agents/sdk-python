@@ -2240,3 +2240,73 @@ async def test_format_request_with_guardrail_latest_message(model):
     # Latest user message image should also be wrapped
     assert "guardContent" in formatted_messages[2]["content"][1]
     assert formatted_messages[2]["content"][1]["guardContent"]["image"]["format"] == "png"
+
+
+def test_format_request_s3_location_document_source(model, model_id):
+    """Test that s3Location source is supported for documents when bytes is not present."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "test.pdf",
+                        "format": "pdf",
+                        "source": {"s3Location": {"uri": "s3://bucket/key.pdf"}},
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    document_block = formatted_request["messages"][0]["content"][0]["document"]
+    expected = {"name": "test.pdf", "format": "pdf", "source": {"s3Location": {"uri": "s3://bucket/key.pdf"}}}
+    assert document_block == expected
+
+
+def test_format_request_s3_location_image_source(model, model_id):
+    """Test that s3Location source is supported for images when bytes is not present."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"s3Location": {"uri": "s3://bucket/image.png"}},
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    image_block = formatted_request["messages"][0]["content"][0]["image"]
+    expected = {"format": "png", "source": {"s3Location": {"uri": "s3://bucket/image.png"}}}
+    assert image_block == expected
+
+
+def test_format_request_s3_location_video_source(model, model_id):
+    """Test that s3Location source is supported for videos when bytes is not present."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "video": {
+                        "format": "mp4",
+                        "source": {"s3Location": {"uri": "s3://bucket/video.mp4", "bucketOwner": "123456789012"}},
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    video_block = formatted_request["messages"][0]["content"][0]["video"]
+    expected = {"format": "mp4", "source": {"s3Location": {"uri": "s3://bucket/video.mp4", "bucketOwner": "123456789012"}}}
+    assert video_block == expected
