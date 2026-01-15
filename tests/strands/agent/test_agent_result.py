@@ -259,7 +259,7 @@ def test__str__with_structured_output(mock_metrics, simple_message: Message):
     message_string = str(result)
     # Output should be valid JSON
     parsed = json.loads(message_string)
-    assert parsed["text"] == "Hello world!\n"
+    assert parsed["text"] == "Hello world!"
     assert parsed["structured_output"]["name"] == "test"
     assert parsed["structured_output"]["value"] == 42
 
@@ -299,10 +299,7 @@ def test__str__structured_output_only():
         structured_output=structured,
     )
     # Should return just the structured output JSON
-    output = str(result)
-    parsed = json.loads(output)
-    assert parsed["name"] == "test"
-    assert parsed["value"] == 42
+    assert str(result) == '{"name":"test","value":42,"optional_field":null}'
 
 
 def test__str__both_text_and_structured_output():
@@ -321,7 +318,7 @@ def test__str__both_text_and_structured_output():
     output = str(result)
     # Output should be valid JSON
     parsed = json.loads(output)
-    assert parsed["text"] == "Here is the analysis\n"
+    assert parsed["text"] == "Here is the analysis"
     assert parsed["structured_output"]["name"] == "test"
     assert parsed["structured_output"]["value"] == 42
 
@@ -384,7 +381,7 @@ def test__str__mixed_content_with_structured_output():
     output = str(result)
     # Output should be valid JSON
     parsed = json.loads(output)
-    assert parsed["text"] == "Processing complete.\n"
+    assert parsed["text"] == "Processing complete."
     assert parsed["structured_output"]["name"] == "mixed"
     assert parsed["structured_output"]["value"] == 50
     # toolUse should not appear in the text
@@ -407,7 +404,7 @@ def test__str__json_parseable():
     parsed = json.loads(output)
     assert "text" in parsed
     assert "structured_output" in parsed
-    assert parsed["text"] == "Result text\n"
+    assert parsed["text"] == "Result text"
     assert parsed["structured_output"] == {"name": "parseable", "value": 99, "optional_field": None}
 
 
@@ -426,7 +423,7 @@ def test__str__citations_with_structured_output(mock_metrics, citations_message:
     message_string = str(result)
     # Output should be valid JSON with both text and structured output
     parsed = json.loads(message_string)
-    assert parsed["text"] == "This is cited text from the document.\n"
+    assert parsed["text"] == "This is cited text from the document."
     assert parsed["structured_output"]["name"] == "cited"
     assert parsed["structured_output"]["value"] == 77
 
@@ -446,6 +443,6 @@ def test__str__mixed_text_citations_with_structured_output(mock_metrics, mixed_t
     message_string = str(result)
     # Output should be valid JSON
     parsed = json.loads(message_string)
-    assert parsed["text"] == "Introduction paragraph\nCited content here.\nConclusion paragraph\n"
+    assert parsed["text"] == "Introduction paragraph\nCited content here.\nConclusion paragraph"
     assert parsed["structured_output"]["name"] == "complex"
     assert parsed["structured_output"]["value"] == 999

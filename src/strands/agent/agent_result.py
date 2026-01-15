@@ -54,25 +54,30 @@ class AgentResult:
         """
         content_array = self.message.get("content", [])
 
-        result = ""
+        # Collect all text content without modification
+        text_parts = []
         for item in content_array:
             if isinstance(item, dict):
                 if "text" in item:
-                    result += item.get("text", "") + "\n"
+                    text_parts.append(item.get("text", ""))
                 elif "citationsContent" in item:
                     citations_block = item["citationsContent"]
                     if "content" in citations_block:
                         for content in citations_block["content"]:
                             if isinstance(content, dict) and "text" in content:
-                                result += content.get("text", "") + "\n"
+                                text_parts.append(content.get("text", ""))
+
+        # Join text parts with newline, preserving original content
+        result = "\n".join(text_parts) + "\n" if text_parts else ""
 
         # Always include structured output when present
         if self.structured_output:
             structured_data = self.structured_output.model_dump()
-            if result:
+            if text_parts:
                 # Both text and structured output exist - return JSON-parseable format
-                # Preserve text as-is (don't strip)
-                combined = {"text": result, "structured_output": structured_data}
+                # Join text parts without adding extra newlines
+                text_content = "\n".join(text_parts)
+                combined = {"text": text_content, "structured_output": structured_data}
                 return json.dumps(combined)
             else:
                 # Only structured output exists - return just the structured output JSON
