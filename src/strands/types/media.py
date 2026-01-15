@@ -11,18 +11,33 @@ from typing_extensions import TypedDict
 
 from .citations import CitationsConfig
 
+
+class S3Location(TypedDict, total=False):
+    """S3 location for media content.
+
+    Attributes:
+        uri: The S3 URI of the content.
+        bucketOwner: The account ID of the bucket owner.
+    """
+
+    uri: str
+    bucketOwner: str
+
+
 DocumentFormat = Literal["pdf", "csv", "doc", "docx", "xls", "xlsx", "html", "txt", "md"]
 """Supported document formats."""
 
 
-class DocumentSource(TypedDict):
+class DocumentSource(TypedDict, total=False):
     """Contains the content of a document.
 
     Attributes:
         bytes: The binary content of the document.
+        s3Location: The S3 location of the document.
     """
 
     bytes: bytes
+    s3Location: S3Location
 
 
 class DocumentContent(TypedDict, total=False):
@@ -45,14 +60,16 @@ ImageFormat = Literal["png", "jpeg", "gif", "webp"]
 """Supported image formats."""
 
 
-class ImageSource(TypedDict):
+class ImageSource(TypedDict, total=False):
     """Contains the content of an image.
 
     Attributes:
         bytes: The binary content of the image.
+        s3Location: The S3 location of the image.
     """
 
     bytes: bytes
+    s3Location: S3Location
 
 
 class ImageContent(TypedDict):
@@ -71,14 +88,16 @@ VideoFormat = Literal["flv", "mkv", "mov", "mpeg", "mpg", "mp4", "three_gp", "we
 """Supported video formats."""
 
 
-class VideoSource(TypedDict):
+class VideoSource(TypedDict, total=False):
     """Contains the content of a video.
 
     Attributes:
         bytes: The binary content of the video.
+        s3Location: The S3 location of the video.
     """
 
     bytes: bytes
+    s3Location: S3Location
 
 
 class VideoContent(TypedDict):

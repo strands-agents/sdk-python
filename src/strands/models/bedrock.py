@@ -441,13 +441,12 @@ class BedrockModel(Model):
         if "image" in content:
             image = content["image"]
             source = image["source"]
-            formatted_source: dict[str, Any] = {}
+            image_source: dict[str, Any] = {}
             if "bytes" in source:
-                formatted_source = {"bytes": source["bytes"]}
+                image_source = {"bytes": source["bytes"]}
             elif "s3Location" in source:
-                formatted_source = {"s3Location": source["s3Location"]}
-            result = {"format": image["format"], "source": formatted_source}
-            return {"image": result}
+                image_source = {"s3Location": source["s3Location"]}
+            return {"image": {"format": image["format"], "source": image_source}}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ReasoningContentBlock.html
         if "reasoningContent" in content:
@@ -508,13 +507,12 @@ class BedrockModel(Model):
         if "video" in content:
             video = content["video"]
             source = video["source"]
-            formatted_source: dict[str, Any] = {}
+            video_source: dict[str, Any] = {}
             if "bytes" in source:
-                formatted_source = {"bytes": source["bytes"]}
+                video_source = {"bytes": source["bytes"]}
             elif "s3Location" in source:
-                formatted_source = {"s3Location": source["s3Location"]}
-            result = {"format": video["format"], "source": formatted_source}
-            return {"video": result}
+                video_source = {"s3Location": source["s3Location"]}
+            return {"video": {"format": video["format"], "source": video_source}}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
         if "citationsContent" in content:
