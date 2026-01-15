@@ -204,10 +204,9 @@ It's also available on GitHub via [strands-agents/tools](https://github.com/stra
 Build real-time voice and audio conversations with persistent streaming connections. Unlike traditional request-response patterns, bidirectional streaming maintains long-running conversations where users can interrupt, provide continuous input, and receive real-time audio responses. Get started with your first BidiAgent by following the [Quickstart](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/experimental/bidirectional-streaming/quickstart) guide. 
 
 **Supported Model Providers:**
-- Amazon Nova Sonic v1 (`amazon.nova-sonic-v1:0`)
-- Amazon Nova Sonic v2 (`amazon.nova-2-sonic-v1:0`)
-- Google Gemini Live (`gemini-2.5-flash-native-audio-preview-09-2025`)
-- OpenAI Realtime API (`gpt-realtime`)
+- Amazon Nova Sonic (v1, v2)
+- Google Gemini Live
+- OpenAI Realtime API
 
 **Quick Example:**
 

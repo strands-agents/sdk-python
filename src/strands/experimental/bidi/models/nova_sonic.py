@@ -402,10 +402,6 @@ class BidiNovaSonicModel(BidiModel):
         if not self._connection_id:
             raise RuntimeError("model not started | call start before sending")
 
-        # Log what we're sending
-        content_type = type(content).__name__
-        logger.debug("content_type=<%s> | sending content to nova sonic", content_type)
-
         if isinstance(content, BidiTextInputEvent):
             text_preview = content.text[:100] if len(content.text) > 100 else content.text
             logger.debug("text_length=<%d>, text_preview=<%s> | sending text content", len(content.text), text_preview)
@@ -844,6 +840,42 @@ class BidiNovaSonicModel(BidiModel):
         """Generate connection end event."""
         return json.dumps({"event": {"connectionEnd": {}}})
 
+    def _truncate_audio_bytes_for_logging(self, event_dict: dict[str, Any]) -> dict[str, Any]:
+        """Create a copy of event dict with truncated audio bytes for logging.
+
+        This prevents bloating logs with large base64-encoded audio data while keeping
+        the JSON structure valid and serializable.
+
+        Args:
+            event_dict: The event dictionary to process.
+
+        Returns:
+            A copy of the event dict with audio bytes truncated to first 100 chars.
+        """
+        import copy
+
+        log_dict = copy.deepcopy(event_dict)
+        
+        # Truncate audio bytes in various event types
+        if "event" in log_dict:
+            event_data = log_dict["event"]
+            
+            # Handle contentStart events with audio
+            if "contentStart" in event_data and "content" in event_data["contentStart"]:
+                content = event_data["contentStart"]["content"]
+                if "audio" in content and "bytes" in content["audio"]:
+                    original_bytes = content["audio"]["bytes"]
+                    content["audio"]["bytes"] = f"{original_bytes[:100]}... [truncated {len(original_bytes)} chars]"
+            
+            # Handle content events with audio
+            if "content" in event_data and "content" in event_data["content"]:
+                content = event_data["content"]["content"]
+                if "audio" in content and "bytes" in content["audio"]:
+                    original_bytes = content["audio"]["bytes"]
+                    content["audio"]["bytes"] = f"{original_bytes[:100]}... [truncated {len(original_bytes)} chars]"
+        
+        return log_dict
+
     async def _send_nova_events(self, events: list[str]) -> None:
         """Send event JSON string to Nova Sonic stream.
 
@@ -859,7 +891,10 @@ class BidiNovaSonicModel(BidiModel):
                     event_dict = json.loads(event)
                     event_type = list(event_dict.get("event", {}).keys())[0] if event_dict.get("event") else "unknown"
                     logger.debug("event_type=<%s> | sending nova sonic event", event_type)
-                    logger.debug("event_payload=<%s> | nova sonic event details", json.dumps(event_dict, indent=2)[:500])
+                    
+                    # Create a copy for logging with truncated audio bytes to avoid bloating logs
+                    log_dict = self._truncate_audio_bytes_for_logging(event_dict)
+                    logger.debug("event_payload=<%s> | nova sonic event details", json.dumps(log_dict, indent=2))
                 except (json.JSONDecodeError, IndexError):
                     logger.debug("event=<%s> | sending nova sonic event (raw)", event[:200])
                 
