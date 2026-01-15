@@ -304,6 +304,18 @@ def test_list_messages_single_message(s3_manager, sample_session, sample_agent):
     assert len(result) == 1
 
 
+def test_list_no_messages(s3_manager, sample_session, sample_agent):
+    """Test listing all messages from S3."""
+    # Create session and agent
+    s3_manager.create_session(sample_session)
+    s3_manager.create_agent(sample_session.session_id, sample_agent)
+
+    # List all messages
+    result = s3_manager.list_messages(sample_session.session_id, sample_agent.agent_id)
+
+    assert len(result) == 0
+
+
 def test_list_messages_with_pagination(s3_manager, sample_session, sample_agent):
     """Test listing messages with pagination in S3."""
     # Create session and agent

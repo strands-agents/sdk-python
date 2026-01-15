@@ -8,7 +8,8 @@ import threading
 import time
 import unittest.mock
 import warnings
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 from uuid import uuid4
 
 import pytest
