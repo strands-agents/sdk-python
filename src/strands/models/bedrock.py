@@ -310,8 +310,8 @@ class BedrockModel(Model):
         if not additional_fields:
             return {}
 
-        # Check if tool_choice is forcing tool use (not auto and not None)
-        is_forcing_tool = tool_choice is not None and "auto" not in tool_choice
+        # Check if tool_choice is forcing tool use ("any" or specific "tool")
+        is_forcing_tool = tool_choice is not None and ("any" in tool_choice or "tool" in tool_choice)
 
         if is_forcing_tool and "thinking" in additional_fields:
             # Create a copy without the thinking key
