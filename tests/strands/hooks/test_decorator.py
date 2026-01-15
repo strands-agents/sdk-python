@@ -313,3 +313,185 @@ class TestMixedHooksUsage:
 
         assert len(decorator_called) == 1
         assert len(class_called) == 1
+
+
+class TestAgentInjection:
+    """Tests for automatic agent injection in @hook decorated functions."""
+
+    def test_agent_param_detection(self):
+        """Test that agent parameter is correctly detected."""
+        from strands.agent import Agent
+
+        @hook
+        def with_agent(event: BeforeToolCallEvent, agent: Agent) -> None:
+            pass
+
+        @hook
+        def without_agent(event: BeforeToolCallEvent) -> None:
+            pass
+
+        assert with_agent.has_agent_param is True
+        assert without_agent.has_agent_param is False
+
+    def test_agent_injection_in_repr(self):
+        """Test that agent injection is shown in repr."""
+        from strands.agent import Agent
+
+        @hook
+        def with_agent(event: BeforeToolCallEvent, agent: Agent) -> None:
+            pass
+
+        assert "agent_injection=True" in repr(with_agent)
+
+    def test_hook_without_agent_param_not_injected(self):
+        """Test that hooks without agent param work normally."""
+        received_events = []
+
+        @hook
+        def simple_hook(event: BeforeToolCallEvent) -> None:
+            received_events.append(event)
+
+        # Create a mock event
+        mock_agent = MagicMock()
+        mock_event = MagicMock(spec=BeforeToolCallEvent)
+        mock_event.agent = mock_agent
+
+        # Call directly
+        simple_hook(mock_event)
+
+        assert len(received_events) == 1
+        assert received_events[0] is mock_event
+
+    def test_hook_with_agent_param_receives_agent(self):
+        """Test that hooks with agent param receive agent via injection."""
+        received_data = []
+
+        @hook
+        def hook_with_agent(event: BeforeToolCallEvent, agent) -> None:
+            received_data.append({"event": event, "agent": agent})
+
+        # Create mock event with agent
+        mock_agent = MagicMock()
+        mock_agent.name = "test_agent"
+        mock_event = MagicMock(spec=BeforeToolCallEvent)
+        mock_event.agent = mock_agent
+
+        # Call directly - agent should be extracted from event.agent
+        hook_with_agent(mock_event)
+
+        assert len(received_data) == 1
+        assert received_data[0]["event"] is mock_event
+        assert received_data[0]["agent"] is mock_agent
+
+    def test_direct_call_with_explicit_agent(self):
+        """Test direct invocation with explicit agent parameter."""
+        received_data = []
+
+        @hook
+        def hook_with_agent(event: BeforeToolCallEvent, agent) -> None:
+            received_data.append({"event": event, "agent": agent})
+
+        # Create mocks
+        mock_event = MagicMock(spec=BeforeToolCallEvent)
+        mock_event.agent = MagicMock(name="event_agent")
+        explicit_agent = MagicMock(name="explicit_agent")
+
+        # Call with explicit agent - should use explicit over event.agent
+        hook_with_agent(mock_event, agent=explicit_agent)
+
+        assert len(received_data) == 1
+        assert received_data[0]["agent"] is explicit_agent
+
+    def test_agent_injection_with_registry(self):
+        """Test agent injection when registered with HookRegistry."""
+        received_data = []
+
+        @hook
+        def hook_with_agent(event: BeforeToolCallEvent, agent) -> None:
+            received_data.append({"event": event, "agent": agent})
+
+        # Create registry and register hook
+        registry = HookRegistry()
+        hook_with_agent.register_hooks(registry)
+
+        # Create a real BeforeToolCallEvent (not mock) since registry uses type()
+        mock_agent = MagicMock()
+        mock_agent.name = "registry_test_agent"
+
+        # Create actual event instance
+        mock_tool = MagicMock()
+        event = BeforeToolCallEvent(
+            agent=mock_agent,
+            selected_tool=mock_tool,
+            tool_use={"toolUseId": "test-123", "name": "test_tool", "input": {}},
+            invocation_state={},
+        )
+
+        # Invoke callbacks through registry
+        for callback in registry.get_callbacks_for(event):
+            callback(event)
+
+        assert len(received_data) == 1
+        assert received_data[0]["agent"] is mock_agent
+
+    def test_async_hook_with_agent_injection(self):
+        """Test async hooks with agent injection."""
+        import asyncio
+
+        received_data = []
+
+        @hook
+        async def async_hook_with_agent(event: BeforeToolCallEvent, agent) -> None:
+            received_data.append({"event": event, "agent": agent})
+
+        assert async_hook_with_agent.has_agent_param is True
+        assert async_hook_with_agent.is_async is True
+
+        # Create mock event
+        mock_agent = MagicMock()
+        mock_event = MagicMock(spec=BeforeToolCallEvent)
+        mock_event.agent = mock_agent
+
+        # Run async hook
+        asyncio.run(async_hook_with_agent(mock_event))
+
+        assert len(received_data) == 1
+        assert received_data[0]["agent"] is mock_agent
+
+    def test_hook_metadata_includes_agent_param(self):
+        """Test that HookMetadata correctly reflects agent parameter."""
+
+        @hook
+        def with_agent(event: BeforeToolCallEvent, agent) -> None:
+            pass
+
+        # Access internal metadata
+        metadata = with_agent._hook_metadata
+
+        assert metadata.has_agent_param is True
+        assert metadata.name == "with_agent"
+
+    def test_mixed_hooks_with_and_without_agent(self):
+        """Test that hooks with and without agent params work together."""
+        results = {"with_agent": [], "without_agent": []}
+
+        @hook
+        def without_agent_hook(event: BeforeToolCallEvent) -> None:
+            results["without_agent"].append(event)
+
+        @hook
+        def with_agent_hook(event: BeforeToolCallEvent, agent) -> None:
+            results["with_agent"].append({"event": event, "agent": agent})
+
+        # Create mock event
+        mock_agent = MagicMock()
+        mock_event = MagicMock(spec=BeforeToolCallEvent)
+        mock_event.agent = mock_agent
+
+        # Call both hooks
+        without_agent_hook(mock_event)
+        with_agent_hook(mock_event)
+
+        assert len(results["without_agent"]) == 1
+        assert len(results["with_agent"]) == 1
+        assert results["with_agent"][0]["agent"] is mock_agent
