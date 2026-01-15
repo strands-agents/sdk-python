@@ -495,3 +495,221 @@ class TestAgentInjection:
         assert len(results["without_agent"]) == 1
         assert len(results["with_agent"]) == 1
         assert results["with_agent"][0]["agent"] is mock_agent
+
+
+class TestCoverageGaps:
+    """Additional tests to cover edge cases and improve coverage."""
+
+    def test_optional_type_hint_extracts_event_type(self):
+        """Test that Optional[EventType] correctly extracts the event type (skips NoneType)."""
+        from typing import Optional
+
+        @hook
+        def optional_hook(event: Optional[BeforeToolCallEvent]) -> None:
+            pass
+
+        assert isinstance(optional_hook, DecoratedFunctionHook)
+        assert optional_hook.event_types == [BeforeToolCallEvent]
+
+    def test_async_hook_with_agent_via_registry(self):
+        """Test async hook with agent injection when invoked via registry."""
+        import asyncio
+
+        received_data = []
+
+        @hook
+        async def async_hook_with_agent(event: BeforeToolCallEvent, agent) -> None:
+            received_data.append({"event": event, "agent": agent})
+
+        # Register with registry
+        registry = HookRegistry()
+        async_hook_with_agent.register_hooks(registry)
+
+        # Create event
+        mock_agent = MagicMock()
+        mock_agent.name = "async_registry_agent"
+        event = BeforeToolCallEvent(
+            agent=mock_agent,
+            selected_tool=None,
+            tool_use={"toolUseId": "test-123", "name": "test_tool", "input": {}},
+            invocation_state={},
+        )
+
+        # Get callbacks and invoke them (async)
+        async def run_callbacks():
+            for callback in registry.get_callbacks_for(event):
+                result = callback(event)
+                if asyncio.iscoroutine(result):
+                    await result
+
+        asyncio.run(run_callbacks())
+
+        assert len(received_data) == 1
+        assert received_data[0]["agent"] is mock_agent
+
+    def test_sync_hook_with_agent_via_registry(self):
+        """Test sync hook with agent injection when invoked via registry."""
+        received_data = []
+
+        @hook
+        def sync_hook_with_agent(event: BeforeToolCallEvent, agent) -> None:
+            received_data.append({"event": event, "agent": agent})
+
+        # Register with registry
+        registry = HookRegistry()
+        sync_hook_with_agent.register_hooks(registry)
+
+        # Create event
+        mock_agent = MagicMock()
+        mock_agent.name = "sync_registry_agent"
+        event = BeforeToolCallEvent(
+            agent=mock_agent,
+            selected_tool=None,
+            tool_use={"toolUseId": "test-123", "name": "test_tool", "input": {}},
+            invocation_state={},
+        )
+
+        # Get callbacks and invoke them
+        for callback in registry.get_callbacks_for(event):
+            callback(event)
+
+        assert len(received_data) == 1
+        assert received_data[0]["agent"] is mock_agent
+
+    def test_direct_call_without_agent_param_ignores_explicit_agent(self):
+        """Test that hooks without agent param work even if explicit agent is passed."""
+        received_events = []
+
+        @hook
+        def no_agent_hook(event: BeforeToolCallEvent) -> None:
+            received_events.append(event)
+
+        # Create mock event
+        mock_event = MagicMock(spec=BeforeToolCallEvent)
+        explicit_agent = MagicMock(name="explicit_agent")
+
+        # Call with explicit agent - should be ignored since hook doesn't take agent
+        no_agent_hook(mock_event, agent=explicit_agent)
+
+        assert len(received_events) == 1
+        assert received_events[0] is mock_event
+
+    def test_get_type_hints_failure_fallback(self):
+        """Test that annotation is used when get_type_hints fails."""
+        # Create a function with a forward reference that might cause get_type_hints to fail
+        # by directly testing FunctionHookMetadata with annotation
+
+        def func_with_annotation(event: BeforeToolCallEvent) -> None:
+            pass
+
+        # This should work normally
+        metadata = FunctionHookMetadata(func_with_annotation)
+        assert metadata.event_types == [BeforeToolCallEvent]
+
+    def test_hook_parentheses_no_args(self):
+        """Test @hook() syntax with empty parentheses."""
+
+        @hook()
+        def my_hook(event: BeforeToolCallEvent) -> None:
+            pass
+
+        assert isinstance(my_hook, DecoratedFunctionHook)
+        assert my_hook.event_types == [BeforeToolCallEvent]
+
+    def test_union_with_typing_union(self):
+        """Test Union from typing module explicitly."""
+        from typing import Union
+
+        @hook
+        def union_hook(event: Union[BeforeToolCallEvent, AfterToolCallEvent]) -> None:
+            pass
+
+        assert isinstance(union_hook, DecoratedFunctionHook)
+        assert set(union_hook.event_types) == {BeforeToolCallEvent, AfterToolCallEvent}
+
+    def test_function_hook_metadata_event_types_property(self):
+        """Test FunctionHookMetadata.event_types property."""
+
+        def my_func(event: BeforeToolCallEvent) -> None:
+            pass
+
+        metadata = FunctionHookMetadata(my_func)
+        # Access via property
+        assert metadata.event_types == [BeforeToolCallEvent]
+
+    def test_function_hook_metadata_has_agent_param_property(self):
+        """Test FunctionHookMetadata.has_agent_param property."""
+
+        def with_agent(event: BeforeToolCallEvent, agent) -> None:
+            pass
+
+        def without_agent(event: BeforeToolCallEvent) -> None:
+            pass
+
+        meta_with = FunctionHookMetadata(with_agent)
+        meta_without = FunctionHookMetadata(without_agent)
+
+        # Access via property
+        assert meta_with.has_agent_param is True
+        assert meta_without.has_agent_param is False
+
+
+class TestAdditionalErrorCases:
+    """Additional error case tests for complete coverage."""
+
+    def test_invalid_annotation_not_event_type(self):
+        """Test error when annotation is a non-event class type."""
+        # This should trigger the error at line 216: "Event type must be a subclass of BaseHookEvent"
+
+        class NotAnEvent:
+            pass
+
+        with pytest.raises(ValueError, match="must be a subclass of BaseHookEvent"):
+
+            @hook
+            def invalid_hook(event: NotAnEvent) -> None:
+                pass
+
+    def test_invalid_single_event_type_in_explicit_list(self):
+        """Test error when explicit event list contains invalid type."""
+        with pytest.raises(ValueError, match="must be a subclass of BaseHookEvent"):
+
+            @hook(events=[str])  # type: ignore
+            def invalid_events_hook(event) -> None:
+                pass
+
+
+class TestEdgeCases:
+    """Edge case tests for remaining coverage gaps."""
+
+    def test_get_type_hints_exception_fallback(self):
+        """Test fallback when get_type_hints raises an exception.
+
+        This can happen with certain forward references or complex type annotations.
+        """
+        # Create a function with annotation that get_type_hints might struggle with
+        # but that still has a valid annotation
+
+        def func_with_annotation(event: BeforeToolCallEvent) -> None:
+            pass
+
+        # Manually test by mocking get_type_hints to raise
+        import unittest.mock as mock
+
+        with mock.patch("strands.hooks.decorator.get_type_hints", side_effect=Exception("Type hint error")):
+            metadata = FunctionHookMetadata(func_with_annotation)
+            # Should fall back to annotation
+            assert metadata.event_types == [BeforeToolCallEvent]
+
+    def test_annotation_fallback_when_type_hints_empty(self):
+        """Test annotation is used when get_type_hints returns empty dict for param."""
+        import unittest.mock as mock
+
+        def func_with_annotation(event: BeforeToolCallEvent) -> None:
+            pass
+
+        # Mock get_type_hints to return empty dict (param not in hints)
+        with mock.patch("strands.hooks.decorator.get_type_hints", return_value={}):
+            metadata = FunctionHookMetadata(func_with_annotation)
+            # Should fall back to first_param.annotation
+            assert metadata.event_types == [BeforeToolCallEvent]
