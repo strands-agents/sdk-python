@@ -32,50 +32,53 @@ def model_with_thinking_and_other_fields():
     )
 
 
-class TestThinkingWithToolChoice:
-    """Tests for thinking mode behavior with different tool_choice values."""
+def test_thinking_removed_when_forcing_tool_any(model_with_thinking):
+    """Thinking should be removed when tool_choice forces tool use with 'any'."""
+    tool_choice = {"any": {}}
+    result = model_with_thinking._get_additional_request_fields(tool_choice)
+    assert result == {}  # thinking removed, no other fields
 
-    def test_thinking_removed_when_forcing_tool_any(self, model_with_thinking):
-        """Thinking should be removed when tool_choice forces tool use with 'any'."""
-        tool_choice = {"any": {}}
-        result = model_with_thinking._get_additional_request_fields(tool_choice)
-        assert result == {}  # thinking removed, no other fields
 
-    def test_thinking_removed_when_forcing_specific_tool(self, model_with_thinking):
-        """Thinking should be removed when tool_choice forces a specific tool."""
-        tool_choice = {"tool": {"name": "structured_output_tool"}}
-        result = model_with_thinking._get_additional_request_fields(tool_choice)
-        assert result == {}  # thinking removed, no other fields
+def test_thinking_removed_when_forcing_specific_tool(model_with_thinking):
+    """Thinking should be removed when tool_choice forces a specific tool."""
+    tool_choice = {"tool": {"name": "structured_output_tool"}}
+    result = model_with_thinking._get_additional_request_fields(tool_choice)
+    assert result == {}  # thinking removed, no other fields
 
-    def test_thinking_preserved_with_auto_tool_choice(self, model_with_thinking):
-        """Thinking should be preserved when tool_choice is 'auto'."""
-        tool_choice = {"auto": {}}
-        result = model_with_thinking._get_additional_request_fields(tool_choice)
-        assert result == {"additionalModelRequestFields": {"thinking": {"type": "enabled", "budget_tokens": 5000}}}
 
-    def test_thinking_preserved_with_none_tool_choice(self, model_with_thinking):
-        """Thinking should be preserved when tool_choice is None."""
-        result = model_with_thinking._get_additional_request_fields(None)
-        assert result == {"additionalModelRequestFields": {"thinking": {"type": "enabled", "budget_tokens": 5000}}}
+def test_thinking_preserved_with_auto_tool_choice(model_with_thinking):
+    """Thinking should be preserved when tool_choice is 'auto'."""
+    tool_choice = {"auto": {}}
+    result = model_with_thinking._get_additional_request_fields(tool_choice)
+    assert result == {"additionalModelRequestFields": {"thinking": {"type": "enabled", "budget_tokens": 5000}}}
 
-    def test_other_fields_preserved_when_thinking_removed(self, model_with_thinking_and_other_fields):
-        """Other additional fields should be preserved when thinking is removed."""
-        tool_choice = {"any": {}}
-        result = model_with_thinking_and_other_fields._get_additional_request_fields(tool_choice)
-        assert result == {"additionalModelRequestFields": {"some_other_field": "value"}}
 
-    def test_no_fields_when_model_has_no_additional_fields(self, model_without_thinking):
-        """Should return empty dict when model has no additional_request_fields."""
-        tool_choice = {"any": {}}
-        result = model_without_thinking._get_additional_request_fields(tool_choice)
-        assert result == {}
+def test_thinking_preserved_with_none_tool_choice(model_with_thinking):
+    """Thinking should be preserved when tool_choice is None."""
+    result = model_with_thinking._get_additional_request_fields(None)
+    assert result == {"additionalModelRequestFields": {"thinking": {"type": "enabled", "budget_tokens": 5000}}}
 
-    def test_fields_preserved_when_no_thinking_and_forcing_tool(self):
-        """Additional fields without thinking should be preserved when forcing tool."""
-        model = BedrockModel(
-            model_id="anthropic.claude-sonnet-4-20250514-v1:0",
-            additional_request_fields={"some_field": "value"},
-        )
-        tool_choice = {"any": {}}
-        result = model._get_additional_request_fields(tool_choice)
-        assert result == {"additionalModelRequestFields": {"some_field": "value"}}
+
+def test_other_fields_preserved_when_thinking_removed(model_with_thinking_and_other_fields):
+    """Other additional fields should be preserved when thinking is removed."""
+    tool_choice = {"any": {}}
+    result = model_with_thinking_and_other_fields._get_additional_request_fields(tool_choice)
+    assert result == {"additionalModelRequestFields": {"some_other_field": "value"}}
+
+
+def test_no_fields_when_model_has_no_additional_fields(model_without_thinking):
+    """Should return empty dict when model has no additional_request_fields."""
+    tool_choice = {"any": {}}
+    result = model_without_thinking._get_additional_request_fields(tool_choice)
+    assert result == {}
+
+
+def test_fields_preserved_when_no_thinking_and_forcing_tool():
+    """Additional fields without thinking should be preserved when forcing tool."""
+    model = BedrockModel(
+        model_id="anthropic.claude-sonnet-4-20250514-v1:0",
+        additional_request_fields={"some_field": "value"},
+    )
+    tool_choice = {"any": {}}
+    result = model._get_additional_request_fields(tool_choice)
+    assert result == {"additionalModelRequestFields": {"some_field": "value"}}
