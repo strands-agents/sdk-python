@@ -41,7 +41,7 @@ class AgentResult:
 
         This method extracts and concatenates all text content from the final message,
         including text from both "text" blocks and "citationsContent" blocks.
-        
+
         When both text and structured output exist, the output is JSON-formatted so users
         can parse it programmatically:
         {"text": "...", "structured_output": {...}}
