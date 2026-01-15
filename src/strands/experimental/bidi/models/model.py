@@ -133,6 +133,3 @@ class BidiModelTimeoutError(Exception):
         super().__init__(self, message)
 
         self.restart_config = restart_config
-
-
-

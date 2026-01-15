@@ -146,14 +146,11 @@ class BidiNovaSonicModel(BidiModel):
                     f"turn_detection is only supported in Nova Sonic v2. "
                     f"Current model_id: {model_id}. Use {NOVA_SONIC_V2_MODEL_ID} instead."
                 )
-            
+
             # Validate endpointingSensitivity value if provided
             sensitivity = provider_config["turn_detection"].get("endpointingSensitivity")
             if sensitivity and sensitivity not in ["HIGH", "MEDIUM", "LOW"]:
-                raise ValueError(
-                    f"Invalid endpointingSensitivity: {sensitivity}. "
-                    f"Must be HIGH, MEDIUM, or LOW"
-                )
+                raise ValueError(f"Invalid endpointingSensitivity: {sensitivity}. Must be HIGH, MEDIUM, or LOW")
 
         # Resolve client config with defaults
         self._client_config = self._resolve_client_config(client_config or {})
@@ -302,7 +299,7 @@ class BidiNovaSonicModel(BidiModel):
         # Log the full event structure for detailed debugging
         event_keys = list(nova_event.keys())
         logger.debug("event_keys=<%s> | nova sonic event received", event_keys)
-        
+
         if "usageEvent" in nova_event:
             usage = nova_event["usageEvent"]
             logger.debug(
@@ -313,8 +310,13 @@ class BidiNovaSonicModel(BidiModel):
             logger.debug("usage_details=<%s> | nova usage event full details", json.dumps(usage, indent=2))
         elif "textOutput" in nova_event:
             text_content = nova_event["textOutput"].get("content", "")
-            logger.debug("text_length=<%d>, text_preview=<%s> | nova text output", len(text_content), text_content[:100])
-            logger.debug("text_output_details=<%s> | nova text output full details", json.dumps(nova_event["textOutput"], indent=2)[:500])
+            logger.debug(
+                "text_length=<%d>, text_preview=<%s> | nova text output", len(text_content), text_content[:100]
+            )
+            logger.debug(
+                "text_output_details=<%s> | nova text output full details",
+                json.dumps(nova_event["textOutput"], indent=2)[:500],
+            )
         elif "toolUse" in nova_event:
             tool_use = nova_event["toolUse"]
             logger.debug(
@@ -341,7 +343,11 @@ class BidiNovaSonicModel(BidiModel):
             logger.debug("stop_reason=<%s> | nova stop reason event", nova_event["stopReason"])
         else:
             # Log any other event types
-            logger.debug("event_payload=<%s> | nova sonic event details", json.dumps(nova_event, indent=2)[:500])
+            audio_metadata = self._get_audio_metadata_for_logging({"event": nova_event})
+            if audio_metadata:
+                logger.debug("audio_byte_count=<%d> | nova sonic event with audio", audio_metadata["audio_byte_count"])
+            else:
+                logger.debug("event_payload=<%s> | nova sonic event details", json.dumps(nova_event, indent=2)[:500])
 
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive Nova Sonic events and convert to provider-agnostic format.
@@ -376,13 +382,15 @@ class BidiNovaSonicModel(BidiModel):
             # Decode and parse the event
             raw_bytes = event_data.value.bytes_.decode("utf-8")
             logger.debug("raw_event_size=<%d> | received nova sonic event", len(raw_bytes))
-            
+
             nova_event = json.loads(raw_bytes)["event"]
             self._log_event_type(nova_event)
 
             model_event = self._convert_nova_event(nova_event)
             if model_event:
-                event_type = model_event.get("type", "unknown") if isinstance(model_event, dict) else type(model_event).__name__
+                event_type = (
+                    model_event.get("type", "unknown") if isinstance(model_event, dict) else type(model_event).__name__
+                )
                 logger.debug("converted_event_type=<%s> | yielding converted event", event_type)
                 yield model_event
             else:
@@ -420,7 +428,7 @@ class BidiNovaSonicModel(BidiModel):
                 )
                 await self._send_tool_result(tool_result)
         else:
-            logger.error("content_type=<%s> | unsupported content type", content_type)
+            logger.error("content_type=<%s> | unsupported content type", type(content))
             raise ValueError(f"content_type={type(content)} | content not supported")
 
     async def _start_audio_connection(self) -> None:
@@ -660,20 +668,14 @@ class BidiNovaSonicModel(BidiModel):
     def _get_connection_start_event(self) -> str:
         """Generate Nova Sonic connection start event."""
         inference_config = {_NOVA_INFERENCE_CONFIG_KEYS[key]: value for key, value in self.config["inference"].items()}
-        
-        session_start_event: dict[str, Any] = {
-            "event": {
-                "sessionStart": {
-                    "inferenceConfiguration": inference_config
-                }
-            }
-        }
-        
+
+        session_start_event: dict[str, Any] = {"event": {"sessionStart": {"inferenceConfiguration": inference_config}}}
+
         # Add turn detection configuration if provided (v2 feature)
         turn_detection_config = self.config.get("turn_detection", {})
         if turn_detection_config:
             session_start_event["event"]["sessionStart"]["turnDetectionConfiguration"] = turn_detection_config
-        
+
         return json.dumps(session_start_event)
 
     def _get_prompt_start_event(self, tools: list[ToolSpec]) -> str:
@@ -840,41 +842,36 @@ class BidiNovaSonicModel(BidiModel):
         """Generate connection end event."""
         return json.dumps({"event": {"connectionEnd": {}}})
 
-    def _truncate_audio_bytes_for_logging(self, event_dict: dict[str, Any]) -> dict[str, Any]:
-        """Create a copy of event dict with truncated audio bytes for logging.
+    def _get_audio_metadata_for_logging(self, event_dict: dict[str, Any]) -> dict[str, Any]:
+        """Extract audio metadata from event dict for logging.
 
-        This prevents bloating logs with large base64-encoded audio data while keeping
-        the JSON structure valid and serializable.
+        Instead of logging large base64-encoded audio data, this extracts metadata
+        like byte count to verify audio presence without bloating logs.
 
         Args:
             event_dict: The event dictionary to process.
 
         Returns:
-            A copy of the event dict with audio bytes truncated to first 100 chars.
+            A dict with audio metadata (byte_count) if audio is present, empty dict otherwise.
         """
-        import copy
+        metadata: dict[str, Any] = {}
 
-        log_dict = copy.deepcopy(event_dict)
-        
-        # Truncate audio bytes in various event types
-        if "event" in log_dict:
-            event_data = log_dict["event"]
-            
+        if "event" in event_dict:
+            event_data = event_dict["event"]
+
             # Handle contentStart events with audio
             if "contentStart" in event_data and "content" in event_data["contentStart"]:
                 content = event_data["contentStart"]["content"]
                 if "audio" in content and "bytes" in content["audio"]:
-                    original_bytes = content["audio"]["bytes"]
-                    content["audio"]["bytes"] = f"{original_bytes[:100]}... [truncated {len(original_bytes)} chars]"
-            
+                    metadata["audio_byte_count"] = len(content["audio"]["bytes"])
+
             # Handle content events with audio
             if "content" in event_data and "content" in event_data["content"]:
                 content = event_data["content"]["content"]
                 if "audio" in content and "bytes" in content["audio"]:
-                    original_bytes = content["audio"]["bytes"]
-                    content["audio"]["bytes"] = f"{original_bytes[:100]}... [truncated {len(original_bytes)} chars]"
-        
-        return log_dict
+                    metadata["audio_byte_count"] = len(content["audio"]["bytes"])
+
+        return metadata
 
     async def _send_nova_events(self, events: list[str]) -> None:
         """Send event JSON string to Nova Sonic stream.
@@ -890,14 +887,20 @@ class BidiNovaSonicModel(BidiModel):
                 try:
                     event_dict = json.loads(event)
                     event_type = list(event_dict.get("event", {}).keys())[0] if event_dict.get("event") else "unknown"
-                    logger.debug("event_type=<%s> | sending nova sonic event", event_type)
-                    
-                    # Create a copy for logging with truncated audio bytes to avoid bloating logs
-                    log_dict = self._truncate_audio_bytes_for_logging(event_dict)
-                    logger.debug("event_payload=<%s> | nova sonic event details", json.dumps(log_dict, indent=2))
+
+                    # Extract audio metadata if present
+                    audio_metadata = self._get_audio_metadata_for_logging(event_dict)
+                    if audio_metadata:
+                        logger.debug(
+                            "event_type=<%s>, audio_byte_count=<%d> | sending nova sonic event with audio",
+                            event_type,
+                            audio_metadata["audio_byte_count"],
+                        )
+                    else:
+                        logger.debug("event_type=<%s> | sending nova sonic event", event_type)
                 except (json.JSONDecodeError, IndexError):
                     logger.debug("event=<%s> | sending nova sonic event (raw)", event[:200])
-                
+
                 bytes_data = event.encode("utf-8")
                 chunk = InvokeModelWithBidirectionalStreamInputChunk(
                     value=BidirectionalInputPayloadPart(bytes_=bytes_data)

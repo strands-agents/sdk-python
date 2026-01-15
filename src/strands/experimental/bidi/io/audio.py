@@ -36,12 +36,11 @@ class _BidiAudioBuffer:
             size: Size of the buffer (default: unbounded).
         """
         self._size = size or 0
-        self._buffer = queue.Queue(self._size)
-        self._data = bytearray()
 
     def start(self) -> None:
-        """Setup buffer (no-op, initialization happens in __init__)."""
-        pass
+        """Setup buffer."""
+        self._buffer = queue.Queue(self._size)
+        self._data = bytearray()
 
     def stop(self) -> None:
         """Tear down buffer."""
