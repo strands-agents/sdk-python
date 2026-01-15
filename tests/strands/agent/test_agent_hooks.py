@@ -639,6 +639,29 @@ def test_before_invocation_event_message_modification():
     assert agent.messages[0]["content"][0]["text"] == "My password is [REDACTED]123"
 
 
+def test_before_invocation_event_message_overwrite():
+    """Test that hooks can overwrite messages in BeforeInvocationEvent."""
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"text": "I received your message message"}],
+            },
+        ]
+    )
+
+    async def overwrite_input_hook(event: BeforeInvocationEvent):
+        event.messages = [{"role": "user", "content": [{"text": "GOODBYE"}]}]
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeInvocationEvent, overwrite_input_hook)
+
+    agent("HELLO")
+
+    # Verify the message was overwritten to agent's conversation history
+    assert agent.messages[0]["content"][0]["text"] == "GOODBYE"
+
+
 @pytest.mark.asyncio
 async def test_before_invocation_event_messages_none_in_structured_output(agenerator):
     """Test that BeforeInvocationEvent.messages is None when called from deprecated structured_output."""
