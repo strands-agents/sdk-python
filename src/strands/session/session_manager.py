@@ -9,12 +9,12 @@ from ..experimental.hooks.events import (
     BidiAgentInitializedEvent,
     BidiMessageAddedEvent,
 )
-from ..experimental.hooks.multiagent.events import (
+from ..hooks.events import AfterInvocationEvent, AgentInitializedEvent, MessageAddedEvent
+from ..hooks.multiagent.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     MultiAgentInitializedEvent,
 )
-from ..hooks.events import AfterInvocationEvent, AgentInitializedEvent, MessageAddedEvent
 from ..hooks.registry import HookProvider, HookRegistry
 from ..types.content import Message
 

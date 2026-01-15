@@ -1,7 +1,7 @@
 import pytest
 
-from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
 from strands.hooks import HookProvider
+from strands.hooks.multiagent import BeforeNodeCallEvent
 
 
 @pytest.fixture

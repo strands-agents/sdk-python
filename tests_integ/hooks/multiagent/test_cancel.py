@@ -1,8 +1,8 @@
 import pytest
 
 from strands import Agent
-from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
 from strands.hooks import HookProvider
+from strands.hooks.multiagent import BeforeNodeCallEvent
 from strands.multiagent import GraphBuilder, Swarm
 from strands.multiagent.base import Status
 from strands.types._events import MultiAgentNodeCancelEvent

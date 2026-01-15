@@ -6,8 +6,8 @@ import pytest
 
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
-from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
 from strands.hooks import AgentInitializedEvent
+from strands.hooks.multiagent import BeforeNodeCallEvent
 from strands.hooks.registry import HookProvider, HookRegistry
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult
 from strands.multiagent.graph import Graph, GraphBuilder, GraphEdge, GraphNode, GraphResult, GraphState, Status

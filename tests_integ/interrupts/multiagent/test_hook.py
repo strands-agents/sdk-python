@@ -4,8 +4,8 @@ from unittest.mock import ANY
 import pytest
 
 from strands import Agent, tool
-from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
 from strands.hooks import HookProvider
+from strands.hooks.multiagent import BeforeNodeCallEvent
 from strands.interrupt import Interrupt
 from strands.multiagent import Swarm
 from strands.multiagent.base import Status
