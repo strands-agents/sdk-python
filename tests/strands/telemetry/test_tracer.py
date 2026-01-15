@@ -1455,3 +1455,75 @@ def test_start_agent_span_includes_tool_definitions_when_enabled(monkeypatch):
     ]
     expected_json = serialize(expected_tool_details)
     assert attributes["gen_ai.tool.definitions"] == expected_json
+
+
+def test_start_agent_span_with_system_prompt(mock_tracer):
+    """Test that start_agent_span correctly includes system_prompt in span attributes."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        content = [{"text": "test prompt"}]
+        system_prompt = "You are a helpful research assistant..."
+
+        span = tracer.start_agent_span(
+            agent_name="ResearchAgent",
+            messages=[{"content": content, "role": "user"}],
+            system_prompt=system_prompt,
+        )
+
+        mock_tracer.start_span.assert_called_once()
+        mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "ResearchAgent")
+        expected_value = json.dumps([{"type": "text", "content": system_prompt}])
+        mock_span.set_attribute.assert_any_call("gen_ai.system_instructions", expected_value)
+        assert span is not None
+
+
+def test_start_agent_span_without_system_prompt(mock_tracer):
+    """Test that start_agent_span works correctly without system_prompt."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        content = [{"text": "test prompt"}]
+
+        span = tracer.start_agent_span(
+            agent_name="TestAgent",
+            messages=[{"content": content, "role": "user"}],
+        )
+
+        # Verify system_prompt attribute is NOT set when not provided
+        set_attribute_calls = [call[0] for call in mock_span.set_attribute.call_args_list]
+        system_prompt_calls = [call for call in set_attribute_calls if call[0] == "gen_ai.system_instructions"]
+        assert len(system_prompt_calls) == 0
+        assert span is not None
+
+
+def test_start_agent_span_with_empty_system_prompt(mock_tracer):
+    """Test that start_agent_span does not set attribute for empty system_prompt."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        content = [{"text": "test prompt"}]
+
+        span = tracer.start_agent_span(
+            agent_name="TestAgent",
+            messages=[{"content": content, "role": "user"}],
+            system_prompt="",  # Empty string
+        )
+
+        # Verify system_prompt attribute is NOT set when empty
+        set_attribute_calls = [call[0] for call in mock_span.set_attribute.call_args_list]
+        system_prompt_calls = [call for call in set_attribute_calls if call[0] == "gen_ai.system_instructions"]
+        assert len(system_prompt_calls) == 0
+        assert span is not None

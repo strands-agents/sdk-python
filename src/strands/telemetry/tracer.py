@@ -576,6 +576,7 @@ class Tracer:
         tools: Optional[list] = None,
         custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         tools_config: Optional[dict] = None,
+        system_prompt: Optional[str] = None,
         **kwargs: Any,
     ) -> Span:
         """Start a new span for an agent invocation.
@@ -587,6 +588,7 @@ class Tracer:
             tools: Optional list of tools being used.
             custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
             tools_config: Optional dictionary of tool configurations.
+            system_prompt: Optional system prompt used by the agent.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -601,6 +603,11 @@ class Tracer:
 
         if model_id:
             attributes["gen_ai.request.model"] = model_id
+
+        if system_prompt:
+            # Format system_prompt according to OTEL semantic conventions
+            # See: https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/
+            attributes["gen_ai.system_instructions"] = serialize([{"type": "text", "content": system_prompt}])
 
         if tools:
             attributes["gen_ai.agent.tools"] = serialize(tools)
