@@ -224,6 +224,17 @@ class BedrockModel(Model):
             )
             system_blocks.append({"cachePoint": {"type": cache_prompt}})
 
+        # Check if we're forcing tool use (not auto)
+        is_forcing_tool = tool_choice is not None and tool_choice != {"auto": {}}
+        
+        # Prepare additional_request_fields, removing thinking if forcing tool use
+        additional_fields = self.config.get("additional_request_fields", {})
+        if is_forcing_tool and additional_fields and "thinking" in additional_fields:
+            # Create a copy without the thinking field to comply with Bedrock API constraints
+            # "Thinking may not be enabled when tool_choice forces tool use"
+            additional_fields = {k: v for k, v in additional_fields.items() if k != "thinking"}
+            logger.debug("Temporarily disabled thinking mode because tool_choice is forcing tool use")
+
         return {
             "modelId": self.config["model_id"],
             "messages": self._format_bedrock_messages(messages),
@@ -255,8 +266,8 @@ class BedrockModel(Model):
                 else {}
             ),
             **(
-                {"additionalModelRequestFields": self.config["additional_request_fields"]}
-                if self.config.get("additional_request_fields")
+                {"additionalModelRequestFields": additional_fields}
+                if additional_fields
                 else {}
             ),
             **(
