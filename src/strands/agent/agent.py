@@ -647,7 +647,7 @@ class Agent:
         before_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
             BeforeInvocationEvent(agent=self, messages=messages)
         )
-        messages = before_invocation_event.messages
+        messages = before_invocation_event.messages if before_invocation_event.messages is not None else messages
 
         agent_result: AgentResult | None = None
         try:
