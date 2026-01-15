@@ -27,8 +27,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "boto3[crt]>=1.26.0,<2.0.0",
-    "botocore[crt]>=1.29.0,<2.0.0",
+    "boto3>=1.26.0,<2.0.0",
+    "botocore>=1.29.0,<2.0.0",
     "docstring_parser>=0.15,<1.0",
     "jsonschema>=4.0.0,<5.0.0",
     "mcp>=1.11.0,<2.0.0",
@@ -43,6 +43,7 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.21.0,<1.0.0"]
+crt = ["boto3[crt]>=1.26.0,<2.0.0", "botocore[crt]>=1.29.0,<2.0.0"]
 gemini = ["google-genai>=1.32.0,<2.0.0"]
 litellm = ["litellm>=1.75.9,<2.0.0", "openai>=1.68.0,<1.110.0"]
 llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
