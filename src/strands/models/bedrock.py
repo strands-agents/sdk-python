@@ -255,11 +255,7 @@ class BedrockModel(Model):
                 if tool_specs
                 else {}
             ),
-            **(
-                {"additionalModelRequestFields": self.config["additional_request_fields"]}
-                if self.config.get("additional_request_fields")
-                else {}
-            ),
+            **(self._get_additional_request_fields(tool_choice)),
             **(
                 {"additionalModelResponseFieldPaths": self.config["additional_response_field_paths"]}
                 if self.config.get("additional_response_field_paths")
@@ -297,6 +293,34 @@ class BedrockModel(Model):
                 else {}
             ),
         }
+
+    def _get_additional_request_fields(self, tool_choice: ToolChoice | None) -> dict[str, Any]:
+        """Get additional request fields, removing thinking if tool_choice forces tool use.
+
+        Bedrock's API does not allow thinking mode when tool_choice forces tool use.
+        When forcing a tool (e.g., for structured_output retry), we temporarily disable thinking.
+
+        Args:
+            tool_choice: The tool choice configuration.
+
+        Returns:
+            A dict containing additionalModelRequestFields if configured, or empty dict.
+        """
+        additional_fields = self.config.get("additional_request_fields")
+        if not additional_fields:
+            return {}
+
+        # Check if tool_choice is forcing tool use (not auto and not None)
+        is_forcing_tool = tool_choice is not None and "auto" not in tool_choice
+
+        if is_forcing_tool and "thinking" in additional_fields:
+            # Create a copy without the thinking key
+            fields_without_thinking = {k: v for k, v in additional_fields.items() if k != "thinking"}
+            if fields_without_thinking:
+                return {"additionalModelRequestFields": fields_without_thinking}
+            return {}
+
+        return {"additionalModelRequestFields": additional_fields}
 
     def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
