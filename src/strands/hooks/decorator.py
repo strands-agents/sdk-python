@@ -16,7 +16,13 @@ Example:
         '''Log all tool calls before execution.'''
         print(f"Tool: {event.tool_use}")
 
-    agent = Agent(hooks=[log_tool_calls])
+    # With automatic agent injection:
+    @hook
+    def log_with_agent(event: BeforeToolCallEvent, agent: Agent) -> None:
+        '''Log tool calls with agent context.'''
+        print(f"Agent {agent.name} calling tool: {event.tool_use}")
+
+    agent = Agent(hooks=[log_tool_calls, log_with_agent])
     ```
 """
 
@@ -27,6 +33,7 @@ import sys
 import types
 from dataclasses import dataclass
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Generic,
@@ -44,6 +51,9 @@ from typing import (
 
 from .registry import BaseHookEvent, HookCallback, HookProvider, HookRegistry
 
+if TYPE_CHECKING:
+    from ..agent import Agent
+
 logger = logging.getLogger(__name__)
 
 
@@ -59,12 +69,14 @@ class HookMetadata:
         description: Description extracted from the function's docstring.
         event_types: List of event types this hook handles.
         is_async: Whether the hook function is async.
+        has_agent_param: Whether the function has an 'agent' parameter for injection.
     """
 
     name: str
     description: str
     event_types: list[Type[BaseHookEvent]]
     is_async: bool
+    has_agent_param: bool = False
 
 
 class FunctionHookMetadata:
@@ -74,6 +86,7 @@ class FunctionHookMetadata:
     - Function name and description from docstrings
     - Event types from type hints
     - Async detection
+    - Agent parameter detection for automatic injection
     """
 
     def __init__(
@@ -95,6 +108,17 @@ class FunctionHookMetadata:
         # Validate and extract event types
         self._event_types = self._resolve_event_types()
         self._validate_event_types()
+
+        # Check for agent parameter
+        self._has_agent_param = self._check_agent_parameter()
+
+    def _check_agent_parameter(self) -> bool:
+        """Check if the function has an 'agent' parameter for injection.
+
+        Returns:
+            True if the function has an 'agent' parameter.
+        """
+        return "agent" in self.signature.parameters
 
     def _resolve_event_types(self) -> list[Type[BaseHookEvent]]:
         """Resolve event types from explicit parameter or type hints.
@@ -223,12 +247,18 @@ class FunctionHookMetadata:
             description=description,
             event_types=self._event_types,
             is_async=is_async,
+            has_agent_param=self._has_agent_param,
         )
 
     @property
     def event_types(self) -> list[Type[BaseHookEvent]]:
         """Get the event types this hook handles."""
         return self._event_types
+
+    @property
+    def has_agent_param(self) -> bool:
+        """Check if the function has an 'agent' parameter."""
+        return self._has_agent_param
 
 
 class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
@@ -238,6 +268,10 @@ class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
     interface, enabling them to be used with Agent's hooks parameter.
 
     The class is generic over the event type to maintain type safety.
+
+    Features:
+    - Automatic agent injection: If the hook function has an 'agent' parameter,
+      it will be automatically injected from event.agent when the hook is called.
     """
 
     _func: Callable[[TEvent], Any]
@@ -262,6 +296,33 @@ class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
         # Preserve function metadata
         functools.update_wrapper(wrapper=self, wrapped=self._func)
 
+    def _create_callback_with_injection(self) -> HookCallback[BaseHookEvent]:
+        """Create a callback that handles agent injection.
+
+        Returns:
+            A callback that wraps the original function with agent injection.
+        """
+        func = self._func
+        has_agent_param = self._hook_metadata.has_agent_param
+
+        if has_agent_param:
+            # Create wrapper that injects agent
+            if self._hook_metadata.is_async:
+
+                async def async_callback_with_agent(event: BaseHookEvent) -> None:
+                    await func(event, agent=event.agent)  # type: ignore[arg-type]
+
+                return cast(HookCallback[BaseHookEvent], async_callback_with_agent)
+            else:
+
+                def sync_callback_with_agent(event: BaseHookEvent) -> None:
+                    func(event, agent=event.agent)  # type: ignore[arg-type]
+
+                return cast(HookCallback[BaseHookEvent], sync_callback_with_agent)
+        else:
+            # No injection needed, use function directly
+            return cast(HookCallback[BaseHookEvent], func)
+
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register callback functions for specific event types.
 
@@ -269,18 +330,25 @@ class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
             registry: The hook registry to register callbacks with.
             **kwargs: Additional keyword arguments (unused, for protocol compatibility).
         """
+        callback = self._create_callback_with_injection()
         for event_type in self._metadata.event_types:
-            registry.add_callback(event_type, cast(HookCallback[BaseHookEvent], self._func))
+            registry.add_callback(event_type, callback)
 
-    def __call__(self, event: TEvent) -> Any:
+    def __call__(self, event: TEvent, agent: Optional["Agent"] = None) -> Any:
         """Allow direct invocation for testing.
 
         Args:
             event: The event to process.
+            agent: Optional agent instance. If not provided and the hook
+                   expects an agent parameter, it will be extracted from event.agent.
 
         Returns:
             The result of the hook function.
         """
+        if self._hook_metadata.has_agent_param:
+            # Use provided agent or fall back to event.agent
+            actual_agent = agent if agent is not None else event.agent
+            return self._func(event, agent=actual_agent)  # type: ignore[arg-type]
         return self._func(event)
 
     @property
@@ -319,10 +387,20 @@ class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
         """
         return self._hook_metadata.is_async
 
+    @property
+    def has_agent_param(self) -> bool:
+        """Check if this hook has an agent parameter.
+
+        Returns:
+            True if the hook function expects an agent parameter.
+        """
+        return self._hook_metadata.has_agent_param
+
     def __repr__(self) -> str:
         """Return a string representation of the hook."""
         event_names = [e.__name__ for e in self._hook_metadata.event_types]
-        return f"DecoratedFunctionHook({self._hook_metadata.name}, events={event_names})"
+        agent_info = ", agent_injection=True" if self._hook_metadata.has_agent_param else ""
+        return f"DecoratedFunctionHook({self._hook_metadata.name}, events={event_names}{agent_info})"
 
 
 # Type variable for the decorated function
@@ -359,6 +437,7 @@ def hook(
     2. Can be passed directly to Agent(hooks=[...])
     3. Still works as a normal function when called directly
     4. Supports both sync and async hook functions
+    5. Supports automatic agent injection via 'agent' parameter
 
     The decorator can be used in several ways:
 
@@ -369,21 +448,29 @@ def hook(
             print(f"Tool: {event.tool_use}")
         ```
 
-    2. With explicit event type:
+    2. With automatic agent injection:
+        ```python
+        @hook
+        def my_hook(event: BeforeToolCallEvent, agent: Agent) -> None:
+            print(f"Agent: {agent.name}")
+            print(f"Tool: {event.tool_use}")
+        ```
+
+    3. With explicit event type:
         ```python
         @hook(event=BeforeToolCallEvent)
         def my_hook(event) -> None:
             print(f"Tool: {event.tool_use}")
         ```
 
-    3. For multiple event types:
+    4. For multiple event types:
         ```python
         @hook(events=[BeforeToolCallEvent, AfterToolCallEvent])
         def my_hook(event: BeforeToolCallEvent | AfterToolCallEvent) -> None:
             print(f"Event: {event}")
         ```
 
-    4. With Union type hint:
+    5. With Union type hint:
         ```python
         @hook
         def my_hook(event: BeforeToolCallEvent | AfterToolCallEvent) -> None:
@@ -418,6 +505,11 @@ def hook(
             print(f"Calling tool: {event.tool_use['name']}")
 
         @hook
+        def log_with_agent(event: BeforeToolCallEvent, agent: Agent) -> None:
+            '''Log with direct agent access.'''
+            print(f"Agent {agent.name} calling tool: {event.tool_use['name']}")
+
+        @hook
         async def async_audit(event: AfterToolCallEvent) -> None:
             '''Async hook for auditing tool results.'''
             await send_to_audit_service(event.result)
@@ -430,7 +522,7 @@ def hook(
             else:
                 print("Tool complete!")
 
-        agent = Agent(hooks=[log_tool_calls, async_audit, tool_lifecycle])
+        agent = Agent(hooks=[log_tool_calls, log_with_agent, async_audit, tool_lifecycle])
         ```
     """
 
