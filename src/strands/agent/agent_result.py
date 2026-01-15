@@ -48,8 +48,15 @@ class AgentResult:
 
         result = ""
         for item in content_array:
-            if isinstance(item, dict) and "text" in item:
-                result += item.get("text", "") + "\n"
+            if isinstance(item, dict):
+                if "text" in item:
+                    result += item.get("text", "") + "\n"
+                elif "citationsContent" in item:
+                    citations_block = item["citationsContent"]
+                    if "content" in citations_block:
+                        for content in citations_block["content"]:
+                            if isinstance(content, dict) and "text" in content:
+                                result += content.get("text", "") + "\n"
 
         if not result and self.structured_output:
             result = self.structured_output.model_dump_json()
