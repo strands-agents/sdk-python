@@ -439,9 +439,13 @@ class BedrockModel(Model):
             if "format" in document:
                 result["format"] = document["format"]
 
-            # Handle source
+            # Handle source (supports both bytes and s3Location)
             if "source" in document:
-                result["source"] = {"bytes": document["source"]["bytes"]}
+                source = document["source"]
+                if "bytes" in source:
+                    result["source"] = {"bytes": source["bytes"]}
+                elif "s3Location" in source:
+                    result["source"] = {"s3Location": source["s3Location"]}
 
             # Handle optional fields
             if "citations" in document and document["citations"] is not None:
@@ -462,11 +466,12 @@ class BedrockModel(Model):
         if "image" in content:
             image = content["image"]
             source = image["source"]
-            formatted_source = {}
+            image_source: dict[str, Any] = {}
             if "bytes" in source:
-                formatted_source = {"bytes": source["bytes"]}
-            result = {"format": image["format"], "source": formatted_source}
-            return {"image": result}
+                image_source = {"bytes": source["bytes"]}
+            elif "s3Location" in source:
+                image_source = {"s3Location": source["s3Location"]}
+            return {"image": {"format": image["format"], "source": image_source}}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ReasoningContentBlock.html
         if "reasoningContent" in content:
@@ -527,11 +532,12 @@ class BedrockModel(Model):
         if "video" in content:
             video = content["video"]
             source = video["source"]
-            formatted_source = {}
+            video_source: dict[str, Any] = {}
             if "bytes" in source:
-                formatted_source = {"bytes": source["bytes"]}
-            result = {"format": video["format"], "source": formatted_source}
-            return {"video": result}
+                video_source = {"bytes": source["bytes"]}
+            elif "s3Location" in source:
+                video_source = {"s3Location": source["s3Location"]}
+            return {"video": {"format": video["format"], "source": video_source}}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
         if "citationsContent" in content:
