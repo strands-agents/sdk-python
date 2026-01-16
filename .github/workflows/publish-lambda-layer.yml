@@ -35,9 +35,6 @@ on:
         required: true
         type: string
 
-env:
-  BUCKET_NAME: strands-agents-lambda-layer
-
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -52,40 +49,8 @@ jobs:
           fi
           echo "Confirmation validated"
 
-  create-buckets:
-    needs: validate
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        region: ${{ inputs.region == 'ALL' && fromJson('["us-east-1", "us-east-2", "us-west-1", "us-west-2", "ap-south-1", "ap-northeast-1", "ap-northeast-2", "ap-northeast-3", "ap-southeast-1", "ap-southeast-2", "ca-central-1", "eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1", "sa-east-1"]') || fromJson(format('["{0}"]', inputs.region)) }}
-    permissions:
-      id-token: write
-    steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.STRANDS_LAMBDA_LAYER_PUBLISHER_ROLE }}
-          aws-region: ${{ matrix.region }}
-
-      - name: Create S3 bucket
-        run: |
-          REGION="${{ matrix.region }}"
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          REGIONAL_BUCKET="${{ env.BUCKET_NAME }}-${ACCOUNT_ID}-${REGION}"
-          
-          if ! aws s3api head-bucket --bucket "$REGIONAL_BUCKET" 2>/dev/null; then
-            if [ "$REGION" = "us-east-1" ]; then
-              aws s3api create-bucket --bucket "$REGIONAL_BUCKET" --region "$REGION" 2>/dev/null || echo "Bucket $REGIONAL_BUCKET already exists"
-            else
-              aws s3api create-bucket --bucket "$REGIONAL_BUCKET" --region "$REGION" --create-bucket-configuration LocationConstraint="$REGION" 2>/dev/null || echo "Bucket $REGIONAL_BUCKET already exists"
-            fi
-            echo "S3 bucket ready: $REGIONAL_BUCKET"
-          else
-            echo "S3 bucket already exists: $REGIONAL_BUCKET"
-          fi
-
   package-and-upload:
-    needs: create-buckets
+    needs: validate
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -132,7 +97,7 @@ jobs:
           REGION="${{ matrix.region }}"
           LAYER_NAME="strands-agents-py${PYTHON_VERSION//./_}-${ARCH}"
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          BUCKET_NAME="${{ env.BUCKET_NAME }}-${ACCOUNT_ID}-${REGION}"
+          BUCKET_NAME="strands-layer-${ACCOUNT_ID}-${{ vars.BUCKET_SALT }}-${REGION}"
           LAYER_KEY="$LAYER_NAME/${{ inputs.package_version }}/layer${{ inputs.layer_version }}/lambda-layer.zip"
 
           aws s3 cp lambda-layer.zip "s3://$BUCKET_NAME/$LAYER_KEY" --region "$REGION"
@@ -164,7 +129,7 @@ jobs:
           REGION="${{ matrix.region }}"
           LAYER_NAME="strands-agents-py${PYTHON_VERSION//./_}-${ARCH}"
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          REGION_BUCKET="${{ env.BUCKET_NAME }}-${ACCOUNT_ID}-${REGION}"
+          REGION_BUCKET="strands-layer-${ACCOUNT_ID}-${{ vars.BUCKET_SALT }}-${REGION}"
           LAYER_KEY="$LAYER_NAME/${{ inputs.package_version }}/layer${{ inputs.layer_version }}/lambda-layer.zip"
 
           DESCRIPTION="PyPI package: strands-agents v${{ inputs.package_version }} (Python $PYTHON_VERSION, $ARCH)"
