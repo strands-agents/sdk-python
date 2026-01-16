@@ -3,7 +3,6 @@ from uuid import uuid4
 import pytest
 
 from strands import Agent, tool
-from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
 from strands.hooks import (
     AfterInvocationEvent,
     AfterModelCallEvent,
@@ -13,6 +12,7 @@ from strands.hooks import (
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
+from strands.hooks.multiagent import BeforeNodeCallEvent
 from strands.multiagent.swarm import Swarm
 from strands.session.file_session_manager import FileSessionManager
 from strands.types.content import ContentBlock
