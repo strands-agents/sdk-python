@@ -1,6 +1,6 @@
 """This package provides the core Agent interface and supporting components for building AI agents with the SDK."""
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .agent import Agent
 from .agent_result import AgentResult
@@ -11,9 +11,6 @@ from .conversation_manager import (
     SlidingWindowConversationManager,
     SummarizingConversationManager,
 )
-
-if TYPE_CHECKING:
-    from .a2a_agent import A2AAgent
 
 __all__ = [
     "Agent",
