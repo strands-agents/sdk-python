@@ -60,6 +60,13 @@ PROVIDER_CONFIGS = {
         "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         "skip_reason": "AWS credentials not available",
     },
+    "nova_sonic_v2": {
+        "model_class": BidiNovaSonicModel,
+        "model_kwargs": {"model_id": "amazon.nova-2-sonic-v1:0", "region": "us-east-1"},
+        "silence_duration": 2.5,  # Nova Sonic v2 needs 2+ seconds of silence
+        "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+        "skip_reason": "AWS credentials not available",
+    },
     "openai": {
         "model_class": BidiOpenAIRealtimeModel,
         "model_kwargs": {
