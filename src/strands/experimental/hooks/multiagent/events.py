@@ -4,7 +4,6 @@ Deprecated: Use strands.hooks.multiagent instead.
 """
 
 import warnings
-from typing import Any
 
 from ....hooks.multiagent.events import (
     AfterMultiAgentInvocationEvent,
@@ -14,22 +13,16 @@ from ....hooks.multiagent.events import (
     MultiAgentInitializedEvent,
 )
 
-_DEPRECATED_ALIASES = {
-    "MultiAgentInitializedEvent": MultiAgentInitializedEvent,
-    "BeforeNodeCallEvent": BeforeNodeCallEvent,
-    "BeforeMultiAgentInvocationEvent": BeforeMultiAgentInvocationEvent,
-    "AfterNodeCallEvent": AfterNodeCallEvent,
-    "AfterMultiAgentInvocationEvent": AfterMultiAgentInvocationEvent,
-}
+warnings.warn(
+    "strands.experimental.hooks.multiagent.events is deprecated. Use strands.hooks.multiagent.events instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-
-def __getattr__(name: str) -> Any:
-    if name in _DEPRECATED_ALIASES:
-        warnings.warn(
-            f"{name} has been moved to production with an updated name. "
-            f"Use {_DEPRECATED_ALIASES[name].__name__} from strands.hooks.multiagent instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return _DEPRECATED_ALIASES[name]
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+__all__ = [
+    "AfterMultiAgentInvocationEvent",
+    "AfterNodeCallEvent",
+    "BeforeMultiAgentInvocationEvent",
+    "BeforeNodeCallEvent",
+    "MultiAgentInitializedEvent",
+]
