@@ -97,7 +97,7 @@ jobs:
           REGION="${{ matrix.region }}"
           LAYER_NAME="strands-agents-py${PYTHON_VERSION//./_}-${ARCH}"
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          BUCKET_NAME="strands-layer-${ACCOUNT_ID}-${{ vars.BUCKET_SALT }}-${REGION}"
+          BUCKET_NAME="strands-layer-${ACCOUNT_ID}-${{ secrets.STRANDS_LAMBDA_LAYER_BUCKET_SALT }}-${REGION}"
           LAYER_KEY="$LAYER_NAME/${{ inputs.package_version }}/layer${{ inputs.layer_version }}/lambda-layer.zip"
 
           aws s3 cp lambda-layer.zip "s3://$BUCKET_NAME/$LAYER_KEY" --region "$REGION"
@@ -129,7 +129,7 @@ jobs:
           REGION="${{ matrix.region }}"
           LAYER_NAME="strands-agents-py${PYTHON_VERSION//./_}-${ARCH}"
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          REGION_BUCKET="strands-layer-${ACCOUNT_ID}-${{ vars.BUCKET_SALT }}-${REGION}"
+          REGION_BUCKET="strands-layer-${ACCOUNT_ID}-${{ secrets.STRANDS_LAMBDA_LAYER_BUCKET_SALT }}-${REGION}"
           LAYER_KEY="$LAYER_NAME/${{ inputs.package_version }}/layer${{ inputs.layer_version }}/lambda-layer.zip"
 
           DESCRIPTION="PyPI package: strands-agents v${{ inputs.package_version }} (Python $PYTHON_VERSION, $ARCH)"
