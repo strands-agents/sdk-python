@@ -36,6 +36,10 @@ def convert_input_to_message(prompt: AgentInput) -> A2AMessage:
         )
 
     if isinstance(prompt, list) and prompt and (isinstance(prompt[0], dict)):
+        # Check for interrupt responses - not supported in A2A
+        if "interruptResponse" in prompt[0]:
+            raise ValueError("InterruptResponseContent is not supported for A2AAgent")
+
         if "role" in prompt[0]:
             for msg in reversed(prompt):
                 if msg.get("role") == "user":

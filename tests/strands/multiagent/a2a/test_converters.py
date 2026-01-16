@@ -54,6 +54,14 @@ def test_convert_unsupported_input():
         convert_input_to_message(123)
 
 
+def test_convert_interrupt_response_raises_error():
+    """Test that InterruptResponseContent raises explicit error."""
+    interrupt_responses = [{"interruptResponse": {"interruptId": "123", "response": "A"}}]
+
+    with pytest.raises(ValueError, match="InterruptResponseContent is not supported for A2AAgent"):
+        convert_input_to_message(interrupt_responses)
+
+
 def test_convert_content_blocks_to_parts():
     """Test converting content blocks to A2A parts."""
     content_blocks = [{"text": "Hello"}, {"text": "World"}]
