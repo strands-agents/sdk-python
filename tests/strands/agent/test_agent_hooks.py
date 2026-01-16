@@ -104,7 +104,7 @@ def user():
 
 @pytest.fixture
 def mock_sleep():
-    with patch.object(strands.event_loop.event_loop.asyncio, "sleep", new_callable=AsyncMock) as mock:
+    with patch.object(strands.event_loop._retry.asyncio, "sleep", new_callable=AsyncMock) as mock:
         yield mock
 
 
