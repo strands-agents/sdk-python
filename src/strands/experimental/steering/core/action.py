@@ -1,18 +1,18 @@
 """SteeringAction types for steering evaluation results.
 
-Defines structured outcomes from steering handlers that determine how tool calls
+Defines structured outcomes from steering handlers that determine how agent actions
 should be handled. SteeringActions enable modular prompting by providing just-in-time
 feedback rather than front-loading all instructions in monolithic prompts.
 
 Flow:
-    SteeringHandler.steer() → SteeringAction → BeforeToolCallEvent handling
-                    ↓                     ↓                      ↓
-              Evaluate context      Action type           Tool execution modified
+    SteeringHandler.steer_*() → SteeringAction → Event handling
+                    ↓                     ↓              ↓
+              Evaluate context      Action type    Execution modified
 
 SteeringAction types:
-    Proceed: Tool executes immediately (no intervention needed)
-    Guide: Tool cancelled, agent receives contextual feedback to explore alternatives
-    Interrupt: Tool execution paused for human input via interrupt system
+    Proceed: Allow execution to continue without intervention
+    Guide: Provide contextual guidance to redirect the agent
+    Interrupt: Pause execution for human input
 
 Extensibility:
     New action types can be added to the union. Always handle the default
@@ -25,9 +25,9 @@ from pydantic import BaseModel, Field
 
 
 class Proceed(BaseModel):
-    """Allow tool to execute immediately without intervention.
+    """Allow execution to continue without intervention.
 
-    The tool call proceeds as planned. The reason provides context
+    The action proceeds as planned. The reason provides context
     for logging and debugging purposes.
     """
 
@@ -36,11 +36,11 @@ class Proceed(BaseModel):
 
 
 class Guide(BaseModel):
-    """Cancel tool and provide contextual feedback for agent to explore alternatives.
+    """Provide contextual guidance to redirect the agent.
 
-    The tool call is cancelled and the agent receives the reason as contextual
-    feedback to help them consider alternative approaches while maintaining
-    adaptive reasoning capabilities.
+    The agent receives the reason as contextual feedback to help guide
+    its behavior. The specific handling depends on the steering context
+    (e.g., tool call vs. model response).
     """
 
     type: Literal["guide"] = "guide"
@@ -48,18 +48,29 @@ class Guide(BaseModel):
 
 
 class Interrupt(BaseModel):
-    """Pause tool execution for human input via interrupt system.
+    """Pause execution for human input via interrupt system.
 
-    The tool call is paused and human input is requested through Strands'
+    Execution is paused and human input is requested through Strands'
     interrupt system. The human can approve or deny the operation, and their
-    decision determines whether the tool executes or is cancelled.
+    decision determines whether execution continues or is cancelled.
     """
 
     type: Literal["interrupt"] = "interrupt"
     reason: str
 
 
-# SteeringAction union - extensible for future action types
-# IMPORTANT: Always handle the default case when pattern matching
-# to maintain backward compatibility as new action types are added
-SteeringAction = Annotated[Proceed | Guide | Interrupt, Field(discriminator="type")]
+# Context-specific steering action types
+ToolSteeringAction = Annotated[Proceed | Guide | Interrupt, Field(discriminator="type")]
+"""Steering actions valid for tool steering (steer_before_tool).
+
+- Proceed: Allow tool execution to continue
+- Guide: Cancel tool and provide feedback for alternative approaches
+- Interrupt: Pause for human input before tool execution
+"""
+
+ModelSteeringAction = Annotated[Proceed | Guide, Field(discriminator="type")]
+"""Steering actions valid for model steering (steer_after_model).
+
+- Proceed: Accept model response without modification
+- Guide: Discard model response and retry with guidance
+"""
