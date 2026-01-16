@@ -29,15 +29,3 @@ When some regions fail during deployment:
 2. **Targeted redeployment**: Use specific region/arch/Python inputs to redeploy failed combinations
 3. **Version alignment**: Continue deploying until all variants reach the same layer version
 4. **Verification**: Confirm all combinations have identical layer versions before updating docs
-
-## Yank Process
-
-### Yank Procedure
-1. Use the `yank_lambda_layer` GitHub action workflow
-2. Specify the layer version to yank
-3. Type "Yank Lambda Layer {layer_version}" to confirm
-4. **Full yank**: Run with ALL options selected (default) to yank all 136 variants OR **Partial yank**: Specify Python versions, architectures, and regions for targeted yanking
-6. Update documentation
-7. **Communication**: Notify users through appropriate channels
-
-**Note**: Yanking deletes layer versions completely. Existing Lambda functions using the layer continue to work, but new functions cannot use the yanked version.
