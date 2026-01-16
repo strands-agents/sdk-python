@@ -274,6 +274,11 @@ def test_redacted_content_handling():
     assert "redactedContent" in result.message["content"][0]["reasoningContent"]
     assert isinstance(result.message["content"][0]["reasoningContent"]["redactedContent"], bytes)
 
+    # Test multi-turn to validate we don't throw an exception
+    result2 = agent("What was my previous question about?")
+    # Just validate we get a response without throwing an exception
+    assert len(str(result2)) > 0
+
 
 def test_reasoning_content_in_messages_with_thinking_disabled():
     """Test that messages with reasoningContent are accepted when thinking is explicitly disabled."""

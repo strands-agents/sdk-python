@@ -153,6 +153,11 @@ def test_agent_invoke_reasoning(agent, model):
     assert "reasoningContent" in result.message["content"][0]
     assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
 
+    # Test multi-turn to validate we don't throw an exception
+    result2 = agent("What was my previous question about?")
+    # Just validate we get a response without throwing an exception
+    assert len(str(result2)) > 0
+
 
 @pytest.mark.parametrize("model_fixture", ["streaming_model", "non_streaming_model"])
 def test_structured_output(model_fixture, weather, request):
