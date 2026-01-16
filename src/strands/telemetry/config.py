@@ -5,6 +5,7 @@ for OpenTelemetry components and other telemetry infrastructure shared across St
 """
 
 import logging
+import os
 from importlib.metadata import version
 from typing import Any
 
@@ -29,9 +30,11 @@ def get_otel_resource() -> Resource:
     Returns:
         Resource object with standard service information.
     """
+    service_name = os.getenv("OTEL_SERVICE_NAME", "strands-agents").strip()
+
     resource = Resource.create(
         {
-            "service.name": "strands-agents",
+            "service.name": service_name,
             "service.version": version("strands-agents"),
             "telemetry.sdk.name": "opentelemetry",
             "telemetry.sdk.language": "python",
@@ -56,6 +59,7 @@ class StrandsTelemetry:
         Environment variables are handled by the underlying OpenTelemetry SDK:
         - OTEL_EXPORTER_OTLP_ENDPOINT: OTLP endpoint URL
         - OTEL_EXPORTER_OTLP_HEADERS: Headers for OTLP requests
+        - OTEL_SERVICE_NAME: Overrides resource service name
 
     Examples:
         Quick setup with method chaining:

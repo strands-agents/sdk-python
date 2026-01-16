@@ -275,6 +275,43 @@ def test_redacted_content_handling():
     assert isinstance(result.message["content"][0]["reasoningContent"]["redactedContent"], bytes)
 
 
+def test_reasoning_content_in_messages_with_thinking_disabled():
+    """Test that messages with reasoningContent are accepted when thinking is explicitly disabled."""
+    # First, get a real reasoning response with thinking enabled
+    thinking_model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        additional_request_fields={
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": 1024,
+            }
+        },
+    )
+    agent_with_thinking = Agent(model=thinking_model)
+    result_with_thinking = agent_with_thinking("What is 2+2?")
+
+    # Verify we got reasoning content
+    assert "reasoningContent" in result_with_thinking.message["content"][0]
+
+    # Now create a model with thinking disabled and use the messages from the thinking session
+    disabled_model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        additional_request_fields={
+            "thinking": {
+                "type": "disabled",
+            }
+        },
+    )
+
+    # Use the conversation history that includes reasoning content
+    messages = agent_with_thinking.messages
+
+    agent_disabled = Agent(model=disabled_model, messages=messages)
+    result = agent_disabled("What about 3+3?")
+
+    assert result.stop_reason == "end_turn"
+
+
 def test_multi_prompt_system_content():
     """Test multi-prompt system content blocks."""
     system_prompt_content = [
