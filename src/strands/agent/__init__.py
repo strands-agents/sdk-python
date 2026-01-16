@@ -1,10 +1,6 @@
-"""This package provides the core Agent interface and supporting components for building AI agents with the SDK.
+"""This package provides the core Agent interface and supporting components for building AI agents with the SDK."""
 
-It includes:
-
-- Agent: The main interface for interacting with AI models and tools
-- ConversationManager: Classes for managing conversation history and context windows
-"""
+from typing import Any
 
 from .agent import Agent
 from .agent_result import AgentResult
@@ -25,3 +21,12 @@ __all__ = [
     "SlidingWindowConversationManager",
     "SummarizingConversationManager",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy load A2AAgent to defer import of optional a2a dependency."""
+    if name == "A2AAgent":
+        from .a2a_agent import A2AAgent
+
+        return A2AAgent
+    raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")
