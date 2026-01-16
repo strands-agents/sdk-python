@@ -62,4 +62,8 @@ def __getattr__(name: str) -> Any:
         from .writer import WriterModel
 
         return WriterModel
+    if name == "xAIModel":
+        from .xai import xAIModel
+
+        return xAIModel
     raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")
