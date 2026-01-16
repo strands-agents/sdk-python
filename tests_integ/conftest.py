@@ -1,11 +1,116 @@
+import functools
 import json
 import logging
 import os
+from collections.abc import Callable, Sequence
 
 import boto3
 import pytest
+from tenacity import RetryError, Retrying, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
+
+
+# Type alias for retry conditions
+RetryCondition = type[BaseException] | Callable[[BaseException], bool] | str
+
+
+def _should_retry_exception(exc: BaseException, conditions: Sequence[RetryCondition]) -> bool:
+    """Check if exception matches any of the given retry conditions.
+
+    Args:
+        exc: The exception to check
+        conditions: Sequence of conditions, each can be:
+            - Exception type: retry if isinstance(exc, condition)
+            - Callable: retry if condition(exc) returns True
+            - str: retry if string is in str(exc)
+    """
+    for condition in conditions:
+        if isinstance(condition, type) and issubclass(condition, BaseException):
+            if isinstance(exc, condition):
+                return True
+        elif callable(condition):
+            if condition(exc):
+                return True
+        elif isinstance(condition, str):
+            if condition in str(exc):
+                return True
+    return False
+
+
+def retry_on_flaky(
+    max_attempts: int = 3,
+    wait_multiplier: float = 1,
+    wait_max: float = 10,
+    retry_on: Sequence[RetryCondition] | None = None,
+) -> Callable:
+    """Decorator to retry flaky tests.
+
+    Args:
+        max_attempts: Maximum number of retry attempts (default: 3)
+        wait_multiplier: Multiplier for exponential backoff in seconds (default: 1)
+        wait_max: Maximum wait time between retries in seconds (default: 10)
+        retry_on: Conditions for when to retry. If None, retries on any exception.
+            Each condition can be:
+            - Exception type: e.g., ValueError, TimeoutError
+            - Callable: e.g., lambda e: "timeout" in str(e).lower()
+            - str: substring to match in exception message
+
+    Usage:
+        # Retry on any failure
+        @retry_on_flaky(max_attempts=3)
+        def test_something():
+            ...
+
+        # Retry only on specific exception types
+        @retry_on_flaky(retry_on=[TimeoutError, ConnectionError])
+        def test_network_call():
+            ...
+
+        # Retry on string patterns in exception message
+        @retry_on_flaky(retry_on=["Service unavailable", "Status 503"])
+        def test_service_call():
+            ...
+
+        # Retry with custom callable
+        @retry_on_flaky(retry_on=[lambda e: e.response.status_code == 503])
+        def test_api_call():
+            ...
+
+        # Mix of conditions
+        @retry_on_flaky(retry_on=[TimeoutError, "capacity limit", lambda e: is_transient(e)])
+        def test_complex():
+            ...
+    """
+
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            def should_retry(retry_state) -> bool:
+                if retry_state.outcome is None or not retry_state.outcome.failed:
+                    return False
+                exc = retry_state.outcome.exception()
+                if exc is None:
+                    return False
+                if retry_on is None:
+                    return True
+                return _should_retry_exception(exc, retry_on)
+
+            try:
+                for attempt in Retrying(
+                    stop=stop_after_attempt(max_attempts),
+                    wait=wait_exponential(multiplier=wait_multiplier, max=wait_max),
+                    retry=should_retry,
+                    reraise=True,
+                ):
+                    with attempt:
+                        return func(*args, **kwargs)
+            except RetryError:
+                raise
+
+        return wrapper
+
+    return decorator
 
 
 def pytest_sessionstart(session):
