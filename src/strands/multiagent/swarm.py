@@ -198,8 +198,8 @@ class SwarmState:
         if len(self.node_history) >= max_iterations:
             return False, f"Max iterations reached: {max_iterations}"
 
-        # Check timeout
-        elapsed = time.time() - self.start_time
+        # Check timeout (include accumulated time from previous invocations)
+        elapsed = self.execution_time / 1000 + time.time() - self.start_time
         if elapsed > execution_timeout:
             return False, f"Execution timed out: {execution_timeout}s"
 
@@ -406,7 +406,7 @@ class Swarm(MultiAgentBase):
                 self.state.completion_status = Status.FAILED
                 raise
             finally:
-                self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
+                self.state.execution_time += round((time.time() - self.state.start_time) * 1000)
                 await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self, invocation_state))
                 self._resume_from_session = False
 
