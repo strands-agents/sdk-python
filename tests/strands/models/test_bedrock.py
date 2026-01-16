@@ -1540,6 +1540,108 @@ async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
 
 
 @pytest.mark.asyncio
+async def test_request_id_logging_streaming(bedrock_client, model, messages, caplog, alist):
+    """Test that request ID is logged at DEBUG level for streaming requests."""
+    import logging
+
+    caplog.set_level(logging.DEBUG, logger="strands.models.bedrock.requestId")
+
+    bedrock_client.converse_stream.return_value = {
+        "ResponseMetadata": {"RequestId": "test-request-id-123"},
+        "stream": [],
+    }
+
+    await alist(model.stream(messages))
+
+    assert any(
+        record.levelno == logging.DEBUG and "request_id=<test-request-id-123>" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_id_logging_non_streaming(bedrock_client, messages, caplog, alist):
+    """Test that request ID is logged at DEBUG level for non-streaming requests."""
+    import logging
+
+    model = BedrockModel(model_id="m1", streaming=False)
+    caplog.set_level(logging.DEBUG, logger="strands.models.bedrock.requestId")
+
+    bedrock_client.converse.return_value = {
+        "ResponseMetadata": {"RequestId": "test-request-id-456"},
+        "output": {"message": {"role": "assistant", "content": [{"text": "response"}]}},
+        "stopReason": "end_turn",
+    }
+
+    await alist(model.stream(messages))
+
+    assert any(
+        record.levelno == logging.DEBUG and "request_id=<test-request-id-456>" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_id_logging_on_exception(bedrock_client, model, messages, caplog, alist):
+    """Test that request ID is logged at INFO level when an exception occurs."""
+    import logging
+
+    caplog.set_level(logging.DEBUG, logger="strands.models.bedrock.requestId")
+
+    error_response = {
+        "Error": {"Code": "ValidationException", "Message": "Some error"},
+        "ResponseMetadata": {"RequestId": "test-request-id-error"},
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConverseStream")
+
+    with pytest.raises(ClientError):
+        await alist(model.stream(messages))
+
+    assert any(
+        record.levelno == logging.INFO
+        and "request_id=<test-request-id-error>" in record.message
+        and "failed" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_id_logger_inherits_from_parent(bedrock_client, model, messages, caplog, alist):
+    """Test that request ID logger inherits settings from parent logger.
+
+    The child logger (strands.models.bedrock.requestId) propagates messages
+    to the parent logger (strands.models.bedrock) by default, and respects
+    the parent's log level.
+    """
+    import logging
+
+    # First, verify DEBUG logs DO NOT appear at INFO level
+    caplog.set_level(logging.INFO, logger="strands.models.bedrock")
+
+    bedrock_client.converse_stream.return_value = {
+        "ResponseMetadata": {"RequestId": "test-request-id-should-not-appear"},
+        "stream": [],
+    }
+
+    await alist(model.stream(messages))
+
+    assert not any("test-request-id-should-not-appear" in record.message for record in caplog.records)
+
+    # Now verify DEBUG logs DO appear when parent is set to DEBUG
+    caplog.clear()
+    caplog.set_level(logging.DEBUG, logger="strands.models.bedrock")
+
+    bedrock_client.converse_stream.return_value = {
+        "ResponseMetadata": {"RequestId": "test-request-id-inherit"},
+        "stream": [],
+    }
+
+    await alist(model.stream(messages))
+
+    assert any("request_id=<test-request-id-inherit>" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_stream_stop_reason_override_streaming(bedrock_client, model, messages, alist):
     """Test that stopReason is overridden from end_turn to tool_use in streaming mode when tool use is detected."""
     bedrock_client.converse_stream.return_value = {
