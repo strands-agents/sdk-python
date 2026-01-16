@@ -1,7 +1,7 @@
 """Sliding window conversation history management."""
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -103,7 +103,7 @@ class SlidingWindowConversationManager(ConversationManager):
         state["model_call_count"] = self._model_call_count
         return state
 
-    def restore_from_session(self, state: dict[str, Any]) -> Optional[list]:
+    def restore_from_session(self, state: dict[str, Any]) -> list | None:
         """Restore the conversation manager's state from a session.
 
         Args:
@@ -136,7 +136,7 @@ class SlidingWindowConversationManager(ConversationManager):
             return
         self.reduce_context(agent)
 
-    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None, **kwargs: Any) -> None:
+    def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Trim the oldest messages to reduce the conversation context size.
 
         The method handles special cases where trimming the messages leads to:
@@ -235,7 +235,7 @@ class SlidingWindowConversationManager(ConversationManager):
 
         return changes_made
 
-    def _find_last_message_with_tool_results(self, messages: Messages) -> Optional[int]:
+    def _find_last_message_with_tool_results(self, messages: Messages) -> int | None:
         """Find the index of the last message containing tool results.
 
         This is useful for identifying messages that might need to be truncated to reduce context size.

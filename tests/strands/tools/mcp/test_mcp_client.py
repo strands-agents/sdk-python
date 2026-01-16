@@ -5,9 +5,21 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from mcp import ListToolsResult
 from mcp.types import CallToolResult as MCPCallToolResult
-from mcp.types import GetPromptResult, ListPromptsResult, Prompt, PromptMessage
+from mcp.types import (
+    GetPromptResult,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    Prompt,
+    PromptMessage,
+    ReadResourceResult,
+    Resource,
+    ResourceTemplate,
+    TextResourceContents,
+)
 from mcp.types import TextContent as MCPTextContent
 from mcp.types import Tool as MCPTool
+from pydantic import AnyUrl
 
 from strands.tools.mcp import MCPClient
 from strands.tools.mcp.mcp_types import MCPToolResult
@@ -772,3 +784,161 @@ def test_call_tool_sync_with_meta_and_structured_content(mock_transport, mock_se
         assert result["metadata"] == metadata
         assert "structuredContent" in result
         assert result["structuredContent"] == structured_content
+
+
+# Resource Tests - Sync Methods
+
+
+def test_list_resources_sync(mock_transport, mock_session):
+    """Test that list_resources_sync correctly retrieves resources."""
+    mock_resource = Resource(
+        uri=AnyUrl("file://documents/test.txt"), name="test.txt", description="A test document", mimeType="text/plain"
+    )
+    mock_session.list_resources.return_value = ListResourcesResult(resources=[mock_resource])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.list_resources_sync()
+
+        mock_session.list_resources.assert_called_once_with(cursor=None)
+        assert len(result.resources) == 1
+        assert result.resources[0].name == "test.txt"
+        assert str(result.resources[0].uri) == "file://documents/test.txt"
+        assert result.nextCursor is None
+
+
+def test_list_resources_sync_with_pagination_token(mock_transport, mock_session):
+    """Test that list_resources_sync correctly passes pagination token and returns next cursor."""
+    mock_resource = Resource(
+        uri=AnyUrl("file://documents/test.txt"), name="test.txt", description="A test document", mimeType="text/plain"
+    )
+    mock_session.list_resources.return_value = ListResourcesResult(resources=[mock_resource], nextCursor="next_page")
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.list_resources_sync(pagination_token="current_page")
+
+        mock_session.list_resources.assert_called_once_with(cursor="current_page")
+        assert len(result.resources) == 1
+        assert result.resources[0].name == "test.txt"
+        assert result.nextCursor == "next_page"
+
+
+def test_list_resources_sync_session_not_active():
+    """Test that list_resources_sync raises an error when session is not active."""
+    client = MCPClient(MagicMock())
+
+    with pytest.raises(MCPClientInitializationError, match="client session is not running"):
+        client.list_resources_sync()
+
+
+def test_read_resource_sync(mock_transport, mock_session):
+    """Test that read_resource_sync correctly reads a resource."""
+    mock_content = TextResourceContents(
+        uri=AnyUrl("file://documents/test.txt"), text="Resource content", mimeType="text/plain"
+    )
+    mock_session.read_resource.return_value = ReadResourceResult(contents=[mock_content])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.read_resource_sync("file://documents/test.txt")
+
+        # Verify the session method was called
+        mock_session.read_resource.assert_called_once()
+        # Check the URI argument (it will be wrapped as AnyUrl)
+        call_args = mock_session.read_resource.call_args[0]
+        assert str(call_args[0]) == "file://documents/test.txt"
+
+        assert len(result.contents) == 1
+        assert result.contents[0].text == "Resource content"
+
+
+def test_read_resource_sync_with_anyurl(mock_transport, mock_session):
+    """Test that read_resource_sync correctly handles AnyUrl input."""
+    mock_content = TextResourceContents(
+        uri=AnyUrl("file://documents/test.txt"), text="Resource content", mimeType="text/plain"
+    )
+    mock_session.read_resource.return_value = ReadResourceResult(contents=[mock_content])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        uri = AnyUrl("file://documents/test.txt")
+        result = client.read_resource_sync(uri)
+
+        mock_session.read_resource.assert_called_once()
+        call_args = mock_session.read_resource.call_args[0]
+        assert str(call_args[0]) == "file://documents/test.txt"
+
+        assert len(result.contents) == 1
+        assert result.contents[0].text == "Resource content"
+
+
+def test_read_resource_sync_session_not_active():
+    """Test that read_resource_sync raises an error when session is not active."""
+    client = MCPClient(MagicMock())
+
+    with pytest.raises(MCPClientInitializationError, match="client session is not running"):
+        client.read_resource_sync("file://documents/test.txt")
+
+
+def test_list_resource_templates_sync(mock_transport, mock_session):
+    """Test that list_resource_templates_sync correctly retrieves resource templates."""
+    mock_template = ResourceTemplate(
+        uriTemplate="file://documents/{name}",
+        name="document_template",
+        description="Template for documents",
+        mimeType="text/plain",
+    )
+    mock_session.list_resource_templates.return_value = ListResourceTemplatesResult(resourceTemplates=[mock_template])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.list_resource_templates_sync()
+
+        mock_session.list_resource_templates.assert_called_once_with(cursor=None)
+        assert len(result.resourceTemplates) == 1
+        assert result.resourceTemplates[0].name == "document_template"
+        assert result.resourceTemplates[0].uriTemplate == "file://documents/{name}"
+        assert result.nextCursor is None
+
+
+def test_list_resource_templates_sync_with_pagination_token(mock_transport, mock_session):
+    """Test that list_resource_templates_sync correctly passes pagination token and returns next cursor."""
+    mock_template = ResourceTemplate(
+        uriTemplate="file://documents/{name}",
+        name="document_template",
+        description="Template for documents",
+        mimeType="text/plain",
+    )
+    mock_session.list_resource_templates.return_value = ListResourceTemplatesResult(
+        resourceTemplates=[mock_template], nextCursor="next_page"
+    )
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.list_resource_templates_sync(pagination_token="current_page")
+
+        mock_session.list_resource_templates.assert_called_once_with(cursor="current_page")
+        assert len(result.resourceTemplates) == 1
+        assert result.resourceTemplates[0].name == "document_template"
+        assert result.nextCursor == "next_page"
+
+
+def test_list_resource_templates_sync_session_not_active():
+    """Test that list_resource_templates_sync raises an error when session is not active."""
+    client = MCPClient(MagicMock())
+
+    with pytest.raises(MCPClientInitializationError, match="client session is not running"):
+        client.list_resource_templates_sync()
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_with_percent_in_message():
+    """Test that _handle_error_message handles messages containing % characters without string formatting errors.
+
+    This is a regression test for issue #1244 where MCP error messages containing '%' characters
+    (e.g., from URLs like "https://example.com/path?param=value%20encoded") would cause a
+    TypeError: not all arguments converted during string formatting.
+    """
+    client = MCPClient(MagicMock())
+
+    # Test with a message that contains % characters (like URL-encoded strings)
+    # This simulates the error that occurs when MCP servers return messages with % in them
+    error_with_percent = Exception("unknown request id: abc%20123%30def")
+
+    # This should not raise TypeError and should not raise the exception (since it's non-fatal)
+    await client._handle_error_message(error_with_percent)

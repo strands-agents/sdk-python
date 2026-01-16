@@ -5,14 +5,14 @@ This module defines the events that are emitted as Agents run through the lifecy
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
 if TYPE_CHECKING:
     from ..agent.agent_result import AgentResult
 
-from ..types.content import Message
+from ..types.content import Message, Messages
 from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
@@ -43,9 +43,16 @@ class BeforeInvocationEvent(HookEvent):
       - Agent.__call__
       - Agent.stream_async
       - Agent.structured_output
+
+    Attributes:
+        messages: The input messages for this invocation. Can be modified by hooks
+            to redact or transform content before processing.
     """
 
-    pass
+    messages: Messages | None = None
+
+    def _can_write(self, name: str) -> bool:
+        return name == "messages"
 
 
 @dataclass
@@ -116,7 +123,7 @@ class BeforeToolCallEvent(HookEvent, _Interruptible):
             the tool call and use a default cancel message.
     """
 
-    selected_tool: Optional[AgentTool]
+    selected_tool: AgentTool | None
     tool_use: ToolUse
     invocation_state: dict[str, Any]
     cancel_tool: bool | str = False
@@ -157,11 +164,11 @@ class AfterToolCallEvent(HookEvent):
         cancel_message: The cancellation message if the user cancelled the tool call.
     """
 
-    selected_tool: Optional[AgentTool]
+    selected_tool: AgentTool | None
     tool_use: ToolUse
     invocation_state: dict[str, Any]
     result: ToolResult
-    exception: Optional[Exception] = None
+    exception: Exception | None = None
     cancel_message: str | None = None
 
     def _can_write(self, name: str) -> bool:
@@ -200,9 +207,24 @@ class AfterModelCallEvent(HookEvent):
 
     Note: This event is not fired for invocations to structured_output.
 
+    Model Retrying:
+        When ``retry_model`` is set to True by a hook callback, the agent will discard
+        the current model response and invoke the model again. This has important
+        implications for streaming consumers:
+
+        - Streaming events from the discarded response will have already been emitted
+          to callers before the retry occurs. Agent invokers consuming streamed events
+          should be prepared to handle this scenario, potentially by tracking retry state
+          or implementing idempotent event processing
+        - The original model message is thrown away internally and not added to the
+          conversation history
+
     Attributes:
         stop_response: The model response data if invocation was successful, None if failed.
         exception: Exception if the model invocation failed, None if successful.
+        retry: Whether to retry the model invocation. Can be set by hook callbacks
+            to trigger a retry. When True, the current response is discarded and the
+            model is called again. Defaults to False.
     """
 
     @dataclass
@@ -217,8 +239,12 @@ class AfterModelCallEvent(HookEvent):
         message: Message
         stop_reason: StopReason
 
-    stop_response: Optional[ModelStopResponse] = None
-    exception: Optional[Exception] = None
+    stop_response: ModelStopResponse | None = None
+    exception: Exception | None = None
+    retry: bool = False
+
+    def _can_write(self, name: str) -> bool:
+        return name == "retry"
 
     @property
     def should_reverse_callbacks(self) -> bool:

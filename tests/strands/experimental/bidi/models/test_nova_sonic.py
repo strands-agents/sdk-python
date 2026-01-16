@@ -4,10 +4,17 @@ Tests the unified BidirectionalModel interface implementation for Amazon Nova So
 covering connection lifecycle, event conversion, audio streaming, and tool execution.
 """
 
+import sys
+
+if sys.version_info < (3, 12):
+    import pytest
+
+    pytest.skip(reason="BidiNovaSonicModel is only supported for Python 3.12+", allow_module_level=True)
+
 import asyncio
 import base64
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 import pytest_asyncio
@@ -39,9 +46,8 @@ def model_id():
 
 
 @pytest.fixture
-def region():
-    """AWS region."""
-    return "us-east-1"
+def boto_session():
+    return Mock(region_name="us-east-1")
 
 
 @pytest.fixture
@@ -67,11 +73,11 @@ def mock_client(mock_stream):
 
 
 @pytest_asyncio.fixture
-def nova_model(model_id, region, mock_client):
+def nova_model(model_id, boto_session, mock_client):
     """Create Nova Sonic model instance."""
     _ = mock_client
 
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
     yield model
 
 
@@ -79,12 +85,12 @@ def nova_model(model_id, region, mock_client):
 
 
 @pytest.mark.asyncio
-async def test_model_initialization(model_id, region):
+async def test_model_initialization(model_id, boto_session):
     """Test model initialization with configuration."""
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
 
     assert model.model_id == model_id
-    assert model.region == region
+    assert model.region == "us-east-1"
     assert model._connection_id is None
 
 
@@ -92,9 +98,9 @@ async def test_model_initialization(model_id, region):
 
 
 @pytest.mark.asyncio
-async def test_audio_config_defaults(model_id, region):
+async def test_audio_config_defaults(model_id, boto_session):
     """Test default audio configuration."""
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
 
     assert model.config["audio"]["input_rate"] == 16000
     assert model.config["audio"]["output_rate"] == 16000
@@ -104,10 +110,12 @@ async def test_audio_config_defaults(model_id, region):
 
 
 @pytest.mark.asyncio
-async def test_audio_config_partial_override(model_id, region):
+async def test_audio_config_partial_override(model_id, boto_session):
     """Test partial audio configuration override."""
     provider_config = {"audio": {"output_rate": 24000, "voice": "ruth"}}
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region}, provider_config=provider_config)
+    model = BidiNovaSonicModel(
+        model_id=model_id, client_config={"boto_session": boto_session}, provider_config=provider_config
+    )
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 24000
@@ -120,7 +128,7 @@ async def test_audio_config_partial_override(model_id, region):
 
 
 @pytest.mark.asyncio
-async def test_audio_config_full_override(model_id, region):
+async def test_audio_config_full_override(model_id, boto_session):
     """Test full audio configuration override."""
     provider_config = {
         "audio": {
@@ -131,7 +139,9 @@ async def test_audio_config_full_override(model_id, region):
             "voice": "stephen",
         }
     }
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region}, provider_config=provider_config)
+    model = BidiNovaSonicModel(
+        model_id=model_id, client_config={"boto_session": boto_session}, provider_config=provider_config
+    )
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
@@ -527,11 +537,13 @@ async def test_message_history_empty_and_edge_cases(nova_model):
 
 
 @pytest.mark.asyncio
-async def test_custom_audio_rates_in_events(model_id, region):
+async def test_custom_audio_rates_in_events(model_id, boto_session):
     """Test that audio events use configured sample rates."""
     # Create model with custom audio configuration
     provider_config = {"audio": {"output_rate": 48000, "channels": 2}}
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region}, provider_config=provider_config)
+    model = BidiNovaSonicModel(
+        model_id=model_id, client_config={"boto_session": boto_session}, provider_config=provider_config
+    )
 
     # Test audio output event uses custom configuration
     audio_bytes = b"test audio data"
@@ -548,10 +560,10 @@ async def test_custom_audio_rates_in_events(model_id, region):
 
 
 @pytest.mark.asyncio
-async def test_default_audio_rates_in_events(model_id, region):
+async def test_default_audio_rates_in_events(model_id, boto_session):
     """Test that audio events use default sample rates when no custom config."""
     # Create model without custom audio configuration
-    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"boto_session": boto_session})
 
     # Test audio output event uses defaults
     audio_bytes = b"test audio data"

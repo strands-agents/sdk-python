@@ -11,7 +11,14 @@ Nova Sonic specifics:
 - Tool execution with content containers and identifier tracking
 - 8-minute connection limits with proper cleanup sequences
 - Interruption detection through stopReason events
+
+Note, BidiNovaSonicModel is only supported for Python 3.12+
 """
+
+import sys
+
+if sys.version_info < (3, 12):
+    raise ImportError("BidiNovaSonicModel is only supported for Python 3.12+")
 
 import asyncio
 import base64
@@ -92,6 +99,8 @@ class BidiNovaSonicModel(BidiModel):
     Combines model configuration and connection state in a single class.
     Manages Nova Sonic's complex event sequencing, audio format conversion, and
     tool execution patterns while providing the standard BidiModel interface.
+
+    Note, BidiNovaSonicModel is only supported for Python 3.12+.
 
     Attributes:
         _stream: open bedrock stream to nova sonic.

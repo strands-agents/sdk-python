@@ -26,15 +26,15 @@ jobs:
       contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0  # We the need the full Git history.
     - name: Setup uv
-      uses: astral-sh/setup-uv@v6
+      uses: astral-sh/setup-uv@v7
     - name: Check API breaking changes
       run: |
-        if ! uvx griffe check --search src --format github strands --against "${{ github.event.pull_request.base.sha || github.event.before || 'HEAD' }}"; then
-          echo "Breaking API changes detected"
+        if ! uvx griffe check --search src --format github strands --against "main"; then
+          echo "Potential API changes detected (review if actually breaking)"
           exit 1
         fi
 

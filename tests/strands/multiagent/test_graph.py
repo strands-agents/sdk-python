@@ -1,6 +1,6 @@
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
@@ -9,6 +9,7 @@ from strands.agent.state import AgentState
 from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
 from strands.hooks import AgentInitializedEvent
 from strands.hooks.registry import HookProvider, HookRegistry
+from strands.interrupt import Interrupt, _InterruptState
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult
 from strands.multiagent.graph import Graph, GraphBuilder, GraphEdge, GraphNode, GraphResult, GraphState, Status
 from strands.session.file_session_manager import FileSessionManager
@@ -2004,6 +2005,9 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     state = graph.serialize_state()
     assert state["type"] == "graph"
     assert state["id"] == "default_graph"
+    assert state["_internal_state"] == {
+        "interrupt_state": {"activated": False, "context": {}, "interrupts": {}},
+    }
     assert "status" in state
     assert "completed_nodes" in state
     assert "node_results" in state
@@ -2013,14 +2017,33 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
         "status": "executing",
         "completed_nodes": [],
         "failed_nodes": [],
+        "interrupted_nodes": [],
         "node_results": {},
         "current_task": "persisted task",
         "execution_order": [],
         "next_nodes_to_execute": ["test_node"],
+        "_internal_state": {
+            "interrupt_state": {
+                "activated": False,
+                "context": {"a": 1},
+                "interrupts": {
+                    "i1": {
+                        "id": "i1",
+                        "name": "test_name",
+                        "reason": "test_reason",
+                    },
+                },
+            },
+        },
     }
 
     graph.deserialize_state(persisted_state)
     assert graph.state.task == "persisted task"
+    assert graph._interrupt_state == _InterruptState(
+        activated=False,
+        context={"a": 1},
+        interrupts={"i1": Interrupt(id="i1", name="test_name", reason="test_reason")},
+    )
 
     # Execute graph to test persistence integration
     result = await graph.invoke_async("Test persistence")
@@ -2068,3 +2091,66 @@ async def test_graph_cancel_node(cancel_node, cancel_message):
     tru_status = graph.state.status
     exp_status = Status.FAILED
     assert tru_status == exp_status
+
+
+def test_graph_interrupt_on_before_node_call_event(interrupt_hook):
+    agent = create_mock_agent("test_agent", "Task completed")
+
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_agent")
+    builder.set_hook_providers([interrupt_hook])
+    graph = builder.build()
+
+    multiagent_result = graph("Test task")
+
+    first_execution_time = multiagent_result.execution_time
+
+    tru_result_status = multiagent_result.status
+    exp_result_status = Status.INTERRUPTED
+    assert tru_result_status == exp_result_status
+
+    tru_state_status = graph.state.status
+    exp_state_status = Status.INTERRUPTED
+    assert tru_state_status == exp_state_status
+
+    tru_node_ids = [node.node_id for node in graph.state.interrupted_nodes]
+    exp_node_ids = ["test_agent"]
+    assert tru_node_ids == exp_node_ids
+
+    tru_interrupts = multiagent_result.interrupts
+    exp_interrupts = [
+        Interrupt(
+            id=ANY,
+            name="test_name",
+            reason="test_reason",
+        ),
+    ]
+    assert tru_interrupts == exp_interrupts
+
+    interrupt = multiagent_result.interrupts[0]
+    responses = [
+        {
+            "interruptResponse": {
+                "interruptId": interrupt.id,
+                "response": "test_response",
+            },
+        },
+    ]
+    multiagent_result = graph(responses)
+
+    tru_result_status = multiagent_result.status
+    exp_result_status = Status.COMPLETED
+    assert tru_result_status == exp_result_status
+
+    tru_state_status = graph.state.status
+    exp_state_status = Status.COMPLETED
+    assert tru_state_status == exp_state_status
+
+    assert len(multiagent_result.results) == 1
+    agent_result = multiagent_result.results["test_agent"]
+
+    tru_message = agent_result.result.message["content"][0]["text"]
+    exp_message = "Task completed"
+    assert tru_message == exp_message
+
+    assert multiagent_result.execution_time >= first_execution_time

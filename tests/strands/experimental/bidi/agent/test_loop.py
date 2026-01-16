@@ -5,7 +5,7 @@ import pytest_asyncio
 
 from strands import tool
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.models import BidiModelTimeoutError
+from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
 from strands.experimental.bidi.types.events import BidiConnectionRestartEvent, BidiTextInputEvent
 from strands.types._events import ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
 
@@ -21,7 +21,7 @@ def time_tool():
 
 @pytest.fixture
 def agent(time_tool):
-    return BidiAgent(model=unittest.mock.AsyncMock(), tools=[time_tool])
+    return BidiAgent(model=unittest.mock.AsyncMock(spec=BidiModel), tools=[time_tool])
 
 
 @pytest_asyncio.fixture

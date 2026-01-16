@@ -567,6 +567,25 @@ async def test_stream_response_none_candidates(gemini_client, model, messages, a
 
 
 @pytest.mark.asyncio
+async def test_stream_response_empty_stream(gemini_client, model, messages, agenerator, alist):
+    """Test that empty stream doesn't raise UnboundLocalError.
+
+    When the stream yields no events, the candidate variable must be initialized
+    to None to avoid UnboundLocalError when referenced in message_stop chunk.
+    """
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator([])
+
+    tru_chunks = await alist(model.stream(messages))
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+    ]
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
 async def test_stream_response_throttled_exception(gemini_client, model, messages):
     gemini_client.aio.models.generate_content_stream.side_effect = genai.errors.ClientError(
         429, {"message": '{"error": {"status": "RESOURCE_EXHAUSTED"}}'}
