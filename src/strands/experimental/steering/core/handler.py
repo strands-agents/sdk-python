@@ -43,7 +43,7 @@ from ....hooks.registry import HookProvider, HookRegistry
 from ....types.content import Message
 from ....types.streaming import StopReason
 from ....types.tools import ToolUse
-from .action import Guide, Interrupt, ModelSteeringAction, Proceed, SteeringAction, ToolSteeringAction
+from .action import Guide, Interrupt, ModelSteeringAction, Proceed, ToolSteeringAction
 from .context import SteeringContext, SteeringContextProvider
 
 if TYPE_CHECKING:
@@ -102,7 +102,9 @@ class SteeringHandler(HookProvider, ABC):
 
         self._handle_tool_steering_action(action, event, tool_name)
 
-    def _handle_tool_steering_action(self, action: SteeringAction, event: BeforeToolCallEvent, tool_name: str) -> None:
+    def _handle_tool_steering_action(
+        self, action: ToolSteeringAction, event: BeforeToolCallEvent, tool_name: str
+    ) -> None:
         """Handle the steering action for tool calls by modifying tool execution flow.
 
         Proceed: Tool executes normally

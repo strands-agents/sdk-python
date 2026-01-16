@@ -74,12 +74,3 @@ ModelSteeringAction = Annotated[Proceed | Guide, Field(discriminator="type")]
 - Proceed: Accept model response without modification
 - Guide: Discard model response and retry with guidance
 """
-
-# Generic SteeringAction union for backward compatibility
-# IMPORTANT: Always handle the default case when pattern matching
-# to maintain backward compatibility as new action types are added
-SteeringAction = Annotated[Proceed | Guide | Interrupt, Field(discriminator="type")]
-"""Generic steering action type for backward compatibility.
-
-Use ToolSteeringAction or ModelSteeringAction for type-safe context-specific steering.
-"""

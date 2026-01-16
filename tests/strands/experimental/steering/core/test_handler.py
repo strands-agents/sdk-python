@@ -377,6 +377,27 @@ async def test_model_steering_unknown_action_raises_error():
 
 
 @pytest.mark.asyncio
+async def test_model_steering_interrupt_raises_error():
+    """Test model steering with Interrupt action raises error (not supported for model steering)."""
+
+    class InterruptModelHandler(SteeringHandler):
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
+            return Interrupt(reason="Should not be allowed")
+
+    handler = InterruptModelHandler()
+    agent = Mock()
+    stop_response = Mock()
+    stop_response.message = {"role": "assistant", "content": [{"text": "Hello"}]}
+    stop_response.stop_reason = "end_turn"
+    event = Mock(spec=AfterModelCallEvent)
+    event.agent = agent
+    event.stop_response = stop_response
+
+    with pytest.raises(ValueError, match="Unknown steering action type for model response"):
+        await handler._provide_model_steering_guidance(event)
+
+
+@pytest.mark.asyncio
 async def test_model_steering_exception_handling():
     """Test model steering handles exceptions gracefully."""
 
