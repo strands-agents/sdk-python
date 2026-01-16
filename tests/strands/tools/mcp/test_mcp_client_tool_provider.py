@@ -824,3 +824,56 @@ def test_list_tools_sync_callable_filter_override(mock_transport):
         # Should only include short tool (name length <= 10)
         assert len(result) == 1
         assert result[0] is mock_agent_tool1
+
+
+def test_is_session_active_with_close_future_done():
+    """Test that _is_session_active returns False when close_future is done."""
+    from unittest.mock import Mock
+    
+    client = MCPClient(transport_callable=lambda: Mock())
+    
+    # Mock background thread as alive
+    client._background_thread = Mock()
+    client._background_thread.is_alive.return_value = True
+    
+    # Mock close_future as done
+    client._close_future = Mock()
+    client._close_future.done.return_value = True
+    
+    # Should return False because close_future is done
+    assert client._is_session_active() is False
+
+
+def test_is_session_active_with_close_future_not_done():
+    """Test that _is_session_active returns True when close_future is not done."""
+    from unittest.mock import Mock
+    
+    client = MCPClient(transport_callable=lambda: Mock())
+    
+    # Mock background thread as alive
+    client._background_thread = Mock()
+    client._background_thread.is_alive.return_value = True
+    
+    # Mock close_future as not done
+    client._close_future = Mock()
+    client._close_future.done.return_value = False
+    
+    # Should return True
+    assert client._is_session_active() is True
+
+
+def test_is_session_active_with_none_close_future():
+    """Test that _is_session_active returns True when close_future is None."""
+    from unittest.mock import Mock
+    
+    client = MCPClient(transport_callable=lambda: Mock())
+    
+    # Mock background thread as alive
+    client._background_thread = Mock()
+    client._background_thread.is_alive.return_value = True
+    
+    # close_future is None
+    client._close_future = None
+    
+    # Should return True
+    assert client._is_session_active() is True
