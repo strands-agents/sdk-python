@@ -32,6 +32,7 @@ from ._validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
+request_id_logger = logging.getLogger(__name__ + ".requestId")
 
 # See: `BedrockModel._get_default_model_with_warning` for why we need both
 DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
@@ -715,6 +716,8 @@ class BedrockModel(Model):
             logger.debug("got response from model")
             if streaming:
                 response = self.client.converse_stream(**request)
+                request_id = response.get("ResponseMetadata", {}).get("RequestId")
+                request_id_logger.debug("request_id=<%s> | bedrock converse_stream", request_id)
                 # Track tool use events to fix stopReason for streaming responses
                 has_tool_use = False
                 for chunk in response["stream"]:
@@ -749,6 +752,8 @@ class BedrockModel(Model):
 
             else:
                 response = self.client.converse(**request)
+                request_id = response.get("ResponseMetadata", {}).get("RequestId")
+                request_id_logger.debug("request_id=<%s> | bedrock converse", request_id)
                 for event in self._convert_non_streaming_to_streaming(response):
                     callback(event)
 
@@ -761,6 +766,9 @@ class BedrockModel(Model):
                         callback(event)
 
         except ClientError as e:
+            request_id = e.response.get("ResponseMetadata", {}).get("RequestId")
+            request_id_logger.info("request_id=<%s> | bedrock request failed", request_id)
+
             error_message = str(e)
 
             if (

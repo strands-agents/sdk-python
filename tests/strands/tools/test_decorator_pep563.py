@@ -10,10 +10,10 @@ https://github.com/strands-agents/sdk-python/issues/1208
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 import pytest
-from typing_extensions import Literal, TypedDict
+from typing_extensions import TypedDict
 
 from strands import tool
 
