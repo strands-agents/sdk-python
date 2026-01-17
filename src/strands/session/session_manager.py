@@ -35,6 +35,18 @@ class SessionManager(HookProvider, ABC):
     for an agent, and should be persisted in the session.
     """
 
+    sync_agent_on_message_added: bool = True
+    """Whether to sync the agent state after each message is added.
+
+    When True (default), the agent state is synchronized with the session storage
+    after each message is added. When False, the agent is only synced after
+    invocation completes. This can be useful for reducing I/O operations when
+    agent state changes are infrequent.
+
+    Subclasses can override this class attribute or set it as an instance attribute
+    in their __init__ methods to customize behavior per instance.
+    """
+
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hooks for persisting the agent to the session."""
         # After the normal Agent initialization behavior, call the session initialize function to restore the agent
@@ -44,7 +56,8 @@ class SessionManager(HookProvider, ABC):
         registry.add_callback(MessageAddedEvent, lambda event: self.append_message(event.message, event.agent))
 
         # Sync the agent into the session for each message in case the agent state was updated
-        registry.add_callback(MessageAddedEvent, lambda event: self.sync_agent(event.agent))
+        if self.sync_agent_on_message_added:
+            registry.add_callback(MessageAddedEvent, lambda event: self.sync_agent(event.agent))
 
         # After an agent was invoked, sync it with the session to capture any conversation manager state updates
         registry.add_callback(AfterInvocationEvent, lambda event: self.sync_agent(event.agent))
