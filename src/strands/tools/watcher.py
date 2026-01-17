@@ -49,8 +49,8 @@ class ToolWatcher:
             """
             self.tool_registry = tool_registry
 
-        def on_modified(self, event: Any) -> None:
-            """Reload tool if file modification detected.
+        def _handle_tool_change(self, event: Any) -> None:
+            """Handle a tool file change event (created or modified).
 
             Args:
                 event: The file system event that triggered this handler.
@@ -66,6 +66,24 @@ class ToolWatcher:
                     except Exception as e:
                         logger.error("tool_name=<%s>, exception=<%s> | failed to reload tool", tool_name, str(e))
 
+        def on_modified(self, event: Any) -> None:
+            """Reload tool if file modification detected.
+
+            Args:
+                event: The file system event that triggered this handler.
+            """
+            self._handle_tool_change(event)
+
+        def on_created(self, event: Any) -> None:
+            """Reload tool if new file created.
+
+            This enables hot-reload for the first tool added to an empty ./tools directory.
+
+            Args:
+                event: The file system event that triggered this handler.
+            """
+            self._handle_tool_change(event)
+
     class MasterChangeHandler(FileSystemEventHandler):
         """Master handler that delegates to all registered handlers."""
 
@@ -77,11 +95,12 @@ class ToolWatcher:
             """
             self.dir_path = dir_path
 
-        def on_modified(self, event: Any) -> None:
-            """Delegate file modification events to all registered handlers.
+        def _delegate_event(self, event: Any, handler_method: str) -> None:
+            """Delegate file events to all registered handlers.
 
             Args:
                 event: The file system event that triggered this handler.
+                handler_method: The method name to call on handlers ('on_modified' or 'on_created').
             """
             if event.src_path.endswith(".py"):
                 tool_path = Path(event.src_path)
@@ -91,9 +110,27 @@ class ToolWatcher:
                     # Delegate to all registered handlers for this directory
                     for handler in ToolWatcher._registry_handlers.get(self.dir_path, {}).values():
                         try:
-                            handler.on_modified(event)
+                            getattr(handler, handler_method)(event)
                         except Exception as e:
                             logger.error("exception=<%s> | handler error", str(e))
+
+        def on_modified(self, event: Any) -> None:
+            """Delegate file modification events to all registered handlers.
+
+            Args:
+                event: The file system event that triggered this handler.
+            """
+            self._delegate_event(event, "on_modified")
+
+        def on_created(self, event: Any) -> None:
+            """Delegate file creation events to all registered handlers.
+
+            This enables hot-reload for the first tool added to an empty ./tools directory.
+
+            Args:
+                event: The file system event that triggered this handler.
+            """
+            self._delegate_event(event, "on_created")
 
     def start(self) -> None:
         """Start watching all tools directories for changes."""

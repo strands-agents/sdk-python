@@ -96,3 +96,104 @@ def test_on_modified_error_handling(mock_reload_tool):
 
     # Verify that reload_tool was called
     mock_reload_tool.assert_called_once_with("test_tool")
+
+
+@pytest.mark.parametrize(
+    "test_case",
+    [
+        # Regular Python file - should reload
+        {
+            "description": "Python file created",
+            "src_path": "/path/to/new_tool.py",
+            "is_directory": False,
+            "should_reload": True,
+            "expected_tool_name": "new_tool",
+        },
+        # Non-Python file - should not reload
+        {
+            "description": "Non-Python file created",
+            "src_path": "/path/to/new_tool.txt",
+            "is_directory": False,
+            "should_reload": False,
+        },
+        # __init__.py file - should not reload
+        {
+            "description": "Init file created",
+            "src_path": "/path/to/__init__.py",
+            "is_directory": False,
+            "should_reload": False,
+        },
+    ],
+)
+@patch.object(ToolRegistry, "reload_tool")
+def test_on_created_cases(mock_reload_tool, test_case):
+    """Test that on_created handles new tool file creation.
+
+    This is critical for hot-reloading the first tool added to an empty ./tools directory.
+    """
+    tool_registry = ToolRegistry()
+    watcher = ToolWatcher(tool_registry)
+
+    # Create a mock event with the specified properties
+    event = MagicMock()
+    event.src_path = test_case["src_path"]
+    if "is_directory" in test_case:
+        event.is_directory = test_case["is_directory"]
+
+    # Call the on_created method
+    watcher.tool_change_handler.on_created(event)
+
+    # Verify the expected behavior
+    if test_case["should_reload"]:
+        mock_reload_tool.assert_called_once_with(test_case["expected_tool_name"])
+    else:
+        mock_reload_tool.assert_not_called()
+
+
+@patch.object(ToolRegistry, "reload_tool", side_effect=Exception("Test error"))
+def test_on_created_error_handling(mock_reload_tool):
+    """Test that on_created handles errors during tool reloading."""
+    tool_registry = ToolRegistry()
+    watcher = ToolWatcher(tool_registry)
+
+    # Create a mock event with a Python file path
+    event = MagicMock()
+    event.src_path = "/path/to/new_tool.py"
+
+    # Call the on_created method - should not raise an exception
+    watcher.tool_change_handler.on_created(event)
+
+    # Verify that reload_tool was called
+    mock_reload_tool.assert_called_once_with("new_tool")
+
+
+@patch.object(ToolRegistry, "reload_tool")
+def test_master_handler_on_created_delegates_to_handlers(mock_reload_tool):
+    """Test that MasterChangeHandler.on_created delegates to all registered handlers.
+
+    This ensures that when a new tool file is created in a watched directory,
+    all registered ToolChangeHandlers are notified.
+    """
+    tool_registry = ToolRegistry()
+    watcher = ToolWatcher(tool_registry)
+
+    # Get the master handler for the tools directory
+    tools_dirs = tool_registry.get_tools_dirs()
+    if tools_dirs:
+        dir_str = str(tools_dirs[0])
+        master_handler = ToolWatcher.MasterChangeHandler(dir_str)
+
+        # Manually register our handler (normally done in start())
+        if dir_str not in ToolWatcher._registry_handlers:
+            ToolWatcher._registry_handlers[dir_str] = {}
+        ToolWatcher._registry_handlers[dir_str][id(tool_registry)] = watcher.tool_change_handler
+
+        # Create a mock event
+        event = MagicMock()
+        event.src_path = f"{dir_str}/new_tool.py"
+
+        # Call on_created on master handler
+        master_handler.on_created(event)
+
+        # Verify that reload_tool was called via the delegated handler
+        mock_reload_tool.assert_called_once_with("new_tool")
