@@ -114,34 +114,6 @@ class TestPromptCachingHookAddCachePoint:
         # Verify no error was raised and messages remain empty
         assert before_event.agent.messages == []
 
-    def test_add_cache_point_message_without_content_field(self, hook, before_event):
-        """Test handling of message without content field."""
-        before_event.agent.messages = [
-            {"role": "user"},  # No content field
-        ]
-
-        with unittest.mock.patch("strands.hooks.bedrock.logger") as mock_logger:
-            hook.on_invocation_start(before_event)
-            mock_logger.warning.assert_called_once()
-            assert "no content field" in mock_logger.warning.call_args[0][0]
-
-        # Verify message was not modified
-        assert "content" not in before_event.agent.messages[0]
-
-    def test_add_cache_point_content_not_a_list(self, hook, before_event):
-        """Test handling of content that is not a list."""
-        before_event.agent.messages = [
-            {"role": "user", "content": "This should be a list"},
-        ]
-
-        with unittest.mock.patch("strands.hooks.bedrock.logger") as mock_logger:
-            hook.on_invocation_start(before_event)
-            mock_logger.warning.assert_called_once()
-            assert "content is not a list" in mock_logger.warning.call_args[0][0]
-
-        # Verify content was not modified
-        assert before_event.agent.messages[0]["content"] == "This should be a list"
-
 
 class TestPromptCachingHookRemoveCachePoint:
     """Test removing cache points after model invocation."""
@@ -203,34 +175,6 @@ class TestPromptCachingHookRemoveCachePoint:
 
         # Verify no error was raised
         assert after_event.agent.messages == []
-
-    def test_remove_cache_point_message_without_content_field(self, hook, after_event):
-        """Test handling of message without content field."""
-        after_event.agent.messages = [
-            {"role": "user"},  # No content field
-        ]
-
-        with unittest.mock.patch("strands.hooks.bedrock.logger") as mock_logger:
-            hook.on_invocation_end(after_event)
-            mock_logger.warning.assert_called_once()
-            assert "no content field" in mock_logger.warning.call_args[0][0]
-
-        # Verify message was not modified
-        assert "content" not in after_event.agent.messages[0]
-
-    def test_remove_cache_point_content_not_a_list(self, hook, after_event):
-        """Test handling of content that is not a list."""
-        after_event.agent.messages = [
-            {"role": "user", "content": "This should be a list"},
-        ]
-
-        with unittest.mock.patch("strands.hooks.bedrock.logger") as mock_logger:
-            hook.on_invocation_end(after_event)
-            mock_logger.warning.assert_called_once()
-            assert "content is not a list" in mock_logger.warning.call_args[0][0]
-
-        # Verify content was not modified
-        assert after_event.agent.messages[0]["content"] == "This should be a list"
 
     def test_remove_cache_point_not_found(self, hook, after_event):
         """Test handling when cache point is not found in content."""

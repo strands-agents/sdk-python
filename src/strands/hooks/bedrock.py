@@ -7,6 +7,7 @@ such as automatic prompt caching management.
 import logging
 from typing import Any
 
+from ..types.content import ContentBlock
 from . import HookProvider, HookRegistry
 from .events import AfterModelCallEvent, BeforeModelCallEvent
 
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Cache point object for Bedrock prompt caching
 # See: https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
-CACHE_POINT_ITEM: dict[str, Any] = {"cachePoint": {"type": "default"}}
+CACHE_POINT_ITEM: ContentBlock = {"cachePoint": {"type": "default"}}
 
 
 class PromptCachingHook(HookProvider):
@@ -53,11 +54,12 @@ class PromptCachingHook(HookProvider):
         - Strands Agents Hooks: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/hooks/
     """
 
-    def register_hooks(self, registry: HookRegistry) -> None:
+    def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hook callbacks with the registry.
 
         Args:
             registry: The hook registry to register callbacks with.
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         registry.add_callback(BeforeModelCallEvent, self.on_invocation_start)
         registry.add_callback(AfterModelCallEvent, self.on_invocation_end)
@@ -72,34 +74,18 @@ class PromptCachingHook(HookProvider):
             event: The before model call event containing the agent and its messages.
 
         Note:
-            If the messages list is empty or the last message has no content array,
-            this method logs a warning and returns without modifying the messages.
+            If the messages list is empty, this method logs a warning and returns
+            without modifying the messages.
         """
         messages = event.agent.messages
 
-        # Validate messages structure
-        if not messages:
+        if len(messages) == 0:
             logger.warning("Cannot add cache point: messages list is empty")
             return
 
         last_message = messages[-1]
-        if "content" not in last_message:
-            logger.warning(
-                "Cannot add cache point: last message has no content field | role=%s",
-                last_message.get("role", "unknown"),
-            )
-            return
-
         content = last_message["content"]
-        if not isinstance(content, list):
-            logger.warning(
-                "Cannot add cache point: content is not a list | type=%s | role=%s",
-                type(content).__name__,
-                last_message.get("role", "unknown"),
-            )
-            return
 
-        # Add cache point to the end of the last message's content
         content.append(CACHE_POINT_ITEM)
         logger.debug(
             "Added cache point to message | message_index=%d | role=%s | content_blocks=%d",
@@ -124,29 +110,13 @@ class PromptCachingHook(HookProvider):
         """
         messages = event.agent.messages
 
-        # Validate messages structure
-        if not messages:
+        if len(messages) == 0:
             logger.warning("Cannot remove cache point: messages list is empty")
             return
 
         last_message = messages[-1]
-        if "content" not in last_message:
-            logger.warning(
-                "Cannot remove cache point: last message has no content field | role=%s",
-                last_message.get("role", "unknown"),
-            )
-            return
-
         content = last_message["content"]
-        if not isinstance(content, list):
-            logger.warning(
-                "Cannot remove cache point: content is not a list | type=%s | role=%s",
-                type(content).__name__,
-                last_message.get("role", "unknown"),
-            )
-            return
 
-        # Remove cache point from the last message's content
         try:
             content.remove(CACHE_POINT_ITEM)
             logger.debug(
