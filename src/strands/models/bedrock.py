@@ -175,7 +175,7 @@ class BedrockModel(Model):
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
     @property
-    def supports_caching(self) -> bool:
+    def _supports_caching(self) -> bool:
         """Whether this model supports prompt caching.
 
         Returns True for Claude models on Bedrock.
@@ -336,11 +336,9 @@ class BedrockModel(Model):
     def _inject_cache_point(self, messages: Messages) -> None:
         """Inject a cache point at the end of the last assistant message.
 
-        This enables prompt caching for multi-turn conversations by placing a single
-        cache point that covers system prompt, tools, and conversation history.
-
-        The cache point is automatically moved to the latest assistant message on each
-        model call, ensuring optimal cache utilization with minimal write overhead.
+        This automatically manages cache point placement in the messages array during
+        agent loop execution. The cache point is moved to the latest assistant message
+        on each model call to maximize cache hits.
 
         Args:
             messages: List of messages to inject cache point into (modified in place).
@@ -368,12 +366,12 @@ class BedrockModel(Model):
                     ):
                         # This is where we want the cache point - mark and continue
                         last_assistant_idx = msg_idx
-                        logger.debug(f"Cache point already at end of last assistant message {msg_idx}")
+                        logger.debug("msg_idx=<%s> | cache point already at end of last assistant message", msg_idx)
                         continue
 
                     # Remove cache points that aren't at the target position
                     del content[block_idx]
-                    logger.warning(f"Removed existing cache point at msg {msg_idx} block {block_idx}")
+                    logger.warning("msg_idx=<%s>, block_idx=<%s> | removed existing cache point", msg_idx, block_idx)
 
             # If we haven't found an assistant message yet, check if this is one
             if last_assistant_idx is None and msg.get("role") == "assistant":
@@ -384,17 +382,13 @@ class BedrockModel(Model):
             logger.debug("No assistant message in conversation - skipping cache point")
             return
 
-        # Check if cache point was already found at the right position
         last_assistant_content = messages[last_assistant_idx]["content"]
-        if last_assistant_content and "cachePoint" in last_assistant_content[-1]:
-            # Already has cache point at the end
-            return
-
-        # Add cache point at the end of the last assistant message
         if last_assistant_content:
+            if "cachePoint" in last_assistant_content[-1]:
+                return
             cache_block: ContentBlock = {"cachePoint": {"type": "default"}}
             last_assistant_content.append(cache_block)
-            logger.debug(f"Added cache point at end of assistant message {last_assistant_idx}")
+            logger.debug("msg_idx=<%s> | added cache point at end of assistant message", last_assistant_idx)
 
     def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
@@ -421,8 +415,14 @@ class BedrockModel(Model):
         """
         # Inject cache point if cache_config is set with strategy="auto"
         cache_config = self.config.get("cache_config")
-        if cache_config and cache_config.strategy == "auto" and self.supports_caching:
-            self._inject_cache_point(messages)
+        if cache_config and cache_config.strategy == "auto":
+            if self._supports_caching:
+                self._inject_cache_point(messages)
+            else:
+                logger.warning(
+                    "model_id=<%s> | cache_config is enabled but this model does not support caching",
+                    self.config.get("model_id"),
+                )
 
         cleaned_messages: list[dict[str, Any]] = []
 

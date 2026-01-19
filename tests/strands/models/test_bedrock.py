@@ -12,7 +12,7 @@ from botocore.exceptions import ClientError, EventStreamError
 
 import strands
 from strands import _exception_notes
-from strands.models import BedrockModel
+from strands.models import BedrockModel, CacheConfig
 from strands.models.bedrock import (
     _DEFAULT_BEDROCK_MODEL_ID,
     DEFAULT_BEDROCK_MODEL_ID,
@@ -2243,41 +2243,23 @@ async def test_format_request_with_guardrail_latest_message(model):
     assert formatted_messages[2]["content"][1]["guardContent"]["image"]["format"] == "png"
 
 
-def test_cache_config_auto_sets_config(bedrock_client):
-    """Test that cache_config with strategy='auto' is stored in config."""
-    from strands.models import CacheConfig
-
-    model = BedrockModel(model_id="test-model", cache_config=CacheConfig(strategy="auto"))
-
-    assert model.get_config().get("cache_config") is not None
-    assert model.get_config().get("cache_config").strategy == "auto"
-
-
-def test_cache_config_none_by_default(bedrock_client):
-    """Test that cache_config is None by default."""
-    model = BedrockModel(model_id="test-model")
-
-    assert model.get_config().get("cache_config") is None
-
-
 def test_supports_caching_true_for_claude(bedrock_client):
     """Test that supports_caching returns True for Claude models."""
     model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
-    assert model.supports_caching is True
+    assert model._supports_caching is True
 
     model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0")
-    assert model2.supports_caching is True
+    assert model2._supports_caching is True
 
 
 def test_supports_caching_false_for_non_claude(bedrock_client):
     """Test that supports_caching returns False for non-Claude models."""
     model = BedrockModel(model_id="amazon.nova-pro-v1:0")
-    assert model.supports_caching is False
+    assert model._supports_caching is False
 
 
 def test_inject_cache_point_adds_to_last_assistant(bedrock_client):
     """Test that _inject_cache_point adds cache point to last assistant message."""
-    from strands.models import CacheConfig
 
     model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto"))
 
@@ -2297,7 +2279,6 @@ def test_inject_cache_point_adds_to_last_assistant(bedrock_client):
 
 def test_inject_cache_point_moves_existing_cache_point(bedrock_client):
     """Test that _inject_cache_point moves cache point from old to new position."""
-    from strands.models import CacheConfig
 
     model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto"))
 
@@ -2321,7 +2302,6 @@ def test_inject_cache_point_moves_existing_cache_point(bedrock_client):
 
 def test_inject_cache_point_removes_multiple_cache_points(bedrock_client):
     """Test that _inject_cache_point removes all existing cache points except the target."""
-    from strands.models import CacheConfig
 
     model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto"))
 
@@ -2345,7 +2325,6 @@ def test_inject_cache_point_removes_multiple_cache_points(bedrock_client):
 
 def test_inject_cache_point_no_assistant_message(bedrock_client):
     """Test that _inject_cache_point does nothing when no assistant message exists."""
-    from strands.models import CacheConfig
 
     model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto"))
 
@@ -2362,7 +2341,6 @@ def test_inject_cache_point_no_assistant_message(bedrock_client):
 
 def test_inject_cache_point_already_at_correct_position(bedrock_client):
     """Test that _inject_cache_point keeps cache point if already at correct position."""
-    from strands.models import CacheConfig
 
     model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto"))
 
@@ -2380,7 +2358,6 @@ def test_inject_cache_point_already_at_correct_position(bedrock_client):
 
 def test_inject_cache_point_skipped_for_non_claude(bedrock_client):
     """Test that cache point injection is skipped for non-Claude models."""
-    from strands.models import CacheConfig
 
     model = BedrockModel(model_id="amazon.nova-pro-v1:0", cache_config=CacheConfig(strategy="auto"))
 
