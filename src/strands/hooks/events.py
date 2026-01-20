@@ -11,6 +11,7 @@ from typing_extensions import override
 
 if TYPE_CHECKING:
     from ..agent.agent_result import AgentResult
+    from ..types.exceptions import ContextWindowOverflowException
 
 from ..types.content import Message, Messages
 from ..types.interrupt import _Interruptible
@@ -245,6 +246,56 @@ class AfterModelCallEvent(HookEvent):
 
     def _can_write(self, name: str) -> bool:
         return name == "retry"
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
+
+
+@dataclass
+class BeforeContextReductionEvent(HookEvent):
+    """Event triggered before context reduction begins.
+
+    This event is fired when a ContextWindowOverflowException is caught and
+    before the conversation manager's reduce_context() method is called.
+    Hook providers can use this event to:
+    - Display UI feedback (e.g., "Compacting conversation...")
+    - Track context reduction frequency for analytics
+    - Log context window overflow occurrences
+
+    Attributes:
+        exception: The ContextWindowOverflowException that triggered the reduction.
+        message_count: The number of messages before reduction.
+    """
+
+    exception: "ContextWindowOverflowException"
+    message_count: int
+
+
+@dataclass
+class AfterContextReductionEvent(HookEvent):
+    """Event triggered after context reduction completes.
+
+    This event is fired after the conversation manager's reduce_context()
+    method has finished, regardless of whether reduction was successful.
+    Hook providers can use this event for:
+    - Updating UI with completion status
+    - Logging reduction statistics
+    - Monitoring context management effectiveness
+
+    Note: This event uses reverse callback ordering, meaning callbacks registered
+    later will be invoked first during cleanup.
+
+    Attributes:
+        original_message_count: The number of messages before reduction.
+        new_message_count: The number of messages after reduction.
+        removed_count: The number of messages that were removed.
+    """
+
+    original_message_count: int
+    new_message_count: int
+    removed_count: int
 
     @property
     def should_reverse_callbacks(self) -> bool:

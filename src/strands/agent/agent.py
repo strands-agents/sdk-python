@@ -33,8 +33,10 @@ if TYPE_CHECKING:
     from ..experimental.tools import ToolProvider
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
+    AfterContextReductionEvent,
     AfterInvocationEvent,
     AgentInitializedEvent,
+    BeforeContextReductionEvent,
     BeforeInvocationEvent,
     HookProvider,
     HookRegistry,
@@ -710,8 +712,29 @@ class Agent:
                 yield event
 
         except ContextWindowOverflowException as e:
+            # Emit event before context reduction
+            original_message_count = len(self.messages)
+            await self._hooks.invoke_callbacks_async(
+                BeforeContextReductionEvent(
+                    agent=self,
+                    exception=e,
+                    message_count=original_message_count,
+                )
+            )
+
             # Try reducing the context size and retrying
             self.conversation_manager.reduce_context(self, e=e)
+
+            # Emit event after context reduction
+            new_message_count = len(self.messages)
+            await self._hooks.invoke_callbacks_async(
+                AfterContextReductionEvent(
+                    agent=self,
+                    original_message_count=original_message_count,
+                    new_message_count=new_message_count,
+                    removed_count=original_message_count - new_message_count,
+                )
+            )
 
             # Sync agent after reduce_context to keep conversation_manager_state up to date in the session
             if self._session_manager:
