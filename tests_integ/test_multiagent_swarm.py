@@ -13,7 +13,6 @@ from strands.hooks import (
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
-from strands.hooks.multiagent import BeforeNodeCallEvent
 from strands.multiagent.swarm import Swarm
 from strands.session.file_session_manager import FileSessionManager
 from strands.types.content import ContentBlock
