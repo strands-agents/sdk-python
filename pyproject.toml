@@ -93,7 +93,7 @@ dev = [
     "pytest-asyncio>=1.0.0,<1.4.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "ruff>=0.13.0,<0.15.0",
-    "tenacity>=8.0.0,<10.0.0",
+    "tenacity>=9.0.0,<10.0.0",
 ]
 
 [project.urls]
