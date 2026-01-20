@@ -303,28 +303,27 @@ class BidiNovaSonicModel(BidiModel):
         if "usageEvent" in nova_event:
             usage = nova_event["usageEvent"]
             logger.debug(
-                "input_tokens=<%s>, output_tokens=<%s> | nova usage event",
+                "input_tokens=<%s>, output_tokens=<%s>, usage_details=<%s> | nova usage event",
                 usage.get("totalInputTokens", 0),
                 usage.get("totalOutputTokens", 0),
+                json.dumps(usage, indent=2),
             )
-            logger.debug("usage_details=<%s> | nova usage event full details", json.dumps(usage, indent=2))
         elif "textOutput" in nova_event:
             text_content = nova_event["textOutput"].get("content", "")
             logger.debug(
-                "text_length=<%d>, text_preview=<%s> | nova text output", len(text_content), text_content[:100]
-            )
-            logger.debug(
-                "text_output_details=<%s> | nova text output full details",
+                "text_length=<%d>, text_preview=<%s>, text_output_details=<%s> | nova text output",
+                len(text_content),
+                text_content[:100],
                 json.dumps(nova_event["textOutput"], indent=2)[:500],
             )
         elif "toolUse" in nova_event:
             tool_use = nova_event["toolUse"]
             logger.debug(
-                "tool_name=<%s>, tool_use_id=<%s> | nova tool use received",
+                "tool_name=<%s>, tool_use_id=<%s>, tool_use_details=<%s> | nova tool use received",
                 tool_use["toolName"],
                 tool_use["toolUseId"],
+                json.dumps(tool_use, indent=2)[:500],
             )
-            logger.debug("tool_use_details=<%s> | nova tool use full details", json.dumps(tool_use, indent=2)[:500])
         elif "audioOutput" in nova_event:
             audio_content = nova_event["audioOutput"]["content"]
             audio_bytes = base64.b64decode(audio_content)

@@ -600,8 +600,6 @@ async def test_default_audio_rates_in_events(model_id, boto_session):
 
 def test_nova_sonic_model_constants():
     """Test that Nova Sonic model ID constants are correctly defined."""
-    from strands.experimental.bidi.models.nova_sonic import NOVA_SONIC_V1_MODEL_ID, NOVA_SONIC_V2_MODEL_ID
-
     assert NOVA_SONIC_V1_MODEL_ID == "amazon.nova-sonic-v1:0"
     assert NOVA_SONIC_V2_MODEL_ID == "amazon.nova-2-sonic-v1:0"
 
@@ -654,8 +652,6 @@ async def test_nova_sonic_v2_instantiation(boto_session, mock_client):
 @pytest.mark.asyncio
 async def test_nova_sonic_v2_direct_instantiation(boto_session, mock_client):
     """Test direct instantiation with Nova Sonic v2 model ID."""
-    from strands.experimental.bidi.models.nova_sonic import NOVA_SONIC_V2_MODEL_ID
-
     _ = mock_client  # Ensure mock is active
 
     # Test direct instantiation with v2 model ID
@@ -667,7 +663,7 @@ async def test_nova_sonic_v2_direct_instantiation(boto_session, mock_client):
     model_literal = BidiNovaSonicModel(
         model_id="amazon.nova-2-sonic-v1:0", client_config={"boto_session": boto_session}
     )
-    assert model_literal.model_id == "amazon.nova-2-sonic-v1:0"
+    assert model_literal.model_id == NOVA_SONIC_V2_MODEL_ID
 
 
 @pytest.mark.asyncio
@@ -703,22 +699,8 @@ async def test_nova_sonic_v1_v2_compatibility(boto_session, mock_client):
 
     # Only model_id should differ
     assert model_v1.model_id != model_v2.model_id
-    assert model_v1.model_id == "amazon.nova-sonic-v1:0"
-    assert model_v2.model_id == "amazon.nova-2-sonic-v1:0"
-
-
-@pytest.mark.asyncio
-async def test_nova_sonic_exports():
-    """Test that model ID constants are properly exported."""
-    # Test imports from main models module
-    from strands.experimental.bidi.models import (
-        NOVA_SONIC_V1_MODEL_ID,
-        NOVA_SONIC_V2_MODEL_ID,
-    )
-
-    # Verify constants
-    assert NOVA_SONIC_V1_MODEL_ID == "amazon.nova-sonic-v1:0"
-    assert NOVA_SONIC_V2_MODEL_ID == "amazon.nova-2-sonic-v1:0"
+    assert model_v1.model_id == NOVA_SONIC_V1_MODEL_ID
+    assert model_v2.model_id == NOVA_SONIC_V2_MODEL_ID
 
 
 @pytest.mark.asyncio

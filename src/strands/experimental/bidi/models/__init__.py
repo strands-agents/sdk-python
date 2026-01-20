@@ -7,8 +7,6 @@ from .model import BidiModel, BidiModelTimeoutError
 __all__ = [
     "BidiModel",
     "BidiModelTimeoutError",
-    "NOVA_SONIC_V1_MODEL_ID",
-    "NOVA_SONIC_V2_MODEL_ID",
 ]
 
 
@@ -29,12 +27,4 @@ def __getattr__(name: str) -> Any:
         from .openai_realtime import BidiOpenAIRealtimeModel
 
         return BidiOpenAIRealtimeModel
-    if name == "NOVA_SONIC_V1_MODEL_ID":
-        from .nova_sonic import NOVA_SONIC_V1_MODEL_ID
-
-        return NOVA_SONIC_V1_MODEL_ID
-    if name == "NOVA_SONIC_V2_MODEL_ID":
-        from .nova_sonic import NOVA_SONIC_V2_MODEL_ID
-
-        return NOVA_SONIC_V2_MODEL_ID
     raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")
