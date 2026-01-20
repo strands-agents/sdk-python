@@ -2154,3 +2154,245 @@ def test_graph_interrupt_on_before_node_call_event(interrupt_hook):
     assert tru_message == exp_message
 
     assert multiagent_result.execution_time >= first_execution_time
+
+
+# ============================================================================
+# Agent Interrupt Tests (Issue #1526)
+# ============================================================================
+
+
+@pytest.fixture
+def agenerator():
+    """Async generator fixture for mocking stream_async."""
+
+    async def _agenerator(items):
+        for item in items:
+            yield item
+
+    return _agenerator
+
+
+def test_graph_interrupt_on_agent(agenerator):
+    """Test that an agent node can raise an interrupt."""
+    exp_interrupts = [
+        Interrupt(
+            id="test_id",
+            name="test_name",
+            reason="test_reason",
+        ),
+    ]
+
+    agent = create_mock_agent("test_agent", "Task completed")
+    # Add required state attributes for interrupt handling
+    agent.messages = []
+    agent.state = AgentState()
+    agent._interrupt_state = _InterruptState()
+
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_agent")
+    graph = builder.build()
+
+    # First invocation - agent returns interrupt
+    agent.stream_async = Mock()
+    agent.stream_async.return_value = agenerator(
+        [
+            {
+                "result": AgentResult(
+                    message={},
+                    stop_reason="interrupt",
+                    state={},
+                    metrics=None,
+                    interrupts=exp_interrupts,
+                ),
+            },
+        ],
+    )
+
+    multiagent_result = graph("Test task")
+
+    tru_status = multiagent_result.status
+    exp_status = Status.INTERRUPTED
+    assert tru_status == exp_status
+
+    tru_interrupts = multiagent_result.interrupts
+    assert tru_interrupts == exp_interrupts
+
+    # Verify interrupted node is tracked
+    tru_node_ids = [node.node_id for node in graph.state.interrupted_nodes]
+    exp_node_ids = ["test_agent"]
+    assert tru_node_ids == exp_node_ids
+
+    # Resume with response
+    agent.stream_async = Mock()
+    agent.stream_async.return_value = agenerator(
+        [
+            {
+                "result": AgentResult(
+                    message={"role": "assistant", "content": [{"text": "Task completed"}]},
+                    stop_reason="end_turn",
+                    state={},
+                    metrics=None,
+                ),
+            },
+        ],
+    )
+    graph._interrupt_state.context["test_agent"]["activated"] = True
+
+    interrupt = multiagent_result.interrupts[0]
+    responses = [
+        {
+            "interruptResponse": {
+                "interruptId": interrupt.id,
+                "response": "test_response",
+            },
+        },
+    ]
+    multiagent_result = graph(responses)
+
+    tru_status = multiagent_result.status
+    exp_status = Status.COMPLETED
+    assert tru_status == exp_status
+
+    # Verify response was passed to agent
+    agent.stream_async.assert_called_once_with(responses, invocation_state={})
+
+
+def test_graph_interrupt_on_agent_parallel_execution(agenerator):
+    """Test that when multiple nodes run in parallel, non-interrupted nodes complete."""
+    interrupt = Interrupt(
+        id="test_id",
+        name="test_name",
+        reason="test_reason",
+    )
+
+    # Create two agents - one will interrupt, one will complete
+    agent1 = create_mock_agent("agent1", "Agent 1 completed")
+    agent1.messages = []
+    agent1.state = AgentState()
+    agent1._interrupt_state = _InterruptState()
+
+    agent2 = create_mock_agent("agent2", "Agent 2 completed")
+    agent2.messages = []
+    agent2.state = AgentState()
+    agent2._interrupt_state = _InterruptState()
+
+    builder = GraphBuilder()
+    builder.add_node(agent1, "agent1")
+    builder.add_node(agent2, "agent2")
+    # Both are entry points, so they execute in parallel
+    graph = builder.build()
+
+    # Agent1 will interrupt, Agent2 will complete
+    agent1.stream_async = Mock()
+    agent1.stream_async.return_value = agenerator(
+        [
+            {
+                "result": AgentResult(
+                    message={},
+                    stop_reason="interrupt",
+                    state={},
+                    metrics=None,
+                    interrupts=[interrupt],
+                ),
+            },
+        ],
+    )
+
+    agent2.stream_async = Mock()
+    agent2.stream_async.return_value = agenerator(
+        [
+            {
+                "result": AgentResult(
+                    message={"role": "assistant", "content": [{"text": "Agent 2 completed"}]},
+                    stop_reason="end_turn",
+                    state={},
+                    metrics=None,
+                ),
+            },
+        ],
+    )
+
+    multiagent_result = graph("Test task")
+
+    # Graph should be interrupted
+    assert multiagent_result.status == Status.INTERRUPTED
+    assert len(multiagent_result.interrupts) == 1
+
+    # Agent2 should have completed and be tracked in completed_nodes context
+    assert "completed_nodes" in graph._interrupt_state.context
+    assert "agent2" in graph._interrupt_state.context["completed_nodes"]
+
+
+def test_graph_interrupt_on_agent_multiple_interrupts(agenerator):
+    """Test that multiple agent nodes can raise interrupts simultaneously."""
+    interrupt1 = Interrupt(id="int1", name="interrupt1", reason="reason1")
+    interrupt2 = Interrupt(id="int2", name="interrupt2", reason="reason2")
+
+    # Create two agents, both will interrupt
+    agent1 = create_mock_agent("agent1", "Agent 1 result")
+    agent1.messages = []
+    agent1.state = AgentState()
+    agent1._interrupt_state = _InterruptState()
+
+    agent2 = create_mock_agent("agent2", "Agent 2 result")
+    agent2.messages = []
+    agent2.state = AgentState()
+    agent2._interrupt_state = _InterruptState()
+
+    builder = GraphBuilder()
+    builder.add_node(agent1, "agent1")
+    builder.add_node(agent2, "agent2")
+    graph = builder.build()
+
+    # Both agents interrupt
+    agent1.stream_async = Mock()
+    agent1.stream_async.return_value = agenerator(
+        [{"result": AgentResult(message={}, stop_reason="interrupt", state={}, metrics=None, interrupts=[interrupt1])}]
+    )
+
+    agent2.stream_async = Mock()
+    agent2.stream_async.return_value = agenerator(
+        [{"result": AgentResult(message={}, stop_reason="interrupt", state={}, metrics=None, interrupts=[interrupt2])}]
+    )
+
+    multiagent_result = graph("Test task")
+
+    assert multiagent_result.status == Status.INTERRUPTED
+    # Both interrupts should be collected
+    assert len(multiagent_result.interrupts) == 2
+    interrupt_ids = {i.id for i in multiagent_result.interrupts}
+    assert "int1" in interrupt_ids
+    assert "int2" in interrupt_ids
+
+
+def test_graph_interrupt_on_agent_state_serialization(agenerator):
+    """Test that interrupt state is properly serialized for session management."""
+    interrupt = Interrupt(id="test_id", name="test_name", reason="test_reason")
+
+    agent = create_mock_agent("test_agent", "Task completed")
+    agent.messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    agent.state = AgentState({"key": "value"})
+    agent._interrupt_state = _InterruptState()
+
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_agent")
+    graph = builder.build()
+
+    agent.stream_async = Mock()
+    agent.stream_async.return_value = agenerator(
+        [{"result": AgentResult(message={}, stop_reason="interrupt", state={}, metrics=None, interrupts=[interrupt])}]
+    )
+
+    multiagent_result = graph("Test task")
+    assert multiagent_result.status == Status.INTERRUPTED
+
+    # Serialize state
+    serialized = graph.serialize_state()
+
+    # Verify interrupt state is included
+    assert "_internal_state" in serialized
+    assert "interrupt_state" in serialized["_internal_state"]
+    assert serialized["_internal_state"]["interrupt_state"]["activated"] is True
+
+    # Verify agent state is stored in context
+    assert serialized["_internal_state"]["interrupt_state"]["context"].get("test_agent") is not None
