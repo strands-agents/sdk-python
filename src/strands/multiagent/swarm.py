@@ -198,7 +198,7 @@ class SwarmState:
         if len(self.node_history) >= max_iterations:
             return False, f"Max iterations reached: {max_iterations}"
 
-        # Check timeout (include accumulated time from previous invocations)
+        # Check timeout
         elapsed = self.execution_time / 1000 + time.time() - self.start_time
         if elapsed > execution_timeout:
             return False, f"Execution timed out: {execution_timeout}s"

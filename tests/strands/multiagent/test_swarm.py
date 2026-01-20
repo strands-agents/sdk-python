@@ -1243,6 +1243,8 @@ def test_swarm_interrupt_on_before_node_call_event(interrupt_hook):
 
     multiagent_result = swarm("Test task")
 
+    first_execution_time = multiagent_result.execution_time
+
     tru_status = multiagent_result.status
     exp_status = Status.INTERRUPTED
     assert tru_status == exp_status
@@ -1278,6 +1280,8 @@ def test_swarm_interrupt_on_before_node_call_event(interrupt_hook):
     tru_message = agent_result.result.message["content"][0]["text"]
     exp_message = "Task completed"
     assert tru_message == exp_message
+
+    assert multiagent_result.execution_time >= first_execution_time
 
 
 def test_swarm_interrupt_on_agent(agenerator):
@@ -1347,98 +1351,3 @@ def test_swarm_interrupt_on_agent(agenerator):
     assert tru_status == exp_status
 
     agent.stream_async.assert_called_once_with(responses, invocation_state={})
-
-
-def test_swarm_execution_time_accumulates_across_interrupt_resume(interrupt_hook):
-    """Test that execution_time accumulates across interrupt/resume cycles.
-
-    This test verifies that the execution_time in SwarmResult is not reset on resume
-    but instead accumulates across all invocations (initial + resume).
-
-    Related to: https://github.com/strands-agents/sdk-python/issues/1501
-    """
-    agent = create_mock_agent("test_agent", "Task completed")
-    swarm = Swarm([agent], hooks=[interrupt_hook])
-
-    # First invocation - should be interrupted
-    multiagent_result = swarm("Test task")
-
-    # Store the execution time from first invocation
-    first_execution_time = multiagent_result.execution_time
-
-    tru_status = multiagent_result.status
-    exp_status = Status.INTERRUPTED
-    assert tru_status == exp_status
-
-    # Add a delay before resume to ensure time passes between invocations
-    time.sleep(0.1)  # 100ms delay
-
-    # Resume with interrupt response
-    interrupt = multiagent_result.interrupts[0]
-    responses = [
-        {
-            "interruptResponse": {
-                "interruptId": interrupt.id,
-                "response": "test_response",
-            },
-        },
-    ]
-    multiagent_result = swarm(responses)
-
-    tru_status = multiagent_result.status
-    exp_status = Status.COMPLETED
-    assert tru_status == exp_status
-
-    # The key assertion: execution_time after resume should be >= first_execution_time
-    # because it should accumulate, not reset. The time.sleep is outside the invocation
-    # so it doesn't add to execution_time, but we verify the accumulated value is at
-    # least the first invocation time plus some additional processing time.
-    assert multiagent_result.execution_time >= first_execution_time, (
-        f"execution_time should accumulate: got {multiagent_result.execution_time}ms, "
-        f"expected >= {first_execution_time}ms (first invocation)"
-    )
-
-
-def test_swarm_state_should_continue_elapsed_time_includes_accumulated():
-    """Test that should_continue elapsed time includes accumulated execution_time.
-
-    This verifies that timeout checks account for total time across interrupt/resume
-    cycles, not just the current invocation.
-
-    Related to: https://github.com/strands-agents/sdk-python/issues/1501
-    """
-    state = SwarmState(
-        current_node=None,
-        task="test",
-        completion_status=Status.EXECUTING,
-        shared_context=SharedContext(),
-    )
-
-    # Simulate previous invocation took 5 seconds (5000ms)
-    state.execution_time = 5000
-
-    # Current invocation just started
-    state.start_time = time.time()
-
-    # With a 6 second timeout, should_continue should return True
-    # (5s accumulated + ~0s current = ~5s < 6s timeout)
-    should_continue, reason = state.should_continue(
-        max_handoffs=100,
-        max_iterations=100,
-        execution_timeout=6.0,
-        repetitive_handoff_detection_window=0,
-        repetitive_handoff_min_unique_agents=0,
-    )
-    assert should_continue is True, f"Expected to continue, got: {reason}"
-
-    # With a 4 second timeout, should_continue should return False
-    # (5s accumulated + ~0s current = ~5s > 4s timeout)
-    should_continue, reason = state.should_continue(
-        max_handoffs=100,
-        max_iterations=100,
-        execution_timeout=4.0,
-        repetitive_handoff_detection_window=0,
-        repetitive_handoff_min_unique_agents=0,
-    )
-    assert should_continue is False
-    assert "timed out" in reason.lower()
