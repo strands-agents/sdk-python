@@ -882,27 +882,8 @@ class BidiNovaSonicModel(BidiModel):
         """
         async with self._send_lock:
             for event in events:
-                # Log the event being sent
-                try:
-                    event_dict = json.loads(event)
-                    event_type = list(event_dict.get("event", {}).keys())[0] if event_dict.get("event") else "unknown"
-
-                    # Extract audio metadata if present
-                    audio_metadata = self._get_audio_metadata_for_logging(event_dict)
-                    if audio_metadata:
-                        logger.debug(
-                            "event_type=<%s>, audio_byte_count=<%d> | sending nova sonic event with audio",
-                            event_type,
-                            audio_metadata["audio_byte_count"],
-                        )
-                    else:
-                        logger.debug("event_type=<%s> | sending nova sonic event", event_type)
-                except (json.JSONDecodeError, IndexError):
-                    logger.debug("event=<%s> | sending nova sonic event (raw)", event[:200])
-
                 bytes_data = event.encode("utf-8")
                 chunk = InvokeModelWithBidirectionalStreamInputChunk(
                     value=BidirectionalInputPayloadPart(bytes_=bytes_data)
                 )
                 await self._stream.input_stream.send(chunk)
-                logger.debug("event_type=<%s> | nova sonic event sent successfully", event_type)

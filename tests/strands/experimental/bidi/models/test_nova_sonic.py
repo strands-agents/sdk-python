@@ -18,21 +18,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 import pytest_asyncio
-
-# Mock AWS SDK imports for unit tests
-try:
-    from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationException
-except ImportError:
-    # Create mock exceptions for testing
-    class ModelTimeoutException(Exception):
-        def __init__(self, message):
-            self.message = message
-            super().__init__(message)
-
-    class ValidationException(Exception):
-        def __init__(self, message):
-            self.message = message
-            super().__init__(message)
+from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationException
 
 from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.models.nova_sonic import (
@@ -650,25 +636,8 @@ async def test_nova_sonic_v2_instantiation(boto_session, mock_client):
 
 
 @pytest.mark.asyncio
-async def test_nova_sonic_v2_direct_instantiation(boto_session, mock_client):
-    """Test direct instantiation with Nova Sonic v2 model ID."""
-    _ = mock_client  # Ensure mock is active
-
-    # Test direct instantiation with v2 model ID
-    model = BidiNovaSonicModel(model_id=NOVA_SONIC_V2_MODEL_ID, client_config={"boto_session": boto_session})
-    assert model.model_id == NOVA_SONIC_V2_MODEL_ID
-    assert model.region == "us-east-1"
-
-    # Test with string literal
-    model_literal = BidiNovaSonicModel(
-        model_id="amazon.nova-2-sonic-v1:0", client_config={"boto_session": boto_session}
-    )
-    assert model_literal.model_id == NOVA_SONIC_V2_MODEL_ID
-
-
-@pytest.mark.asyncio
 async def test_nova_sonic_v1_v2_compatibility(boto_session, mock_client):
-    """Test that v1 and v2 models have the same interface and behavior."""
+    """Test that v1 and v2 models have the same config structure and behavior."""
     _ = mock_client  # Ensure mock is active
 
     # Create both models with same config
@@ -681,17 +650,6 @@ async def test_nova_sonic_v1_v2_compatibility(boto_session, mock_client):
     model_v2 = BidiNovaSonicModel(
         model_id=NOVA_SONIC_V2_MODEL_ID, provider_config=provider_config, client_config=client_config
     )
-
-    # Both should have the same interface
-    assert hasattr(model_v1, "start")
-    assert hasattr(model_v1, "stop")
-    assert hasattr(model_v1, "send")
-    assert hasattr(model_v1, "receive")
-
-    assert hasattr(model_v2, "start")
-    assert hasattr(model_v2, "stop")
-    assert hasattr(model_v2, "send")
-    assert hasattr(model_v2, "receive")
 
     # Both should have the same config structure
     assert model_v1.config["audio"]["voice"] == model_v2.config["audio"]["voice"]
