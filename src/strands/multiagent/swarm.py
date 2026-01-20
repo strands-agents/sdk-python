@@ -27,12 +27,13 @@ from opentelemetry import trace as trace_api
 from .._async import run_async
 from ..agent import Agent
 from ..agent.state import AgentState
-from ..hooks import HookProvider, HookRegistry
-from ..hooks.multiagent import (
+from ..hooks import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeMultiAgentInvocationEvent,
     BeforeNodeCallEvent,
+    HookProvider,
+    HookRegistry,
     MultiAgentInitializedEvent,
 )
 from ..interrupt import Interrupt, _InterruptState

@@ -2,14 +2,12 @@ from collections.abc import Iterator
 from typing import Literal
 
 from strands.hooks import (
-    HookEvent,
-    HookProvider,
-    HookRegistry,
-)
-from strands.hooks.multiagent.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeNodeCallEvent,
+    HookEvent,
+    HookProvider,
+    HookRegistry,
     MultiAgentInitializedEvent,
 )
 

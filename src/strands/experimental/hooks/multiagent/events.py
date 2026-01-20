@@ -5,7 +5,7 @@ Deprecated: Use strands.hooks.multiagent instead.
 
 import warnings
 
-from ....hooks.multiagent.events import (
+from ....hooks.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeMultiAgentInvocationEvent,

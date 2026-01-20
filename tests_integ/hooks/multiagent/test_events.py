@@ -1,12 +1,12 @@
 import pytest
 
 from strands import Agent
-from strands.hooks import HookProvider
-from strands.hooks.multiagent import (
+from strands.hooks import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeMultiAgentInvocationEvent,
     BeforeNodeCallEvent,
+    HookProvider,
     MultiAgentInitializedEvent,
 )
 from strands.multiagent import GraphBuilder, Swarm

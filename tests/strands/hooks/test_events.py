@@ -4,10 +4,10 @@ from unittest.mock import Mock
 
 import pytest
 
-from strands.hooks import BaseHookEvent
-from strands.hooks.multiagent.events import (
+from strands.hooks import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
+    BaseHookEvent,
     BeforeMultiAgentInvocationEvent,
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,

@@ -6,7 +6,7 @@ import pytest
 
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
-from strands.hooks.multiagent import BeforeNodeCallEvent
+from strands.hooks import BeforeNodeCallEvent
 from strands.hooks.registry import HookRegistry
 from strands.interrupt import Interrupt, _InterruptState
 from strands.multiagent.base import Status
