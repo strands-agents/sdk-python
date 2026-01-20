@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 
 import boto3
 import pytest
-from tenacity import RetryError, Retrying, stop_after_attempt, wait_exponential
+from tenacity import RetryCallState, RetryError, Retrying, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 
@@ -38,19 +38,38 @@ def _should_retry_exception(exc: BaseException, conditions: Sequence[RetryCondit
     return False
 
 
+_RETRY_ON_ANY: Sequence[RetryCondition] = (lambda _: True,)
+
+
 def retry_on_flaky(
     max_attempts: int = 3,
     wait_multiplier: float = 1,
     wait_max: float = 10,
-    retry_on: Sequence[RetryCondition] | None = None,
+    retry_on: Sequence[RetryCondition] = _RETRY_ON_ANY,
 ) -> Callable:
-    """Decorator to retry flaky tests.
+    """Decorator to retry flaky integration tests that fail due to external factors.
+
+    WHEN TO USE:
+        - External service instability (API rate limits, transient network errors)
+        - Non-deterministic LLM responses that occasionally fail assertions
+        - Resource contention in shared test environments
+        - Known intermittent issues with third-party dependencies
+
+    WHEN NOT TO USE:
+        - Actual bugs in the code under test (fix the bug instead)
+        - Deterministic failures (these indicate real problems)
+        - Unit tests (flakiness in unit tests usually indicates a design issue)
+        - To mask consistently failing tests (investigate root cause first)
+
+    If a test requires this decorator, consider adding a code comment explaining
+    the source of flakiness. Prefer using specific retry_on conditions over
+    retrying on any exception to avoid masking real bugs.
 
     Args:
         max_attempts: Maximum number of retry attempts (default: 3)
         wait_multiplier: Multiplier for exponential backoff in seconds (default: 1)
         wait_max: Maximum wait time between retries in seconds (default: 10)
-        retry_on: Conditions for when to retry. If None, retries on any exception.
+        retry_on: Conditions for when to retry. Defaults to retrying on any exception.
             Each condition can be:
             - Exception type: e.g., ValueError, TimeoutError
             - Callable: e.g., lambda e: "timeout" in str(e).lower()
@@ -86,14 +105,12 @@ def retry_on_flaky(
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            def should_retry(retry_state) -> bool:
+            def should_retry(retry_state: RetryCallState) -> bool:
                 if retry_state.outcome is None or not retry_state.outcome.failed:
                     return False
                 exc = retry_state.outcome.exception()
                 if exc is None:
                     return False
-                if retry_on is None:
-                    return True
                 return _should_retry_exception(exc, retry_on)
 
             try:

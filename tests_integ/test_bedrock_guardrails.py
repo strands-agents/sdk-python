@@ -190,6 +190,7 @@ def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processi
         guardrail_redact_output=True,
         guardrail_redact_output_message=REDACT_MESSAGE,
         region_name="us-east-1",
+        temperature=0,  # Use deterministic responses to reduce flakiness
     )
 
     agent = Agent(
