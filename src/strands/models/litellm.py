@@ -547,8 +547,8 @@ class LiteLLMModel(OpenAIModel):
         # Skip remaining events as we don't have use for anything except the final usage payload
         async for event in response:
             _ = event
-            if event.usage:
-                yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
+            if usage := getattr(event, "usage", None):
+                yield self.format_chunk({"chunk_type": "metadata", "data": usage})
 
         logger.debug("finished streaming response from model")
 

@@ -236,6 +236,27 @@ def test_structured_output_unsupported_model(model, nested_weather):
         mock_schema.assert_not_called()
 
 
+@pytest.mark.parametrize("model_fixture", ["streaming_model", "non_streaming_model"])
+def test_streaming_returns_usage_metrics(model_fixture, request):
+    """Test that streaming returns usage metrics.
+
+    This test verifies that the streaming flow correctly extracts and returns
+    usage data from the model response. This is a regression test for the bug
+    where accessing 'usage' attribute on ModelResponseStream raised AttributeError.
+
+    Regression test for: 'ModelResponseStream' object has no attribute 'usage'
+    """
+    model = request.getfixturevalue(model_fixture)
+    agent = Agent(model=model)
+    result = agent("Say hello")
+
+    # Verify usage metrics are returned - this would fail if streaming breaks
+    assert result.metrics.accumulated_usage is not None
+    assert result.metrics.accumulated_usage["inputTokens"] > 0
+    assert result.metrics.accumulated_usage["outputTokens"] > 0
+    assert result.metrics.accumulated_usage["totalTokens"] > 0
+
+
 @pytest.mark.asyncio
 async def test_cache_read_tokens_multi_turn(model):
     """Integration test for cache read tokens in multi-turn conversation."""

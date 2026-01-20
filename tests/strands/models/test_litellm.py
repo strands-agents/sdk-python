@@ -711,3 +711,104 @@ def test_stream_switch_content_different_type_no_prev():
     assert len(chunks) == 1
     assert chunks[0]["contentBlockStart"] == {"start": {}}
     assert data_type == "text"
+
+
+@pytest.mark.asyncio
+async def test_stream_with_events_missing_usage_attribute(
+    litellm_acompletion, api_key, model_id, model, agenerator, alist
+):
+    """Test streaming handles events that don't have a usage attribute.
+
+    This test verifies the fix for a bug where ModelResponseStream objects
+    (which don't have a 'usage' attribute) would cause an AttributeError
+    when the code tried to access event.usage directly instead of using getattr.
+
+    The bug occurred because:
+    1. ModelResponse (non-streaming) has a 'usage' attribute
+    2. ModelResponseStream (streaming chunks) does NOT have a 'usage' attribute
+    3. The code assumed all events would have the 'usage' attribute
+
+    Regression test for: 'ModelResponseStream' object has no attribute 'usage'
+    """
+
+    # Use spec to ensure mock objects only have specified attributes
+    # This mimics the real ModelResponseStream which doesn't have 'usage'
+    class MockStreamChunk:
+        """Mock that mimics ModelResponseStream - no usage attribute."""
+
+        def __init__(self, choices=None):
+            self.choices = choices or []
+
+    mock_delta = unittest.mock.Mock(content="Hello", tool_calls=None, reasoning_content=None)
+    mock_event_1 = MockStreamChunk(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
+    mock_event_2 = MockStreamChunk(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
+    # After finish_reason is received, remaining events in the stream also don't have 'usage'
+    mock_event_3 = MockStreamChunk(choices=[])
+    mock_event_4 = MockStreamChunk(choices=[])
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
+    )
+
+    messages = [{"role": "user", "content": [{"type": "text", "text": "Hello"}]}]
+    response = model.stream(messages)
+
+    # This should NOT raise AttributeError: 'MockStreamChunk' object has no attribute 'usage'
+    tru_events = await alist(response)
+
+    # Verify we got the expected events (no metadata since no usage was available)
+    assert tru_events[0] == {"messageStart": {"role": "assistant"}}
+    assert {"messageStop": {"stopReason": "end_turn"}} in tru_events
+    # No metadata event since mock events don't have usage
+    assert not any("metadata" in event for event in tru_events)
+
+
+@pytest.mark.asyncio
+async def test_stream_with_usage_in_final_event(litellm_acompletion, api_key, model_id, model, agenerator, alist):
+    """Test streaming correctly extracts usage when it IS present in final events.
+
+    This test ensures that when usage data IS available (e.g., with stream_options.include_usage=True),
+    it is correctly extracted and included in the metadata event.
+    """
+
+    class MockStreamChunkWithoutUsage:
+        """Mock streaming chunk without usage."""
+
+        def __init__(self, choices=None):
+            self.choices = choices or []
+
+    class MockStreamChunkWithUsage:
+        """Mock streaming chunk with usage (final event)."""
+
+        def __init__(self, usage):
+            self.choices = []
+            self.usage = usage
+
+    mock_delta = unittest.mock.Mock(content="Hi", tool_calls=None, reasoning_content=None)
+    mock_event_1 = MockStreamChunkWithoutUsage(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
+    mock_event_2 = MockStreamChunkWithoutUsage(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
+
+    # Final event with usage data
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 10
+    mock_usage.completion_tokens = 5
+    mock_usage.total_tokens = 15
+    mock_usage.prompt_tokens_details = None
+    mock_usage.cache_creation_input_tokens = None
+    mock_event_3 = MockStreamChunkWithUsage(usage=mock_usage)
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3])
+    )
+
+    messages = [{"role": "user", "content": [{"type": "text", "text": "Hi"}]}]
+    response = model.stream(messages)
+
+    tru_events = await alist(response)
+
+    # Verify metadata event is present with correct usage
+    metadata_events = [e for e in tru_events if "metadata" in e]
+    assert len(metadata_events) == 1
+    assert metadata_events[0]["metadata"]["usage"]["inputTokens"] == 10
+    assert metadata_events[0]["metadata"]["usage"]["outputTokens"] == 5
+    assert metadata_events[0]["metadata"]["usage"]["totalTokens"] == 15
