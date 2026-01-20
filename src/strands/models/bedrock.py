@@ -333,12 +333,8 @@ class BedrockModel(Model):
 
         return {"additionalModelRequestFields": additional_fields}
 
-    def _inject_cache_point(self, messages: Messages) -> None:
+    def _inject_cache_point(self, messages: list[dict[str, Any]]) -> None:
         """Inject a cache point at the end of the last assistant message.
-
-        This automatically manages cache point placement in the messages array during
-        agent loop execution. The cache point is moved to the latest assistant message
-        on each model call to maximize cache hits.
 
         Args:
             messages: List of messages to inject cache point into (modified in place).
@@ -346,49 +342,23 @@ class BedrockModel(Model):
         if not messages:
             return
 
-        # Loop backwards through messages:
-        # 1. Find first assistant message and add cache point there
-        # 2. Remove any other cache points along the way
         last_assistant_idx: int | None = None
-
-        for msg_idx in range(len(messages) - 1, -1, -1):
-            msg = messages[msg_idx]
+        for msg_idx, msg in enumerate(messages):
             content = msg.get("content", [])
-
-            # Remove any cache points in this message's content (iterate backwards to avoid index issues)
-            for block_idx in range(len(content) - 1, -1, -1):
-                if "cachePoint" in content[block_idx]:
-                    # If this is the last assistant message and cache point is at the end, keep it
-                    if (
-                        last_assistant_idx is None
-                        and msg.get("role") == "assistant"
-                        and block_idx == len(content) - 1
-                    ):
-                        # This is where we want the cache point - mark and continue
-                        last_assistant_idx = msg_idx
-                        logger.debug("msg_idx=<%s> | cache point already at end of last assistant message", msg_idx)
-                        continue
-
-                    # Remove cache points that aren't at the target position
+            for block_idx, block in reversed(list(enumerate(content))):
+                if "cachePoint" in block:
                     del content[block_idx]
-                    logger.warning("msg_idx=<%s>, block_idx=<%s> | removed existing cache point", msg_idx, block_idx)
-
-            # If we haven't found an assistant message yet, check if this is one
-            if last_assistant_idx is None and msg.get("role") == "assistant":
+                    logger.warning(
+                        "msg_idx=<%s>, block_idx=<%s> | stripped existing cache point (auto mode manages cache points)",
+                        msg_idx,
+                        block_idx,
+                    )
+            if msg.get("role") == "assistant":
                 last_assistant_idx = msg_idx
 
-        # If no assistant message found, nothing to cache
-        if last_assistant_idx is None:
-            logger.debug("No assistant message in conversation - skipping cache point")
-            return
-
-        last_assistant_content = messages[last_assistant_idx]["content"]
-        if last_assistant_content:
-            if "cachePoint" in last_assistant_content[-1]:
-                return
-            cache_block: ContentBlock = {"cachePoint": {"type": "default"}}
-            last_assistant_content.append(cache_block)
-            logger.debug("msg_idx=<%s> | added cache point at end of assistant message", last_assistant_idx)
+        if last_assistant_idx is not None and messages[last_assistant_idx].get("content"):
+            messages[last_assistant_idx]["content"].append({"cachePoint": {"type": "default"}})
+            logger.debug("msg_idx=<%s> | added cache point to last assistant message", last_assistant_idx)
 
     def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
@@ -413,17 +383,6 @@ class BedrockModel(Model):
             content blocks to remove any additional fields before sending to Bedrock.
             https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ContentBlock.html
         """
-        # Inject cache point if cache_config is set with strategy="auto"
-        cache_config = self.config.get("cache_config")
-        if cache_config and cache_config.strategy == "auto":
-            if self._supports_caching:
-                self._inject_cache_point(messages)
-            else:
-                logger.warning(
-                    "model_id=<%s> | cache_config is enabled but this model does not support caching",
-                    self.config.get("model_id"),
-                )
-
         cleaned_messages: list[dict[str, Any]] = []
 
         filtered_unknown_members = False
@@ -475,6 +434,17 @@ class BedrockModel(Model):
             logger.debug(
                 "Filtered DeepSeek reasoningContent content blocks from messages - https://api-docs.deepseek.com/guides/reasoning_model#multi-round-conversation"
             )
+
+        # Inject cache point into cleaned_messages (not original messages) if cache_config is set
+        cache_config = self.config.get("cache_config")
+        if cache_config and cache_config.strategy == "auto":
+            if self._supports_caching:
+                self._inject_cache_point(cleaned_messages)
+            else:
+                logger.warning(
+                    "model_id=<%s> | cache_config is enabled but this model does not support caching",
+                    self.config.get("model_id"),
+                )
 
         return cleaned_messages
 
