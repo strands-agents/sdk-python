@@ -874,7 +874,7 @@ class Graph(MultiAgentBase):
 
                 # Handle cancellation gracefully (consistent with Swarm behavior)
                 node_result = NodeResult(
-                    result=cancel_message,
+                    result=Exception(cancel_message),
                     execution_time=0,
                     status=Status.FAILED,
                     accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),

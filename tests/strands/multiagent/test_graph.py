@@ -2097,7 +2097,8 @@ async def test_graph_cancel_node(cancel_node, cancel_message):
     # Verify stop event was emitted for cancelled node
     assert tru_stop_event is not None
     assert tru_stop_event["node_result"].status == Status.FAILED
-    assert tru_stop_event["node_result"].result == cancel_message
+    assert isinstance(tru_stop_event["node_result"].result, Exception)
+    assert str(tru_stop_event["node_result"].result) == cancel_message
 
     # Verify result event was yielded (no exception raised)
     assert tru_result_event is not None
