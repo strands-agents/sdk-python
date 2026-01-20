@@ -663,8 +663,8 @@ class Graph(MultiAgentBase):
                 ]
                 return
 
-            # Check if any nodes failed (including cancelled) - stop execution gracefully
-            if self.state.failed_nodes:
+            # Check if execution was cancelled - stop execution gracefully
+            if self.state.status == Status.FAILED:
                 return
 
             self._interrupt_state.deactivate()
@@ -871,24 +871,7 @@ class Graph(MultiAgentBase):
                 )
                 logger.debug("reason=<%s> | cancelling execution", cancel_message)
                 yield MultiAgentNodeCancelEvent(node.node_id, cancel_message)
-
-                # Handle cancellation gracefully (consistent with Swarm behavior)
-                node_result = NodeResult(
-                    result=Exception(cancel_message),
-                    execution_time=0,
-                    status=Status.FAILED,
-                    accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
-                    accumulated_metrics=Metrics(latencyMs=0),
-                    execution_count=1,
-                )
-
-                node.execution_status = Status.FAILED
-                node.result = node_result
-                node.execution_time = 0
-                self.state.failed_nodes.add(node)
-                self.state.results[node.node_id] = node_result
-
-                yield MultiAgentNodeStopEvent(node_id=node.node_id, node_result=node_result)
+                self.state.status = Status.FAILED
                 return
 
             # Build node input from satisfied dependencies

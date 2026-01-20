@@ -97,7 +97,6 @@ async def test_graph_cancel_node(graph):
     exp_state_status = Status.FAILED
     assert tru_state_status == exp_state_status
 
-    # Verify the info node was executed but weather node was cancelled
+    # Verify the info node was executed but weather node was cancelled (not executed)
     assert "info" in state.results
-    assert "weather" in state.results
-    assert state.results["weather"].status == Status.FAILED
+    assert "weather" not in state.results

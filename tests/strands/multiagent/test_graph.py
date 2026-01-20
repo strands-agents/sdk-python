@@ -2080,25 +2080,16 @@ async def test_graph_cancel_node(cancel_node, cancel_message):
     stream = graph.stream_async("test task")
 
     tru_cancel_event = None
-    tru_stop_event = None
     tru_result_event = None
     async for event in stream:
         if event.get("type") == "multiagent_node_cancel":
             tru_cancel_event = event
-        elif event.get("type") == "multiagent_node_stop" and event.get("node_id") == "test_agent":
-            tru_stop_event = event
         elif event.get("type") == "multiagent_result":
             tru_result_event = event
 
     # Verify cancel event was emitted
     exp_cancel_event = MultiAgentNodeCancelEvent(node_id="test_agent", message=cancel_message)
     assert tru_cancel_event == exp_cancel_event
-
-    # Verify stop event was emitted for cancelled node
-    assert tru_stop_event is not None
-    assert tru_stop_event["node_result"].status == Status.FAILED
-    assert isinstance(tru_stop_event["node_result"].result, Exception)
-    assert str(tru_stop_event["node_result"].result) == cancel_message
 
     # Verify result event was yielded (no exception raised)
     assert tru_result_event is not None
