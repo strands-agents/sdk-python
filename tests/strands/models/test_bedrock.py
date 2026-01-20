@@ -2240,3 +2240,30 @@ async def test_format_request_with_guardrail_latest_message(model):
     # Latest user message image should also be wrapped
     assert "guardContent" in formatted_messages[2]["content"][1]
     assert formatted_messages[2]["content"][1]["guardContent"]["image"]["format"] == "png"
+
+
+def test_format_request_filters_audio_content_blocks(model, model_id):
+    """Test that format_request filters extra fields from audio content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "audio": {
+                        "format": "mp3",
+                        "source": {"bytes": b"audio_data"},
+                        "duration": 60,  # Extra field that should be filtered
+                        "bitrate": "320kbps",  # Extra field that should be filtered
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
+    expected = {"format": "mp3", "source": {"bytes": b"audio_data"}}
+    assert audio_block == expected
+    assert "duration" not in audio_block
+    assert "bitrate" not in audio_block

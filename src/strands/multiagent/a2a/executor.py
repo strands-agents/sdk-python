@@ -27,6 +27,8 @@ from ...agent.agent import Agent as SAAgent
 from ...agent.agent import AgentResult as SAAgentResult
 from ...types.content import ContentBlock
 from ...types.media import (
+    AudioContent,
+    AudioSource,
     DocumentContent,
     DocumentSource,
     ImageContent,
@@ -46,7 +48,7 @@ class StrandsA2AExecutor(AgentExecutor):
     """
 
     # Default formats for each file type when MIME type is unavailable or unrecognized
-    DEFAULT_FORMATS = {"document": "txt", "image": "png", "video": "mp4", "unknown": "txt"}
+    DEFAULT_FORMATS = {"audio": "mp3", "document": "txt", "image": "png", "video": "mp4", "unknown": "txt"}
 
     # Handle special cases where format differs from extension
     FORMAT_MAPPINGS = {"jpg": "jpeg", "htm": "html", "3gp": "three_gp", "3gpp": "three_gp", "3g2": "three_gp"}
@@ -231,7 +233,9 @@ class StrandsA2AExecutor(AgentExecutor):
         logger.warning("Cancellation requested but not supported")
         raise ServerError(error=UnsupportedOperationError())
 
-    def _get_file_type_from_mime_type(self, mime_type: str | None) -> Literal["document", "image", "video", "unknown"]:
+    def _get_file_type_from_mime_type(
+        self, mime_type: str | None
+    ) -> Literal["audio", "document", "image", "video", "unknown"]:
         """Classify file type based on MIME type.
 
         Args:
@@ -247,6 +251,8 @@ class StrandsA2AExecutor(AgentExecutor):
 
         if mime_type.startswith("image/"):
             return "image"
+        elif mime_type.startswith("audio/"):
+            return "audio"
         elif mime_type.startswith("video/"):
             return "video"
         elif (
@@ -347,6 +353,15 @@ class StrandsA2AExecutor(AgentExecutor):
                                     image=ImageContent(
                                         format=file_format,  # type: ignore
                                         source=ImageSource(bytes=decoded_bytes),
+                                    )
+                                )
+                            )
+                        elif file_type == "audio":
+                            content_blocks.append(
+                                ContentBlock(
+                                    audio=AudioContent(
+                                        format=file_format,  # type: ignore
+                                        source=AudioSource(bytes=decoded_bytes),
                                     )
                                 )
                             )

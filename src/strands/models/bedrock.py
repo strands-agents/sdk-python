@@ -533,6 +533,16 @@ class BedrockModel(Model):
             result = {"format": video["format"], "source": formatted_source}
             return {"video": result}
 
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_AudioBlock.html
+        if "audio" in content:
+            audio = content["audio"]
+            source = audio["source"]
+            formatted_source = {}
+            if "bytes" in source:
+                formatted_source = {"bytes": source["bytes"]}
+            result = {"format": audio["format"], "source": formatted_source}
+            return {"audio": result}
+
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
         if "citationsContent" in content:
             citations = content["citationsContent"]
