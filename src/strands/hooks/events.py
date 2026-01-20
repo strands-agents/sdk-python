@@ -250,3 +250,55 @@ class AfterModelCallEvent(HookEvent):
     def should_reverse_callbacks(self) -> bool:
         """True to invoke callbacks in reverse order."""
         return True
+
+
+@dataclass
+class BeforeContextReductionEvent(HookEvent):
+    """Event triggered before context window overflow handling begins.
+
+    This event is fired when the agent catches a ContextWindowOverflowException
+    and is about to reduce the context by calling the conversation manager's
+    reduce_context method. Hook providers can use this event for:
+    - Displaying "compacting conversation..." UI feedback to users
+    - Logging context reduction events for analytics
+    - Debugging context window management issues
+
+    Attributes:
+        exception: The ContextWindowOverflowException that triggered the reduction.
+        message_count: The number of messages before context reduction begins.
+    """
+
+    exception: Exception
+    message_count: int
+
+
+@dataclass
+class AfterContextReductionEvent(HookEvent):
+    """Event triggered after context window overflow handling completes.
+
+    This event is fired after the conversation manager's reduce_context method
+    has completed, regardless of whether it succeeded or failed. Hook providers
+    can use this event for:
+    - Displaying "compaction complete" UI feedback with statistics
+    - Tracking context reduction frequency and effectiveness
+    - Post-reduction cleanup or state updates
+
+    Note: This event uses reverse callback ordering, meaning callbacks registered
+    later will be invoked first during cleanup.
+
+    Attributes:
+        original_message_count: Number of messages before context reduction.
+        new_message_count: Number of messages after context reduction.
+        removed_count: Number of messages that were removed during reduction.
+        exception: Exception if context reduction failed, None if successful.
+    """
+
+    original_message_count: int
+    new_message_count: int
+    removed_count: int
+    exception: Exception | None = None
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True

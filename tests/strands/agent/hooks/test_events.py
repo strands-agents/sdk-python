@@ -195,3 +195,71 @@ def test_before_invocation_event_agent_not_writable(start_request_event_with_mes
     """Test that BeforeInvocationEvent.agent is not writable."""
     with pytest.raises(AttributeError, match="Property agent is not writable"):
         start_request_event_with_messages.agent = Mock()
+
+
+# Tests for BeforeContextReductionEvent and AfterContextReductionEvent
+
+
+@pytest.fixture
+def context_overflow_exception():
+    from strands.types.exceptions import ContextWindowOverflowException
+
+    return ContextWindowOverflowException("Context window exceeded")
+
+
+@pytest.fixture
+def before_context_reduction_event(agent, context_overflow_exception):
+    from strands.hooks import BeforeContextReductionEvent
+
+    return BeforeContextReductionEvent(
+        agent=agent,
+        exception=context_overflow_exception,
+        message_count=50,
+    )
+
+
+@pytest.fixture
+def after_context_reduction_event(agent):
+    from strands.hooks import AfterContextReductionEvent
+
+    return AfterContextReductionEvent(
+        agent=agent,
+        original_message_count=50,
+        new_message_count=25,
+        removed_count=25,
+    )
+
+
+@pytest.fixture
+def after_context_reduction_event_with_exception(agent):
+    from strands.hooks import AfterContextReductionEvent
+
+    return AfterContextReductionEvent(
+        agent=agent,
+        original_message_count=50,
+        new_message_count=50,
+        removed_count=0,
+        exception=RuntimeError("Reduction failed"),
+    )
+
+
+def test_before_context_reduction_event_properties(before_context_reduction_event, context_overflow_exception):
+    assert before_context_reduction_event.exception == context_overflow_exception
+    assert before_context_reduction_event.message_count == 50
+    assert before_context_reduction_event.should_reverse_callbacks is False
+
+
+def test_after_context_reduction_event_properties(after_context_reduction_event):
+    assert after_context_reduction_event.original_message_count == 50
+    assert after_context_reduction_event.new_message_count == 25
+    assert after_context_reduction_event.removed_count == 25
+    assert after_context_reduction_event.exception is None
+    assert after_context_reduction_event.should_reverse_callbacks is True
+
+
+def test_after_context_reduction_event_with_exception(after_context_reduction_event_with_exception):
+    assert after_context_reduction_event_with_exception.original_message_count == 50
+    assert after_context_reduction_event_with_exception.new_message_count == 50
+    assert after_context_reduction_event_with_exception.removed_count == 0
+    assert after_context_reduction_event_with_exception.exception is not None
+    assert isinstance(after_context_reduction_event_with_exception.exception, RuntimeError)
