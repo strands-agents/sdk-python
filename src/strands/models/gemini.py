@@ -87,7 +87,6 @@ class GeminiModel(Model):
 
         self._custom_client = client
         self.client_args = client_args or {}
-        self._tool_use_id_to_name: dict[str, str] = {}
 
         # Validate gemini_tools if provided
         if "gemini_tools" in self.config:
@@ -135,13 +134,19 @@ class GeminiModel(Model):
             # Create a new client from client_args
             return genai.Client(**self.client_args)
 
-    def _format_request_content_part(self, content: ContentBlock) -> genai.types.Part:
+    def _format_request_content_part(
+        self, content: ContentBlock, tool_use_id_to_name: dict[str, str]
+    ) -> genai.types.Part:
         """Format content block into a Gemini part instance.
 
         - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Part
 
         Args:
             content: Message content to format.
+            tool_use_id_to_name: Mapping of tool use id to tool name.
+                Store the mapping from toolUseId to name for later use in toolResult formatting. This mapping is built
+                as we format the request, ensuring that when we encounter toolResult blocks (which come after toolUse
+                blocks in the message history), we can look up the function name.
 
         Returns:
             Gemini part.
@@ -176,7 +181,7 @@ class GeminiModel(Model):
 
         if "toolResult" in content:
             tool_use_id = content["toolResult"]["toolUseId"]
-            function_name = self._tool_use_id_to_name.get(tool_use_id, tool_use_id)
+            function_name = tool_use_id_to_name.get(tool_use_id, tool_use_id)
 
             return genai.types.Part(
                 function_response=genai.types.FunctionResponse(
@@ -187,7 +192,8 @@ class GeminiModel(Model):
                             tool_result_content
                             if "json" in tool_result_content
                             else self._format_request_content_part(
-                                cast(ContentBlock, tool_result_content)
+                                cast(ContentBlock, tool_result_content),
+                                tool_use_id_to_name,
                             ).to_json_dict()
                             for tool_result_content in content["toolResult"]["content"]
                         ],
@@ -196,11 +202,7 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
-            # Store the mapping from toolUseId to name for later use in toolResult formatting.
-            # This mapping is built as we format the request, ensuring that when we encounter
-            # toolResult blocks (which come after toolUse blocks in the message history),
-            # we can look up the function name.
-            self._tool_use_id_to_name[content["toolUse"]["toolUseId"]] = content["toolUse"]["name"]
+            tool_use_id_to_name[content["toolUse"]["toolUseId"]] = content["toolUse"]["name"]
 
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
@@ -223,9 +225,15 @@ class GeminiModel(Model):
         Returns:
             Gemini content list.
         """
+        # Gemini FunctionResponses are constructed from tool result blocks. Function name is required but is not
+        # available in tool result blocks, hence the mapping.
+        tool_use_id_to_name: dict[str, str] = {}
+
         return [
             genai.types.Content(
-                parts=[self._format_request_content_part(content) for content in message["content"]],
+                parts=[
+                    self._format_request_content_part(content, tool_use_id_to_name) for content in message["content"]
+                ],
                 role="user" if message["role"] == "user" else "model",
             )
             for message in messages
@@ -428,7 +436,6 @@ class GeminiModel(Model):
             ModelThrottledException: If the request is throttled by Gemini.
         """
         request = self._format_request(messages, tool_specs, system_prompt, self.config.get("params"))
-        self._tool_use_id_to_name.clear()
 
         client = self._get_client().aio
 
