@@ -663,11 +663,14 @@ class Graph(MultiAgentBase):
                 ]
                 return
 
+            # Check if any nodes failed (including cancelled) - stop execution gracefully
+            if self.state.failed_nodes:
+                return
+
             self._interrupt_state.deactivate()
 
             # Find newly ready nodes after batch execution
-            # We add all nodes in current batch as completed batch,
-            # because a failure would throw exception and code would not make it here
+            # Only nodes that completed successfully are considered for downstream execution
             newly_ready = self._find_newly_ready_nodes(current_batch)
 
             # Emit handoff event for batch transition if there are nodes to transition to
@@ -868,7 +871,25 @@ class Graph(MultiAgentBase):
                 )
                 logger.debug("reason=<%s> | cancelling execution", cancel_message)
                 yield MultiAgentNodeCancelEvent(node.node_id, cancel_message)
-                raise RuntimeError(cancel_message)
+
+                # Handle cancellation gracefully (consistent with Swarm behavior)
+                node_result = NodeResult(
+                    result=cancel_message,
+                    execution_time=0,
+                    status=Status.FAILED,
+                    accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
+                    accumulated_metrics=Metrics(latencyMs=0),
+                    execution_count=1,
+                )
+
+                node.execution_status = Status.FAILED
+                node.result = node_result
+                node.execution_time = 0
+                self.state.failed_nodes.add(node)
+                self.state.results[node.node_id] = node_result
+
+                yield MultiAgentNodeStopEvent(node_id=node.node_id, node_result=node_result)
+                return
 
             # Build node input from satisfied dependencies
             node_input = self._build_node_input(node)
