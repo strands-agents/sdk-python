@@ -2153,3 +2153,411 @@ def test_graph_interrupt_on_before_node_call_event(interrupt_hook):
     assert tru_message == exp_message
 
     assert multiagent_result.execution_time >= first_execution_time
+
+
+# =============================================================================
+# Edge Execution Mode Tests
+# =============================================================================
+
+
+def test_edge_execution_mode_enum():
+    """Test EdgeExecutionMode enum values."""
+    from strands.multiagent.base import EdgeExecutionMode
+
+    assert EdgeExecutionMode.OR.value == "or"
+    assert EdgeExecutionMode.AND.value == "and"
+
+
+def test_graph_builder_set_edge_execution_mode():
+    """Test GraphBuilder.set_edge_execution_mode method."""
+    from strands.multiagent.base import EdgeExecutionMode
+
+    agent = create_mock_agent("test_agent")
+
+    # Test default is OR
+    builder = GraphBuilder()
+    builder.add_node(agent, "node")
+    graph = builder.build()
+    assert graph.edge_execution_mode == EdgeExecutionMode.OR
+
+    # Test setting AND mode
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("test_agent_2"), "node")
+    builder.set_edge_execution_mode(EdgeExecutionMode.AND)
+    graph = builder.build()
+    assert graph.edge_execution_mode == EdgeExecutionMode.AND
+
+    # Test method chaining
+    builder = GraphBuilder()
+    result = builder.set_edge_execution_mode(EdgeExecutionMode.AND)
+    assert result is builder  # Returns self for chaining
+
+
+@pytest.mark.asyncio
+async def test_edge_execution_mode_or_default(mock_strands_tracer, mock_use_span):
+    """Test OR mode (default) - node executes when ANY predecessor completes."""
+    from strands.multiagent.base import EdgeExecutionMode
+
+    # Create agents
+    agent_a = create_mock_agent("agent_a", "Response A")
+    agent_b = create_mock_agent("agent_b", "Response B")
+    agent_c = create_mock_agent("agent_c", "Response C")
+    agent_z = create_mock_agent("agent_z", "Response Z")
+
+    # Track execution order
+    execution_order = []
+
+    async def create_tracking_stream(agent, name):
+        async def tracking_stream(*args, **kwargs):
+            execution_order.append(name)
+            yield {"agent_start": True}
+            yield {"result": agent.return_value}
+
+        return tracking_stream
+
+    agent_a.stream_async = Mock(side_effect=await create_tracking_stream(agent_a, "A"))
+    agent_b.stream_async = Mock(side_effect=await create_tracking_stream(agent_b, "B"))
+    agent_c.stream_async = Mock(side_effect=await create_tracking_stream(agent_c, "C"))
+    agent_z.stream_async = Mock(side_effect=await create_tracking_stream(agent_z, "Z"))
+
+    # Build graph: A, B, C all connect to Z
+    # In OR mode, Z should execute after ANY of A, B, C completes
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.add_node(agent_b, "B")
+    builder.add_node(agent_c, "C")
+    builder.add_node(agent_z, "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z")
+    builder.add_edge("C", "Z")
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+    builder.set_entry_point("C")
+    # Default is OR mode
+
+    graph = builder.build()
+    assert graph.edge_execution_mode == EdgeExecutionMode.OR
+
+    result = await graph.invoke_async("Test OR mode")
+
+    # Verify successful execution
+    assert result.status == Status.COMPLETED
+
+    # In OR mode with parallel entry points, Z should execute once
+    # after A, B, C all complete (since they're parallel)
+    assert agent_z.stream_async.call_count == 1
+
+    # Z should appear in execution order
+    z_executions = sum(1 for node in result.execution_order if node.node_id == "Z")
+    assert z_executions == 1
+
+
+@pytest.mark.asyncio
+async def test_edge_execution_mode_and(mock_strands_tracer, mock_use_span):
+    """Test AND mode - node executes only when ALL predecessors complete."""
+    from strands.multiagent.base import EdgeExecutionMode
+
+    # Create agents with small delays to ensure deterministic order
+    agent_a = create_mock_agent("agent_a", "Response A")
+    agent_b = create_mock_agent("agent_b", "Response B")
+    agent_c = create_mock_agent("agent_c", "Response C")
+    agent_z = create_mock_agent("agent_z", "Response Z")
+
+    # Track when Z executes relative to A, B, C
+    completed_before_z = []
+
+    async def stream_a(*args, **kwargs):
+        yield {"agent_start": True}
+        await asyncio.sleep(0.02)
+        yield {"result": agent_a.return_value}
+
+    async def stream_b(*args, **kwargs):
+        yield {"agent_start": True}
+        await asyncio.sleep(0.04)
+        yield {"result": agent_b.return_value}
+
+    async def stream_c(*args, **kwargs):
+        yield {"agent_start": True}
+        await asyncio.sleep(0.06)
+        yield {"result": agent_c.return_value}
+
+    async def stream_z(*args, **kwargs):
+        # Record which nodes completed before Z started
+        completed_before_z.extend(["A", "B", "C"])  # All should be complete
+        yield {"agent_start": True}
+        yield {"result": agent_z.return_value}
+
+    agent_a.stream_async = Mock(side_effect=stream_a)
+    agent_b.stream_async = Mock(side_effect=stream_b)
+    agent_c.stream_async = Mock(side_effect=stream_c)
+    agent_z.stream_async = Mock(side_effect=stream_z)
+
+    # Build graph with AND mode: A, B, C all must complete before Z
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.add_node(agent_b, "B")
+    builder.add_node(agent_c, "C")
+    builder.add_node(agent_z, "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z")
+    builder.add_edge("C", "Z")
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+    builder.set_entry_point("C")
+    builder.set_edge_execution_mode(EdgeExecutionMode.AND)
+
+    graph = builder.build()
+    assert graph.edge_execution_mode == EdgeExecutionMode.AND
+
+    result = await graph.invoke_async("Test AND mode")
+
+    # Verify successful execution
+    assert result.status == Status.COMPLETED
+
+    # Z should execute exactly once after all predecessors
+    assert agent_z.stream_async.call_count == 1
+
+    # Verify execution order: A, B, C should all be before Z
+    execution_ids = [node.node_id for node in result.execution_order]
+    z_index = execution_ids.index("Z")
+    assert "A" in execution_ids[:z_index], "A should complete before Z in AND mode"
+    assert "B" in execution_ids[:z_index], "B should complete before Z in AND mode"
+    assert "C" in execution_ids[:z_index], "C should complete before Z in AND mode"
+
+
+@pytest.mark.asyncio
+async def test_edge_execution_mode_and_waits_for_all(mock_strands_tracer, mock_use_span):
+    """Test AND mode explicitly waits for all predecessors, not just any."""
+    from strands.multiagent.base import EdgeExecutionMode
+
+    # Create agents where A completes much faster than B and C
+    agent_a = create_mock_agent("agent_a", "Response A")
+    agent_b = create_mock_agent("agent_b", "Response B")
+    agent_z = create_mock_agent("agent_z", "Response Z")
+
+    z_start_time = None
+    a_end_time = None
+    b_end_time = None
+
+    async def stream_a(*args, **kwargs):
+        nonlocal a_end_time
+        yield {"agent_start": True}
+        await asyncio.sleep(0.01)  # A completes quickly
+        a_end_time = time.time()
+        yield {"result": agent_a.return_value}
+
+    async def stream_b(*args, **kwargs):
+        nonlocal b_end_time
+        yield {"agent_start": True}
+        await asyncio.sleep(0.1)  # B takes much longer
+        b_end_time = time.time()
+        yield {"result": agent_b.return_value}
+
+    async def stream_z(*args, **kwargs):
+        nonlocal z_start_time
+        z_start_time = time.time()
+        yield {"agent_start": True}
+        yield {"result": agent_z.return_value}
+
+    agent_a.stream_async = Mock(side_effect=stream_a)
+    agent_b.stream_async = Mock(side_effect=stream_b)
+    agent_z.stream_async = Mock(side_effect=stream_z)
+
+    # Build graph with AND mode
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.add_node(agent_b, "B")
+    builder.add_node(agent_z, "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z")
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+    builder.set_edge_execution_mode(EdgeExecutionMode.AND)
+
+    graph = builder.build()
+    result = await graph.invoke_async("Test AND mode waits")
+
+    assert result.status == Status.COMPLETED
+
+    # In AND mode, Z should start after BOTH A and B complete
+    # Z should not start right after A (the faster one)
+    assert z_start_time is not None
+    assert b_end_time is not None
+    assert z_start_time >= b_end_time - 0.01, "Z should wait for B (the slower one) in AND mode"
+
+
+@pytest.mark.asyncio
+async def test_edge_execution_mode_and_with_conditions(mock_strands_tracer, mock_use_span):
+    """Test AND mode respects conditional edges."""
+    from strands.multiagent.base import EdgeExecutionMode
+
+    agent_a = create_mock_agent("agent_a", "Response A")
+    agent_b = create_mock_agent("agent_b", "Response B")
+    agent_z = create_mock_agent("agent_z", "Response Z")
+
+    # Condition that always returns False for B->Z edge
+    def block_b_to_z(state: GraphState) -> bool:
+        return False
+
+    # Build graph with AND mode and a blocked edge
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.add_node(agent_b, "B")
+    builder.add_node(agent_z, "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z", condition=block_b_to_z)  # This edge is blocked
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+    builder.set_edge_execution_mode(EdgeExecutionMode.AND)
+
+    graph = builder.build()
+    result = await graph.invoke_async("Test AND mode with conditions")
+
+    # Z should NOT execute because the B->Z edge condition is not satisfied
+    # even though both A and B complete
+    assert result.status == Status.COMPLETED
+    assert agent_z.stream_async.call_count == 0
+
+    # Only A and B should be in the execution order
+    execution_ids = [node.node_id for node in result.execution_order]
+    assert "A" in execution_ids
+    assert "B" in execution_ids
+    assert "Z" not in execution_ids
+
+
+@pytest.mark.asyncio
+async def test_edge_execution_mode_or_vs_and_behavior(mock_strands_tracer, mock_use_span):
+    """Directly compare OR vs AND behavior with the same graph structure."""
+    from strands.multiagent.base import EdgeExecutionMode
+
+    async def run_graph_with_mode(mode: EdgeExecutionMode):
+        # Fresh agents for each run
+        agent_a = create_mock_agent("agent_a", "Response A")
+        agent_b = create_mock_agent("agent_b", "Response B")
+        agent_z = create_mock_agent("agent_z", "Response Z")
+
+        z_execution_count = 0
+
+        async def stream_a(*args, **kwargs):
+            yield {"agent_start": True}
+            await asyncio.sleep(0.01)
+            yield {"result": agent_a.return_value}
+
+        async def stream_b(*args, **kwargs):
+            yield {"agent_start": True}
+            await asyncio.sleep(0.05)
+            yield {"result": agent_b.return_value}
+
+        async def stream_z(*args, **kwargs):
+            nonlocal z_execution_count
+            z_execution_count += 1
+            yield {"agent_start": True}
+            yield {"result": agent_z.return_value}
+
+        agent_a.stream_async = Mock(side_effect=stream_a)
+        agent_b.stream_async = Mock(side_effect=stream_b)
+        agent_z.stream_async = Mock(side_effect=stream_z)
+
+        builder = GraphBuilder()
+        builder.add_node(agent_a, "A")
+        builder.add_node(agent_b, "B")
+        builder.add_node(agent_z, "Z")
+        builder.add_edge("A", "Z")
+        builder.add_edge("B", "Z")
+        builder.set_entry_point("A")
+        builder.set_entry_point("B")
+        builder.set_edge_execution_mode(mode)
+
+        graph = builder.build()
+        result = await graph.invoke_async(f"Test {mode.value} mode")
+
+        return result, z_execution_count
+
+    # Run with OR mode
+    or_result, or_z_count = await run_graph_with_mode(EdgeExecutionMode.OR)
+
+    # Run with AND mode
+    and_result, and_z_count = await run_graph_with_mode(EdgeExecutionMode.AND)
+
+    # Both should complete successfully
+    assert or_result.status == Status.COMPLETED
+    assert and_result.status == Status.COMPLETED
+
+    # Z should execute once in both modes (but timing differs)
+    assert or_z_count == 1
+    assert and_z_count == 1
+
+
+def test_edge_execution_mode_compute_ready_nodes_for_resume():
+    """Test _compute_ready_nodes_for_resume respects edge_execution_mode."""
+    from strands.multiagent.base import EdgeExecutionMode
+
+    agent_a = create_mock_agent("agent_a")
+    agent_b = create_mock_agent("agent_b")
+    agent_z = create_mock_agent("agent_z")
+
+    # Build graph with AND mode
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.add_node(agent_b, "B")
+    builder.add_node(agent_z, "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z")
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+    builder.set_edge_execution_mode(EdgeExecutionMode.AND)
+
+    graph = builder.build()
+    graph.state.status = Status.EXECUTING
+
+    # Simulate only A completed
+    node_a = graph.nodes["A"]
+    node_a.execution_status = Status.COMPLETED
+    graph.state.completed_nodes.add(node_a)
+
+    # In AND mode, Z should NOT be ready (B not completed)
+    ready_nodes = graph._compute_ready_nodes_for_resume()
+    ready_node_ids = [n.node_id for n in ready_nodes]
+    assert "Z" not in ready_node_ids, "Z should not be ready in AND mode when only A completed"
+
+    # Now complete B as well
+    node_b = graph.nodes["B"]
+    node_b.execution_status = Status.COMPLETED
+    graph.state.completed_nodes.add(node_b)
+
+    # Now Z should be ready
+    ready_nodes = graph._compute_ready_nodes_for_resume()
+    ready_node_ids = [n.node_id for n in ready_nodes]
+    assert "Z" in ready_node_ids, "Z should be ready in AND mode when both A and B completed"
+
+    # Test OR mode - rebuild graph
+    builder = GraphBuilder()
+    builder.add_node(create_mock_agent("agent_a_2"), "A")
+    builder.add_node(create_mock_agent("agent_b_2"), "B")
+    builder.add_node(create_mock_agent("agent_z_2"), "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z")
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+    # Default OR mode
+
+    graph_or = builder.build()
+    graph_or.state.status = Status.EXECUTING
+
+    # Simulate only A completed
+    node_a_or = graph_or.nodes["A"]
+    node_a_or.execution_status = Status.COMPLETED
+    graph_or.state.completed_nodes.add(node_a_or)
+
+    # In OR mode, Z SHOULD be ready (A completed is enough)
+    ready_nodes_or = graph_or._compute_ready_nodes_for_resume()
+    ready_node_ids_or = [n.node_id for n in ready_nodes_or]
+    assert "Z" in ready_node_ids_or, "Z should be ready in OR mode when A completed"
+
+
+def test_edge_execution_mode_exported():
+    """Test EdgeExecutionMode is exported from multiagent module."""
+    from strands.multiagent import EdgeExecutionMode
+
+    assert EdgeExecutionMode.OR.value == "or"
+    assert EdgeExecutionMode.AND.value == "and"
