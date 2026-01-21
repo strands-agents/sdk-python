@@ -782,9 +782,10 @@ class Swarm(MultiAgentBase):
                     break
 
                 finally:
-                    await self.hooks.invoke_callbacks_async(
-                        AfterNodeCallEvent(self, current_node.node_id, invocation_state)
-                    )
+                    if self.state.completion_status != Status.INTERRUPTED:
+                        await self.hooks.invoke_callbacks_async(
+                            AfterNodeCallEvent(self, current_node.node_id, invocation_state)
+                        )
 
                 logger.debug("node=<%s> | node execution completed", current_node.node_id)
 

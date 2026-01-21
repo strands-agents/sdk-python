@@ -1005,7 +1005,8 @@ class Graph(MultiAgentBase):
             raise
 
         finally:
-            await self.hooks.invoke_callbacks_async(AfterNodeCallEvent(self, node.node_id, invocation_state))
+            if node.execution_status != Status.INTERRUPTED:
+                await self.hooks.invoke_callbacks_async(AfterNodeCallEvent(self, node.node_id, invocation_state))
 
     def _accumulate_metrics(self, node_result: NodeResult) -> None:
         """Accumulate metrics from a node result."""
