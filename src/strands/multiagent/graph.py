@@ -622,6 +622,13 @@ class Graph(MultiAgentBase):
 
         self._interrupt_state.interrupts.update({interrupt.id: interrupt for interrupt in interrupts})
         self._interrupt_state.activate()
+        if isinstance(node.executor, Agent):
+            self._interrupt_state.context[node.node_id] = {
+                "activated": node.executor._interrupt_state.activated,
+                "interrupt_state": node.executor._interrupt_state.to_dict(),
+                "state": node.executor.state.get(),
+                "messages": node.executor.messages,
+            }
 
         return MultiAgentNodeInterruptEvent(node.node_id, interrupts)
 
@@ -920,16 +927,6 @@ class Graph(MultiAgentBase):
                 if agent_response is None:
                     raise ValueError(f"Node '{node.node_id}' did not produce a result event")
 
-                if agent_response.stop_reason == "interrupt":
-                    node.executor.messages.pop()  # remove interrupted tool use message
-                    node.executor._interrupt_state.deactivate()
-
-                    raise NotImplementedError(
-                        f"node_id=<{node.node_id}>, "
-                        "issue=<https://github.com/strands-agents/sdk-python/issues/204> "
-                        "| user raised interrupt from an agent node"
-                    )
-
                 # Extract metrics with defaults
                 response_metrics = getattr(agent_response, "metrics", None)
                 usage = getattr(
@@ -940,18 +937,24 @@ class Graph(MultiAgentBase):
                 node_result = NodeResult(
                     result=agent_response,
                     execution_time=round((time.time() - start_time) * 1000),
-                    status=Status.COMPLETED,
+                    status=Status.INTERRUPTED if agent_response.stop_reason == "interrupt" else Status.COMPLETED,
                     accumulated_usage=usage,
                     accumulated_metrics=metrics,
                     execution_count=1,
+                    interrupts=agent_response.interrupts or [],
                 )
             else:
                 raise ValueError(f"Node '{node.node_id}' of type '{type(node.executor)}' is not supported")
 
-            # Mark as completed
-            node.execution_status = Status.COMPLETED
             node.result = node_result
             node.execution_time = node_result.execution_time
+
+            if node_result.status == Status.INTERRUPTED:
+                yield self._activate_interrupt(node, node_result.interrupts)
+                return
+
+            # Mark as completed
+            node.execution_status = Status.COMPLETED
             self.state.completed_nodes.add(node)
             self.state.results[node.node_id] = node_result
             self.state.execution_order.append(node)
@@ -1018,6 +1021,8 @@ class Graph(MultiAgentBase):
     def _build_node_input(self, node: GraphNode) -> list[ContentBlock]:
         """Build input text for a node based on dependency outputs.
 
+        If resuming from an interrupt, return user responses.
+
         Example formatted output:
         ```
         Original Task: Analyze the quarterly sales data and create a summary report
@@ -1032,6 +1037,21 @@ class Graph(MultiAgentBase):
           - Agent: Data validation complete. All records verified, no anomalies detected.
         ```
         """
+        if self._interrupt_state.activated:
+            context = self._interrupt_state.context
+            if node.node_id in context and context[node.node_id]["activated"]:
+                agent_context = context[node.node_id]
+                agent = cast(Agent, node.executor)
+                agent.messages = agent_context["messages"]
+                agent.state = AgentState(agent_context["state"])
+                agent._interrupt_state = _InterruptState.from_dict(agent_context["interrupt_state"])
+
+                responses = context["responses"]
+                interrupts = agent._interrupt_state.interrupts
+                return [
+                    response for response in responses if response["interruptResponse"]["interruptId"] in interrupts
+                ]
+
         # Get satisfied dependencies
         dependency_results = {}
         for edge in self.edges:
