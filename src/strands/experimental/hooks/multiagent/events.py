@@ -5,7 +5,7 @@ Deprecated: Use strands.hooks.multiagent instead.
 
 import warnings
 
-from ....hooks.events import (
+from ....hooks import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeMultiAgentInvocationEvent,
@@ -14,7 +14,7 @@ from ....hooks.events import (
 )
 
 warnings.warn(
-    "strands.experimental.hooks.multiagent.events is deprecated. Use strands.hooks.multiagent.events instead.",
+    "strands.experimental.hooks.multiagent is deprecated. Use strands.hooks instead.",
     DeprecationWarning,
     stacklevel=2,
 )
