@@ -2561,3 +2561,93 @@ def test_edge_execution_mode_exported():
 
     assert EdgeExecutionMode.OR.value == "or"
     assert EdgeExecutionMode.AND.value == "and"
+
+
+def test_is_node_ready_with_conditions_and_mode_partial_completion():
+    """Test _is_node_ready_with_conditions returns False when not all predecessors completed in AND mode."""
+    from strands.multiagent.base import EdgeExecutionMode
+
+    agent_a = create_mock_agent("agent_a")
+    agent_b = create_mock_agent("agent_b")
+    agent_z = create_mock_agent("agent_z")
+
+    # Build graph with AND mode
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.add_node(agent_b, "B")
+    builder.add_node(agent_z, "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z")
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+    builder.set_edge_execution_mode(EdgeExecutionMode.AND)
+
+    graph = builder.build()
+
+    node_a = graph.nodes["A"]
+    node_b = graph.nodes["B"]
+    node_z = graph.nodes["Z"]
+
+    # Only A completed in this batch, B not completed at all
+    completed_batch = [node_a]
+    # state.completed_nodes is empty (nothing completed previously)
+
+    # In AND mode, Z should NOT be ready because B hasn't completed
+    is_ready = graph._is_node_ready_with_conditions(node_z, completed_batch)
+    assert is_ready is False, "Z should not be ready when B hasn't completed in AND mode"
+
+    # Now B completes in the next batch
+    graph.state.completed_nodes.add(node_a)  # A completed previously
+    completed_batch_2 = [node_b]
+
+    # Now Z should be ready (A completed previously, B just completed)
+    is_ready = graph._is_node_ready_with_conditions(node_z, completed_batch_2)
+    assert is_ready is True, "Z should be ready when all predecessors have completed"
+
+
+def test_is_node_ready_with_conditions_or_mode():
+    """Test _is_node_ready_with_conditions in OR mode."""
+    from strands.multiagent.base import EdgeExecutionMode
+
+    agent_a = create_mock_agent("agent_a")
+    agent_b = create_mock_agent("agent_b")
+    agent_z = create_mock_agent("agent_z")
+
+    # Build graph with default OR mode
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.add_node(agent_b, "B")
+    builder.add_node(agent_z, "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z")
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+
+    graph = builder.build()
+    assert graph.edge_execution_mode == EdgeExecutionMode.OR
+
+    node_a = graph.nodes["A"]
+    node_z = graph.nodes["Z"]
+
+    # Only A completed in this batch
+    completed_batch = [node_a]
+
+    # In OR mode, Z SHOULD be ready because A completed (any predecessor is enough)
+    is_ready = graph._is_node_ready_with_conditions(node_z, completed_batch)
+    assert is_ready is True, "Z should be ready when any predecessor completes in OR mode"
+
+
+def test_is_node_ready_with_conditions_no_incoming_edges():
+    """Test _is_node_ready_with_conditions returns False for nodes with no incoming edges."""
+    agent_a = create_mock_agent("agent_a")
+
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.set_entry_point("A")
+
+    graph = builder.build()
+    node_a = graph.nodes["A"]
+
+    # Node with no incoming edges should return False
+    is_ready = graph._is_node_ready_with_conditions(node_a, [])
+    assert is_ready is False
