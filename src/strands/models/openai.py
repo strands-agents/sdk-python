@@ -27,9 +27,9 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-# Bedrock-style error messages that indicate context overflow
-# (for OpenAI-compatible endpoints that wrap Bedrock models)
-BEDROCK_STYLE_OVERFLOW_MESSAGES = [
+# Alternative context overflow error messages
+# These are commonly returned by OpenAI-compatible endpoints wrapping other providers (e.g., Databricks serving Bedrock models)
+CONTEXT_OVERFLOW_MESSAGES = [
     "Input is too long for requested model",
     "input length and `max_tokens` exceed context limit",
     "too many total text bytes",
@@ -603,10 +603,10 @@ class OpenAIModel(Model):
                 logger.warning("OpenAI threw rate limit error")
                 raise ModelThrottledException(str(e)) from e
             except openai.APIError as e:
-                # Check for Bedrock-style error messages (for OpenAI-compatible endpoints wrapping Bedrock)
+                # Check for alternative context overflow error messages
                 error_message = str(e)
-                if any(overflow_msg in error_message for overflow_msg in BEDROCK_STYLE_OVERFLOW_MESSAGES):
-                    logger.warning("OpenAI endpoint threw Bedrock-style context window overflow error")
+                if any(overflow_msg in error_message for overflow_msg in CONTEXT_OVERFLOW_MESSAGES):
+                    logger.warning("context window overflow error detected")
                     raise ContextWindowOverflowException(error_message) from e
                 # Re-raise other APIError exceptions
                 raise
@@ -734,10 +734,10 @@ class OpenAIModel(Model):
                 logger.warning("OpenAI threw rate limit error")
                 raise ModelThrottledException(str(e)) from e
             except openai.APIError as e:
-                # Check for Bedrock-style error messages (for OpenAI-compatible endpoints wrapping Bedrock)
+                # Check for alternative context overflow error messages
                 error_message = str(e)
-                if any(overflow_msg in error_message for overflow_msg in BEDROCK_STYLE_OVERFLOW_MESSAGES):
-                    logger.warning("OpenAI endpoint threw Bedrock-style context window overflow error")
+                if any(overflow_msg in error_message for overflow_msg in CONTEXT_OVERFLOW_MESSAGES):
+                    logger.warning("context window overflow error detected")
                     raise ContextWindowOverflowException(error_message) from e
                 # Re-raise other APIError exceptions
                 raise
