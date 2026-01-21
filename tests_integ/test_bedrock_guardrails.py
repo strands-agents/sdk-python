@@ -171,16 +171,11 @@ def test_guardrail_output_intervention(boto_session, bedrock_guardrail, processi
         )
 
 
-@retry_on_flaky(max_attempts=3)
+@retry_on_flaky("LLM may mention CACTUS unprompted, triggering guardrail on response2")
 @pytest.mark.parametrize("guardrail_trace", ["enabled", "enabled_full"])
 @pytest.mark.parametrize("processing_mode", ["sync", "async"])
 def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processing_mode, guardrail_trace):
-    """Test guardrail output intervention with redaction.
-
-    Note: This test can be flaky because LLM responses are non-deterministic.
-    The model may sometimes mention CACTUS in response2 even when not explicitly asked,
-    triggering the guardrail again.
-    """
+    """Test guardrail output intervention with redaction."""
     REDACT_MESSAGE = "Redacted."
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_guardrail,

@@ -42,6 +42,8 @@ _RETRY_ON_ANY: Sequence[RetryCondition] = (lambda _: True,)
 
 
 def retry_on_flaky(
+    reason: str,
+    *,
     max_attempts: int = 3,
     wait_multiplier: float = 1,
     wait_max: float = 10,
@@ -61,11 +63,13 @@ def retry_on_flaky(
         - Unit tests (flakiness in unit tests usually indicates a design issue)
         - To mask consistently failing tests (investigate root cause first)
 
-    If a test requires this decorator, consider adding a code comment explaining
-    the source of flakiness. Prefer using specific retry_on conditions over
-    retrying on any exception to avoid masking real bugs.
+    Prefer using specific retry_on conditions over retrying on any exception
+    to avoid masking real bugs.
 
     Args:
+        reason: Required explanation of why this test is flaky and needs retries.
+            This should describe the source of non-determinism (e.g., "LLM responses
+            may vary" or "External API has intermittent rate limits").
         max_attempts: Maximum number of retry attempts (default: 3)
         wait_multiplier: Multiplier for exponential backoff in seconds (default: 1)
         wait_max: Maximum wait time between retries in seconds (default: 10)
@@ -77,28 +81,18 @@ def retry_on_flaky(
 
     Usage:
         # Retry on any failure
-        @retry_on_flaky(max_attempts=3)
+        @retry_on_flaky("LLM responses are non-deterministic")
         def test_something():
             ...
 
         # Retry only on specific exception types
-        @retry_on_flaky(retry_on=[TimeoutError, ConnectionError])
+        @retry_on_flaky("Network calls may fail transiently", retry_on=[TimeoutError, ConnectionError])
         def test_network_call():
             ...
 
         # Retry on string patterns in exception message
-        @retry_on_flaky(retry_on=["Service unavailable", "Status 503"])
+        @retry_on_flaky("Service has intermittent availability", retry_on=["Service unavailable", "Status 503"])
         def test_service_call():
-            ...
-
-        # Retry with custom callable
-        @retry_on_flaky(retry_on=[lambda e: e.response.status_code == 503])
-        def test_api_call():
-            ...
-
-        # Mix of conditions
-        @retry_on_flaky(retry_on=[TimeoutError, "capacity limit", lambda e: is_transient(e)])
-        def test_complex():
             ...
     """
 
