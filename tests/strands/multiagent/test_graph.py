@@ -2126,6 +2126,10 @@ def test_graph_interrupt_on_before_node_call_event(interrupt_hook):
     ]
     assert tru_interrupts == exp_interrupts
 
+    tru_after_count = interrupt_hook.after_count
+    exp_after_count = 0
+    assert tru_after_count == exp_after_count
+
     interrupt = multiagent_result.interrupts[0]
     responses = [
         {
@@ -2151,5 +2155,9 @@ def test_graph_interrupt_on_before_node_call_event(interrupt_hook):
     tru_message = agent_result.result.message["content"][0]["text"]
     exp_message = "Task completed"
     assert tru_message == exp_message
+
+    tru_after_count = interrupt_hook.after_count
+    exp_after_count = 1
+    assert tru_after_count == exp_after_count
 
     assert multiagent_result.execution_time >= first_execution_time
