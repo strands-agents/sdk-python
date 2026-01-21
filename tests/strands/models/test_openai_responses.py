@@ -166,6 +166,51 @@ def test_format_request_tool_message():
     assert tru_result == exp_result
 
 
+def test_format_request_tool_message_with_image():
+    """Test that tool results with images return an array output."""
+    tool_result = {
+        "content": [
+            {"text": "Here is the image:"},
+            {"image": {"format": "png", "source": {"bytes": b"fake_image_data"}}},
+        ],
+        "status": "success",
+        "toolUseId": "c2",
+    }
+
+    tru_result = OpenAIResponsesModel._format_request_tool_message(tool_result)
+
+    assert tru_result["type"] == "function_call_output"
+    assert tru_result["call_id"] == "c2"
+    # When images are present, output should be an array
+    assert isinstance(tru_result["output"], list)
+    assert len(tru_result["output"]) == 2
+    assert tru_result["output"][0]["type"] == "input_text"
+    assert tru_result["output"][0]["text"] == "Here is the image:"
+    assert tru_result["output"][1]["type"] == "input_image"
+    assert "image_url" in tru_result["output"][1]
+
+
+def test_format_request_tool_message_with_document():
+    """Test that tool results with documents return an array output."""
+    tool_result = {
+        "content": [
+            {"document": {"format": "pdf", "name": "test.pdf", "source": {"bytes": b"fake_pdf_data"}}},
+        ],
+        "status": "success",
+        "toolUseId": "c3",
+    }
+
+    tru_result = OpenAIResponsesModel._format_request_tool_message(tool_result)
+
+    assert tru_result["type"] == "function_call_output"
+    assert tru_result["call_id"] == "c3"
+    # When documents are present, output should be an array
+    assert isinstance(tru_result["output"], list)
+    assert len(tru_result["output"]) == 1
+    assert tru_result["output"][0]["type"] == "input_file"
+    assert "file_url" in tru_result["output"][0]
+
+
 def test_format_request_messages(system_prompt):
     messages = [
         {
@@ -536,3 +581,80 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert len(captured_warnings) == 1
     assert "Invalid configuration parameters" in str(captured_warnings[0].message)
     assert "wrong_param" in str(captured_warnings[0].message)
+
+
+@pytest.mark.parametrize(
+    ("tool_choice", "expected"),
+    [
+        (None, {}),
+        ({"auto": {}}, {"tool_choice": "auto"}),
+        ({"any": {}}, {"tool_choice": "required"}),
+        ({"tool": {"name": "calculator"}}, {"tool_choice": {"type": "function", "name": "calculator"}}),
+        ({"unknown": {}}, {"tool_choice": "auto"}),  # Test default fallback
+    ],
+)
+def test_format_request_tool_choice(tool_choice, expected):
+    """Test that tool_choice is properly formatted for the Responses API."""
+    result = OpenAIResponsesModel._format_request_tool_choice(tool_choice)
+    assert result == expected
+
+
+def test_format_request_with_tool_choice(model, messages, tool_specs):
+    """Test that tool_choice is properly included in the request."""
+    tool_choice = {"tool": {"name": "test_tool"}}
+    request = model._format_request(messages, tool_specs, tool_choice=tool_choice)
+
+    assert "tool_choice" in request
+    assert request["tool_choice"] == {"type": "function", "name": "test_tool"}
+
+
+def test_format_request_message_content_image_size_limit():
+    """Test that oversized images raise ValueError."""
+    from strands.models.openai_responses import MAX_MEDIA_SIZE_BYTES
+
+    oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
+    content = {"image": {"format": "png", "source": {"bytes": oversized_data}}}
+
+    with pytest.raises(ValueError, match="Image size .* exceeds maximum"):
+        OpenAIResponsesModel._format_request_message_content(content)
+
+
+def test_format_request_message_content_document_size_limit():
+    """Test that oversized documents raise ValueError."""
+    from strands.models.openai_responses import MAX_MEDIA_SIZE_BYTES
+
+    oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
+    content = {"document": {"format": "pdf", "name": "large.pdf", "source": {"bytes": oversized_data}}}
+
+    with pytest.raises(ValueError, match="Document size .* exceeds maximum"):
+        OpenAIResponsesModel._format_request_message_content(content)
+
+
+def test_format_request_tool_message_image_size_limit():
+    """Test that oversized images in tool results raise ValueError."""
+    from strands.models.openai_responses import MAX_MEDIA_SIZE_BYTES
+
+    oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
+    tool_result = {
+        "content": [{"image": {"format": "png", "source": {"bytes": oversized_data}}}],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    with pytest.raises(ValueError, match="Image size .* exceeds maximum"):
+        OpenAIResponsesModel._format_request_tool_message(tool_result)
+
+
+def test_format_request_tool_message_document_size_limit():
+    """Test that oversized documents in tool results raise ValueError."""
+    from strands.models.openai_responses import MAX_MEDIA_SIZE_BYTES
+
+    oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
+    tool_result = {
+        "content": [{"document": {"format": "pdf", "name": "large.pdf", "source": {"bytes": oversized_data}}}],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    with pytest.raises(ValueError, match="Document size .* exceeds maximum"):
+        OpenAIResponsesModel._format_request_tool_message(tool_result)
