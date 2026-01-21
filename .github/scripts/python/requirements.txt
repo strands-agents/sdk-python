@@ -1,0 +1,8 @@
+# Strands packages - only what we need
+strands-agents
+strands-agents-tools
+
+# Additional dependencies for our specific tools
+colorama
+rich
+requests>=2.28.0

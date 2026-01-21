@@ -3,13 +3,13 @@ from uuid import uuid4
 import pytest
 
 from strands import Agent, tool
-from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
 from strands.hooks import (
     AfterInvocationEvent,
     AfterModelCallEvent,
     AfterToolCallEvent,
     BeforeInvocationEvent,
     BeforeModelCallEvent,
+    BeforeNodeCallEvent,
     BeforeToolCallEvent,
     MessageAddedEvent,
 )

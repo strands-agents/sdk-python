@@ -13,7 +13,10 @@ from strands.types.exceptions import ContextWindowOverflowException, ModelThrott
 def openai_client():
     with unittest.mock.patch.object(strands.models.openai.openai, "AsyncOpenAI") as mock_client_cls:
         mock_client = unittest.mock.AsyncMock()
-        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        # Make the mock client work as an async context manager
+        mock_client.__aenter__ = unittest.mock.AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = unittest.mock.AsyncMock(return_value=None)
+        mock_client_cls.return_value = mock_client
         yield mock_client
 
 
@@ -174,6 +177,189 @@ def test_format_request_tool_message():
         "tool_call_id": "c1",
     }
     assert tru_result == exp_result
+
+
+def test_split_tool_message_images_with_image():
+    """Test that images are extracted from tool messages."""
+    tool_message = {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": [
+            {"type": "text", "text": "Result"},
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,iVBORw0KGgo=", "detail": "auto", "format": "image/png"},
+            },
+        ],
+    }
+
+    tool_clean, user_with_image = OpenAIModel._split_tool_message_images(tool_message)
+
+    # Tool message should now have the original text plus the appended informational text
+    assert tool_clean["role"] == "tool"
+    assert tool_clean["tool_call_id"] == "c1"
+    assert len(tool_clean["content"]) == 2
+    assert tool_clean["content"][0]["type"] == "text"
+    assert tool_clean["content"][0]["text"] == "Result"
+    assert "Tool successfully returned an image" in tool_clean["content"][1]["text"]
+
+    # User message should have the image
+    assert user_with_image is not None
+    assert user_with_image["role"] == "user"
+    assert len(user_with_image["content"]) == 1
+    assert user_with_image["content"][0]["type"] == "image_url"
+
+
+def test_split_tool_message_images_without_image():
+    """Test that tool messages without images are unchanged."""
+    tool_message = {"role": "tool", "tool_call_id": "c1", "content": [{"type": "text", "text": "Result"}]}
+
+    tool_clean, user_with_image = OpenAIModel._split_tool_message_images(tool_message)
+
+    assert tool_clean == tool_message
+    assert user_with_image is None
+
+
+def test_split_tool_message_images_only_image():
+    """Test tool message with only image content."""
+    tool_message = {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}],
+    }
+
+    tool_clean, user_with_image = OpenAIModel._split_tool_message_images(tool_message)
+
+    # Tool message should have default text
+    assert tool_clean["role"] == "tool"
+    assert len(tool_clean["content"]) == 1
+    assert "successfully" in tool_clean["content"][0]["text"].lower()
+
+    # User message should have the image
+    assert user_with_image is not None
+    assert user_with_image["role"] == "user"
+    assert len(user_with_image["content"]) == 1
+
+
+def test_split_tool_message_images_non_tool_role():
+    """Test that messages with roles other than 'tool' are ignored."""
+    user_msg = {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+    clean, extra = OpenAIModel._split_tool_message_images(user_msg)
+    assert clean == user_msg
+    assert extra is None
+
+
+def test_split_tool_message_images_invalid_content_type():
+    """Test that messages with non-list content are ignored."""
+    invalid_msg = {"role": "tool", "content": "not a list"}
+    clean, extra = OpenAIModel._split_tool_message_images(invalid_msg)
+    assert clean == invalid_msg
+    assert extra is None
+
+
+def test_format_request_messages_with_tool_result_containing_image():
+    """Test that tool results with images are properly split into tool and user messages."""
+    messages = [
+        {
+            "content": [{"text": "Run the tool"}],
+            "role": "user",
+        },
+        {
+            "content": [
+                {
+                    "toolUse": {
+                        "input": {},
+                        "name": "image_tool",
+                        "toolUseId": "t1",
+                    },
+                },
+            ],
+            "role": "assistant",
+        },
+        {
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "t1",
+                        "status": "success",
+                        "content": [
+                            {"text": "Image generated"},
+                            {
+                                "image": {
+                                    "format": "png",
+                                    "source": {"bytes": b"fake_image_data"},
+                                }
+                            },
+                        ],
+                    }
+                }
+            ],
+            "role": "user",
+        },
+    ]
+
+    formatted = OpenAIModel.format_request_messages(messages)
+
+    # Find the tool message
+    tool_messages = [msg for msg in formatted if msg.get("role") == "tool"]
+    assert len(tool_messages) == 1
+
+    # Tool message should only have text content
+    tool_msg = tool_messages[0]
+    assert all(c.get("type") != "image_url" for c in tool_msg["content"])
+
+    # There should be a user message right after the tool message with the image
+    tool_msg_idx = formatted.index(tool_msg)
+    assert tool_msg_idx + 1 < len(formatted)
+    user_msg = formatted[tool_msg_idx + 1]
+    assert user_msg["role"] == "user"
+    assert any(c.get("type") == "image_url" for c in user_msg["content"])
+
+
+def test_format_request_messages_with_multiple_images_in_tool_result():
+    """Test tool result with multiple images."""
+    messages = [
+        {
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "t1",
+                        "status": "success",
+                        "content": [
+                            {"text": "Two images generated"},
+                            {
+                                "image": {
+                                    "format": "png",
+                                    "source": {"bytes": b"image1"},
+                                }
+                            },
+                            {
+                                "image": {
+                                    "format": "jpg",
+                                    "source": {"bytes": b"image2"},
+                                }
+                            },
+                        ],
+                    }
+                }
+            ],
+            "role": "user",
+        },
+    ]
+
+    formatted = OpenAIModel.format_request_messages(messages)
+
+    # Find user message with images
+    user_image_msgs = [
+        msg
+        for msg in formatted
+        if msg.get("role") == "user" and any(c.get("type") == "image_url" for c in msg.get("content", []))
+    ]
+    assert len(user_image_msgs) == 1
+
+    # Should have both images
+    image_contents = [c for c in user_image_msgs[0]["content"] if c.get("type") == "image_url"]
+    assert len(image_contents) == 2
 
 
 def test_format_request_tool_choice_auto():
@@ -986,3 +1172,77 @@ def test_format_request_messages_drops_cache_points():
     ]
 
     assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_stream_with_injected_client(model_id, agenerator, alist):
+    """Test that stream works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.AsyncMock()
+    mock_injected_client.close = unittest.mock.AsyncMock()
+
+    mock_delta = unittest.mock.Mock(content="Hello", tool_calls=None, reasoning_content=None)
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
+    mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
+    mock_event_3 = unittest.mock.Mock()
+
+    mock_injected_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3])
+    )
+
+    # Create model with injected client
+    model = OpenAIModel(client=mock_injected_client, model_id=model_id, params={"max_tokens": 1})
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    # Verify events were generated
+    assert len(tru_events) > 0
+
+    # Verify the injected client was used
+    mock_injected_client.chat.completions.create.assert_called_once()
+
+    # Verify the injected client was NOT closed
+    mock_injected_client.close.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_structured_output_with_injected_client(model_id, test_output_model_cls, alist):
+    """Test that structured_output works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.AsyncMock()
+    mock_injected_client.close = unittest.mock.AsyncMock()
+
+    mock_parsed_instance = test_output_model_cls(name="John", age=30)
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message.parsed = mock_parsed_instance
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    mock_injected_client.beta.chat.completions.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    # Create model with injected client
+    model = OpenAIModel(client=mock_injected_client, model_id=model_id, params={"max_tokens": 1})
+
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
+
+    # Verify output was generated
+    assert len(events) == 1
+    assert events[0] == {"output": test_output_model_cls(name="John", age=30)}
+
+    # Verify the injected client was used
+    mock_injected_client.beta.chat.completions.parse.assert_called_once()
+
+    # Verify the injected client was NOT closed
+    mock_injected_client.close.assert_not_called()
+
+
+def test_init_with_both_client_and_client_args_raises_error():
+    """Test that providing both client and client_args raises ValueError."""
+    mock_client = unittest.mock.AsyncMock()
+
+    with pytest.raises(ValueError, match="Only one of 'client' or 'client_args' should be provided"):
+        OpenAIModel(client=mock_client, client_args={"api_key": "test"}, model_id="test-model")

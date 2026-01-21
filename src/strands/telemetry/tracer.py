@@ -7,8 +7,9 @@ enabling trace data to be sent to OTLP endpoints.
 import json
 import logging
 import os
+from collections.abc import Mapping
 from datetime import date, datetime, timezone
-from typing import Any, Dict, Mapping, Optional, cast
+from typing import Any, cast
 
 import opentelemetry.trace as trace_api
 from opentelemetry.instrumentation.threading import ThreadingInstrumentor
@@ -89,7 +90,7 @@ class Tracer:
     def __init__(self) -> None:
         """Initialize the tracer."""
         self.service_name = __name__
-        self.tracer_provider: Optional[trace_api.TracerProvider] = None
+        self.tracer_provider: trace_api.TracerProvider | None = None
         self.tracer_provider = trace_api.get_tracer_provider()
         self.tracer = self.tracer_provider.get_tracer(self.service_name)
         ThreadingInstrumentor().instrument()
@@ -112,8 +113,8 @@ class Tracer:
     def _start_span(
         self,
         span_name: str,
-        parent_span: Optional[Span] = None,
-        attributes: Optional[Dict[str, AttributeValue]] = None,
+        parent_span: Span | None = None,
+        attributes: dict[str, AttributeValue] | None = None,
         span_kind: trace_api.SpanKind = trace_api.SpanKind.INTERNAL,
     ) -> Span:
         """Generic helper method to start a span with common attributes.
@@ -145,7 +146,7 @@ class Tracer:
 
         return span
 
-    def _set_attributes(self, span: Span, attributes: Dict[str, AttributeValue]) -> None:
+    def _set_attributes(self, span: Span, attributes: dict[str, AttributeValue]) -> None:
         """Set attributes on a span, handling different value types appropriately.
 
         Args:
@@ -159,7 +160,7 @@ class Tracer:
             span.set_attribute(key, value)
 
     def _add_optional_usage_and_metrics_attributes(
-        self, attributes: Dict[str, AttributeValue], usage: Usage, metrics: Metrics
+        self, attributes: dict[str, AttributeValue], usage: Usage, metrics: Metrics
     ) -> None:
         """Add optional usage and metrics attributes if they have values.
 
@@ -183,8 +184,8 @@ class Tracer:
     def _end_span(
         self,
         span: Span,
-        attributes: Optional[Dict[str, AttributeValue]] = None,
-        error: Optional[Exception] = None,
+        attributes: dict[str, AttributeValue] | None = None,
+        error: Exception | None = None,
     ) -> None:
         """Generic helper method to end a span.
 
@@ -221,7 +222,7 @@ class Tracer:
                 except Exception as e:
                     logger.warning("error=<%s> | failed to force flush tracer provider", e)
 
-    def end_span_with_error(self, span: Span, error_message: str, exception: Optional[Exception] = None) -> None:
+    def end_span_with_error(self, span: Span, error_message: str, exception: Exception | None = None) -> None:
         """End a span with error status.
 
         Args:
@@ -235,7 +236,7 @@ class Tracer:
         error = exception or Exception(error_message)
         self._end_span(span, error=error)
 
-    def _add_event(self, span: Optional[Span], event_name: str, event_attributes: Attributes) -> None:
+    def _add_event(self, span: Span | None, event_name: str, event_attributes: Attributes) -> None:
         """Add an event with attributes to a span.
 
         Args:
@@ -275,8 +276,9 @@ class Tracer:
     def start_model_invoke_span(
         self,
         messages: Messages,
-        parent_span: Optional[Span] = None,
-        model_id: Optional[str] = None,
+        parent_span: Span | None = None,
+        model_id: str | None = None,
+        custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
         **kwargs: Any,
     ) -> Span:
         """Start a new span for a model invocation.
@@ -285,12 +287,16 @@ class Tracer:
             messages: Messages being sent to the model.
             parent_span: Optional parent span to link this span to.
             model_id: Optional identifier for the model being invoked.
+            custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
             The created span, or None if tracing is not enabled.
         """
-        attributes: Dict[str, AttributeValue] = self._get_common_attributes(operation_name="chat")
+        attributes: dict[str, AttributeValue] = self._get_common_attributes(operation_name="chat")
+
+        if custom_trace_attributes:
+            attributes.update(custom_trace_attributes)
 
         if model_id:
             attributes["gen_ai.request.model"] = model_id
@@ -310,7 +316,7 @@ class Tracer:
         usage: Usage,
         metrics: Metrics,
         stop_reason: StopReason,
-        error: Optional[Exception] = None,
+        error: Exception | None = None,
     ) -> None:
         """End a model invocation span with results and metrics.
 
@@ -322,7 +328,7 @@ class Tracer:
             stop_reason (StopReason): The reason the model stopped generating.
             error: Optional exception if the model call failed.
         """
-        attributes: Dict[str, AttributeValue] = {
+        attributes: dict[str, AttributeValue] = {
             "gen_ai.usage.prompt_tokens": usage["inputTokens"],
             "gen_ai.usage.input_tokens": usage["inputTokens"],
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
@@ -358,18 +364,25 @@ class Tracer:
 
         self._end_span(span, attributes, error)
 
-    def start_tool_call_span(self, tool: ToolUse, parent_span: Optional[Span] = None, **kwargs: Any) -> Span:
+    def start_tool_call_span(
+        self,
+        tool: ToolUse,
+        parent_span: Span | None = None,
+        custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
+        **kwargs: Any,
+    ) -> Span:
         """Start a new span for a tool call.
 
         Args:
             tool: The tool being used.
             parent_span: Optional parent span to link this span to.
+            custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
             The created span, or None if tracing is not enabled.
         """
-        attributes: Dict[str, AttributeValue] = self._get_common_attributes(operation_name="execute_tool")
+        attributes: dict[str, AttributeValue] = self._get_common_attributes(operation_name="execute_tool")
         attributes.update(
             {
                 "gen_ai.tool.name": tool["name"],
@@ -377,6 +390,8 @@ class Tracer:
             }
         )
 
+        if custom_trace_attributes:
+            attributes.update(custom_trace_attributes)
         # Add additional kwargs as attributes
         attributes.update(kwargs)
 
@@ -418,9 +433,7 @@ class Tracer:
 
         return span
 
-    def end_tool_call_span(
-        self, span: Span, tool_result: Optional[ToolResult], error: Optional[Exception] = None
-    ) -> None:
+    def end_tool_call_span(self, span: Span, tool_result: ToolResult | None, error: Exception | None = None) -> None:
         """End a tool call span with results.
 
         Args:
@@ -428,7 +441,7 @@ class Tracer:
             tool_result: The result from the tool execution.
             error: Optional exception if the tool call failed.
         """
-        attributes: Dict[str, AttributeValue] = {}
+        attributes: dict[str, AttributeValue] = {}
         if tool_result is not None:
             status = tool_result.get("status")
             status_str = str(status) if status is not None else ""
@@ -476,15 +489,17 @@ class Tracer:
         self,
         invocation_state: Any,
         messages: Messages,
-        parent_span: Optional[Span] = None,
+        parent_span: Span | None = None,
+        custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
         **kwargs: Any,
-    ) -> Optional[Span]:
+    ) -> Span | None:
         """Start a new span for an event loop cycle.
 
         Args:
             invocation_state: Arguments for the event loop cycle.
             parent_span: Optional parent span to link this span to.
             messages:  Messages being processed in this cycle.
+            custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -493,9 +508,12 @@ class Tracer:
         event_loop_cycle_id = str(invocation_state.get("event_loop_cycle_id"))
         parent_span = parent_span if parent_span else invocation_state.get("event_loop_parent_span")
 
-        attributes: Dict[str, AttributeValue] = {
+        attributes: dict[str, AttributeValue] = {
             "event_loop.cycle_id": event_loop_cycle_id,
         }
+
+        if custom_trace_attributes:
+            attributes.update(custom_trace_attributes)
 
         if "event_loop_parent_cycle_id" in invocation_state:
             attributes["event_loop.parent_cycle_id"] = str(invocation_state["event_loop_parent_cycle_id"])
@@ -513,8 +531,8 @@ class Tracer:
         self,
         span: Span,
         message: Message,
-        tool_result_message: Optional[Message] = None,
-        error: Optional[Exception] = None,
+        tool_result_message: Message | None = None,
+        error: Exception | None = None,
     ) -> None:
         """End an event loop cycle span with results.
 
@@ -524,8 +542,8 @@ class Tracer:
             tool_result_message: Optional tool result message if a tool was called.
             error: Optional exception if the cycle failed.
         """
-        attributes: Dict[str, AttributeValue] = {}
-        event_attributes: Dict[str, AttributeValue] = {"message": serialize(message["content"])}
+        attributes: dict[str, AttributeValue] = {}
+        event_attributes: dict[str, AttributeValue] = {"message": serialize(message["content"])}
 
         if tool_result_message:
             event_attributes["tool.result"] = serialize(tool_result_message["content"])
@@ -553,10 +571,10 @@ class Tracer:
         self,
         messages: Messages,
         agent_name: str,
-        model_id: Optional[str] = None,
-        tools: Optional[list] = None,
-        custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
-        tools_config: Optional[dict] = None,
+        model_id: str | None = None,
+        tools: list | None = None,
+        custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
+        tools_config: dict | None = None,
         **kwargs: Any,
     ) -> Span:
         """Start a new span for an agent invocation.
@@ -573,7 +591,7 @@ class Tracer:
         Returns:
             The created span, or None if tracing is not enabled.
         """
-        attributes: Dict[str, AttributeValue] = self._get_common_attributes(operation_name="invoke_agent")
+        attributes: dict[str, AttributeValue] = self._get_common_attributes(operation_name="invoke_agent")
         attributes.update(
             {
                 "gen_ai.agent.name": agent_name,
@@ -611,8 +629,8 @@ class Tracer:
     def end_agent_span(
         self,
         span: Span,
-        response: Optional[AgentResult] = None,
-        error: Optional[Exception] = None,
+        response: AgentResult | None = None,
+        error: Exception | None = None,
     ) -> None:
         """End an agent span with results and metrics.
 
@@ -621,7 +639,7 @@ class Tracer:
             response: The response from the agent.
             error: Any error that occurred.
         """
-        attributes: Dict[str, AttributeValue] = {}
+        attributes: dict[str, AttributeValue] = {}
 
         if response:
             if self.use_latest_genai_conventions:
@@ -648,6 +666,10 @@ class Tracer:
                 )
 
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
+                if "langfuse" in os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "") or "langfuse" in os.getenv(
+                    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""
+                ):
+                    attributes.update({"langfuse.observation.type": "span"})
                 accumulated_usage = response.metrics.accumulated_usage
                 attributes.update(
                     {
@@ -679,15 +701,19 @@ class Tracer:
         self,
         task: MultiAgentInput,
         instance: str,
+        custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
     ) -> Span:
         """Start a new span for swarm invocation."""
         operation = f"invoke_{instance}"
-        attributes: Dict[str, AttributeValue] = self._get_common_attributes(operation)
+        attributes: dict[str, AttributeValue] = self._get_common_attributes(operation)
         attributes.update(
             {
                 "gen_ai.agent.name": instance,
             }
         )
+
+        if custom_trace_attributes:
+            attributes.update(custom_trace_attributes)
 
         span = self._start_span(operation, attributes=attributes, span_kind=trace_api.SpanKind.CLIENT)
 
@@ -714,7 +740,7 @@ class Tracer:
     def end_swarm_span(
         self,
         span: Span,
-        result: Optional[str] = None,
+        result: str | None = None,
     ) -> None:
         """End a swarm span with results."""
         if result:
@@ -743,7 +769,7 @@ class Tracer:
     def _get_common_attributes(
         self,
         operation_name: str,
-    ) -> Dict[str, AttributeValue]:
+    ) -> dict[str, AttributeValue]:
         """Returns a dictionary of common attributes based on the convention version used.
 
         Args:

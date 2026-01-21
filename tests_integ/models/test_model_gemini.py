@@ -2,6 +2,7 @@ import os
 
 import pydantic
 import pytest
+from google import genai
 
 import strands
 from strands import Agent
@@ -18,6 +19,16 @@ def model():
         client_args={"api_key": os.getenv("GOOGLE_API_KEY")},
         model_id="gemini-2.5-flash",
         params={"temperature": 0.15},  # Lower temperature for consistent test behavior
+    )
+
+
+@pytest.fixture
+def gemini_tool_model():
+    return GeminiModel(
+        client_args={"api_key": os.getenv("GOOGLE_API_KEY")},
+        model_id="gemini-2.5-flash",
+        params={"temperature": 0.15},  # Lower temperature for consistent test behavior
+        gemini_tools=[genai.types.Tool(code_execution=genai.types.ToolCodeExecution())],
     )
 
 
@@ -175,3 +186,19 @@ def test_agent_structured_output_image_input(assistant_agent, yellow_img, yellow
     tru_color = assistant_agent.structured_output(type(yellow_color), content)
     exp_color = yellow_color
     assert tru_color == exp_color
+
+
+def test_agent_with_gemini_code_execution_tool(gemini_tool_model):
+    system_prompt = "Generate and run code for all calculations"
+    agent = Agent(model=gemini_tool_model, system_prompt=system_prompt)
+    # sample prompt taken from https://ai.google.dev/gemini-api/docs/code-execution
+    result_turn1 = agent(
+        "What is the sum of the first 50 prime numbers? Generate and run code for the calculation, "
+        "and make sure you get all 50."
+    )
+
+    # NOTE: We don't verify tool history because built-in tools are currently represented in message history
+    assert "5117" in str(result_turn1)
+
+    result_turn2 = agent("Summarize that into a single number")
+    assert "5117" in str(result_turn2)

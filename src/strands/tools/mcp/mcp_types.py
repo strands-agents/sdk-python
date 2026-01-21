@@ -80,3 +80,10 @@ class MCPToolResult(ToolResult):
 
     structuredContent: NotRequired[Dict[str, Any]]
     retryMetadata: NotRequired[MCPRetryMetadata]
+        metadata: Optional arbitrary metadata returned by the MCP tool. This field allows
+            MCP servers to attach custom metadata to tool results (e.g., token usage,
+            performance metrics, or business-specific tracking information).
+    """
+
+    structuredContent: NotRequired[dict[str, Any]]
+    metadata: NotRequired[dict[str, Any]]

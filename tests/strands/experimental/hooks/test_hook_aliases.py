@@ -112,18 +112,20 @@ async def test_experimental_aliases_in_hook_registry():
     assert received_event is test_event
 
 
-def test_deprecation_warning_on_import(captured_warnings):
-    """Verify that importing from experimental module emits deprecation warning."""
+def test_deprecation_warning_on_access(captured_warnings):
+    """Verify that accessing deprecated aliases emits deprecation warning."""
+    import strands.experimental.hooks.events as events_module
 
-    module = sys.modules.get("strands.experimental.hooks.events")
-    if module:
-        importlib.reload(module)
-    else:
-        importlib.import_module("strands.experimental.hooks.events")
+    # Clear any existing warnings
+    captured_warnings.clear()
+
+    # Access a deprecated alias - this should trigger the warning
+    _ = events_module.BeforeToolInvocationEvent
 
     assert len(captured_warnings) == 1
     assert issubclass(captured_warnings[0].category, DeprecationWarning)
-    assert "moved to production with updated names" in str(captured_warnings[0].message)
+    assert "BeforeToolInvocationEvent" in str(captured_warnings[0].message)
+    assert "BeforeToolCallEvent" in str(captured_warnings[0].message)
 
 
 def test_deprecation_warning_on_import_only_for_experimental(captured_warnings):

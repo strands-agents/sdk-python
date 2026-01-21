@@ -201,10 +201,11 @@ def test__init__region_precedence(mock_client_method, session_cls):
 def test__init__with_endpoint_url(mock_client_method):
     """Test that BedrockModel uses the provided endpoint_url for VPC endpoints."""
     custom_endpoint = "https://vpce-12345-abcde.bedrock-runtime.us-west-2.vpce.amazonaws.com"
-    BedrockModel(endpoint_url=custom_endpoint)
-    mock_client_method.assert_called_with(
-        region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=custom_endpoint
-    )
+    with unittest.mock.patch.object(os, "environ", {}):
+        BedrockModel(endpoint_url=custom_endpoint)
+        mock_client_method.assert_called_with(
+            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=custom_endpoint
+        )
 
 
 def test__init__with_region_and_session_raises_value_error():
@@ -2070,3 +2071,173 @@ async def test_stream_backward_compatibility_system_prompt(bedrock_client, model
         "system": [{"text": system_prompt}],
     }
     bedrock_client.converse_stream.assert_called_once_with(**expected_request)
+
+
+@pytest.mark.asyncio
+async def test_citations_content_preserves_tagged_union_structure(bedrock_client, model, alist):
+    """Test that citationsContent preserves AWS Bedrock's required tagged union structure for citation locations.
+
+    This test verifies that when messages contain citationsContent with tagged union CitationLocation objects,
+    the structure is preserved when sent to AWS Bedrock API. AWS Bedrock expects CitationLocation to be a
+    tagged union with exactly one wrapper key (documentChar, documentPage, documentChunk, searchResultLocation, web)
+    containing the location fields.
+    """
+    # Mock the Bedrock response
+    bedrock_client.converse_stream.return_value = {"stream": []}
+
+    # Messages with citationsContent using all tagged union CitationLocation types
+    messages = [
+        {"role": "user", "content": [{"text": "Analyze multiple sources"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "citationsContent": {
+                        "citations": [
+                            {
+                                "location": {"documentChar": {"documentIndex": 0, "start": 150, "end": 300}},
+                                "sourceContent": [
+                                    {"text": "Employee benefits include health insurance and retirement plans"}
+                                ],
+                                "title": "Benefits Section",
+                            },
+                            {
+                                "location": {"documentPage": {"documentIndex": 0, "start": 2, "end": 3}},
+                                "sourceContent": [{"text": "Vacation policy allows 15 days per year"}],
+                                "title": "Vacation Policy",
+                            },
+                            {
+                                "location": {"documentChunk": {"documentIndex": 1, "start": 5, "end": 8}},
+                                "sourceContent": [{"text": "Company culture emphasizes work-life balance"}],
+                                "title": "Culture Section",
+                            },
+                            {
+                                "location": {
+                                    "searchResultLocation": {
+                                        "searchResultIndex": 0,
+                                        "start": 25,
+                                        "end": 150,
+                                    }
+                                },
+                                "sourceContent": [{"text": "Search results show industry best practices"}],
+                                "title": "Search Results",
+                            },
+                            {
+                                "location": {
+                                    "web": {
+                                        "url": "https://example.com/hr-policies",
+                                        "domain": "example.com",
+                                    }
+                                },
+                                "sourceContent": [{"text": "External HR policy guidelines"}],
+                                "title": "External Reference",
+                            },
+                        ],
+                        "content": [{"text": "Based on multiple sources, the company offers comprehensive benefits."}],
+                    }
+                }
+            ],
+        },
+    ]
+
+    # Call the public stream method
+    await alist(model.stream(messages))
+
+    # Verify the request sent to Bedrock preserves the tagged union structure
+    bedrock_client.converse_stream.assert_called_once()
+    call_args = bedrock_client.converse_stream.call_args[1]
+
+    # Extract the citationsContent from the formatted messages
+    formatted_messages = call_args["messages"]
+    citations_content = formatted_messages[1]["content"][0]["citationsContent"]
+
+    # Verify the tagged union structure is preserved for all location types
+    expected_citations = [
+        {
+            "location": {"documentChar": {"documentIndex": 0, "start": 150, "end": 300}},
+            "sourceContent": [{"text": "Employee benefits include health insurance and retirement plans"}],
+            "title": "Benefits Section",
+        },
+        {
+            "location": {"documentPage": {"documentIndex": 0, "start": 2, "end": 3}},
+            "sourceContent": [{"text": "Vacation policy allows 15 days per year"}],
+            "title": "Vacation Policy",
+        },
+        {
+            "location": {"documentChunk": {"documentIndex": 1, "start": 5, "end": 8}},
+            "sourceContent": [{"text": "Company culture emphasizes work-life balance"}],
+            "title": "Culture Section",
+        },
+        {
+            "location": {
+                "searchResultLocation": {
+                    "searchResultIndex": 0,
+                    "start": 25,
+                    "end": 150,
+                }
+            },
+            "sourceContent": [{"text": "Search results show industry best practices"}],
+            "title": "Search Results",
+        },
+        {
+            "location": {
+                "web": {
+                    "url": "https://example.com/hr-policies",
+                    "domain": "example.com",
+                }
+            },
+            "sourceContent": [{"text": "External HR policy guidelines"}],
+            "title": "External Reference",
+        },
+    ]
+
+    assert citations_content["citations"] == expected_citations, (
+        "Citation location tagged union structure was not preserved. "
+        "AWS Bedrock requires CitationLocation to have exactly one wrapper key "
+        "(documentChar, documentPage, documentChunk, searchResultLocation, or web) "
+        "with the location fields nested inside."
+    )
+
+
+@pytest.mark.asyncio
+async def test_format_request_with_guardrail_latest_message(model):
+    """Test that guardrail_latest_message wraps the latest user message with text and image."""
+    model.update_config(
+        guardrail_id="test-guardrail",
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+    )
+
+    messages = [
+        {"role": "user", "content": [{"text": "First message"}]},
+        {"role": "assistant", "content": [{"text": "First response"}]},
+        {
+            "role": "user",
+            "content": [
+                {"text": "Look at this image"},
+                {"image": {"format": "png", "source": {"bytes": b"fake_image_data"}}},
+            ],
+        },
+    ]
+
+    request = model._format_request(messages)
+    formatted_messages = request["messages"]
+
+    # All messages should be in the request
+    assert len(formatted_messages) == 3
+
+    # First user message should NOT be wrapped
+    assert "text" in formatted_messages[0]["content"][0]
+    assert formatted_messages[0]["content"][0]["text"] == "First message"
+
+    # Assistant message should NOT be wrapped
+    assert "text" in formatted_messages[1]["content"][0]
+    assert formatted_messages[1]["content"][0]["text"] == "First response"
+
+    # Latest user message text should be wrapped
+    assert "guardContent" in formatted_messages[2]["content"][0]
+    assert formatted_messages[2]["content"][0]["guardContent"]["text"]["text"] == "Look at this image"
+
+    # Latest user message image should also be wrapped
+    assert "guardContent" in formatted_messages[2]["content"][1]
+    assert formatted_messages[2]["content"][1]["guardContent"]["image"]["format"] == "png"

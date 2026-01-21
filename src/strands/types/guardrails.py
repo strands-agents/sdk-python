@@ -5,7 +5,7 @@ These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Dict, List, Literal, Optional
+from typing import Literal
 
 from typing_extensions import TypedDict
 
@@ -22,7 +22,7 @@ class GuardrailConfig(TypedDict, total=False):
 
     guardrailIdentifier: str
     guardrailVersion: str
-    streamProcessingMode: Optional[Literal["sync", "async"]]
+    streamProcessingMode: Literal["sync", "async"] | None
     trace: Literal["enabled", "disabled"]
 
 
@@ -47,7 +47,7 @@ class TopicPolicy(TypedDict):
         topics: The topics in the assessment.
     """
 
-    topics: List[Topic]
+    topics: list[Topic]
 
 
 class ContentFilter(TypedDict):
@@ -71,7 +71,7 @@ class ContentPolicy(TypedDict):
         filters: List of content filters to apply.
     """
 
-    filters: List[ContentFilter]
+    filters: list[ContentFilter]
 
 
 class CustomWord(TypedDict):
@@ -108,8 +108,8 @@ class WordPolicy(TypedDict):
         managedWordLists: List of managed word lists to filter.
     """
 
-    customWords: List[CustomWord]
-    managedWordLists: List[ManagedWord]
+    customWords: list[CustomWord]
+    managedWordLists: list[ManagedWord]
 
 
 class PIIEntity(TypedDict):
@@ -182,8 +182,8 @@ class SensitiveInformationPolicy(TypedDict):
         regexes: The regex queries in the assessment.
     """
 
-    piiEntities: List[PIIEntity]
-    regexes: List[Regex]
+    piiEntities: list[PIIEntity]
+    regexes: list[Regex]
 
 
 class ContextualGroundingFilter(TypedDict):
@@ -209,7 +209,7 @@ class ContextualGroundingPolicy(TypedDict):
         filters: The filter details for the guardrails contextual grounding filter.
     """
 
-    filters: List[ContextualGroundingFilter]
+    filters: list[ContextualGroundingFilter]
 
 
 class GuardrailAssessment(TypedDict):
@@ -239,9 +239,9 @@ class GuardrailTrace(TypedDict):
         outputAssessments: Assessments of output content against guardrail policies, keyed by output identifier.
     """
 
-    inputAssessment: Dict[str, GuardrailAssessment]
-    modelOutput: List[str]
-    outputAssessments: Dict[str, List[GuardrailAssessment]]
+    inputAssessment: dict[str, GuardrailAssessment]
+    modelOutput: list[str]
+    outputAssessments: dict[str, list[GuardrailAssessment]]
 
 
 class Trace(TypedDict):

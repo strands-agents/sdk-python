@@ -1,5 +1,5 @@
 import unittest.mock
-from typing import Optional, cast
+from typing import cast
 
 import pytest
 from pydantic import BaseModel
@@ -150,7 +150,7 @@ class StructuredOutputModel(BaseModel):
 
     name: str
     value: int
-    optional_field: Optional[str] = None
+    optional_field: str | None = None
 
 
 def test__init__with_structured_output(mock_metrics, simple_message: Message):
@@ -201,3 +201,85 @@ def test__str__with_structured_output(mock_metrics, simple_message: Message):
     assert message_string == "Hello world!\n"
     assert "test" not in message_string
     assert "42" not in message_string
+
+
+def test__str__empty_message_with_structured_output(mock_metrics, empty_message: Message):
+    """Test that str() returns structured output JSON when message has no text content."""
+    structured_output = StructuredOutputModel(name="example", value=123, optional_field="optional")
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=empty_message,
+        metrics=mock_metrics,
+        state={},
+        structured_output=structured_output,
+    )
+
+    # When message has no text content, str() should return structured output as JSON
+    message_string = str(result)
+
+    # Verify it's the same as the structured output's JSON representation
+    assert message_string == structured_output.model_dump_json()
+
+    # Verify it contains the expected data
+    assert "example" in message_string
+    assert "123" in message_string
+    assert "optional" in message_string
+
+
+@pytest.fixture
+def citations_message():
+    """Message with citationsContent block."""
+    return {
+        "role": "assistant",
+        "content": [
+            {
+                "citationsContent": {
+                    "citations": [
+                        {
+                            "title": "Source Document",
+                            "location": {"document": {"pageNumber": 1}},
+                            "sourceContent": [{"text": "source text"}],
+                        }
+                    ],
+                    "content": [{"text": "This is cited text from the document."}],
+                }
+            }
+        ],
+    }
+
+
+@pytest.fixture
+def mixed_text_and_citations_message():
+    """Message with both plain text and citationsContent blocks."""
+    return {
+        "role": "assistant",
+        "content": [
+            {"text": "Introduction paragraph"},
+            {
+                "citationsContent": {
+                    "citations": [{"title": "Doc", "location": {}, "sourceContent": []}],
+                    "content": [{"text": "Cited content here."}],
+                }
+            },
+            {"text": "Conclusion paragraph"},
+        ],
+    }
+
+
+def test__str__with_citations_content(mock_metrics, citations_message: Message):
+    """Test that str() extracts text from citationsContent blocks."""
+    result = AgentResult(stop_reason="end_turn", message=citations_message, metrics=mock_metrics, state={})
+
+    message_string = str(result)
+    assert message_string == "This is cited text from the document.\n"
+
+
+def test__str__mixed_text_and_citations_content(mock_metrics, mixed_text_and_citations_message: Message):
+    """Test that str() works with both plain text and citationsContent blocks."""
+    result = AgentResult(
+        stop_reason="end_turn", message=mixed_text_and_citations_message, metrics=mock_metrics, state={}
+    )
+
+    message_string = str(result)
+    assert message_string == "Introduction paragraph\nCited content here.\nConclusion paragraph\n"

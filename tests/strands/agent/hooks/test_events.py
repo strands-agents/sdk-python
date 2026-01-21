@@ -2,6 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from strands.agent.agent_result import AgentResult
 from strands.hooks import (
     AfterInvocationEvent,
     AfterToolCallEvent,
@@ -10,12 +11,18 @@ from strands.hooks import (
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
+from strands.types.content import Message, Messages
 from strands.types.tools import ToolResult, ToolUse
 
 
 @pytest.fixture
 def agent():
     return Mock()
+
+
+@pytest.fixture
+def sample_messages() -> Messages:
+    return [{"role": "user", "content": [{"text": "Hello, agent!"}]}]
 
 
 @pytest.fixture
@@ -48,6 +55,11 @@ def initialized_event(agent):
 @pytest.fixture
 def start_request_event(agent):
     return BeforeInvocationEvent(agent=agent)
+
+
+@pytest.fixture
+def start_request_event_with_messages(agent, sample_messages):
+    return BeforeInvocationEvent(agent=agent, messages=sample_messages)
 
 
 @pytest.fixture
@@ -138,3 +150,48 @@ def test_after_tool_invocation_event_cannot_write_properties(after_tool_event):
         after_tool_event.invocation_state = {}
     with pytest.raises(AttributeError, match="Property exception is not writable"):
         after_tool_event.exception = Exception("test")
+
+
+def test_after_invocation_event_properties_not_writable(agent):
+    """Test that properties are not writable after initialization."""
+    mock_message: Message = {"role": "assistant", "content": [{"text": "test"}]}
+    mock_result = AgentResult(
+        stop_reason="end_turn",
+        message=mock_message,
+        metrics={},
+        state={},
+    )
+
+    event = AfterInvocationEvent(agent=agent, result=None)
+
+    with pytest.raises(AttributeError, match="Property result is not writable"):
+        event.result = mock_result
+
+    with pytest.raises(AttributeError, match="Property agent is not writable"):
+        event.agent = Mock()
+
+
+def test_before_invocation_event_messages_default_none(agent):
+    """Test that BeforeInvocationEvent.messages defaults to None for backward compatibility."""
+    event = BeforeInvocationEvent(agent=agent)
+    assert event.messages is None
+
+
+def test_before_invocation_event_messages_writable(agent, sample_messages):
+    """Test that BeforeInvocationEvent.messages can be modified in-place for guardrail redaction."""
+    event = BeforeInvocationEvent(agent=agent, messages=sample_messages)
+
+    # Should be able to modify the messages list in-place
+    event.messages[0]["content"] = [{"text": "[REDACTED]"}]
+    assert event.messages[0]["content"] == [{"text": "[REDACTED]"}]
+
+    # Should be able to reassign messages entirely
+    new_messages: Messages = [{"role": "user", "content": [{"text": "Different message"}]}]
+    event.messages = new_messages
+    assert event.messages == new_messages
+
+
+def test_before_invocation_event_agent_not_writable(start_request_event_with_messages):
+    """Test that BeforeInvocationEvent.agent is not writable."""
+    with pytest.raises(AttributeError, match="Property agent is not writable"):
+        start_request_event_with_messages.agent = Mock()

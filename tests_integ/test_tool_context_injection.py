@@ -54,3 +54,22 @@ def test_strands_context_integration_context_custom():
     agent("using a tool, write a bad story")
 
     _validate_tool_result_content(agent)
+
+
+@tool(context=True)
+def calculate_sum(a: int, b: int, tool_context: ToolContext) -> int:
+    result = a + b
+    tool_context.agent.state.set("last_calculation", result)
+    return result
+
+
+def test_agent_state_access_through_tool_context():
+    """Test that tools can access agent state through ToolContext."""
+    agent = Agent(tools=[calculate_sum])
+    result = agent.tool.calculate_sum(a=1, b=1)
+
+    # Verify the tool executed successfully
+    assert result["status"] == "success"
+
+    # Verify the agent state was updated
+    assert agent.state.get("last_calculation") == 2
