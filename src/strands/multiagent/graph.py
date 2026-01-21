@@ -406,10 +406,10 @@ class GraphBuilder:
             execution_timeout=self._execution_timeout,
             node_timeout=self._node_timeout,
             reset_on_revisit=self._reset_on_revisit,
-            edge_execution_mode=self._edge_execution_mode,
             session_manager=self._session_manager,
             hooks=self._hooks,
             id=self._id,
+            edge_execution_mode=self._edge_execution_mode,
         )
 
     def _validate_graph(self) -> None:
@@ -437,11 +437,11 @@ class Graph(MultiAgentBase):
         execution_timeout: float | None = None,
         node_timeout: float | None = None,
         reset_on_revisit: bool = False,
-        edge_execution_mode: EdgeExecutionMode = EdgeExecutionMode.OR,
         session_manager: SessionManager | None = None,
         hooks: list[HookProvider] | None = None,
         id: str = _DEFAULT_GRAPH_ID,
         trace_attributes: Mapping[str, AttributeValue] | None = None,
+        edge_execution_mode: EdgeExecutionMode = EdgeExecutionMode.OR,
     ) -> None:
         """Initialize Graph with execution limits and reset behavior.
 
@@ -453,13 +453,13 @@ class Graph(MultiAgentBase):
             execution_timeout: Total execution timeout in seconds (default: None - no limit)
             node_timeout: Individual node timeout in seconds (default: None - no limit)
             reset_on_revisit: Whether to reset node state when revisited (default: False)
-            edge_execution_mode: Controls when nodes execute based on incoming edges (default: OR).
-                OR - node executes when ANY predecessor completes.
-                AND - node executes when ALL predecessors complete.
             session_manager: Session manager for persisting graph state and execution history (default: None)
             hooks: List of hook providers for monitoring and extending graph execution behavior (default: None)
             id: Unique graph id (default: None)
             trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
+            edge_execution_mode: Controls when nodes execute based on incoming edges (default: OR).
+                OR - node executes when ANY predecessor completes.
+                AND - node executes when ALL predecessors complete.
         """
         super().__init__()
 
