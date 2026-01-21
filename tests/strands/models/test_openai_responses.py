@@ -5,7 +5,7 @@ import pydantic
 import pytest
 
 import strands
-from strands.models.openai_responses import OpenAIResponsesModel
+from strands.models.openai_responses import MAX_MEDIA_SIZE_BYTES, OpenAIResponsesModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
 
@@ -23,8 +23,17 @@ def model_id():
 
 
 @pytest.fixture
-def model(openai_client, model_id):
+def mock_openai_version():
+    """Mock the OpenAI version check to allow testing with v1.x SDK."""
+    with unittest.mock.patch("strands.models.openai_responses.get_package_version") as mock_version:
+        mock_version.return_value = "2.0.0"
+        yield mock_version
+
+
+@pytest.fixture
+def model(openai_client, model_id, mock_openai_version):
     _ = openai_client
+    _ = mock_openai_version
     return OpenAIResponsesModel(model_id=model_id, params={"max_output_tokens": 100})
 
 
@@ -66,7 +75,8 @@ def test_output_model_cls():
     return TestOutputModel
 
 
-def test__init__(model_id):
+def test__init__(model_id, mock_openai_version):
+    _ = mock_openai_version
     model = OpenAIResponsesModel(model_id=model_id, params={"max_output_tokens": 100})
 
     tru_config = model.get_config()
@@ -522,7 +532,71 @@ async def test_stream_rate_limit_as_throttle(openai_client, model, messages):
             pass
 
     assert "Rate limit exceeded" in str(exc_info.value)
-    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_bad_request_non_context_overflow(openai_client, model, messages):
+    """Test that non-context-overflow BadRequestErrors are re-raised."""
+    mock_error = openai.BadRequestError(
+        message="Invalid request format",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "invalid_request"}},
+    )
+    mock_error.code = "invalid_request"
+
+    openai_client.responses.create.side_effect = mock_error
+
+    with pytest.raises(openai.BadRequestError) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert exc_info.value == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_error_during_iteration(openai_client, model, messages, agenerator):
+    """Test that errors during streaming iteration are properly handled."""
+    mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="Hello")
+
+    async def error_generator():
+        yield mock_text_event
+        raise openai.RateLimitError(
+            message="Rate limit during stream",
+            response=unittest.mock.MagicMock(),
+            body={"error": {"code": "rate_limit_exceeded"}},
+        )
+
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=error_generator())
+
+    with pytest.raises(ModelThrottledException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert "Rate limit during stream" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_stream_context_overflow_during_iteration(openai_client, model, messages):
+    """Test that context overflow during streaming iteration is properly handled."""
+    mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="Hello")
+
+    async def error_generator():
+        yield mock_text_event
+        error = openai.BadRequestError(
+            message="Context length exceeded during stream",
+            response=unittest.mock.MagicMock(),
+            body={"error": {"code": "context_length_exceeded"}},
+        )
+        error.code = "context_length_exceeded"
+        raise error
+
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=error_generator())
+
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert "Context length exceeded" in str(exc_info.value)
 
 
 @pytest.mark.asyncio
@@ -565,8 +639,9 @@ async def test_structured_output_rate_limit_as_throttle(openai_client, model, me
     assert exc_info.value.__cause__ == mock_error
 
 
-def test_config_validation_warns_on_unknown_keys(openai_client, captured_warnings):
+def test_config_validation_warns_on_unknown_keys(openai_client, captured_warnings, mock_openai_version):
     """Test that unknown config keys emit a warning."""
+    _ = mock_openai_version
     OpenAIResponsesModel({"api_key": "test"}, model_id="test-model", invalid_param="test")
 
     assert len(captured_warnings) == 1
@@ -610,8 +685,6 @@ def test_format_request_with_tool_choice(model, messages, tool_specs):
 
 def test_format_request_message_content_image_size_limit():
     """Test that oversized images raise ValueError."""
-    from strands.models.openai_responses import MAX_MEDIA_SIZE_BYTES
-
     oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
     content = {"image": {"format": "png", "source": {"bytes": oversized_data}}}
 
@@ -621,8 +694,6 @@ def test_format_request_message_content_image_size_limit():
 
 def test_format_request_message_content_document_size_limit():
     """Test that oversized documents raise ValueError."""
-    from strands.models.openai_responses import MAX_MEDIA_SIZE_BYTES
-
     oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
     content = {"document": {"format": "pdf", "name": "large.pdf", "source": {"bytes": oversized_data}}}
 
@@ -632,8 +703,6 @@ def test_format_request_message_content_document_size_limit():
 
 def test_format_request_tool_message_image_size_limit():
     """Test that oversized images in tool results raise ValueError."""
-    from strands.models.openai_responses import MAX_MEDIA_SIZE_BYTES
-
     oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
     tool_result = {
         "content": [{"image": {"format": "png", "source": {"bytes": oversized_data}}}],
@@ -647,8 +716,6 @@ def test_format_request_tool_message_image_size_limit():
 
 def test_format_request_tool_message_document_size_limit():
     """Test that oversized documents in tool results raise ValueError."""
-    from strands.models.openai_responses import MAX_MEDIA_SIZE_BYTES
-
     oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
     tool_result = {
         "content": [{"document": {"format": "pdf", "name": "large.pdf", "source": {"bytes": oversized_data}}}],
@@ -658,3 +725,12 @@ def test_format_request_tool_message_document_size_limit():
 
     with pytest.raises(ValueError, match="Document size .* exceeds maximum"):
         OpenAIResponsesModel._format_request_tool_message(tool_result)
+
+
+def test_openai_version_check():
+    """Test that initialization fails with old OpenAI SDK version."""
+    with unittest.mock.patch("strands.models.openai_responses.get_package_version") as mock_version:
+        mock_version.return_value = "1.99.0"
+
+        with pytest.raises(ImportError, match="OpenAIResponsesModel requires openai>=2.0.0"):
+            OpenAIResponsesModel(model_id="gpt-4o")

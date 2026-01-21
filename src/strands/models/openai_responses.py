@@ -20,9 +20,11 @@ import json
 import logging
 import mimetypes
 from collections.abc import AsyncGenerator
+from importlib.metadata import version as get_package_version
 from typing import Any, Protocol, TypedDict, TypeVar, cast
 
 import openai
+from packaging.version import Version
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
@@ -36,6 +38,9 @@ from .model import Model
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+# Minimum OpenAI SDK version required for Responses API
+_MIN_OPENAI_VERSION = Version("2.0.0")
 
 # Maximum file size for media content in tool results (20MB)
 MAX_MEDIA_SIZE_BYTES = 20 * 1024 * 1024
@@ -103,7 +108,19 @@ class OpenAIResponsesModel(Model):
             client_args: Arguments for the OpenAI client.
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
             **model_config: Configuration options for the OpenAI Responses API model.
+
+        Raises:
+            ImportError: If the installed OpenAI SDK version is less than 2.0.0.
         """
+        # Validate OpenAI SDK version - Responses API requires v2.0.0+
+        openai_version = Version(get_package_version("openai"))
+        if openai_version < _MIN_OPENAI_VERSION:
+            raise ImportError(
+                f"OpenAIResponsesModel requires openai>={_MIN_OPENAI_VERSION} (found {openai_version}). "
+                "Install/upgrade with: pip install -U openai. "
+                "For older SDKs, use OpenAIModel (Chat Completions)."
+            )
+
         validate_config_keys(model_config, self.OpenAIResponsesConfig)
         self.config = dict(model_config)
         self.client_args = client_args or {}
