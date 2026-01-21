@@ -2651,3 +2651,42 @@ def test_is_node_ready_with_conditions_no_incoming_edges():
     # Node with no incoming edges should return False
     is_ready = graph._is_node_ready_with_conditions(node_a, [])
     assert is_ready is False
+
+
+def test_is_node_ready_with_conditions_and_mode_no_new_completion():
+    """Test AND mode returns False when all predecessors completed previously but none in current batch."""
+    from strands.multiagent.base import EdgeExecutionMode
+
+    agent_a = create_mock_agent("agent_a")
+    agent_b = create_mock_agent("agent_b")
+    agent_z = create_mock_agent("agent_z")
+
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.add_node(agent_b, "B")
+    builder.add_node(agent_z, "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z")
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+    builder.set_edge_execution_mode(EdgeExecutionMode.AND)
+
+    graph = builder.build()
+
+    node_a = graph.nodes["A"]
+    node_b = graph.nodes["B"]
+    node_z = graph.nodes["Z"]
+
+    # Both A and B completed in previous batches
+    graph.state.completed_nodes.add(node_a)
+    graph.state.completed_nodes.add(node_b)
+
+    # Current batch has some other node (not A or B)
+    # This simulates checking Z's readiness when neither of its predecessors
+    # just completed (they completed earlier)
+    completed_batch = []  # Empty batch - no new completions
+
+    # Should return False because has_new_completion is False
+    # (prevents re-triggering Z multiple times)
+    is_ready = graph._is_node_ready_with_conditions(node_z, completed_batch)
+    assert is_ready is False, "Z should not be ready when no predecessor completed in current batch"
