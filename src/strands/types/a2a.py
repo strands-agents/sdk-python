@@ -1,12 +1,12 @@
 """Additional A2A types."""
 
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 from a2a.types import Message, Task, TaskArtifactUpdateEvent, TaskStatusUpdateEvent
 
 from ._events import TypedEvent
 
-A2AResponse: TypeAlias = tuple[Task, TaskStatusUpdateEvent | TaskArtifactUpdateEvent | None] | Message
+A2AResponse: TypeAlias = tuple[Task, TaskStatusUpdateEvent | TaskArtifactUpdateEvent | None] | Message | Any
 
 
 class A2AStreamEvent(TypedEvent):

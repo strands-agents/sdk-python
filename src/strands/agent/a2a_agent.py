@@ -84,8 +84,6 @@ class A2AAgent(AgentBase):
     ) -> AgentResult:
         """Asynchronously invoke the remote A2A agent.
 
-        Delegates to stream_async and returns the final result.
-
         Args:
             prompt: Input to the agent (string, message list, or content blocks).
             **kwargs: Additional arguments (ignored).
