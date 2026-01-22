@@ -406,27 +406,10 @@ class MCPClient(ToolProvider):
         effective_prefix = self._prefix if prefix is None else prefix
         effective_filters = self._tool_filters if tool_filters is None else tool_filters
 
-        async def _list_tools_and_cache_capabilities_async() -> ListToolsResult:
-            session = cast(ClientSession, self._background_thread_session)
-            list_tools_result = await session.list_tools(cursor=pagination_token)
+        async def _list_tools_async() -> ListToolsResult:
+            return await cast(ClientSession, self._background_thread_session).list_tools(cursor=pagination_token)
 
-            # Cache server task capability while we have an active session
-            # This avoids needing a separate async call later during call_tool_*
-            if self._server_task_capable is None:
-                caps = session.get_server_capabilities()
-                self._server_task_capable = (
-                    caps is not None
-                    and caps.tasks is not None
-                    and caps.tasks.requests is not None
-                    and caps.tasks.requests.tools is not None
-                    and caps.tasks.requests.tools.call is not None
-                )
-
-            return list_tools_result
-
-        list_tools_response: ListToolsResult = self._invoke_on_background_thread(
-            _list_tools_and_cache_capabilities_async()
-        ).result()
+        list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
 
         mcp_tools = []
@@ -753,6 +736,21 @@ class MCPClient(ToolProvider):
                     self._log_debug_with_thread("session initialized successfully")
                     # Store the session for use while we await the close event
                     self._background_thread_session = session
+
+                    # Cache server task capability immediately after initialization
+                    # Capabilities are exchanged during session.initialize(), so this is available now
+                    caps = session.get_server_capabilities()
+                    self._server_task_capable = (
+                        caps is not None
+                        and caps.tasks is not None
+                        and caps.tasks.requests is not None
+                        and caps.tasks.requests.tools is not None
+                        and caps.tasks.requests.tools.call is not None
+                    )
+                    self._log_debug_with_thread(
+                        "server_task_capable=<%s> | cached server task capability", self._server_task_capable
+                    )
+
                     # Signal that the session has been created and is ready for use
                     self._init_future.set_result(None)
 
@@ -968,17 +966,13 @@ class MCPClient(ToolProvider):
     def _has_server_task_support(self) -> bool:
         """Check if the MCP server supports task-augmented tool calls.
 
-        Returns the cached capability value that was populated during list_tools_sync().
-        If list_tools_sync() hasn't been called yet, returns False (conservative default).
-
-        The capability is cached during list_tools_sync() to avoid needing a separate
-        async call during call_tool_*() operations.
+        Returns the capability value that was cached immediately after session initialization.
+        Server capabilities are exchanged during the MCP handshake, so this is available
+        as soon as start() completes.
 
         Returns:
             True if server supports task-augmented tool calls, False otherwise.
         """
-        # Return cached value, defaulting to False if not yet populated
-        # The cache is populated during list_tools_sync()
         return self._server_task_capable or False
 
     def _get_tool_task_support(self, tool_name: str) -> str | None:
