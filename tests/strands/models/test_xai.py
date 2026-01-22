@@ -1,8 +1,9 @@
 """Unit tests for the xAI model provider."""
 
 import unittest.mock
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Any, Generator
+from typing import Any
 
 import pytest
 

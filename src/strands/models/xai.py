@@ -46,7 +46,8 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union
+from collections.abc import AsyncGenerator
+from typing import Any, TypedDict, TypeVar
 
 import pydantic
 from typing_extensions import Required, Unpack, override
@@ -115,8 +116,8 @@ class xAIModel(Model):
     def __init__(
         self,
         *,
-        client: Optional[AsyncClient] = None,
-        client_args: Optional[dict[str, Any]] = None,
+        client: AsyncClient | None = None,
+        client_args: dict[str, Any] | None = None,
         **model_config: Unpack[xAIConfig],
     ) -> None:
         """Initialize provider instance.
@@ -164,7 +165,7 @@ class xAIModel(Model):
                     "Use the standard tools interface for function calling tools."
                 )
 
-    def _format_request_tools(self, tool_specs: Optional[list[ToolSpec]]) -> list[Any]:
+    def _format_request_tools(self, tool_specs: list[ToolSpec] | None) -> list[Any]:
         """Format tool specs into xAI SDK compatible tools."""
         tools: list[Any] = []
 
@@ -249,7 +250,7 @@ class xAIModel(Model):
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']}> | unknown type")
 
-    def _build_chat(self, client: AsyncClient, tool_specs: Optional[list[ToolSpec]] = None) -> Any:
+    def _build_chat(self, client: AsyncClient, tool_specs: list[ToolSpec] | None = None) -> Any:
         """Build a chat instance with the configured parameters."""
         chat_kwargs: dict[str, Any] = {
             "model": self.config["model_id"],
@@ -283,7 +284,7 @@ class xAIModel(Model):
         image_url = f"data:{mime_type};base64,{b64_data}"
         return xai_image(image_url=image_url, detail="auto")
 
-    def _extract_xai_state(self, messages: Messages) -> Optional[list[bytes]]:
+    def _extract_xai_state(self, messages: Messages) -> list[bytes] | None:
         """Extract serialized xAI SDK messages from Strands message history.
 
         This method searches for preserved xAI state in the message history. The state
@@ -343,7 +344,7 @@ class xAIModel(Model):
         self,
         chat: Any,
         messages: Messages,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
     ) -> None:
         """Append Strands messages to an xAI chat.
 
@@ -430,7 +431,7 @@ class xAIModel(Model):
 
                 text_parts: list[str] = []
                 reasoning_parts: list[str] = []
-                encrypted_content: Optional[str] = None
+                encrypted_content: str | None = None
                 tool_uses: list[dict[str, Any]] = []
 
                 for content in contents:
@@ -545,8 +546,8 @@ class xAIModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -561,7 +562,7 @@ class xAIModel(Model):
 
             tool_calls_pending: list[dict[str, Any]] = []
             server_tool_calls: list[dict[str, Any]] = []
-            current_content_type: Optional[str] = None
+            current_content_type: str | None = None
             final_response: Any = None
             citations: Any = None
 
@@ -732,11 +733,11 @@ class xAIModel(Model):
     @override
     async def structured_output(
         self,
-        output_model: Type[T],
+        output_model: type[T],
         prompt: Messages,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the Grok model using chat.parse()."""
         from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
