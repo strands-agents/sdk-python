@@ -69,7 +69,7 @@ async def test_get_agent_card(a2a_agent, mock_agent_card):
         mock_resolver.get_agent_card = AsyncMock(return_value=mock_agent_card)
         mock_resolver_class.return_value = mock_resolver
 
-        card = await a2a_agent._get_agent_card()
+        card = await a2a_agent.get_agent_card()
 
         assert card == mock_agent_card
         assert a2a_agent._agent_card == mock_agent_card
@@ -80,7 +80,7 @@ async def test_get_agent_card_cached(a2a_agent, mock_agent_card):
     """Test that agent card is cached after first discovery."""
     a2a_agent._agent_card = mock_agent_card
 
-    card = await a2a_agent._get_agent_card()
+    card = await a2a_agent.get_agent_card()
 
     assert card == mock_agent_card
 
@@ -95,7 +95,7 @@ async def test_get_agent_card_populates_name_and_description(mock_agent_card):
         mock_resolver.get_agent_card = AsyncMock(return_value=mock_agent_card)
         mock_resolver_class.return_value = mock_resolver
 
-        await agent._get_agent_card()
+        await agent.get_agent_card()
 
         assert agent.name == mock_agent_card.name
         assert agent.description == mock_agent_card.description
@@ -111,7 +111,7 @@ async def test_get_agent_card_preserves_custom_name_and_description(mock_agent_c
         mock_resolver.get_agent_card = AsyncMock(return_value=mock_agent_card)
         mock_resolver_class.return_value = mock_resolver
 
-        await agent._get_agent_card()
+        await agent.get_agent_card()
 
         assert agent.name == "custom-name"
         assert agent.description == "Custom description"
@@ -129,7 +129,7 @@ async def test_invoke_async_success(a2a_agent, mock_agent_card):
     async def mock_send_message(*args, **kwargs):
         yield mock_response
 
-    with patch.object(a2a_agent, "_get_agent_card", return_value=mock_agent_card):
+    with patch.object(a2a_agent, "get_agent_card", return_value=mock_agent_card):
         with patch("strands.agent.a2a_agent.ClientFactory") as mock_factory_class:
             mock_client = AsyncMock()
             mock_client.send_message = mock_send_message
@@ -158,7 +158,7 @@ async def test_invoke_async_no_response(a2a_agent, mock_agent_card):
         return
         yield  # Make it an async generator
 
-    with patch.object(a2a_agent, "_get_agent_card", return_value=mock_agent_card):
+    with patch.object(a2a_agent, "get_agent_card", return_value=mock_agent_card):
         with patch("strands.agent.a2a_agent.ClientFactory") as mock_factory_class:
             mock_client = AsyncMock()
             mock_client.send_message = mock_send_message
@@ -200,7 +200,7 @@ async def test_stream_async_success(a2a_agent, mock_agent_card):
     async def mock_send_message(*args, **kwargs):
         yield mock_response
 
-    with patch.object(a2a_agent, "_get_agent_card", return_value=mock_agent_card):
+    with patch.object(a2a_agent, "get_agent_card", return_value=mock_agent_card):
         with patch("strands.agent.a2a_agent.ClientFactory") as mock_factory_class:
             mock_client = AsyncMock()
             mock_client.send_message = mock_send_message
@@ -296,7 +296,7 @@ async def test_get_a2a_client_uses_provided_factory(mock_agent_card):
 
     agent = A2AAgent(endpoint="http://localhost:8000", a2a_client_factory=external_factory)
 
-    with patch.object(agent, "_get_agent_card", return_value=mock_agent_card):
+    with patch.object(agent, "get_agent_card", return_value=mock_agent_card):
         client = await agent._get_a2a_client()
 
         assert client is mock_client
@@ -393,7 +393,7 @@ async def test_stream_async_tracks_complete_events(a2a_agent, mock_agent_card):
         yield (mock_task, incomplete_event)
         yield (mock_task, complete_event)
 
-    with patch.object(a2a_agent, "_get_agent_card", return_value=mock_agent_card):
+    with patch.object(a2a_agent, "get_agent_card", return_value=mock_agent_card):
         with patch("strands.agent.a2a_agent.ClientFactory") as mock_factory_class:
             mock_client = AsyncMock()
             mock_client.send_message = mock_send_message
@@ -426,7 +426,7 @@ async def test_stream_async_falls_back_to_last_event(a2a_agent, mock_agent_card)
     async def mock_send_message(*args, **kwargs):
         yield (mock_task, incomplete_event)
 
-    with patch.object(a2a_agent, "_get_agent_card", return_value=mock_agent_card):
+    with patch.object(a2a_agent, "get_agent_card", return_value=mock_agent_card):
         with patch("strands.agent.a2a_agent.ClientFactory") as mock_factory_class:
             mock_client = AsyncMock()
             mock_client.send_message = mock_send_message

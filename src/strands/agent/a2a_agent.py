@@ -110,17 +110,34 @@ class A2AAgent(AgentBase):
         prompt: AgentInput = None,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
-        """Stream agent execution asynchronously.
+        """Stream remote agent execution asynchronously.
+
+        This method provides an asynchronous interface for streaming A2A protocol events.
+        Unlike Agent.stream_async() which yields text deltas and tool events, this method
+        yields raw A2A protocol events wrapped in A2AStreamEvent dictionaries.
 
         Args:
             prompt: Input to the agent (string, message list, or content blocks).
             **kwargs: Additional arguments (ignored).
 
         Yields:
-            A2A events and a final AgentResult event.
+            An async iterator that yields events. Each event is a dictionary:
+                - A2AStreamEvent: {"type": "a2a_stream", "event": <A2A object>}
+                  where the A2A object can be a Message, or a tuple of
+                  (Task, TaskStatusUpdateEvent) or (Task, TaskArtifactUpdateEvent).
+                - AgentResultEvent: {"result": AgentResult} - always emitted last.
 
         Raises:
             ValueError: If prompt is None.
+
+        Example:
+            ```python
+            async for event in a2a_agent.stream_async("Hello"):
+                if event.get("type") == "a2a_stream":
+                    print(f"A2A event: {event['event']}")
+                elif "result" in event:
+                    print(f"Final result: {event['result'].message}")
+            ```
         """
         last_event = None
         last_complete_event = None
@@ -148,11 +165,15 @@ class A2AAgent(AgentBase):
             self._httpx_client = httpx.AsyncClient(timeout=self.timeout)
         return self._httpx_client
 
-    async def _get_agent_card(self) -> AgentCard:
-        """Discover and cache the agent card from the remote endpoint.
+    async def get_agent_card(self) -> AgentCard:
+        """Fetch and return the remote agent's card.
+
+        This method eagerly fetches the agent card from the remote endpoint,
+        populating name and description if not already set. The card is cached
+        after the first fetch.
 
         Returns:
-            The discovered AgentCard.
+            The remote agent's AgentCard containing name, description, capabilities, skills, etc.
         """
         if self._agent_card is not None:
             return self._agent_card
@@ -189,7 +210,7 @@ class A2AAgent(AgentBase):
             Configured A2A client instance.
         """
         if self._a2a_client is None:
-            agent_card = await self._get_agent_card()
+            agent_card = await self.get_agent_card()
             factory = self._a2a_client_factory or self._create_default_factory()
             self._a2a_client = factory.create(agent_card)
         return self._a2a_client
