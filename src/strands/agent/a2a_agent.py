@@ -7,7 +7,8 @@ A2AAgent can be used to get the Agent Card and interact with the agent.
 """
 
 import logging
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 import httpx
 from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
