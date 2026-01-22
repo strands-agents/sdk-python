@@ -38,33 +38,26 @@ class AgentResult:
     def __str__(self) -> str:
         """Get the agent's last message as a string.
 
-        This method extracts and concatenates all text content from the final message,
-        including text from both "text" blocks and "citationsContent" blocks.
-
-        When structured output exists, its JSON representation is appended to the text.
+        This method extracts and concatenates all text content from the final message, ignoring any non-text content
+        like images or structured data.
 
         Returns:
             The agent's last message as a string, including any structured output.
         """
         content_array = self.message.get("content", [])
 
-        # Collect all text content without modification
-        text_parts = []
+        result = ""
         for item in content_array:
             if isinstance(item, dict):
                 if "text" in item:
-                    text_parts.append(item.get("text", ""))
+                    result += item.get("text", "") + "\n"
                 elif "citationsContent" in item:
                     citations_block = item["citationsContent"]
                     if "content" in citations_block:
                         for content in citations_block["content"]:
                             if isinstance(content, dict) and "text" in content:
-                                text_parts.append(content.get("text", ""))
+                                result += content.get("text", "") + "\n"
 
-        # Join text parts with newline, preserving original content
-        result = "\n".join(text_parts) + "\n" if text_parts else ""
-
-        # Append structured output JSON when present
         if self.structured_output:
             result += self.structured_output.model_dump_json()
 
