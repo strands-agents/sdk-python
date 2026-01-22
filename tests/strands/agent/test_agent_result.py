@@ -1,4 +1,3 @@
-import json
 import unittest.mock
 from typing import cast
 
@@ -244,7 +243,7 @@ def test__init__structured_output_defaults_to_none(mock_metrics, simple_message:
 
 
 def test__str__with_structured_output(mock_metrics, simple_message: Message):
-    """Test that str() includes BOTH text and structured_output in JSON format."""
+    """Test that str() concatenates text and structured_output."""
     structured_output = StructuredOutputModel(name="test", value=42)
 
     result = AgentResult(
@@ -255,13 +254,9 @@ def test__str__with_structured_output(mock_metrics, simple_message: Message):
         structured_output=structured_output,
     )
 
-    # str() should now include BOTH text AND structured output in JSON format
+    # str() should concatenate text and structured output
     message_string = str(result)
-    # Output should be valid JSON
-    parsed = json.loads(message_string)
-    assert parsed["text"] == "Hello world!"
-    assert parsed["structured_output"]["name"] == "test"
-    assert parsed["structured_output"]["value"] == 42
+    assert message_string == 'Hello world!\n{"name":"test","value":42,"optional_field":null}'
 
 
 def test__str__empty_message_with_structured_output(mock_metrics, empty_message: Message):
@@ -303,10 +298,7 @@ def test__str__structured_output_only():
 
 
 def test__str__both_text_and_structured_output():
-    """Test __str__ includes BOTH text and structured output when both exist.
-
-    Output should be JSON-parseable with text and structured_output fields.
-    """
+    """Test __str__ concatenates text and structured output when both exist."""
     structured = StructuredOutputModel(name="test", value=42)
     result = AgentResult(
         stop_reason="end_turn",
@@ -316,11 +308,7 @@ def test__str__both_text_and_structured_output():
         structured_output=structured,
     )
     output = str(result)
-    # Output should be valid JSON
-    parsed = json.loads(output)
-    assert parsed["text"] == "Here is the analysis"
-    assert parsed["structured_output"]["name"] == "test"
-    assert parsed["structured_output"]["value"] == 42
+    assert output == 'Here is the analysis\n{"name":"test","value":42,"optional_field":null}'
 
 
 def test__str__multiple_text_blocks_with_structured_output():
@@ -340,12 +328,7 @@ def test__str__multiple_text_blocks_with_structured_output():
         structured_output=structured,
     )
     output = str(result)
-    # Output should be valid JSON
-    parsed = json.loads(output)
-    assert "First paragraph." in parsed["text"]
-    assert "Second paragraph." in parsed["text"]
-    assert parsed["structured_output"]["name"] == "multi"
-    assert parsed["structured_output"]["value"] == 100
+    assert output == 'First paragraph.\nSecond paragraph.\n{"name":"multi","value":100,"optional_field":null}'
 
 
 def test__str__non_text_content_only():
@@ -379,37 +362,11 @@ def test__str__mixed_content_with_structured_output():
         structured_output=structured,
     )
     output = str(result)
-    # Output should be valid JSON
-    parsed = json.loads(output)
-    assert parsed["text"] == "Processing complete."
-    assert parsed["structured_output"]["name"] == "mixed"
-    assert parsed["structured_output"]["value"] == 50
-    # toolUse should not appear in the text
-    assert "toolUse" not in parsed["text"]
-    assert "helper" not in parsed["text"]
-
-
-def test__str__json_parseable():
-    """Test that output with both text and structured output is JSON-parseable."""
-    structured = StructuredOutputModel(name="parseable", value=99)
-    result = AgentResult(
-        stop_reason="end_turn",
-        message={"role": "assistant", "content": [{"text": "Result text"}]},
-        metrics=EventLoopMetrics(),
-        state={},
-        structured_output=structured,
-    )
-    output = str(result)
-    # Should be valid JSON that can be parsed
-    parsed = json.loads(output)
-    assert "text" in parsed
-    assert "structured_output" in parsed
-    assert parsed["text"] == "Result text"
-    assert parsed["structured_output"] == {"name": "parseable", "value": 99, "optional_field": None}
+    assert output == 'Processing complete.\n{"name":"mixed","value":50,"optional_field":null}'
 
 
 def test__str__citations_with_structured_output(mock_metrics, citations_message: Message):
-    """Test that str() includes BOTH citationsContent text and structured_output."""
+    """Test that str() concatenates citationsContent text and structured_output."""
     structured_output = StructuredOutputModel(name="cited", value=77)
 
     result = AgentResult(
@@ -421,11 +378,7 @@ def test__str__citations_with_structured_output(mock_metrics, citations_message:
     )
 
     message_string = str(result)
-    # Output should be valid JSON with both text and structured output
-    parsed = json.loads(message_string)
-    assert parsed["text"] == "This is cited text from the document."
-    assert parsed["structured_output"]["name"] == "cited"
-    assert parsed["structured_output"]["value"] == 77
+    assert message_string == 'This is cited text from the document.\n{"name":"cited","value":77,"optional_field":null}'
 
 
 def test__str__mixed_text_citations_with_structured_output(mock_metrics, mixed_text_and_citations_message: Message):
@@ -441,8 +394,5 @@ def test__str__mixed_text_citations_with_structured_output(mock_metrics, mixed_t
     )
 
     message_string = str(result)
-    # Output should be valid JSON
-    parsed = json.loads(message_string)
-    assert parsed["text"] == "Introduction paragraph\nCited content here.\nConclusion paragraph"
-    assert parsed["structured_output"]["name"] == "complex"
-    assert parsed["structured_output"]["value"] == 999
+    expected = 'Introduction paragraph\nCited content here.\nConclusion paragraph\n{"name":"complex","value":999,"optional_field":null}'
+    assert message_string == expected
