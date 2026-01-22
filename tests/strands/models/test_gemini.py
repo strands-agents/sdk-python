@@ -361,6 +361,71 @@ async def test_stream_request_with_tool_results(gemini_client, model, model_id):
 
 
 @pytest.mark.asyncio
+async def test_stream_request_with_tool_results_preserving_name(gemini_client, model, model_id):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "t1",
+                        "name": "tool_1",
+                        "input": {},
+                    },
+                },
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "t1",
+                        "status": "success",
+                        "content": [{"text": "done"}],
+                    },
+                },
+            ],
+        },
+    ]
+    await anext(model.stream(messages))
+
+    exp_request = {
+        "config": {
+            "tools": [{"function_declarations": []}],
+        },
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "function_call": {
+                            "args": {},
+                            "id": "t1",
+                            "name": "tool_1",
+                        },
+                    },
+                ],
+                "role": "model",
+            },
+            {
+                "parts": [
+                    {
+                        "function_response": {
+                            "id": "t1",
+                            "name": "tool_1",
+                            "response": {"output": [{"text": "done"}]},
+                        },
+                    },
+                ],
+                "role": "user",
+            },
+        ],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
 async def test_stream_request_with_empty_content(gemini_client, model, model_id):
     messages = [
         {
@@ -459,7 +524,7 @@ async def test_stream_response_tool_use(gemini_client, model, messages, agenerat
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
-        {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "calculator"}}}},
+        {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "c1"}}}},
         {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
         {"contentBlockStop": {}},
         {"contentBlockStop": {}},

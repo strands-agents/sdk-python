@@ -59,7 +59,7 @@ async def test_steer_proceed_decision(mock_agent_class):
     agent = Mock()
     tool_use = {"name": "test_tool", "input": {"param": "value"}}
 
-    result = await handler.steer(agent, tool_use)
+    result = await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     assert isinstance(result, Proceed)
     assert result.reason == "Tool call is safe"
@@ -82,7 +82,7 @@ async def test_steer_guide_decision(mock_agent_class):
     agent = Mock()
     tool_use = {"name": "test_tool", "input": {"param": "value"}}
 
-    result = await handler.steer(agent, tool_use)
+    result = await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     assert isinstance(result, Guide)
     assert result.reason == "Consider security implications"
@@ -105,7 +105,7 @@ async def test_steer_interrupt_decision(mock_agent_class):
     agent = Mock()
     tool_use = {"name": "test_tool", "input": {"param": "value"}}
 
-    result = await handler.steer(agent, tool_use)
+    result = await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     assert isinstance(result, Interrupt)
     assert result.reason == "Human approval required"
@@ -133,7 +133,7 @@ async def test_steer_unknown_decision(mock_agent_class):
     agent = Mock()
     tool_use = {"name": "test_tool", "input": {"param": "value"}}
 
-    result = await handler.steer(agent, tool_use)
+    result = await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     assert isinstance(result, Proceed)
     assert "Unknown LLM decision, defaulting to proceed" in result.reason
@@ -158,7 +158,7 @@ async def test_steer_uses_custom_model(mock_agent_class):
     agent.model = Mock()
     tool_use = {"name": "test_tool", "input": {"param": "value"}}
 
-    await handler.steer(agent, tool_use)
+    await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     mock_agent_class.assert_called_once_with(system_prompt=system_prompt, model=custom_model, callback_handler=None)
 
@@ -181,7 +181,7 @@ async def test_steer_uses_agent_model_when_no_custom_model(mock_agent_class):
     agent.model = Mock()
     tool_use = {"name": "test_tool", "input": {"param": "value"}}
 
-    await handler.steer(agent, tool_use)
+    await handler.steer_before_tool(agent=agent, tool_use=tool_use)
 
     mock_agent_class.assert_called_once_with(system_prompt=system_prompt, model=agent.model, callback_handler=None)
 

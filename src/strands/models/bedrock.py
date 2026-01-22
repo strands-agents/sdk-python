@@ -8,7 +8,8 @@ import json
 import logging
 import os
 import warnings
-from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, ValuesView, cast
+from collections.abc import AsyncGenerator, Callable, Iterable, ValuesView
+from typing import Any, Literal, TypeVar, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -94,35 +95,35 @@ class BedrockModel(Model):
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
         """
 
-        additional_args: Optional[dict[str, Any]]
-        additional_request_fields: Optional[dict[str, Any]]
-        additional_response_field_paths: Optional[list[str]]
-        cache_prompt: Optional[str]
-        cache_tools: Optional[str]
-        guardrail_id: Optional[str]
-        guardrail_trace: Optional[Literal["enabled", "disabled", "enabled_full"]]
-        guardrail_stream_processing_mode: Optional[Literal["sync", "async"]]
-        guardrail_version: Optional[str]
-        guardrail_redact_input: Optional[bool]
-        guardrail_redact_input_message: Optional[str]
-        guardrail_redact_output: Optional[bool]
-        guardrail_redact_output_message: Optional[str]
-        guardrail_latest_message: Optional[bool]
-        max_tokens: Optional[int]
+        additional_args: dict[str, Any] | None
+        additional_request_fields: dict[str, Any] | None
+        additional_response_field_paths: list[str] | None
+        cache_prompt: str | None
+        cache_tools: str | None
+        guardrail_id: str | None
+        guardrail_trace: Literal["enabled", "disabled", "enabled_full"] | None
+        guardrail_stream_processing_mode: Literal["sync", "async"] | None
+        guardrail_version: str | None
+        guardrail_redact_input: bool | None
+        guardrail_redact_input_message: str | None
+        guardrail_redact_output: bool | None
+        guardrail_redact_output_message: str | None
+        guardrail_latest_message: bool | None
+        max_tokens: int | None
         model_id: str
-        include_tool_result_status: Optional[Literal["auto"] | bool]
-        stop_sequences: Optional[list[str]]
-        streaming: Optional[bool]
-        temperature: Optional[float]
-        top_p: Optional[float]
+        include_tool_result_status: Literal["auto"] | bool | None
+        stop_sequences: list[str] | None
+        streaming: bool | None
+        temperature: float | None
+        top_p: float | None
 
     def __init__(
         self,
         *,
-        boto_session: Optional[boto3.Session] = None,
-        boto_client_config: Optional[BotocoreConfig] = None,
-        region_name: Optional[str] = None,
-        endpoint_url: Optional[str] = None,
+        boto_session: boto3.Session | None = None,
+        boto_client_config: BotocoreConfig | None = None,
+        region_name: str | None = None,
+        endpoint_url: str | None = None,
         **model_config: Unpack[BedrockConfig],
     ):
         """Initialize provider instance.
@@ -193,8 +194,8 @@ class BedrockModel(Model):
     def _format_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
@@ -254,11 +255,7 @@ class BedrockModel(Model):
                 if tool_specs
                 else {}
             ),
-            **(
-                {"additionalModelRequestFields": self.config["additional_request_fields"]}
-                if self.config.get("additional_request_fields")
-                else {}
-            ),
+            **(self._get_additional_request_fields(tool_choice)),
             **(
                 {"additionalModelResponseFieldPaths": self.config["additional_response_field_paths"]}
                 if self.config.get("additional_response_field_paths")
@@ -296,6 +293,34 @@ class BedrockModel(Model):
                 else {}
             ),
         }
+
+    def _get_additional_request_fields(self, tool_choice: ToolChoice | None) -> dict[str, Any]:
+        """Get additional request fields, removing thinking if tool_choice forces tool use.
+
+        Bedrock's API does not allow thinking mode when tool_choice forces tool use.
+        When forcing a tool (e.g., for structured_output retry), we temporarily disable thinking.
+
+        Args:
+            tool_choice: The tool choice configuration.
+
+        Returns:
+            A dict containing additionalModelRequestFields if configured, or empty dict.
+        """
+        additional_fields = self.config.get("additional_request_fields")
+        if not additional_fields:
+            return {}
+
+        # Check if tool_choice is forcing tool use ("any" or specific "tool")
+        is_forcing_tool = tool_choice is not None and ("any" in tool_choice or "tool" in tool_choice)
+
+        if is_forcing_tool and "thinking" in additional_fields:
+            # Create a copy without the thinking key
+            fields_without_thinking = {k: v for k, v in additional_fields.items() if k != "thinking"}
+            if fields_without_thinking:
+                return {"additionalModelRequestFields": fields_without_thinking}
+            return {}
+
+        return {"additionalModelRequestFields": additional_fields}
 
     def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
@@ -603,11 +628,11 @@ class BedrockModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Bedrock model.
@@ -631,13 +656,13 @@ class BedrockModel(Model):
             ModelThrottledException: If the model service is throttling requests.
         """
 
-        def callback(event: Optional[StreamEvent] = None) -> None:
+        def callback(event: StreamEvent | None = None) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, event)
             if event is None:
                 return
 
         loop = asyncio.get_event_loop()
-        queue: asyncio.Queue[Optional[StreamEvent]] = asyncio.Queue()
+        queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
 
         # Handle backward compatibility: if system_prompt is provided but system_prompt_content is None
         if system_prompt and system_prompt_content is None:
@@ -659,8 +684,8 @@ class BedrockModel(Model):
         self,
         callback: Callable[..., None],
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> None:
         """Stream conversation with the Bedrock model.
@@ -913,11 +938,11 @@ class BedrockModel(Model):
     @override
     async def structured_output(
         self,
-        output_model: Type[T],
+        output_model: type[T],
         prompt: Messages,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model.
 
         Args:
@@ -962,7 +987,7 @@ class BedrockModel(Model):
         yield {"output": output_model(**output_response)}
 
     @staticmethod
-    def _get_default_model_with_warning(region_name: str, model_config: Optional[BedrockConfig] = None) -> str:
+    def _get_default_model_with_warning(region_name: str, model_config: BedrockConfig | None = None) -> str:
         """Get the default Bedrock modelId based on region.
 
         If the region is not **known** to support inference then we show a helpful warning

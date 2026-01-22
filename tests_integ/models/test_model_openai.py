@@ -45,10 +45,10 @@ def agent(model, tools):
 @pytest.fixture
 def weather():
     class Weather(pydantic.BaseModel):
-        """Extracts the time and weather from the user's message with the exact strings."""
+        """Extract time and weather values."""
 
-        time: str
-        weather: str
+        time: str = pydantic.Field(description="The time value only, e.g. '14:30' not 'The time is 14:30'")
+        weather: str = pydantic.Field(description="The weather condition only, e.g. 'rainy' not 'the weather is rainy'")
 
     return Weather(time="12:00", weather="sunny")
 

@@ -3,8 +3,9 @@
 This module defines the AgentResult class which encapsulates the complete response from an agent's processing cycle.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence, cast
+from typing import Any, cast
 
 from pydantic import BaseModel
 
@@ -48,8 +49,15 @@ class AgentResult:
 
         result = ""
         for item in content_array:
-            if isinstance(item, dict) and "text" in item:
-                result += item.get("text", "") + "\n"
+            if isinstance(item, dict):
+                if "text" in item:
+                    result += item.get("text", "") + "\n"
+                elif "citationsContent" in item:
+                    citations_block = item["citationsContent"]
+                    if "content" in citations_block:
+                        for content in citations_block["content"]:
+                            if isinstance(content, dict) and "text" in content:
+                                result += content.get("text", "") + "\n"
 
         if not result and self.structured_output:
             result = self.structured_output.model_dump_json()

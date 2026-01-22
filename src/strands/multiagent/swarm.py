@@ -18,22 +18,23 @@ import copy
 import json
 import logging
 import time
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Mapping, Optional, Tuple, cast
+from typing import Any, Optional, cast
 
 from opentelemetry import trace as trace_api
 
 from .._async import run_async
 from ..agent import Agent
 from ..agent.state import AgentState
-from ..experimental.hooks.multiagent import (
+from ..hooks.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeMultiAgentInvocationEvent,
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
-from ..hooks import HookProvider, HookRegistry
+from ..hooks.registry import HookProvider, HookRegistry
 from ..interrupt import Interrupt, _InterruptState
 from ..session import SessionManager
 from ..telemetry import get_tracer
@@ -184,7 +185,7 @@ class SwarmState:
         execution_timeout: float,
         repetitive_handoff_detection_window: int,
         repetitive_handoff_min_unique_agents: int,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Check if the swarm should continue.
 
         Returns: (should_continue, reason)
@@ -198,7 +199,7 @@ class SwarmState:
             return False, f"Max iterations reached: {max_iterations}"
 
         # Check timeout
-        elapsed = time.time() - self.start_time
+        elapsed = self.execution_time / 1000 + time.time() - self.start_time
         if elapsed > execution_timeout:
             return False, f"Execution timed out: {execution_timeout}s"
 
@@ -239,10 +240,10 @@ class Swarm(MultiAgentBase):
         node_timeout: float = 300.0,
         repetitive_handoff_detection_window: int = 0,
         repetitive_handoff_min_unique_agents: int = 0,
-        session_manager: Optional[SessionManager] = None,
-        hooks: Optional[list[HookProvider]] = None,
+        session_manager: SessionManager | None = None,
+        hooks: list[HookProvider] | None = None,
         id: str = _DEFAULT_SWARM_ID,
-        trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        trace_attributes: Mapping[str, AttributeValue] | None = None,
     ) -> None:
         """Initialize Swarm with agents and configuration.
 
@@ -405,7 +406,7 @@ class Swarm(MultiAgentBase):
                 self.state.completion_status = Status.FAILED
                 raise
             finally:
-                self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
+                self.state.execution_time += round((time.time() - self.state.start_time) * 1000)
                 await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self, invocation_state))
                 self._resume_from_session = False
 
@@ -781,9 +782,10 @@ class Swarm(MultiAgentBase):
                     break
 
                 finally:
-                    await self.hooks.invoke_callbacks_async(
-                        AfterNodeCallEvent(self, current_node.node_id, invocation_state)
-                    )
+                    if self.state.completion_status != Status.INTERRUPTED:
+                        await self.hooks.invoke_callbacks_async(
+                            AfterNodeCallEvent(self, current_node.node_id, invocation_state)
+                        )
 
                 logger.debug("node=<%s> | node execution completed", current_node.node_id)
 

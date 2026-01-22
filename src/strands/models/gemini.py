@@ -6,7 +6,9 @@
 import json
 import logging
 import mimetypes
-from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
+import secrets
+from collections.abc import AsyncGenerator
+from typing import Any, TypedDict, TypeVar, cast
 
 import pydantic
 from google import genai
@@ -54,8 +56,8 @@ class GeminiModel(Model):
     def __init__(
         self,
         *,
-        client: Optional[genai.Client] = None,
-        client_args: Optional[dict[str, Any]] = None,
+        client: genai.Client | None = None,
+        client_args: dict[str, Any] | None = None,
         **model_config: Unpack[GeminiConfig],
     ) -> None:
         """Initialize provider instance.
@@ -132,13 +134,19 @@ class GeminiModel(Model):
             # Create a new client from client_args
             return genai.Client(**self.client_args)
 
-    def _format_request_content_part(self, content: ContentBlock) -> genai.types.Part:
+    def _format_request_content_part(
+        self, content: ContentBlock, tool_use_id_to_name: dict[str, str]
+    ) -> genai.types.Part:
         """Format content block into a Gemini part instance.
 
         - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Part
 
         Args:
             content: Message content to format.
+            tool_use_id_to_name: Mapping of tool use id to tool name.
+                Store the mapping from toolUseId to name for later use in toolResult formatting. This mapping is built
+                as we format the request, ensuring that when we encounter toolResult blocks (which come after toolUse
+                blocks in the message history), we can look up the function name.
 
         Returns:
             Gemini part.
@@ -172,16 +180,20 @@ class GeminiModel(Model):
             return genai.types.Part(text=content["text"])
 
         if "toolResult" in content:
+            tool_use_id = content["toolResult"]["toolUseId"]
+            function_name = tool_use_id_to_name.get(tool_use_id, tool_use_id)
+
             return genai.types.Part(
                 function_response=genai.types.FunctionResponse(
-                    id=content["toolResult"]["toolUseId"],
-                    name=content["toolResult"]["toolUseId"],
+                    id=tool_use_id,
+                    name=function_name,
                     response={
                         "output": [
                             tool_result_content
                             if "json" in tool_result_content
                             else self._format_request_content_part(
-                                cast(ContentBlock, tool_result_content)
+                                cast(ContentBlock, tool_result_content),
+                                tool_use_id_to_name,
                             ).to_json_dict()
                             for tool_result_content in content["toolResult"]["content"]
                         ],
@@ -190,6 +202,8 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
+            tool_use_id_to_name[content["toolUse"]["toolUseId"]] = content["toolUse"]["name"]
+
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
@@ -211,15 +225,21 @@ class GeminiModel(Model):
         Returns:
             Gemini content list.
         """
+        # Gemini FunctionResponses are constructed from tool result blocks. Function name is required but is not
+        # available in tool result blocks, hence the mapping.
+        tool_use_id_to_name: dict[str, str] = {}
+
         return [
             genai.types.Content(
-                parts=[self._format_request_content_part(content) for content in message["content"]],
+                parts=[
+                    self._format_request_content_part(content, tool_use_id_to_name) for content in message["content"]
+                ],
                 role="user" if message["role"] == "user" else "model",
             )
             for message in messages
         ]
 
-    def _format_request_tools(self, tool_specs: Optional[list[ToolSpec]]) -> list[genai.types.Tool | Any]:
+    def _format_request_tools(self, tool_specs: list[ToolSpec] | None) -> list[genai.types.Tool | Any]:
         """Format tool specs into Gemini tools.
 
         - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Tool
@@ -248,9 +268,9 @@ class GeminiModel(Model):
 
     def _format_request_config(
         self,
-        tool_specs: Optional[list[ToolSpec]],
-        system_prompt: Optional[str],
-        params: Optional[dict[str, Any]],
+        tool_specs: list[ToolSpec] | None,
+        system_prompt: str | None,
+        params: dict[str, Any] | None,
     ) -> genai.types.GenerateContentConfig:
         """Format Gemini request config.
 
@@ -273,9 +293,9 @@ class GeminiModel(Model):
     def _format_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]],
-        system_prompt: Optional[str],
-        params: Optional[dict[str, Any]],
+        tool_specs: list[ToolSpec] | None,
+        system_prompt: str | None,
+        params: dict[str, Any] | None,
     ) -> dict[str, Any]:
         """Format a Gemini streaming request.
 
@@ -316,16 +336,16 @@ class GeminiModel(Model):
             case "content_start":
                 match event["data_type"]:
                     case "tool":
-                        # Note: toolUseId is the only identifier available in a tool result. However, Gemini requires
-                        #       that name be set in the equivalent FunctionResponse type. Consequently, we assign
-                        #       function name to toolUseId in our tool use block. And another reason, function_call is
-                        #       not guaranteed to have id populated.
+                        function_call = event["data"].function_call
+                        # Use Gemini's provided ID or generate one if missing
+                        tool_use_id = function_call.id or f"tooluse_{secrets.token_urlsafe(16)}"
+
                         return {
                             "contentBlockStart": {
                                 "start": {
                                     "toolUse": {
-                                        "name": event["data"].function_call.name,
-                                        "toolUseId": event["data"].function_call.name,
+                                        "name": function_call.name,
+                                        "toolUseId": tool_use_id,
                                     },
                                 },
                             },
@@ -394,8 +414,8 @@ class GeminiModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -483,8 +503,8 @@ class GeminiModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model using Gemini's native structured output.
 
         - Docs: https://ai.google.dev/gemini-api/docs/structured-output

@@ -3,7 +3,7 @@
 These types are modeled after the Bedrock API.
 """
 
-from typing import List, Literal, Union
+from typing import Literal
 
 from typing_extensions import TypedDict
 
@@ -120,13 +120,13 @@ SearchResultLocationDict = dict[Literal["searchResultLocation"], SearchResultLoc
 WebLocationDict = dict[Literal["web"], WebLocation]
 
 # Union type for citation locations - tagged union format matching AWS Bedrock API
-CitationLocation = Union[
-    DocumentCharLocationDict,
-    DocumentPageLocationDict,
-    DocumentChunkLocationDict,
-    SearchResultLocationDict,
-    WebLocationDict,
-]
+CitationLocation = (
+    DocumentCharLocationDict
+    | DocumentPageLocationDict
+    | DocumentChunkLocationDict
+    | SearchResultLocationDict
+    | WebLocationDict
+)
 
 
 class CitationSourceContent(TypedDict, total=False):
@@ -178,7 +178,7 @@ class Citation(TypedDict, total=False):
     """
 
     location: CitationLocation
-    sourceContent: List[CitationSourceContent]
+    sourceContent: list[CitationSourceContent]
     title: str
 
 
@@ -196,5 +196,5 @@ class CitationsContentBlock(TypedDict, total=False):
             citations.
     """
 
-    citations: List[Citation]
-    content: List[CitationGeneratedContent]
+    citations: list[Citation]
+    content: list[CitationGeneratedContent]
