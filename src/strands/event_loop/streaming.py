@@ -4,7 +4,8 @@ import json
 import logging
 import time
 import warnings
-from typing import Any, AsyncGenerator, AsyncIterable, Optional
+from collections.abc import AsyncGenerator, AsyncIterable
+from typing import Any
 
 from ..models.model import Model
 from ..tools import InvalidToolUseNameException
@@ -419,12 +420,13 @@ async def process_stream(
 
 async def stream_messages(
     model: Model,
-    system_prompt: Optional[str],
+    system_prompt: str | None,
     messages: Messages,
     tool_specs: list[ToolSpec],
     *,
-    tool_choice: Optional[Any] = None,
-    system_prompt_content: Optional[list[SystemContentBlock]] = None,
+    tool_choice: Any | None = None,
+    system_prompt_content: list[SystemContentBlock] | None = None,
+    invocation_state: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Streams messages to the model and processes the response.
@@ -437,6 +439,7 @@ async def stream_messages(
         tool_choice: Optional tool choice constraint for forcing specific tool usage.
         system_prompt_content: The authoritative system prompt content blocks that always contains the
             system prompt data.
+        invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
         **kwargs: Additional keyword arguments for future extensibility.
 
     Yields:
@@ -453,6 +456,7 @@ async def stream_messages(
         system_prompt,
         tool_choice=tool_choice,
         system_prompt_content=system_prompt_content,
+        invocation_state=invocation_state,
     )
 
     async for event in process_stream(chunks, start_time):

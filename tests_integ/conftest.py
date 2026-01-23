@@ -1,11 +1,127 @@
+import functools
 import json
 import logging
 import os
+from collections.abc import Callable, Sequence
 
 import boto3
 import pytest
+from tenacity import RetryCallState, RetryError, Retrying, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
+
+
+# Type alias for retry conditions
+RetryCondition = type[BaseException] | Callable[[BaseException], bool] | str
+
+
+def _should_retry_exception(exc: BaseException, conditions: Sequence[RetryCondition]) -> bool:
+    """Check if exception matches any of the given retry conditions.
+
+    Args:
+        exc: The exception to check
+        conditions: Sequence of conditions, each can be:
+            - Exception type: retry if isinstance(exc, condition)
+            - Callable: retry if condition(exc) returns True
+            - str: retry if string is in str(exc)
+    """
+    for condition in conditions:
+        if isinstance(condition, type) and issubclass(condition, BaseException):
+            if isinstance(exc, condition):
+                return True
+        elif callable(condition):
+            if condition(exc):
+                return True
+        elif isinstance(condition, str):
+            if condition in str(exc):
+                return True
+    return False
+
+
+_RETRY_ON_ANY: Sequence[RetryCondition] = (lambda _: True,)
+
+
+def retry_on_flaky(
+    reason: str,
+    *,
+    max_attempts: int = 3,
+    wait_multiplier: float = 1,
+    wait_max: float = 10,
+    retry_on: Sequence[RetryCondition] = _RETRY_ON_ANY,
+) -> Callable:
+    """Decorator to retry flaky integration tests that fail due to external factors.
+
+    WHEN TO USE:
+        - External service instability (API rate limits, transient network errors)
+        - Non-deterministic LLM responses that occasionally fail assertions
+        - Resource contention in shared test environments
+        - Known intermittent issues with third-party dependencies
+
+    WHEN NOT TO USE:
+        - Actual bugs in the code under test (fix the bug instead)
+        - Deterministic failures (these indicate real problems)
+        - Unit tests (flakiness in unit tests usually indicates a design issue)
+        - To mask consistently failing tests (investigate root cause first)
+
+    Prefer using specific retry_on conditions over retrying on any exception
+    to avoid masking real bugs.
+
+    Args:
+        reason: Required explanation of why this test is flaky and needs retries.
+            This should describe the source of non-determinism (e.g., "LLM responses
+            may vary" or "External API has intermittent rate limits").
+        max_attempts: Maximum number of retry attempts (default: 3)
+        wait_multiplier: Multiplier for exponential backoff in seconds (default: 1)
+        wait_max: Maximum wait time between retries in seconds (default: 10)
+        retry_on: Conditions for when to retry. Defaults to retrying on any exception.
+            Each condition can be:
+            - Exception type: e.g., ValueError, TimeoutError
+            - Callable: e.g., lambda e: "timeout" in str(e).lower()
+            - str: substring to match in exception message
+
+    Usage:
+        # Retry on any failure
+        @retry_on_flaky("LLM responses are non-deterministic")
+        def test_something():
+            ...
+
+        # Retry only on specific exception types
+        @retry_on_flaky("Network calls may fail transiently", retry_on=[TimeoutError, ConnectionError])
+        def test_network_call():
+            ...
+
+        # Retry on string patterns in exception message
+        @retry_on_flaky("Service has intermittent availability", retry_on=["Service unavailable", "Status 503"])
+        def test_service_call():
+            ...
+    """
+
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            def should_retry(retry_state: RetryCallState) -> bool:
+                if retry_state.outcome is None or not retry_state.outcome.failed:
+                    return False
+                exc = retry_state.outcome.exception()
+                if exc is None:
+                    return False
+                return _should_retry_exception(exc, retry_on)
+
+            try:
+                for attempt in Retrying(
+                    stop=stop_after_attempt(max_attempts),
+                    wait=wait_exponential(multiplier=wait_multiplier, max=wait_max),
+                    retry=should_retry,
+                    reraise=True,
+                ):
+                    with attempt:
+                        return func(*args, **kwargs)
+            except RetryError:
+                raise
+
+        return wrapper
+
+    return decorator
 
 
 def pytest_sessionstart(session):

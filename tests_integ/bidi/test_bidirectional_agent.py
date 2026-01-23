@@ -55,8 +55,15 @@ def calculator(operation: str, x: float, y: float) -> float:
 PROVIDER_CONFIGS = {
     "nova_sonic": {
         "model_class": BidiNovaSonicModel,
-        "model_kwargs": {"region": "us-east-1"},
+        "model_kwargs": {"region": "us-east-1"},  # Uses v2 by default
         "silence_duration": 2.5,  # Nova Sonic needs 2+ seconds of silence
+        "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+        "skip_reason": "AWS credentials not available",
+    },
+    "nova_sonic_v1": {
+        "model_class": BidiNovaSonicModel,
+        "model_kwargs": {"model_id": "amazon.nova-sonic-v1:0", "region": "us-east-1"},
+        "silence_duration": 2.5,  # Nova Sonic v1 needs 2+ seconds of silence
         "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         "skip_reason": "AWS credentials not available",
     },

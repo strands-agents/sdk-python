@@ -1020,3 +1020,96 @@ def test_default_formats_modularization():
     assert executor._get_file_format_from_mime_type("", "document") == "txt"
     assert executor._get_file_format_from_mime_type("", "image") == "png"
     assert executor._get_file_format_from_mime_type("", "video") == "mp4"
+
+
+# Tests for enable_a2a_compliant_streaming parameter
+
+
+@pytest.mark.asyncio
+async def test_legacy_mode_emits_deprecation_warning(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that legacy streaming (default) emits deprecation warning."""
+    from a2a.types import TextPart
+
+    executor = StrandsA2AExecutor(mock_strands_agent)  # Default is False
+
+    # Mock stream_async
+    async def mock_stream(content_blocks):
+        yield {"result": None}
+
+    mock_strands_agent.stream_async = MagicMock(return_value=mock_stream([]))
+
+    # Mock task
+    mock_task = MagicMock()
+    mock_task.id = "test-task-id"
+    mock_task.context_id = "test-context-id"
+    mock_request_context.current_task = mock_task
+
+    # Mock message
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "test"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    with pytest.warns(UserWarning, match="does not conform to what is expected in the A2A spec"):
+        await executor.execute(mock_request_context, mock_event_queue)
+
+
+@pytest.mark.asyncio
+async def test_a2a_compliant_mode_no_warning(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that A2A-compliant mode does not emit warning."""
+    import warnings
+
+    from a2a.types import TextPart
+
+    executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
+
+    # Mock stream_async
+    async def mock_stream(content_blocks):
+        yield {"result": None}
+
+    mock_strands_agent.stream_async = MagicMock(return_value=mock_stream([]))
+
+    # Mock task
+    mock_task = MagicMock()
+    mock_task.id = "test-task-id"
+    mock_task.context_id = "test-context-id"
+    mock_request_context.current_task = mock_task
+
+    # Mock message
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "test"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        try:
+            await executor.execute(mock_request_context, mock_event_queue)
+        except UserWarning:
+            pytest.fail("Should not emit warning")
+
+
+@pytest.mark.asyncio
+async def test_a2a_compliant_mode_uses_add_artifact(mock_strands_agent):
+    """Test that A2A-compliant mode uses add_artifact with artifact_id."""
+    executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
+    executor._current_artifact_id = "artifact-123"
+    executor._is_first_chunk = True
+
+    mock_updater = MagicMock()
+    mock_updater.add_artifact = AsyncMock()
+    mock_updater.update_status = AsyncMock()
+
+    event = {"data": "content"}
+    await executor._handle_streaming_event(event, mock_updater)
+
+    mock_updater.add_artifact.assert_called_once()
+    assert mock_updater.add_artifact.call_args[1]["artifact_id"] == "artifact-123"
+    assert mock_updater.add_artifact.call_args[1]["append"] is False
+    mock_updater.update_status.assert_not_called()

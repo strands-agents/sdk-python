@@ -14,7 +14,7 @@ Features:
 """
 
 import logging
-from typing import Any, AsyncIterable, Protocol
+from typing import Any, AsyncIterable, Protocol, runtime_checkable
 
 from ....types._events import ToolResultEvent
 from ....types.content import Messages
@@ -27,6 +27,7 @@ from ..types.events import (
 logger = logging.getLogger(__name__)
 
 
+@runtime_checkable
 class BidiModel(Protocol):
     """Protocol for bidirectional streaming models.
 

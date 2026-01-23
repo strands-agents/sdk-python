@@ -13,13 +13,18 @@ from strands.hooks import (
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
-from strands.types.content import Message
+from strands.types.content import Message, Messages
 from strands.types.tools import ToolResult, ToolUse
 
 
 @pytest.fixture
 def agent():
     return Mock()
+
+
+@pytest.fixture
+def sample_messages() -> Messages:
+    return [{"role": "user", "content": [{"text": "Hello, agent!"}]}]
 
 
 @pytest.fixture
@@ -52,6 +57,11 @@ def initialized_event(agent):
 @pytest.fixture
 def start_request_event(agent):
     return BeforeInvocationEvent(agent=agent, invocation_state={})
+
+
+@pytest.fixture
+def start_request_event_with_messages(agent, sample_messages):
+    return BeforeInvocationEvent(agent=agent, messages=sample_messages)
 
 
 @pytest.fixture
@@ -194,3 +204,34 @@ def test_invocation_state_is_available_in_model_call_events(agent):
     assert after_event.invocation_state == invocation_state
     assert after_event.invocation_state["session_id"] == "test-123"
     assert after_event.invocation_state["request_id"] == "req-456"
+
+
+@pytest.fixture
+def start_request_event_with_messages(agent, sample_messages):
+    return BeforeInvocationEvent(agent=agent, invocation_state={}, messages=sample_messages)
+
+
+def test_before_invocation_event_messages_default_none(agent):
+    """Test that BeforeInvocationEvent.messages defaults to None for backward compatibility."""
+    event = BeforeInvocationEvent(agent=agent, invocation_state={})
+    assert event.messages is None
+
+
+def test_before_invocation_event_messages_writable(agent, sample_messages):
+    """Test that BeforeInvocationEvent.messages can be modified in-place for guardrail redaction."""
+    event = BeforeInvocationEvent(agent=agent, invocation_state={}, messages=sample_messages)
+
+    # Should be able to modify the messages list in-place
+    event.messages[0]["content"] = [{"text": "[REDACTED]"}]
+    assert event.messages[0]["content"] == [{"text": "[REDACTED]"}]
+
+    # Should be able to reassign messages entirely
+    new_messages: Messages = [{"role": "user", "content": [{"text": "Different message"}]}]
+    event.messages = new_messages
+    assert event.messages == new_messages
+
+
+def test_before_invocation_event_agent_not_writable(start_request_event_with_messages):
+    """Test that BeforeInvocationEvent.agent is not writable."""
+    with pytest.raises(AttributeError, match="Property agent is not writable"):
+        start_request_event_with_messages.agent = Mock()

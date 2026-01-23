@@ -9,12 +9,14 @@ Example:
 
 import json
 import random
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from .._async import run_async
 from ..tools.executors._executor import ToolExecutor
 from ..types._events import ToolInterruptEvent
 from ..types.content import ContentBlock, Message
+from ..types.exceptions import ConcurrencyException
 from ..types.tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
@@ -73,46 +75,64 @@ class _ToolCaller:
             if self._agent._interrupt_state.activated:
                 raise RuntimeError("cannot directly call tool during interrupt")
 
-            normalized_name = self._find_normalized_tool_name(name)
+            if record_direct_tool_call is not None:
+                should_record_direct_tool_call = record_direct_tool_call
+            else:
+                should_record_direct_tool_call = self._agent.record_direct_tool_call
 
-            # Create unique tool ID and set up the tool request
-            tool_id = f"tooluse_{name}_{random.randint(100000000, 999999999)}"
-            tool_use: ToolUse = {
-                "toolUseId": tool_id,
-                "name": normalized_name,
-                "input": kwargs.copy(),
-            }
-            tool_results: list[ToolResult] = []
-            invocation_state = kwargs
+            should_lock = should_record_direct_tool_call
 
-            async def acall() -> ToolResult:
-                async for event in ToolExecutor._stream(self._agent, tool_use, tool_results, invocation_state):
-                    if isinstance(event, ToolInterruptEvent):
-                        self._agent._interrupt_state.deactivate()
-                        raise RuntimeError("cannot raise interrupt in direct tool call")
+            from ..agent import Agent  # Locally imported to avoid circular reference
 
-                tool_result = tool_results[0]
+            acquired_lock = (
+                should_lock
+                and isinstance(self._agent, Agent)
+                and self._agent._invocation_lock.acquire_lock(blocking=False)
+            )
+            if should_lock and not acquired_lock:
+                raise ConcurrencyException(
+                    "Direct tool call cannot be made while the agent is in the middle of an invocation. "
+                    "Set record_direct_tool_call=False to allow direct tool calls during agent invocation."
+                )
 
-                if record_direct_tool_call is not None:
-                    should_record_direct_tool_call = record_direct_tool_call
-                else:
-                    should_record_direct_tool_call = self._agent.record_direct_tool_call
+            try:
+                normalized_name = self._find_normalized_tool_name(name)
 
-                if should_record_direct_tool_call:
-                    # Create a record of this tool execution in the message history
-                    await self._record_tool_execution(tool_use, tool_result, user_message_override)
+                # Create unique tool ID and set up the tool request
+                tool_id = f"tooluse_{name}_{random.randint(100000000, 999999999)}"
+                tool_use: ToolUse = {
+                    "toolUseId": tool_id,
+                    "name": normalized_name,
+                    "input": kwargs.copy(),
+                }
+                tool_results: list[ToolResult] = []
+                invocation_state = kwargs
+
+                async def acall() -> ToolResult:
+                    async for event in ToolExecutor._stream(self._agent, tool_use, tool_results, invocation_state):
+                        if isinstance(event, ToolInterruptEvent):
+                            self._agent._interrupt_state.deactivate()
+                            raise RuntimeError("cannot raise interrupt in direct tool call")
+
+                    tool_result = tool_results[0]
+
+                    if should_record_direct_tool_call:
+                        # Create a record of this tool execution in the message history
+                        await self._record_tool_execution(tool_use, tool_result, user_message_override)
+
+                    return tool_result
+
+                tool_result = run_async(acall)
+
+                # TODO: https://github.com/strands-agents/sdk-python/issues/1311
+                if isinstance(self._agent, Agent):
+                    self._agent.conversation_manager.apply_management(self._agent)
 
                 return tool_result
 
-            tool_result = run_async(acall)
-
-            # TODO: https://github.com/strands-agents/sdk-python/issues/1311
-            from ..agent import Agent
-
-            if isinstance(self._agent, Agent):
-                self._agent.conversation_manager.apply_management(self._agent)
-
-            return tool_result
+            finally:
+                if acquired_lock and isinstance(self._agent, Agent):
+                    self._agent._invocation_lock.release()
 
         return caller
 

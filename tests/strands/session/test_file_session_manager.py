@@ -82,7 +82,7 @@ def test_create_session(file_manager, sample_session):
     assert os.path.exists(session_file)
 
     # Verify content
-    with open(session_file, "r") as f:
+    with open(session_file) as f:
         data = json.load(f)
         assert data["session_id"] == sample_session.session_id
         assert data["session_type"] == sample_session.session_type
@@ -144,7 +144,7 @@ def test_create_agent(file_manager, sample_session, sample_agent):
     assert os.path.exists(agent_file)
 
     # Verify content
-    with open(agent_file, "r") as f:
+    with open(agent_file) as f:
         data = json.load(f)
         assert data["agent_id"] == sample_agent.agent_id
         assert data["state"] == sample_agent.state
@@ -210,7 +210,7 @@ def test_create_message(file_manager, sample_session, sample_agent, sample_messa
     assert os.path.exists(message_path)
 
     # Verify content
-    with open(message_path, "r") as f:
+    with open(message_path) as f:
         data = json.load(f)
         assert data["message_id"] == sample_message.message_id
 
@@ -439,7 +439,7 @@ def test_create_multi_agent(multi_agent_manager, sample_session, mock_multi_agen
     assert os.path.exists(multi_agent_file)
 
     # Verify content
-    with open(multi_agent_file, "r") as f:
+    with open(multi_agent_file) as f:
         data = json.load(f)
         assert data["id"] == mock_multi_agent.id
         assert data["state"] == mock_multi_agent.state

@@ -1,20 +1,19 @@
-from typing import Iterator, Literal, Tuple, Type
+from collections.abc import Iterator
+from typing import Literal
 
-from strands.experimental.hooks.multiagent.events import (
+from strands.hooks import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeNodeCallEvent,
-    MultiAgentInitializedEvent,
-)
-from strands.hooks import (
     HookEvent,
     HookProvider,
     HookRegistry,
+    MultiAgentInitializedEvent,
 )
 
 
 class MockMultiAgentHookProvider(HookProvider):
-    def __init__(self, event_types: list[Type] | Literal["all"]):
+    def __init__(self, event_types: list[type] | Literal["all"]):
         if event_types == "all":
             event_types = [
                 MultiAgentInitializedEvent,
@@ -30,7 +29,7 @@ class MockMultiAgentHookProvider(HookProvider):
     def event_types_received(self):
         return [type(event) for event in self.events_received]
 
-    def get_events(self) -> Tuple[int, Iterator[HookEvent]]:
+    def get_events(self) -> tuple[int, Iterator[HookEvent]]:
         return len(self.events_received), iter(self.events_received)
 
     def register_hooks(self, registry: HookRegistry) -> None:

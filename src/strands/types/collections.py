@@ -1,6 +1,6 @@
 """Generic collection types for the Strands SDK."""
 
-from typing import Generic, List, Optional, TypeVar
+from typing import Generic, TypeVar
 
 T = TypeVar("T")
 
@@ -12,7 +12,7 @@ class PaginatedList(list, Generic[T]):
     so existing code that expects List[T] will continue to work.
     """
 
-    def __init__(self, data: List[T], token: Optional[str] = None):
+    def __init__(self, data: list[T], token: str | None = None):
         """Initialize a PaginatedList with data and an optional pagination token.
 
         Args:

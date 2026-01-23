@@ -104,7 +104,7 @@ def user():
 
 @pytest.fixture
 def mock_sleep():
-    with patch.object(strands.event_loop.event_loop.asyncio, "sleep", new_callable=AsyncMock) as mock:
+    with patch.object(strands.event_loop._retry.asyncio, "sleep", new_callable=AsyncMock) as mock:
         yield mock
 
 
@@ -160,7 +160,7 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
 
     assert length == 12
 
-    assert next(events) == BeforeInvocationEvent(agent=agent, invocation_state=ANY)
+    assert next(events) == BeforeInvocationEvent(agent=agent, invocation_state=ANY, messages=agent.messages[0:1])
     assert next(events) == MessageAddedEvent(
         agent=agent,
         message=agent.messages[0],
@@ -216,7 +216,12 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
     """Verify that the correct hook events are emitted as part of stream_async."""
     iterator = agent.stream_async("test message")
     await anext(iterator)
-    assert hook_provider.events_received == [BeforeInvocationEvent(agent=agent, invocation_state=ANY)]
+
+    # Verify first event is BeforeInvocationEvent with invocation_state and messages
+    assert len(hook_provider.events_received) == 1
+    assert hook_provider.events_received[0].invocation_state is not None
+    assert hook_provider.events_received[0].messages is not None
+    assert hook_provider.events_received[0].messages[0]["role"] == "user"
 
     # iterate the rest
     result = None
@@ -228,7 +233,7 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
 
     assert length == 12
 
-    assert next(events) == BeforeInvocationEvent(agent=agent, invocation_state=ANY)
+    assert next(events) == BeforeInvocationEvent(agent=agent, invocation_state=ANY, messages=agent.messages[0:1])
     assert next(events) == MessageAddedEvent(
         agent=agent,
         message=agent.messages[0],
@@ -600,3 +605,89 @@ async def test_hook_retry_with_throttle_exception(alist, mock_sleep):
     # Should succeed after: custom retry + 2 throttle retries
     assert result.stop_reason == "end_turn"
     assert result.message["content"][0]["text"] == "Success after mixed retries"
+
+
+def test_before_invocation_event_message_modification():
+    """Test that hooks can modify messages in BeforeInvocationEvent for input guardrails."""
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"text": "I received your redacted message"}],
+            },
+        ]
+    )
+
+    modified_content = None
+
+    async def input_guardrail_hook(event: BeforeInvocationEvent):
+        """Simulates a guardrail that redacts sensitive content."""
+        nonlocal modified_content
+        if event.messages is not None:
+            for message in event.messages:
+                if message.get("role") == "user":
+                    content = message.get("content", [])
+                    for block in content:
+                        if "text" in block and "SECRET" in block["text"]:
+                            # Redact sensitive content in-place
+                            block["text"] = block["text"].replace("SECRET", "[REDACTED]")
+            modified_content = event.messages[0]["content"][0]["text"]
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeInvocationEvent, input_guardrail_hook)
+
+    agent("My password is SECRET123")
+
+    # Verify the message was modified before being processed
+    assert modified_content == "My password is [REDACTED]123"
+    # Verify the modified message was added to agent's conversation history
+    assert agent.messages[0]["content"][0]["text"] == "My password is [REDACTED]123"
+
+
+def test_before_invocation_event_message_overwrite():
+    """Test that hooks can overwrite messages in BeforeInvocationEvent."""
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"text": "I received your message message"}],
+            },
+        ]
+    )
+
+    async def overwrite_input_hook(event: BeforeInvocationEvent):
+        event.messages = [{"role": "user", "content": [{"text": "GOODBYE"}]}]
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeInvocationEvent, overwrite_input_hook)
+
+    agent("HELLO")
+
+    # Verify the message was overwritten to agent's conversation history
+    assert agent.messages[0]["content"][0]["text"] == "GOODBYE"
+
+
+@pytest.mark.asyncio
+async def test_before_invocation_event_messages_none_in_structured_output(agenerator):
+    """Test that BeforeInvocationEvent.messages is None when called from deprecated structured_output."""
+
+    class Person(BaseModel):
+        name: str
+        age: int
+
+    mock_provider = MockedModelProvider([])
+    mock_provider.structured_output = Mock(return_value=agenerator([{"output": Person(name="Test", age=30)}]))
+
+    received_messages = "not_set"
+
+    async def capture_messages_hook(event: BeforeInvocationEvent):
+        nonlocal received_messages
+        received_messages = event.messages
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeInvocationEvent, capture_messages_hook)
+
+    await agent.structured_output_async(Person, "Test prompt")
+
+    # structured_output_async uses deprecated path that doesn't pass messages
+    assert received_messages is None

@@ -84,9 +84,7 @@ def start_echo_server():
                     resource=BlobResourceContents(
                         uri="https://weather.api/data/london.json",
                         mimeType="application/json",
-                        blob=base64.b64encode(
-                            '{"temperature": 18, "condition": "rainy", "humidity": 85}'.encode()
-                        ).decode(),
+                        blob=base64.b64encode(b'{"temperature": 18, "condition": "rainy", "humidity": 85}').decode(),
                     ),
                 )
             ]

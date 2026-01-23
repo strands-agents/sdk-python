@@ -5,18 +5,21 @@ This module defines the events that are emitted as Agents run through the lifecy
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
 if TYPE_CHECKING:
     from ..agent.agent_result import AgentResult
 
-from ..types.content import Message
+from ..types.content import Message, Messages
 from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
-from .registry import HookEvent
+from .registry import BaseHookEvent, HookEvent
+
+if TYPE_CHECKING:
+    from ..multiagent.base import MultiAgentBase
 
 
 @dataclass
@@ -48,9 +51,15 @@ class BeforeInvocationEvent(HookEvent):
         invocation_state: State and configuration passed through the agent invocation.
             This can include shared context for multi-agent coordination, request tracking,
             and dynamic configuration.
+        messages: The input messages for this invocation. Can be modified by hooks
+            to redact or transform content before processing.
     """
 
     invocation_state: dict[str, Any]
+    messages: Messages | None = None
+
+    def _can_write(self, name: str) -> bool:
+        return name == "messages"
 
 
 @dataclass
@@ -125,7 +134,7 @@ class BeforeToolCallEvent(HookEvent, _Interruptible):
             the tool call and use a default cancel message.
     """
 
-    selected_tool: Optional[AgentTool]
+    selected_tool: AgentTool | None
     tool_use: ToolUse
     invocation_state: dict[str, Any]
     cancel_tool: bool | str = False
@@ -166,11 +175,11 @@ class AfterToolCallEvent(HookEvent):
         cancel_message: The cancellation message if the user cancelled the tool call.
     """
 
-    selected_tool: Optional[AgentTool]
+    selected_tool: AgentTool | None
     tool_use: ToolUse
     invocation_state: dict[str, Any]
     result: ToolResult
-    exception: Optional[Exception] = None
+    exception: Exception | None = None
     cancel_message: str | None = None
 
     def _can_write(self, name: str) -> bool:
@@ -250,12 +259,113 @@ class AfterModelCallEvent(HookEvent):
         stop_reason: StopReason
 
     invocation_state: dict[str, Any]
-    stop_response: Optional[ModelStopResponse] = None
-    exception: Optional[Exception] = None
+    stop_response: ModelStopResponse | None = None
+    exception: Exception | None = None
     retry: bool = False
 
     def _can_write(self, name: str) -> bool:
         return name == "retry"
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
+
+
+# Multiagent hook events start here
+@dataclass
+class MultiAgentInitializedEvent(BaseHookEvent):
+    """Event triggered when multi-agent orchestrator initialized.
+
+    Attributes:
+        source: The multi-agent orchestrator instance
+        invocation_state: Configuration that user passes in
+    """
+
+    source: "MultiAgentBase"
+    invocation_state: dict[str, Any] | None = None
+
+
+@dataclass
+class BeforeNodeCallEvent(BaseHookEvent, _Interruptible):
+    """Event triggered before individual node execution starts.
+
+    Attributes:
+        source: The multi-agent orchestrator instance
+        node_id: ID of the node about to execute
+        invocation_state: Configuration that user passes in
+        cancel_node: A user defined message that when set, will cancel the node execution with status FAILED.
+            The message will be emitted under a MultiAgentNodeCancel event. If set to `True`, Strands will cancel the
+            node using a default cancel message.
+    """
+
+    source: "MultiAgentBase"
+    node_id: str
+    invocation_state: dict[str, Any] | None = None
+    cancel_node: bool | str = False
+
+    def _can_write(self, name: str) -> bool:
+        return name in ["cancel_node"]
+
+    @override
+    def _interrupt_id(self, name: str) -> str:
+        """Unique id for the interrupt.
+
+        Args:
+            name: User defined name for the interrupt.
+
+        Returns:
+            Interrupt id.
+        """
+        node_id = uuid.uuid5(uuid.NAMESPACE_OID, self.node_id)
+        call_id = uuid.uuid5(uuid.NAMESPACE_OID, name)
+        return f"v1:before_node_call:{node_id}:{call_id}"
+
+
+@dataclass
+class AfterNodeCallEvent(BaseHookEvent):
+    """Event triggered after individual node execution completes.
+
+    Attributes:
+        source: The multi-agent orchestrator instance
+        node_id: ID of the node that just completed execution
+        invocation_state: Configuration that user passes in
+    """
+
+    source: "MultiAgentBase"
+    node_id: str
+    invocation_state: dict[str, Any] | None = None
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
+
+
+@dataclass
+class BeforeMultiAgentInvocationEvent(BaseHookEvent):
+    """Event triggered before orchestrator execution starts.
+
+    Attributes:
+        source: The multi-agent orchestrator instance
+        invocation_state: Configuration that user passes in
+    """
+
+    source: "MultiAgentBase"
+    invocation_state: dict[str, Any] | None = None
+
+
+@dataclass
+class AfterMultiAgentInvocationEvent(BaseHookEvent):
+    """Event triggered after orchestrator execution completes.
+
+    Attributes:
+        source: The multi-agent orchestrator instance
+        invocation_state: Configuration that user passes in
+    """
+
+    source: "MultiAgentBase"
+    invocation_state: dict[str, Any] | None = None
 
     @property
     def should_reverse_callbacks(self) -> bool:
