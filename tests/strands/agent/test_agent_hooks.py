@@ -694,3 +694,104 @@ async def test_before_invocation_event_messages_none_in_structured_output(agener
 
     # structured_output_async uses deprecated path that doesn't pass messages
     assert received_messages is None
+
+
+@pytest.mark.asyncio
+async def test_hook_terminate_on_successful_call():
+    """Test that hooks can terminate even on successful model calls based on response content."""
+
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"text": "First conversation successful"}],
+            },
+            {
+                "role": "assistant",
+                "content": [{"text": "Unnecessary follow-up conversation"}],
+            },
+        ]
+    )
+
+    # Hook that terminate if response is favorable
+    class SuccessfulTerminateHook:
+        def __init__(self, end_marker="success"):
+            self.end_marker = end_marker
+            self.call_count = 0
+
+        def register_hooks(self, registry):
+            registry.add_callback(strands.hooks.AfterModelCallEvent, self.handle_after_model_call)
+
+        async def handle_after_model_call(self, event):
+            self.call_count += 1
+
+            # Check successful responses for favorable markers
+            if event.stop_response:
+                message = event.stop_response.message
+                text_content = "".join(block.get("text", "") for block in message.get("content", []))
+
+                if self.end_marker in text_content:
+                    event.terminate = True
+
+    terminate_hook = SuccessfulTerminateHook(end_marker="success")
+    agent = Agent(model=mock_provider, hooks=[terminate_hook])
+
+    result = agent("Generate a response")
+
+    # Verify hook was called only once (For first favorable response)
+    assert terminate_hook.call_count == 1
+
+    # Verify final result is the favorable response
+    assert result.message["content"][0]["text"] == "First conversation successful"
+
+
+@pytest.mark.asyncio
+async def test_hook_terminate_gracefully_on_limits(agent_tool, tool_use):
+    """Test that hooks can terminate agent gracefully after maximum counts reached."""
+
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"text": "First tool-use"}, {"toolUse": tool_use}],
+            },
+            {
+                "role": "assistant",
+                "content": [{"text": "Second tool-use"}, {"toolUse": tool_use}],
+            },
+            {
+                "role": "assistant",
+                "content": [{"text": "Third tool-use"}, {"toolUse": tool_use}],
+            },
+        ]
+    )
+
+    # Hook that counts number of calls
+    class GracefulTerminateHook:
+        def __init__(self, max_counts):
+            self.max_counts = max_counts
+            self.call_count = 0
+
+        def register_hooks(self, registry):
+            registry.add_callback(strands.hooks.AfterModelCallEvent, self.handle_after_model_call)
+
+        async def handle_after_model_call(self, event):
+            self.call_count += 1
+
+            if self.call_count > self.max_counts - 1:
+                event.terminate = True
+
+    terminate_hook = GracefulTerminateHook(max_counts=2)
+    agent = Agent(
+        model=mock_provider,
+        tools=[agent_tool],
+        hooks=[terminate_hook],
+    )
+
+    result = agent("Generate a response")
+
+    # Verify hook was called two times
+    assert terminate_hook.call_count == 2
+
+    # Verify final result is the second tool-use
+    assert result.message["content"][0]["text"] == "Second tool-use"
