@@ -148,109 +148,126 @@ class ToolExecutor(abc.ABC):
             }
         )
 
-        before_event, interrupts = await ToolExecutor._invoke_before_tool_call_hook(
-            agent, tool_func, tool_use, invocation_state
-        )
-
-        if interrupts:
-            yield ToolInterruptEvent(tool_use, interrupts)
-            return
-
-        if before_event.cancel_tool:
-            cancel_message = (
-                before_event.cancel_tool if isinstance(before_event.cancel_tool, str) else "tool cancelled by user"
+        # Retry loop for tool execution - hooks can set after_event.retry = True to retry
+        while True:
+            before_event, interrupts = await ToolExecutor._invoke_before_tool_call_hook(
+                agent, tool_func, tool_use, invocation_state
             )
-            yield ToolCancelEvent(tool_use, cancel_message)
 
-            cancel_result: ToolResult = {
-                "toolUseId": str(tool_use.get("toolUseId")),
-                "status": "error",
-                "content": [{"text": cancel_message}],
-            }
+            if interrupts:
+                yield ToolInterruptEvent(tool_use, interrupts)
+                return
 
-            after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
-                agent, None, tool_use, invocation_state, cancel_result, cancel_message=cancel_message
-            )
-            yield ToolResultEvent(after_event.result)
-            tool_results.append(after_event.result)
-            return
+            if before_event.cancel_tool:
+                cancel_message = (
+                    before_event.cancel_tool if isinstance(before_event.cancel_tool, str) else "tool cancelled by user"
+                )
+                yield ToolCancelEvent(tool_use, cancel_message)
 
-        try:
-            selected_tool = before_event.selected_tool
-            tool_use = before_event.tool_use
-            invocation_state = before_event.invocation_state
-
-            if not selected_tool:
-                if tool_func == selected_tool:
-                    logger.error(
-                        "tool_name=<%s>, available_tools=<%s> | tool not found in registry",
-                        tool_name,
-                        list(agent.tool_registry.registry.keys()),
-                    )
-                else:
-                    logger.debug(
-                        "tool_name=<%s>, tool_use_id=<%s> | a hook resulted in a non-existing tool call",
-                        tool_name,
-                        str(tool_use.get("toolUseId")),
-                    )
-
-                result: ToolResult = {
+                cancel_result: ToolResult = {
                     "toolUseId": str(tool_use.get("toolUseId")),
                     "status": "error",
-                    "content": [{"text": f"Unknown tool: {tool_name}"}],
+                    "content": [{"text": cancel_message}],
                 }
 
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
-                    agent, selected_tool, tool_use, invocation_state, result
+                    agent, None, tool_use, invocation_state, cancel_result, cancel_message=cancel_message
                 )
                 yield ToolResultEvent(after_event.result)
                 tool_results.append(after_event.result)
                 return
-            if structured_output_context.is_enabled:
-                kwargs["structured_output_context"] = structured_output_context
-            async for event in selected_tool.stream(tool_use, invocation_state, **kwargs):
-                # Internal optimization; for built-in AgentTools, we yield TypedEvents out of .stream()
-                # so that we don't needlessly yield ToolStreamEvents for non-generator callbacks.
-                # In which case, as soon as we get a ToolResultEvent we're done and for ToolStreamEvent
-                # we yield it directly; all other cases (non-sdk AgentTools), we wrap events in
-                # ToolStreamEvent and the last event is just the result.
 
-                if isinstance(event, ToolInterruptEvent):
-                    yield event
+            try:
+                selected_tool = before_event.selected_tool
+                tool_use = before_event.tool_use
+                invocation_state = before_event.invocation_state
+
+                if not selected_tool:
+                    if tool_func == selected_tool:
+                        logger.error(
+                            "tool_name=<%s>, available_tools=<%s> | tool not found in registry",
+                            tool_name,
+                            list(agent.tool_registry.registry.keys()),
+                        )
+                    else:
+                        logger.debug(
+                            "tool_name=<%s>, tool_use_id=<%s> | a hook resulted in a non-existing tool call",
+                            tool_name,
+                            str(tool_use.get("toolUseId")),
+                        )
+
+                    result: ToolResult = {
+                        "toolUseId": str(tool_use.get("toolUseId")),
+                        "status": "error",
+                        "content": [{"text": f"Unknown tool: {tool_name}"}],
+                    }
+
+                    after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
+                        agent, selected_tool, tool_use, invocation_state, result
+                    )
+                    # Check if retry requested for unknown tool error
+                    if after_event.retry:
+                        logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
+                        continue
+                    yield ToolResultEvent(after_event.result)
+                    tool_results.append(after_event.result)
                     return
+                if structured_output_context.is_enabled:
+                    kwargs["structured_output_context"] = structured_output_context
+                async for event in selected_tool.stream(tool_use, invocation_state, **kwargs):
+                    # Internal optimization; for built-in AgentTools, we yield TypedEvents out of .stream()
+                    # so that we don't needlessly yield ToolStreamEvents for non-generator callbacks.
+                    # In which case, as soon as we get a ToolResultEvent we're done and for ToolStreamEvent
+                    # we yield it directly; all other cases (non-sdk AgentTools), we wrap events in
+                    # ToolStreamEvent and the last event is just the result.
 
-                if isinstance(event, ToolResultEvent):
-                    # below the last "event" must point to the tool_result
-                    event = event.tool_result
-                    break
+                    if isinstance(event, ToolInterruptEvent):
+                        yield event
+                        return
 
-                if isinstance(event, ToolStreamEvent):
-                    yield event
-                else:
-                    yield ToolStreamEvent(tool_use, event)
+                    if isinstance(event, ToolResultEvent):
+                        # below the last "event" must point to the tool_result
+                        event = event.tool_result
+                        break
 
-            result = cast(ToolResult, event)
+                    if isinstance(event, ToolStreamEvent):
+                        yield event
+                    else:
+                        yield ToolStreamEvent(tool_use, event)
 
-            after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
-                agent, selected_tool, tool_use, invocation_state, result
-            )
+                result = cast(ToolResult, event)
 
-            yield ToolResultEvent(after_event.result)
-            tool_results.append(after_event.result)
+                after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
+                    agent, selected_tool, tool_use, invocation_state, result
+                )
 
-        except Exception as e:
-            logger.exception("tool_name=<%s> | failed to process tool", tool_name)
-            error_result: ToolResult = {
-                "toolUseId": str(tool_use.get("toolUseId")),
-                "status": "error",
-                "content": [{"text": f"Error: {str(e)}"}],
-            }
+                # Check if retry requested
+                if after_event.retry:
+                    logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
+                    continue
 
-            after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
-                agent, selected_tool, tool_use, invocation_state, error_result, exception=e
-            )
-            yield ToolResultEvent(after_event.result)
-            tool_results.append(after_event.result)
+                yield ToolResultEvent(after_event.result)
+                tool_results.append(after_event.result)
+                return
+
+            except Exception as e:
+                logger.exception("tool_name=<%s> | failed to process tool", tool_name)
+                error_result: ToolResult = {
+                    "toolUseId": str(tool_use.get("toolUseId")),
+                    "status": "error",
+                    "content": [{"text": f"Error: {str(e)}"}],
+                }
+
+                after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
+                    agent, selected_tool, tool_use, invocation_state, error_result, exception=e
+                )
+                # Check if retry requested for exception
+                if after_event.retry:
+                    logger.debug("tool_name=<%s> | retry requested after exception, retrying tool call", tool_name)
+                    continue
+                yield ToolResultEvent(after_event.result)
+                tool_results.append(after_event.result)
+                return
 
     @staticmethod
     async def _stream_with_trace(
