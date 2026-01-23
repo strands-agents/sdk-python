@@ -163,12 +163,12 @@ class AfterToolCallEvent(HookEvent):
         discard the current tool result and invoke the tool again. This has important
         implications for streaming consumers:
 
-        - Streaming events from the discarded tool execution will have already been emitted
-          to callers before the retry occurs. Agent invokers consuming streamed events
-          should be prepared to handle this scenario, potentially by tracking retry state
-          or implementing idempotent event processing
-        - The original tool result is thrown away internally and not added to the
-          conversation history
+        - ToolStreamEvents (intermediate streaming events) from the discarded tool execution
+          will have already been emitted to callers before the retry occurs. Agent invokers
+          consuming streamed events should be prepared to handle this scenario, potentially
+          by tracking retry state or implementing idempotent event processing
+        - ToolResultEvent is NOT emitted for discarded attempts - only the final attempt's
+          result is emitted and added to the conversation history
 
     Attributes:
         selected_tool: The tool that was invoked. It may be None if tool lookup failed.

@@ -551,10 +551,14 @@ async def test_executor_stream_retry_true(executor, agent, tool_results, invocat
 async def test_executor_stream_retry_true_emits_events_from_both_attempts(
     executor, agent, tool_results, invocation_state, alist
 ):
-    """Test that streaming events from discarded attempt ARE emitted before retry.
+    """Test that ToolStreamEvents from discarded attempt ARE emitted, but ToolResultEvent is NOT.
 
     This validates the documented behavior: 'Streaming events from the discarded
     tool execution will have already been emitted to callers before the retry occurs.'
+
+    Key distinction:
+    - ToolStreamEvent (intermediate): Yielded immediately, visible from BOTH attempts
+    - ToolResultEvent (final): Only yielded for the final attempt, discarded on retry
     """
     call_count = {"count": 0}
 
