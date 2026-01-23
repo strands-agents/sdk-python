@@ -5,6 +5,7 @@ import pytest
 from pydantic import BaseModel
 
 from strands.agent.agent_result import AgentResult
+from strands.interrupt import Interrupt
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.types.content import Message
 from strands.types.streaming import StopReason
@@ -185,7 +186,7 @@ def test__init__structured_output_defaults_to_none(mock_metrics, simple_message:
 
 
 def test__str__with_structured_output(mock_metrics, simple_message: Message):
-    """Test that str() is not affected by structured_output."""
+    """Test that str() returns structured output JSON when structured_output is present."""
     structured_output = StructuredOutputModel(name="test", value=42)
 
     result = AgentResult(
@@ -196,11 +197,11 @@ def test__str__with_structured_output(mock_metrics, simple_message: Message):
         structured_output=structured_output,
     )
 
-    # The string representation should only include the message text, not structured output
+    # When structured_output is present, it takes priority over message text
     message_string = str(result)
-    assert message_string == "Hello world!\n"
-    assert "test" not in message_string
-    assert "42" not in message_string
+    assert message_string == structured_output.model_dump_json()
+    assert "test" in message_string
+    assert "42" in message_string
 
 
 def test__str__empty_message_with_structured_output(mock_metrics, empty_message: Message):
@@ -283,3 +284,90 @@ def test__str__mixed_text_and_citations_content(mock_metrics, mixed_text_and_cit
 
     message_string = str(result)
     assert message_string == "Introduction paragraph\nCited content here.\nConclusion paragraph\n"
+
+
+def test__str__with_interrupts(mock_metrics, simple_message: Message):
+    """Test that str() returns stringified interrupts when present."""
+    interrupts = [
+        Interrupt(id="int-1", name="approval", reason="Need user approval"),
+        Interrupt(id="int-2", name="input", reason="Need more info"),
+    ]
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=simple_message,
+        metrics=mock_metrics,
+        state={},
+        interrupts=interrupts,
+    )
+
+    message_string = str(result)
+
+    # Should contain stringified interrupt dicts
+    assert "int-1" in message_string
+    assert "approval" in message_string
+    assert "Need user approval" in message_string
+    assert "int-2" in message_string
+    assert "input" in message_string
+    assert "Need more info" in message_string
+
+
+def test__str__interrupts_priority_over_structured_output(mock_metrics, simple_message: Message):
+    """Test that interrupts take priority over structured_output in str()."""
+    interrupts = [Interrupt(id="int-1", name="approval", reason="Needs approval")]
+    structured_output = StructuredOutputModel(name="test", value=42)
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=simple_message,
+        metrics=mock_metrics,
+        state={},
+        interrupts=interrupts,
+        structured_output=structured_output,
+    )
+
+    message_string = str(result)
+
+    # Should return interrupts, not structured output
+    assert "int-1" in message_string
+    assert "approval" in message_string
+    # Should NOT contain structured output
+    assert "test" not in message_string or "approval" in message_string  # "test" might appear but not from structured
+    assert '"value": 42' not in message_string
+
+
+def test__str__interrupts_priority_over_text_content(mock_metrics, simple_message: Message):
+    """Test that interrupts take priority over message text content in str()."""
+    interrupts = [Interrupt(id="int-1", name="confirm", reason="Please confirm")]
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=simple_message,
+        metrics=mock_metrics,
+        state={},
+        interrupts=interrupts,
+    )
+
+    message_string = str(result)
+
+    # Should return interrupts, not message text
+    assert "int-1" in message_string
+    assert "confirm" in message_string
+    assert "Hello world!" not in message_string
+
+
+def test__str__empty_interrupts_returns_agent_message(mock_metrics, simple_message: Message):
+    """Test that empty interrupts list falls through to other content."""
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=simple_message,
+        metrics=mock_metrics,
+        state={},
+        interrupts=[],
+    )
+
+    message_string = str(result)
+
+    # Empty list is falsy, should fall through to text content
+    assert message_string == "Hello world!\n"
+
