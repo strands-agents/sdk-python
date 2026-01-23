@@ -235,9 +235,13 @@ class AfterModelCallEvent(HookEvent):
     stop_response: Optional[ModelStopResponse] = None
     exception: Optional[Exception] = None
     retry: bool = False
+    terminate: bool = False
 
     def _can_write(self, name: str) -> bool:
-        return name == "retry"
+        return name in (
+            "retry",
+            "terminate",
+        )
 
     @property
     def should_reverse_callbacks(self) -> bool:
