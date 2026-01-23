@@ -156,18 +156,6 @@ class BidiAfterToolCallEvent(BidiHookEvent):
     Note: This event uses reverse callback ordering, meaning callbacks registered
     later will be invoked first during cleanup.
 
-    Tool Retrying:
-        When ``retry`` is set to True by a hook callback, the tool executor will
-        discard the current tool result and invoke the tool again. This has important
-        implications for streaming consumers:
-
-        - Streaming events from the discarded tool execution will have already been emitted
-          to callers before the retry occurs. Agent invokers consuming streamed events
-          should be prepared to handle this scenario, potentially by tracking retry state
-          or implementing idempotent event processing
-        - The original tool result is thrown away internally and not added to the
-          conversation history
-
     Attributes:
         selected_tool: The tool that was invoked. It may be None if tool lookup failed.
         tool_use: The tool parameters that were passed to the tool invoked.
@@ -176,9 +164,6 @@ class BidiAfterToolCallEvent(BidiHookEvent):
             or an Exception if the tool execution failed.
         exception: Exception if the tool execution failed, None if successful.
         cancel_message: The cancellation message if the user cancelled the tool call.
-        retry: Whether to retry the tool invocation. Can be set by hook callbacks
-            to trigger a retry. When True, the current result is discarded and the
-            tool is called again. Defaults to False.
     """
 
     selected_tool: AgentTool | None
@@ -187,10 +172,9 @@ class BidiAfterToolCallEvent(BidiHookEvent):
     result: ToolResult
     exception: Exception | None = None
     cancel_message: str | None = None
-    retry: bool = False
 
     def _can_write(self, name: str) -> bool:
-        return name in ["result", "retry"]
+        return name == "result"
 
     @property
     def should_reverse_callbacks(self) -> bool:

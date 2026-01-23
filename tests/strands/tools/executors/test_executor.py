@@ -482,166 +482,157 @@ async def test_executor_stream_updates_invocation_state_with_agent(
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_retry_on_success(executor, agent, tool_results, invocation_state, alist):
-    """Test that setting retry=True on AfterToolCallEvent causes tool re-execution."""
+async def test_executor_stream_no_retry_set(executor, agent, tool_results, invocation_state, alist):
+    """Test default behavior when retry is not set - tool executes once."""
     call_count = {"count": 0}
 
-    @strands.tool(name="retry_tool")
-    def retry_tool():
+    @strands.tool(name="counting_tool")
+    def counting_tool():
         call_count["count"] += 1
         return f"attempt_{call_count['count']}"
 
-    agent.tool_registry.register_tool(retry_tool)
+    agent.tool_registry.register_tool(counting_tool)
 
-    # Retry once, then succeed
-    def retry_callback(event):
-        if isinstance(event, AfterToolCallEvent) and call_count["count"] < 2:
-            event.retry = True
-        return event
-
-    agent.hooks.add_callback(AfterToolCallEvent, retry_callback)
-
-    tool_use: ToolUse = {"name": "retry_tool", "toolUseId": "1", "input": {}}
+    tool_use: ToolUse = {"name": "counting_tool", "toolUseId": "1", "input": {}}
     stream = executor._stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
 
-    # Should have been called twice due to retry
-    assert call_count["count"] == 2
+    # Tool should be called exactly once
+    assert call_count["count"] == 1
 
-    # Final result should be from second attempt
-    exp_events = [
-        ToolResultEvent({"toolUseId": "1", "status": "success", "content": [{"text": "attempt_2"}]}),
-    ]
-    assert tru_events == exp_events
-
-
-@pytest.mark.asyncio
-async def test_executor_stream_retry_on_error(executor, agent, tool_results, invocation_state, alist):
-    """Test that retry works when tool raises an exception."""
-    call_count = {"count": 0}
-
-    @strands.tool(name="error_retry_tool")
-    def error_retry_tool():
-        call_count["count"] += 1
-        if call_count["count"] < 2:
-            raise RuntimeError("Simulated failure")
-        return "success"
-
-    agent.tool_registry.register_tool(error_retry_tool)
-
-    # Retry on error - check result status since @tool decorator catches exceptions
-    def retry_callback(event):
-        if isinstance(event, AfterToolCallEvent) and event.result.get("status") == "error":
-            event.retry = True
-        return event
-
-    agent.hooks.add_callback(AfterToolCallEvent, retry_callback)
-
-    tool_use: ToolUse = {"name": "error_retry_tool", "toolUseId": "1", "input": {}}
-    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
-
-    tru_events = await alist(stream)
-
-    # Should have been called twice - first failed, second succeeded
-    assert call_count["count"] == 2
-
-    # Final result should be success
-    exp_events = [
-        ToolResultEvent({"toolUseId": "1", "status": "success", "content": [{"text": "success"}]}),
-    ]
-    assert tru_events == exp_events
-
-
-@pytest.mark.asyncio
-async def test_executor_stream_retry_respects_max_retries(executor, agent, tool_results, invocation_state, alist):
-    """Test that retry can be limited by the hook callback."""
-    call_count = {"count": 0}
-    max_retries = 3
-
-    @strands.tool(name="limited_retry_tool")
-    def limited_retry_tool():
-        call_count["count"] += 1
-        raise RuntimeError(f"Failure {call_count['count']}")
-
-    agent.tool_registry.register_tool(limited_retry_tool)
-
-    # Retry up to max_retries times - check result status since @tool decorator catches exceptions
-    def retry_callback(event):
-        if isinstance(event, AfterToolCallEvent) and event.result.get("status") == "error":
-            if call_count["count"] < max_retries:
-                event.retry = True
-        return event
-
-    agent.hooks.add_callback(AfterToolCallEvent, retry_callback)
-
-    tool_use: ToolUse = {"name": "limited_retry_tool", "toolUseId": "1", "input": {}}
-    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
-
-    tru_events = await alist(stream)
-
-    # Should have been called max_retries times
-    assert call_count["count"] == max_retries
-
-    # Final result should be error from last attempt
+    # Single result event with first attempt's content
     assert len(tru_events) == 1
-    assert tru_events[0].tool_result["status"] == "error"
-    assert "Failure 3" in tru_events[0].tool_result["content"][0]["text"]
+    assert tru_events[0].tool_result == {"toolUseId": "1", "status": "success", "content": [{"text": "attempt_1"}]}
+
+    # tool_results should contain the result
+    assert len(tool_results) == 1
+    assert tool_results[0] == {"toolUseId": "1", "status": "success", "content": [{"text": "attempt_1"}]}
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_retry_on_exception(executor, agent, tool_results, invocation_state, alist):
-    """Test that retry works when tool.stream raises an exception directly."""
+async def test_executor_stream_retry_true(executor, agent, tool_results, invocation_state, alist):
+    """Test that retry=True causes tool re-execution."""
     call_count = {"count": 0}
 
-    @strands.tool(name="stream_exception_tool")
-    def stream_exception_tool():
-        return "success"
-
-    # Replace stream to raise exception directly (like real exception_tool fixture)
-    async def mock_stream(_tool_use, _invocation_state, **kwargs):
+    @strands.tool(name="counting_tool")
+    def counting_tool():
         call_count["count"] += 1
-        if call_count["count"] < 2:
-            raise RuntimeError("Stream exception")
-        yield {"toolUseId": "1", "status": "success", "content": [{"text": "recovered"}]}
+        return f"attempt_{call_count['count']}"
 
-    stream_exception_tool.stream = mock_stream
-    agent.tool_registry.register_tool(stream_exception_tool)
+    agent.tool_registry.register_tool(counting_tool)
 
-    # Retry on exception - event.exception is set when executor catches exception
-    def retry_callback(event):
-        if isinstance(event, AfterToolCallEvent) and event.exception is not None:
+    # Set retry=True on first call only
+    def retry_once(event):
+        if isinstance(event, AfterToolCallEvent) and call_count["count"] == 1:
             event.retry = True
         return event
 
-    agent.hooks.add_callback(AfterToolCallEvent, retry_callback)
+    agent.hooks.add_callback(AfterToolCallEvent, retry_once)
 
-    tool_use: ToolUse = {"name": "stream_exception_tool", "toolUseId": "1", "input": {}}
+    tool_use: ToolUse = {"name": "counting_tool", "toolUseId": "1", "input": {}}
     stream = executor._stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
 
-    # Should have been called twice - first raised exception, second succeeded
+    # Tool should be called twice due to retry
     assert call_count["count"] == 2
 
-    # Final result should be success (last event is ToolResultEvent)
-    assert tru_events[-1].tool_result["status"] == "success"
-    assert "recovered" in tru_events[-1].tool_result["content"][0]["text"]
+    # Only final result is yielded (first attempt's result was discarded)
+    assert len(tru_events) == 1
+    assert tru_events[0].tool_result == {"toolUseId": "1", "status": "success", "content": [{"text": "attempt_2"}]}
+
+    # tool_results only contains the final result
+    assert len(tool_results) == 1
+    assert tool_results[0] == {"toolUseId": "1", "status": "success", "content": [{"text": "attempt_2"}]}
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_retry_field_is_writable(executor, agent, tool_results, invocation_state, alist):
-    """Test that the retry field on AfterToolCallEvent can be written."""
-    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+async def test_executor_stream_retry_true_emits_events_from_both_attempts(
+    executor, agent, tool_results, invocation_state, alist
+):
+    """Test that streaming events from discarded attempt ARE emitted before retry.
 
-    # Verify retry field can be set
-    def check_retry_writable(event):
-        if isinstance(event, AfterToolCallEvent):
-            assert event._can_write("retry") is True
-            # Don't actually retry, just verify it's writable
+    This validates the documented behavior: 'Streaming events from the discarded
+    tool execution will have already been emitted to callers before the retry occurs.'
+    """
+    call_count = {"count": 0}
+
+    @strands.tool(name="streaming_tool")
+    def streaming_tool():
+        return "unused"
+
+    # Provide streaming implementation (same pattern as exception_tool fixture)
+    async def tool_stream(_tool_use, _invocation_state, **kwargs):
+        call_count["count"] += 1
+        yield f"streaming_from_attempt_{call_count['count']}"
+        yield ToolResultEvent(
+            {"toolUseId": "1", "status": "success", "content": [{"text": f"result_{call_count['count']}"}]}
+        )
+
+    streaming_tool.stream = tool_stream
+    agent.tool_registry.register_tool(streaming_tool)
+
+    # Set retry=True on first call
+    def retry_once(event):
+        if isinstance(event, AfterToolCallEvent) and call_count["count"] == 1:
+            event.retry = True
         return event
 
-    agent.hooks.add_callback(AfterToolCallEvent, check_retry_writable)
+    agent.hooks.add_callback(AfterToolCallEvent, retry_once)
 
+    tool_use: ToolUse = {"name": "streaming_tool", "toolUseId": "1", "input": {}}
     stream = executor._stream(agent, tool_use, tool_results, invocation_state)
-    await alist(stream)
+
+    tru_events = await alist(stream)
+
+    # Tool called twice
+    assert call_count["count"] == 2
+
+    # Streaming events from BOTH attempts are emitted (documented behavior)
+    stream_events = [e for e in tru_events if isinstance(e, ToolStreamEvent)]
+    assert len(stream_events) == 2
+    assert stream_events[0] == ToolStreamEvent(tool_use, "streaming_from_attempt_1")
+    assert stream_events[1] == ToolStreamEvent(tool_use, "streaming_from_attempt_2")
+
+    # Only final ToolResultEvent is emitted
+    result_events = [e for e in tru_events if isinstance(e, ToolResultEvent)]
+    assert len(result_events) == 1
+    assert result_events[0].tool_result["content"][0]["text"] == "result_2"
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_retry_false(executor, agent, tool_results, invocation_state, alist):
+    """Test that explicitly setting retry=False does not retry."""
+    call_count = {"count": 0}
+
+    @strands.tool(name="counting_tool")
+    def counting_tool():
+        call_count["count"] += 1
+        return f"attempt_{call_count['count']}"
+
+    agent.tool_registry.register_tool(counting_tool)
+
+    # Explicitly set retry=False
+    def no_retry(event):
+        if isinstance(event, AfterToolCallEvent):
+            event.retry = False
+        return event
+
+    agent.hooks.add_callback(AfterToolCallEvent, no_retry)
+
+    tool_use: ToolUse = {"name": "counting_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    tru_events = await alist(stream)
+
+    # Tool should be called exactly once
+    assert call_count["count"] == 1
+
+    # Single result event
+    assert len(tru_events) == 1
+    assert tru_events[0].tool_result == {"toolUseId": "1", "status": "success", "content": [{"text": "attempt_1"}]}
+
+    # tool_results should contain the result
+    assert len(tool_results) == 1
+    assert tool_results[0] == {"toolUseId": "1", "status": "success", "content": [{"text": "attempt_1"}]}

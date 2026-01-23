@@ -206,7 +206,7 @@ class ToolExecutor(abc.ABC):
                         agent, selected_tool, tool_use, invocation_state, result
                     )
                     # Check if retry requested for unknown tool error
-                    if after_event.retry:
+                    if getattr(after_event, "retry", False):
                         logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
                         continue
                     yield ToolResultEvent(after_event.result)
@@ -242,7 +242,7 @@ class ToolExecutor(abc.ABC):
                 )
 
                 # Check if retry requested
-                if after_event.retry:
+                if getattr(after_event, "retry", False):
                     logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
                     continue
 
@@ -262,7 +262,7 @@ class ToolExecutor(abc.ABC):
                     agent, selected_tool, tool_use, invocation_state, error_result, exception=e
                 )
                 # Check if retry requested for exception
-                if after_event.retry:
+                if getattr(after_event, "retry", False):
                     logger.debug("tool_name=<%s> | retry requested after exception, retrying tool call", tool_name)
                     continue
                 yield ToolResultEvent(after_event.result)
