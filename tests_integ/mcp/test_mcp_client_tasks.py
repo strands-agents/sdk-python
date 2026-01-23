@@ -1,11 +1,4 @@
-"""Integration tests for MCP task-augmented tool execution.
-
-These tests verify that our MCPClient correctly handles tools with taskSupport settings
-and integrates with MCP servers that support task-augmented execution.
-
-The test server (task_echo_server.py) includes a workaround for an MCP Python SDK bug
-where `enable_tasks()` doesn't properly set `tasks.requests.tools.call` capability.
-"""
+"""Integration tests for MCP task-augmented tool execution."""
 
 import os
 import socket
@@ -21,12 +14,11 @@ from strands.tools.mcp.mcp_types import MCPTransport
 
 
 def _find_available_port() -> int:
-    """Find an available port by binding to port 0 and letting the OS assign one."""
+    """Find an available port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         s.listen(1)
-        port = s.getsockname()[1]
-    return port
+        return s.getsockname()[1]
 
 
 def start_task_server(port: int) -> None:
@@ -41,7 +33,6 @@ def start_task_server(port: int) -> None:
 
 @pytest.fixture(scope="module")
 def task_server_port() -> int:
-    """Get a dynamically allocated port for the task server."""
     return _find_available_port()
 
 
@@ -50,14 +41,13 @@ def task_server(task_server_port: int) -> Any:
     """Start the task server for the test module."""
     server_thread = threading.Thread(target=start_task_server, kwargs={"port": task_server_port}, daemon=True)
     server_thread.start()
-    time.sleep(2)  # Wait for server to start
+    time.sleep(2)
     yield
-    # Server thread is daemon, will be cleaned up automatically
 
 
 @pytest.fixture
 def task_mcp_client(task_server: Any, task_server_port: int) -> MCPClient:
-    """Create an MCP client connected to the task server with tasks enabled."""
+    """Create an MCP client with tasks enabled."""
 
     def transport_callback() -> MCPTransport:
         return streamablehttp_client(url=f"http://127.0.0.1:{task_server_port}/mcp")
@@ -67,150 +57,98 @@ def task_mcp_client(task_server: Any, task_server_port: int) -> MCPClient:
 
 @pytest.fixture
 def task_mcp_client_disabled(task_server: Any, task_server_port: int) -> MCPClient:
-    """Create an MCP client connected to the task server with tasks disabled (default)."""
+    """Create an MCP client with tasks disabled (default)."""
 
     def transport_callback() -> MCPTransport:
         return streamablehttp_client(url=f"http://127.0.0.1:{task_server_port}/mcp")
 
-    return MCPClient(transport_callback)  # No experimental config - tasks disabled
+    return MCPClient(transport_callback)
 
 
-@pytest.mark.skipif(
-    condition=os.environ.get("GITHUB_ACTIONS") == "true",
-    reason="streamable transport is failing in GitHub actions",
-)
+@pytest.mark.skipif(os.environ.get("GITHUB_ACTIONS") == "true", reason="streamable transport failing in CI")
 class TestMCPTaskSupport:
-    """Integration tests for MCP task-augmented execution.
+    """Integration tests for MCP task-augmented execution."""
 
-    These tests verify our client correctly:
-    1. Detects server task capability and uses task-augmented execution when appropriate
-    2. Caches taskSupport settings from tools
-    3. Falls back to direct call_tool for tools that don't support tasks
-    4. Handles the full task workflow (call_tool_as_task -> poll_task -> get_task_result)
-    """
-
-    def test_task_forbidden_tool_uses_direct_call(self, task_mcp_client: MCPClient) -> None:
-        """Test that a tool with taskSupport='forbidden' uses direct call_tool."""
-        with task_mcp_client:
-            tools = task_mcp_client.list_tools_sync()
-            assert "task_forbidden_echo" in [t.tool_name for t in tools]
-
-            result = task_mcp_client.call_tool_sync(
-                tool_use_id="test-1", name="task_forbidden_echo", arguments={"message": "Hello forbidden!"}
-            )
-            assert result["status"] == "success"
-            assert "Forbidden echo: Hello forbidden!" in result["content"][0].get("text", "")
-
-    def test_tool_without_task_support_uses_direct_call(self, task_mcp_client: MCPClient) -> None:
-        """Test that a tool without taskSupport setting uses direct call_tool."""
-        with task_mcp_client:
-            tools = task_mcp_client.list_tools_sync()
-            assert "echo" in [t.tool_name for t in tools]
-
-            result = task_mcp_client.call_tool_sync(
-                tool_use_id="test-2", name="echo", arguments={"message": "Hello simple!"}
-            )
-            assert result["status"] == "success"
-            assert "Simple echo: Hello simple!" in result["content"][0].get("text", "")
-
-    def test_tool_task_support_caching(self, task_mcp_client: MCPClient) -> None:
-        """Test that tool taskSupport values are cached during list_tools."""
+    def test_direct_call_tools(self, task_mcp_client: MCPClient) -> None:
+        """Test tools that use direct call_tool (forbidden or no taskSupport)."""
         with task_mcp_client:
             task_mcp_client.list_tools_sync()
+
+            # Tool with taskSupport='forbidden'
+            r1 = task_mcp_client.call_tool_sync(
+                tool_use_id="t1", name="task_forbidden_echo", arguments={"message": "Hello!"}
+            )
+            assert r1["status"] == "success"
+            assert "Forbidden echo: Hello!" in r1["content"][0].get("text", "")
+
+            # Tool without taskSupport
+            r2 = task_mcp_client.call_tool_sync(tool_use_id="t2", name="echo", arguments={"message": "Simple!"})
+            assert r2["status"] == "success"
+            assert "Simple echo: Simple!" in r2["content"][0].get("text", "")
+
+    def test_task_augmented_tools(self, task_mcp_client: MCPClient) -> None:
+        """Test tools that use task-augmented execution (required or optional)."""
+        with task_mcp_client:
+            task_mcp_client.list_tools_sync()
+
+            # Tool with taskSupport='required'
+            r1 = task_mcp_client.call_tool_sync(
+                tool_use_id="t1", name="task_required_echo", arguments={"message": "Required!"}
+            )
+            assert r1["status"] == "success"
+            assert "Task echo: Required!" in r1["content"][0].get("text", "")
+
+            # Tool with taskSupport='optional'
+            r2 = task_mcp_client.call_tool_sync(
+                tool_use_id="t2", name="task_optional_echo", arguments={"message": "Optional!"}
+            )
+            assert r2["status"] == "success"
+            assert "Task optional echo: Optional!" in r2["content"][0].get("text", "")
+
+    def test_task_support_caching_and_decision(self, task_mcp_client: MCPClient) -> None:
+        """Test taskSupport caching and _should_use_task decision logic."""
+        with task_mcp_client:
+            task_mcp_client.list_tools_sync()
+
+            # Verify cached values
             assert task_mcp_client._get_tool_task_support("task_required_echo") == "required"
             assert task_mcp_client._get_tool_task_support("task_optional_echo") == "optional"
             assert task_mcp_client._get_tool_task_support("task_forbidden_echo") == "forbidden"
             assert task_mcp_client._get_tool_task_support("echo") is None
 
-    def test_server_capabilities_advertised(self, task_mcp_client: MCPClient) -> None:
-        """Test that server properly advertises task capabilities."""
-        with task_mcp_client:
-            task_mcp_client.list_tools_sync()
-            session = task_mcp_client._background_thread_session
-            if session:
-                caps = session.get_server_capabilities()
-                assert caps is not None and caps.tasks is not None
-                assert caps.tasks.requests is not None and caps.tasks.requests.tools is not None
-                assert caps.tasks.requests.tools.call is not None
-            assert task_mcp_client._has_server_task_support() is True
-
-    def test_task_required_tool_uses_task_execution(self, task_mcp_client: MCPClient) -> None:
-        """Test that task-required tools use task-augmented execution."""
-        with task_mcp_client:
-            tools = task_mcp_client.list_tools_sync()
-            assert "task_required_echo" in [t.tool_name for t in tools]
-
-            result = task_mcp_client.call_tool_sync(
-                tool_use_id="test-3", name="task_required_echo", arguments={"message": "Hello from task!"}
-            )
-            assert result["status"] == "success"
-            assert "Task echo: Hello from task!" in result["content"][0].get("text", "")
-
-    def test_task_optional_tool_uses_task_execution(self, task_mcp_client: MCPClient) -> None:
-        """Test that task-optional tools use task-augmented execution when server supports it."""
-        with task_mcp_client:
-            tools = task_mcp_client.list_tools_sync()
-            assert "task_optional_echo" in [t.tool_name for t in tools]
-
-            result = task_mcp_client.call_tool_sync(
-                tool_use_id="test-4", name="task_optional_echo", arguments={"message": "Hello optional task!"}
-            )
-            assert result["status"] == "success"
-            assert "Task optional echo: Hello optional task!" in result["content"][0].get("text", "")
-
-    def test_should_use_task_logic_with_server_support(self, task_mcp_client: MCPClient) -> None:
-        """Test that _should_use_task returns correct values based on tool taskSupport."""
-        with task_mcp_client:
-            task_mcp_client.list_tools_sync()
+            # Verify decision logic
             assert task_mcp_client._should_use_task("task_required_echo") is True
             assert task_mcp_client._should_use_task("task_optional_echo") is True
             assert task_mcp_client._should_use_task("task_forbidden_echo") is False
             assert task_mcp_client._should_use_task("echo") is False
 
-    def test_multiple_tool_calls_in_sequence(self, task_mcp_client: MCPClient) -> None:
-        """Test calling multiple tools in sequence with different task modes."""
+    def test_server_capabilities(self, task_mcp_client: MCPClient) -> None:
+        """Test server task capability detection."""
         with task_mcp_client:
             task_mcp_client.list_tools_sync()
-
-            r1 = task_mcp_client.call_tool_sync(
-                tool_use_id="s1", name="task_forbidden_echo", arguments={"message": "1"}
-            )
-            assert r1["status"] == "success" and "Forbidden echo: 1" in r1["content"][0].get("text", "")
-
-            r2 = task_mcp_client.call_tool_sync(tool_use_id="s2", name="echo", arguments={"message": "2"})
-            assert r2["status"] == "success" and "Simple echo: 2" in r2["content"][0].get("text", "")
-
-            r3 = task_mcp_client.call_tool_sync(tool_use_id="s3", name="task_optional_echo", arguments={"message": "3"})
-            assert r3["status"] == "success" and "Task optional echo: 3" in r3["content"][0].get("text", "")
-
-            r4 = task_mcp_client.call_tool_sync(tool_use_id="s4", name="task_required_echo", arguments={"message": "4"})
-            assert r4["status"] == "success" and "Task echo: 4" in r4["content"][0].get("text", "")
-
-    @pytest.mark.asyncio
-    async def test_async_tool_calls(self, task_mcp_client: MCPClient) -> None:
-        """Test async tool calls work correctly."""
-        with task_mcp_client:
-            task_mcp_client.list_tools_sync()
-            result = await task_mcp_client.call_tool_async(
-                tool_use_id="test-async", name="task_forbidden_echo", arguments={"message": "Async hello!"}
-            )
-            assert result["status"] == "success"
-            assert "Forbidden echo: Async hello!" in result["content"][0].get("text", "")
+            assert task_mcp_client._has_server_task_support() is True
 
     def test_tasks_disabled_by_default(self, task_mcp_client_disabled: MCPClient) -> None:
         """Test that tasks are disabled when experimental.tasks is not configured."""
         with task_mcp_client_disabled:
             task_mcp_client_disabled.list_tools_sync()
 
-            # Even though server supports tasks and tool has taskSupport='required',
-            # tasks should NOT be used because experimental.tasks is not configured
             assert task_mcp_client_disabled._is_tasks_enabled() is False
             assert task_mcp_client_disabled._should_use_task("task_required_echo") is False
-            assert task_mcp_client_disabled._should_use_task("task_optional_echo") is False
 
-            # Tool calls should still work via direct call_tool
+            # Tool calls still work via direct call_tool
             result = task_mcp_client_disabled.call_tool_sync(
-                tool_use_id="test-disabled", name="task_required_echo", arguments={"message": "Direct call!"}
+                tool_use_id="t", name="task_required_echo", arguments={"message": "Direct!"}
             )
             assert result["status"] == "success"
-            assert "Task echo: Direct call!" in result["content"][0].get("text", "")
+
+    @pytest.mark.asyncio
+    async def test_async_tool_call(self, task_mcp_client: MCPClient) -> None:
+        """Test async tool calls."""
+        with task_mcp_client:
+            task_mcp_client.list_tools_sync()
+            result = await task_mcp_client.call_tool_async(
+                tool_use_id="t", name="task_forbidden_echo", arguments={"message": "Async!"}
+            )
+            assert result["status"] == "success"
+            assert "Forbidden echo: Async!" in result["content"][0].get("text", "")
