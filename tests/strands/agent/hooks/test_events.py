@@ -56,7 +56,7 @@ def initialized_event(agent):
 
 @pytest.fixture
 def start_request_event(agent):
-    return BeforeInvocationEvent(agent=agent, invocation_state={})
+    return BeforeInvocationEvent(agent=agent)
 
 
 @pytest.fixture
@@ -71,7 +71,7 @@ def messaged_added_event(agent):
 
 @pytest.fixture
 def end_request_event(agent):
-    return AfterInvocationEvent(agent=agent, invocation_state={})
+    return AfterInvocationEvent(agent=agent)
 
 
 @pytest.fixture
@@ -164,7 +164,7 @@ def test_after_invocation_event_properties_not_writable(agent):
         state={},
     )
 
-    event = AfterInvocationEvent(agent=agent, invocation_state={}, result=None)
+    event = AfterInvocationEvent(agent=agent, result=None)
 
     with pytest.raises(AttributeError, match="Property result is not writable"):
         event.result = mock_result
@@ -206,20 +206,17 @@ def test_invocation_state_is_available_in_model_call_events(agent):
     assert after_event.invocation_state["request_id"] == "req-456"
 
 
-@pytest.fixture
-def start_request_event_with_messages(agent, sample_messages):
-    return BeforeInvocationEvent(agent=agent, invocation_state={}, messages=sample_messages)
 
 
 def test_before_invocation_event_messages_default_none(agent):
     """Test that BeforeInvocationEvent.messages defaults to None for backward compatibility."""
-    event = BeforeInvocationEvent(agent=agent, invocation_state={})
+    event = BeforeInvocationEvent(agent=agent)
     assert event.messages is None
 
 
 def test_before_invocation_event_messages_writable(agent, sample_messages):
     """Test that BeforeInvocationEvent.messages can be modified in-place for guardrail redaction."""
-    event = BeforeInvocationEvent(agent=agent, invocation_state={}, messages=sample_messages)
+    event = BeforeInvocationEvent(agent=agent, messages=sample_messages)
 
     # Should be able to modify the messages list in-place
     event.messages[0]["content"] = [{"text": "[REDACTED]"}]

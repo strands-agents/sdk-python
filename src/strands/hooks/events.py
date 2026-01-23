@@ -4,7 +4,7 @@ This module defines the events that are emitted as Agents run through the lifecy
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
@@ -55,7 +55,7 @@ class BeforeInvocationEvent(HookEvent):
             to redact or transform content before processing.
     """
 
-    invocation_state: dict[str, Any]
+    invocation_state: dict[str, Any] = field(default_factory=dict)
     messages: Messages | None = None
 
     def _can_write(self, name: str) -> bool:
@@ -87,7 +87,7 @@ class AfterInvocationEvent(HookEvent):
             than AgentResult.
     """
 
-    invocation_state: dict[str, Any]
+    invocation_state: dict[str, Any] = field(default_factory=dict)
     result: "AgentResult | None" = None
 
     @property
@@ -207,7 +207,7 @@ class BeforeModelCallEvent(HookEvent):
             and dynamic configuration.
     """
 
-    invocation_state: dict[str, Any]
+    invocation_state: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -258,7 +258,7 @@ class AfterModelCallEvent(HookEvent):
         message: Message
         stop_reason: StopReason
 
-    invocation_state: dict[str, Any]
+    invocation_state: dict[str, Any] = field(default_factory=dict)
     stop_response: ModelStopResponse | None = None
     exception: Exception | None = None
     retry: bool = False
