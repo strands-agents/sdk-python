@@ -22,6 +22,7 @@ on:
 
 jobs:
   authorization-check:
+    if: startsWith(github.event.comment.body, '/strands') || github.event_name == 'workflow_dispatch'
     name: Check access
     permissions: read-all
     runs-on: ubuntu-latest
