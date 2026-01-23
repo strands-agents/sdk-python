@@ -57,12 +57,22 @@ def task_server(task_server_port: int) -> Any:
 
 @pytest.fixture
 def task_mcp_client(task_server: Any, task_server_port: int) -> MCPClient:
-    """Create an MCP client connected to the task server."""
+    """Create an MCP client connected to the task server with tasks enabled."""
 
     def transport_callback() -> MCPTransport:
         return streamablehttp_client(url=f"http://127.0.0.1:{task_server_port}/mcp")
 
-    return MCPClient(transport_callback)
+    return MCPClient(transport_callback, experimental={"tasks": {}})
+
+
+@pytest.fixture
+def task_mcp_client_disabled(task_server: Any, task_server_port: int) -> MCPClient:
+    """Create an MCP client connected to the task server with tasks disabled (default)."""
+
+    def transport_callback() -> MCPTransport:
+        return streamablehttp_client(url=f"http://127.0.0.1:{task_server_port}/mcp")
+
+    return MCPClient(transport_callback)  # No experimental config - tasks disabled
 
 
 @pytest.mark.skipif(
@@ -186,3 +196,21 @@ class TestMCPTaskSupport:
             )
             assert result["status"] == "success"
             assert "Forbidden echo: Async hello!" in result["content"][0].get("text", "")
+
+    def test_tasks_disabled_by_default(self, task_mcp_client_disabled: MCPClient) -> None:
+        """Test that tasks are disabled when experimental.tasks is not configured."""
+        with task_mcp_client_disabled:
+            task_mcp_client_disabled.list_tools_sync()
+
+            # Even though server supports tasks and tool has taskSupport='required',
+            # tasks should NOT be used because experimental.tasks is not configured
+            assert task_mcp_client_disabled._is_tasks_enabled() is False
+            assert task_mcp_client_disabled._should_use_task("task_required_echo") is False
+            assert task_mcp_client_disabled._should_use_task("task_optional_echo") is False
+
+            # Tool calls should still work via direct call_tool
+            result = task_mcp_client_disabled.call_tool_sync(
+                tool_use_id="test-disabled", name="task_required_echo", arguments={"message": "Direct call!"}
+            )
+            assert result["status"] == "success"
+            assert "Task echo: Direct call!" in result["content"][0].get("text", "")

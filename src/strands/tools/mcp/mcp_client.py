@@ -73,6 +73,39 @@ class ToolFilters(TypedDict, total=False):
     rejected: list[_ToolMatcher]
 
 
+class TasksConfig(TypedDict, total=False):
+    """Configuration for MCP Tasks (task-augmented tool execution).
+
+    If this config is provided (not None), task-augmented execution is enabled.
+    When enabled, long-running tool calls use the MCP task workflow:
+    create task -> poll for completion -> get result.
+
+    Attributes:
+        ttl_ms: Task time-to-live in milliseconds. Defaults to 60000 (1 minute).
+        poll_timeout_seconds: Timeout for polling task completion in seconds.
+            Defaults to 300.0 (5 minutes).
+    """
+
+    ttl_ms: int
+    poll_timeout_seconds: float
+
+
+class ExperimentalConfig(TypedDict, total=False):
+    """Configuration for experimental MCPClient features.
+
+    Warning:
+        Features under this configuration are experimental and subject to change
+        in future revisions without notice.
+
+    Attributes:
+        tasks: Configuration for MCP Tasks (task-augmented tool execution).
+            If provided (not None), enables task-augmented execution for tools
+            that support it.
+    """
+
+    tasks: TasksConfig | None
+
+
 MIME_TO_FORMAT: dict[str, ImageFormat] = {
     "image/jpeg": "jpeg",
     "image/jpg": "jpeg",
@@ -120,8 +153,7 @@ class MCPClient(ToolProvider):
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
         elicitation_callback: ElicitationFnT | None = None,
-        default_task_ttl_ms: int = 60000,
-        default_task_poll_timeout_seconds: float = 300.0,
+        experimental: ExperimentalConfig | None = None,
     ) -> None:
         """Initialize a new MCP Server connection.
 
@@ -132,10 +164,10 @@ class MCPClient(ToolProvider):
             tool_filters: Optional filters to apply to tools.
             prefix: Optional prefix for tool names.
             elicitation_callback: Optional callback function to handle elicitation requests from the MCP server.
-            default_task_ttl_ms: Default time-to-live in milliseconds for task-augmented tool calls.
-                Defaults to 60000 (1 minute).
-            default_task_poll_timeout_seconds: Default timeout in seconds for polling task completion.
-                Defaults to 300.0 (5 minutes).
+            experimental: Configuration for experimental features. Currently supports:
+                - tasks: Enable MCP task-augmented execution for long-running tools.
+                  If provided (not None), enables task-augmented execution for tools
+                  that support it. See ExperimentalConfig and TasksConfig for details.
         """
         self._startup_timeout = startup_timeout
         self._tool_filters = tool_filters
@@ -160,9 +192,8 @@ class MCPClient(ToolProvider):
         self._tool_provider_started = False
         self._consumers: set[Any] = set()
 
-        # Task support caching
-        self._default_task_ttl_ms = default_task_ttl_ms
-        self._default_task_poll_timeout_seconds = default_task_poll_timeout_seconds
+        # Task support configuration and caching
+        self._experimental = experimental or {}
         self._server_task_capable: bool | None = None
         self._tool_task_support_cache: dict[str, str | None] = {}
 
@@ -963,6 +994,38 @@ class MCPClient(ToolProvider):
 
         return True
 
+    def _is_tasks_enabled(self) -> bool:
+        """Check if experimental tasks feature is enabled.
+
+        Tasks are enabled if experimental.tasks is defined and not None.
+
+        Returns:
+            True if task-augmented execution is enabled, False otherwise.
+        """
+        return self._experimental.get("tasks") is not None
+
+    def _get_task_ttl_ms(self) -> int:
+        """Get task TTL in milliseconds.
+
+        Returns:
+            Task TTL from config, or default of 60000 (1 minute).
+        """
+        tasks_config = self._experimental.get("tasks")
+        if tasks_config is None:
+            return 60000
+        return tasks_config.get("ttl_ms", 60000)
+
+    def _get_task_poll_timeout_seconds(self) -> float:
+        """Get task polling timeout in seconds.
+
+        Returns:
+            Polling timeout from config, or default of 300.0 (5 minutes).
+        """
+        tasks_config = self._experimental.get("tasks")
+        if tasks_config is None:
+            return 300.0
+        return tasks_config.get("poll_timeout_seconds", 300.0)
+
     def _has_server_task_support(self) -> bool:
         """Check if the MCP server supports task-augmented tool calls.
 
@@ -992,13 +1055,10 @@ class MCPClient(ToolProvider):
     def _should_use_task(self, tool_name: str) -> bool:
         """Determine if task-augmented execution should be used for a tool.
 
-        Implements the MCP spec decision matrix:
-        - If server doesn't support tasks: MUST NOT use tasks (returns False)
-        - If tool taskSupport is None or 'forbidden': MUST NOT use tasks (returns False)
-        - If tool taskSupport is 'required' and server supports: use tasks (returns True)
-        - If tool taskSupport is 'optional' and server supports: prefer tasks (returns True)
-
-        Per MCP spec, server capability check takes precedence over tool-level settings.
+        Task-augmented execution requires:
+        1. experimental.tasks is enabled (opt-in check)
+        2. Server supports tasks (capability check)
+        3. Tool taskSupport is 'required' or 'optional'
 
         Args:
             tool_name: Name of the tool to check.
@@ -1006,7 +1066,11 @@ class MCPClient(ToolProvider):
         Returns:
             True if task-augmented execution should be used, False otherwise.
         """
-        # Server capability check comes first (per MCP spec)
+        # Opt-in check: tasks must be explicitly enabled via experimental.tasks
+        if not self._is_tasks_enabled():
+            return False
+
+        # Server capability check (per MCP spec)
         if not self._has_server_task_support():
             return False
 
@@ -1079,16 +1143,15 @@ class MCPClient(ToolProvider):
         Args:
             name: Name of the tool to call.
             arguments: Optional arguments to pass to the tool.
-            ttl_ms: Task time-to-live in milliseconds. Uses default_task_ttl_ms if not specified.
-            poll_timeout_seconds: Timeout for polling in seconds. Uses default_task_poll_timeout_seconds if not
-                specified.
+            ttl_ms: Task time-to-live in milliseconds. Uses configured value if not specified.
+            poll_timeout_seconds: Timeout for polling in seconds. Uses configured value if not specified.
 
         Returns:
             MCPCallToolResult: The final tool result after task completion.
         """
         session = cast(ClientSession, self._background_thread_session)
-        ttl = ttl_ms or self._default_task_ttl_ms
-        timeout = poll_timeout_seconds or self._default_task_poll_timeout_seconds
+        ttl = ttl_ms or self._get_task_ttl_ms()
+        timeout = poll_timeout_seconds or self._get_task_poll_timeout_seconds()
 
         # Step 1: Create the task
         self._log_debug_with_thread("tool=<%s> | calling tool as task with ttl=%d ms", name, ttl)
