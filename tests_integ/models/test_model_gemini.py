@@ -202,3 +202,20 @@ def test_agent_with_gemini_code_execution_tool(gemini_tool_model):
 
     result_turn2 = agent("Summarize that into a single number")
     assert "5117" in str(result_turn2)
+
+
+def test_agent_with_reasoning_content(model, assistant_agent):
+    """Test that reasoning content is captured in message history."""
+
+    model.update_config(
+        params={
+            "thinking_config": {
+                "thinking_budget": 1024,
+                "include_thoughts": True,
+            },
+        },
+    )
+
+    result = assistant_agent("What is 2+2")
+    assert "reasoningContent" in result.message["content"][0]
+    assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
