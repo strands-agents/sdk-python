@@ -15,12 +15,14 @@ Key capabilities:
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, Any
 
 from .... import _identifier
 from ....agent.state import AgentState
 from ....hooks import HookProvider, HookRegistry
 from ....interrupt import _InterruptState
+from ....tools import ToolProvider
 from ....tools._caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
@@ -29,7 +31,6 @@ from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
-from ...tools import ToolProvider
 from .._async import _TaskGroup, stop_all
 from ..models.model import BidiModel
 from ..types.agent import BidiAgentInput

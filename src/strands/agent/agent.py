@@ -31,7 +31,7 @@ from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, even
 from ..tools._tool_helpers import generate_missing_tool_result_content
 
 if TYPE_CHECKING:
-    from ..experimental.tools import ToolProvider
+    from ..tools import ToolProvider
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,

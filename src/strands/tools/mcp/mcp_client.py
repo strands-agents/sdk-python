@@ -40,11 +40,11 @@ from mcp.types import TextContent as MCPTextContent
 from pydantic import AnyUrl
 from typing_extensions import Protocol, TypedDict
 
-from ...experimental.tools import ToolProvider
 from ...types import PaginatedList
 from ...types.exceptions import MCPClientInitializationError, ToolProviderException
 from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
+from .. import ToolProvider
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import mcp_instrumentation
 from .mcp_types import MCPToolResult, MCPTransport
@@ -106,10 +106,6 @@ class MCPClient(ToolProvider):
     The connection runs in a background thread to avoid blocking the main application thread
     while maintaining communication with the MCP service. When structured content is available
     from MCP tools, it will be returned as the last item in the content array of the ToolResult.
-
-    Warning:
-        This class implements the experimental ToolProvider interface and its methods
-        are subject to change.
     """
 
     def __init__(
