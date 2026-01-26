@@ -274,15 +274,29 @@ class EventLoopThrottleEvent(TypedEvent):
 
 
 class ToolResultEvent(TypedEvent):
-    """Event emitted when a tool execution completes."""
+    """Event emitted when a tool execution completes.
 
-    def __init__(self, tool_result: ToolResult) -> None:
-        """Initialize with the completed tool result.
+    Stores the full Exception object as an instance attribute for debugging while
+    keeping the event dict JSON-serializable. The exception can be accessed via
+    the `exception` property for re-raising or type-based error handling in hooks.
 
-        Args:
-            tool_result: Final result from the tool execution
-        """
+    Parameters:
+        tool_result: Final result from the tool execution.
+        exception: Optional exception that occurred during tool execution.
+    """
+
+    def __init__(self, tool_result: ToolResult, exception: Exception | None = None) -> None:
+        """Initialize tool result event."""
         super().__init__({"type": "tool_result", "tool_result": tool_result})
+        self._exception = exception
+
+    @property
+    def exception(self) -> Exception | None:
+        """The original exception that occurred, if any.
+
+        Can be used for re-raising or type-based error handling.
+        """
+        return self._exception
 
     @property
     def tool_use_id(self) -> str:

@@ -483,6 +483,98 @@ async def test_executor_stream_updates_invocation_state_with_agent(
 
 
 @pytest.mark.asyncio
+async def test_executor_stream_decorated_tool_exception_in_hook(
+    executor, agent, tool_results, invocation_state, hook_events, alist
+):
+    """Test that exceptions from @tool-decorated functions reach AfterToolCallEvent."""
+    exception = ValueError("decorated tool error")
+
+    @strands.tool(name="decorated_error_tool")
+    def failing_tool():
+        """A tool that raises an exception."""
+        raise exception
+
+    agent.tool_registry.register_tool(failing_tool)
+    tool_use = {"name": "decorated_error_tool", "toolUseId": "1", "input": {}}
+
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    await alist(stream)
+
+    after_event = hook_events[-1]
+    assert isinstance(after_event, AfterToolCallEvent)
+    assert after_event.exception is exception
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_decorated_tool_runtime_error_in_hook(
+    executor, agent, tool_results, invocation_state, hook_events, alist
+):
+    """Test that RuntimeError from @tool-decorated functions reach AfterToolCallEvent."""
+    exception = RuntimeError("runtime error from decorated tool")
+
+    @strands.tool(name="runtime_error_tool")
+    def runtime_error_tool():
+        """A tool that raises a RuntimeError."""
+        raise exception
+
+    agent.tool_registry.register_tool(runtime_error_tool)
+    tool_use = {"name": "runtime_error_tool", "toolUseId": "1", "input": {}}
+
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    await alist(stream)
+
+    after_event = hook_events[-1]
+    assert isinstance(after_event, AfterToolCallEvent)
+    assert after_event.exception is exception
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_decorated_tool_no_exception_on_success(
+    executor, agent, tool_results, invocation_state, hook_events, alist
+):
+    """Test that AfterToolCallEvent.exception is None when decorated tool succeeds."""
+
+    @strands.tool(name="success_decorated_tool")
+    def success_tool():
+        """A tool that succeeds."""
+        return "success"
+
+    agent.tool_registry.register_tool(success_tool)
+    tool_use = {"name": "success_decorated_tool", "toolUseId": "1", "input": {}}
+
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    await alist(stream)
+
+    after_event = hook_events[-1]
+    assert isinstance(after_event, AfterToolCallEvent)
+    assert after_event.exception is None
+    assert after_event.result["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_decorated_tool_error_result_without_exception(
+    executor, agent, tool_results, invocation_state, hook_events, alist
+):
+    """Test that exception is None when a tool returns an error result without throwing."""
+
+    @strands.tool(name="error_result_tool")
+    def error_result_tool():
+        """A tool that returns an error result dict without raising."""
+        return {"status": "error", "content": [{"text": "something went wrong"}]}
+
+    agent.tool_registry.register_tool(error_result_tool)
+    tool_use = {"name": "error_result_tool", "toolUseId": "1", "input": {}}
+
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    await alist(stream)
+
+    after_event = hook_events[-1]
+    assert isinstance(after_event, AfterToolCallEvent)
+    assert after_event.exception is None
+    assert after_event.result["status"] == "error"
+
+
+@pytest.mark.asyncio
 async def test_executor_stream_no_retry_set(executor, agent, tool_results, invocation_state, alist):
     """Test default behavior when retry is not set - tool executes once."""
     call_count = {"count": 0}

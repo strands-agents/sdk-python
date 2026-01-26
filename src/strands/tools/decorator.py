@@ -613,6 +613,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                     "status": "error",
                     "content": [{"text": f"Error: {error_msg}"}],
                 },
+                exception=e,
             )
         except Exception as e:
             # Return error result with exception details for any other error
@@ -625,14 +626,15 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                     "status": "error",
                     "content": [{"text": f"Error: {error_type} - {error_msg}"}],
                 },
+                exception=e,
             )
 
-    def _wrap_tool_result(self, tool_use_d: str, result: Any) -> ToolResultEvent:
+    def _wrap_tool_result(self, tool_use_d: str, result: Any, exception: Exception | None = None) -> ToolResultEvent:
         # FORMAT THE RESULT for Strands Agent
         if isinstance(result, dict) and "status" in result and "content" in result:
             # Result is already in the expected format, just add toolUseId
             result["toolUseId"] = tool_use_d
-            return ToolResultEvent(cast(ToolResult, result))
+            return ToolResultEvent(cast(ToolResult, result), exception=exception)
         else:
             # Wrap any other return value in the standard format
             # Always include at least one content item for consistency
@@ -641,7 +643,8 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                     "toolUseId": tool_use_d,
                     "status": "success",
                     "content": [{"text": str(result)}],
-                }
+                },
+                exception=exception,
             )
 
     @property
