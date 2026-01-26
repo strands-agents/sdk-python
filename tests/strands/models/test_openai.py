@@ -1246,3 +1246,58 @@ def test_init_with_both_client_and_client_args_raises_error():
 
     with pytest.raises(ValueError, match="Only one of 'client' or 'client_args' should be provided"):
         OpenAIModel(client=mock_client, client_args={"api_key": "test"}, model_id="test-model")
+
+
+def test_format_request_messages_with_tool_calls_no_content():
+    """Test that messages with tool calls but no content are properly formatted."""
+    messages = [
+        {"role": "user", "content": [{"text": "Use the calculator"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "input": {"expression": "2+2"},
+                        "name": "calculator",
+                        "toolUseId": "c1",
+                    },
+                },
+            ],
+        },
+    ]
+
+    result = OpenAIModel.format_request_messages(messages)
+
+    # Assistant message should have tool_calls but no content field
+    assert len(result) == 2
+    assert result[1]["role"] == "assistant"
+    assert "tool_calls" in result[1]
+    assert "content" not in result[1]
+    assert result[1]["tool_calls"][0]["id"] == "c1"
+
+
+def test_format_request_messages_filters_tool_only_messages():
+    """Test that messages with only tool calls (no content) are included in output."""
+    messages = [
+        {"role": "user", "content": [{"text": "test"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "input": {},
+                        "name": "tool1",
+                        "toolUseId": "t1",
+                    },
+                },
+            ],
+        },
+    ]
+
+    result = OpenAIModel.format_request_messages(messages)
+
+    # Both messages should be included
+    assert len(result) == 2
+    assert result[0]["role"] == "user"
+    assert result[1]["role"] == "assistant"
+    assert "tool_calls" in result[1]
