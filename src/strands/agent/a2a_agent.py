@@ -15,7 +15,7 @@ from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
 from a2a.types import AgentCard, Message, TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
 
 from .._async import run_async
-from ..multiagent.a2a.converters import convert_input_to_message, convert_response_to_agent_result
+from ..multiagent.a2a._converters import convert_input_to_message, convert_response_to_agent_result
 from ..types._events import AgentResultEvent
 from ..types.a2a import A2AResponse, A2AStreamEvent
 from ..types.agent import AgentInput
@@ -150,7 +150,7 @@ class A2AAgent(AgentBase):
             yield A2AStreamEvent(event)
 
         # Use the last complete event if available, otherwise fall back to last event
-        final_event = last_complete_event if last_complete_event is not None else last_event
+        final_event = last_complete_event or last_event
 
         if final_event is not None:
             result = convert_response_to_agent_result(final_event)

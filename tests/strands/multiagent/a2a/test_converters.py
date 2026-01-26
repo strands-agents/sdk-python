@@ -8,7 +8,7 @@ from a2a.types import Message as A2AMessage
 from a2a.types import Part, Role, TaskArtifactUpdateEvent, TaskStatusUpdateEvent, TextPart
 
 from strands.agent.agent_result import AgentResult
-from strands.multiagent.a2a.converters import (
+from strands.multiagent.a2a._converters import (
     convert_content_blocks_to_parts,
     convert_input_to_message,
     convert_response_to_agent_result,
