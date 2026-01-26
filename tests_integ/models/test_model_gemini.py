@@ -216,6 +216,6 @@ def test_agent_with_reasoning_content(model, assistant_agent):
         },
     )
 
-    result = assistant_agent("What is 2+2")
+    result = assistant_agent("Think about what 2+2 is")
     assert "reasoningContent" in result.message["content"][0]
     assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]

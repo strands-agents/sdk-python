@@ -523,10 +523,8 @@ async def test_stream_response_tool_use(gemini_client, model, messages, agenerat
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
         {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "c1"}}}},
         {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
-        {"contentBlockStop": {}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "tool_use"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
@@ -564,8 +562,6 @@ async def test_stream_response_reasoning(gemini_client, model, messages, agenera
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
         {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "abc", "text": "test reason"}}}},
         {"contentBlockStop": {}},
@@ -625,8 +621,6 @@ async def test_stream_response_reasoning_and_text(gemini_client, model, messages
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
         {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "sig1", "text": "thinking about math"}}}},
         {"contentBlockStop": {}},
@@ -689,8 +683,6 @@ async def test_stream_response_none_candidates(gemini_client, model, messages, a
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
     ]
@@ -709,8 +701,6 @@ async def test_stream_response_empty_stream(gemini_client, model, messages, agen
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
     ]
     assert tru_chunks == exp_chunks
