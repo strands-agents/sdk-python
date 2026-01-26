@@ -369,7 +369,7 @@ class OpenAIModel(Model):
 
             formatted_message = {
                 "role": message["role"],
-                "content": formatted_contents,
+                **({"content": formatted_contents} if formatted_contents else {}),
                 **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
             }
             formatted_messages.append(formatted_message)
@@ -407,7 +407,7 @@ class OpenAIModel(Model):
         formatted_messages = cls._format_system_messages(system_prompt, system_prompt_content=system_prompt_content)
         formatted_messages.extend(cls._format_regular_messages(messages))
 
-        return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
+        return [message for message in formatted_messages if "content" in message or "tool_calls" in message]
 
     def format_request(
         self,
