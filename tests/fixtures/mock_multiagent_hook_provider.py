@@ -1,16 +1,14 @@
 from collections.abc import Iterator
 from typing import Literal
 
-from strands.experimental.hooks.multiagent.events import (
+from strands.hooks import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeNodeCallEvent,
-    MultiAgentInitializedEvent,
-)
-from strands.hooks import (
     HookEvent,
     HookProvider,
     HookRegistry,
+    MultiAgentInitializedEvent,
 )
 
 

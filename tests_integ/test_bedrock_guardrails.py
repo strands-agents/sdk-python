@@ -8,6 +8,7 @@ import pytest
 from strands import Agent, tool
 from strands.models.bedrock import BedrockModel
 from strands.session.file_session_manager import FileSessionManager
+from tests_integ.conftest import retry_on_flaky
 
 BLOCKED_INPUT = "BLOCKED_INPUT"
 BLOCKED_OUTPUT = "BLOCKED_OUTPUT"
@@ -170,9 +171,11 @@ def test_guardrail_output_intervention(boto_session, bedrock_guardrail, processi
         )
 
 
+@retry_on_flaky("LLM may mention CACTUS unprompted, triggering guardrail on response2")
 @pytest.mark.parametrize("guardrail_trace", ["enabled", "enabled_full"])
 @pytest.mark.parametrize("processing_mode", ["sync", "async"])
 def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processing_mode, guardrail_trace):
+    """Test guardrail output intervention with redaction."""
     REDACT_MESSAGE = "Redacted."
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_guardrail,
@@ -182,23 +185,25 @@ def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processi
         guardrail_redact_output=True,
         guardrail_redact_output_message=REDACT_MESSAGE,
         region_name="us-east-1",
+        temperature=0,  # Use deterministic responses to reduce flakiness
     )
 
     agent = Agent(
         model=bedrock_model,
-        system_prompt="When asked to say the word, say CACTUS.",
+        system_prompt="When asked to say the word, say CACTUS. Otherwise, respond normally.",
         callback_handler=None,
         load_tools_from_directory=False,
     )
 
     response1 = agent("Say the word.")
-    response2 = agent("Hello!")
+    # Use a completely unrelated prompt to reduce likelihood of model volunteering CACTUS
+    response2 = agent("What is 2+2? Reply with only the number.")
 
     assert response1.stop_reason == "guardrail_intervened"
 
     """
-    In async streaming: The buffering is non-blocking. 
-    Tokens are streamed while Guardrails processes the buffered content in the background. 
+    In async streaming: The buffering is non-blocking.
+    Tokens are streamed while Guardrails processes the buffered content in the background.
     This means the response may be returned before Guardrails has finished processing.
     As a result, we cannot guarantee that the REDACT_MESSAGE is in the response.
     """

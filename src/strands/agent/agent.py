@@ -26,7 +26,8 @@ from pydantic import BaseModel
 
 from .. import _identifier
 from .._async import run_async
-from ..event_loop.event_loop import event_loop_cycle
+from ..event_loop._retry import ModelRetryStrategy
+from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
 from ..tools._tool_helpers import generate_missing_tool_result_content
 
 if TYPE_CHECKING:
@@ -118,6 +119,7 @@ class Agent:
         hooks: list[HookProvider] | None = None,
         session_manager: SessionManager | None = None,
         tool_executor: ToolExecutor | None = None,
+        retry_strategy: ModelRetryStrategy | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -167,6 +169,9 @@ class Agent:
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
+            retry_strategy: Strategy for retrying model calls on throttling or other transient errors.
+                Defaults to ModelRetryStrategy with max_attempts=6, initial_delay=4s, max_delay=240s.
+                Implement a custom HookProvider for custom retry logic, or pass None to disable retries.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -244,6 +249,17 @@ class Agent:
         # separate event loops in different threads, so asyncio.Lock wouldn't work
         self._invocation_lock = threading.Lock()
 
+        # In the future, we'll have a RetryStrategy base class but until
+        # that API is determined we only allow ModelRetryStrategy
+        if retry_strategy and type(retry_strategy) is not ModelRetryStrategy:
+            raise ValueError("retry_strategy must be an instance of ModelRetryStrategy")
+
+        self._retry_strategy = (
+            retry_strategy
+            if retry_strategy is not None
+            else ModelRetryStrategy(max_attempts=MAX_ATTEMPTS, max_delay=MAX_DELAY, initial_delay=INITIAL_DELAY)
+        )
+
         # Initialize session management functionality
         self._session_manager = session_manager
         if self._session_manager:
@@ -251,6 +267,9 @@ class Agent:
 
         # Allow conversation_managers to subscribe to hooks
         self.hooks.add_hook(self.conversation_manager)
+
+        # Register retry strategy as a hook
+        self.hooks.add_hook(self._retry_strategy)
 
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
 

@@ -27,14 +27,14 @@ from opentelemetry import trace as trace_api
 from .._async import run_async
 from ..agent import Agent
 from ..agent.state import AgentState
-from ..experimental.hooks.multiagent import (
+from ..hooks.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeMultiAgentInvocationEvent,
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
-from ..hooks import HookProvider, HookRegistry
+from ..hooks.registry import HookProvider, HookRegistry
 from ..interrupt import Interrupt, _InterruptState
 from ..session import SessionManager
 from ..telemetry import get_tracer
@@ -199,7 +199,7 @@ class SwarmState:
             return False, f"Max iterations reached: {max_iterations}"
 
         # Check timeout
-        elapsed = time.time() - self.start_time
+        elapsed = self.execution_time / 1000 + time.time() - self.start_time
         if elapsed > execution_timeout:
             return False, f"Execution timed out: {execution_timeout}s"
 
@@ -406,7 +406,7 @@ class Swarm(MultiAgentBase):
                 self.state.completion_status = Status.FAILED
                 raise
             finally:
-                self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
+                self.state.execution_time += round((time.time() - self.state.start_time) * 1000)
                 await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self, invocation_state))
                 self._resume_from_session = False
 
@@ -782,9 +782,10 @@ class Swarm(MultiAgentBase):
                     break
 
                 finally:
-                    await self.hooks.invoke_callbacks_async(
-                        AfterNodeCallEvent(self, current_node.node_id, invocation_state)
-                    )
+                    if self.state.completion_status != Status.INTERRUPTED:
+                        await self.hooks.invoke_callbacks_async(
+                            AfterNodeCallEvent(self, current_node.node_id, invocation_state)
+                        )
 
                 logger.debug("node=<%s> | node execution completed", current_node.node_id)
 
