@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import strands
+from strands.experimental.hooks.events import BidiAfterToolCallEvent
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.telemetry.metrics import Trace
@@ -640,3 +641,49 @@ async def test_executor_stream_retry_false(executor, agent, tool_results, invoca
     # tool_results should contain the result
     assert len(tool_results) == 1
     assert tool_results[0] == {"toolUseId": "1", "status": "success", "content": [{"text": "attempt_1"}]}
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_bidi_event_no_retry_attribute(executor, agent, tool_results, invocation_state, alist):
+    """Test that BidiAfterToolCallEvent (which lacks retry attribute) doesn't cause retry.
+
+    This tests the getattr(after_event, "retry", False) fallback for events without retry.
+    """
+    call_count = {"count": 0}
+
+    @strands.tool(name="counting_tool")
+    def counting_tool():
+        call_count["count"] += 1
+        return f"attempt_{call_count['count']}"
+
+    agent.tool_registry.register_tool(counting_tool)
+
+    tool_use: ToolUse = {"name": "counting_tool", "toolUseId": "1", "input": {}}
+    result: strands.types.tools.ToolResult = {
+        "toolUseId": "1",
+        "status": "success",
+        "content": [{"text": "attempt_1"}],
+    }
+
+    # Create a BidiAfterToolCallEvent (which has no retry attribute)
+    bidi_event = BidiAfterToolCallEvent(
+        agent=agent,
+        selected_tool=counting_tool,
+        tool_use=tool_use,
+        invocation_state=invocation_state,
+        result=result,
+    )
+
+    # Patch _invoke_after_tool_call_hook to return BidiAfterToolCallEvent
+    async def mock_after_hook(*args, **kwargs):
+        return bidi_event, []
+
+    with unittest.mock.patch.object(ToolExecutor, "_invoke_after_tool_call_hook", mock_after_hook):
+        stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+        tru_events = await alist(stream)
+
+    # Tool should be called once - no retry since BidiAfterToolCallEvent has no retry attr
+    assert call_count["count"] == 1
+
+    # Result should be returned
+    assert len(tru_events) == 1
