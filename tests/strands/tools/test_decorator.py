@@ -1978,3 +1978,80 @@ def test_tool_nullable_optional_field_simplifies_anyof():
     # Since tag is not required, anyOf should be simplified away
     assert "anyOf" not in schema["properties"]["tag"]
     assert schema["properties"]["tag"]["type"] == "string"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_carries_exception_runtime_error(alist):
+    """Test that ToolResultEvent carries exception when tool raises RuntimeError."""
+
+    @strands.tool
+    def error_tool():
+        """Tool that raises a RuntimeError."""
+        raise RuntimeError("test runtime error")
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(error_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert hasattr(result_event, "exception")
+    assert isinstance(result_event.exception, RuntimeError)
+    assert str(result_event.exception) == "test runtime error"
+    assert result_event.tool_result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_carries_exception_value_error(alist):
+    """Test that ToolResultEvent carries exception when tool raises ValueError."""
+
+    @strands.tool
+    def validation_error_tool():
+        """Tool that raises a ValueError."""
+        raise ValueError("validation failed")
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(validation_error_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert hasattr(result_event, "exception")
+    assert isinstance(result_event.exception, ValueError)
+    assert str(result_event.exception) == "validation failed"
+    assert result_event.tool_result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_no_exception_on_success(alist):
+    """Test that ToolResultEvent.exception is None when tool succeeds."""
+
+    @strands.tool
+    def success_tool():
+        """Tool that succeeds."""
+        return "success"
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(success_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert result_event.exception is None
+    assert result_event.tool_result["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_carries_exception_assertion_error(alist):
+    """Test that ToolResultEvent carries AssertionError for unexpected failures."""
+
+    @strands.tool
+    def assertion_error_tool():
+        """Tool that raises an AssertionError."""
+        raise AssertionError("unexpected assertion failure")
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(assertion_error_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert isinstance(result_event.exception, AssertionError)
+    assert "unexpected assertion failure" in str(result_event.exception)
+    assert result_event.tool_result["status"] == "error"
