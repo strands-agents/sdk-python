@@ -203,7 +203,7 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError("the client initialization failed") from e
         return self
 
-    # ToolProvider interface methods (experimental, as ToolProvider is experimental)
+    # ToolProvider interface methods
     async def load_tools(self, **kwargs: Any) -> Sequence[AgentTool]:
         """Load and return tools from the MCP server.
 
