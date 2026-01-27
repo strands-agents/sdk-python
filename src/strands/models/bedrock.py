@@ -396,7 +396,25 @@ class BedrockModel(Model):
                 "Filtered DeepSeek reasoningContent content blocks from messages - https://api-docs.deepseek.com/guides/reasoning_model#multi-round-conversation"
             )
 
-        return cleaned_messages
+        # Bedrock requires alternating user/assistant roles.
+        # If we have consecutive user messages (e.g. tool result due to structured output followed by new prompt),
+        # we must insert a dummy assistant message.
+        # Refer: https://github.com/strands-agents/sdk-python/issues/1223
+        final_messages: list[dict[str, Any]] = []
+        for cleaned_message in cleaned_messages:
+            if final_messages and final_messages[-1]["role"] == cleaned_message["role"]:
+                # The structured output tool result is a user message and is the last message in the conversation
+                if cleaned_message["role"] == "user":
+                    # Only insert acknowledgement if the previous message was a tool result
+                    last_message_content = final_messages[-1].get("content", [])
+                    is_tool_result = any("toolResult" in block for block in last_message_content)
+
+                    if is_tool_result:
+                        final_messages.append({"role": "assistant", "content": [{"text": "acknowledged"}]})
+
+            final_messages.append(cleaned_message)
+
+        return final_messages
 
     def _should_include_tool_result_status(self) -> bool:
         """Determine whether to include tool result status based on current config."""
