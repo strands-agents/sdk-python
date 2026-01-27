@@ -687,3 +687,74 @@ async def test_executor_stream_bidi_event_no_retry_attribute(executor, agent, to
 
     # Result should be returned
     assert len(tru_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_retry_after_exception(executor, agent, tool_results, invocation_state, alist):
+    """Test that retry=True works when tool raises an exception.
+
+    Covers the exception path retry check.
+    """
+    call_count = {"count": 0}
+
+    @strands.tool(name="flaky_tool")
+    def flaky_tool():
+        call_count["count"] += 1
+        if call_count["count"] == 1:
+            raise RuntimeError("First call fails")
+        return "success"
+
+    agent.tool_registry.register_tool(flaky_tool)
+
+    # Retry once on error (check result status, not exception attribute)
+    def retry_on_error(event):
+        if isinstance(event, AfterToolCallEvent) and event.result.get("status") == "error" and call_count["count"] == 1:
+            event.retry = True
+        return event
+
+    agent.hooks.add_callback(AfterToolCallEvent, retry_on_error)
+
+    tool_use: ToolUse = {"name": "flaky_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    tru_events = await alist(stream)
+
+    # Tool called twice (1 exception + 1 success)
+    assert call_count["count"] == 2
+
+    # Final result is success
+    assert len(tru_events) == 1
+    assert tru_events[0].tool_result["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_retry_after_unknown_tool(executor, agent, tool_results, invocation_state, alist):
+    """Test that retry=True triggers retry loop for unknown tool.
+
+    Covers the unknown tool path retry check. Tool lookup happens before retry loop,
+    so even after retry the tool remains unknown - this test verifies the retry
+    mechanism is triggered, not that it resolves the unknown tool.
+    """
+    hook_call_count = {"count": 0}
+
+    # Retry once on first unknown tool error
+    def retry_once_on_unknown(event):
+        if isinstance(event, AfterToolCallEvent):
+            hook_call_count["count"] += 1
+            # Retry only on first call
+            if hook_call_count["count"] == 1:
+                event.retry = True
+        return event
+
+    agent.hooks.add_callback(AfterToolCallEvent, retry_once_on_unknown)
+
+    tool_use: ToolUse = {"name": "nonexistent_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    tru_events = await alist(stream)
+
+    # Hook called twice (retry was triggered)
+    assert hook_call_count["count"] == 2
+
+    # Final result is still error (tool remains unknown after retry)
+    assert len(tru_events) == 1
+    assert tru_events[0].tool_result["status"] == "error"
+    assert "Unknown tool" in tru_events[0].tool_result["content"][0]["text"]
