@@ -1,11 +1,15 @@
 """Tests for streaming.py with structured output support."""
 
 import unittest.mock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import BaseModel
 
 import strands.event_loop.streaming
+from strands import Agent
+from strands.event_loop.event_loop import event_loop_cycle
+from strands.tools.structured_output._structured_output_context import StructuredOutputContext
 from strands.tools.structured_output.structured_output_tool import StructuredOutputTool
 from strands.types._events import TypedEvent
 
@@ -161,3 +165,91 @@ async def test_stream_messages_with_forced_structured_output(agenerator, alist):
     assert tool_use_content is not None
     assert tool_use_content["name"] == "SampleModel"
     assert tool_use_content["input"] == {"name": "Alice", "age": 30}
+
+
+@pytest.mark.asyncio
+async def test_structured_output_system_prompt_with_or_without_guardrail(agenerator, alist):
+    """Test that structured output appends correct message format based on guardrail presence."""
+
+    # Test with model WITH guardrail_id
+    model_with_guardrail = unittest.mock.MagicMock()
+    model_with_guardrail.config = {"guardrail_id": "test-guardrail-123"}
+
+    agent_with_guardrail = Agent(model=model_with_guardrail)
+    agent_with_guardrail.event_loop_metrics.reset_usage_metrics()
+    original_append = agent_with_guardrail._append_messages
+    agent_with_guardrail._append_messages = AsyncMock(side_effect=original_append)
+    structured_output_context = StructuredOutputContext(structured_output_model=SampleModel)
+
+    with patch("strands.event_loop.event_loop.recurse_event_loop") as mock_recurse:
+        mock_recurse.return_value = agenerator([])
+        model_with_guardrail.stream.return_value = agenerator(
+            [
+                {"messageStart": {"role": "assistant"}},
+                {"contentBlockStart": {"start": {}}},
+                {"contentBlockDelta": {"delta": {"text": "Response without tool use"}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+                {
+                    "metadata": {
+                        "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+                        "metrics": {"latencyMs": 100},
+                    }
+                },
+            ]
+        )
+
+        events = event_loop_cycle(
+            agent=agent_with_guardrail,
+            invocation_state={},
+            structured_output_context=structured_output_context,
+        )
+        await alist(events)
+
+    # Verify guardContent was appended
+    agent_with_guardrail._append_messages.assert_called_once()
+    call_args = agent_with_guardrail._append_messages.call_args[0][0]
+    assert call_args["role"] == "user"
+    assert "guardContent" in call_args["content"][0]
+
+    # Test with model WITHOUT guardrail_id
+    model_without_guardrail = unittest.mock.MagicMock()
+    model_without_guardrail.config = {}
+
+    agent_without_guardrail = Agent(model=model_without_guardrail)
+    agent_without_guardrail.event_loop_metrics.reset_usage_metrics()
+    original_append2 = agent_without_guardrail._append_messages
+    agent_without_guardrail._append_messages = AsyncMock(side_effect=original_append2)
+    structured_output_context_2 = StructuredOutputContext(structured_output_model=SampleModel)
+
+    with patch("strands.event_loop.event_loop.recurse_event_loop") as mock_recurse:
+        mock_recurse.return_value = agenerator([])
+        model_without_guardrail.stream.return_value = agenerator(
+            [
+                {"messageStart": {"role": "assistant"}},
+                {"contentBlockStart": {"start": {}}},
+                {"contentBlockDelta": {"delta": {"text": "Response without tool use"}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+                {
+                    "metadata": {
+                        "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+                        "metrics": {"latencyMs": 100},
+                    }
+                },
+            ]
+        )
+
+        events = event_loop_cycle(
+            agent=agent_without_guardrail,
+            invocation_state={},
+            structured_output_context=structured_output_context_2,
+        )
+        await alist(events)
+
+    # Verify regular text was appended
+    agent_without_guardrail._append_messages.assert_called_once()
+    call_args = agent_without_guardrail._append_messages.call_args[0][0]
+    assert call_args["role"] == "user"
+    assert "text" in call_args["content"][0]
+    assert call_args["content"][0]["text"] == "You must format the previous response as structured output."
