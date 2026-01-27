@@ -202,3 +202,28 @@ def test_agent_with_gemini_code_execution_tool(gemini_tool_model):
 
     result_turn2 = agent("Summarize that into a single number")
     assert "5117" in str(result_turn2)
+
+
+def test_agent_invoke_reasoning():
+    """Test reasoning content handling with thinking mode."""
+    reasoning_model = GeminiModel(
+        client_args={"api_key": os.getenv("GOOGLE_API_KEY")},
+        model_id="gemini-2.5-flash",
+        params={
+            "thinking_config": {
+                "thinking_budget": 1024,
+                "include_thoughts": True,
+            },
+        },
+    )
+    
+    agent = Agent(model=reasoning_model, load_tools_from_directory=False)
+    result = agent("Please reason about the equation 2+2.")
+
+    assert "reasoningContent" in result.message["content"][0]
+    assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
+
+    # Test multi-turn to validate we don't throw an exception
+    result2 = agent("What was my previous question about?")
+    # Just validate we get a response without throwing an exception
+    assert len(str(result2)) > 0
