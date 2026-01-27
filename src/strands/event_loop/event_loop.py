@@ -219,21 +219,35 @@ async def event_loop_cycle(
                 )
             structured_output_context.set_forced_mode()
             logger.debug("Forcing structured output tool")
-            await agent._append_messages(
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "guardContent": {
-                                "text": {
-                                    "text": "You must format the previous response as structured output.",
-                                    "qualifiers": [],
+
+            # Use guardContent for Bedrock models with guardrails to avoid prompt attack filter
+            has_bedrock_guardrail = (
+                hasattr(agent.model, "config") and agent.model.config.get("guardrail_id") is not None
+            )
+
+            if has_bedrock_guardrail:
+                await agent._append_messages(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "guardContent": {
+                                    "text": {
+                                        "text": "You must format the previous response as structured output.",
+                                        "qualifiers": [],
+                                    }
                                 }
                             }
-                        }
-                    ],
-                }
-            )
+                        ],
+                    }
+                )
+            else:
+                await agent._append_messages(
+                    {
+                        "role": "user",
+                        "content": [{"text": "You must format the previous response as structured output."}],
+                    }
+                )
 
             events = recurse_event_loop(
                 agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
