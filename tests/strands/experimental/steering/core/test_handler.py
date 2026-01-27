@@ -241,7 +241,7 @@ def test_context_callbacks_receive_steering_context():
 
     # Create a mock event and call the callback
     event = Mock(spec=BeforeToolCallEvent)
-    event.tool_use = {"name": "test_tool", "arguments": {}}
+    event.tool_use = {"name": "test_tool", "input": {}}
 
     # The callback should execute without error and update the steering context
     before_callback(event)

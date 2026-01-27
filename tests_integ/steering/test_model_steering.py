@@ -1,6 +1,7 @@
 """Integration tests for model steering (steer_after_model)."""
 
 from strands import Agent, tool
+from strands.experimental.steering.context_providers.ledger_provider import LedgerProvider
 from strands.experimental.steering.core.action import Guide, ModelSteeringAction, Proceed
 from strands.experimental.steering.core.handler import SteeringHandler
 from strands.types.content import Message
@@ -154,7 +155,7 @@ def test_model_steering_forces_tool_usage_on_unrelated_prompt():
         """Handler that forces a specific tool to be used before allowing termination."""
 
         def __init__(self, required_tool: str):
-            super().__init__()
+            super().__init__(context_providers=[LedgerProvider()])
             self.required_tool = required_tool
             self.tool_was_used = False
             self.guidance_given = False
@@ -171,6 +172,15 @@ def test_model_steering_forces_tool_usage_on_unrelated_prompt():
             for block in content_blocks:
                 if "toolUse" in block and block["toolUse"].get("name") == self.required_tool:
                     self.tool_was_used = True
+
+                    # Verify tool is in the ledger
+                    ledger = self.steering_context.data.get("ledger")
+                    if ledger:
+                        tool_calls = ledger.get("tool_calls", [])
+                        assert any(tc.get("tool_name") == self.required_tool for tc in tool_calls), (
+                            f"{self.required_tool} should be in ledger when tool_was_used=True"
+                        )
+
                     return Proceed(reason="Required tool was used")
 
             # If tool wasn't used and we haven't guided yet, force its usage

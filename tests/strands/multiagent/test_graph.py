@@ -23,6 +23,9 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent.id = agent_id or f"{name}_id"
     agent._session_manager = None
     agent.hooks = HookRegistry()
+    agent.state = AgentState()
+    agent.messages = []
+    agent._interrupt_state = _InterruptState()
 
     if metrics is None:
         metrics = Mock(
@@ -2126,6 +2129,10 @@ def test_graph_interrupt_on_before_node_call_event(interrupt_hook):
     ]
     assert tru_interrupts == exp_interrupts
 
+    tru_after_count = interrupt_hook.after_count
+    exp_after_count = 0
+    assert tru_after_count == exp_after_count
+
     interrupt = multiagent_result.interrupts[0]
     responses = [
         {
@@ -2151,6 +2158,10 @@ def test_graph_interrupt_on_before_node_call_event(interrupt_hook):
     tru_message = agent_result.result.message["content"][0]["text"]
     exp_message = "Task completed"
     assert tru_message == exp_message
+
+    tru_after_count = interrupt_hook.after_count
+    exp_after_count = 1
+    assert tru_after_count == exp_after_count
 
     assert multiagent_result.execution_time >= first_execution_time
 
@@ -2690,3 +2701,96 @@ def test_is_node_ready_with_conditions_and_mode_no_new_completion():
     # (prevents re-triggering Z multiple times)
     is_ready = graph._is_node_ready_with_conditions(node_z, completed_batch)
     assert is_ready is False, "Z should not be ready when no predecessor completed in current batch"
+def test_graph_interrupt_on_agent(agenerator):
+    exp_interrupts = [
+        Interrupt(
+            id="test_id",
+            name="test_name",
+            reason="test_reason",
+        )
+    ]
+
+    agent = create_mock_agent("test_agent", "Task completed")
+    agent.stream_async = Mock()
+    agent.stream_async.return_value = agenerator(
+        [
+            {
+                "result": AgentResult(
+                    message={},
+                    stop_reason="interrupt",
+                    state={},
+                    metrics=None,
+                    interrupts=exp_interrupts,
+                ),
+            },
+        ],
+    )
+
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_agent")
+    graph = builder.build()
+
+    multiagent_result = graph("Test task")
+
+    tru_result_status = multiagent_result.status
+    exp_result_status = Status.INTERRUPTED
+    assert tru_result_status == exp_result_status
+
+    tru_state_status = graph.state.status
+    exp_state_status = Status.INTERRUPTED
+    assert tru_state_status == exp_state_status
+
+    tru_node_ids = [node.node_id for node in graph.state.interrupted_nodes]
+    exp_node_ids = ["test_agent"]
+    assert tru_node_ids == exp_node_ids
+
+    tru_interrupts = multiagent_result.interrupts
+    assert tru_interrupts == exp_interrupts
+
+    interrupt = multiagent_result.interrupts[0]
+
+    agent.stream_async = Mock()
+    agent.stream_async.return_value = agenerator(
+        [
+            {
+                "result": AgentResult(
+                    message={},
+                    stop_reason="end_turn",
+                    state={},
+                    metrics=None,
+                ),
+            },
+        ],
+    )
+    graph._interrupt_state.context["test_agent"] = {
+        "activated": True,
+        "interrupt_state": {
+            "activated": True,
+            "context": {},
+            "interrupts": {interrupt.id: interrupt.to_dict()},
+        },
+        "messages": [],
+        "state": {},
+    }
+
+    responses = [
+        {
+            "interruptResponse": {
+                "interruptId": interrupt.id,
+                "response": "test_response",
+            },
+        },
+    ]
+    multiagent_result = graph(responses)
+
+    tru_result_status = multiagent_result.status
+    exp_result_status = Status.COMPLETED
+    assert tru_result_status == exp_result_status
+
+    tru_state_status = graph.state.status
+    exp_state_status = Status.COMPLETED
+    assert tru_state_status == exp_state_status
+
+    assert len(multiagent_result.results) == 1
+
+    agent.stream_async.assert_called_once_with(responses, invocation_state={})

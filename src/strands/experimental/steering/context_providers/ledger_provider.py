@@ -47,7 +47,7 @@ class LedgerBeforeToolCall(SteeringContextCallback[BeforeToolCallEvent]):
         tool_call_entry = {
             "timestamp": datetime.now().isoformat(),
             "tool_name": event.tool_use.get("name"),
-            "tool_args": event.tool_use.get("arguments", {}),
+            "tool_args": event.tool_use.get("input", {}),
             "status": "pending",
         }
         ledger["tool_calls"].append(tool_call_entry)

@@ -3,7 +3,9 @@
 import pytest
 
 from strands import Agent, tool
+from strands.experimental.steering.context_providers.ledger_provider import LedgerProvider
 from strands.experimental.steering.core.action import Guide, Interrupt, Proceed
+from strands.experimental.steering.core.handler import SteeringHandler
 from strands.experimental.steering.handlers.llm.llm_handler import LLMSteeringHandler
 
 
@@ -98,3 +100,45 @@ def test_agent_with_tool_steering_e2e():
     notification_metrics = tool_metrics["send_notification"]
     assert notification_metrics.call_count >= 1, "send_notification should have been called"
     assert notification_metrics.success_count >= 1, "send_notification should have succeeded"
+
+
+def test_ledger_captures_tool_calls():
+    """Test that ledger correctly captures tool call information."""
+
+    class LedgerCheckingHandler(SteeringHandler):
+        def __init__(self):
+            super().__init__(context_providers=[LedgerProvider()])
+
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
+            ledger = self.steering_context.data.get("ledger")
+            assert ledger is not None, "Ledger should exist"
+            assert "tool_calls" in ledger, "Ledger should have tool_calls"
+
+            # Find the current tool call in the ledger
+            tool_calls = ledger["tool_calls"]
+            current_call = next((tc for tc in tool_calls if tc["tool_name"] == tool_use["name"]), None)
+            assert current_call is not None, f"{tool_use['name']} should be in ledger"
+            assert current_call["tool_args"] == tool_use["input"], "tool_args should match input"
+            assert current_call["status"] == "pending", "Status should be pending before execution"
+
+            return Proceed(reason="Ledger verified")
+
+    handler = LedgerCheckingHandler()
+    agent = Agent(tools=[send_notification], hooks=[handler])
+
+    agent("Send a notification to alice saying test message")
+
+    # Verify the ledger has the completed tool call
+    ledger = handler.steering_context.data.get("ledger")
+    assert ledger is not None
+    assert len(ledger["tool_calls"]) >= 1, "At least one tool call should be recorded"
+
+    # Check the tool call details
+    tool_call = ledger["tool_calls"][-1]
+    assert tool_call["tool_name"] == "send_notification"
+    assert "tool_args" in tool_call
+    assert tool_call["tool_args"]["recipient"] == "alice"
+    assert tool_call["tool_args"]["message"] == "test message"
+    assert tool_call["status"] == "success"
+    assert "completion_timestamp" in tool_call
+    assert tool_call["error"] is None
