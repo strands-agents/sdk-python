@@ -206,6 +206,7 @@ class ToolExecutor(abc.ABC):
                         agent, selected_tool, tool_use, invocation_state, result
                     )
                     # Check if retry requested for unknown tool error
+                    # Use getattr because BidiAfterToolCallEvent doesn't have retry attribute
                     if getattr(after_event, "retry", False):
                         logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
                         continue
@@ -241,7 +242,7 @@ class ToolExecutor(abc.ABC):
                     agent, selected_tool, tool_use, invocation_state, result
                 )
 
-                # Check if retry requested
+                # Check if retry requested (getattr for BidiAfterToolCallEvent compatibility)
                 if getattr(after_event, "retry", False):
                     logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
                     continue
@@ -261,7 +262,7 @@ class ToolExecutor(abc.ABC):
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
                     agent, selected_tool, tool_use, invocation_state, error_result, exception=e
                 )
-                # Check if retry requested for exception
+                # Check if retry requested (getattr for BidiAfterToolCallEvent compatibility)
                 if getattr(after_event, "retry", False):
                     logger.debug("tool_name=<%s> | retry requested after exception, retrying tool call", tool_name)
                     continue
