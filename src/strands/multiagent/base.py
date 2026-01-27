@@ -161,6 +161,23 @@ class MultiAgentResult:
         )
         return multiagent_result
 
+    def __str__(self) -> str:
+        """Get the combined output from all agent results as a string.
+
+        This method extracts and concatenates text content from all node results,
+        providing a convenient way to access the multi-agent output via str().
+
+        Returns:
+            The combined text output from all agent results.
+        """
+        parts = []
+        for node_result in self.results.values():
+            for agent_result in node_result.get_agent_results():
+                text = str(agent_result)
+                if text:
+                    parts.append(text)
+        return "\n".join(parts)
+
     def to_dict(self) -> dict[str, Any]:
         """Convert MultiAgentResult to JSON-serializable dict."""
         return {
