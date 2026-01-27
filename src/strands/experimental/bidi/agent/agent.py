@@ -15,18 +15,17 @@ Key capabilities:
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from .... import _identifier
 from ....agent.state import AgentState
 from ....hooks import HookProvider, HookRegistry
 from ....interrupt import _InterruptState
-from ....tools import ToolProvider
 from ....tools._caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
+from ....tools.tool_provider import ToolProvider
 from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import AgentTool
