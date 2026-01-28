@@ -27,6 +27,45 @@ def boto_session():
 
 
 @pytest.fixture(scope="module")
+def bedrock_prompt_attack_guardrail(boto_session):
+    """
+    Fixture that creates a guardrail with prompt attack filter (medium strength).
+    """
+    client = boto_session.client("bedrock")
+
+    guardrail_name = "test-guardrail-prompt-attack-medium"
+    guardrail_id = get_guardrail_id(client, guardrail_name)
+
+    if guardrail_id:
+        print(f"Guardrail {guardrail_name} already exists with ID: {guardrail_id}")
+    else:
+        print(f"Creating guardrail {guardrail_name}")
+        response = client.create_guardrail(
+            name=guardrail_name,
+            description="Testing Guardrail with Prompt Attack Filter",
+            contentPolicyConfig={
+                "filtersConfig": [
+                    {
+                        "type": "PROMPT_ATTACK",
+                        "inputStrength": "MEDIUM",
+                        "outputStrength": "NONE",
+                        "inputAction": "BLOCK",
+                        "outputAction": "NONE",
+                        "inputEnabled": True,
+                        "outputEnabled": False,
+                    }
+                ]
+            },
+            blockedInputMessaging=BLOCKED_INPUT,
+            blockedOutputsMessaging=BLOCKED_OUTPUT,
+        )
+        guardrail_id = response.get("guardrailId")
+        print(f"Created test guardrail with ID: {guardrail_id}")
+        wait_for_guardrail_active(client, guardrail_id)
+    return guardrail_id
+
+
+@pytest.fixture(scope="module")
 def bedrock_guardrail(boto_session):
     """
     Fixture that creates a guardrail before tests if it doesn't already exist."
@@ -378,3 +417,33 @@ def test_guardrail_input_intervention_properly_redacts_in_session(boto_session, 
 
     # Assert that the restored agent redacted message is equal to the original agent
     assert agent.messages[0] == agent_2.messages[0]
+
+
+def test_structured_output_guardrail_not_intervened(bedrock_prompt_attack_guardrail, boto_session):
+    """Test that structured output works with prompt attack guardrail enabled."""
+    from pydantic import BaseModel
+
+    class Output(BaseModel):
+        age: str
+        user_message: str
+
+    bedrock_model = BedrockModel(
+        guardrail_id=bedrock_prompt_attack_guardrail,
+        guardrail_version="DRAFT",
+        boto_session=boto_session,
+        guardrail_trace="enabled",
+    )
+
+    agent = Agent(
+        model=bedrock_model,
+        system_prompt="You are an friendly assistant",
+        structured_output_model=Output,
+    )
+
+    response = agent("What are you doing?")
+
+    # Verify structured output succeeded without guardrail intervention
+    assert response.stop_reason == "tool_use", f"Expected tool_use, got {response.stop_reason}"
+    assert isinstance(response.structured_output, Output), "Should return structured output"
+    assert hasattr(response.structured_output, "age"), "Output should have age field"
+    assert hasattr(response.structured_output, "user_message"), "Output should have user_message field"
