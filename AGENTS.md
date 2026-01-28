@@ -25,6 +25,8 @@ strands-agents/
 │   ├── agent/                            # Core agent implementation
 │   │   ├── agent.py                      # Main Agent class
 │   │   ├── agent_result.py               # Agent execution results
+│   │   ├── base.py                       # AgentBase protocol (agent interface)
+│   │   ├── a2a_agent.py                  # A2AAgent client for remote A2A agents
 │   │   ├── state.py                      # Agent state management
 │   │   └── conversation_manager/         # Message history strategies
 │   │       ├── conversation_manager.py           # Base conversation manager
@@ -82,7 +84,8 @@ strands-agents/
 │   │   ├── swarm.py                      # Swarm pattern
 │   │   ├── a2a/                          # Agent-to-agent protocol
 │   │   │   ├── executor.py               # A2A executor
-│   │   │   └── server.py                 # A2A server
+│   │   │   ├── server.py                 # A2A server
+│   │   │   └── converters.py             # Strands/A2A type converters
 │   │   └── nodes/                        # Graph node implementations
 │   │
 │   ├── types/                            # Type definitions
@@ -102,6 +105,7 @@ strands-agents/
 │   │   ├── json_dict.py                  # JSON dict utilities
 │   │   ├── collections.py                # Collection types
 │   │   ├── _events.py                    # Internal event types
+│   │   ├── a2a.py                        # A2A protocol types
 │   │   └── models/                       # Model-specific types
 │   │
 │   ├── session/                          # Session management
@@ -188,6 +192,7 @@ strands-agents/
 │   ├── interrupts/                       # Interrupt tests
 │   ├── steering/                         # Steering tests
 │   ├── bidi/                             # Bidirectional streaming tests
+│   ├── a2a/                              # A2A agent integration tests
 │   ├── test_multiagent_graph.py
 │   ├── test_multiagent_swarm.py
 │   ├── test_stream_agent.py
