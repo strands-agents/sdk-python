@@ -632,7 +632,7 @@ def test_call_tool_sync_embedded_nested_base64_textual_mime(mock_transport, mock
 def test_call_tool_sync_embedded_image_blob(mock_transport, mock_session):
     """EmbeddedResource.resource (blob with image MIME) should map to image content."""
     # Read yellow.png file
-    with open("tests_integ/yellow.png", "rb") as image_file:
+    with open("tests_integ/resources/yellow.png", "rb") as image_file:
         png_data = image_file.read()
     payload = base64.b64encode(png_data).decode()
 

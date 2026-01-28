@@ -43,7 +43,7 @@ def start_comprehensive_mcp_server(transport: Literal["sse", "streamable-http"],
     @mcp.tool(description="Generates a custom image")
     def generate_custom_image() -> MCPImageContent:
         try:
-            with open("tests_integ/yellow.png", "rb") as image_file:
+            with open("tests_integ/resources/yellow.png", "rb") as image_file:
                 encoded_image = base64.b64encode(image_file.read())
                 return MCPImageContent(type="image", data=encoded_image, mimeType="image/png")
         except Exception as e:

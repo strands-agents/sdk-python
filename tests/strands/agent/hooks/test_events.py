@@ -206,8 +206,6 @@ def test_invocation_state_is_available_in_model_call_events(agent):
     assert after_event.invocation_state["request_id"] == "req-456"
 
 
-
-
 def test_before_invocation_event_messages_default_none(agent):
     """Test that BeforeInvocationEvent.messages defaults to None for backward compatibility."""
     event = BeforeInvocationEvent(agent=agent)

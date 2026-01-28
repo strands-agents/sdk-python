@@ -1,3 +1,5 @@
+import copy
+import logging
 import os
 import sys
 import traceback
@@ -1519,7 +1521,6 @@ async def test_add_note_on_validation_exception_throughput(bedrock_client, model
 @pytest.mark.asyncio
 async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
     """Test that stream method logs debug messages at the expected stages."""
-    import logging
 
     # Set the logger to debug level to capture debug messages
     caplog.set_level(logging.DEBUG, logger="strands.models.bedrock")
@@ -1787,8 +1788,8 @@ def test_format_request_filters_image_content_blocks(model, model_id):
     assert "metadata" not in image_block
 
 
-def test_format_request_filters_nested_image_s3_fields(model, model_id):
-    """Test that s3Location is filtered out and only bytes source is preserved."""
+def test_format_request_image_s3_location_only(model, model_id):
+    """Test that image with only s3Location is properly formatted."""
     messages = [
         {
             "role": "user",
@@ -1797,8 +1798,7 @@ def test_format_request_filters_nested_image_s3_fields(model, model_id):
                     "image": {
                         "format": "png",
                         "source": {
-                            "bytes": b"image_data",
-                            "s3Location": {"bucket": "my-bucket", "key": "image.png", "extraField": "filtered"},
+                            "location": {"type": "s3", "uri": "s3://my-bucket/image.png"},
                         },
                     }
                 }
@@ -1809,8 +1809,146 @@ def test_format_request_filters_nested_image_s3_fields(model, model_id):
     formatted_request = model._format_request(messages)
     image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
 
+    assert image_source == {"s3Location": {"uri": "s3://my-bucket/image.png"}}
+
+
+def test_format_request_image_bytes_only(model, model_id):
+    """Test that image with only bytes source is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"bytes": b"image_data"},
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
+
     assert image_source == {"bytes": b"image_data"}
-    assert "s3Location" not in image_source
+
+
+def test_format_request_document_s3_location(model, model_id):
+    """Test that document with s3Location is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "report.pdf",
+                        "format": "pdf",
+                        "source": {
+                            "location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"},
+                        },
+                    }
+                },
+                {
+                    "document": {
+                        "name": "report.pdf",
+                        "format": "pdf",
+                        "source": {
+                            "location": {
+                                "type": "s3",
+                                "uri": "s3://my-bucket/report.pdf",
+                                "bucketOwner": "123456789012",
+                            },
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    document = formatted_request["messages"][0]["content"][0]["document"]
+    document_with_bucket_owner = formatted_request["messages"][0]["content"][1]["document"]
+
+    assert document["source"] == {"s3Location": {"uri": "s3://my-bucket/report.pdf"}}
+
+    assert document_with_bucket_owner["source"] == {
+        "s3Location": {"uri": "s3://my-bucket/report.pdf", "bucketOwner": "123456789012"}
+    }
+
+
+def test_format_request_unsupported_location(model, caplog):
+    """Test that document with s3Location is properly formatted."""
+
+    caplog.set_level(logging.WARNING, logger="strands.models.bedrock")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Hello!"},
+                {
+                    "document": {
+                        "name": "report.pdf",
+                        "format": "pdf",
+                        "source": {
+                            "location": {
+                                "type": "other",
+                            },
+                        },
+                    }
+                },
+                {
+                    "video": {
+                        "format": "mp4",
+                        "source": {
+                            "location": {
+                                "type": "other",
+                            },
+                        },
+                    }
+                },
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {
+                            "location": {
+                                "type": "other",
+                            },
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    assert len(formatted_request["messages"][0]["content"]) == 1
+    assert "Non s3 location sources are not supported by Bedrock, skipping content block" in caplog.text
+
+
+def test_format_request_video_s3_location(model, model_id):
+    """Test that video with s3Location is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "video": {
+                        "format": "mp4",
+                        "source": {
+                            "location": {"type": "s3", "uri": "s3://my-bucket/video.mp4"},
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    video_source = formatted_request["messages"][0]["content"][0]["video"]["source"]
+
+    assert video_source == {"s3Location": {"uri": "s3://my-bucket/video.mp4"}}
 
 
 def test_format_request_filters_document_content_blocks(model, model_id):
@@ -2310,7 +2448,6 @@ def test_inject_cache_point_skipped_for_non_claude(bedrock_client):
 
 def test_format_bedrock_messages_does_not_mutate_original(bedrock_client):
     """Test that _format_bedrock_messages does not mutate original messages."""
-    import copy
 
     model = BedrockModel(
         model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
