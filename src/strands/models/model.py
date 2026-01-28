@@ -3,7 +3,8 @@
 import abc
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable
-from typing import Any, TypeVar
+from dataclasses import dataclass
+from typing import Any, Literal, TypeVar
 
 from pydantic import BaseModel
 
@@ -14,6 +15,18 @@ from ..types.tools import ToolChoice, ToolSpec
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass
+class CacheConfig:
+    """Configuration for prompt caching.
+
+    Attributes:
+        strategy: Caching strategy to use.
+            - "auto": Automatically inject cachePoint at optimal positions
+    """
+
+    strategy: Literal["auto"] = "auto"
 
 
 class Model(abc.ABC):

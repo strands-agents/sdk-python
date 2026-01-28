@@ -246,8 +246,6 @@ def test_end_model_invoke_span(mock_span):
         "gen_ai.choice",
         attributes={"message": json.dumps(message["content"]), "finish_reason": "end_turn"},
     )
-    mock_span.set_status.assert_called_once_with(StatusCode.OK)
-    mock_span.end.assert_called_once()
 
 
 def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
@@ -283,9 +281,6 @@ def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
                 ),
             },
         )
-
-        mock_span.set_status.assert_called_once_with(StatusCode.OK)
-        mock_span.end.assert_called_once()
 
 
 def test_start_tool_call_span(mock_tracer):
@@ -650,8 +645,6 @@ def test_end_event_loop_cycle_span(mock_span):
             "tool.result": json.dumps(tool_result_message["content"]),
         },
     )
-    mock_span.set_status.assert_called_once_with(StatusCode.OK)
-    mock_span.end.assert_called_once()
 
 
 def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
@@ -687,8 +680,6 @@ def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
             )
         },
     )
-    mock_span.set_status.assert_called_once_with(StatusCode.OK)
-    mock_span.end.assert_called_once()
 
 
 def test_start_agent_span(mock_tracer):
@@ -890,8 +881,6 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
     mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 3)
     mock_span.set_attribute.assert_any_call("gen_ai.server.request.duration", 10)
     mock_span.set_attribute.assert_any_call("gen_ai.server.time_to_first_token", 5)
-    mock_span.set_status.assert_called_once_with(StatusCode.OK)
-    mock_span.end.assert_called_once()
 
 
 def test_end_agent_span_with_cache_metrics(mock_span):

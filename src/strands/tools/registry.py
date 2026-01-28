@@ -19,9 +19,9 @@ from typing import Any, cast
 from typing_extensions import TypedDict
 
 from .._async import run_async
-from ..experimental.tools import ToolProvider
 from ..tools.decorator import DecoratedFunctionTool
 from ..types.tools import AgentTool, ToolSpec
+from . import ToolProvider
 from .loader import load_tool_from_string, load_tools_from_module
 from .tools import _COMPOSITION_KEYWORDS, PythonAgentTool, normalize_schema, normalize_tool_spec
 

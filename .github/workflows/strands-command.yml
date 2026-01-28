@@ -23,93 +23,40 @@ on:
 jobs:
   authorization-check:
     if: startsWith(github.event.comment.body, '/strands') || github.event_name == 'workflow_dispatch'
+    name: Check access
     permissions: read-all
     runs-on: ubuntu-latest
     outputs:
-      approval-env: ${{ steps.collab-check.outputs.result || steps.auto-approve.outputs.result }}
+      approval-env: ${{ steps.auth.outputs.result }}
     steps:
-      - name: Collaborator Check
-        if: github.event_name != 'workflow_dispatch'
-        uses: actions/github-script@v8
-        id: collab-check
+      - name: Check Authorization
+        id: auth
+        uses: strands-agents/devtools/authorization-check@main
         with:
-          result-encoding: string
-          script: |
-            try {
-              const permissionResponse = await github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                username: context.payload.comment.user.login,
-              });
-              const permission = permissionResponse.data.permission;
-              const hasWriteAccess = ['write', 'admin'].includes(permission);
-              if (!hasWriteAccess) {
-                console.log(`User ${context.payload.comment.user.login} does not have write access to the repository (permission: ${permission})`);
-                return "manual-approval"
-              } else {
-                console.log(`Verified ${context.payload.comment.user.login} has write access. Auto Approving strands command.`)
-                return "auto-approve"
-              }
-            } catch (error) {
-              console.log(`${context.payload.comment.user.login} does not have write access. Requiring Manual Approval to run strands command.`)
-              return "manual-approval"
-            }
-
-      - name: Auto-approve for workflow dispatch
-        if: github.event_name == 'workflow_dispatch'
-        id: auto-approve
-        uses: actions/github-script@v8
-        with:
-          result-encoding: string
-          script: |
-            return "auto-approve"
+          skip-check: ${{ github.event_name == 'workflow_dispatch' }}
+          username: ${{ github.event.comment.user.login || 'invalid' }}
+          allowed-roles: 'triage,write,admin'
   
   setup-and-process:
     needs: [authorization-check]
     environment: ${{ needs.authorization-check.outputs.approval-env }}
     permissions:
+      # Needed to create a branch for the Implementer Agent
       contents: write
+      # These both are needed to add the `strands-running` label to issues and prs
       issues: write
       pull-requests: write
     runs-on: ubuntu-latest
-    outputs:
-      branch: ${{ steps.process.outputs.branch_name }}
-      session_id: ${{ steps.process.outputs.session_id }}
-      system_prompt: ${{ steps.process.outputs.system_prompt }}
-      prompt: ${{ steps.process.outputs.prompt }}
     steps:
-      - name: Add strands-running label
-        uses: actions/github-script@v8
+      - name: Parse input
+        id: parse
+        uses: strands-agents/devtools/strands-command/actions/strands-input-parser@main
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: ${{ inputs.issue_id || github.event.issue.number }},
-              labels: ['strands-running']
-            });
+          issue_id: ${{ inputs.issue_id }}
+          command: ${{ inputs.command }}
+          session_id: ${{ inputs.session_id }}
 
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          sparse-checkout: |
-            .github
-
-      # Outputs: branch_name, session_id, system_prompt, prompt
-      - name: Process input
-        id: process
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const processInput = require('./.github/scripts/javascript/process-input.cjs');
-            await processInput(context, github, core, {
-              issue_id: '${{ inputs.issue_id }}',
-              command: '${{ inputs.command }}',
-              session_id: '${{ inputs.session_id }}'
-            });
-
-  execute-readonly:
+  execute-readonly-agent:
     needs: [setup-and-process]
     permissions:
       contents: read
@@ -119,66 +66,26 @@ jobs:
     runs-on: ubuntu-latest 
     timeout-minutes: 60
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          sparse-checkout: |
-            .github
+      
+      # Add any steps here to set up the environment for the Agent in your repo
+      # setup node, setup python, or any other dependencies
 
       - name: Run Strands Agent
         id: agent-runner
-        uses: ./.github/actions/strands-agent-runner
+        uses: strands-agents/devtools/strands-command/actions/strands-agent-runner@main
         with:
-          system_prompt: ${{ needs.setup-and-process.outputs.system_prompt }}
-          session_id: ${{ needs.setup-and-process.outputs.session_id }}
-          task_prompt: ${{ needs.setup-and-process.outputs.prompt }}
           aws_role_arn: ${{ secrets.AWS_ROLE_ARN }}
           sessions_bucket: ${{ secrets.AGENT_SESSIONS_BUCKET }}
           write_permission: 'false'
-          ref: ${{ needs.setup-and-process.outputs.branch }}
 
-  execute-write:
-    needs: [setup-and-process, execute-readonly]
+  finalize:
+    needs: [setup-and-process, execute-readonly-agent]
     permissions:
       contents: write
       issues: write
       pull-requests: write
-      id-token: write # Required for OIDC
     runs-on: ubuntu-latest 
     timeout-minutes: 30
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          sparse-checkout: |
-            .github
-
       - name: Execute write operations
-        uses: ./.github/actions/strands-write-executor
-        with:
-          ref: ${{ needs.setup-and-process.outputs.branch }}
-          issue_id: ${{ inputs.issue_id || github.event.issue.number }}
-
-
-  cleanup:
-    needs: [authorization-check, setup-and-process, execute-readonly, execute-write]
-    if: always()
-    permissions:
-      issues: write
-      pull-requests: write
-    runs-on: ubuntu-latest 
-    steps:
-      - name: Remove strands-running label
-        uses: actions/github-script@v8
-        with:
-          script: |
-            try {
-              await github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: ${{ inputs.issue_id || github.event.issue.number }},
-                name: 'strands-running'
-              });
-            } catch (error) {
-              console.log('Label removal failed (may not exist):', error.message);
-            }
+        uses: strands-agents/devtools/strands-command/actions/strands-finalize@main
