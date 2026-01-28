@@ -403,7 +403,9 @@ async def _handle_model_execution(
 
         # Add the response message to the conversation
         agent.messages.append(message)
-        await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=message))
+        await agent.hooks.invoke_callbacks_async(
+            MessageAddedEvent(agent=agent, message=message, usage=usage, metrics=metrics)
+        )
 
         # Update metrics
         agent.event_loop_metrics.update_usage(usage)

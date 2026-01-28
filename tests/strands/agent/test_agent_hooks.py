@@ -178,7 +178,12 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
         exception=None,
     )
 
-    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])
+    assert next(events) == MessageAddedEvent(
+        agent=agent,
+        message=agent.messages[1],
+        usage={"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+        metrics={"latencyMs": 0, "timeToFirstByteMs": 0},
+    )
     assert next(events) == BeforeToolCallEvent(
         agent=agent,
         selected_tool=agent_tool,
@@ -202,7 +207,12 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
         ),
         exception=None,
     )
-    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
+    assert next(events) == MessageAddedEvent(
+        agent=agent,
+        message=agent.messages[3],
+        usage={"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+        metrics={"latencyMs": 0, "timeToFirstByteMs": 0},
+    )
 
     assert next(events) == AfterInvocationEvent(agent=agent, result=result)
 
@@ -248,7 +258,12 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
         exception=None,
     )
 
-    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])
+    assert next(events) == MessageAddedEvent(
+        agent=agent,
+        message=agent.messages[1],
+        usage={"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+        metrics={"latencyMs": 0, "timeToFirstByteMs": 0},
+    )
     assert next(events) == BeforeToolCallEvent(
         agent=agent,
         selected_tool=agent_tool,
@@ -272,7 +287,12 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
         ),
         exception=None,
     )
-    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
+    assert next(events) == MessageAddedEvent(
+        agent=agent,
+        message=agent.messages[3],
+        usage={"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+        metrics={"latencyMs": 0, "timeToFirstByteMs": 0},
+    )
 
     assert next(events) == AfterInvocationEvent(agent=agent, result=result)
 
