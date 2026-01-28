@@ -273,6 +273,10 @@ def test_get_httpx_client_creates_client_with_timeout():
     assert agent._httpx_client is client
     assert client.timeout.connect == 120
 
+    # Explicitly clear the client to prevent __del__ from trying to close it
+    # which can hang on Windows due to event loop issues in ThreadPoolExecutor
+    agent._httpx_client = None
+
 
 def test_create_default_factory_uses_streaming():
     """Test _create_default_factory creates factory with streaming enabled."""
@@ -285,6 +289,10 @@ def test_create_default_factory_uses_streaming():
             # Verify streaming=True is passed - this is the key behavior
             call_kwargs = mock_config_class.call_args[1]
             assert call_kwargs["streaming"] is True
+
+    # Explicitly clear the client to prevent __del__ from trying to close it
+    # which can hang on Windows due to event loop issues in ThreadPoolExecutor
+    agent._httpx_client = None
 
 
 @pytest.mark.asyncio
