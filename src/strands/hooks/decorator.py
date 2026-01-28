@@ -260,18 +260,7 @@ class FunctionHookMetadata:
 
 
 class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
-    """A HookProvider that wraps a function decorated with @hook.
-
-    This class adapts Python functions decorated with @hook to the HookProvider
-    interface, enabling them to be used with Agent's hooks parameter.
-
-    The class is generic over the event type to maintain type safety.
-
-    Features:
-    - Automatic agent injection: If the hook function has an 'agent' parameter,
-      it will be automatically injected from event.agent when the hook is called.
-      Note: Agent injection only works with events that extend HookEvent (not BaseHookEvent).
-    """
+    """A HookProvider that wraps a function decorated with @hook."""
 
     _func: Callable[[TEvent], Any]
     _metadata: FunctionHookMetadata
