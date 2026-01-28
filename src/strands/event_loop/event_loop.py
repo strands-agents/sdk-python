@@ -139,108 +139,98 @@ async def event_loop_cycle(
     )
     invocation_state["event_loop_cycle_span"] = cycle_span
 
-    # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
-    if agent._interrupt_state.activated:
-        stop_reason: StopReason = "tool_use"
-        message = agent._interrupt_state.context["tool_use_message"]
-    # Skip model invocation if the latest message contains ToolUse
-    elif _has_tool_use_in_latest_message(agent.messages):
-        stop_reason = "tool_use"
-        message = agent.messages[-1]
-    else:
-        model_events = _handle_model_execution(
-            agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
-        )
-        async for model_event in model_events:
-            if not isinstance(model_event, ModelStopReason):
-                yield model_event
+    with trace_api.use_span(cycle_span, end_on_exit=True):
+        # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
+        if agent._interrupt_state.activated:
+            stop_reason: StopReason = "tool_use"
+            message = agent._interrupt_state.context["tool_use_message"]
+        # Skip model invocation if the latest message contains ToolUse
+        elif _has_tool_use_in_latest_message(agent.messages):
+            stop_reason = "tool_use"
+            message = agent.messages[-1]
+        else:
+            model_events = _handle_model_execution(
+                agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
+            )
+            async for model_event in model_events:
+                if not isinstance(model_event, ModelStopReason):
+                    yield model_event
 
-        stop_reason, message, *_ = model_event["stop"]
-        yield ModelMessageEvent(message=message)
+            stop_reason, message, *_ = model_event["stop"]
+            yield ModelMessageEvent(message=message)
 
-    try:
-        if stop_reason == "max_tokens":
-            """
-            Handle max_tokens limit reached by the model.
+        try:
+            if stop_reason == "max_tokens":
+                """
+                Handle max_tokens limit reached by the model.
 
-            When the model reaches its maximum token limit, this represents a potentially unrecoverable
-            state where the model's response was truncated. By default, Strands fails hard with an
-            MaxTokensReachedException to maintain consistency with other failure types.
-            """
-            raise MaxTokensReachedException(
-                message=(
-                    "Agent has reached an unrecoverable state due to max_tokens limit. "
-                    "For more information see: "
-                    "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
+                When the model reaches its maximum token limit, this represents a potentially unrecoverable
+                state where the model's response was truncated. By default, Strands fails hard with an
+                MaxTokensReachedException to maintain consistency with other failure types.
+                """
+                raise MaxTokensReachedException(
+                    message=(
+                        "Agent has reached an unrecoverable state due to max_tokens limit. "
+                        "For more information see: "
+                        "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
+                    )
                 )
+
+            if stop_reason == "tool_use":
+                # Handle tool execution
+                tool_events = _handle_tool_execution(
+                    stop_reason,
+                    message,
+                    agent=agent,
+                    cycle_trace=cycle_trace,
+                    cycle_span=cycle_span,
+                    cycle_start_time=cycle_start_time,
+                    invocation_state=invocation_state,
+                    tracer=tracer,
+                    structured_output_context=structured_output_context,
+                )
+                async for tool_event in tool_events:
+                    yield tool_event
+
+                return
+
+            # End the cycle and return results
+            agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
+            # Set attributes before span auto-closes
+            tracer.end_event_loop_cycle_span(cycle_span, message)
+        except EventLoopException:
+            # Don't yield or log the exception - we already did it when we
+            # raised the exception and we don't need that duplication.
+            raise
+        except (ContextWindowOverflowException, MaxTokensReachedException) as e:
+            # Special cased exceptions which we want to bubble up rather than get wrapped in an EventLoopException
+            raise e
+        except Exception as e:
+            # Handle any other exceptions
+            yield ForceStopEvent(reason=e)
+            logger.exception("cycle failed")
+            raise EventLoopException(e, invocation_state["request_state"]) from e
+
+        # Force structured output tool call if LLM didn't use it automatically
+        if structured_output_context.is_enabled and stop_reason == "end_turn":
+            if structured_output_context.force_attempted:
+                raise StructuredOutputException(
+                    "The model failed to invoke the structured output tool even after it was forced."
+                )
+            structured_output_context.set_forced_mode()
+            logger.debug("Forcing structured output tool")
+            await agent._append_messages(
+                {"role": "user", "content": [{"text": "You must format the previous response as structured output."}]}
             )
 
-        if stop_reason == "tool_use":
-            # Handle tool execution
-            tool_events = _handle_tool_execution(
-                stop_reason,
-                message,
-                agent=agent,
-                cycle_trace=cycle_trace,
-                cycle_span=cycle_span,
-                cycle_start_time=cycle_start_time,
-                invocation_state=invocation_state,
-                tracer=tracer,
-                structured_output_context=structured_output_context,
+            events = recurse_event_loop(
+                agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
             )
-            async for tool_event in tool_events:
-                yield tool_event
-
+            async for typed_event in events:
+                yield typed_event
             return
 
-        # End the cycle and return results
-        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
-        if cycle_span:
-            tracer.end_event_loop_cycle_span(
-                span=cycle_span,
-                message=message,
-            )
-    except EventLoopException as e:
-        if cycle_span:
-            tracer.end_span_with_error(cycle_span, str(e), e)
-
-        # Don't yield or log the exception - we already did it when we
-        # raised the exception and we don't need that duplication.
-        raise
-    except (ContextWindowOverflowException, MaxTokensReachedException) as e:
-        # Special cased exceptions which we want to bubble up rather than get wrapped in an EventLoopException
-        if cycle_span:
-            tracer.end_span_with_error(cycle_span, str(e), e)
-        raise e
-    except Exception as e:
-        if cycle_span:
-            tracer.end_span_with_error(cycle_span, str(e), e)
-
-        # Handle any other exceptions
-        yield ForceStopEvent(reason=e)
-        logger.exception("cycle failed")
-        raise EventLoopException(e, invocation_state["request_state"]) from e
-
-    # Force structured output tool call if LLM didn't use it automatically
-    if structured_output_context.is_enabled and stop_reason == "end_turn":
-        if structured_output_context.force_attempted:
-            raise StructuredOutputException(
-                "The model failed to invoke the structured output tool even after it was forced."
-            )
-        structured_output_context.set_forced_mode()
-        logger.debug("Forcing structured output tool")
-        await agent._append_messages(
-            {"role": "user", "content": [{"text": "You must format the previous response as structured output."}]}
-        )
-
-        events = recurse_event_loop(
-            agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
-        )
-        async for typed_event in events:
-            yield typed_event
-        return
-
-    yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
+        yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
 
 
 async def recurse_event_loop(
@@ -324,7 +314,7 @@ async def _handle_model_execution(
             model_id=model_id,
             custom_trace_attributes=agent.trace_attributes,
         )
-        with trace_api.use_span(model_invoke_span):
+        with trace_api.use_span(model_invoke_span, end_on_exit=True):
             await agent.hooks.invoke_callbacks_async(
                 BeforeModelCallEvent(
                     agent=agent,
@@ -374,14 +364,12 @@ async def _handle_model_execution(
                 if stop_reason == "max_tokens":
                     message = recover_message_on_max_tokens_reached(message)
 
-                if model_invoke_span:
-                    tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
+                # Set attributes before span auto-closes
+                tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
                 break  # Success! Break out of retry loop
 
             except Exception as e:
-                if model_invoke_span:
-                    tracer.end_span_with_error(model_invoke_span, str(e), e)
-
+                # Exception is automatically recorded by use_span with end_on_exit=True
                 after_model_call_event = AfterModelCallEvent(
                     agent=agent,
                     invocation_state=invocation_state,
@@ -425,9 +413,6 @@ async def _handle_model_execution(
         agent.event_loop_metrics.update_metrics(metrics)
 
     except Exception as e:
-        if cycle_span:
-            tracer.end_span_with_error(cycle_span, str(e), e)
-
         yield ForceStopEvent(reason=e)
         logger.exception("cycle failed")
         raise EventLoopException(e, invocation_state["request_state"]) from e
@@ -511,6 +496,7 @@ async def _handle_tool_execution(
             interrupts,
             structured_output=structured_output_result,
         )
+        # Set attributes before span auto-closes (span is managed by use_span in event_loop_cycle)
         if cycle_span:
             tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
 
@@ -528,6 +514,7 @@ async def _handle_tool_execution(
 
     yield ToolResultMessageEvent(message=tool_result_message)
 
+    # Set attributes before span auto-closes (span is managed by use_span in event_loop_cycle)
     if cycle_span:
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
 

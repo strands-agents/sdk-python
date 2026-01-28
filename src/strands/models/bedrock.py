@@ -29,7 +29,7 @@ from ..types.exceptions import (
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
-from .model import Model
+from .model import CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,8 @@ class BedrockModel(Model):
             additional_args: Any additional arguments to include in the request
             additional_request_fields: Additional fields to include in the Bedrock request
             additional_response_field_paths: Additional response field paths to extract
-            cache_prompt: Cache point type for the system prompt
+            cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
+            cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
             cache_tools: Cache point type for tools
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
@@ -99,6 +100,7 @@ class BedrockModel(Model):
         additional_request_fields: dict[str, Any] | None
         additional_response_field_paths: list[str] | None
         cache_prompt: str | None
+        cache_config: CacheConfig | None
         cache_tools: str | None
         guardrail_id: str | None
         guardrail_trace: Literal["enabled", "disabled", "enabled_full"] | None
@@ -171,6 +173,15 @@ class BedrockModel(Model):
         )
 
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
+
+    @property
+    def _supports_caching(self) -> bool:
+        """Whether this model supports prompt caching.
+
+        Returns True for Claude models on Bedrock.
+        """
+        model_id = self.config.get("model_id", "").lower()
+        return "claude" in model_id or "anthropic" in model_id
 
     @override
     def update_config(self, **model_config: Unpack[BedrockConfig]) -> None:  # type: ignore
@@ -322,6 +333,33 @@ class BedrockModel(Model):
 
         return {"additionalModelRequestFields": additional_fields}
 
+    def _inject_cache_point(self, messages: list[dict[str, Any]]) -> None:
+        """Inject a cache point at the end of the last assistant message.
+
+        Args:
+            messages: List of messages to inject cache point into (modified in place).
+        """
+        if not messages:
+            return
+
+        last_assistant_idx: int | None = None
+        for msg_idx, msg in enumerate(messages):
+            content = msg.get("content", [])
+            for block_idx, block in reversed(list(enumerate(content))):
+                if "cachePoint" in block:
+                    del content[block_idx]
+                    logger.warning(
+                        "msg_idx=<%s>, block_idx=<%s> | stripped existing cache point (auto mode manages cache points)",
+                        msg_idx,
+                        block_idx,
+                    )
+            if msg.get("role") == "assistant":
+                last_assistant_idx = msg_idx
+
+        if last_assistant_idx is not None and messages[last_assistant_idx].get("content"):
+            messages[last_assistant_idx]["content"].append({"cachePoint": {"type": "default"}})
+            logger.debug("msg_idx=<%s> | added cache point to last assistant message", last_assistant_idx)
+
     def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
 
@@ -330,6 +368,7 @@ class BedrockModel(Model):
         - Eagerly filtering content blocks to only include Bedrock-supported fields
         - Ensuring all message content blocks are properly formatted for the Bedrock API
         - Optionally wrapping the last user message in guardrailConverseContent blocks
+        - Injecting cache points when cache_config is set with strategy="auto"
 
         Args:
             messages: List of messages to format
@@ -395,6 +434,17 @@ class BedrockModel(Model):
             logger.debug(
                 "Filtered DeepSeek reasoningContent content blocks from messages - https://api-docs.deepseek.com/guides/reasoning_model#multi-round-conversation"
             )
+
+        # Inject cache point into cleaned_messages (not original messages) if cache_config is set
+        cache_config = self.config.get("cache_config")
+        if cache_config and cache_config.strategy == "auto":
+            if self._supports_caching:
+                self._inject_cache_point(cleaned_messages)
+            else:
+                logger.warning(
+                    "model_id=<%s> | cache_config is enabled but this model does not support caching",
+                    self.config.get("model_id"),
+                )
 
         return cleaned_messages
 

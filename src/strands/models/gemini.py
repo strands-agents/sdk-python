@@ -443,8 +443,8 @@ class GeminiModel(Model):
             response = await client.models.generate_content_stream(**request)
 
             yield self._format_chunk({"chunk_type": "message_start"})
-            yield self._format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
+            data_type: str | None = None
             tool_used = False
             candidate = None
             event = None
@@ -462,15 +462,22 @@ class GeminiModel(Model):
                         tool_used = True
 
                     if part.text:
+                        new_data_type = "reasoning_content" if part.thought else "text"
+                        if new_data_type != data_type:
+                            if data_type is not None:
+                                yield self._format_chunk({"chunk_type": "content_stop", "data_type": data_type})
+                            yield self._format_chunk({"chunk_type": "content_start", "data_type": new_data_type})
+                            data_type = new_data_type
                         yield self._format_chunk(
                             {
                                 "chunk_type": "content_delta",
-                                "data_type": "reasoning_content" if part.thought else "text",
+                                "data_type": data_type,
                                 "data": part,
                             },
                         )
 
-            yield self._format_chunk({"chunk_type": "content_stop", "data_type": "text"})
+            if data_type is not None:
+                yield self._format_chunk({"chunk_type": "content_stop", "data_type": data_type})
             yield self._format_chunk(
                 {
                     "chunk_type": "message_stop",

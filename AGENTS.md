@@ -55,6 +55,7 @@ strands-agents/
 │   ├── tools/                            # Tool system
 │   │   ├── decorator.py                  # @tool decorator
 │   │   ├── tools.py                      # Tool base classes
+│   │   ├── tool_provider.py              # ToolProvider interface
 │   │   ├── registry.py                   # Tool registration
 │   │   ├── loader.py                     # Dynamic tool loading
 │   │   ├── watcher.py                    # Hot reload
@@ -139,8 +140,7 @@ strands-agents/
 │   │   │   ├── context_providers/
 │   │   │   ├── core/
 │   │   │   └── handlers/
-│   │   └── tools/                        # Experimental tools
-│   │       └── tool_provider.py
+│   │   └── tools/                        # Experimental tools (deprecation shims)
 │   │
 │   ├── __init__.py                       # Public API exports
 │   ├── interrupt.py                      # Interrupt handling
