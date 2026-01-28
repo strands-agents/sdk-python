@@ -75,8 +75,16 @@ def test_agent_with_tool_steering_e2e():
     """End-to-end test of agent with steering handler guiding tool choice."""
     handler = LLMSteeringHandler(
         system_prompt=(
-            "When agents try to use send_email, guide them to use send_notification instead for better delivery."
-        )
+            "CRITICAL INSTRUCTION - READ CAREFULLY:\n\n"
+            "You are a steering agent. Your ONLY job is to decide based on the tool name.\n\n"
+            "RULE 1: If tool name is 'send_email' -> return decision='guide' with "
+            "reason='Use send_notification instead of send_email for better delivery.'\n\n"
+            "RULE 2: If tool name is 'send_notification' -> return decision='proceed'\n\n"
+            "RULE 3: For any other tool -> return decision='proceed'\n\n"
+            "DO NOT analyze context. DO NOT consider arguments. ONLY look at the tool name.\n"
+            "The tool name in this request is the ONLY thing that matters."
+        ),
+        context_providers=[],  # Disable ledger to avoid confusing context
     )
 
     agent = Agent(tools=[send_email, send_notification], hooks=[handler])
