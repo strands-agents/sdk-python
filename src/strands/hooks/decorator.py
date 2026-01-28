@@ -1,10 +1,7 @@
-"""Hook decorator for simplified hook definitions.
+"""Hook decorator for defining hooks as functions.
 
 This module provides the @hook decorator that transforms Python functions into
 HookProvider implementations with automatic event type detection from type hints.
-
-The @hook decorator mirrors the ergonomics of the existing @tool decorator,
-making hooks as easy to define and share via PyPI packages as tools are today.
 
 Example:
     ```python
@@ -16,13 +13,7 @@ Example:
         '''Log all tool calls before execution.'''
         print(f"Tool: {event.tool_use}")
 
-    # With automatic agent injection:
-    @hook
-    def log_with_agent(event: BeforeToolCallEvent, agent: Agent) -> None:
-        '''Log tool calls with agent context.'''
-        print(f"Agent {agent.name} calling tool: {event.tool_use}")
-
-    agent = Agent(hooks=[log_tool_calls, log_with_agent])
+    agent = Agent(hooks=[log_tool_calls])
     ```
 """
 
@@ -499,113 +490,34 @@ def hook(
     event: type[BaseHookEvent] | None = None,
     events: Sequence[type[BaseHookEvent]] | None = None,
 ) -> DecoratedFunctionHook[Any] | Callable[[F], DecoratedFunctionHook[Any]]:
-    """Decorator that transforms a Python function into a Strands hook.
+    """Decorator that transforms a function into a HookProvider.
 
-    This decorator enables simple, function-based hook definitions - mirroring
-    the ergonomics of the existing @tool decorator. It extracts the event type
-    from the function's type hints or from explicit parameters.
-
-    When decorated, a function:
-    1. Implements the HookProvider protocol automatically
-    2. Can be passed directly to Agent(hooks=[...])
-    3. Still works as a normal function when called directly
-    4. Supports both sync and async hook functions
-    5. Supports automatic agent injection via 'agent' parameter (for HookEvent subclasses)
-
-    The decorator can be used in several ways:
-
-    1. Simple decorator with type hints:
-        ```python
-        @hook
-        def my_hook(event: BeforeToolCallEvent) -> None:
-            print(f"Tool: {event.tool_use}")
-        ```
-
-    2. With automatic agent injection (only for HookEvent subclasses):
-        ```python
-        @hook
-        def my_hook(event: BeforeToolCallEvent, agent: Agent) -> None:
-            print(f"Agent: {agent.name}")
-            print(f"Tool: {event.tool_use}")
-        ```
-
-    3. With explicit event type:
-        ```python
-        @hook(event=BeforeToolCallEvent)
-        def my_hook(event) -> None:
-            print(f"Tool: {event.tool_use}")
-        ```
-
-    4. For multiple event types:
-        ```python
-        @hook(events=[BeforeToolCallEvent, AfterToolCallEvent])
-        def my_hook(event: BeforeToolCallEvent | AfterToolCallEvent) -> None:
-            print(f"Event: {event}")
-        ```
-
-    5. With Union type hint:
-        ```python
-        @hook
-        def my_hook(event: BeforeToolCallEvent | AfterToolCallEvent) -> None:
-            print(f"Event: {event}")
-        ```
-
-    Note on Agent Injection:
-        Agent injection (via the 'agent' parameter) only works with events that
-        extend HookEvent, which have an 'agent' attribute. Events like
-        BeforeToolCallEvent, AfterModelCallEvent, etc. support agent injection.
-
-        Multiagent events (BeforeNodeCallEvent, MultiAgentInitializedEvent, etc.)
-        extend BaseHookEvent and have a 'source' attribute instead of 'agent'.
-        These events do not support agent injection.
+    The decorated function can be passed directly to Agent(hooks=[...]).
+    Event types are detected from type hints or can be specified explicitly.
 
     Args:
-        func: The function to decorate. When used as a simple decorator,
-            this is the function being decorated. When used with parameters,
-            this will be None.
-        event: Optional single event type to handle. Takes precedence over
-            type hint detection.
-        events: Optional list of event types to handle. Takes precedence over
-            both `event` parameter and type hint detection.
+        func: The function to decorate.
+        event: Single event type to handle.
+        events: List of event types to handle.
 
     Returns:
-        A DecoratedFunctionHook that implements HookProvider and can be used
-        directly with Agent(hooks=[...]).
+        A DecoratedFunctionHook that implements HookProvider.
 
     Raises:
-        ValueError: If no event type can be determined from type hints or parameters.
+        ValueError: If no event type can be determined.
         ValueError: If event types are not subclasses of BaseHookEvent.
         ValueError: If agent injection is requested but event types don't support it.
 
     Example:
         ```python
         from strands import Agent, hook
-        from strands.hooks import BeforeToolCallEvent, AfterToolCallEvent
+        from strands.hooks import BeforeToolCallEvent
 
         @hook
         def log_tool_calls(event: BeforeToolCallEvent) -> None:
-            '''Log all tool calls before execution.'''
-            print(f"Calling tool: {event.tool_use['name']}")
+            print(f"Tool: {event.tool_use}")
 
-        @hook
-        def log_with_agent(event: BeforeToolCallEvent, agent: Agent) -> None:
-            '''Log with direct agent access.'''
-            print(f"Agent {agent.name} calling tool: {event.tool_use['name']}")
-
-        @hook
-        async def async_audit(event: AfterToolCallEvent) -> None:
-            '''Async hook for auditing tool results.'''
-            await send_to_audit_service(event.result)
-
-        @hook(events=[BeforeToolCallEvent, AfterToolCallEvent])
-        def tool_lifecycle(event: BeforeToolCallEvent | AfterToolCallEvent) -> None:
-            '''Track the complete tool lifecycle.'''
-            if isinstance(event, BeforeToolCallEvent):
-                print("Starting tool...")
-            else:
-                print("Tool complete!")
-
-        agent = Agent(hooks=[log_tool_calls, log_with_agent, async_audit, tool_lifecycle])
+        agent = Agent(hooks=[log_tool_calls])
         ```
     """
 
