@@ -133,14 +133,21 @@ def pytest_sessionstart(session):
 
 @pytest.fixture
 def yellow_img(pytestconfig):
-    path = pytestconfig.rootdir / "tests_integ/yellow.png"
+    path = pytestconfig.rootdir / "tests_integ/resources/yellow.png"
     with open(path, "rb") as fp:
         return fp.read()
 
 
 @pytest.fixture
 def letter_pdf(pytestconfig):
-    path = pytestconfig.rootdir / "tests_integ/letter.pdf"
+    path = pytestconfig.rootdir / "tests_integ/resources/letter.pdf"
+    with open(path, "rb") as fp:
+        return fp.read()
+
+
+@pytest.fixture
+def blue_video(pytestconfig):
+    path = pytestconfig.rootdir / "tests_integ/resources/blue.mp4"
     with open(path, "rb") as fp:
         return fp.read()
 

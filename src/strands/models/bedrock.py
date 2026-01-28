@@ -489,9 +489,17 @@ class BedrockModel(Model):
             if "format" in document:
                 result["format"] = document["format"]
 
-            # Handle source
+            # Handle source - supports bytes or s3Location
             if "source" in document:
-                result["source"] = {"bytes": document["source"]["bytes"]}
+                source = document["source"]
+                if "s3Location" in source:
+                    s3_loc = source["s3Location"]
+                    formatted_document_s3: dict[str, Any] = {"uri": s3_loc["uri"]}
+                    if "bucketOwner" in s3_loc:
+                        formatted_document_s3["bucketOwner"] = s3_loc["bucketOwner"]
+                    result["source"] = {"s3Location": formatted_document_s3}
+                elif "bytes" in source:
+                    result["source"] = {"bytes": source["bytes"]}
 
             # Handle optional fields
             if "citations" in document and document["citations"] is not None:
@@ -512,10 +520,16 @@ class BedrockModel(Model):
         if "image" in content:
             image = content["image"]
             source = image["source"]
-            formatted_source = {}
-            if "bytes" in source:
-                formatted_source = {"bytes": source["bytes"]}
-            result = {"format": image["format"], "source": formatted_source}
+            formatted_image_source: dict[str, Any] = {}
+            if "s3Location" in source:
+                s3_loc = source["s3Location"]
+                formatted_image_s3: dict[str, Any] = {"uri": s3_loc["uri"]}
+                if "bucketOwner" in s3_loc:
+                    formatted_image_s3["bucketOwner"] = s3_loc["bucketOwner"]
+                formatted_image_source = {"s3Location": formatted_image_s3}
+            elif "bytes" in source:
+                formatted_image_source = {"bytes": source["bytes"]}
+            result = {"format": image["format"], "source": formatted_image_source}
             return {"image": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ReasoningContentBlock.html
@@ -577,10 +591,16 @@ class BedrockModel(Model):
         if "video" in content:
             video = content["video"]
             source = video["source"]
-            formatted_source = {}
-            if "bytes" in source:
-                formatted_source = {"bytes": source["bytes"]}
-            result = {"format": video["format"], "source": formatted_source}
+            formatted_video_source: dict[str, Any] = {}
+            if "s3Location" in source:
+                s3_loc = source["s3Location"]
+                formatted_video_s3: dict[str, Any] = {"uri": s3_loc["uri"]}
+                if "bucketOwner" in s3_loc:
+                    formatted_video_s3["bucketOwner"] = s3_loc["bucketOwner"]
+                formatted_video_source = {"s3Location": formatted_video_s3}
+            elif "bytes" in source:
+                formatted_video_source = {"bytes": source["bytes"]}
+            result = {"format": video["format"], "source": formatted_video_source}
             return {"video": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html

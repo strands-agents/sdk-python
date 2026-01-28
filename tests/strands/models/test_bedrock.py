@@ -1787,8 +1787,8 @@ def test_format_request_filters_image_content_blocks(model, model_id):
     assert "metadata" not in image_block
 
 
-def test_format_request_filters_nested_image_s3_fields(model, model_id):
-    """Test that s3Location is filtered out and only bytes source is preserved."""
+def test_format_request_image_s3_location_only(model, model_id):
+    """Test that image with only s3Location is properly formatted."""
     messages = [
         {
             "role": "user",
@@ -1797,9 +1797,40 @@ def test_format_request_filters_nested_image_s3_fields(model, model_id):
                     "image": {
                         "format": "png",
                         "source": {
-                            "bytes": b"image_data",
-                            "s3Location": {"bucket": "my-bucket", "key": "image.png", "extraField": "filtered"},
+                            "s3Location": {"uri": "s3://my-bucket/image.png"},
                         },
+                    }
+                },
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {
+                            "s3Location": {"uri": "s3://my-bucket/image.png", "bucketOwner": "12345"},
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
+    image_source_with_bucket_owner = formatted_request["messages"][0]["content"][1]["image"]["source"]
+
+    assert image_source == {"s3Location": {"uri": "s3://my-bucket/image.png"}}
+    assert image_source_with_bucket_owner == {"s3Location": {"uri": "s3://my-bucket/image.png", "bucketOwner": "12345"}}
+
+
+def test_format_request_image_bytes_only(model, model_id):
+    """Test that image with only bytes source is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"bytes": b"image_data"},
                     }
                 }
             ],
@@ -1810,7 +1841,79 @@ def test_format_request_filters_nested_image_s3_fields(model, model_id):
     image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
 
     assert image_source == {"bytes": b"image_data"}
-    assert "s3Location" not in image_source
+
+
+def test_format_request_document_s3_location(model, model_id):
+    """Test that document with s3Location is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "report.pdf",
+                        "format": "pdf",
+                        "source": {
+                            "s3Location": {"uri": "s3://my-bucket/report.pdf"},
+                        },
+                    }
+                },
+                {
+                    "document": {
+                        "name": "report.pdf",
+                        "format": "pdf",
+                        "source": {
+                            "s3Location": {"uri": "s3://my-bucket/report.pdf", "bucketOwner": "123456789012"},
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    document = formatted_request["messages"][0]["content"][0]["document"]
+    document_with_bucket_owner = formatted_request["messages"][0]["content"][1]["document"]
+
+    assert document["source"] == {"s3Location": {"uri": "s3://my-bucket/report.pdf"}}
+
+    assert document_with_bucket_owner["source"] == {
+        "s3Location": {"uri": "s3://my-bucket/report.pdf", "bucketOwner": "123456789012"}
+    }
+
+
+def test_format_request_video_s3_location(model, model_id):
+    """Test that video with s3Location is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "video": {
+                        "format": "mp4",
+                        "source": {
+                            "s3Location": {"uri": "s3://my-bucket/video.mp4"},
+                        },
+                    }
+                },
+                {
+                    "video": {
+                        "format": "mp4",
+                        "source": {
+                            "s3Location": {"uri": "s3://my-bucket/video.mp4", "bucketOwner": "12345"},
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    video_source = formatted_request["messages"][0]["content"][0]["video"]["source"]
+    video_source_with_bucket_owner = formatted_request["messages"][0]["content"][1]["video"]["source"]
+
+    assert video_source == {"s3Location": {"uri": "s3://my-bucket/video.mp4"}}
+    assert video_source_with_bucket_owner == {"s3Location": {"uri": "s3://my-bucket/video.mp4", "bucketOwner": "12345"}}
 
 
 def test_format_request_filters_document_content_blocks(model, model_id):
