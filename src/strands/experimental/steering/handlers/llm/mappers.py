@@ -23,13 +23,27 @@ should try a different approach or get human input.
 
 **CRITICAL CONSTRAINTS:**
 - Base decisions ONLY on the context data provided below
-- Do NOT use external knowledge about domains, URLs, or tool purposes  
+- Do NOT use external knowledge about domains, URLs, or tool purposes
 - Do NOT make assumptions about what tools "should" or "shouldn't" do
 - Focus ONLY on patterns in the context data
 
 ## Context
 
 {context_str}
+
+### Understanding Ledger Tool States
+
+If the context includes a ledger with tool_calls, the "status" field indicates:
+
+- **"pending"**: The tool is CURRENTLY being evaluated by you (the steering agent).
+This is NOT a duplicate call - it's the tool you're deciding whether to approve.
+The tool has NOT started executing yet.
+- **"success"**: The tool completed successfully in a previous turn
+- **"error"**: The tool failed or was cancelled in a previous turn
+
+**IMPORTANT**: When you see a tool with status="pending" that matches the tool you're evaluating,
+that IS the current tool being evaluated.
+It is NOT already executing or a duplicate.
 
 ## Event to Evaluate
 
