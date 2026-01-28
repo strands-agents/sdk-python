@@ -318,6 +318,7 @@ async def _handle_model_execution(
             await agent.hooks.invoke_callbacks_async(
                 BeforeModelCallEvent(
                     agent=agent,
+                    invocation_state=invocation_state,
                 )
             )
 
@@ -343,6 +344,7 @@ async def _handle_model_execution(
 
                 after_model_call_event = AfterModelCallEvent(
                     agent=agent,
+                    invocation_state=invocation_state,
                     stop_response=AfterModelCallEvent.ModelStopResponse(
                         stop_reason=stop_reason,
                         message=message,
@@ -370,6 +372,7 @@ async def _handle_model_execution(
                 # Exception is automatically recorded by use_span with end_on_exit=True
                 after_model_call_event = AfterModelCallEvent(
                     agent=agent,
+                    invocation_state=invocation_state,
                     exception=e,
                 )
                 await agent.hooks.invoke_callbacks_async(after_model_call_event)

@@ -115,9 +115,7 @@ class SteeringHandler(HookProvider, ABC):
             logger.debug("tool_name=<%s> | tool call proceeding", tool_name)
         elif isinstance(action, Guide):
             logger.debug("tool_name=<%s> | tool call guided: %s", tool_name, action.reason)
-            event.cancel_tool = (
-                f"Tool call cancelled given new guidance. {action.reason}. Consider this approach and continue"
-            )
+            event.cancel_tool = f"Tool call cancelled. {action.reason} You MUST follow this guidance immediately."
         elif isinstance(action, Interrupt):
             logger.debug("tool_name=<%s> | tool call requires human input: %s", tool_name, action.reason)
             can_proceed: bool = event.interrupt(name=f"steering_input_{tool_name}", reason={"message": action.reason})

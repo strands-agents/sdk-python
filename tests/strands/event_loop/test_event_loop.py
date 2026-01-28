@@ -855,27 +855,28 @@ async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, 
     assert count == 9
 
     # 1st call - throttled
-    assert next(events) == BeforeModelCallEvent(agent=agent)
-    expected_after = AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
+    expected_after = AfterModelCallEvent(agent=agent, invocation_state=ANY, stop_response=None, exception=exception)
     expected_after.retry = True
     assert next(events) == expected_after
 
     # 2nd call - throttled
-    assert next(events) == BeforeModelCallEvent(agent=agent)
-    expected_after = AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
+    expected_after = AfterModelCallEvent(agent=agent, invocation_state=ANY, stop_response=None, exception=exception)
     expected_after.retry = True
     assert next(events) == expected_after
 
     # 3rd call - throttled
-    assert next(events) == BeforeModelCallEvent(agent=agent)
-    expected_after = AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
+    expected_after = AfterModelCallEvent(agent=agent, invocation_state=ANY, stop_response=None, exception=exception)
     expected_after.retry = True
     assert next(events) == expected_after
 
     # 4th call - successful
-    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
     assert next(events) == AfterModelCallEvent(
         agent=agent,
+        invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
             message={"content": [{"text": "test text"}], "role": "assistant"}, stop_reason="end_turn"
         ),

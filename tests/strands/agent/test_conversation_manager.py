@@ -362,7 +362,7 @@ def test_per_turn_dynamic_change():
 
     mock_agent = MagicMock()
     mock_agent.messages = []
-    event = BeforeModelCallEvent(agent=mock_agent)
+    event = BeforeModelCallEvent(agent=mock_agent, invocation_state={})
 
     # Initially disabled
     with patch.object(manager, "apply_management") as mock_apply:

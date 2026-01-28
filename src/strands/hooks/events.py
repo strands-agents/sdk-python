@@ -4,7 +4,7 @@ This module defines the events that are emitted as Agents run through the lifecy
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
@@ -48,10 +48,14 @@ class BeforeInvocationEvent(HookEvent):
       - Agent.structured_output
 
     Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
         messages: The input messages for this invocation. Can be modified by hooks
             to redact or transform content before processing.
     """
 
+    invocation_state: dict[str, Any] = field(default_factory=dict)
     messages: Messages | None = None
 
     def _can_write(self, name: str) -> bool:
@@ -75,11 +79,15 @@ class AfterInvocationEvent(HookEvent):
       - Agent.structured_output
 
     Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
         result: The result of the agent invocation, if available.
             This will be None when invoked from structured_output methods, as those return typed output directly rather
             than AgentResult.
     """
 
+    invocation_state: dict[str, Any] = field(default_factory=dict)
     result: "AgentResult | None" = None
 
     @property
@@ -208,9 +216,14 @@ class BeforeModelCallEvent(HookEvent):
     that will be sent to the model.
 
     Note: This event is not fired for invocations to structured_output.
+
+    Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
     """
 
-    pass
+    invocation_state: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -239,6 +252,9 @@ class AfterModelCallEvent(HookEvent):
           conversation history
 
     Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
         stop_response: The model response data if invocation was successful, None if failed.
         exception: Exception if the model invocation failed, None if successful.
         retry: Whether to retry the model invocation. Can be set by hook callbacks
@@ -258,6 +274,7 @@ class AfterModelCallEvent(HookEvent):
         message: Message
         stop_reason: StopReason
 
+    invocation_state: dict[str, Any] = field(default_factory=dict)
     stop_response: ModelStopResponse | None = None
     exception: Exception | None = None
     retry: bool = False

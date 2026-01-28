@@ -68,7 +68,7 @@ def test_after_tool_call_event_type_equality():
 
 def test_before_model_call_event_type_equality():
     """Verify that BeforeModelInvocationEvent alias has the same type identity."""
-    before_model_event = BeforeModelCallEvent(agent=Mock())
+    before_model_event = BeforeModelCallEvent(agent=Mock(), invocation_state={})
 
     assert isinstance(before_model_event, BeforeModelInvocationEvent)
     assert isinstance(before_model_event, BeforeModelCallEvent)
@@ -76,7 +76,7 @@ def test_before_model_call_event_type_equality():
 
 def test_after_model_call_event_type_equality():
     """Verify that AfterModelInvocationEvent alias has the same type identity."""
-    after_model_event = AfterModelCallEvent(agent=Mock())
+    after_model_event = AfterModelCallEvent(agent=Mock(), invocation_state={})
 
     assert isinstance(after_model_event, AfterModelInvocationEvent)
     assert isinstance(after_model_event, AfterModelCallEvent)
