@@ -29,17 +29,14 @@ Example:
 import functools
 import inspect
 import logging
-import sys
 import types
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Generic,
     Optional,
-    Sequence,
-    Type,
     TypeVar,
     Union,
     cast,
@@ -49,7 +46,7 @@ from typing import (
     overload,
 )
 
-from .registry import BaseHookEvent, HookCallback, HookProvider, HookRegistry
+from .registry import BaseHookEvent, HookCallback, HookEvent, HookProvider, HookRegistry
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -74,7 +71,7 @@ class HookMetadata:
 
     name: str
     description: str
-    event_types: list[Type[BaseHookEvent]]
+    event_types: list[type[BaseHookEvent]]
     is_async: bool
     has_agent_param: bool = False
 
@@ -92,7 +89,7 @@ class FunctionHookMetadata:
     def __init__(
         self,
         func: Callable[..., Any],
-        event_types: Optional[Sequence[Type[BaseHookEvent]]] = None,
+        event_types: Sequence[type[BaseHookEvent]] | None = None,
     ) -> None:
         """Initialize with the function to process.
 
@@ -120,7 +117,7 @@ class FunctionHookMetadata:
         """
         return "agent" in self.signature.parameters
 
-    def _resolve_event_types(self) -> list[Type[BaseHookEvent]]:
+    def _resolve_event_types(self) -> list[type[BaseHookEvent]]:
         """Resolve event types from explicit parameter or type hints.
 
         Returns:
@@ -141,14 +138,17 @@ class FunctionHookMetadata:
             type_hints = {}
 
         # Find the first parameter's type hint (should be the event)
+        # Skip 'self' and 'cls' for class methods
         params = list(self.signature.parameters.values())
-        if not params:
+        event_params = [p for p in params if p.name not in ("self", "cls")]
+
+        if not event_params:
             raise ValueError(
                 f"Hook function '{self.func.__name__}' must have at least one parameter "
                 "for the event. Use @hook(event=EventType) if type hints are unavailable."
             )
 
-        first_param = params[0]
+        first_param = event_params[0]
         event_type = type_hints.get(first_param.name)
 
         if event_type is None:
@@ -178,13 +178,12 @@ class FunctionHookMetadata:
             return True
 
         # Python 3.10+ uses types.UnionType for `A | B` syntax
-        if sys.version_info >= (3, 10):
-            if isinstance(annotation, types.UnionType):
-                return True
+        if isinstance(annotation, types.UnionType):
+            return True
 
         return False
 
-    def _extract_event_types_from_annotation(self, annotation: Any) -> list[Type[BaseHookEvent]]:
+    def _extract_event_types_from_annotation(self, annotation: Any) -> list[type[BaseHookEvent]]:
         """Extract event types from a type annotation.
 
         Handles Union types and single types.
@@ -228,6 +227,14 @@ class FunctionHookMetadata:
             if not isinstance(event_type, type) or not issubclass(event_type, BaseHookEvent):
                 raise ValueError(f"Event type must be a subclass of BaseHookEvent, got {event_type}")
 
+    def _all_event_types_are_hook_events(self) -> bool:
+        """Check if all event types extend HookEvent (which has .agent attribute).
+
+        Returns:
+            True if all event types are subclasses of HookEvent.
+        """
+        return all(issubclass(et, HookEvent) for et in self._event_types)
+
     def extract_metadata(self) -> HookMetadata:
         """Extract metadata from the function to create hook specification.
 
@@ -251,7 +258,7 @@ class FunctionHookMetadata:
         )
 
     @property
-    def event_types(self) -> list[Type[BaseHookEvent]]:
+    def event_types(self) -> list[type[BaseHookEvent]]:
         """Get the event types this hook handles."""
         return self._event_types
 
@@ -272,6 +279,7 @@ class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
     Features:
     - Automatic agent injection: If the hook function has an 'agent' parameter,
       it will be automatically injected from event.agent when the hook is called.
+      Note: Agent injection only works with events that extend HookEvent (not BaseHookEvent).
     """
 
     _func: Callable[[TEvent], Any]
@@ -288,13 +296,65 @@ class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
         Args:
             func: The original function being decorated.
             metadata: The FunctionHookMetadata object with extracted function information.
+
+        Raises:
+            ValueError: If agent injection is requested but event types don't support it.
         """
         self._func = func
         self._metadata = metadata
         self._hook_metadata = metadata.extract_metadata()
 
+        # Validate agent injection compatibility
+        if self._hook_metadata.has_agent_param and not metadata._all_event_types_are_hook_events():
+            non_hook_events = [et.__name__ for et in metadata.event_types if not issubclass(et, HookEvent)]
+            raise ValueError(
+                f"Hook function '{func.__name__}' has an 'agent' parameter but handles event types "
+                f"that don't have an 'agent' attribute: {non_hook_events}. "
+                "Agent injection only works with events that extend HookEvent "
+                "(e.g., BeforeToolCallEvent, AfterModelCallEvent). "
+                "Multiagent events (e.g., BeforeNodeCallEvent, MultiAgentInitializedEvent) extend "
+                "BaseHookEvent and have a 'source' attribute instead."
+            )
+
         # Preserve function metadata
         functools.update_wrapper(wrapper=self, wrapped=self._func)
+
+    def __get__(
+        self, instance: Any, obj_type: type[Any] | None = None
+    ) -> "DecoratedFunctionHook[TEvent]":
+        """Descriptor protocol implementation for proper method binding.
+
+        This method enables the decorated function to work correctly when used
+        as a class method. It binds the instance to the function call when
+        accessed through an instance.
+
+        Args:
+            instance: The instance through which the descriptor is accessed,
+                or None when accessed through the class.
+            obj_type: The class through which the descriptor is accessed.
+
+        Returns:
+            A new DecoratedFunctionHook with the instance bound to the function
+            if accessed through an instance, otherwise returns self.
+
+        Example:
+            ```python
+            class MyHooks:
+                @hook
+                def my_hook(self, event: BeforeToolCallEvent) -> None:
+                    ...
+
+            hooks = MyHooks()
+            # Works correctly - 'self' is bound
+            agent = Agent(hooks=[hooks.my_hook])
+            ```
+        """
+        if instance is not None and not inspect.ismethod(self._func):
+            # Create a bound method
+            bound_func = self._func.__get__(instance, instance.__class__)
+            return DecoratedFunctionHook(bound_func, self._metadata)
+
+        return self
 
     def _create_callback_with_injection(self) -> HookCallback[BaseHookEvent]:
         """Create a callback that handles agent injection.
@@ -307,16 +367,22 @@ class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
 
         if has_agent_param:
             # Create wrapper that injects agent
+            # Safe to access event.agent here because we validated in __init__
+            # that all event types are HookEvent subclasses
             if self._hook_metadata.is_async:
 
                 async def async_callback_with_agent(event: BaseHookEvent) -> None:
-                    await func(event, agent=event.agent)  # type: ignore[arg-type]
+                    # Cast is safe because we validated event types in __init__
+                    hook_event = cast(HookEvent, event)
+                    await func(event, agent=hook_event.agent)  # type: ignore[arg-type]
 
                 return cast(HookCallback[BaseHookEvent], async_callback_with_agent)
             else:
 
                 def sync_callback_with_agent(event: BaseHookEvent) -> None:
-                    func(event, agent=event.agent)  # type: ignore[arg-type]
+                    # Cast is safe because we validated event types in __init__
+                    hook_event = cast(HookEvent, event)
+                    func(event, agent=hook_event.agent)  # type: ignore[arg-type]
 
                 return cast(HookCallback[BaseHookEvent], sync_callback_with_agent)
         else:
@@ -340,14 +406,21 @@ class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
         Args:
             event: The event to process.
             agent: Optional agent instance. If not provided and the hook
-                   expects an agent parameter, it will be extracted from event.agent.
+                   expects an agent parameter, it will be extracted from event.agent
+                   (only works for HookEvent subclasses).
 
         Returns:
             The result of the hook function.
         """
         if self._hook_metadata.has_agent_param:
             # Use provided agent or fall back to event.agent
-            actual_agent = agent if agent is not None else event.agent
+            # Safe because we validated in __init__ that event types support .agent
+            if agent is not None:
+                actual_agent = agent
+            else:
+                # Cast is safe because we validated event types in __init__
+                hook_event = cast(HookEvent, event)
+                actual_agent = hook_event.agent
             return self._func(event, agent=actual_agent)  # type: ignore[arg-type]
         return self._func(event)
 
@@ -370,7 +443,7 @@ class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
         return self._hook_metadata.description
 
     @property
-    def event_types(self) -> list[Type[BaseHookEvent]]:
+    def event_types(self) -> list[type[BaseHookEvent]]:
         """Get the event types this hook handles.
 
         Returns:
@@ -416,16 +489,16 @@ def hook(__func: F) -> DecoratedFunctionHook[Any]: ...
 @overload
 def hook(
     *,
-    event: Optional[Type[BaseHookEvent]] = None,
-    events: Optional[Sequence[Type[BaseHookEvent]]] = None,
+    event: type[BaseHookEvent] | None = None,
+    events: Sequence[type[BaseHookEvent]] | None = None,
 ) -> Callable[[F], DecoratedFunctionHook[Any]]: ...
 
 
 def hook(
-    func: Optional[F] = None,
-    event: Optional[Type[BaseHookEvent]] = None,
-    events: Optional[Sequence[Type[BaseHookEvent]]] = None,
-) -> Union[DecoratedFunctionHook[Any], Callable[[F], DecoratedFunctionHook[Any]]]:
+    func: F | None = None,
+    event: type[BaseHookEvent] | None = None,
+    events: Sequence[type[BaseHookEvent]] | None = None,
+) -> DecoratedFunctionHook[Any] | Callable[[F], DecoratedFunctionHook[Any]]:
     """Decorator that transforms a Python function into a Strands hook.
 
     This decorator enables simple, function-based hook definitions - mirroring
@@ -437,7 +510,7 @@ def hook(
     2. Can be passed directly to Agent(hooks=[...])
     3. Still works as a normal function when called directly
     4. Supports both sync and async hook functions
-    5. Supports automatic agent injection via 'agent' parameter
+    5. Supports automatic agent injection via 'agent' parameter (for HookEvent subclasses)
 
     The decorator can be used in several ways:
 
@@ -448,7 +521,7 @@ def hook(
             print(f"Tool: {event.tool_use}")
         ```
 
-    2. With automatic agent injection:
+    2. With automatic agent injection (only for HookEvent subclasses):
         ```python
         @hook
         def my_hook(event: BeforeToolCallEvent, agent: Agent) -> None:
@@ -477,6 +550,15 @@ def hook(
             print(f"Event: {event}")
         ```
 
+    Note on Agent Injection:
+        Agent injection (via the 'agent' parameter) only works with events that
+        extend HookEvent, which have an 'agent' attribute. Events like
+        BeforeToolCallEvent, AfterModelCallEvent, etc. support agent injection.
+
+        Multiagent events (BeforeNodeCallEvent, MultiAgentInitializedEvent, etc.)
+        extend BaseHookEvent and have a 'source' attribute instead of 'agent'.
+        These events do not support agent injection.
+
     Args:
         func: The function to decorate. When used as a simple decorator,
             this is the function being decorated. When used with parameters,
@@ -493,6 +575,7 @@ def hook(
     Raises:
         ValueError: If no event type can be determined from type hints or parameters.
         ValueError: If event types are not subclasses of BaseHookEvent.
+        ValueError: If agent injection is requested but event types don't support it.
 
     Example:
         ```python
@@ -528,7 +611,7 @@ def hook(
 
     def decorator(f: F) -> DecoratedFunctionHook[Any]:
         # Determine event types from parameters or type hints
-        event_types: Optional[list[Type[BaseHookEvent]]] = None
+        event_types: list[type[BaseHookEvent]] | None = None
 
         if events is not None:
             event_types = list(events)

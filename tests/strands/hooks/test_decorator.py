@@ -1,6 +1,5 @@
 """Tests for the @hook decorator."""
 
-from typing import Union
 from unittest.mock import MagicMock
 
 import pytest
@@ -8,11 +7,13 @@ import pytest
 from strands.hooks import (
     AfterToolCallEvent,
     BeforeInvocationEvent,
+    BeforeNodeCallEvent,
     BeforeToolCallEvent,
     DecoratedFunctionHook,
     FunctionHookMetadata,
     HookMetadata,
     HookRegistry,
+    MultiAgentInitializedEvent,
     hook,
 )
 
@@ -46,7 +47,7 @@ class TestHookDecorator:
         """Test @hook(events=[...]) syntax for multiple event types."""
 
         @hook(events=[BeforeToolCallEvent, AfterToolCallEvent])
-        def my_hook(event: Union[BeforeToolCallEvent, AfterToolCallEvent]) -> None:
+        def my_hook(event: BeforeToolCallEvent | AfterToolCallEvent) -> None:
             pass
 
         assert isinstance(my_hook, DecoratedFunctionHook)
@@ -143,7 +144,7 @@ class TestHookDecorator:
         events_received = []
 
         @hook(events=[BeforeToolCallEvent, AfterToolCallEvent])
-        def multi_hook(event: Union[BeforeToolCallEvent, AfterToolCallEvent]) -> None:
+        def multi_hook(event: BeforeToolCallEvent | AfterToolCallEvent) -> None:
             events_received.append(type(event).__name__)
 
         registry = HookRegistry()
@@ -497,15 +498,223 @@ class TestAgentInjection:
         assert results["with_agent"][0]["agent"] is mock_agent
 
 
+class TestAgentInjectionWithMultiagentEvents:
+    """Tests for agent injection error handling with multiagent events."""
+
+    def test_agent_injection_fails_with_multiagent_events(self):
+        """Test that agent injection raises error for events without .agent attribute."""
+        with pytest.raises(ValueError, match="don't have an 'agent' attribute"):
+
+            @hook
+            def bad_hook(event: BeforeNodeCallEvent, agent) -> None:
+                pass
+
+    def test_agent_injection_fails_with_multiagent_initialized_event(self):
+        """Test that agent injection raises error for MultiAgentInitializedEvent."""
+        with pytest.raises(ValueError, match="don't have an 'agent' attribute"):
+
+            @hook
+            def bad_hook(event: MultiAgentInitializedEvent, agent) -> None:
+                pass
+
+    def test_agent_injection_fails_with_mixed_events(self):
+        """Test that agent injection raises error when mixing HookEvent and BaseHookEvent."""
+        with pytest.raises(ValueError, match="don't have an 'agent' attribute"):
+
+            @hook(events=[BeforeToolCallEvent, BeforeNodeCallEvent])
+            def bad_hook(event, agent) -> None:
+                pass
+
+    def test_multiagent_hook_without_agent_param_works(self):
+        """Test that multiagent hooks without agent param work correctly."""
+        events_received = []
+
+        @hook
+        def node_hook(event: BeforeNodeCallEvent) -> None:
+            events_received.append(event)
+
+        assert node_hook.has_agent_param is False
+        assert node_hook.event_types == [BeforeNodeCallEvent]
+
+        # Create a mock multiagent event
+        mock_source = MagicMock()
+        event = BeforeNodeCallEvent(
+            source=mock_source,
+            node_id="test-node",
+            invocation_state={},
+        )
+
+        # Direct invocation should work
+        node_hook(event)
+
+        assert len(events_received) == 1
+        assert events_received[0] is event
+
+    def test_error_message_lists_problematic_events(self):
+        """Test that error message includes the event types that don't support injection."""
+        with pytest.raises(ValueError) as exc_info:
+
+            @hook(events=[BeforeToolCallEvent, BeforeNodeCallEvent, MultiAgentInitializedEvent])
+            def bad_hook(event, agent) -> None:
+                pass
+
+        error_msg = str(exc_info.value)
+        assert "BeforeNodeCallEvent" in error_msg
+        assert "MultiAgentInitializedEvent" in error_msg
+        # BeforeToolCallEvent supports agent injection, so it should NOT be in the error
+        assert "BeforeToolCallEvent" not in error_msg or "extend HookEvent" in error_msg
+
+
+class TestDescriptorProtocol:
+    """Tests for the __get__ descriptor protocol implementation."""
+
+    def test_hook_as_class_method(self):
+        """Test that @hook works correctly on class methods."""
+        results = []
+
+        class MyHooks:
+            def __init__(self, prefix: str):
+                self.prefix = prefix
+
+            @hook
+            def my_hook(self, event: BeforeToolCallEvent) -> None:
+                results.append(f"{self.prefix}: {event}")
+
+        hooks_instance = MyHooks("test")
+
+        # Access the hook through the instance - should bind 'self'
+        bound_hook = hooks_instance.my_hook
+
+        # Should be a DecoratedFunctionHook
+        assert isinstance(bound_hook, DecoratedFunctionHook)
+
+        # Create a mock event and call
+        mock_agent = MagicMock()
+        event = BeforeToolCallEvent(
+            agent=mock_agent,
+            selected_tool=None,
+            tool_use={"toolUseId": "test-123", "name": "test_tool", "input": {}},
+            invocation_state={},
+        )
+
+        bound_hook(event)
+
+        assert len(results) == 1
+        assert results[0].startswith("test:")
+
+    def test_hook_class_method_via_registry(self):
+        """Test that class method hooks work with HookRegistry."""
+        results = []
+
+        class MyHooks:
+            def __init__(self, name: str):
+                self.name = name
+
+            @hook
+            def on_tool_call(self, event: BeforeToolCallEvent) -> None:
+                results.append({"name": self.name, "event": event})
+
+        hooks_instance = MyHooks("registry_test")
+
+        # Register the bound method with registry
+        registry = HookRegistry()
+        registry.add_hook(hooks_instance.on_tool_call)
+
+        # Create event and invoke
+        mock_agent = MagicMock()
+        event = BeforeToolCallEvent(
+            agent=mock_agent,
+            selected_tool=None,
+            tool_use={"toolUseId": "test-123", "name": "test_tool", "input": {}},
+            invocation_state={},
+        )
+
+        registry.invoke_callbacks(event)
+
+        assert len(results) == 1
+        assert results[0]["name"] == "registry_test"
+        assert results[0]["event"] is event
+
+    def test_hook_class_method_with_agent_injection(self):
+        """Test that class method hooks with agent injection work correctly."""
+        results = []
+
+        class MyHooks:
+            @hook
+            def with_agent(self, event: BeforeToolCallEvent, agent) -> None:
+                results.append({"self": self, "event": event, "agent": agent})
+
+        hooks_instance = MyHooks()
+        bound_hook = hooks_instance.with_agent
+
+        # Create mock event
+        mock_agent = MagicMock()
+        mock_agent.name = "test_agent"
+        event = BeforeToolCallEvent(
+            agent=mock_agent,
+            selected_tool=None,
+            tool_use={"toolUseId": "test-123", "name": "test_tool", "input": {}},
+            invocation_state={},
+        )
+
+        bound_hook(event)
+
+        assert len(results) == 1
+        assert results[0]["self"] is hooks_instance
+        assert results[0]["agent"] is mock_agent
+
+    def test_hook_accessed_via_class_returns_self(self):
+        """Test that accessing hook via class (not instance) returns the hook itself."""
+
+        class MyHooks:
+            @hook
+            def my_hook(self, event: BeforeToolCallEvent) -> None:
+                pass
+
+        # Access through class - should return the descriptor itself
+        class_hook = MyHooks.my_hook
+
+        assert isinstance(class_hook, DecoratedFunctionHook)
+
+    def test_hook_different_instances_are_independent(self):
+        """Test that hooks bound to different instances are independent."""
+        results = []
+
+        class MyHooks:
+            def __init__(self, name: str):
+                self.name = name
+
+            @hook
+            def my_hook(self, event: BeforeToolCallEvent) -> None:
+                results.append(self.name)
+
+        hooks1 = MyHooks("first")
+        hooks2 = MyHooks("second")
+
+        # Create event
+        mock_agent = MagicMock()
+        event = BeforeToolCallEvent(
+            agent=mock_agent,
+            selected_tool=None,
+            tool_use={"toolUseId": "test-123", "name": "test_tool", "input": {}},
+            invocation_state={},
+        )
+
+        # Call hooks from different instances
+        hooks1.my_hook(event)
+        hooks2.my_hook(event)
+
+        assert results == ["first", "second"]
+
+
 class TestCoverageGaps:
     """Additional tests to cover edge cases and improve coverage."""
 
     def test_optional_type_hint_extracts_event_type(self):
         """Test that Optional[EventType] correctly extracts the event type (skips NoneType)."""
-        from typing import Optional
 
         @hook
-        def optional_hook(event: Optional[BeforeToolCallEvent]) -> None:
+        def optional_hook(event: BeforeToolCallEvent | None) -> None:
             pass
 
         assert isinstance(optional_hook, DecoratedFunctionHook)
@@ -618,10 +827,9 @@ class TestCoverageGaps:
 
     def test_union_with_typing_union(self):
         """Test Union from typing module explicitly."""
-        from typing import Union
 
         @hook
-        def union_hook(event: Union[BeforeToolCallEvent, AfterToolCallEvent]) -> None:
+        def union_hook(event: BeforeToolCallEvent | AfterToolCallEvent) -> None:
             pass
 
         assert isinstance(union_hook, DecoratedFunctionHook)
@@ -713,3 +921,18 @@ class TestEdgeCases:
             metadata = FunctionHookMetadata(func_with_annotation)
             # Should fall back to first_param.annotation
             assert metadata.event_types == [BeforeToolCallEvent]
+
+    def test_all_event_types_are_hook_events_helper(self):
+        """Test the _all_event_types_are_hook_events helper method."""
+
+        def hook_event_func(event: BeforeToolCallEvent) -> None:
+            pass
+
+        def base_event_func(event: BeforeNodeCallEvent) -> None:
+            pass
+
+        meta_hook = FunctionHookMetadata(hook_event_func)
+        meta_base = FunctionHookMetadata(base_event_func)
+
+        assert meta_hook._all_event_types_are_hook_events() is True
+        assert meta_base._all_event_types_are_hook_events() is False
