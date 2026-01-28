@@ -5,7 +5,7 @@ These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from typing_extensions import Required, TypedDict
 
@@ -15,7 +15,16 @@ DocumentFormat = Literal["pdf", "csv", "doc", "docx", "xls", "xlsx", "html", "tx
 """Supported document formats."""
 
 
-class S3Location(TypedDict, total=False):
+class Location(TypedDict, total=False):
+    """A location for a document.
+
+    This type is a generic location for a document. Its usage is determined by the underlying model provider.
+    """
+
+    type: Required[str]
+
+
+class S3Location(Location, total=False):
     """A storage location in an Amazon S3 bucket.
 
     Used by Bedrock to reference media files stored in S3 instead of passing raw bytes.
@@ -23,12 +32,19 @@ class S3Location(TypedDict, total=False):
     - Docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_S3Location.html
 
     Attributes:
+        type: s3
         uri: An object URI starting with `s3://`. Required.
         bucketOwner: If the bucket belongs to another AWS account, specify that account's ID. Optional.
     """
 
+    # mypy doesn't like overriding this field since its a subclass, but since its just a literal string, this is fine.
+
+    type: Literal["s3"]  # type: ignore[misc]
     uri: Required[str]
     bucketOwner: str
+
+
+SourceLocation: TypeAlias = Location | S3Location
 
 
 class DocumentSource(TypedDict, total=False):
@@ -38,11 +54,11 @@ class DocumentSource(TypedDict, total=False):
 
     Attributes:
         bytes: The binary content of the document.
-        s3Location: S3 location of the document (Bedrock only).
+        location: Location of the document.
     """
 
     bytes: bytes
-    s3Location: S3Location
+    location: SourceLocation
 
 
 class DocumentContent(TypedDict, total=False):
@@ -72,11 +88,11 @@ class ImageSource(TypedDict, total=False):
 
     Attributes:
         bytes: The binary content of the image.
-        s3Location: S3 location of the image (Bedrock only).
+        location: Location of the image.
     """
 
     bytes: bytes
-    s3Location: S3Location
+    location: SourceLocation
 
 
 class ImageContent(TypedDict):
@@ -102,11 +118,11 @@ class VideoSource(TypedDict, total=False):
 
     Attributes:
         bytes: The binary content of the video.
-        s3Location: S3 location of the video (Bedrock only).
+        location: Location of the video.
     """
 
     bytes: bytes
-    s3Location: S3Location
+    location: SourceLocation
 
 
 class VideoContent(TypedDict):
