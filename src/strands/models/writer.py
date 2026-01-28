@@ -18,7 +18,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
+from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -218,11 +218,21 @@ class WriterModel(Model):
         for message in messages:
             contents = message["content"]
 
+            # Filter out location sources
+            filtered_contents = []
+            for content in contents:
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by Writer, skipping content block")
+                    continue
+                filtered_contents.append(content)
+
             # Only palmyra V5 support multiple content. Other models support only '{"content": "text_content"}'
             if self.get_config().get("model_id", "") == "palmyra-x5":
-                formatted_contents: str | list[dict[str, Any]] = self._format_request_message_contents_vision(contents)
+                formatted_contents: str | list[dict[str, Any]] = self._format_request_message_contents_vision(
+                    filtered_contents
+                )
             else:
-                formatted_contents = self._format_request_message_contents(contents)
+                formatted_contents = self._format_request_message_contents(filtered_contents)
 
             formatted_tool_calls = [
                 self._format_request_message_tool_call(content["toolUse"])

@@ -18,7 +18,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
-from ._validation import validate_config_keys
+from ._validation import _has_location_source, validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -229,15 +229,24 @@ class GeminiModel(Model):
         # available in tool result blocks, hence the mapping.
         tool_use_id_to_name: dict[str, str] = {}
 
-        return [
-            genai.types.Content(
-                parts=[
-                    self._format_request_content_part(content, tool_use_id_to_name) for content in message["content"]
-                ],
-                role="user" if message["role"] == "user" else "model",
+        contents = []
+        for message in messages:
+            parts = []
+            for content in message["content"]:
+                # Check for location sources and skip with warning
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by Gemini, skipping content block")
+                    continue
+                parts.append(self._format_request_content_part(content, tool_use_id_to_name))
+
+            contents.append(
+                genai.types.Content(
+                    parts=parts,
+                    role="user" if message["role"] == "user" else "model",
+                )
             )
-            for message in messages
-        ]
+
+        return contents
 
     def _format_request_tools(self, tool_specs: list[ToolSpec] | None) -> list[genai.types.Tool | Any]:
         """Format tool specs into Gemini tools.

@@ -17,7 +17,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
+from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -212,6 +212,11 @@ class MistralModel(Model):
             tool_messages: list[dict[str, Any]] = []
 
             for content in contents:
+                # Check for location sources and skip with warning
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by Mistral, skipping content block")
+                    continue
+
                 if "text" in content:
                     formatted_content = self._format_request_message_content(content)
                     if isinstance(formatted_content, str):

@@ -20,7 +20,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
+from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -176,12 +176,18 @@ class LlamaAPIModel(Model):
         for message in messages:
             contents = message["content"]
 
+            # Filter out location sources and unsupported block types
+            filtered_contents = []
+            for content in contents:
+                if any(block_type in content for block_type in ["toolResult", "toolUse"]):
+                    continue
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by LlamaAPI, skipping content block")
+                    continue
+                filtered_contents.append(content)
+
             formatted_contents: list[dict[str, Any]] | dict[str, Any] | str = ""
-            formatted_contents = [
-                self._format_request_message_content(content)
-                for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
-            ]
+            formatted_contents = [self._format_request_message_content(content) for content in filtered_contents]
             formatted_tool_calls = [
                 self._format_request_message_tool_call(content["toolUse"])
                 for content in contents
