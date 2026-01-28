@@ -67,14 +67,6 @@ class MyHooks:
     def my_hook(self, event: BeforeToolCallEvent) -> None: ...
 ```
 
-Agent injection is available for hooks handling `HookEvent` subclasses:
-
-```python
-@hook
-def my_hook(event: BeforeToolCallEvent, agent: Agent) -> None:
-    print(f"Agent {agent.name} calling tool")
-```
-
 ## Related Issues
 
 Fixes #1483
@@ -89,8 +81,8 @@ New feature
 
 ## Testing
 
-- Added comprehensive unit tests (53 test cases)
-- Tests cover: basic usage, explicit events, multi-events, union types, async, class methods, agent injection, error handling
+- Added comprehensive unit tests (35 test cases)
+- Tests cover: basic usage, explicit events, multi-events, union types, async, class methods, error handling
 - [x] I ran `hatch run prepare`
 
 ## Checklist
