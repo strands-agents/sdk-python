@@ -8,10 +8,11 @@ A2AAgent can be used to get the Agent Card and interact with the agent.
 
 import logging
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
-from a2a.client import A2ACardResolver, Client, ClientConfig, ClientFactory
+from a2a.client import A2ACardResolver, ClientConfig, ClientFactory
 from a2a.types import AgentCard, Message, TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
 
 from .._async import run_async
@@ -48,14 +49,14 @@ class A2AAgent(AgentBase):
             timeout: Timeout for HTTP operations in seconds (defaults to 300).
             a2a_client_factory: Optional pre-configured A2A ClientFactory. If provided,
                 it will be used to create the A2A client after discovering the agent card.
+                Note: When providing a custom factory, you are responsible for managing
+                the lifecycle of any httpx client it uses.
         """
         self.endpoint = endpoint
         self.name = name
         self.description = description
         self.timeout = timeout
-        self._httpx_client: httpx.AsyncClient | None = None
         self._agent_card: AgentCard | None = None
-        self._a2a_client: Client | None = None
         self._a2a_client_factory: ClientFactory | None = a2a_client_factory
 
     def __call__(
@@ -143,7 +144,7 @@ class A2AAgent(AgentBase):
         last_event = None
         last_complete_event = None
 
-        async for event in await self._send_message(prompt):
+        async for event in self._send_message(prompt):
             last_event = event
             if self._is_complete_event(event):
                 last_complete_event = event
@@ -155,16 +156,6 @@ class A2AAgent(AgentBase):
         if final_event is not None:
             result = convert_response_to_agent_result(final_event)
             yield AgentResultEvent(result)
-
-    def _get_httpx_client(self) -> httpx.AsyncClient:
-        """Get or create the httpx client for this agent.
-
-        Returns:
-            Configured httpx.AsyncClient instance.
-        """
-        if self._httpx_client is None:
-            self._httpx_client = httpx.AsyncClient(timeout=self.timeout)
-        return self._httpx_client
 
     async def get_agent_card(self) -> AgentCard:
         """Fetch and return the remote agent's card.
@@ -179,9 +170,9 @@ class A2AAgent(AgentBase):
         if self._agent_card is not None:
             return self._agent_card
 
-        httpx_client = self._get_httpx_client()
-        resolver = A2ACardResolver(httpx_client=httpx_client, base_url=self.endpoint)
-        self._agent_card = await resolver.get_agent_card()
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resolver = A2ACardResolver(httpx_client=client, base_url=self.endpoint)
+            self._agent_card = await resolver.get_agent_card()
 
         # Populate name from card if not set
         if self.name is None and self._agent_card.name:
@@ -194,27 +185,25 @@ class A2AAgent(AgentBase):
         logger.debug("agent=<%s>, endpoint=<%s> | discovered agent card", self.name, self.endpoint)
         return self._agent_card
 
-    def _create_default_factory(self) -> ClientFactory:
-        """Create default A2A client factory with streaming config.
+    @asynccontextmanager
+    async def _get_a2a_client(self) -> AsyncIterator[Any]:
+        """Get A2A client for sending messages.
 
-        Returns:
-            Configured ClientFactory instance.
-        """
-        httpx_client = self._get_httpx_client()
-        config = ClientConfig(httpx_client=httpx_client, streaming=True)
-        return ClientFactory(config)
+        If a custom factory was provided, uses that (caller manages httpx lifecycle).
+        Otherwise creates a per-call httpx client with proper cleanup.
 
-    async def _get_a2a_client(self) -> Client:
-        """Get or create the A2A client for this agent.
-
-        Returns:
+        Yields:
             Configured A2A client instance.
         """
-        if self._a2a_client is None:
-            agent_card = await self.get_agent_card()
-            factory = self._a2a_client_factory or self._create_default_factory()
-            self._a2a_client = factory.create(agent_card)
-        return self._a2a_client
+        agent_card = await self.get_agent_card()
+
+        if self._a2a_client_factory is not None:
+            yield self._a2a_client_factory.create(agent_card)
+            return
+
+        async with httpx.AsyncClient(timeout=self.timeout) as httpx_client:
+            config = ClientConfig(httpx_client=httpx_client, streaming=True)
+            yield ClientFactory(config).create(agent_card)
 
     async def _send_message(self, prompt: AgentInput) -> AsyncIterator[A2AResponse]:
         """Send message to A2A agent.
@@ -222,8 +211,8 @@ class A2AAgent(AgentBase):
         Args:
             prompt: Input to send to the agent.
 
-        Returns:
-            Async iterator of A2A events.
+        Yields:
+            A2A response events.
 
         Raises:
             ValueError: If prompt is None.
@@ -231,11 +220,12 @@ class A2AAgent(AgentBase):
         if prompt is None:
             raise ValueError("prompt is required for A2AAgent")
 
-        client = await self._get_a2a_client()
         message = convert_input_to_message(prompt)
-
         logger.debug("agent=<%s>, endpoint=<%s> | sending message", self.name, self.endpoint)
-        return client.send_message(message)
+
+        async with self._get_a2a_client() as client:
+            async for event in client.send_message(message):
+                yield event
 
     def _is_complete_event(self, event: A2AResponse) -> bool:
         """Check if an A2A event represents a complete response.
@@ -270,12 +260,3 @@ class A2AAgent(AgentBase):
                     return update_event.status.state == TaskState.completed
 
         return False
-
-    def __del__(self) -> None:
-        """Best-effort cleanup on garbage collection."""
-        if self._httpx_client is not None:
-            try:
-                client = self._httpx_client
-                run_async(lambda: client.aclose())
-            except Exception:
-                pass  # Best effort cleanup, ignore errors in __del__
