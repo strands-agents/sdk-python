@@ -50,9 +50,13 @@ class LLMSteeringHandler(SteeringHandler):
             system_prompt: System prompt defining steering guidance rules
             prompt_mapper: Custom prompt mapper for evaluation prompts
             model: Optional model override for steering evaluation
-            context_providers: List of context providers for populating steering context
+            context_providers: List of context providers for populating steering context.
+                Defaults to [LedgerProvider()] if None. Pass an empty list to disable
+                context providers.
         """
-        providers = context_providers or [LedgerProvider()]
+        providers: list[SteeringContextProvider] = (
+            [LedgerProvider()] if context_providers is None else context_providers
+        )
         super().__init__(context_providers=providers)
         self.system_prompt = system_prompt
         self.prompt_mapper = prompt_mapper or DefaultPromptMapper()

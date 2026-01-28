@@ -370,4 +370,3 @@ def test__str__empty_interrupts_returns_agent_message(mock_metrics, simple_messa
 
     # Empty list is falsy, should fall through to text content
     assert message_string == "Hello world!\n"
-
