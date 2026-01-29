@@ -90,7 +90,7 @@ def start_echo_server():
             ]
         elif location.lower() == "tokyo":
             # Read yellow.png file for weather icon
-            with open("tests_integ/yellow.png", "rb") as image_file:
+            with open("tests_integ/resources/yellow.png", "rb") as image_file:
                 png_data = image_file.read()
             return [
                 EmbeddedResource(

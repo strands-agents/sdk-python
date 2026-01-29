@@ -17,6 +17,8 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
+from strands.types.media import S3Location, SourceLocation
+
 from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
@@ -407,6 +409,8 @@ class BedrockModel(Model):
 
                 # Format content blocks for Bedrock API compatibility
                 formatted_content = self._format_request_message_content(content_block)
+                if formatted_content is None:
+                    continue
 
                 # Wrap text or image content in guardrailContent if this is the last user message
                 if (
@@ -459,7 +463,19 @@ class BedrockModel(Model):
         else:  # "auto"
             return any(model in self.config["model_id"] for model in _MODELS_INCLUDE_STATUS)
 
-    def _format_request_message_content(self, content: ContentBlock) -> dict[str, Any]:
+    def _handle_location(self, location: SourceLocation) -> dict[str, Any] | None:
+        """Convert location content block to Bedrock format if its an S3Location."""
+        if location["type"] == "s3":
+            s3_location = cast(S3Location, location)
+            formatted_document_s3: dict[str, Any] = {"uri": s3_location["uri"]}
+            if "bucketOwner" in s3_location:
+                formatted_document_s3["bucketOwner"] = s3_location["bucketOwner"]
+            return {"s3Location": formatted_document_s3}
+        else:
+            logger.warning("Non s3 location sources are not supported by Bedrock, skipping content block")
+            return None
+
+    def _format_request_message_content(self, content: ContentBlock) -> dict[str, Any] | None:
         """Format a Bedrock content block.
 
         Bedrock strictly validates content blocks and throws exceptions for unknown fields.
@@ -489,9 +505,17 @@ class BedrockModel(Model):
             if "format" in document:
                 result["format"] = document["format"]
 
-            # Handle source
+            # Handle source - supports bytes or location
             if "source" in document:
-                result["source"] = {"bytes": document["source"]["bytes"]}
+                source = document["source"]
+                formatted_document_source: dict[str, Any] | None
+                if "location" in source:
+                    formatted_document_source = self._handle_location(source["location"])
+                    if formatted_document_source is None:
+                        return None
+                elif "bytes" in source:
+                    formatted_document_source = {"bytes": source["bytes"]}
+                result["source"] = formatted_document_source
 
             # Handle optional fields
             if "citations" in document and document["citations"] is not None:
@@ -512,10 +536,14 @@ class BedrockModel(Model):
         if "image" in content:
             image = content["image"]
             source = image["source"]
-            formatted_source = {}
-            if "bytes" in source:
-                formatted_source = {"bytes": source["bytes"]}
-            result = {"format": image["format"], "source": formatted_source}
+            formatted_image_source: dict[str, Any] | None
+            if "location" in source:
+                formatted_image_source = self._handle_location(source["location"])
+                if formatted_image_source is None:
+                    return None
+            elif "bytes" in source:
+                formatted_image_source = {"bytes": source["bytes"]}
+            result = {"format": image["format"], "source": formatted_image_source}
             return {"image": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ReasoningContentBlock.html
@@ -550,9 +578,12 @@ class BedrockModel(Model):
                     # Handle json field since not in ContentBlock but valid in ToolResultContent
                     formatted_content.append({"json": tool_result_content["json"]})
                 else:
-                    formatted_content.append(
-                        self._format_request_message_content(cast(ContentBlock, tool_result_content))
+                    formatted_message_content = self._format_request_message_content(
+                        cast(ContentBlock, tool_result_content)
                     )
+                    if formatted_message_content is None:
+                        continue
+                    formatted_content.append(formatted_message_content)
 
             result = {
                 "content": formatted_content,
@@ -577,10 +608,14 @@ class BedrockModel(Model):
         if "video" in content:
             video = content["video"]
             source = video["source"]
-            formatted_source = {}
-            if "bytes" in source:
-                formatted_source = {"bytes": source["bytes"]}
-            result = {"format": video["format"], "source": formatted_source}
+            formatted_video_source: dict[str, Any] | None
+            if "location" in source:
+                formatted_video_source = self._handle_location(source["location"])
+                if formatted_video_source is None:
+                    return None
+            elif "bytes" in source:
+                formatted_video_source = {"bytes": source["bytes"]}
+            result = {"format": video["format"], "source": formatted_video_source}
             return {"video": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
