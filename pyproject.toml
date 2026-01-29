@@ -239,6 +239,7 @@ convention = "google"
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
 addopts = "--ignore=tests/strands/experimental/bidi --ignore=tests_integ/bidi"
+timeout = 45
 
 
 [tool.coverage.run]
