@@ -1823,3 +1823,62 @@ def test_tool_decorator_annotated_field_with_inner_default():
         @strands.tool
         def inner_default_tool(name: str, level: Annotated[int, Field(description="A level value", default=10)]) -> str:
             return f"{name} is at level {level}"
+
+
+def test_tool_nullable_required_field_preserves_anyof():
+    """Test that a required nullable field preserves anyOf so the model can pass null.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1525
+    """
+    from enum import Enum
+
+    class Priority(str, Enum):
+        HIGH = "high"
+        MEDIUM = "medium"
+        LOW = "low"
+
+    @strands.tool
+    def prioritized_task(description: str, priority: Priority | None) -> str:
+        """Create a task with optional priority.
+
+        Args:
+            description: Task description
+            priority: Optional priority level
+        """
+        return f"{description}: {priority}"
+
+    spec = prioritized_task.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # Both fields lack defaults, so both must be required
+    assert "description" in schema["required"]
+    assert "priority" in schema["required"]
+
+    # The nullable required field must retain anyOf so the model can pass null
+    assert "anyOf" in schema["properties"]["priority"]
+    assert any(item.get("type") == "null" for item in schema["properties"]["priority"]["anyOf"])
+
+
+def test_tool_nullable_optional_field_simplifies_anyof():
+    """Test that a non-required nullable field still gets anyOf simplified."""
+
+    @strands.tool
+    def my_tool(name: str, tag: str | None = None) -> str:
+        """A tool.
+
+        Args:
+            name: The name
+            tag: An optional tag
+        """
+        return f"{name}: {tag}"
+
+    spec = my_tool.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # tag has a default, so it should NOT be required
+    assert "name" in schema["required"]
+    assert "tag" not in schema["required"]
+
+    # Since tag is not required, anyOf should be simplified away
+    assert "anyOf" not in schema["properties"]["tag"]
+    assert schema["properties"]["tag"]["type"] == "string"
