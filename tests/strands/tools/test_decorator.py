@@ -1823,3 +1823,71 @@ def test_tool_decorator_annotated_field_with_inner_default():
         @strands.tool
         def inner_default_tool(name: str, level: Annotated[int, Field(description="A level value", default=10)]) -> str:
             return f"{name} is at level {level}"
+
+
+def test_tool_nullable_enum_without_default_not_required():
+    """Test that a nullable field without a default is removed from required.
+
+    When anyOf[Type, null] is simplified, the field loses its ability to accept
+    null, so it must be removed from required to remain omittable.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1525
+    """
+    from enum import Enum
+
+    class Priority(str, Enum):
+        HIGH = "high"
+        MEDIUM = "medium"
+        LOW = "low"
+
+    @strands.tool
+    def prioritized_task(description: str, priority: Priority | None) -> str:
+        """Create a task with optional priority.
+
+        Args:
+            description: Task description
+            priority: Optional priority level
+        """
+        return f"{description}: {priority}"
+
+    spec = prioritized_task.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # Plain required field stays required
+    assert "description" in schema["required"]
+
+    # Nullable field without default must NOT be required after simplification
+    assert "priority" not in schema["required"]
+
+    # The anyOf should be simplified to just the $ref
+    assert "$ref" in schema["properties"]["priority"]
+    assert "anyOf" not in schema["properties"]["priority"]
+
+    # Pydantic must also accept omitted input (default=None injected)
+    validated = prioritized_task._metadata.validate_input({"description": "test"})
+    assert validated["priority"] is None
+
+
+def test_tool_nullable_optional_field_simplifies_anyof():
+    """Test that a non-required nullable field still gets anyOf simplified."""
+
+    @strands.tool
+    def my_tool(name: str, tag: str | None = None) -> str:
+        """A tool.
+
+        Args:
+            name: The name
+            tag: An optional tag
+        """
+        return f"{name}: {tag}"
+
+    spec = my_tool.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # tag has a default, so it should NOT be required
+    assert "name" in schema["required"]
+    assert "tag" not in schema["required"]
+
+    # anyOf should be simplified away as before
+    assert "anyOf" not in schema["properties"]["tag"]
+    assert schema["properties"]["tag"]["type"] == "string"

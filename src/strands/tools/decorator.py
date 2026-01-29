@@ -44,6 +44,7 @@ import asyncio
 import functools
 import inspect
 import logging
+import types
 from collections.abc import Callable
 from typing import (
     Annotated,
@@ -51,6 +52,7 @@ from typing import (
     Generic,
     ParamSpec,
     TypeVar,
+    Union,
     cast,
     get_args,
     get_origin,
@@ -180,6 +182,26 @@ class FunctionToolMetadata:
                 # Found the parameter, no need to check further
                 break
 
+    @staticmethod
+    def _is_nullable_type(tp: Any) -> bool:
+        """Check whether a type annotation is T | None (exactly two-element union with None).
+
+        Handles both ``T | None`` (Python 3.10+) and ``Optional[T]`` /
+        ``Union[T, None]``, and unwraps ``Annotated[...]`` if present.
+
+        Only matches two-element unions to stay aligned with the anyOf
+        simplification in ``_clean_pydantic_schema``, which only fires
+        for ``anyOf[Type, null]`` (exactly two elements).
+        """
+        origin = get_origin(tp)
+        if origin is Annotated:
+            tp = get_args(tp)[0]
+            origin = get_origin(tp)
+        if origin is not Union and origin is not types.UnionType:
+            return False
+        args = get_args(tp)
+        return len(args) == 2 and type(None) in args
+
     def _create_input_model(self) -> type[BaseModel]:
         """Create a Pydantic model from function signature for input validation.
 
@@ -212,6 +234,13 @@ class FunctionToolMetadata:
             if param_type is inspect.Parameter.empty:
                 param_type = Any
             default = ... if param.default is inspect.Parameter.empty else param.default
+
+            # When a parameter is typed as T | None without an explicit default,
+            # give it a default of None so Pydantic accepts omitted input.
+            # The cleaned schema will mark the field non-required (see
+            # _clean_pydantic_schema), so the model needs to tolerate omission.
+            if default is ... and self._is_nullable_type(param_type):
+                default = None
 
             actual_type, field_info = self._extract_annotated_metadata(param_type, name, default)
             field_definitions[name] = (actual_type, field_info)
@@ -327,7 +356,7 @@ class FunctionToolMetadata:
 
         # Process properties to clean up anyOf and similar structures
         if "properties" in schema:
-            for _prop_name, prop_schema in schema["properties"].items():
+            for prop_name, prop_schema in schema["properties"].items():
                 # Handle anyOf constructs (common for Optional types)
                 if "anyOf" in prop_schema:
                     any_of = prop_schema["anyOf"]
@@ -341,6 +370,11 @@ class FunctionToolMetadata:
                                     prop_schema[k] = v
                                 # Remove the anyOf construct
                                 del prop_schema["anyOf"]
+                                # The null option was the only way to omit a value;
+                                # with it gone, make the field non-required so
+                                # the model can omit it instead.
+                                if "required" in schema and prop_name in schema["required"]:
+                                    schema["required"].remove(prop_name)
                                 break
 
                 # Clean up nested properties recursively
