@@ -5,7 +5,7 @@ import pytest
 
 from strands import Agent, tool
 from strands.interrupt import Interrupt
-from strands.multiagent import Swarm
+from strands.multiagent import GraphBuilder, Swarm
 from strands.multiagent.base import Status
 from strands.session import FileSessionManager
 from strands.types.tools import ToolContext
@@ -19,12 +19,6 @@ def weather_tool():
         return response
 
     return func
-
-
-@pytest.fixture
-def swarm(weather_tool):
-    weather_agent = Agent(name="weather", tools=[weather_tool])
-    return Swarm([weather_agent])
 
 
 def test_swarm_interrupt_session(weather_tool, tmpdir):
@@ -74,4 +68,72 @@ def test_swarm_interrupt_session(weather_tool, tmpdir):
     summarizer_result = multiagent_result.results["summarizer"]
 
     summarizer_message = json.dumps(summarizer_result.result.message).lower()
+    assert "sunny" in summarizer_message
+
+
+def test_graph_interrupt_session(weather_tool, tmpdir):
+    weather_agent = Agent(name="weather", tools=[weather_tool])
+    summarizer_agent = Agent(name="summarizer")
+    session_manager = FileSessionManager(session_id="strands-interrupt-test", storage_dir=tmpdir)
+
+    builder = GraphBuilder()
+    builder.add_node(weather_agent, "weather")
+    builder.add_node(summarizer_agent, "summarizer")
+    builder.add_edge("weather", "summarizer")
+    builder.set_session_manager(session_manager)
+    graph = builder.build()
+
+    multiagent_result = graph("Can you check the weather and then summarize the results?")
+
+    tru_result_status = multiagent_result.status
+    exp_result_status = Status.INTERRUPTED
+    assert tru_result_status == exp_result_status
+
+    tru_state_status = graph.state.status
+    exp_state_status = Status.INTERRUPTED
+    assert tru_state_status == exp_state_status
+
+    tru_interrupts = multiagent_result.interrupts
+    exp_interrupts = [
+        Interrupt(
+            id=ANY,
+            name="test_interrupt",
+            reason="need weather",
+        ),
+    ]
+    assert tru_interrupts == exp_interrupts
+
+    interrupt = multiagent_result.interrupts[0]
+
+    weather_agent = Agent(name="weather", tools=[weather_tool])
+    summarizer_agent = Agent(name="summarizer")
+    session_manager = FileSessionManager(session_id="strands-interrupt-test", storage_dir=tmpdir)
+
+    builder = GraphBuilder()
+    builder.add_node(weather_agent, "weather")
+    builder.add_node(summarizer_agent, "summarizer")
+    builder.add_edge("weather", "summarizer")
+    builder.set_session_manager(session_manager)
+    graph = builder.build()
+
+    responses = [
+        {
+            "interruptResponse": {
+                "interruptId": interrupt.id,
+                "response": "sunny",
+            },
+        },
+    ]
+    multiagent_result = graph(responses)
+
+    tru_result_status = multiagent_result.status
+    exp_result_status = Status.COMPLETED
+    assert tru_result_status == exp_result_status
+
+    tru_state_status = graph.state.status
+    exp_state_status = Status.COMPLETED
+    assert tru_state_status == exp_state_status
+
+    assert len(multiagent_result.results) == 2
+    summarizer_message = json.dumps(multiagent_result.results["summarizer"].result.message).lower()
     assert "sunny" in summarizer_message

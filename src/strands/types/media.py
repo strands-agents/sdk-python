@@ -5,7 +5,7 @@ These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Literal, Optional
+from typing import Literal
 
 from typing_extensions import TypedDict
 
@@ -37,8 +37,8 @@ class DocumentContent(TypedDict, total=False):
     format: Literal["pdf", "csv", "doc", "docx", "xls", "xlsx", "html", "txt", "md"]
     name: str
     source: DocumentSource
-    citations: Optional[CitationsConfig]
-    context: Optional[str]
+    citations: CitationsConfig | None
+    context: str | None
 
 
 ImageFormat = Literal["png", "jpeg", "gif", "webp"]

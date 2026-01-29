@@ -6,7 +6,7 @@ modified.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Set
+from typing import Any
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -25,9 +25,9 @@ class ToolWatcher:
     # design pattern avoids conflicts when multiple tool registries are watching the same directories.
 
     _shared_observer = None
-    _watched_dirs: Set[str] = set()
+    _watched_dirs: set[str] = set()
     _observer_started = False
-    _registry_handlers: Dict[str, Dict[int, "ToolWatcher.ToolChangeHandler"]] = {}
+    _registry_handlers: dict[str, dict[int, "ToolWatcher.ToolChangeHandler"]] = {}
 
     def __init__(self, tool_registry: ToolRegistry) -> None:
         """Initialize a tool watcher for the given tool registry.

@@ -37,6 +37,7 @@ def mock_agent():
     agent.messages = []
     agent.tool_registry = ToolRegistry()
     agent.event_loop_metrics = EventLoopMetrics()
+    agent.event_loop_metrics.reset_usage_metrics()
     agent.hooks = Mock()
     agent.hooks.invoke_callbacks_async = AsyncMock()
     agent.trace_span = None

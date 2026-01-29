@@ -361,6 +361,71 @@ async def test_stream_request_with_tool_results(gemini_client, model, model_id):
 
 
 @pytest.mark.asyncio
+async def test_stream_request_with_tool_results_preserving_name(gemini_client, model, model_id):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "t1",
+                        "name": "tool_1",
+                        "input": {},
+                    },
+                },
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "t1",
+                        "status": "success",
+                        "content": [{"text": "done"}],
+                    },
+                },
+            ],
+        },
+    ]
+    await anext(model.stream(messages))
+
+    exp_request = {
+        "config": {
+            "tools": [{"function_declarations": []}],
+        },
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "function_call": {
+                            "args": {},
+                            "id": "t1",
+                            "name": "tool_1",
+                        },
+                    },
+                ],
+                "role": "model",
+            },
+            {
+                "parts": [
+                    {
+                        "function_response": {
+                            "id": "t1",
+                            "name": "tool_1",
+                            "response": {"output": [{"text": "done"}]},
+                        },
+                    },
+                ],
+                "role": "user",
+            },
+        ],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
 async def test_stream_request_with_empty_content(gemini_client, model, model_id):
     messages = [
         {
@@ -458,10 +523,8 @@ async def test_stream_response_tool_use(gemini_client, model, messages, agenerat
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "calculator"}}}},
+        {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "c1"}}}},
         {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
-        {"contentBlockStop": {}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "tool_use"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
@@ -504,6 +567,68 @@ async def test_stream_response_reasoning(gemini_client, model, messages, agenera
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+    ]
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_response_reasoning_and_text(gemini_client, model, messages, agenerator, alist):
+    """Test that both reasoning and text content are captured in separate blocks."""
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(
+                                    text="thinking about math",
+                                    thought=True,
+                                    thought_signature=b"sig1",
+                                ),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(
+                                    text="2 + 2 = 4",
+                                    thought=False,
+                                ),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=5,
+                ),
+            ),
+        ]
+    )
+
+    tru_chunks = await alist(model.stream(messages))
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "sig1", "text": "thinking about math"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "2 + 2 = 4"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 4, "totalTokens": 5}, "metrics": {"latencyMs": 0}}},
     ]
     assert tru_chunks == exp_chunks
 
@@ -558,10 +683,25 @@ async def test_stream_response_none_candidates(gemini_client, model, messages, a
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+    ]
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_response_empty_stream(gemini_client, model, messages, agenerator, alist):
+    """Test that empty stream doesn't raise UnboundLocalError.
+
+    When the stream yields no events, the candidate variable must be initialized
+    to None to avoid UnboundLocalError when referenced in message_stop chunk.
+    """
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator([])
+
+    tru_chunks = await alist(model.stream(messages))
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {"messageStop": {"stopReason": "end_turn"}},
     ]
     assert tru_chunks == exp_chunks
 
@@ -624,6 +764,89 @@ async def test_structured_output(gemini_client, model, messages, model_id, weath
     gemini_client.aio.models.generate_content.assert_called_with(**exp_request)
 
 
+def test_gemini_tools_validation_rejects_function_declarations(model_id):
+    tool_with_function_declarations = genai.types.Tool(
+        function_declarations=[
+            genai.types.FunctionDeclaration(
+                name="test_function",
+                description="A test function",
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="gemini_tools should not contain FunctionDeclarations"):
+        GeminiModel(model_id=model_id, gemini_tools=[tool_with_function_declarations])
+
+
+def test_gemini_tools_validation_allows_non_function_tools(model_id):
+    tool_with_google_search = genai.types.Tool(google_search=genai.types.GoogleSearch())
+
+    model = GeminiModel(model_id=model_id, gemini_tools=[tool_with_google_search])
+    assert "gemini_tools" in model.config
+
+
+def test_gemini_tools_validation_on_update_config(model):
+    tool_with_function_declarations = genai.types.Tool(
+        function_declarations=[
+            genai.types.FunctionDeclaration(
+                name="test_function",
+                description="A test function",
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="gemini_tools should not contain FunctionDeclarations"):
+        model.update_config(gemini_tools=[tool_with_function_declarations])
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_gemini_tools(gemini_client, messages, model_id):
+    google_search_tool = genai.types.Tool(google_search=genai.types.GoogleSearch())
+    model = GeminiModel(model_id=model_id, gemini_tools=[google_search_tool])
+
+    await anext(model.stream(messages))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {"function_declarations": []},
+                {"google_search": {}},
+            ]
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_gemini_tools_and_function_tools(gemini_client, messages, tool_spec, model_id):
+    code_execution_tool = genai.types.Tool(code_execution=genai.types.ToolCodeExecution())
+    model = GeminiModel(model_id=model_id, gemini_tools=[code_execution_tool])
+
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                },
+                {"code_execution": {}},
+            ]
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
 @pytest.mark.asyncio
 async def test_stream_handles_non_json_error(gemini_client, model, messages, caplog, alist):
     error_message = "Invalid API key"
@@ -637,3 +860,77 @@ async def test_stream_handles_non_json_error(gemini_client, model, messages, cap
 
     assert "Gemini API returned non-JSON error" in caplog.text
     assert f"error_message=<{error_message}>" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_with_injected_client(model_id, agenerator, alist):
+    """Test that stream works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.Mock()
+    mock_injected_client.aio = unittest.mock.AsyncMock()
+
+    mock_injected_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[genai.types.Part(text="Hello")],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    # Create model with injected client
+    model = GeminiModel(client=mock_injected_client, model_id=model_id)
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    # Verify events were generated
+    assert len(tru_events) > 0
+
+    # Verify the injected client was used
+    mock_injected_client.aio.models.generate_content_stream.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_structured_output_with_injected_client(model_id, weather_output, alist):
+    """Test that structured_output works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.Mock()
+    mock_injected_client.aio = unittest.mock.AsyncMock()
+
+    mock_injected_client.aio.models.generate_content.return_value = unittest.mock.Mock(
+        parsed=weather_output.model_dump()
+    )
+
+    # Create model with injected client
+    model = GeminiModel(client=mock_injected_client, model_id=model_id)
+
+    messages = [{"role": "user", "content": [{"text": "Generate weather"}]}]
+    stream = model.structured_output(type(weather_output), messages)
+    events = await alist(stream)
+
+    # Verify output was generated
+    assert len(events) == 1
+    assert events[0] == {"output": weather_output}
+
+    # Verify the injected client was used
+    mock_injected_client.aio.models.generate_content.assert_called_once()
+
+
+def test_init_with_both_client_and_client_args_raises_error():
+    """Test that providing both client and client_args raises ValueError."""
+    mock_client = unittest.mock.Mock()
+
+    with pytest.raises(ValueError, match="Only one of 'client' or 'client_args' should be provided"):
+        GeminiModel(client=mock_client, client_args={"api_key": "test"}, model_id="test-model")

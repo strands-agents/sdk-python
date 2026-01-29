@@ -30,7 +30,7 @@ def test_ledger_before_tool_call_new_ledger(mock_datetime):
     callback = LedgerBeforeToolCall()
     steering_context = SteeringContext()
 
-    tool_use = {"name": "test_tool", "arguments": {"param": "value"}}
+    tool_use = {"name": "test_tool", "input": {"param": "value"}}
     event = Mock(spec=BeforeToolCallEvent)
     event.tool_use = tool_use
 
@@ -65,7 +65,7 @@ def test_ledger_before_tool_call_existing_ledger(mock_datetime):
     }
     steering_context.data.set("ledger", existing_ledger)
 
-    tool_use = {"name": "new_tool", "arguments": {"param": "value"}}
+    tool_use = {"name": "new_tool", "input": {"param": "value"}}
     event = Mock(spec=BeforeToolCallEvent)
     event.tool_use = tool_use
 

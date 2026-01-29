@@ -14,7 +14,6 @@ class PrintingCallbackHandler:
             verbose_tool_use: Print out verbose information about tool calls.
         """
         self.tool_count = 0
-        self.previous_tool_use = None
         self._verbose_tool_use = verbose_tool_use
 
     def __call__(self, **kwargs: Any) -> None:
@@ -25,12 +24,12 @@ class PrintingCallbackHandler:
                 - reasoningText (Optional[str]): Reasoning text to print if provided.
                 - data (str): Text content to stream.
                 - complete (bool): Whether this is the final chunk of a response.
-                - current_tool_use (dict): Information about the current tool being used.
+                - event (dict): ModelStreamChunkEvent.
         """
         reasoningText = kwargs.get("reasoningText", False)
         data = kwargs.get("data", "")
         complete = kwargs.get("complete", False)
-        current_tool_use = kwargs.get("current_tool_use", {})
+        tool_use = kwargs.get("event", {}).get("contentBlockStart", {}).get("start", {}).get("toolUse")
 
         if reasoningText:
             print(reasoningText, end="")
@@ -38,13 +37,11 @@ class PrintingCallbackHandler:
         if data:
             print(data, end="" if not complete else "\n")
 
-        if current_tool_use and current_tool_use.get("name"):
-            if self.previous_tool_use != current_tool_use:
-                self.previous_tool_use = current_tool_use
-                self.tool_count += 1
-                if self._verbose_tool_use:
-                    tool_name = current_tool_use.get("name", "Unknown tool")
-                    print(f"\nTool #{self.tool_count}: {tool_name}")
+        if tool_use:
+            self.tool_count += 1
+            if self._verbose_tool_use:
+                tool_name = tool_use["name"]
+                print(f"\nTool #{self.tool_count}: {tool_name}")
 
         if complete and data:
             print("\n")

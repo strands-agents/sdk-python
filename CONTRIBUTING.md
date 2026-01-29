@@ -132,6 +132,8 @@ Contributions via pull requests are much appreciated. Before sending us a pull r
 2. You check existing open, and recently merged, pull requests to make sure someone else hasn't addressed the problem already.
 3. You open an issue to discuss any significant work - we would hate for your time to be wasted.
 
+For guidance on writing effective PR descriptions, see our [PR Description Guidelines](./docs/PR.md).
+
 To send us a pull request, please:
 
 1. Create a branch.
