@@ -91,6 +91,7 @@ dev = [
     "pytest>=9.0.0,<10.0.0",
     "pytest-cov>=7.0.0,<8.0.0",
     "pytest-asyncio>=1.0.0,<1.4.0",
+    "pytest-timeout>=2.0.0,<3.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "ruff>=0.13.0,<0.15.0",
     "tenacity>=9.0.0,<10.0.0",
@@ -146,6 +147,7 @@ dependencies = [
     "pytest>=9.0.0,<10.0.0",
     "pytest-cov>=7.0.0,<8.0.0",
     "pytest-asyncio>=1.0.0,<1.4.0",
+    "pytest-timeout>=2.0.0,<3.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "moto>=5.1.0,<6.0.0",
 ]
