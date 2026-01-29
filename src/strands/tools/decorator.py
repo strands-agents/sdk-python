@@ -326,13 +326,20 @@ class FunctionToolMetadata:
                 del schema[key]
 
         # Process properties to clean up anyOf and similar structures
+        required_fields = schema.get("required", [])
         if "properties" in schema:
-            for _prop_name, prop_schema in schema["properties"].items():
+            for prop_name, prop_schema in schema["properties"].items():
                 # Handle anyOf constructs (common for Optional types)
                 if "anyOf" in prop_schema:
                     any_of = prop_schema["anyOf"]
                     # Handle Optional[Type] case (represented as anyOf[Type, null])
-                    if len(any_of) == 2 and any(item.get("type") == "null" for item in any_of):
+                    # Only simplify when the field is not required; required nullable
+                    # fields need anyOf preserved so the model can pass null.
+                    if (
+                        prop_name not in required_fields
+                        and len(any_of) == 2
+                        and any(item.get("type") == "null" for item in any_of)
+                    ):
                         # Find the non-null type
                         for item in any_of:
                             if item.get("type") != "null":
