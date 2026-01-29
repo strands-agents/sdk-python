@@ -21,7 +21,6 @@ Strands Agents is an open-source Python SDK for building AI agents with a model-
 ```
 strands-agents/
 │
-├── src/strands/                          # Main package source code
 │   ├── agent/                            # Core agent implementation
 │   │   ├── agent.py                      # Main Agent class
 │   │   ├── agent_result.py               # Agent execution results
