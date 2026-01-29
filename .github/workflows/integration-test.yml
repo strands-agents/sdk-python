@@ -59,8 +59,18 @@ jobs:
         run: |
           hatch test tests_integ
 
+      - name: Checkout main to run upload
+        if: always()
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          path: ${{ runner.temp }}
+          sparse-checkout: |
+            .github/scripts
+          persist-credentials: false  # Don't persist credentials for subsequent actions
+
       - name: Publish test metrics to CloudWatch
         if: always()
         run: |
           pip install --no-cache-dir boto3
-          python .github/scripts/upload-integ-test-metrics.py ./build/test-results.xml ${{ github.event.repository.name }}
+          python ${{ runner.temp }}/.github/scripts/upload-integ-test-metrics.py ./build/test-results.xml ${{ github.event.repository.name }}
