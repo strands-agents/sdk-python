@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 # Alternative context overflow error messages
-# These are commonly returned by OpenAI-compatible endpoints wrapping other providers (e.g., Databricks serving Bedrock models)
+# These are commonly returned by OpenAI-compatible endpoints wrapping other providers
+# (e.g., Databricks serving Bedrock models)
 CONTEXT_OVERFLOW_MESSAGES = [
     "Input is too long for requested model",
     "input length and `max_tokens` exceed context limit",
