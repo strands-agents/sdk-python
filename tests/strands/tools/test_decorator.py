@@ -1850,13 +1850,32 @@ def test_tool_nullable_required_field_preserves_anyof():
     spec = prioritized_task.tool_spec
     schema = spec["inputSchema"]["json"]
 
-    # Both fields lack defaults, so both must be required
-    assert "description" in schema["required"]
-    assert "priority" in schema["required"]
+    expected_schema = {
+        "$defs": {
+            "Priority": {
+                "enum": ["high", "medium", "low"],
+                "title": "Priority",
+                "type": "string",
+            },
+        },
+        "type": "object",
+        "properties": {
+            "description": {
+                "type": "string",
+                "description": "Task description",
+            },
+            "priority": {
+                "anyOf": [
+                    {"$ref": "#/$defs/Priority"},
+                    {"type": "null"},
+                ],
+                "description": "Optional priority level",
+            },
+        },
+        "required": ["description", "priority"],
+    }
 
-    # The nullable required field must retain anyOf so the model can pass null
-    assert "anyOf" in schema["properties"]["priority"]
-    assert any(item.get("type") == "null" for item in schema["properties"]["priority"]["anyOf"])
+    assert schema == expected_schema
 
 
 def test_tool_nullable_optional_field_simplifies_anyof():
