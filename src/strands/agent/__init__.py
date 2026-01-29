@@ -7,6 +7,8 @@ It includes:
 - Retry Strategies: Configurable retry behavior for model calls
 """
 
+from typing import Any
+
 from ..event_loop._retry import ModelRetryStrategy
 from .agent import Agent
 from .agent_result import AgentResult
@@ -28,3 +30,12 @@ __all__ = [
     "SummarizingConversationManager",
     "ModelRetryStrategy",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy load A2AAgent to defer import of optional a2a dependency."""
+    if name == "A2AAgent":
+        from .a2a_agent import A2AAgent
+
+        return A2AAgent
+    raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")
