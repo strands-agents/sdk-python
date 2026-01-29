@@ -37,6 +37,7 @@ jobs:
          role-to-assume: ${{ secrets.STRANDS_INTEG_TEST_ROLE }}
          aws-region: us-east-1
          mask-aws-account-id: true
+
       - name: Checkout head commit
         uses: actions/checkout@v6
         with:
@@ -57,3 +58,9 @@ jobs:
         id: tests
         run: |
           hatch test tests_integ
+
+      - name: Publish test metrics to CloudWatch
+        if: always()
+        run: |
+          pip install --no-cache-dir boto3
+          python .github/scripts/upload-integ-test-metrics.py ./build/test-results.xml ${{ github.event.repository.name }}
