@@ -3,7 +3,7 @@
 import base64
 import json
 import logging
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -248,7 +248,7 @@ async def test_stream_basic() -> None:
 
     mock_response = AsyncMock()
     mock_response.aiter_lines = mock_aiter_lines
-    mock_response.raise_for_status = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
 
     with patch.object(model.client, "post", return_value=mock_response):
         messages = [{"role": "user", "content": [{"text": "Hi"}]}]

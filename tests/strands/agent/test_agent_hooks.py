@@ -284,6 +284,7 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
     assert len(agent.messages) == 4
 
 
+@pytest.mark.filterwarnings("ignore:Agent.structured_output method is deprecated:DeprecationWarning")
 def test_agent_structured_output_hooks(agent, hook_provider, user, agenerator):
     """Verify that the correct hook events are emitted as part of structured_output."""
 
@@ -300,6 +301,7 @@ def test_agent_structured_output_hooks(agent, hook_provider, user, agenerator):
     assert len(agent.messages) == 0  # no new messages added
 
 
+@pytest.mark.filterwarnings("ignore:Agent.structured_output_async method is deprecated:DeprecationWarning")
 @pytest.mark.asyncio
 async def test_agent_structured_async_output_hooks(agent, hook_provider, user, agenerator):
     """Verify that the correct hook events are emitted as part of structured_output_async."""
@@ -667,6 +669,7 @@ def test_before_invocation_event_message_overwrite():
     assert agent.messages[0]["content"][0]["text"] == "GOODBYE"
 
 
+@pytest.mark.filterwarnings("ignore:Agent.structured_output_async method is deprecated:DeprecationWarning")
 @pytest.mark.asyncio
 async def test_before_invocation_event_messages_none_in_structured_output(agenerator):
     """Test that BeforeInvocationEvent.messages is None when called from deprecated structured_output."""

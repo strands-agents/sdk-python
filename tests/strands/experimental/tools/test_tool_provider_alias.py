@@ -6,6 +6,7 @@ ToolProvider type from strands.tools.
 """
 
 import sys
+import warnings
 
 import pytest
 
@@ -14,7 +15,10 @@ from strands.tools import ToolProvider
 
 def test_experimental_alias_is_same_type():
     """Verify that experimental ToolProvider alias is identical to the actual type."""
-    from strands.experimental.tools import ToolProvider as ExperimentalToolProvider
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        from strands.experimental.tools import ToolProvider as ExperimentalToolProvider
 
     assert ExperimentalToolProvider is ToolProvider
 

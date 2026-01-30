@@ -156,6 +156,7 @@ def test_multi_agent_base_abstract_behavior():
     assert isinstance(agent, MultiAgentBase)
 
 
+@pytest.mark.filterwarnings("ignore:`\\*\\*kwargs` parameter is deprecating:UserWarning")
 def test_multi_agent_base_call_method():
     """Test that __call__ method properly delegates to invoke_async."""
 

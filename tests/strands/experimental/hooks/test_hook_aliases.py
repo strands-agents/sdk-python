@@ -7,16 +7,20 @@ hook event types.
 
 import importlib
 import sys
+import warnings
 from unittest.mock import Mock
 
 import pytest
 
-from strands.experimental.hooks import (
-    AfterModelInvocationEvent,
-    AfterToolInvocationEvent,
-    BeforeModelInvocationEvent,
-    BeforeToolInvocationEvent,
-)
+# Suppress deprecation warnings from imports since we're testing the aliases themselves
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", DeprecationWarning)
+    from strands.experimental.hooks import (
+        AfterModelInvocationEvent,
+        AfterToolInvocationEvent,
+        BeforeModelInvocationEvent,
+        BeforeToolInvocationEvent,
+    )
 from strands.hooks import (
     AfterModelCallEvent,
     AfterToolCallEvent,
