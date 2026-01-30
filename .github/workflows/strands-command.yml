@@ -79,6 +79,7 @@ jobs:
           write_permission: 'false'
 
   finalize:
+    if: always()
     needs: [setup-and-process, execute-readonly-agent]
     permissions:
       contents: write
