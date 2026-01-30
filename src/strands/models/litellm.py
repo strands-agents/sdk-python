@@ -194,7 +194,7 @@ class LiteLLMModel(OpenAIModel):
         formatted_messages = cls._format_system_messages(system_prompt, system_prompt_content=system_prompt_content)
         formatted_messages.extend(cls._format_regular_messages(messages))
 
-        return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
+        return [message for message in formatted_messages if "content" in message or "tool_calls" in message]
 
     @override
     def format_chunk(self, event: dict[str, Any], **kwargs: Any) -> StreamEvent:
