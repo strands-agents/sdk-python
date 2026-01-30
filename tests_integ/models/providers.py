@@ -18,6 +18,11 @@ from strands.models.ollama import OllamaModel
 from strands.models.openai import OpenAIModel
 from strands.models.writer import WriterModel
 
+try:
+    from strands.models.xai import xAIModel
+except ImportError:
+    xAIModel = None  # type: ignore[misc,assignment]
+
 
 class ProviderInfo:
     """Provider-based info for providers that require an APIKey via environment variables."""
@@ -136,6 +141,29 @@ gemini = ProviderInfo(
         params={"temperature": 0.7},
     ),
 )
+
+
+class xAIProviderInfo(ProviderInfo):
+    """Special case for xAI as it requires the xai-sdk package."""
+
+    def __init__(self):
+        super().__init__(
+            id="xai",
+            environment_variable="XAI_API_KEY",
+            factory=lambda: xAIModel(
+                client_args={"api_key": os.getenv("XAI_API_KEY")},
+                model_id="grok-3-mini-fast-latest",
+                params={"temperature": 0.15},
+            )
+            if xAIModel is not None
+            else None,  # type: ignore[return-value]
+        )
+        # Add additional skip condition if xai-sdk is not installed
+        if xAIModel is None:
+            self.mark = mark.skipif(True, reason="xai-sdk package not installed")
+
+
+xai = xAIProviderInfo()
 
 ollama = OllamaProviderInfo()
 
