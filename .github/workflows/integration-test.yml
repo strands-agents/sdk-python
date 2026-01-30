@@ -59,8 +59,42 @@ jobs:
         run: |
           hatch test tests_integ
 
-      - name: Publish test metrics to CloudWatch
+      - name: Upload test results
         if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ./build/test-results.xml
+
+  upload-metrics:
+    runs-on: ubuntu-latest
+    needs: check-access-and-checkout
+    if: always()
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure Credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+         role-to-assume: ${{ secrets.STRANDS_INTEG_TEST_ROLE }}
+         aws-region: us-east-1
+         mask-aws-account-id: true
+
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          sparse-checkout: |
+            .github/scripts
+          persist-credentials: false
+
+      - name: Download test results
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results
+
+      - name: Publish test metrics to CloudWatch
         run: |
           pip install --no-cache-dir boto3
-          python .github/scripts/upload-integ-test-metrics.py ./build/test-results.xml ${{ github.event.repository.name }}
+          python .github/scripts/upload-integ-test-metrics.py test-results.xml ${{ github.event.repository.name }}
