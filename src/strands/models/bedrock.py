@@ -472,7 +472,7 @@ class BedrockModel(Model):
                 formatted_document_s3["bucketOwner"] = s3_location["bucketOwner"]
             return {"s3Location": formatted_document_s3}
         else:
-            logger.warning("Non s3 location sources are not supported by Bedrock, skipping content block")
+            logger.warning("Non s3 location sources are not supported by Bedrock | skipping content block")
             return None
 
     def _format_request_message_content(self, content: ContentBlock) -> dict[str, Any] | None:

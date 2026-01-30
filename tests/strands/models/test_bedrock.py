@@ -1924,7 +1924,7 @@ def test_format_request_unsupported_location(model, caplog):
 
     formatted_request = model._format_request(messages)
     assert len(formatted_request["messages"][0]["content"]) == 1
-    assert "Non s3 location sources are not supported by Bedrock, skipping content block" in caplog.text
+    assert "Non s3 location sources are not supported by Bedrock | skipping content block" in caplog.text
 
 
 def test_format_request_video_s3_location(model, model_id):

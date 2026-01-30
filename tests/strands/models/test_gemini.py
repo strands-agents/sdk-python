@@ -934,3 +934,67 @@ def test_init_with_both_client_and_client_args_raises_error():
 
     with pytest.raises(ValueError, match="Only one of 'client' or 'client_args' should be provided"):
         GeminiModel(client=mock_client, client_args={"api_key": "test"}, model_id="test-model")
+
+
+def test_format_request_filters_s3_source_image(model, caplog):
+    """Test that images with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.gemini")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "look at this image"},
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model._format_request(messages, None, None, None)
+
+    # Image with S3 source should be filtered, text should remain
+    formatted_content = request["contents"][0]["parts"]
+    assert len(formatted_content) == 1
+    assert "text" in formatted_content[0]
+    assert "Location sources are not supported by Gemini" in caplog.text
+
+
+def test_format_request_filters_location_source_document(model, caplog):
+    """Test that documents with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.gemini")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this document"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model._format_request(messages, None, None, None)
+
+    # Document with S3 source should be filtered, text should remain
+    formatted_content = request["contents"][0]["parts"]
+    assert len(formatted_content) == 1
+    assert "text" in formatted_content[0]
+    assert "Location sources are not supported by Gemini" in caplog.text

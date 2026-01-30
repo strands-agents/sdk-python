@@ -20,7 +20,7 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys
+from ._validation import _has_location_source, validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -338,11 +338,17 @@ class OpenAIModel(Model):
                     "reasoningContent is not supported in multi-turn conversations with the Chat Completions API."
                 )
 
-            formatted_contents = [
-                cls.format_request_message_content(content)
-                for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
-            ]
+            # Filter out content blocks that shouldn't be formatted
+            filtered_contents = []
+            for content in contents:
+                if any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"]):
+                    continue
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by OpenAI | skipping content block")
+                    continue
+                filtered_contents.append(content)
+
+            formatted_contents = [cls.format_request_message_content(content) for content in filtered_contents]
             formatted_tool_calls = [
                 cls.format_request_message_tool_call(content["toolUse"]) for content in contents if "toolUse" in content
             ]
