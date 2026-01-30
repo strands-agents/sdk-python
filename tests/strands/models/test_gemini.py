@@ -964,7 +964,7 @@ def test_format_request_filters_s3_source_image(model, caplog):
     assert "Location sources are not supported by Gemini" in caplog.text
 
 
-def test_format_request_filters_s3_source_document(model, caplog):
+def test_format_request_filters_location_source_document(model, caplog):
     """Test that documents with Location sources are filtered out with warning."""
     caplog.set_level(logging.WARNING, logger="strands.models.gemini")
 

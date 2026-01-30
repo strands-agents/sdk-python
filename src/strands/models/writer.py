@@ -222,7 +222,7 @@ class WriterModel(Model):
             filtered_contents = []
             for content in contents:
                 if _has_location_source(content):
-                    logger.warning("Location sources are not supported by Writer, skipping content block")
+                    logger.warning("Location sources are not supported by Writer | skipping content block")
                     continue
                 filtered_contents.append(content)
 

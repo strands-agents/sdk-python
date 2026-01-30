@@ -670,7 +670,7 @@ def test_format_request_filters_s3_source_image(caplog) -> None:
     assert "Location sources are not supported by llama.cpp" in caplog.text
 
 
-def test_format_request_filters_s3_source_document(caplog) -> None:
+def test_format_request_filters_location_source_document(caplog) -> None:
     """Test that documents with Location sources are filtered out with warning."""
     model = LlamaCppModel()
     caplog.set_level(logging.WARNING, logger="strands.models.llamacpp")

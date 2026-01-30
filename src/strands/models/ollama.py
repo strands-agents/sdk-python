@@ -165,7 +165,7 @@ class OllamaModel(Model):
             for content in message["content"]:
                 # Check for location sources and skip with warning
                 if _has_location_source(content):
-                    logger.warning("Location sources are not supported by Ollama, skipping content block")
+                    logger.warning("Location sources are not supported by Ollama | skipping content block")
                     continue
                 formatted_messages.extend(self._format_request_message_contents(message["role"], content))
 

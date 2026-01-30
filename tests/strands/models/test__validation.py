@@ -9,59 +9,59 @@ class TestHasLocationSource:
     def test_image_with_location_source(self):
         """Test detection of location source in image content."""
         content = {"image": {"source": {"location": {"type": "s3", "uri": "s3://bucket/key"}}}}
-        assert _has_location_source(content) is True
+        assert _has_location_source(content)
 
     def test_image_with_bytes_source(self):
         """Test that bytes source is not detected as location."""
         content = {"image": {"source": {"bytes": b"data"}}}
-        assert _has_location_source(content) is False
+        assert not _has_location_source(content)
 
     def test_document_with_location_source(self):
         """Test detection of location source in document content."""
         content = {"document": {"source": {"location": {"type": "s3", "uri": "s3://bucket/key"}}}}
-        assert _has_location_source(content) is True
+        assert _has_location_source(content)
 
     def test_document_with_bytes_source(self):
         """Test that bytes source is not detected as location."""
         content = {"document": {"source": {"bytes": b"data"}}}
-        assert _has_location_source(content) is False
+        assert not _has_location_source(content)
 
     def test_video_with_location_source(self):
         """Test detection of location source in video content."""
         content = {"video": {"source": {"location": {"type": "s3", "uri": "s3://bucket/key"}}}}
-        assert _has_location_source(content) is True
+        assert _has_location_source(content)
 
     def test_video_with_bytes_source(self):
         """Test that bytes source is not detected as location."""
         content = {"video": {"source": {"bytes": b"data"}}}
-        assert _has_location_source(content) is False
+        assert not _has_location_source(content)
 
     def test_text_content(self):
         """Test that text content is not detected as location source."""
         content = {"text": "hello"}
-        assert _has_location_source(content) is False
+        assert not _has_location_source(content)
 
     def test_tool_use_content(self):
         """Test that toolUse content is not detected as location source."""
         content = {"toolUse": {"name": "test", "input": {}, "toolUseId": "123"}}
-        assert _has_location_source(content) is False
+        assert not _has_location_source(content)
 
     def test_tool_result_content(self):
         """Test that toolResult content is not detected as location source."""
         content = {"toolResult": {"toolUseId": "123", "content": [{"text": "result"}]}}
-        assert _has_location_source(content) is False
+        assert not _has_location_source(content)
 
     def test_image_without_source(self):
         """Test that image without source is not detected as location."""
         content = {"image": {"format": "png"}}
-        assert _has_location_source(content) is False
+        assert not _has_location_source(content)
 
     def test_document_without_source(self):
         """Test that document without source is not detected as location."""
         content = {"document": {"format": "pdf", "name": "test.pdf"}}
-        assert _has_location_source(content) is False
+        assert not _has_location_source(content)
 
     def test_video_without_source(self):
         """Test that video without source is not detected as location."""
         content = {"video": {"format": "mp4"}}
-        assert _has_location_source(content) is False
+        assert not _has_location_source(content)

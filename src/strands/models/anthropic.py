@@ -191,7 +191,7 @@ class AnthropicModel(Model):
 
                 # Check for location sources in image, document, or video content
                 if _has_location_source(content):
-                    logger.warning("Location sources are not supported by Anthropic, skipping content block")
+                    logger.warning("Location sources are not supported by Anthropic | skipping content block")
                     continue
 
                 formatted_contents.append(self._format_request_message_content(content))

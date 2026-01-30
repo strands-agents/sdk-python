@@ -898,7 +898,7 @@ def test_format_request_filters_s3_source_image(model, model_id, max_tokens, cap
     assert "Location sources are not supported by Anthropic" in caplog.text
 
 
-def test_format_request_filters_s3_source_document(model, model_id, max_tokens, caplog):
+def test_format_request_filters_location_source_document(model, model_id, max_tokens, caplog):
     """Test that documents with Location sources are filtered out with warning."""
     caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
 

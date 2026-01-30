@@ -214,7 +214,7 @@ class MistralModel(Model):
             for content in contents:
                 # Check for location sources and skip with warning
                 if _has_location_source(content):
-                    logger.warning("Location sources are not supported by Mistral, skipping content block")
+                    logger.warning("Location sources are not supported by Mistral | skipping content block")
                     continue
 
                 if "text" in content:

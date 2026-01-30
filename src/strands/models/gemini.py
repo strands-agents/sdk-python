@@ -235,7 +235,7 @@ class GeminiModel(Model):
             for content in message["content"]:
                 # Check for location sources and skip with warning
                 if _has_location_source(content):
-                    logger.warning("Location sources are not supported by Gemini, skipping content block")
+                    logger.warning("Location sources are not supported by Gemini | skipping content block")
                     continue
                 parts.append(self._format_request_content_part(content, tool_use_id_to_name))
 

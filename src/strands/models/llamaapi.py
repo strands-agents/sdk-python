@@ -182,7 +182,7 @@ class LlamaAPIModel(Model):
                 if any(block_type in content for block_type in ["toolResult", "toolUse"]):
                     continue
                 if _has_location_source(content):
-                    logger.warning("Location sources are not supported by LlamaAPI, skipping content block")
+                    logger.warning("Location sources are not supported by LlamaAPI | skipping content block")
                     continue
                 filtered_contents.append(content)
 
