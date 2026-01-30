@@ -31,7 +31,9 @@ FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
 def session_cls():
     # Mock the creation of a Session so that we don't depend on environment variables or profiles
     with unittest.mock.patch.object(strands.models.bedrock.boto3, "Session") as mock_session_cls:
-        mock_session_cls.return_value.region_name = None
+        mock_session = unittest.mock.Mock()
+        mock_session.region_name = None
+        mock_session_cls.return_value = mock_session
         yield mock_session_cls
 
 
@@ -216,66 +218,63 @@ def test__init__with_region_and_session_raises_value_error():
         _ = BedrockModel(region_name="us-east-1", boto_session=boto3.Session(region_name="us-east-1"))
 
 
-def test__init__default_user_agent(bedrock_client):
+def test__init__default_user_agent(session_cls, bedrock_client):
     """Set user agent when no boto_client_config is provided."""
-    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        mock_session = mock_session_cls.return_value
-        _ = BedrockModel()
+    _ = BedrockModel()
 
-        # Verify the client was created with the correct config
-        mock_session.client.assert_called_once()
-        args, kwargs = mock_session.client.call_args
-        assert kwargs["service_name"] == "bedrock-runtime"
-        assert isinstance(kwargs["config"], BotocoreConfig)
-        assert kwargs["config"].user_agent_extra == "strands-agents"
-        assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
+    # Verify the client was created with the correct config
+    client = session_cls.return_value.client
+    client.assert_called_once()
+    args, kwargs = client.call_args
+    assert kwargs["service_name"] == "bedrock-runtime"
+    assert isinstance(kwargs["config"], BotocoreConfig)
+    assert kwargs["config"].user_agent_extra == "strands-agents"
+    assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
 
 
-def test__init__default_read_timeout(bedrock_client):
+def test__init__default_read_timeout(session_cls, bedrock_client):
     """Set default read timeout when no boto_client_config is provided."""
-    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        mock_session = mock_session_cls.return_value
-        _ = BedrockModel()
 
-        # Verify the client was created with the correct read timeout
-        mock_session.client.assert_called_once()
-        args, kwargs = mock_session.client.call_args
-        assert isinstance(kwargs["config"], BotocoreConfig)
-        assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
+    _ = BedrockModel()
+
+    # Verify the client was created with the correct read timeout
+    client = session_cls.return_value.client
+    client.assert_called_once()
+    args, kwargs = client.call_args
+    assert isinstance(kwargs["config"], BotocoreConfig)
+    assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
 
 
-def test__init__with_custom_boto_client_config_no_user_agent(bedrock_client):
+def test__init__with_custom_boto_client_config_no_user_agent(session_cls, bedrock_client):
     """Set user agent when boto_client_config is provided without user_agent_extra."""
     custom_config = BotocoreConfig(read_timeout=900)
 
-    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        mock_session = mock_session_cls.return_value
-        _ = BedrockModel(boto_client_config=custom_config)
+    _ = BedrockModel(boto_client_config=custom_config)
 
-        # Verify the client was created with the correct config
-        mock_session.client.assert_called_once()
-        args, kwargs = mock_session.client.call_args
-        assert kwargs["service_name"] == "bedrock-runtime"
-        assert isinstance(kwargs["config"], BotocoreConfig)
-        assert kwargs["config"].user_agent_extra == "strands-agents"
-        assert kwargs["config"].read_timeout == 900
+    # Verify the client was created with the correct config
+    client = session_cls.return_value.client
+    client.assert_called_once()
+    args, kwargs = client.call_args
+    assert kwargs["service_name"] == "bedrock-runtime"
+    assert isinstance(kwargs["config"], BotocoreConfig)
+    assert kwargs["config"].user_agent_extra == "strands-agents"
+    assert kwargs["config"].read_timeout == 900
 
 
-def test__init__with_custom_boto_client_config_with_user_agent(bedrock_client):
+def test__init__with_custom_boto_client_config_with_user_agent(session_cls, bedrock_client):
     """Append to existing user agent when boto_client_config is provided with user_agent_extra."""
     custom_config = BotocoreConfig(user_agent_extra="existing-agent", read_timeout=900)
 
-    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        mock_session = mock_session_cls.return_value
-        _ = BedrockModel(boto_client_config=custom_config)
+    _ = BedrockModel(boto_client_config=custom_config)
 
-        # Verify the client was created with the correct config
-        mock_session.client.assert_called_once()
-        args, kwargs = mock_session.client.call_args
-        assert kwargs["service_name"] == "bedrock-runtime"
-        assert isinstance(kwargs["config"], BotocoreConfig)
-        assert kwargs["config"].user_agent_extra == "existing-agent strands-agents"
-        assert kwargs["config"].read_timeout == 900
+    # Verify the client was created with the correct config
+    client = session_cls.return_value.client
+    client.assert_called_once()
+    args, kwargs = client.call_args
+    assert kwargs["service_name"] == "bedrock-runtime"
+    assert isinstance(kwargs["config"], BotocoreConfig)
+    assert kwargs["config"].user_agent_extra == "existing-agent strands-agents"
+    assert kwargs["config"].read_timeout == 900
 
 
 def test__init__model_config(bedrock_client):
