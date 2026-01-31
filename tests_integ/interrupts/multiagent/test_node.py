@@ -65,13 +65,13 @@ def swarm(weather_agent):
 
 
 @pytest.fixture
-def graph(info_agent, day_agent, time_agent, weather_agent):
+def graph(info_agent, day_agent, time_agent, swarm):
     builder = GraphBuilder()
 
     builder.add_node(info_agent, "info")
     builder.add_node(day_agent, "day")
     builder.add_node(time_agent, "time")
-    builder.add_node(weather_agent, "weather")
+    builder.add_node(swarm, "weather")
 
     builder.add_edge("info", "day")
     builder.add_edge("info", "time")
@@ -82,7 +82,7 @@ def graph(info_agent, day_agent, time_agent, weather_agent):
     return builder.build()
 
 
-def test_swarm_interrupt_agent(swarm):
+def test_swarm_interrupt_node(swarm):
     multiagent_result = swarm("What is the weather?")
 
     tru_status = multiagent_result.status
@@ -122,7 +122,7 @@ def test_swarm_interrupt_agent(swarm):
     assert "sunny" in weather_message
 
 
-def test_graph_interrupt_agent(graph):
+def test_graph_interrupt_node(graph):
     multiagent_result = graph("What is the day, time, and weather?")
 
     tru_result_status = multiagent_result.status
@@ -180,7 +180,9 @@ def test_graph_interrupt_agent(graph):
 
     day_message = json.dumps(multiagent_result.results["day"].result.message).lower()
     time_message = json.dumps(multiagent_result.results["time"].result.message).lower()
-    weather_message = json.dumps(multiagent_result.results["weather"].result.message).lower()
     assert "monday" in day_message
     assert "12:01" in time_message
+
+    nested_multiagent_result = multiagent_result.results["weather"].result
+    weather_message = json.dumps(nested_multiagent_result.results["weather"].result.message).lower()
     assert "sunny" in weather_message

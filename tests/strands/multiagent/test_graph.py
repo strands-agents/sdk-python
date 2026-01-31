@@ -2228,7 +2228,8 @@ def test_graph_interrupt_on_agent(agenerator):
         ],
     )
     graph._interrupt_state.context["test_agent"] = {
-        "activated": True,
+        "from_hook": False,
+        "interrupt_ids": [interrupt.id],
         "interrupt_state": {
             "activated": True,
             "context": {},
@@ -2259,3 +2260,97 @@ def test_graph_interrupt_on_agent(agenerator):
     assert len(multiagent_result.results) == 1
 
     agent.stream_async.assert_called_once_with(responses, invocation_state={})
+
+
+def test_graph_interrupt_on_multiagent(agenerator):
+    exp_interrupts = [
+        Interrupt(
+            id="test_id",
+            name="test_name",
+            reason="test_reason",
+        )
+    ]
+
+    multiagent = create_mock_multi_agent("test_multiagent", "Multi-agent completed")
+    multiagent.stream_async = Mock()
+    multiagent.stream_async.return_value = agenerator(
+        [
+            {
+                "result": MultiAgentResult(
+                    results={},
+                    status=Status.INTERRUPTED,
+                    interrupts=exp_interrupts,
+                ),
+            },
+        ],
+    )
+
+    builder = GraphBuilder()
+    builder.add_node(multiagent, "test_multiagent")
+    graph = builder.build()
+
+    multiagent_result = graph("Test task")
+
+    tru_result_status = multiagent_result.status
+    exp_result_status = Status.INTERRUPTED
+    assert tru_result_status == exp_result_status
+
+    tru_state_status = graph.state.status
+    exp_state_status = Status.INTERRUPTED
+    assert tru_state_status == exp_state_status
+
+    tru_node_ids = [node.node_id for node in graph.state.interrupted_nodes]
+    exp_node_ids = ["test_multiagent"]
+    assert tru_node_ids == exp_node_ids
+
+    tru_interrupts = multiagent_result.interrupts
+    assert tru_interrupts == exp_interrupts
+
+    interrupt = multiagent_result.interrupts[0]
+
+    multiagent.stream_async = Mock()
+    multiagent.stream_async.return_value = agenerator(
+        [
+            {
+                "result": MultiAgentResult(
+                    results={
+                        "inner_node": NodeResult(
+                            result=AgentResult(
+                                message={"role": "assistant", "content": [{"text": "Inner completed"}]},
+                                stop_reason="end_turn",
+                                state={},
+                                metrics={},
+                            )
+                        )
+                    },
+                    status=Status.COMPLETED,
+                ),
+            },
+        ],
+    )
+    graph._interrupt_state.context["test_multiagent"] = {
+        "from_hook": False,
+        "interrupt_ids": [interrupt.id],
+    }
+
+    responses = [
+        {
+            "interruptResponse": {
+                "interruptId": interrupt.id,
+                "response": "test_response",
+            },
+        },
+    ]
+    multiagent_result = graph(responses)
+
+    tru_result_status = multiagent_result.status
+    exp_result_status = Status.COMPLETED
+    assert tru_result_status == exp_result_status
+
+    tru_state_status = graph.state.status
+    exp_state_status = Status.COMPLETED
+    assert tru_state_status == exp_state_status
+
+    assert len(multiagent_result.results) == 1
+
+    multiagent.stream_async.assert_called_once_with(responses, {})
