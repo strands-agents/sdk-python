@@ -58,11 +58,13 @@ class ToolUse(TypedDict):
             Can be any JSON-serializable type.
         name: The name of the tool to invoke.
         toolUseId: A unique identifier for this specific tool use request.
+        thoughtSignature: Optional signature for Gemini thinking models.
     """
 
     input: Any
     name: str
     toolUseId: str
+    thoughtSignature: NotRequired[str]
 
 
 class ToolResultContent(TypedDict, total=False):

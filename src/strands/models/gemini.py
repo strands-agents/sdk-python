@@ -8,6 +8,7 @@ import json
 import logging
 import mimetypes
 import secrets
+import time
 from collections.abc import AsyncGenerator
 from typing import Any, TypedDict, TypeVar, cast
 
@@ -215,6 +216,9 @@ class GeminiModel(Model):
                     name=content["toolUse"]["name"],
                 ),
                 # Include thought_signature for Gemini thinking models if available
+                # Note: For thinking models, thought_signature is required for tool use.
+                # However, we can only provide it if we have it. If missing (e.g. from old history),
+                # the API may reject it for thinking models, but we can't fabricate it.
                 thought_signature=base64.b64decode(thought_signature) if thought_signature else None,
             )
 
@@ -488,6 +492,9 @@ class GeminiModel(Model):
             tool_used = False
             candidate = None
             event = None
+            # Track thought signature across parts within the stream
+            current_thought_signature: bytes | None = None
+
             async for event in response:
                 candidates = event.candidates
                 candidate = candidates[0] if candidates else None
@@ -495,7 +502,15 @@ class GeminiModel(Model):
                 parts = content.parts if content and content.parts else []
 
                 for part in parts:
+                    # Capture thought signature if present in this part
+                    if part.thought_signature:
+                        current_thought_signature = part.thought_signature
+
                     if part.function_call:
+                        # If this part doesn't have a signature but we've seen one, attach it
+                        if not part.thought_signature and current_thought_signature:
+                            part.thought_signature = current_thought_signature
+                            
                         yield self._format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": part})
                         yield self._format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": part})
                         yield self._format_chunk({"chunk_type": "content_stop", "data_type": "tool", "data": part})
