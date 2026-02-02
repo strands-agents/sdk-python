@@ -595,3 +595,242 @@ def test_fix_broken_tool_use_does_not_affect_normal_conversations(session_manage
 
     # Should remain unchanged
     assert fixed_messages == messages
+
+
+# ============================================================================
+# Orphaned toolResult in Middle of Conversation Tests (Issue #1610)
+# ============================================================================
+
+
+def test_fix_broken_tool_use_removes_orphaned_tool_result_in_middle(session_manager):
+    """Test that orphaned toolResult in the middle of conversation is removed.
+
+    This is the core fix for issue #1610 - when context is truncated or summarized,
+    toolUse blocks may be removed while their corresponding toolResult blocks remain,
+    causing ValidationException on subsequent API calls.
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there!"}]},
+        # This toolResult is orphaned - no toolUse exists for this ID
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "orphaned-middle-123",
+                        "status": "success",
+                        "content": [{"text": "Some result from a truncated tool call"}],
+                    }
+                }
+            ],
+        },
+        {"role": "assistant", "content": [{"text": "I processed that result."}]},
+        {"role": "user", "content": [{"text": "Thanks!"}]},
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    # Should remove the orphaned toolResult message entirely
+    assert len(fixed_messages) == 4
+    assert fixed_messages[0]["content"][0]["text"] == "Hello"
+    assert fixed_messages[1]["content"][0]["text"] == "Hi there!"
+    assert fixed_messages[2]["content"][0]["text"] == "I processed that result."
+    assert fixed_messages[3]["content"][0]["text"] == "Thanks!"
+
+
+def test_fix_broken_tool_use_removes_multiple_orphaned_tool_results(session_manager):
+    """Test that multiple orphaned toolResults throughout conversation are all removed."""
+    messages = [
+        {"role": "user", "content": [{"text": "Start"}]},
+        # First orphaned toolResult
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "orphaned-1",
+                        "status": "success",
+                        "content": [{"text": "Result 1"}],
+                    }
+                }
+            ],
+        },
+        {"role": "assistant", "content": [{"text": "Response 1"}]},
+        # Second orphaned toolResult
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "orphaned-2",
+                        "status": "success",
+                        "content": [{"text": "Result 2"}],
+                    }
+                }
+            ],
+        },
+        {"role": "assistant", "content": [{"text": "Response 2"}]},
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    # Should remove both orphaned toolResult messages
+    assert len(fixed_messages) == 3
+    assert fixed_messages[0]["content"][0]["text"] == "Start"
+    assert fixed_messages[1]["content"][0]["text"] == "Response 1"
+    assert fixed_messages[2]["content"][0]["text"] == "Response 2"
+
+
+def test_fix_broken_tool_use_keeps_valid_tool_results_removes_orphaned(session_manager):
+    """Test that valid toolResults are kept while orphaned ones are removed."""
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        # Valid toolUse/toolResult pair
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "valid-123", "name": "test_tool", "input": {"x": 1}}}
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "valid-123",
+                        "status": "success",
+                        "content": [{"text": "Valid result"}],
+                    }
+                }
+            ],
+        },
+        {"role": "assistant", "content": [{"text": "Got the valid result."}]},
+        # Orphaned toolResult (no matching toolUse)
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "orphaned-456",
+                        "status": "success",
+                        "content": [{"text": "Orphaned result"}],
+                    }
+                }
+            ],
+        },
+        {"role": "assistant", "content": [{"text": "Final response."}]},
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    # Should keep the valid pair but remove the orphaned toolResult
+    assert len(fixed_messages) == 5
+    assert fixed_messages[0]["content"][0]["text"] == "Hello"
+    assert "toolUse" in fixed_messages[1]["content"][0]
+    assert fixed_messages[2]["content"][0]["toolResult"]["toolUseId"] == "valid-123"
+    assert fixed_messages[3]["content"][0]["text"] == "Got the valid result."
+    assert fixed_messages[4]["content"][0]["text"] == "Final response."
+
+
+def test_fix_broken_tool_use_removes_orphaned_from_mixed_content_message(session_manager):
+    """Test that orphaned toolResults are removed from messages with mixed content."""
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        # Valid toolUse
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "valid-tool", "name": "test", "input": {}}}
+            ],
+        },
+        # Message with valid toolResult and text
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "valid-tool",
+                        "status": "success",
+                        "content": [{"text": "Valid"}],
+                    }
+                },
+                {"text": "Additional user text"},
+                # Orphaned toolResult in the same message
+                {
+                    "toolResult": {
+                        "toolUseId": "orphaned-tool",
+                        "status": "success",
+                        "content": [{"text": "Orphaned"}],
+                    }
+                },
+            ],
+        },
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    # Should keep the valid toolResult and text, but remove the orphaned toolResult
+    assert len(fixed_messages) == 3
+    assert len(fixed_messages[2]["content"]) == 2  # Only valid toolResult and text
+    assert fixed_messages[2]["content"][0]["toolResult"]["toolUseId"] == "valid-tool"
+    assert fixed_messages[2]["content"][1]["text"] == "Additional user text"
+
+
+def test_fix_broken_tool_use_browser_tool_memory_scenario(session_manager):
+    """Test the exact scenario from issue #1610 - Browser Tool + Memory.
+
+    Simulates what happens when:
+    1. Browser tool creates tool_use blocks
+    2. Memory saves conversation
+    3. On restore, context truncation removes tool_use but keeps tool_result
+    4. This causes ValidationException
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "Navigate to example.com"}]},
+        # This simulates truncated history - toolUse was removed but toolResult remains
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "browser-nav-123",  # No matching toolUse - it was truncated
+                        "status": "success",
+                        "content": [{"text": "Navigated to example.com"}],
+                    }
+                }
+            ],
+        },
+        {"role": "assistant", "content": [{"text": "I've navigated to example.com."}]},
+        {"role": "user", "content": [{"text": "Now click the login button"}]},
+        # Current valid tool use/result pair
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "browser-click-456", "name": "browser_click", "input": {"selector": "#login"}}}
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "browser-click-456",
+                        "status": "success",
+                        "content": [{"text": "Clicked login button"}],
+                    }
+                }
+            ],
+        },
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    # Should remove the orphaned browser navigation toolResult
+    # but keep the valid browser click tool use/result pair
+    assert len(fixed_messages) == 5
+    assert fixed_messages[0]["content"][0]["text"] == "Navigate to example.com"
+    assert fixed_messages[1]["content"][0]["text"] == "I've navigated to example.com."
+    assert fixed_messages[2]["content"][0]["text"] == "Now click the login button"
+    assert "toolUse" in fixed_messages[3]["content"][0]
+    assert fixed_messages[4]["content"][0]["toolResult"]["toolUseId"] == "browser-click-456"
