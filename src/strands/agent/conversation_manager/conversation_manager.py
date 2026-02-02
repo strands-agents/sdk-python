@@ -1,15 +1,16 @@
 """Abstract interface for conversation history management."""
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
+from ...hooks.registry import HookProvider, HookRegistry
 from ...types.content import Message
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
 
-class ConversationManager(ABC):
+class ConversationManager(ABC, HookProvider):
     """Abstract base class for managing conversation history.
 
     This class provides an interface for implementing conversation management strategies to control the size of message
@@ -18,6 +19,18 @@ class ConversationManager(ABC):
     - Manage memory usage
     - Control context length
     - Maintain relevant conversation state
+
+    ConversationManager implements the HookProvider protocol, allowing derived classes to register hooks for agent
+    lifecycle events. Derived classes that override register_hooks must call the base implementation to ensure proper
+    hook registration.
+
+    Example:
+        ```python
+        class MyConversationManager(ConversationManager):
+            def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
+                super().register_hooks(registry, **kwargs)
+                # Register additional hooks here
+        ```
     """
 
     def __init__(self) -> None:
@@ -30,7 +43,26 @@ class ConversationManager(ABC):
         """
         self.removed_message_count = 0
 
-    def restore_from_session(self, state: dict[str, Any]) -> Optional[list[Message]]:
+    def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
+        """Register hooks for agent lifecycle events.
+
+        Derived classes that override this method must call the base implementation to ensure proper hook
+        registration chain.
+
+        Args:
+            registry: The hook registry to register callbacks with.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Example:
+            ```python
+            def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
+                super().register_hooks(registry, **kwargs)
+                registry.add_callback(SomeEvent, self.on_some_event)
+            ```
+        """
+        pass
+
+    def restore_from_session(self, state: dict[str, Any]) -> list[Message] | None:
         """Restore the Conversation Manager's state from a session.
 
         Args:
@@ -66,7 +98,7 @@ class ConversationManager(ABC):
         pass
 
     @abstractmethod
-    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None, **kwargs: Any) -> None:
+    def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Called when the model's context window is exceeded.
 
         This method should implement the specific strategy for reducing the window size when a context overflow occurs.

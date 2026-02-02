@@ -6,7 +6,8 @@
 import base64
 import json
 import logging
-from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypeVar, Union
+from collections.abc import AsyncGenerator, Iterable
+from typing import Any, TypeVar
 
 import mistralai
 from pydantic import BaseModel
@@ -16,7 +17,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
+from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -47,16 +48,16 @@ class MistralModel(Model):
         """
 
         model_id: str
-        max_tokens: Optional[int]
-        temperature: Optional[float]
-        top_p: Optional[float]
-        stream: Optional[bool]
+        max_tokens: int | None
+        temperature: float | None
+        top_p: float | None
+        stream: bool | None
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         *,
-        client_args: Optional[dict[str, Any]] = None,
+        client_args: dict[str, Any] | None = None,
         **model_config: Unpack[MistralConfig],
     ) -> None:
         """Initialize provider instance.
@@ -115,7 +116,7 @@ class MistralModel(Model):
         """
         return self.config
 
-    def _format_request_message_content(self, content: ContentBlock) -> Union[str, dict[str, Any]]:
+    def _format_request_message_content(self, content: ContentBlock) -> str | dict[str, Any]:
         """Format a Mistral content block.
 
         Args:
@@ -187,7 +188,7 @@ class MistralModel(Model):
             "tool_call_id": tool_result["toolUseId"],
         }
 
-    def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+    def _format_request_messages(self, messages: Messages, system_prompt: str | None = None) -> list[dict[str, Any]]:
         """Format a Mistral compatible messages array.
 
         Args:
@@ -211,6 +212,11 @@ class MistralModel(Model):
             tool_messages: list[dict[str, Any]] = []
 
             for content in contents:
+                # Check for location sources and skip with warning
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by Mistral | skipping content block")
+                    continue
+
                 if "text" in content:
                     formatted_content = self._format_request_message_content(content)
                     if isinstance(formatted_content, str):
@@ -236,7 +242,7 @@ class MistralModel(Model):
         return formatted_messages
 
     def format_request(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self, messages: Messages, tool_specs: list[ToolSpec] | None = None, system_prompt: str | None = None
     ) -> dict[str, Any]:
         """Format a Mistral chat streaming request.
 
@@ -395,8 +401,8 @@ class MistralModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
@@ -502,8 +508,8 @@ class MistralModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model.
 
         Args:

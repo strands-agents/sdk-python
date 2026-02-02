@@ -42,6 +42,7 @@ class A2AServer:
         queue_manager: QueueManager | None = None,
         push_config_store: PushNotificationConfigStore | None = None,
         push_sender: PushNotificationSender | None = None,
+        enable_a2a_compliant_streaming: bool = False,
     ):
         """Initialize an A2A-compatible server from a Strands agent.
 
@@ -66,6 +67,9 @@ class A2AServer:
                 no push notification configuration is used.
             push_sender: Custom push notification sender implementation. If None,
                 no push notifications are sent.
+            enable_a2a_compliant_streaming: If True, uses A2A-compliant streaming with
+                artifact updates. If False, uses legacy status updates streaming behavior
+                for backwards compatibility. Defaults to False.
         """
         self.host = host
         self.port = port
@@ -90,7 +94,9 @@ class A2AServer:
         self.description = self.strands_agent.description
         self.capabilities = AgentCapabilities(streaming=True)
         self.request_handler = DefaultRequestHandler(
-            agent_executor=StrandsA2AExecutor(self.strands_agent),
+            agent_executor=StrandsA2AExecutor(
+                self.strands_agent, enable_a2a_compliant_streaming=enable_a2a_compliant_streaming
+            ),
             task_store=task_store or InMemoryTaskStore(),
             queue_manager=queue_manager,
             push_config_store=push_config_store,

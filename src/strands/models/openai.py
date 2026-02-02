@@ -7,8 +7,9 @@ import base64
 import json
 import logging
 import mimetypes
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, AsyncIterator, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
+from typing import Any, Protocol, TypedDict, TypeVar, cast
 
 import openai
 from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
@@ -19,7 +20,7 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys
+from ._validation import _has_location_source, validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -54,12 +55,12 @@ class OpenAIModel(Model):
         """
 
         model_id: str
-        params: Optional[dict[str, Any]]
+        params: dict[str, Any] | None
 
     def __init__(
         self,
-        client: Optional[Client] = None,
-        client_args: Optional[dict[str, Any]] = None,
+        client: Client | None = None,
+        client_args: dict[str, Any] | None = None,
         **model_config: Unpack[OpenAIConfig],
     ) -> None:
         """Initialize provider instance.
@@ -201,6 +202,68 @@ class OpenAIModel(Model):
         }
 
     @classmethod
+    def _split_tool_message_images(cls, tool_message: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        """Split a tool message into text-only tool message and optional user message with images.
+
+        OpenAI API restricts images to user role messages only. This method extracts any image
+        content from a tool message and returns it separately as a user message.
+
+        Args:
+            tool_message: A formatted tool message that may contain images.
+
+        Returns:
+            A tuple of (tool_message_without_images, user_message_with_images_or_None).
+        """
+        if tool_message.get("role") != "tool":
+            return tool_message, None
+
+        content = tool_message.get("content", [])
+        if not isinstance(content, list):
+            return tool_message, None
+
+        # Separate image and non-image content
+        text_content = []
+        image_content = []
+
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "image_url":
+                image_content.append(item)
+            else:
+                text_content.append(item)
+
+        # If no images found, return original message
+        if not image_content:
+            return tool_message, None
+
+        # Let the user know that we are modifying the messages for OpenAI compatibility
+        logger.warning(
+            "tool_call_id=<%s> | Moving image from tool message to a new user message for OpenAI compatibility",
+            tool_message["tool_call_id"],
+        )
+
+        # Append a message to the text content to inform the model about the upcoming image
+        text_content.append(
+            {
+                "type": "text",
+                "text": (
+                    "Tool successfully returned an image. The image is being provided in the following user message."
+                ),
+            }
+        )
+
+        # Create the clean tool message with the updated text content
+        tool_message_clean = {
+            "role": "tool",
+            "tool_call_id": tool_message["tool_call_id"],
+            "content": text_content,
+        }
+
+        # Create user message with only images
+        user_message_with_images = {"role": "user", "content": image_content}
+
+        return tool_message_clean, user_message_with_images
+
+    @classmethod
     def _format_request_tool_choice(cls, tool_choice: ToolChoice | None) -> dict[str, Any]:
         """Format a tool choice for OpenAI compatibility.
 
@@ -227,9 +290,9 @@ class OpenAIModel(Model):
     @classmethod
     def _format_system_messages(
         cls,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         *,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """Format system messages for OpenAI-compatible providers.
@@ -275,11 +338,17 @@ class OpenAIModel(Model):
                     "reasoningContent is not supported in multi-turn conversations with the Chat Completions API."
                 )
 
-            formatted_contents = [
-                cls.format_request_message_content(content)
-                for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
-            ]
+            # Filter out content blocks that shouldn't be formatted
+            filtered_contents = []
+            for content in contents:
+                if any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"]):
+                    continue
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by OpenAI | skipping content block")
+                    continue
+                filtered_contents.append(content)
+
+            formatted_contents = [cls.format_request_message_content(content) for content in filtered_contents]
             formatted_tool_calls = [
                 cls.format_request_message_tool_call(content["toolUse"]) for content in contents if "toolUse" in content
             ]
@@ -295,7 +364,14 @@ class OpenAIModel(Model):
                 **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
             }
             formatted_messages.append(formatted_message)
-            formatted_messages.extend(formatted_tool_messages)
+
+            # Process tool messages to extract images into separate user messages
+            # OpenAI API requires images to be in user role messages only
+            for tool_msg in formatted_tool_messages:
+                tool_msg_clean, user_msg_with_images = cls._split_tool_message_images(tool_msg)
+                formatted_messages.append(tool_msg_clean)
+                if user_msg_with_images:
+                    formatted_messages.append(user_msg_with_images)
 
         return formatted_messages
 
@@ -303,9 +379,9 @@ class OpenAIModel(Model):
     def format_request_messages(
         cls,
         messages: Messages,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         *,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """Format an OpenAI compatible messages array.
@@ -478,8 +554,8 @@ class OpenAIModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
@@ -608,8 +684,8 @@ class OpenAIModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model.
 
         Args:

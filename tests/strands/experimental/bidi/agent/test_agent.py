@@ -1,13 +1,13 @@
 """Unit tests for BidiAgent."""
 
 import asyncio
+import sys
 import unittest.mock
 from uuid import uuid4
 
 import pytest
 
 from strands.experimental.bidi.agent.agent import BidiAgent
-from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -125,18 +125,22 @@ def test_bidi_agent_init_with_various_configurations():
     assert agent_with_config.system_prompt == system_prompt
     assert agent_with_config.agent_id == "test_agent"
 
-    # Test with string model ID
-    model_id = "amazon.nova-sonic-v1:0"
-    agent_with_string = BidiAgent(model=model_id)
-
-    assert isinstance(agent_with_string.model, BidiNovaSonicModel)
-    assert agent_with_string.model.model_id == model_id
-
     # Test model config access
     config = agent.model.config
     assert config["audio"]["input_rate"] == 16000
     assert config["audio"]["output_rate"] == 24000
     assert config["audio"]["channels"] == 1
+
+
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="BidiNovaSonicModel is only supported for Python 3.12+")
+def test_bidi_agent_init_with_model_id():
+    from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
+
+    model_id = "amazon.nova-sonic-v1:0"
+    agent = BidiAgent(model=model_id)
+
+    assert isinstance(agent.model, BidiNovaSonicModel)
+    assert agent.model.model_id == model_id
 
 
 @pytest.mark.asyncio

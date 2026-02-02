@@ -8,7 +8,8 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
+from collections.abc import AsyncGenerator
+from typing import Any, TypeVar, cast
 
 import llama_api_client
 from llama_api_client import LlamaAPIClient
@@ -19,7 +20,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
+from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -43,16 +44,16 @@ class LlamaAPIModel(Model):
         """
 
         model_id: str
-        repetition_penalty: Optional[float]
-        temperature: Optional[float]
-        top_p: Optional[float]
-        max_completion_tokens: Optional[int]
-        top_k: Optional[int]
+        repetition_penalty: float | None
+        temperature: float | None
+        top_p: float | None
+        max_completion_tokens: int | None
+        top_k: int | None
 
     def __init__(
         self,
         *,
-        client_args: Optional[dict[str, Any]] = None,
+        client_args: dict[str, Any] | None = None,
         **model_config: Unpack[LlamaConfig],
     ) -> None:
         """Initialize provider instance.
@@ -159,7 +160,7 @@ class LlamaAPIModel(Model):
             "content": [self._format_request_message_content(content) for content in contents],
         }
 
-    def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+    def _format_request_messages(self, messages: Messages, system_prompt: str | None = None) -> list[dict[str, Any]]:
         """Format a LlamaAPI compatible messages array.
 
         Args:
@@ -175,12 +176,18 @@ class LlamaAPIModel(Model):
         for message in messages:
             contents = message["content"]
 
+            # Filter out location sources and unsupported block types
+            filtered_contents = []
+            for content in contents:
+                if any(block_type in content for block_type in ["toolResult", "toolUse"]):
+                    continue
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by LlamaAPI | skipping content block")
+                    continue
+                filtered_contents.append(content)
+
             formatted_contents: list[dict[str, Any]] | dict[str, Any] | str = ""
-            formatted_contents = [
-                self._format_request_message_content(content)
-                for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
-            ]
+            formatted_contents = [self._format_request_message_content(content) for content in filtered_contents]
             formatted_tool_calls = [
                 self._format_request_message_tool_call(content["toolUse"])
                 for content in contents
@@ -206,7 +213,7 @@ class LlamaAPIModel(Model):
         return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
 
     def format_request(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self, messages: Messages, tool_specs: list[ToolSpec] | None = None, system_prompt: str | None = None
     ) -> dict[str, Any]:
         """Format a Llama API chat streaming request.
 
@@ -328,8 +335,8 @@ class LlamaAPIModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
@@ -416,8 +423,8 @@ class LlamaAPIModel(Model):
 
     @override
     def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model.
 
         Args:

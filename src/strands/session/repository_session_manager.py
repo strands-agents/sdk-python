@@ -1,7 +1,7 @@
 """Repository session manager implementation."""
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from ..agent.state import AgentState
 from ..tools._tool_helpers import generate_missing_tool_result_content
@@ -57,7 +57,7 @@ class RepositorySessionManager(SessionManager):
         self.session = session
 
         # Keep track of the latest message of each agent in case we need to redact it.
-        self._latest_agent_message: dict[str, Optional[SessionMessage]] = {}
+        self._latest_agent_message: dict[str, SessionMessage | None] = {}
 
     def append_message(self, message: Message, agent: "Agent", **kwargs: Any) -> None:
         """Append a message to the agent's session.
