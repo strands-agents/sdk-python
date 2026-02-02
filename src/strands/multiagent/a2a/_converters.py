@@ -1,7 +1,8 @@
 """Conversion functions between Strands and A2A types."""
 
 import base64
-from typing import cast
+import logging
+from typing import Any, cast
 from uuid import uuid4
 
 from a2a.types import (
@@ -29,6 +30,8 @@ from ...types.media import (
     VideoContent,
     VideoFormat,
 )
+
+logger = logging.getLogger(__name__)
 
 # MIME type mappings for Strands formats
 IMAGE_FORMAT_TO_MIME: dict[ImageFormat, str] = {
@@ -66,6 +69,24 @@ VIDEO_FORMAT_TO_MIME: dict[VideoFormat, str] = {
 MIME_TO_IMAGE_FORMAT: dict[str, ImageFormat] = {v: k for k, v in IMAGE_FORMAT_TO_MIME.items()}
 MIME_TO_DOCUMENT_FORMAT: dict[str, DocumentFormat] = {v: k for k, v in DOCUMENT_FORMAT_TO_MIME.items()}
 MIME_TO_VIDEO_FORMAT: dict[str, VideoFormat] = {v: k for k, v in VIDEO_FORMAT_TO_MIME.items()}
+
+
+def _get_location_from_uri(uri: str) -> dict[str, Any]:
+    """Create a Strands location dict from a URI based on its scheme.
+
+    Args:
+        uri: The URI string (s3://, http://, https://, etc.)
+
+    Returns:
+        Location dict with appropriate type field based on URI scheme.
+    """
+    if uri.startswith("s3://"):
+        return {"type": "s3", "uri": uri}
+    elif uri.startswith("http://") or uri.startswith("https://"):
+        return {"type": "url", "uri": uri}
+    else:
+        # Generic location for unknown schemes
+        return {"type": "uri", "uri": uri}
 
 
 def convert_input_to_message(prompt: AgentInput) -> A2AMessage:
@@ -137,13 +158,15 @@ def _convert_image_to_file_part(image: ImageContent) -> Part | None:
         file_with_bytes = FileWithBytes(bytes=b64_str, mime_type=mime_type)
         return Part(FilePart(file=file_with_bytes, kind="file"))
 
-    # Handle S3 or other location-based references
+    # Handle location-based references (S3, HTTP, etc.)
     if "location" in source:
         location = source["location"]
-        if location.get("type") == "s3" and "uri" in location:
-            file_with_uri = FileWithUri(uri=location["uri"], mime_type=mime_type)
+        uri = location.get("uri")
+        if uri:
+            file_with_uri = FileWithUri(uri=uri, mime_type=mime_type)
             return Part(FilePart(file=file_with_uri, kind="file"))
 
+    logger.debug("content_type=<image> | image content dropped due to empty or missing source")
     return None
 
 
@@ -168,13 +191,15 @@ def _convert_document_to_file_part(document: DocumentContent) -> Part | None:
         file_with_bytes = FileWithBytes(bytes=b64_str, mime_type=mime_type, name=name)
         return Part(FilePart(file=file_with_bytes, kind="file"))
 
-    # Handle S3 or other location-based references
+    # Handle location-based references (S3, HTTP, etc.)
     if "location" in source:
         location = source["location"]
-        if location.get("type") == "s3" and "uri" in location:
-            file_with_uri = FileWithUri(uri=location["uri"], mime_type=mime_type, name=name)
+        uri = location.get("uri")
+        if uri:
+            file_with_uri = FileWithUri(uri=uri, mime_type=mime_type, name=name)
             return Part(FilePart(file=file_with_uri, kind="file"))
 
+    logger.debug("content_type=<document>, name=<%s> | document content dropped due to empty or missing source", name)
     return None
 
 
@@ -198,13 +223,15 @@ def _convert_video_to_file_part(video: VideoContent) -> Part | None:
         file_with_bytes = FileWithBytes(bytes=b64_str, mime_type=mime_type)
         return Part(FilePart(file=file_with_bytes, kind="file"))
 
-    # Handle S3 or other location-based references
+    # Handle location-based references (S3, HTTP, etc.)
     if "location" in source:
         location = source["location"]
-        if location.get("type") == "s3" and "uri" in location:
-            file_with_uri = FileWithUri(uri=location["uri"], mime_type=mime_type)
+        uri = location.get("uri")
+        if uri:
+            file_with_uri = FileWithUri(uri=uri, mime_type=mime_type)
             return Part(FilePart(file=file_with_uri, kind="file"))
 
+    logger.debug("content_type=<video> | video content dropped due to empty or missing source")
     return None
 
 
@@ -276,6 +303,7 @@ def _convert_file_part_to_content_block(file_part: FilePart) -> ContentBlock | N
     if mime_type.startswith("application/") or mime_type.startswith("text/"):
         return _convert_file_part_to_document(file_data, mime_type)
 
+    logger.debug("mime_type=<%s> | file part dropped due to unsupported mime type", mime_type)
     return None
 
 
@@ -301,10 +329,11 @@ def _convert_file_part_to_image(
             "source": {"bytes": raw_bytes},
         }
     else:
-        # FileWithUri - use S3 location format
+        # FileWithUri - determine location type from URI scheme
+        location = _get_location_from_uri(file_data.uri)
         image_content = {
             "format": image_format,
-            "source": {"location": {"type": "s3", "uri": file_data.uri}},
+            "source": {"location": location},
         }
 
     return cast(ContentBlock, {"image": image_content})
@@ -335,10 +364,11 @@ def _convert_file_part_to_document(
         if name:
             doc_content["name"] = name
     else:
-        # FileWithUri - use S3 location format
+        # FileWithUri - determine location type from URI scheme
+        location = _get_location_from_uri(file_data.uri)
         doc_content = {
             "format": doc_format,
-            "source": {"location": {"type": "s3", "uri": file_data.uri}},
+            "source": {"location": location},
         }
         if name:
             doc_content["name"] = name
@@ -368,10 +398,11 @@ def _convert_file_part_to_video(
             "source": {"bytes": raw_bytes},
         }
     else:
-        # FileWithUri - use S3 location format
+        # FileWithUri - determine location type from URI scheme
+        location = _get_location_from_uri(file_data.uri)
         video_content = {
             "format": video_format,
-            "source": {"location": {"type": "s3", "uri": file_data.uri}},
+            "source": {"location": location},
         }
 
     return cast(ContentBlock, {"video": video_content})

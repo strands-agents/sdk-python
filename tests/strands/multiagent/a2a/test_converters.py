@@ -1,6 +1,7 @@
 """Tests for A2A converter functions."""
 
 import base64
+import logging
 from unittest.mock import MagicMock
 from uuid import uuid4
 
@@ -23,6 +24,7 @@ from strands.multiagent.a2a._converters import (
     _convert_file_part_to_content_block,
     _convert_image_to_file_part,
     _convert_video_to_file_part,
+    _get_location_from_uri,
     convert_content_blocks_to_parts,
     convert_input_to_message,
     convert_response_to_agent_result,
@@ -216,6 +218,151 @@ def test_convert_response_handles_missing_data():
     mock_task.artifacts = [mock_artifact]
     result = convert_response_to_agent_result((mock_task, None))
     assert len(result.message["content"]) == 0
+
+
+# --- URI type handling tests ---
+
+
+class TestUriTypeHandling:
+    """Tests for URI type detection and location creation."""
+
+    def test_get_location_from_s3_uri(self):
+        """Test that S3 URIs get type 's3'."""
+        location = _get_location_from_uri("s3://bucket/path/file.png")
+
+        assert location["type"] == "s3"
+        assert location["uri"] == "s3://bucket/path/file.png"
+
+    def test_get_location_from_http_uri(self):
+        """Test that HTTP URIs get type 'url'."""
+        location = _get_location_from_uri("http://example.com/image.png")
+
+        assert location["type"] == "url"
+        assert location["uri"] == "http://example.com/image.png"
+
+    def test_get_location_from_https_uri(self):
+        """Test that HTTPS URIs get type 'url'."""
+        location = _get_location_from_uri("https://cdn.example.com/assets/image.jpg")
+
+        assert location["type"] == "url"
+        assert location["uri"] == "https://cdn.example.com/assets/image.jpg"
+
+    def test_get_location_from_unknown_scheme(self):
+        """Test that unknown URI schemes get type 'uri'."""
+        location = _get_location_from_uri("ftp://server/file.pdf")
+
+        assert location["type"] == "uri"
+        assert location["uri"] == "ftp://server/file.pdf"
+
+    def test_convert_file_part_with_http_uri_to_image(self):
+        """Test converting A2A FilePart with HTTP URI to Strands ImageContent."""
+        file_with_uri = FileWithUri(uri="https://example.com/image.png", mime_type="image/png")
+        file_part = FilePart(file=file_with_uri, kind="file")
+
+        block = _convert_file_part_to_content_block(file_part)
+
+        assert block is not None
+        assert "image" in block
+        assert block["image"]["source"]["location"]["type"] == "url"
+        assert block["image"]["source"]["location"]["uri"] == "https://example.com/image.png"
+
+    def test_convert_file_part_with_s3_uri_to_image(self):
+        """Test converting A2A FilePart with S3 URI to Strands ImageContent."""
+        file_with_uri = FileWithUri(uri="s3://bucket/image.png", mime_type="image/png")
+        file_part = FilePart(file=file_with_uri, kind="file")
+
+        block = _convert_file_part_to_content_block(file_part)
+
+        assert block is not None
+        assert "image" in block
+        assert block["image"]["source"]["location"]["type"] == "s3"
+        assert block["image"]["source"]["location"]["uri"] == "s3://bucket/image.png"
+
+    def test_convert_file_part_with_http_uri_to_document(self):
+        """Test converting A2A FilePart with HTTP URI to Strands DocumentContent."""
+        file_with_uri = FileWithUri(uri="https://example.com/doc.pdf", mime_type="application/pdf", name="doc.pdf")
+        file_part = FilePart(file=file_with_uri, kind="file")
+
+        block = _convert_file_part_to_content_block(file_part)
+
+        assert block is not None
+        assert "document" in block
+        assert block["document"]["source"]["location"]["type"] == "url"
+        assert block["document"]["source"]["location"]["uri"] == "https://example.com/doc.pdf"
+
+    def test_convert_file_part_with_http_uri_to_video(self):
+        """Test converting A2A FilePart with HTTP URI to Strands VideoContent."""
+        file_with_uri = FileWithUri(uri="https://cdn.example.com/video.mp4", mime_type="video/mp4")
+        file_part = FilePart(file=file_with_uri, kind="file")
+
+        block = _convert_file_part_to_content_block(file_part)
+
+        assert block is not None
+        assert "video" in block
+        assert block["video"]["source"]["location"]["type"] == "url"
+        assert block["video"]["source"]["location"]["uri"] == "https://cdn.example.com/video.mp4"
+
+    def test_convert_image_with_http_location_to_file_part(self):
+        """Test converting Strands image with HTTP location to A2A FilePart."""
+        image_content = {
+            "format": "png",
+            "source": {"location": {"type": "url", "uri": "https://example.com/image.png"}},
+        }
+
+        part = _convert_image_to_file_part(image_content)
+
+        assert part is not None
+        assert isinstance(part.root.file, FileWithUri)
+        assert part.root.file.uri == "https://example.com/image.png"
+
+
+# --- Logging tests for dropped content ---
+
+
+class TestLoggingForDroppedContent:
+    """Tests for debug logging when content is dropped."""
+
+    def test_image_empty_source_logs_debug(self, caplog):
+        """Test that dropping image with empty source logs debug message."""
+        image_content = {"format": "png", "source": {}}
+
+        with caplog.at_level(logging.DEBUG, logger="strands.multiagent.a2a._converters"):
+            result = _convert_image_to_file_part(image_content)
+
+        assert result is None
+        assert "image content dropped" in caplog.text
+
+    def test_document_empty_source_logs_debug(self, caplog):
+        """Test that dropping document with empty source logs debug message."""
+        doc_content = {"format": "pdf", "name": "test.pdf", "source": {}}
+
+        with caplog.at_level(logging.DEBUG, logger="strands.multiagent.a2a._converters"):
+            result = _convert_document_to_file_part(doc_content)
+
+        assert result is None
+        assert "document content dropped" in caplog.text
+
+    def test_video_empty_source_logs_debug(self, caplog):
+        """Test that dropping video with empty source logs debug message."""
+        video_content = {"format": "mp4", "source": {}}
+
+        with caplog.at_level(logging.DEBUG, logger="strands.multiagent.a2a._converters"):
+            result = _convert_video_to_file_part(video_content)
+
+        assert result is None
+        assert "video content dropped" in caplog.text
+
+    def test_unsupported_mime_type_logs_debug(self, caplog):
+        """Test that dropping file part with unsupported MIME type logs debug message."""
+        file_with_bytes = FileWithBytes(bytes="dGVzdA==", mime_type="audio/mp3")
+        file_part = FilePart(file=file_with_bytes, kind="file")
+
+        with caplog.at_level(logging.DEBUG, logger="strands.multiagent.a2a._converters"):
+            result = _convert_file_part_to_content_block(file_part)
+
+        assert result is None
+        assert "file part dropped" in caplog.text
+        assert "audio/mp3" in caplog.text
 
 
 # --- Image content conversion tests ---
