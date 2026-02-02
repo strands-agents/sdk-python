@@ -1,16 +1,92 @@
 """Conversion functions between Strands and A2A types."""
 
-from typing import cast
+import base64
+import logging
+from typing import Any, cast
 from uuid import uuid4
 
+from a2a.types import (
+    FilePart,
+    FileWithBytes,
+    FileWithUri,
+    Part,
+    Role,
+    TaskArtifactUpdateEvent,
+    TaskStatusUpdateEvent,
+    TextPart,
+)
 from a2a.types import Message as A2AMessage
-from a2a.types import Part, Role, TaskArtifactUpdateEvent, TaskStatusUpdateEvent, TextPart
 
 from ...agent.agent_result import AgentResult
 from ...telemetry.metrics import EventLoopMetrics
 from ...types.a2a import A2AResponse
 from ...types.agent import AgentInput
 from ...types.content import ContentBlock, Message
+from ...types.media import (
+    DocumentContent,
+    DocumentFormat,
+    ImageContent,
+    ImageFormat,
+    VideoContent,
+    VideoFormat,
+)
+
+logger = logging.getLogger(__name__)
+
+# MIME type mappings for Strands formats
+IMAGE_FORMAT_TO_MIME: dict[ImageFormat, str] = {
+    "png": "image/png",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+}
+
+DOCUMENT_FORMAT_TO_MIME: dict[DocumentFormat, str] = {
+    "pdf": "application/pdf",
+    "csv": "text/csv",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xls": "application/vnd.ms-excel",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "html": "text/html",
+    "txt": "text/plain",
+    "md": "text/markdown",
+}
+
+VIDEO_FORMAT_TO_MIME: dict[VideoFormat, str] = {
+    "flv": "video/x-flv",
+    "mkv": "video/x-matroska",
+    "mov": "video/quicktime",
+    "mpeg": "video/mpeg",
+    "mpg": "video/mpeg",
+    "mp4": "video/mp4",
+    "three_gp": "video/3gpp",
+    "webm": "video/webm",
+    "wmv": "video/x-ms-wmv",
+}
+
+# Reverse mappings from MIME type to Strands format
+MIME_TO_IMAGE_FORMAT: dict[str, ImageFormat] = {v: k for k, v in IMAGE_FORMAT_TO_MIME.items()}
+MIME_TO_DOCUMENT_FORMAT: dict[str, DocumentFormat] = {v: k for k, v in DOCUMENT_FORMAT_TO_MIME.items()}
+MIME_TO_VIDEO_FORMAT: dict[str, VideoFormat] = {v: k for k, v in VIDEO_FORMAT_TO_MIME.items()}
+
+
+def _get_location_from_uri(uri: str) -> dict[str, Any]:
+    """Create a Strands location dict from a URI based on its scheme.
+
+    Args:
+        uri: The URI string (s3://, http://, https://, etc.)
+
+    Returns:
+        Location dict with appropriate type field based on URI scheme.
+    """
+    if uri.startswith("s3://"):
+        return {"type": "s3", "uri": uri}
+    elif uri.startswith("http://") or uri.startswith("https://"):
+        return {"type": "url", "uri": uri}
+    else:
+        # Generic location for unknown schemes
+        return {"type": "uri", "uri": uri}
 
 
 def convert_input_to_message(prompt: AgentInput) -> A2AMessage:
@@ -63,8 +139,106 @@ def convert_input_to_message(prompt: AgentInput) -> A2AMessage:
     raise ValueError(f"Unsupported input type: {type(prompt)}")
 
 
+def _convert_image_to_file_part(image: ImageContent) -> Part | None:
+    """Convert Strands ImageContent to A2A FilePart.
+
+    Args:
+        image: Strands image content with format and source.
+
+    Returns:
+        A2A Part containing FilePart, or None if conversion fails.
+    """
+    source = image.get("source", {})
+    mime_type = IMAGE_FORMAT_TO_MIME.get(image.get("format", "png"), "image/png")
+
+    # Handle inline bytes
+    if "bytes" in source and source["bytes"]:
+        raw_bytes = source["bytes"]
+        b64_str = base64.standard_b64encode(raw_bytes).decode("utf-8")
+        file_with_bytes = FileWithBytes(bytes=b64_str, mime_type=mime_type)
+        return Part(FilePart(file=file_with_bytes, kind="file"))
+
+    # Handle location-based references (S3, HTTP, etc.)
+    if "location" in source:
+        location = source["location"]
+        uri = location.get("uri")
+        if uri:
+            file_with_uri = FileWithUri(uri=uri, mime_type=mime_type)
+            return Part(FilePart(file=file_with_uri, kind="file"))
+
+    logger.debug("content_type=<image> | image content dropped due to empty or missing source")
+    return None
+
+
+def _convert_document_to_file_part(document: DocumentContent) -> Part | None:
+    """Convert Strands DocumentContent to A2A FilePart.
+
+    Args:
+        document: Strands document content with format, name, and source.
+
+    Returns:
+        A2A Part containing FilePart, or None if conversion fails.
+    """
+    source = document.get("source", {})
+    doc_format = document.get("format", "txt")
+    mime_type = DOCUMENT_FORMAT_TO_MIME.get(doc_format, "application/octet-stream")
+    name = document.get("name")
+
+    # Handle inline bytes
+    if "bytes" in source and source["bytes"]:
+        raw_bytes = source["bytes"]
+        b64_str = base64.standard_b64encode(raw_bytes).decode("utf-8")
+        file_with_bytes = FileWithBytes(bytes=b64_str, mime_type=mime_type, name=name)
+        return Part(FilePart(file=file_with_bytes, kind="file"))
+
+    # Handle location-based references (S3, HTTP, etc.)
+    if "location" in source:
+        location = source["location"]
+        uri = location.get("uri")
+        if uri:
+            file_with_uri = FileWithUri(uri=uri, mime_type=mime_type, name=name)
+            return Part(FilePart(file=file_with_uri, kind="file"))
+
+    logger.debug("content_type=<document>, name=<%s> | document content dropped due to empty or missing source", name)
+    return None
+
+
+def _convert_video_to_file_part(video: VideoContent) -> Part | None:
+    """Convert Strands VideoContent to A2A FilePart.
+
+    Args:
+        video: Strands video content with format and source.
+
+    Returns:
+        A2A Part containing FilePart, or None if conversion fails.
+    """
+    source = video.get("source", {})
+    video_format = video.get("format", "mp4")
+    mime_type = VIDEO_FORMAT_TO_MIME.get(video_format, "video/mp4")
+
+    # Handle inline bytes
+    if "bytes" in source and source["bytes"]:
+        raw_bytes = source["bytes"]
+        b64_str = base64.standard_b64encode(raw_bytes).decode("utf-8")
+        file_with_bytes = FileWithBytes(bytes=b64_str, mime_type=mime_type)
+        return Part(FilePart(file=file_with_bytes, kind="file"))
+
+    # Handle location-based references (S3, HTTP, etc.)
+    if "location" in source:
+        location = source["location"]
+        uri = location.get("uri")
+        if uri:
+            file_with_uri = FileWithUri(uri=uri, mime_type=mime_type)
+            return Part(FilePart(file=file_with_uri, kind="file"))
+
+    logger.debug("content_type=<video> | video content dropped due to empty or missing source")
+    return None
+
+
 def convert_content_blocks_to_parts(content_blocks: list[ContentBlock]) -> list[Part]:
     """Convert Strands ContentBlocks to A2A Parts.
+
+    Supports conversion of text, image, document, and video content blocks.
 
     Args:
         content_blocks: List of Strands content blocks.
@@ -76,11 +250,192 @@ def convert_content_blocks_to_parts(content_blocks: list[ContentBlock]) -> list[
     for block in content_blocks:
         if "text" in block:
             parts.append(Part(TextPart(kind="text", text=block["text"])))
+        elif "image" in block:
+            part = _convert_image_to_file_part(block["image"])
+            if part:
+                parts.append(part)
+        elif "document" in block:
+            part = _convert_document_to_file_part(block["document"])
+            if part:
+                parts.append(part)
+        elif "video" in block:
+            part = _convert_video_to_file_part(block["video"])
+            if part:
+                parts.append(part)
     return parts
+
+
+def _convert_file_part_to_content_block(file_part: FilePart) -> ContentBlock | None:
+    """Convert A2A FilePart to Strands ContentBlock.
+
+    Determines the content type based on MIME type and converts accordingly.
+
+    Args:
+        file_part: A2A FilePart containing file data or URI.
+
+    Returns:
+        Strands ContentBlock (image, document, or video), or None if unsupported.
+    """
+    file_data = file_part.file
+    mime_type = file_data.mime_type or "application/octet-stream"
+
+    # Check if it's an image
+    if mime_type in MIME_TO_IMAGE_FORMAT:
+        return _convert_file_part_to_image(file_data, mime_type)
+
+    # Check if it's a document
+    if mime_type in MIME_TO_DOCUMENT_FORMAT:
+        return _convert_file_part_to_document(file_data, mime_type)
+
+    # Check if it's a video
+    if mime_type in MIME_TO_VIDEO_FORMAT:
+        return _convert_file_part_to_video(file_data, mime_type)
+
+    # Handle generic image/* mime types
+    if mime_type.startswith("image/"):
+        return _convert_file_part_to_image(file_data, mime_type)
+
+    # Handle generic video/* mime types
+    if mime_type.startswith("video/"):
+        return _convert_file_part_to_video(file_data, mime_type)
+
+    # Handle generic application/* and text/* as documents
+    if mime_type.startswith("application/") or mime_type.startswith("text/"):
+        return _convert_file_part_to_document(file_data, mime_type)
+
+    logger.debug("mime_type=<%s> | file part dropped due to unsupported mime type", mime_type)
+    return None
+
+
+def _convert_file_part_to_image(
+    file_data: FileWithBytes | FileWithUri,
+    mime_type: str,
+) -> ContentBlock:
+    """Convert A2A file data to Strands ImageContent block.
+
+    Args:
+        file_data: A2A file with bytes or URI.
+        mime_type: MIME type of the image.
+
+    Returns:
+        Strands ContentBlock containing ImageContent.
+    """
+    image_format: ImageFormat = MIME_TO_IMAGE_FORMAT.get(mime_type, "png")
+
+    if isinstance(file_data, FileWithBytes):
+        raw_bytes = base64.standard_b64decode(file_data.bytes)
+        image_content: ImageContent = {
+            "format": image_format,
+            "source": {"bytes": raw_bytes},
+        }
+    else:
+        # FileWithUri - determine location type from URI scheme
+        location = _get_location_from_uri(file_data.uri)
+        image_content = {
+            "format": image_format,
+            "source": {"location": location},
+        }
+
+    return cast(ContentBlock, {"image": image_content})
+
+
+def _convert_file_part_to_document(
+    file_data: FileWithBytes | FileWithUri,
+    mime_type: str,
+) -> ContentBlock:
+    """Convert A2A file data to Strands DocumentContent block.
+
+    Args:
+        file_data: A2A file with bytes or URI.
+        mime_type: MIME type of the document.
+
+    Returns:
+        Strands ContentBlock containing DocumentContent.
+    """
+    doc_format: DocumentFormat = MIME_TO_DOCUMENT_FORMAT.get(mime_type, "txt")
+    name = file_data.name
+
+    if isinstance(file_data, FileWithBytes):
+        raw_bytes = base64.standard_b64decode(file_data.bytes)
+        doc_content: DocumentContent = {
+            "format": doc_format,
+            "source": {"bytes": raw_bytes},
+        }
+        if name:
+            doc_content["name"] = name
+    else:
+        # FileWithUri - determine location type from URI scheme
+        location = _get_location_from_uri(file_data.uri)
+        doc_content = {
+            "format": doc_format,
+            "source": {"location": location},
+        }
+        if name:
+            doc_content["name"] = name
+
+    return cast(ContentBlock, {"document": doc_content})
+
+
+def _convert_file_part_to_video(
+    file_data: FileWithBytes | FileWithUri,
+    mime_type: str,
+) -> ContentBlock:
+    """Convert A2A file data to Strands VideoContent block.
+
+    Args:
+        file_data: A2A file with bytes or URI.
+        mime_type: MIME type of the video.
+
+    Returns:
+        Strands ContentBlock containing VideoContent.
+    """
+    video_format: VideoFormat = MIME_TO_VIDEO_FORMAT.get(mime_type, "mp4")
+
+    if isinstance(file_data, FileWithBytes):
+        raw_bytes = base64.standard_b64decode(file_data.bytes)
+        video_content: VideoContent = {
+            "format": video_format,
+            "source": {"bytes": raw_bytes},
+        }
+    else:
+        # FileWithUri - determine location type from URI scheme
+        location = _get_location_from_uri(file_data.uri)
+        video_content = {
+            "format": video_format,
+            "source": {"location": location},
+        }
+
+    return cast(ContentBlock, {"video": video_content})
+
+
+def _extract_content_from_parts(parts: list[Part]) -> list[ContentBlock]:
+    """Extract Strands ContentBlocks from A2A Parts.
+
+    Supports extraction of text, image, document, and video parts.
+
+    Args:
+        parts: List of A2A Part objects.
+
+    Returns:
+        List of Strands ContentBlock objects.
+    """
+    content: list[ContentBlock] = []
+    for part in parts:
+        if hasattr(part, "root"):
+            root = part.root
+            if hasattr(root, "text"):
+                content.append({"text": root.text})
+            elif hasattr(root, "file"):
+                block = _convert_file_part_to_content_block(root)
+                if block:
+                    content.append(block)
+    return content
 
 
 def convert_response_to_agent_result(response: A2AResponse) -> AgentResult:
     """Convert A2A response to AgentResult.
+
+    Supports conversion of text, image, document, and video content types.
 
     Args:
         response: A2A response (either A2AMessage or tuple of task and update event).
@@ -96,26 +451,18 @@ def convert_response_to_agent_result(response: A2AResponse) -> AgentResult:
         # Handle artifact updates
         if isinstance(update_event, TaskArtifactUpdateEvent):
             if update_event.artifact and hasattr(update_event.artifact, "parts"):
-                for part in update_event.artifact.parts:
-                    if hasattr(part, "root") and hasattr(part.root, "text"):
-                        content.append({"text": part.root.text})
+                content.extend(_extract_content_from_parts(update_event.artifact.parts))
         # Handle status updates with messages
         elif isinstance(update_event, TaskStatusUpdateEvent):
             if update_event.status and hasattr(update_event.status, "message") and update_event.status.message:
-                for part in update_event.status.message.parts:
-                    if hasattr(part, "root") and hasattr(part.root, "text"):
-                        content.append({"text": part.root.text})
+                content.extend(_extract_content_from_parts(update_event.status.message.parts))
         # Handle initial task or task without update event
         elif update_event is None and task and hasattr(task, "artifacts") and task.artifacts is not None:
             for artifact in task.artifacts:
                 if hasattr(artifact, "parts"):
-                    for part in artifact.parts:
-                        if hasattr(part, "root") and hasattr(part.root, "text"):
-                            content.append({"text": part.root.text})
+                    content.extend(_extract_content_from_parts(artifact.parts))
     elif isinstance(response, A2AMessage):
-        for part in response.parts:
-            if hasattr(part, "root") and hasattr(part.root, "text"):
-                content.append({"text": part.root.text})
+        content.extend(_extract_content_from_parts(response.parts))
 
     message: Message = {
         "role": "assistant",

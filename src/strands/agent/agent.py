@@ -59,6 +59,7 @@ from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
+from .base import AgentBase
 from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
@@ -83,7 +84,7 @@ _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 
-class Agent:
+class Agent(AgentBase):
     """Core Agent implementation.
 
     An agent orchestrates the following workflow:
