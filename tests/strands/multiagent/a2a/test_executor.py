@@ -11,6 +11,9 @@ from strands.agent.agent_result import AgentResult as SAAgentResult
 from strands.multiagent.a2a.executor import StrandsA2AExecutor
 from strands.types.content import ContentBlock
 
+# Suppress A2A compliance warnings for legacy streaming mode tests
+pytestmark = pytest.mark.filterwarnings("ignore:The default A2A response stream.*:UserWarning")
+
 # Test data constants
 VALID_PNG_BYTES = b"fake_png_data"
 VALID_MP4_BYTES = b"fake_mp4_data"
