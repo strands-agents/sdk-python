@@ -3,7 +3,7 @@ import json
 import os
 import threading
 import time
-from typing import List, Literal
+from typing import Literal
 
 import pytest
 from mcp import StdioServerParameters, stdio_client
@@ -43,11 +43,11 @@ def start_comprehensive_mcp_server(transport: Literal["sse", "streamable-http"],
     @mcp.tool(description="Generates a custom image")
     def generate_custom_image() -> MCPImageContent:
         try:
-            with open("tests_integ/yellow.png", "rb") as image_file:
+            with open("tests_integ/resources/yellow.png", "rb") as image_file:
                 encoded_image = base64.b64encode(image_file.read())
                 return MCPImageContent(type="image", data=encoded_image, mimeType="image/png")
         except Exception as e:
-            print("Error while generating custom image: {}".format(e))
+            print(f"Error while generating custom image: {e}")
 
     # Prompts
     @mcp.prompt(description="A greeting prompt template")
@@ -366,7 +366,7 @@ def test_mcp_client_embedded_resources_with_agent():
         assert any(["72" in response_text, "partly cloudy" in response_text, "weather" in response_text])
 
 
-def _messages_to_content_blocks(messages: List[Message]) -> List[ToolUse]:
+def _messages_to_content_blocks(messages: list[Message]) -> list[ToolUse]:
     return [block["toolUse"] for message in messages for block in message["content"] if "toolUse" in block]
 
 
@@ -487,3 +487,38 @@ async def test_streamable_http_mcp_client_with_500_error():
 
     assert result["status"] == "error"
     assert result["content"][0]["text"] == "Tool execution failed: Connection to the MCP server was closed"
+
+
+def test_mcp_client_connection_stability_with_client_timeout():
+    """Integration test to verify connection remains stable with very small timeouts."""
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    stdio_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with stdio_mcp_client:
+        # Spy on the logger to capture non-fatal error messages
+        with patch.object(stdio_mcp_client, "_log_debug_with_thread") as mock_log:
+            # Make multiple calls with very small timeout to trigger "unknown request id" errors
+            for i in range(3):
+                try:
+                    result = stdio_mcp_client.call_tool_sync(
+                        tool_use_id=f"test_{i}",
+                        name="echo",
+                        arguments={"to_echo": f"test_{i}"},
+                        read_timeout_seconds=timedelta(milliseconds=0),  # Very small timeout
+                    )
+                except Exception:
+                    pass  # Ignore exceptions, we're testing connection stability
+
+            # Verify connection is still alive by making a successful call
+            result = stdio_mcp_client.call_tool_sync(
+                tool_use_id="final_test", name="echo", arguments={"to_echo": "connection_alive"}
+            )
+            assert result["status"] == "success"
+            assert result["content"][0]["text"] == "connection_alive"
+
+            # Verify that non-fatal error messages were logged
+            assert any("ignoring non-fatal MCP session error" in str(call) for call in mock_log.call_args_list)

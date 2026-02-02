@@ -3,15 +3,18 @@ import importlib
 import json
 import os
 import textwrap
+import threading
 import unittest.mock
 import warnings
+from collections.abc import AsyncGenerator
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from pydantic import BaseModel
 
 import strands
-from strands import Agent
+from strands import Agent, ToolContext
 from strands.agent import AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
@@ -24,7 +27,7 @@ from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
 from strands.types._events import EventLoopStopEvent, ModelStreamEvent
 from strands.types.content import Messages
-from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
+from strands.types.exceptions import ConcurrencyException, ContextWindowOverflowException, EventLoopException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -34,15 +37,13 @@ FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
 
 
 @pytest.fixture
-def mock_randint():
-    with unittest.mock.patch.object(strands.agent.agent.random, "randint") as mock:
-        yield mock
-
-
-@pytest.fixture
 def mock_model(request):
     async def stream(*args, **kwargs):
-        result = mock.mock_stream(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+        # Skip deep copy of invocation_state which contains non-serializable objects (agent, spans, etc.)
+        copied_kwargs = {
+            key: value if key == "invocation_state" else copy.deepcopy(value) for key, value in kwargs.items()
+        }
+        result = mock.mock_stream(*copy.deepcopy(args), **copied_kwargs)
         # If result is already an async generator, yield from it
         if hasattr(result, "__aiter__"):
             async for item in result:
@@ -191,6 +192,29 @@ def user():
     return User(name="Jane Doe", age=30, email="jane@doe.com")
 
 
+class SyncEventMockedModel(MockedModelProvider):
+    """A mock model that uses events to synchronize concurrent threads.
+
+    This model signals when it starts streaming and waits for a proceed signal,
+    allowing deterministic testing of concurrent behavior without relying on sleeps.
+    """
+
+    def __init__(self, agent_responses):
+        super().__init__(agent_responses)
+        self.started_event = threading.Event()
+        self.proceed_event = threading.Event()
+
+    async def stream(
+        self, messages, tool_specs=None, system_prompt=None, tool_choice=None, **kwargs
+    ) -> AsyncGenerator[Any, None]:
+        # Signal that streaming has started
+        self.started_event.set()
+        # Wait for signal to proceed
+        self.proceed_event.wait()
+        async for event in super().stream(messages, tool_specs, system_prompt, tool_choice, **kwargs):
+            yield event
+
+
 def test_agent__init__tool_loader_format(tool_decorated, tool_module, tool_imported, tool_registry):
     _ = tool_registry
 
@@ -331,6 +355,7 @@ def test_agent__call__(
                 system_prompt,
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
+                invocation_state=unittest.mock.ANY,
             ),
             unittest.mock.call(
                 [
@@ -369,6 +394,7 @@ def test_agent__call__(
                 system_prompt,
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
+                invocation_state=unittest.mock.ANY,
             ),
         ],
     )
@@ -490,6 +516,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         unittest.mock.ANY,
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
+        invocation_state=unittest.mock.ANY,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -635,6 +662,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         unittest.mock.ANY,
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
+        invocation_state=unittest.mock.ANY,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
@@ -690,6 +718,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
         unittest.mock.call(event={"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}}),
         unittest.mock.call(event={"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}}),
         unittest.mock.call(
+            type="tool_use_stream",
             agent=agent,
             current_tool_use={"toolUseId": "123", "name": "test", "input": {}},
             delta={"toolUse": {"input": '{"value"}'}},
@@ -803,93 +832,6 @@ async def test_agent_invoke_async(mock_model, agent, agenerator):
     assert tru_message == exp_message
 
 
-def test_agent_tool(mock_randint, agent):
-    conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
-    agent.conversation_manager = conversation_manager_spy
-
-    mock_randint.return_value = 1
-
-    tru_result = agent.tool.tool_decorated(random_string="abcdEfghI123")
-    exp_result = {
-        "content": [
-            {
-                "text": "abcdEfghI123",
-            },
-        ],
-        "status": "success",
-        "toolUseId": "tooluse_tool_decorated_1",
-    }
-
-    assert tru_result == exp_result
-    conversation_manager_spy.apply_management.assert_called_with(agent)
-
-
-@pytest.mark.asyncio
-async def test_agent_tool_in_async_context(mock_randint, agent):
-    mock_randint.return_value = 123
-
-    tru_result = agent.tool.tool_decorated(random_string="abcdEfghI123")
-    exp_result = {
-        "content": [
-            {
-                "text": "abcdEfghI123",
-            },
-        ],
-        "status": "success",
-        "toolUseId": "tooluse_tool_decorated_123",
-    }
-
-    assert tru_result == exp_result
-
-
-def test_agent_tool_user_message_override(agent):
-    agent.tool.tool_decorated(random_string="abcdEfghI123", user_message_override="test override")
-
-    tru_message = agent.messages[0]
-    exp_message = {
-        "content": [
-            {
-                "text": "test override\n",
-            },
-            {
-                "text": (
-                    'agent.tool.tool_decorated direct tool call.\nInput parameters: {"random_string": "abcdEfghI123"}\n'
-                ),
-            },
-        ],
-        "role": "user",
-    }
-
-    assert tru_message == exp_message
-
-
-def test_agent_tool_do_not_record_tool(agent):
-    agent.record_direct_tool_call = False
-    agent.tool.tool_decorated(random_string="abcdEfghI123", user_message_override="test override")
-
-    tru_messages = agent.messages
-    exp_messages = []
-
-    assert tru_messages == exp_messages
-
-
-def test_agent_tool_do_not_record_tool_with_method_override(agent):
-    agent.record_direct_tool_call = True
-    agent.tool.tool_decorated(
-        random_string="abcdEfghI123", user_message_override="test override", record_direct_tool_call=False
-    )
-
-    tru_messages = agent.messages
-    exp_messages = []
-
-    assert tru_messages == exp_messages
-
-
-def test_agent_tool_tool_does_not_exist(agent):
-    with pytest.raises(AttributeError):
-        agent.tool.does_not_exist()
-
-
 @pytest.mark.parametrize("tools", [None, [tool_decorated]], indirect=True)
 def test_agent_tool_names(tools, agent):
     actual = agent.tool_names
@@ -902,45 +844,6 @@ def test_agent_init_with_no_model_or_model_id():
     agent = Agent()
     assert agent.model is not None
     assert agent.model.get_config().get("model_id") == FORMATTED_DEFAULT_MODEL_ID
-
-
-def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, agenerator):
-    @strands.tools.tool(name="system_prompter")
-    def function(system_prompt: str) -> str:
-        return system_prompt
-
-    agent.tool_registry.register_tool(function)
-
-    mock_randint.return_value = 1
-
-    tru_result = agent.tool.system_prompter(system_prompt="tool prompt")
-    exp_result = {"toolUseId": "tooluse_system_prompter_1", "status": "success", "content": [{"text": "tool prompt"}]}
-    assert tru_result == exp_result
-
-
-def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, agenerator):
-    tool_name = "system-prompter"
-
-    @strands.tools.tool(name=tool_name)
-    def function(system_prompt: str) -> str:
-        return system_prompt
-
-    agent.tool_registry.register_tool(function)
-
-    mock_randint.return_value = 1
-
-    tru_result = agent.tool.system_prompter(system_prompt="tool prompt")
-    exp_result = {"toolUseId": "tooluse_system_prompter_1", "status": "success", "content": [{"text": "tool prompt"}]}
-    assert tru_result == exp_result
-
-
-def test_agent_tool_with_no_normalized_match(agent, tool_registry, mock_randint):
-    mock_randint.return_value = 1
-
-    with pytest.raises(AttributeError) as err:
-        agent.tool.system_prompter_1(system_prompt="tool prompt")
-
-    assert str(err.value) == "Tool 'system_prompter_1' not found"
 
 
 def test_agent_with_none_callback_handler_prints_nothing():
@@ -1738,98 +1641,6 @@ def test_agent_with_session_and_conversation_manager():
     assert agent.conversation_manager.removed_message_count == agent_2.conversation_manager.removed_message_count
 
 
-def test_agent_tool_non_serializable_parameter_filtering(agent, mock_randint):
-    """Test that non-serializable objects in tool parameters are properly filtered during tool call recording."""
-    mock_randint.return_value = 42
-
-    # Create a non-serializable object (Agent instance)
-    another_agent = Agent()
-
-    # This should not crash even though we're passing non-serializable objects
-    result = agent.tool.tool_decorated(
-        random_string="test_value",
-        non_serializable_agent=another_agent,  # This would previously cause JSON serialization error
-        user_message_override="Testing non-serializable parameter filtering",
-    )
-
-    # Verify the tool executed successfully
-    expected_result = {
-        "content": [{"text": "test_value"}],
-        "status": "success",
-        "toolUseId": "tooluse_tool_decorated_42",
-    }
-    assert result == expected_result
-
-    # The key test: this should not crash during execution
-    # Check that we have messages recorded (exact count may vary)
-    assert len(agent.messages) > 0
-
-    # Check user message with filtered parameters - this is the main test for the bug fix
-    user_message = agent.messages[0]
-    assert user_message["role"] == "user"
-    assert len(user_message["content"]) == 2
-
-    # Check override message
-    assert user_message["content"][0]["text"] == "Testing non-serializable parameter filtering\n"
-
-    # Check tool call description with filtered parameters - this is where JSON serialization would fail
-    tool_call_text = user_message["content"][1]["text"]
-    assert "agent.tool.tool_decorated direct tool call." in tool_call_text
-    assert '"random_string": "test_value"' in tool_call_text
-    assert '"non_serializable_agent": "<<non-serializable: Agent>>"' not in tool_call_text
-
-
-def test_agent_tool_no_non_serializable_parameters(agent, mock_randint):
-    """Test that normal tool calls with only serializable parameters work unchanged."""
-    mock_randint.return_value = 555
-
-    # Call with only serializable parameters
-    result = agent.tool.tool_decorated(random_string="normal_call", user_message_override="Normal tool call test")
-
-    # Verify successful execution
-    expected_result = {
-        "content": [{"text": "normal_call"}],
-        "status": "success",
-        "toolUseId": "tooluse_tool_decorated_555",
-    }
-    assert result == expected_result
-
-    # Check message recording works normally
-    assert len(agent.messages) > 0
-    user_message = agent.messages[0]
-    tool_call_text = user_message["content"][1]["text"]
-
-    # Verify normal parameter serialization (no filtering needed)
-    assert "agent.tool.tool_decorated direct tool call." in tool_call_text
-    assert '"random_string": "normal_call"' in tool_call_text
-    # Should not contain any "<<non-serializable:" strings
-    assert "<<non-serializable:" not in tool_call_text
-
-
-def test_agent_tool_record_direct_tool_call_disabled_with_non_serializable(agent, mock_randint):
-    """Test that when record_direct_tool_call is disabled, non-serializable parameters don't cause issues."""
-    mock_randint.return_value = 777
-
-    # Disable tool call recording
-    agent.record_direct_tool_call = False
-
-    # This should work fine even with non-serializable parameters since recording is disabled
-    result = agent.tool.tool_decorated(
-        random_string="no_recording", non_serializable_agent=Agent(), user_message_override="This shouldn't be recorded"
-    )
-
-    # Verify successful execution
-    expected_result = {
-        "content": [{"text": "no_recording"}],
-        "status": "success",
-        "toolUseId": "tooluse_tool_decorated_777",
-    }
-    assert result == expected_result
-
-    # Verify no messages were recorded
-    assert len(agent.messages) == 0
-
-
 def test_agent_empty_invoke():
     model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
     agent = Agent(model=model, messages=[{"role": "user", "content": [{"text": "hello!"}]}])
@@ -1886,39 +1697,6 @@ def test_agent_with_list_of_message_and_content_block():
     agent = Agent(model=model)
     with pytest.raises(ValueError, match="Input prompt must be of type: `str | list[Contentblock] | Messages | None`."):
         agent([{"role": "user", "content": [{"text": "hello"}]}, {"text", "hello"}])
-
-
-def test_agent_tool_call_parameter_filtering_integration(mock_randint):
-    """Test that tool calls properly filter parameters in message recording."""
-    mock_randint.return_value = 42
-
-    @strands.tool
-    def test_tool(action: str) -> str:
-        """Test tool with single parameter."""
-        return action
-
-    agent = Agent(tools=[test_tool])
-
-    # Call tool with extra non-spec parameters
-    result = agent.tool.test_tool(
-        action="test_value",
-        agent=agent,  # Should be filtered out
-        extra_param="filtered",  # Should be filtered out
-    )
-
-    # Verify tool executed successfully
-    assert result["status"] == "success"
-    assert result["content"] == [{"text": "test_value"}]
-
-    # Check that only spec parameters are recorded in message history
-    assert len(agent.messages) > 0
-    user_message = agent.messages[0]
-    tool_call_text = user_message["content"][0]["text"]
-
-    # Should only contain the 'action' parameter
-    assert '"action": "test_value"' in tool_call_text
-    assert '"agent"' not in tool_call_text
-    assert '"extra_param"' not in tool_call_text
 
 
 def test_agent__call__handles_none_invocation_state(mock_model, agent):
@@ -2001,8 +1779,9 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
         reason="test reason",
     )
 
-    agent._interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": []})
+    agent._interrupt_state.context = {"tool_use_message": tool_use_message, "tool_results": []}
     agent._interrupt_state.interrupts[interrupt.id] = interrupt
+    agent._interrupt_state.activate()
 
     interrupt_response = {}
 
@@ -2091,39 +1870,6 @@ def test_agent_structured_output_interrupt(user):
     exp_message = r"cannot call structured output during interrupt"
     with pytest.raises(RuntimeError, match=exp_message):
         agent.structured_output(type(user), "invalid")
-
-
-def test_agent_tool_caller_interrupt():
-    @strands.tool(context=True)
-    def test_tool(tool_context):
-        tool_context.interrupt("test-interrupt")
-
-    agent = Agent(tools=[test_tool])
-
-    exp_message = r"cannot raise interrupt in direct tool call"
-    with pytest.raises(RuntimeError, match=exp_message):
-        agent.tool.test_tool(agent=agent)
-
-    tru_state = agent._interrupt_state.to_dict()
-    exp_state = {
-        "activated": False,
-        "context": {},
-        "interrupts": {},
-    }
-    assert tru_state == exp_state
-
-    tru_messages = agent.messages
-    exp_messages = []
-    assert tru_messages == exp_messages
-
-
-def test_agent_tool_caller_interrupt_activated():
-    agent = Agent()
-    agent._interrupt_state.activated = True
-
-    exp_message = r"cannot directly call tool during interrupt"
-    with pytest.raises(RuntimeError, match=exp_message):
-        agent.tool.test_tool()
 
 
 def test_latest_message_tool_use_skips_model_invoke(tool_decorated):
@@ -2470,3 +2216,262 @@ def test_agent_skips_fix_for_valid_conversation(mock_model, agenerator):
     # Should not have added any toolResult messages
     # Only the new user message and assistant response should be added
     assert len(agent.messages) == original_length + 2
+
+
+# ============================================================================
+# Concurrency Exception Tests
+# ============================================================================
+
+
+def test_agent_concurrent_call_raises_exception():
+    """Test that concurrent __call__() calls raise ConcurrencyException."""
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "hello"}]},
+            {"role": "assistant", "content": [{"text": "world"}]},
+        ]
+    )
+    agent = Agent(model=model)
+
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke():
+        try:
+            result = agent("test")
+            with lock:
+                results.append(result)
+        except ConcurrencyException as e:
+            with lock:
+                errors.append(e)
+
+    # Start first thread and wait for it to begin streaming
+    t1 = threading.Thread(target=invoke)
+    t1.start()
+    model.started_event.wait()  # Wait until first thread is in the model.stream()
+
+    # Start second thread while first is still running
+    t2 = threading.Thread(target=invoke)
+    t2.start()
+
+    # Give second thread time to attempt invocation and fail
+    t2.join(timeout=1.0)
+
+    # Now let first thread complete
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+
+    # One should succeed, one should raise ConcurrencyException
+    assert len(results) == 1, f"Expected 1 success, got {len(results)}"
+    assert len(errors) == 1, f"Expected 1 error, got {len(errors)}"
+    assert "concurrent" in str(errors[0]).lower() and "invocation" in str(errors[0]).lower()
+
+
+def test_agent_concurrent_structured_output_raises_exception():
+    """Test that concurrent structured_output() calls raise ConcurrencyException.
+
+    Note: This test validates that the sync invocation path is protected.
+    The concurrent __call__() test already validates the core functionality.
+    """
+    # Events for synchronization
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "response1"}]},
+            {"role": "assistant", "content": [{"text": "response2"}]},
+        ],
+    )
+    agent = Agent(model=model)
+
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke():
+        try:
+            result = agent("test")
+            with lock:
+                results.append(result)
+        except ConcurrencyException as e:
+            with lock:
+                errors.append(e)
+
+    # Start first thread and wait for it to begin streaming
+    t1 = threading.Thread(target=invoke)
+    t1.start()
+    model.started_event.wait()  # Wait until first thread is in the model.stream()
+
+    # Start second thread while first is still running
+    t2 = threading.Thread(target=invoke)
+    t2.start()
+
+    # Give second thread time to attempt invocation and fail
+    t2.join(timeout=1.0)
+
+    # Now let first thread complete
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+
+    # One should succeed, one should raise ConcurrencyException
+    assert len(results) == 1, f"Expected 1 success, got {len(results)}"
+    assert len(errors) == 1, f"Expected 1 error, got {len(errors)}"
+    assert "concurrent" in str(errors[0]).lower() and "invocation" in str(errors[0]).lower()
+
+
+@pytest.mark.asyncio
+async def test_agent_sequential_invocations_work():
+    """Test that sequential invocations work correctly after lock is released."""
+    model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "response1"}]},
+            {"role": "assistant", "content": [{"text": "response2"}]},
+            {"role": "assistant", "content": [{"text": "response3"}]},
+        ]
+    )
+    agent = Agent(model=model)
+
+    # All sequential calls should succeed
+    result1 = await agent.invoke_async("test1")
+    assert result1.message["content"][0]["text"] == "response1"
+
+    result2 = await agent.invoke_async("test2")
+    assert result2.message["content"][0]["text"] == "response2"
+
+    result3 = await agent.invoke_async("test3")
+    assert result3.message["content"][0]["text"] == "response3"
+
+
+@pytest.mark.asyncio
+async def test_agent_lock_released_on_exception():
+    """Test that lock is released when an exception occurs during invocation."""
+
+    # Create a mock model that raises an explicit error
+    mock_model = unittest.mock.Mock()
+
+    async def failing_stream(*args, **kwargs):
+        raise RuntimeError("Simulated model failure")
+        yield  # Make this an async generator
+
+    mock_model.stream = failing_stream
+
+    agent = Agent(model=mock_model)
+
+    # First call will fail due to the simulated error
+    with pytest.raises(RuntimeError, match="Simulated model failure"):
+        await agent.invoke_async("test")
+
+    # Lock should be released, so this should not raise ConcurrencyException
+    # It will still raise RuntimeError, but that's expected
+    with pytest.raises(RuntimeError, match="Simulated model failure"):
+        await agent.invoke_async("test")
+
+
+def test_agent_direct_tool_call_during_invocation_raises_exception(tool_decorated):
+    """Test that direct tool call during agent invocation raises ConcurrencyException."""
+
+    tool_calls = []
+
+    @strands.tool
+    def tool_to_invoke():
+        tool_calls.append("tool_to_invoke")
+        return "called"
+
+    @strands.tool(context=True)
+    def agent_tool(tool_context: ToolContext) -> str:
+        tool_context.agent.tool.tool_to_invoke(record_direct_tool_call=True)
+        return "tool result"
+
+    model = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "test-123",
+                            "name": "agent_tool",
+                            "input": {},
+                        }
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "Done"}]},
+        ]
+    )
+    agent = Agent(model=model, tools=[agent_tool, tool_to_invoke])
+    agent("Hi")
+
+    # Tool call should have not succeeded
+    assert len(tool_calls) == 0
+
+    assert agent.messages[-2] == {
+        "content": [
+            {
+                "toolResult": {
+                    "content": [
+                        {
+                            "text": "Error: ConcurrencyException - Direct tool call cannot be made while the agent is "
+                            "in the middle of an invocation. Set record_direct_tool_call=False to allow direct tool "
+                            "calls during agent invocation."
+                        }
+                    ],
+                    "status": "error",
+                    "toolUseId": "test-123",
+                }
+            }
+        ],
+        "role": "user",
+    }
+
+
+def test_agent_direct_tool_call_during_invocation_succeeds_with_record_false(tool_decorated):
+    """Test that direct tool call during agent invocation succeeds when record_direct_tool_call=False."""
+    tool_calls = []
+
+    @strands.tool
+    def tool_to_invoke():
+        tool_calls.append("tool_to_invoke")
+        return "called"
+
+    @strands.tool(context=True)
+    def agent_tool(tool_context: ToolContext) -> str:
+        tool_context.agent.tool.tool_to_invoke(record_direct_tool_call=False)
+        return "tool result"
+
+    model = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "test-123",
+                            "name": "agent_tool",
+                            "input": {},
+                        }
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "Done"}]},
+        ]
+    )
+    agent = Agent(model=model, tools=[agent_tool, tool_to_invoke])
+    agent("Hi")
+
+    # Tool call should have succeeded
+    assert len(tool_calls) == 1
+
+    assert agent.messages[-2] == {
+        "content": [
+            {
+                "toolResult": {
+                    "content": [{"text": "tool result"}],
+                    "status": "success",
+                    "toolUseId": "test-123",
+                }
+            }
+        ],
+        "role": "user",
+    }

@@ -1,6 +1,6 @@
-"""Multi-agent hook events and utilities.
+"""Multi-agent hook events.
 
-Provides event classes for hooking into multi-agent orchestrator lifecycle.
+Deprecated: Use strands.hooks.multiagent instead.
 """
 
 from .events import (

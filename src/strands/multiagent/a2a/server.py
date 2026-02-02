@@ -42,6 +42,7 @@ class A2AServer:
         queue_manager: QueueManager | None = None,
         push_config_store: PushNotificationConfigStore | None = None,
         push_sender: PushNotificationSender | None = None,
+        enable_a2a_compliant_streaming: bool = False,
     ):
         """Initialize an A2A-compatible server from a Strands agent.
 
@@ -66,6 +67,9 @@ class A2AServer:
                 no push notification configuration is used.
             push_sender: Custom push notification sender implementation. If None,
                 no push notifications are sent.
+            enable_a2a_compliant_streaming: If True, uses A2A-compliant streaming with
+                artifact updates. If False, uses legacy status updates streaming behavior
+                for backwards compatibility. Defaults to False.
         """
         self.host = host
         self.port = port
@@ -90,7 +94,9 @@ class A2AServer:
         self.description = self.strands_agent.description
         self.capabilities = AgentCapabilities(streaming=True)
         self.request_handler = DefaultRequestHandler(
-            agent_executor=StrandsA2AExecutor(self.strands_agent),
+            agent_executor=StrandsA2AExecutor(
+                self.strands_agent, enable_a2a_compliant_streaming=enable_a2a_compliant_streaming
+            ),
             task_store=task_store or InMemoryTaskStore(),
             queue_manager=queue_manager,
             push_config_store=push_config_store,
@@ -176,16 +182,21 @@ class A2AServer:
         """
         self._agent_skills = skills
 
-    def to_starlette_app(self) -> Starlette:
+    def to_starlette_app(self, *, app_kwargs: dict[str, Any] | None = None) -> Starlette:
         """Create a Starlette application for serving this agent via HTTP.
 
         Automatically handles path-based mounting if a mount path was derived
         from the http_url parameter.
 
+        Args:
+            app_kwargs: Additional keyword arguments to pass to the Starlette constructor.
+
         Returns:
             Starlette: A Starlette application configured to serve this agent.
         """
-        a2a_app = A2AStarletteApplication(agent_card=self.public_agent_card, http_handler=self.request_handler).build()
+        a2a_app = A2AStarletteApplication(agent_card=self.public_agent_card, http_handler=self.request_handler).build(
+            **app_kwargs or {}
+        )
 
         if self.mount_path:
             # Create parent app and mount the A2A app at the specified path
@@ -196,16 +207,21 @@ class A2AServer:
 
         return a2a_app
 
-    def to_fastapi_app(self) -> FastAPI:
+    def to_fastapi_app(self, *, app_kwargs: dict[str, Any] | None = None) -> FastAPI:
         """Create a FastAPI application for serving this agent via HTTP.
 
         Automatically handles path-based mounting if a mount path was derived
         from the http_url parameter.
 
+        Args:
+            app_kwargs: Additional keyword arguments to pass to the FastAPI constructor.
+
         Returns:
             FastAPI: A FastAPI application configured to serve this agent.
         """
-        a2a_app = A2AFastAPIApplication(agent_card=self.public_agent_card, http_handler=self.request_handler).build()
+        a2a_app = A2AFastAPIApplication(agent_card=self.public_agent_card, http_handler=self.request_handler).build(
+            **app_kwargs or {}
+        )
 
         if self.mount_path:
             # Create parent app and mount the A2A app at the specified path

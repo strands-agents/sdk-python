@@ -122,7 +122,7 @@ hatch fmt --linter
 
 If you're using an IDE like VS Code or PyCharm, consider configuring it to use these tools automatically.
 
-For additional details on styling, please see our dedicated [Style Guide](./STYLE_GUIDE.md).
+For additional details on styling, please see our dedicated [Style Guide](./docs/STYLE_GUIDE.md).
 
 
 ## Contributing via Pull Requests
@@ -131,6 +131,8 @@ Contributions via pull requests are much appreciated. Before sending us a pull r
 1. You are working against the latest source on the *main* branch.
 2. You check existing open, and recently merged, pull requests to make sure someone else hasn't addressed the problem already.
 3. You open an issue to discuss any significant work - we would hate for your time to be wasted.
+
+For guidance on writing effective PR descriptions, see our [PR Description Guidelines](./docs/PR.md).
 
 To send us a pull request, please:
 

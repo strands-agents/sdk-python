@@ -7,7 +7,8 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
+from collections.abc import AsyncGenerator
+from typing import Any, TypedDict, TypeVar, cast
 
 import anthropic
 from pydantic import BaseModel
@@ -19,7 +20,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
-from ._validation import validate_config_keys
+from ._validation import _has_location_source, validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -59,9 +60,9 @@ class AnthropicModel(Model):
 
         max_tokens: Required[int]
         model_id: Required[str]
-        params: Optional[dict[str, Any]]
+        params: dict[str, Any] | None
 
-    def __init__(self, *, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[AnthropicConfig]):
+    def __init__(self, *, client_args: dict[str, Any] | None = None, **model_config: Unpack[AnthropicConfig]):
         """Initialize provider instance.
 
         Args:
@@ -188,6 +189,11 @@ class AnthropicModel(Model):
                     formatted_contents[-1]["cache_control"] = {"type": "ephemeral"}
                     continue
 
+                # Check for location sources in image, document, or video content
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by Anthropic | skipping content block")
+                    continue
+
                 formatted_contents.append(self._format_request_message_content(content))
 
             if formatted_contents:
@@ -198,8 +204,8 @@ class AnthropicModel(Model):
     def format_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format an Anthropic streaming request.
@@ -369,8 +375,8 @@ class AnthropicModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
@@ -419,8 +425,8 @@ class AnthropicModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model.
 
         Args:

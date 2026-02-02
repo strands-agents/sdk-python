@@ -197,6 +197,92 @@ agent("What is the square root of 1764")
 
 It's also available on GitHub via [strands-agents/tools](https://github.com/strands-agents/tools).
 
+### Bidirectional Streaming
+
+> **⚠️ Experimental Feature**: Bidirectional streaming is currently in experimental status. APIs may change in future releases as we refine the feature based on user feedback and evolving model capabilities.
+
+Build real-time voice and audio conversations with persistent streaming connections. Unlike traditional request-response patterns, bidirectional streaming maintains long-running conversations where users can interrupt, provide continuous input, and receive real-time audio responses. Get started with your first BidiAgent by following the [Quickstart](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/experimental/bidirectional-streaming/quickstart) guide. 
+
+**Supported Model Providers:**
+- Amazon Nova Sonic (v1, v2)
+- Google Gemini Live
+- OpenAI Realtime API
+
+**Quick Example:**
+
+```python
+import asyncio
+from strands.experimental.bidi import BidiAgent
+from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
+from strands.experimental.bidi.tools import stop_conversation
+from strands_tools import calculator
+
+async def main():
+    # Create bidirectional agent with Nova Sonic v2
+    model = BidiNovaSonicModel()
+    agent = BidiAgent(model=model, tools=[calculator, stop_conversation])
+
+    # Setup audio and text I/O
+    audio_io = BidiAudioIO()
+    text_io = BidiTextIO()
+
+    # Run with real-time audio streaming
+    # Say "stop conversation" to gracefully end the conversation
+    await agent.run(
+        inputs=[audio_io.input()],
+        outputs=[audio_io.output(), text_io.output()]
+    )
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+**Configuration Options:**
+
+```python
+from strands.experimental.bidi.models import BidiNovaSonicModel
+
+# Configure audio settings and turn detection (v2 only)
+model = BidiNovaSonicModel(
+    provider_config={
+        "audio": {
+            "input_rate": 16000,
+            "output_rate": 16000,
+            "voice": "matthew"
+        },
+        "turn_detection": {
+            "endpointingSensitivity": "MEDIUM"  # HIGH, MEDIUM, or LOW
+        },
+        "inference": {
+            "max_tokens": 2048,
+            "temperature": 0.7
+        }
+    }
+)
+
+# Configure I/O devices
+audio_io = BidiAudioIO(
+    input_device_index=0,  # Specific microphone
+    output_device_index=1,  # Specific speaker
+    input_buffer_size=10,
+    output_buffer_size=10
+)
+
+# Text input mode (type messages instead of speaking)
+text_io = BidiTextIO()
+await agent.run(
+    inputs=[text_io.input()],  # Use text input
+    outputs=[audio_io.output(), text_io.output()]
+)
+
+# Multi-modal: Both audio and text input
+await agent.run(
+    inputs=[audio_io.input(), text_io.input()],  # Speak OR type
+    outputs=[audio_io.output(), text_io.output()]
+)
+```
+
 ## Documentation
 
 For detailed guidance & examples, explore our documentation:
