@@ -26,6 +26,7 @@ from opentelemetry import trace as trace_api
 
 from .._async import run_async
 from ..agent import Agent
+from ..agent.base import AgentBase
 from ..agent.state import AgentState
 from ..hooks.events import (
     AfterMultiAgentInvocationEvent,
@@ -161,7 +162,7 @@ class GraphNode:
     """Represents a node in the graph."""
 
     node_id: str
-    executor: Agent | MultiAgentBase
+    executor: AgentBase | MultiAgentBase
     dependencies: set["GraphNode"] = field(default_factory=set)
     execution_status: Status = Status.PENDING
     result: NodeResult | None = None
@@ -206,7 +207,7 @@ class GraphNode:
 
 
 def _validate_node_executor(
-    executor: Agent | MultiAgentBase, existing_nodes: dict[str, GraphNode] | None = None
+    executor: AgentBase | MultiAgentBase, existing_nodes: dict[str, GraphNode] | None = None
 ) -> None:
     """Validate a node executor for graph compatibility.
 
@@ -245,8 +246,8 @@ class GraphBuilder:
         self._session_manager: SessionManager | None = None
         self._hooks: list[HookProvider] | None = None
 
-    def add_node(self, executor: Agent | MultiAgentBase, node_id: str | None = None) -> GraphNode:
-        """Add an Agent or MultiAgentBase instance as a node to the graph."""
+    def add_node(self, executor: AgentBase | MultiAgentBase, node_id: str | None = None) -> GraphNode:
+        """Add an AgentBase or MultiAgentBase instance as a node to the graph."""
         _validate_node_executor(executor, self.nodes)
 
         # Auto-generate node_id if not provided
@@ -854,9 +855,8 @@ class Graph(MultiAgentBase):
         logger.debug("node_id=<%s> | executing node", node.node_id)
 
         # Emit node start event
-        start_event = MultiAgentNodeStartEvent(
-            node_id=node.node_id, node_type="agent" if isinstance(node.executor, Agent) else "multiagent"
-        )
+        node_type = "multiagent" if isinstance(node.executor, MultiAgentBase) else "agent"
+        start_event = MultiAgentNodeStartEvent(node_id=node.node_id, node_type=node_type)
         yield start_event
 
         before_event, interrupts = await self.hooks.invoke_callbacks_async(
@@ -912,8 +912,8 @@ class Graph(MultiAgentBase):
                     execution_count=multi_agent_result.execution_count,
                 )
 
-            elif isinstance(node.executor, Agent):
-                # For agents, stream their events and collect result
+            elif isinstance(node.executor, AgentBase):
+                # For AgentBase implementations (Agent, A2AAgent, etc.), stream events and collect result
                 agent_response = None
                 async for event in node.executor.stream_async(node_input, invocation_state=invocation_state):
                     # Forward agent events with node context
@@ -934,14 +934,18 @@ class Graph(MultiAgentBase):
                 )
                 metrics = getattr(response_metrics, "accumulated_metrics", Metrics(latencyMs=0))
 
+                # Handle stop_reason and interrupts (use getattr for AgentBase compatibility)
+                stop_reason = getattr(agent_response, "stop_reason", "end_turn")
+                interrupts = getattr(agent_response, "interrupts", None) or []
+
                 node_result = NodeResult(
                     result=agent_response,
                     execution_time=round((time.time() - start_time) * 1000),
-                    status=Status.INTERRUPTED if agent_response.stop_reason == "interrupt" else Status.COMPLETED,
+                    status=Status.INTERRUPTED if stop_reason == "interrupt" else Status.COMPLETED,
                     accumulated_usage=usage,
                     accumulated_metrics=metrics,
                     execution_count=1,
-                    interrupts=agent_response.interrupts or [],
+                    interrupts=interrupts,
                 )
             else:
                 raise ValueError(f"Node '{node.node_id}' of type '{type(node.executor)}' is not supported")

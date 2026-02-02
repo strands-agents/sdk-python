@@ -6,7 +6,9 @@ import httpx
 import pytest
 from a2a.client import ClientConfig, ClientFactory
 
+from strands import Agent
 from strands.agent.a2a_agent import A2AAgent
+from strands.multiagent.graph import GraphBuilder, Status
 
 
 @pytest.fixture
@@ -70,3 +72,33 @@ async def test_a2a_agent_with_non_streaming_client_config(a2a_server):
         assert result.stop_reason == "end_turn"
     finally:
         await httpx_client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_graph_with_a2a_agent_and_regular_agent(a2a_server):
+    """Test Graph execution with both A2AAgent and regular Agent nodes."""
+    # Create A2AAgent pointing to the test server
+    a2a_agent = A2AAgent(endpoint=a2a_server, name="remote_agent")
+
+    # Create a regular Agent
+    regular_agent = Agent(
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a summarizer. Summarize the input briefly.",
+        name="summarizer",
+    )
+
+    # Build graph with both agent types
+    builder = GraphBuilder()
+    builder.add_node(a2a_agent, "remote")
+    builder.add_node(regular_agent, "summarizer")
+    builder.add_edge("remote", "summarizer")
+    builder.set_entry_point("remote")
+    graph = builder.build()
+
+    # Execute the graph
+    result = await graph.invoke_async("Say hello in one sentence")
+
+    assert result.status == Status.COMPLETED
+    assert result.completed_nodes == 2
+    assert "remote" in result.results
+    assert "summarizer" in result.results
