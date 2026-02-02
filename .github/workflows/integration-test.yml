@@ -90,7 +90,7 @@ jobs:
           persist-credentials: false
 
       - name: Download test results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: test-results
 
