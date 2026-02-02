@@ -313,14 +313,18 @@ async def test_stream_request_with_tool_use_no_thought_signature(gemini_client, 
     ]
     await anext(model.stream(messages))
 
-    # Without thoughtSignature, toolUse is converted to text representation
+    # Even without thoughtSignature, toolUse should be a proper function call
     exp_request = {
         "config": {},
         "contents": [
             {
                 "parts": [
                     {
-                        "text": '[Called tool: calculator with input: {"expression": "2+2"}]',
+                        "function_call": {
+                            "args": {"expression": "2+2"},
+                            "id": "c1",
+                            "name": "calculator",
+                        },
                     },
                 ],
                 "role": "model",
