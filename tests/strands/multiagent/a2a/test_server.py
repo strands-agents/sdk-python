@@ -73,6 +73,39 @@ def test_a2a_agent_initialization_with_custom_skills(mock_strands_agent):
     assert a2a_agent.agent_skills[1].name == "another_skill"
 
 
+def test_a2a_agent_skills_with_tags(mock_strands_agent):
+    """Test that A2AAgent properly extracts tags from tool configs."""
+
+    mock_tool_config = {
+        "weather_tool": {
+            "name": "weather_tool",
+            "description": "Get weather information",
+            "tags": ["weather", "data", "api"],
+            "inputSchema": {"json": {"type": "object", "properties": {}}},
+        },
+        "no_tags_tool": {
+            "name": "no_tags_tool",
+            "description": "Tool without tags",
+            "inputSchema": {"json": {"type": "object", "properties": {}}},
+        },
+    }
+
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+
+    a2a_agent = A2AServer(mock_strands_agent)
+
+    skills = a2a_agent.agent_skills
+    assert len(skills) == 2
+
+    # Check tool with tags
+    weather_skill = next(s for s in skills if s.name == "weather_tool")
+    assert weather_skill.tags == ["weather", "data", "api"]
+
+    # Check tool without tags (should default to empty list)
+    no_tags_skill = next(s for s in skills if s.name == "no_tags_tool")
+    assert no_tags_skill.tags == []
+
+
 def test_public_agent_card(mock_strands_agent):
     """Test that public_agent_card returns a valid AgentCard."""
     # Mock empty tool registry for this test

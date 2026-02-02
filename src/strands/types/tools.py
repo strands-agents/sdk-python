@@ -30,12 +30,14 @@ class ToolSpec(TypedDict):
         outputSchema: Optional JSON Schema defining the expected output format.
             Note: Not all model providers support this field. Providers that don't
             support it should filter it out before sending to their API.
+        tags: Optional list of tags for categorization and metadata.
     """
 
     description: str
     inputSchema: JSONSchema
     name: str
     outputSchema: NotRequired[JSONSchema]
+    tags: NotRequired[list[str]]
 
 
 class Tool(TypedDict):
