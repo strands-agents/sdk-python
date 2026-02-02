@@ -30,7 +30,7 @@ T = TypeVar("T", bound=BaseModel)
 # Alternative context overflow error messages
 # These are commonly returned by OpenAI-compatible endpoints wrapping other providers
 # (e.g., Databricks serving Bedrock models)
-CONTEXT_OVERFLOW_MESSAGES = [
+_CONTEXT_OVERFLOW_MESSAGES = [
     "Input is too long for requested model",
     "input length and `max_tokens` exceed context limit",
     "too many total text bytes",
@@ -606,7 +606,7 @@ class OpenAIModel(Model):
             except openai.APIError as e:
                 # Check for alternative context overflow error messages
                 error_message = str(e)
-                if any(overflow_msg in error_message for overflow_msg in CONTEXT_OVERFLOW_MESSAGES):
+                if any(overflow_msg in error_message for overflow_msg in _CONTEXT_OVERFLOW_MESSAGES):
                     logger.warning("context window overflow error detected")
                     raise ContextWindowOverflowException(error_message) from e
                 # Re-raise other APIError exceptions
@@ -737,7 +737,7 @@ class OpenAIModel(Model):
             except openai.APIError as e:
                 # Check for alternative context overflow error messages
                 error_message = str(e)
-                if any(overflow_msg in error_message for overflow_msg in CONTEXT_OVERFLOW_MESSAGES):
+                if any(overflow_msg in error_message for overflow_msg in _CONTEXT_OVERFLOW_MESSAGES):
                     logger.warning("context window overflow error detected")
                     raise ContextWindowOverflowException(error_message) from e
                 # Re-raise other APIError exceptions
