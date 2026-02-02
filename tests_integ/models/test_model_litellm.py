@@ -15,6 +15,16 @@ def model():
 
 
 @pytest.fixture
+def streaming_model():
+    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0", params={"stream": True})
+
+
+@pytest.fixture
+def non_streaming_model():
+    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0", params={"stream": False})
+
+
+@pytest.fixture
 def tools():
     @strands.tool
     def tool_time() -> str:
@@ -95,15 +105,21 @@ def yellow_color():
     return Color(simple_color_name="yellow")
 
 
-def test_agent_invoke(agent):
+@pytest.mark.parametrize("model_fixture", ["streaming_model", "non_streaming_model"])
+def test_agent_invoke(model_fixture, tools, request):
+    model = request.getfixturevalue(model_fixture)
+    agent = Agent(model=model, tools=tools)
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
     assert all(string in text for string in ["12:00", "sunny"])
 
 
+@pytest.mark.parametrize("model_fixture", ["streaming_model", "non_streaming_model"])
 @pytest.mark.asyncio
-async def test_agent_invoke_async(agent):
+async def test_agent_invoke_async(model_fixture, tools, request):
+    model = request.getfixturevalue(model_fixture)
+    agent = Agent(model=model, tools=tools)
     result = await agent.invoke_async("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
@@ -138,14 +154,20 @@ def test_agent_invoke_reasoning(agent, model):
     assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
 
 
-def test_structured_output(agent, weather):
+@pytest.mark.parametrize("model_fixture", ["streaming_model", "non_streaming_model"])
+def test_structured_output(model_fixture, weather, request):
+    model = request.getfixturevalue(model_fixture)
+    agent = Agent(model=model)
     tru_weather = agent.structured_output(type(weather), "The time is 12:00 and the weather is sunny")
     exp_weather = weather
     assert tru_weather == exp_weather
 
 
+@pytest.mark.parametrize("model_fixture", ["streaming_model", "non_streaming_model"])
 @pytest.mark.asyncio
-async def test_agent_structured_output_async(agent, weather):
+async def test_agent_structured_output_async(model_fixture, weather, request):
+    model = request.getfixturevalue(model_fixture)
+    agent = Agent(model=model)
     tru_weather = await agent.structured_output_async(type(weather), "The time is 12:00 and the weather is sunny")
     exp_weather = weather
     assert tru_weather == exp_weather
@@ -212,6 +234,27 @@ def test_structured_output_unsupported_model(model, nested_weather):
         # Verify that the tool method was called and schema method was not
         mock_tool.assert_called_once()
         mock_schema.assert_not_called()
+
+
+@pytest.mark.parametrize("model_fixture", ["streaming_model", "non_streaming_model"])
+def test_streaming_returns_usage_metrics(model_fixture, request):
+    """Test that streaming returns usage metrics.
+
+    This test verifies that the streaming flow correctly extracts and returns
+    usage data from the model response. This is a regression test for the bug
+    where accessing 'usage' attribute on ModelResponseStream raised AttributeError.
+
+    Regression test for: 'ModelResponseStream' object has no attribute 'usage'
+    """
+    model = request.getfixturevalue(model_fixture)
+    agent = Agent(model=model)
+    result = agent("Say hello")
+
+    # Verify usage metrics are returned - this would fail if streaming breaks
+    assert result.metrics.accumulated_usage is not None
+    assert result.metrics.accumulated_usage["inputTokens"] > 0
+    assert result.metrics.accumulated_usage["outputTokens"] > 0
+    assert result.metrics.accumulated_usage["totalTokens"] > 0
 
 
 @pytest.mark.asyncio

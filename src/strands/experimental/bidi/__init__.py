@@ -13,6 +13,9 @@ from ...types._events import (
     ToolUseStreamEvent,
 )
 
+# Built-in tools
+from .tools import stop_conversation
+
 # Event types - For type hints and event handling (these are safe to import eagerly)
 from .types.events import (
     BidiAudioInputEvent,
@@ -90,8 +93,6 @@ __all__ = [
     "BidiAgent",
     # IO channels
     "BidiAudioIO",
-    # Model providers
-    "BidiNovaSonicModel",
     # Built-in tools
     "stop_conversation",
     # Input Event types

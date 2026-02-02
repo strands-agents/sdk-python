@@ -25,6 +25,8 @@ strands-agents/
 │   ├── agent/                            # Core agent implementation
 │   │   ├── agent.py                      # Main Agent class
 │   │   ├── agent_result.py               # Agent execution results
+│   │   ├── base.py                       # AgentBase protocol (agent interface)
+│   │   ├── a2a_agent.py                  # A2AAgent client for remote A2A agents
 │   │   ├── state.py                      # Agent state management
 │   │   └── conversation_manager/         # Message history strategies
 │   │       ├── conversation_manager.py           # Base conversation manager
@@ -55,6 +57,7 @@ strands-agents/
 │   ├── tools/                            # Tool system
 │   │   ├── decorator.py                  # @tool decorator
 │   │   ├── tools.py                      # Tool base classes
+│   │   ├── tool_provider.py              # ToolProvider interface
 │   │   ├── registry.py                   # Tool registration
 │   │   ├── loader.py                     # Dynamic tool loading
 │   │   ├── watcher.py                    # Hot reload
@@ -81,7 +84,8 @@ strands-agents/
 │   │   ├── swarm.py                      # Swarm pattern
 │   │   ├── a2a/                          # Agent-to-agent protocol
 │   │   │   ├── executor.py               # A2A executor
-│   │   │   └── server.py                 # A2A server
+│   │   │   ├── server.py                 # A2A server
+│   │   │   └── converters.py             # Strands/A2A type converters
 │   │   └── nodes/                        # Graph node implementations
 │   │
 │   ├── types/                            # Type definitions
@@ -101,6 +105,7 @@ strands-agents/
 │   │   ├── json_dict.py                  # JSON dict utilities
 │   │   ├── collections.py                # Collection types
 │   │   ├── _events.py                    # Internal event types
+│   │   ├── a2a.py                        # A2A protocol types
 │   │   └── models/                       # Model-specific types
 │   │
 │   ├── session/                          # Session management
@@ -139,8 +144,7 @@ strands-agents/
 │   │   │   ├── context_providers/
 │   │   │   ├── core/
 │   │   │   └── handlers/
-│   │   └── tools/                        # Experimental tools
-│   │       └── tool_provider.py
+│   │   └── tools/                        # Experimental tools (deprecation shims)
 │   │
 │   ├── __init__.py                       # Public API exports
 │   ├── interrupt.py                      # Interrupt handling
@@ -188,6 +192,7 @@ strands-agents/
 │   ├── interrupts/                       # Interrupt tests
 │   ├── steering/                         # Steering tests
 │   ├── bidi/                             # Bidirectional streaming tests
+│   ├── a2a/                              # A2A agent integration tests
 │   ├── test_multiagent_graph.py
 │   ├── test_multiagent_swarm.py
 │   ├── test_stream_agent.py
@@ -197,6 +202,8 @@ strands-agents/
 ├── docs/                                 # Developer documentation
 │   ├── README.md                         # Docs folder overview
 │   ├── STYLE_GUIDE.md                    # Code style conventions
+│   ├── HOOKS.md                          # Hooks system guide
+│   ├── PR.md                             # PR description guidelines
 │   └── MCP_CLIENT_ARCHITECTURE.md        # MCP threading architecture
 │
 ├── pyproject.toml                        # Project config (build, deps, tools)
@@ -230,7 +237,18 @@ pre-commit install -t pre-commit -t commit-msg # Install hooks
 4. Commit with conventional commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`)
 5. Push and open PR
 
-### 3. Quality Gates
+### 3. Pull Request Guidelines
+
+When creating pull requests, you MUST follow the guidelines in PR.md. Key principles:
+
+Focus on WHY: Explain motivation and user impact, not implementation details
+Document public API changes: Show before/after code examples
+Be concise: Use prose over bullet lists; avoid exhaustive checklists
+Target senior engineers: Assume familiarity with the SDK
+Exclude implementation details: Leave these to code comments and diffs
+See PR.md for the complete guidance and template.
+
+### 4. Quality Gates
 
 Pre-commit hooks run automatically on commit:
 - Formatting (ruff)
@@ -474,4 +492,5 @@ hatch build                    # Build package
 - [docs/](./docs/) - Developer documentation
   - [STYLE_GUIDE.md](./docs/STYLE_GUIDE.md) - Code style conventions
   - [HOOKS.md](./docs/HOOKS.md) - Hooks system guide
+  - [PR.md](./docs/PR.md) - PR description guidelines
   - [MCP_CLIENT_ARCHITECTURE.md](./docs/MCP_CLIENT_ARCHITECTURE.md) - MCP threading design

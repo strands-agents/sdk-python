@@ -9,30 +9,42 @@ with the MCP service.
 
 import asyncio
 import base64
+import contextvars
 import logging
 import threading
 import uuid
 from asyncio import AbstractEventLoop
+from collections.abc import Callable, Coroutine, Sequence
 from concurrent import futures
 from datetime import timedelta
+from re import Pattern
 from types import TracebackType
-from typing import Any, Callable, Coroutine, Dict, Optional, Pattern, Sequence, TypeVar, Union, cast
+from typing import Any, TypeVar, cast
 
 import anyio
 from mcp import ClientSession, ListToolsResult
 from mcp.client.session import ElicitationFnT
-from mcp.types import BlobResourceContents, GetPromptResult, ListPromptsResult, TextResourceContents
+from mcp.types import (
+    BlobResourceContents,
+    GetPromptResult,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
+    ReadResourceResult,
+    TextResourceContents,
+)
 from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import EmbeddedResource as MCPEmbeddedResource
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
+from pydantic import AnyUrl
 from typing_extensions import Protocol, TypedDict
 
-from ...experimental.tools import ToolProvider
 from ...types import PaginatedList
 from ...types.exceptions import MCPClientInitializationError, ToolProviderException
 from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
+from ..tool_provider import ToolProvider
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import mcp_instrumentation
 from .mcp_types import MCPToolResult, MCPTransport
@@ -61,7 +73,7 @@ class ToolFilters(TypedDict, total=False):
     rejected: list[_ToolMatcher]
 
 
-MIME_TO_FORMAT: Dict[str, ImageFormat] = {
+MIME_TO_FORMAT: dict[str, ImageFormat] = {
     "image/jpeg": "jpeg",
     "image/jpg": "jpeg",
     "image/png": "png",
@@ -94,10 +106,6 @@ class MCPClient(ToolProvider):
     The connection runs in a background thread to avoid blocking the main application thread
     while maintaining communication with the MCP service. When structured content is available
     from MCP tools, it will be returned as the last item in the content array of the ToolResult.
-
-    Warning:
-        This class implements the experimental ToolProvider interface and its methods
-        are subject to change.
     """
 
     def __init__(
@@ -107,7 +115,7 @@ class MCPClient(ToolProvider):
         startup_timeout: int = 30,
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
-        elicitation_callback: Optional[ElicitationFnT] = None,
+        elicitation_callback: ElicitationFnT | None = None,
     ) -> None:
         """Initialize a new MCP Server connection.
 
@@ -170,7 +178,11 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError("the client session is currently running")
 
         self._log_debug_with_thread("entering MCPClient context")
-        self._background_thread = threading.Thread(target=self._background_task, args=[], daemon=True)
+        # Copy context vars to propagate to the background thread
+        # This ensures that context set in the main thread is accessible in the background thread
+        # See: https://github.com/strands-agents/sdk-python/issues/1440
+        ctx = contextvars.copy_context()
+        self._background_thread = threading.Thread(target=ctx.run, args=(self._background_task,), daemon=True)
         self._background_thread.start()
         self._log_debug_with_thread("background thread started, waiting for ready event")
         try:
@@ -191,7 +203,7 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError("the client initialization failed") from e
         return self
 
-    # ToolProvider interface methods (experimental, as ToolProvider is experimental)
+    # ToolProvider interface methods
     async def load_tools(self, **kwargs: Any) -> Sequence[AgentTool]:
         """Load and return tools from the MCP server.
 
@@ -286,9 +298,7 @@ class MCPClient(ToolProvider):
 
     # MCP-specific methods
 
-    def stop(
-        self, exc_type: Optional[BaseException], exc_val: Optional[BaseException], exc_tb: Optional[TracebackType]
-    ) -> None:
+    def stop(self, exc_type: BaseException | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> None:
         """Signals the background thread to stop and waits for it to complete, ensuring proper cleanup of all resources.
 
         This method is defensive and can handle partial initialization states that may occur
@@ -401,7 +411,7 @@ class MCPClient(ToolProvider):
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
         return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
 
-    def list_prompts_sync(self, pagination_token: Optional[str] = None) -> ListPromptsResult:
+    def list_prompts_sync(self, pagination_token: str | None = None) -> ListPromptsResult:
         """Synchronously retrieves the list of available prompts from the MCP server.
 
         This method calls the asynchronous list_prompts method on the MCP session
@@ -448,6 +458,82 @@ class MCPClient(ToolProvider):
         self._log_debug_with_thread("received prompt from MCP server")
 
         return get_prompt_result
+
+    def list_resources_sync(self, pagination_token: str | None = None) -> ListResourcesResult:
+        """Synchronously retrieves the list of available resources from the MCP server.
+
+        This method calls the asynchronous list_resources method on the MCP session
+        and returns the raw ListResourcesResult with pagination support.
+
+        Args:
+            pagination_token: Optional token for pagination
+
+        Returns:
+            ListResourcesResult: The raw MCP response containing resources and pagination info
+        """
+        self._log_debug_with_thread("listing MCP resources synchronously")
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+
+        async def _list_resources_async() -> ListResourcesResult:
+            return await cast(ClientSession, self._background_thread_session).list_resources(cursor=pagination_token)
+
+        list_resources_result: ListResourcesResult = self._invoke_on_background_thread(_list_resources_async()).result()
+        self._log_debug_with_thread("received %d resources from MCP server", len(list_resources_result.resources))
+
+        return list_resources_result
+
+    def read_resource_sync(self, uri: AnyUrl | str) -> ReadResourceResult:
+        """Synchronously reads a resource from the MCP server.
+
+        Args:
+            uri: The URI of the resource to read
+
+        Returns:
+            ReadResourceResult: The resource content from the MCP server
+        """
+        self._log_debug_with_thread("reading MCP resource synchronously: %s", uri)
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+
+        async def _read_resource_async() -> ReadResourceResult:
+            # Convert string to AnyUrl if needed
+            resource_uri = AnyUrl(uri) if isinstance(uri, str) else uri
+            return await cast(ClientSession, self._background_thread_session).read_resource(resource_uri)
+
+        read_resource_result: ReadResourceResult = self._invoke_on_background_thread(_read_resource_async()).result()
+        self._log_debug_with_thread("received resource content from MCP server")
+
+        return read_resource_result
+
+    def list_resource_templates_sync(self, pagination_token: str | None = None) -> ListResourceTemplatesResult:
+        """Synchronously retrieves the list of available resource templates from the MCP server.
+
+        Resource templates define URI patterns that can be used to access resources dynamically.
+
+        Args:
+            pagination_token: Optional token for pagination
+
+        Returns:
+            ListResourceTemplatesResult: The raw MCP response containing resource templates and pagination info
+        """
+        self._log_debug_with_thread("listing MCP resource templates synchronously")
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+
+        async def _list_resource_templates_async() -> ListResourceTemplatesResult:
+            return await cast(ClientSession, self._background_thread_session).list_resource_templates(
+                cursor=pagination_token
+            )
+
+        list_resource_templates_result: ListResourceTemplatesResult = self._invoke_on_background_thread(
+            _list_resource_templates_async()
+        ).result()
+        self._log_debug_with_thread(
+            "received %d resource templates from MCP server", len(list_resource_templates_result.resourceTemplates)
+        )
+
+        return list_resource_templates_result
 
     def call_tool_sync(
         self,
@@ -628,7 +714,7 @@ class MCPClient(ToolProvider):
         if isinstance(message, Exception):
             error_msg = str(message).lower()
             if any(pattern in error_msg for pattern in _NON_FATAL_ERROR_PATTERNS):
-                self._log_debug_with_thread("ignoring non-fatal MCP session error", message)
+                self._log_debug_with_thread("ignoring non-fatal MCP session error: %s", message)
             else:
                 raise message
         await anyio.lowlevel.checkpoint()
@@ -649,7 +735,7 @@ class MCPClient(ToolProvider):
     def _map_mcp_content_to_tool_result_content(
         self,
         content: MCPTextContent | MCPImageContent | MCPEmbeddedResource | Any,
-    ) -> Union[ToolResultContent, None]:
+    ) -> ToolResultContent | None:
         """Maps MCP content types to tool result content types.
 
         This method converts MCP-specific content types to the generic
@@ -769,7 +855,7 @@ class MCPClient(ToolProvider):
         """Check if a tool should be included based on constructor filters."""
         return self._should_include_tool_with_filters(tool, self._tool_filters)
 
-    def _should_include_tool_with_filters(self, tool: MCPAgentTool, filters: Optional[ToolFilters]) -> bool:
+    def _should_include_tool_with_filters(self, tool: MCPAgentTool, filters: ToolFilters | None) -> bool:
         """Check if a tool should be included based on provided filters."""
         if not filters:
             return True
@@ -801,4 +887,10 @@ class MCPClient(ToolProvider):
         return False
 
     def _is_session_active(self) -> bool:
-        return self._background_thread is not None and self._background_thread.is_alive()
+        if self._background_thread is None or not self._background_thread.is_alive():
+            return False
+
+        if self._close_future is not None and self._close_future.done():
+            return False
+
+        return True

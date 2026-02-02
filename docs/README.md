@@ -6,6 +6,7 @@ This folder contains documentation for contributors and developers working on th
 
 - [STYLE_GUIDE.md](./STYLE_GUIDE.md) - Code style conventions and formatting guidelines
 - [HOOKS.md](./HOOKS.md) - Hooks system rules and usage guide
+- [PR.md](./PR.md) - Pull request description guidelines
 - [MCP_CLIENT_ARCHITECTURE.md](./MCP_CLIENT_ARCHITECTURE.md) - MCP client threading architecture and design decisions
 
 ## Related Documentation

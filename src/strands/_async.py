@@ -2,8 +2,9 @@
 
 import asyncio
 import contextvars
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Awaitable, Callable, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 

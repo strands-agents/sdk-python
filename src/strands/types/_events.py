@@ -5,7 +5,8 @@ providing a structured way to observe to different events of the event loop and
 agent lifecycle.
 """
 
-from typing import TYPE_CHECKING, Any, Sequence, cast
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
 from typing_extensions import override
@@ -161,7 +162,7 @@ class CitationStreamEvent(ModelStreamEvent):
 
     def __init__(self, delta: ContentBlockDelta, citation: Citation) -> None:
         """Initialize with delta and citation content."""
-        super().__init__({"callback": {"citation": citation, "delta": delta}})
+        super().__init__({"citation": citation, "delta": delta})
 
 
 class ReasoningTextStreamEvent(ModelStreamEvent):

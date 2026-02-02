@@ -1,5 +1,6 @@
+import logging
 import unittest.mock
-from typing import Any, List
+from typing import Any
 
 import pytest
 
@@ -266,7 +267,7 @@ def test_format_request_with_unsupported_type(model, content, content_type):
 
 
 class AsyncStreamWrapper:
-    def __init__(self, items: List[Any]):
+    def __init__(self, items: list[Any]):
         self.items = items
 
     def __aiter__(self):
@@ -277,7 +278,7 @@ class AsyncStreamWrapper:
             yield item
 
 
-async def mock_streaming_response(items: List[Any]):
+async def mock_streaming_response(items: list[Any]):
     return AsyncStreamWrapper(items)
 
 
@@ -435,3 +436,69 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert len(captured_warnings) == 1
     assert "Invalid configuration parameters" in str(captured_warnings[0].message)
     assert "wrong_param" in str(captured_warnings[0].message)
+
+
+def test_format_request_filters_s3_source_image(model, caplog):
+    """Test that images with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.writer")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "look at this image"},
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Image with S3 source should be filtered, text should remain
+    formatted_messages = request["messages"]
+    user_content = formatted_messages[0]["content"]
+    assert len(user_content) == 1
+    assert user_content[0]["type"] == "text"
+    assert "Location sources are not supported by Writer" in caplog.text
+
+
+def test_format_request_filters_location_source_document(model, caplog):
+    """Test that documents with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.writer")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this document"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Document with S3 source should be filtered, text should remain
+    formatted_messages = request["messages"]
+    user_content = formatted_messages[0]["content"]
+    assert len(user_content) == 1
+    assert user_content[0]["type"] == "text"
+    assert "Location sources are not supported by Writer" in caplog.text
