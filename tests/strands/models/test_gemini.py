@@ -653,7 +653,11 @@ async def test_stream_response_reasoning_and_text(gemini_client, model, messages
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
-        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "c2lnMQ==", "text": "thinking about math"}}}},
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"signature": "c2lnMQ==", "text": "thinking about math"}}
+            }
+        },
         {"contentBlockStop": {}},
         {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "2 + 2 = 4"}}},

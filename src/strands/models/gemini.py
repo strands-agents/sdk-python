@@ -8,7 +8,6 @@ import json
 import logging
 import mimetypes
 import secrets
-import time
 from collections.abc import AsyncGenerator
 from typing import Any, TypedDict, TypeVar, cast
 
@@ -89,6 +88,10 @@ class GeminiModel(Model):
 
         self._custom_client = client
         self.client_args = client_args or {}
+
+        # Last thought signature seen (for Gemini thinking models)
+        # This is needed because the SDK's streaming pipeline doesn't preserve thoughtSignature
+        self._last_thought_signature: str | None = None
 
         # Validate gemini_tools if provided
         if "gemini_tools" in self.config:
@@ -204,22 +207,27 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
-            tool_use_id_to_name[content["toolUse"]["toolUseId"]] = content["toolUse"]["name"]
+            tool_use_id = content["toolUse"]["toolUseId"]
+            tool_use_id_to_name[tool_use_id] = content["toolUse"]["name"]
 
             # Get thought_signature if present (for Gemini thinking models)
-            thought_signature = content["toolUse"].get("thoughtSignature")
+            # First check if it's in the content (unlikely since streaming.py doesn't preserve it)
+            # Then fall back to the last signature we saw
+            tool_thought_sig: str | None = content["toolUse"].get("thoughtSignature")  # type: ignore[assignment]
+            if not tool_thought_sig:
+                tool_thought_sig = self._last_thought_signature
 
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
-                    id=content["toolUse"]["toolUseId"],
+                    id=tool_use_id,
                     name=content["toolUse"]["name"],
                 ),
                 # Include thought_signature for Gemini thinking models if available
                 # Note: For thinking models, thought_signature is required for tool use.
                 # However, we can only provide it if we have it. If missing (e.g. from old history),
                 # the API may reject it for thinking models, but we can't fabricate it.
-                thought_signature=base64.b64decode(thought_signature) if thought_signature else None,
+                thought_signature=base64.b64decode(tool_thought_sig) if tool_thought_sig else None,
             )
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -379,14 +387,15 @@ class GeminiModel(Model):
                             "toolUseId": tool_use_id,
                         }
                         # Capture thought_signature for Gemini thinking models (base64 encoded)
+                        # Store it since streaming.py doesn't preserve it
                         if event["data"].thought_signature:
-                            tool_use_data["thoughtSignature"] = base64.b64encode(
-                                event["data"].thought_signature
-                            ).decode("ascii")
+                            encoded_sig = base64.b64encode(event["data"].thought_signature).decode("ascii")
+                            tool_use_data["thoughtSignature"] = encoded_sig
+                            self._last_thought_signature = encoded_sig
                         return {
                             "contentBlockStart": {
                                 "start": {
-                                    "toolUse": tool_use_data,
+                                    "toolUse": tool_use_data,  # type: ignore[typeddict-item]
                                 },
                             },
                         }
