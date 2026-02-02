@@ -204,7 +204,7 @@ class GeminiModel(Model):
         if "toolUse" in content:
             tool_use_id_to_name[content["toolUse"]["toolUseId"]] = content["toolUse"]["name"]
 
-            thought_signature = cast(Optional[str], content["toolUse"].get("thoughtSignature"))
+            thought_signature = cast(str | None, content["toolUse"].get("thoughtSignature"))
 
             part = genai.types.Part(
                 function_call=genai.types.FunctionCall(
