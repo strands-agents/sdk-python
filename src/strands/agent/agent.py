@@ -106,6 +106,7 @@ class Agent:
         tools: list[Union[str, dict[str, str], "ToolProvider", Any]] | None = None,
         system_prompt: str | list[SystemContentBlock] | None = None,
         structured_output_model: type[BaseModel] | None = None,
+        structured_output_prompt: str | None = None,
         callback_handler: Callable[..., Any] | _DefaultCallbackHandlerSentinel | None = _DEFAULT_CALLBACK_HANDLER,
         conversation_manager: ConversationManager | None = None,
         record_direct_tool_call: bool = True,
@@ -146,6 +147,12 @@ class Agent:
                 When specified, all agent calls will attempt to return structured output of this type.
                 This can be overridden on the agent invocation.
                 Defaults to None (no structured output).
+            structured_output_prompt: Custom prompt message used when forcing structured output.
+                When using structured output, if the model doesn't automatically use the output tool,
+                the agent sends a follow-up message to request structured formatting. This parameter
+                allows customizing that message, which can help avoid guardrail triggers (e.g., Bedrock
+                Guardrails prompt attack filter) or match specific use case requirements.
+                Defaults to "You must format the previous response as structured output."
             callback_handler: Callback for processing events as they happen during agent execution.
                 If not provided (using the default), a new PrintingCallbackHandler instance is created.
                 If explicitly set to None, null_callback_handler is used.
@@ -181,6 +188,7 @@ class Agent:
         # initializing self._system_prompt for backwards compatibility
         self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
+        self._structured_output_prompt = structured_output_prompt
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
@@ -668,7 +676,8 @@ class Agent:
             await self._append_messages(*messages)
 
             structured_output_context = StructuredOutputContext(
-                structured_output_model or self._default_structured_output_model
+                structured_output_model or self._default_structured_output_model,
+                structured_output_prompt=self._structured_output_prompt,
             )
 
             # Execute the event loop cycle with retry logic for context limits

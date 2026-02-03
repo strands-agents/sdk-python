@@ -220,7 +220,7 @@ async def event_loop_cycle(
             structured_output_context.set_forced_mode()
             logger.debug("Forcing structured output tool")
             await agent._append_messages(
-                {"role": "user", "content": [{"text": "You must format the previous response as structured output."}]}
+                {"role": "user", "content": [{"text": structured_output_context.structured_output_prompt}]}
             )
 
             events = recurse_event_loop(
