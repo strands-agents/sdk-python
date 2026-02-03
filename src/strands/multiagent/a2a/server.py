@@ -79,6 +79,7 @@ class A2AServer:
             # Parse the provided URL to extract components for mounting
             self.public_base_url, self.mount_path = self._parse_public_url(http_url)
             self.http_url = http_url.rstrip("/") + "/"
+            self._http_url_explicit = True
 
             # Override mount path if serve_at_root is requested
             if serve_at_root:
@@ -88,6 +89,7 @@ class A2AServer:
             self.public_base_url = f"http://{host}:{port}"
             self.http_url = f"{self.public_base_url}/"
             self.mount_path = ""
+            self._http_url_explicit = False
 
         self.strands_agent = agent
         self.name = self.strands_agent.name
@@ -253,12 +255,25 @@ class A2AServer:
             port: The port number to bind the server to. Defaults to 9000.
             **kwargs: Additional keyword arguments to pass to uvicorn.run.
         """
+        # Update host/port if overridden, and recalculate URLs if http_url wasn't explicitly set
+        effective_host = host or self.host
+        effective_port = port or self.port
+
+        if host is not None or port is not None:
+            self.host = effective_host
+            self.port = effective_port
+            # Only update the URL if it wasn't explicitly set via http_url parameter
+            # (i.e., if the URL was auto-generated from host/port in __init__)
+            if not hasattr(self, "_http_url_explicit") or not self._http_url_explicit:
+                self.public_base_url = f"http://{effective_host}:{effective_port}"
+                self.http_url = f"{self.public_base_url}/"
+
         try:
             logger.info("Starting Strands A2A server...")
             if app_type == "fastapi":
-                uvicorn.run(self.to_fastapi_app(), host=host or self.host, port=port or self.port, **kwargs)
+                uvicorn.run(self.to_fastapi_app(), host=effective_host, port=effective_port, **kwargs)
             else:
-                uvicorn.run(self.to_starlette_app(), host=host or self.host, port=port or self.port, **kwargs)
+                uvicorn.run(self.to_starlette_app(), host=effective_host, port=effective_port, **kwargs)
         except KeyboardInterrupt:
             logger.warning("Strands A2A server shutdown requested (KeyboardInterrupt).")
         except Exception:
