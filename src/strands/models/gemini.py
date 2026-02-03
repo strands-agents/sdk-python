@@ -89,10 +89,6 @@ class GeminiModel(Model):
         self._custom_client = client
         self.client_args = client_args or {}
 
-        # Last thought signature seen (for Gemini thinking models)
-        # This is needed because the SDK's streaming pipeline doesn't preserve thoughtSignature
-        self._last_thought_signature: str | None = None
-
         # Validate gemini_tools if provided
         if "gemini_tools" in self.config:
             self._validate_gemini_tools(self.config["gemini_tools"])
@@ -210,12 +206,8 @@ class GeminiModel(Model):
             tool_use_id = content["toolUse"]["toolUseId"]
             tool_use_id_to_name[tool_use_id] = content["toolUse"]["name"]
 
-            # Get thought_signature if present (for Gemini thinking models)
-            # First check if it's in the content (unlikely since streaming.py doesn't preserve it)
-            # Then fall back to the last signature we saw
-            tool_thought_sig: str | None = content["toolUse"].get("thoughtSignature")  # type: ignore[assignment]
-            if not tool_thought_sig:
-                tool_thought_sig = self._last_thought_signature
+            # Get thought_signature for Gemini thinking models (preserved by streaming.py)
+            tool_thought_sig = content["toolUse"].get("thoughtSignature")
 
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
@@ -224,9 +216,6 @@ class GeminiModel(Model):
                     name=content["toolUse"]["name"],
                 ),
                 # Include thought_signature for Gemini thinking models if available
-                # Note: For thinking models, thought_signature is required for tool use.
-                # However, we can only provide it if we have it. If missing (e.g. from old history),
-                # the API may reject it for thinking models, but we can't fabricate it.
                 thought_signature=base64.b64decode(tool_thought_sig) if tool_thought_sig else None,
             )
 
@@ -382,20 +371,20 @@ class GeminiModel(Model):
                         # Use Gemini's provided ID or generate one if missing
                         tool_use_id = function_call.id or f"tooluse_{secrets.token_urlsafe(16)}"
 
-                        tool_use_data: dict[str, Any] = {
+                        tool_use_start: dict[str, Any] = {
                             "name": function_call.name,
                             "toolUseId": tool_use_id,
                         }
-                        # Capture thought_signature for Gemini thinking models (base64 encoded)
-                        # Store it since streaming.py doesn't preserve it
+                        # Include thoughtSignature for Gemini thinking models
                         if event["data"].thought_signature:
-                            encoded_sig = base64.b64encode(event["data"].thought_signature).decode("ascii")
-                            tool_use_data["thoughtSignature"] = encoded_sig
-                            self._last_thought_signature = encoded_sig
+                            tool_use_start["thoughtSignature"] = base64.b64encode(
+                                event["data"].thought_signature
+                            ).decode("ascii")
+
                         return {
                             "contentBlockStart": {
                                 "start": {
-                                    "toolUse": tool_use_data,  # type: ignore[typeddict-item]
+                                    "toolUse": tool_use_start,  # type: ignore[typeddict-item]
                                 },
                             },
                         }
@@ -519,7 +508,7 @@ class GeminiModel(Model):
                         # If this part doesn't have a signature but we've seen one, attach it
                         if not part.thought_signature and current_thought_signature:
                             part.thought_signature = current_thought_signature
-                            
+
                         yield self._format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": part})
                         yield self._format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": part})
                         yield self._format_chunk({"chunk_type": "content_stop", "data_type": "tool", "data": part})

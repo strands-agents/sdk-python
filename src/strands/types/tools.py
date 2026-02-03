@@ -11,7 +11,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import NotRequired, Required, TypedDict
 
 from .interrupt import _Interruptible
 from .media import DocumentContent, ImageContent
@@ -50,7 +50,7 @@ class Tool(TypedDict):
     toolSpec: ToolSpec
 
 
-class ToolUse(TypedDict):
+class ToolUse(TypedDict, total=False):
     """A request from the model to use a specific tool with the provided input.
 
     Attributes:
@@ -58,11 +58,13 @@ class ToolUse(TypedDict):
             Can be any JSON-serializable type.
         name: The name of the tool to invoke.
         toolUseId: A unique identifier for this specific tool use request.
+        thoughtSignature: Optional signature for Gemini thinking models.
     """
 
-    input: Any
-    name: str
-    toolUseId: str
+    input: Required[Any]
+    name: Required[str]
+    toolUseId: Required[str]
+    thoughtSignature: str
 
 
 class ToolResultContent(TypedDict, total=False):

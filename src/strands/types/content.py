@@ -8,7 +8,7 @@ SDK. These types are modeled after the Bedrock API.
 
 from typing import Literal
 
-from typing_extensions import TypedDict
+from typing_extensions import Required, TypedDict
 
 from .citations import CitationsContentBlock
 from .media import DocumentContent, ImageContent, VideoContent
@@ -123,16 +123,18 @@ class DeltaContent(TypedDict, total=False):
     toolUse: dict[Literal["input"], str]
 
 
-class ContentBlockStartToolUse(TypedDict):
+class ContentBlockStartToolUse(TypedDict, total=False):
     """The start of a tool use block.
 
     Attributes:
         name: The name of the tool that the model is requesting to use.
         toolUseId: The ID for the tool request.
+        thoughtSignature: Optional signature for Gemini thinking models.
     """
 
-    name: str
-    toolUseId: str
+    name: Required[str]
+    toolUseId: Required[str]
+    thoughtSignature: str
 
 
 class ContentBlockStart(TypedDict, total=False):

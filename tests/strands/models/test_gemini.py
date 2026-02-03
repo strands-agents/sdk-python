@@ -253,7 +253,11 @@ async def test_stream_request_with_tool_spec(gemini_client, model, model_id, too
 
 @pytest.mark.asyncio
 async def test_stream_request_with_tool_use(gemini_client, model, model_id):
-    """Test toolUse with thoughtSignature is sent as function_call."""
+    """Test toolUse with thoughtSignature is sent as function_call with thought_signature.
+
+    Gemini thinking models require thought_signature on function calls. The SDK preserves
+    thoughtSignature through streaming.py and attaches it when formatting requests.
+    """
     messages = [
         {
             "role": "assistant",
@@ -263,7 +267,7 @@ async def test_stream_request_with_tool_use(gemini_client, model, model_id):
                         "toolUseId": "c1",
                         "name": "calculator",
                         "input": {"expression": "2+2"},
-                        "thoughtSignature": "YWJj",  # base64 of "abc" - required for Gemini thinking models
+                        "thoughtSignature": "YWJj",  # base64 of "abc" - preserved by streaming.py
                     },
                 },
             ],
