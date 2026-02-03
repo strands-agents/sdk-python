@@ -106,7 +106,6 @@ class Agent:
         tools: list[Union[str, dict[str, str], "ToolProvider", Any]] | None = None,
         system_prompt: str | list[SystemContentBlock] | None = None,
         structured_output_model: type[BaseModel] | None = None,
-        structured_output_prompt: str | None = None,
         callback_handler: Callable[..., Any] | _DefaultCallbackHandlerSentinel | None = _DEFAULT_CALLBACK_HANDLER,
         conversation_manager: ConversationManager | None = None,
         record_direct_tool_call: bool = True,
@@ -119,6 +118,7 @@ class Agent:
         state: AgentState | dict | None = None,
         hooks: list[HookProvider] | None = None,
         session_manager: SessionManager | None = None,
+        structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | None = None,
     ):
@@ -147,12 +147,6 @@ class Agent:
                 When specified, all agent calls will attempt to return structured output of this type.
                 This can be overridden on the agent invocation.
                 Defaults to None (no structured output).
-            structured_output_prompt: Custom prompt message used when forcing structured output.
-                When using structured output, if the model doesn't automatically use the output tool,
-                the agent sends a follow-up message to request structured formatting. This parameter
-                allows customizing that message, which can help avoid guardrail triggers (e.g., Bedrock
-                Guardrails prompt attack filter) or match specific use case requirements.
-                Defaults to "You must format the previous response as structured output."
             callback_handler: Callback for processing events as they happen during agent execution.
                 If not provided (using the default), a new PrintingCallbackHandler instance is created.
                 If explicitly set to None, null_callback_handler is used.
@@ -175,6 +169,11 @@ class Agent:
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
+            structured_output_prompt: Custom prompt message used when forcing structured output.
+                When using structured output, if the model doesn't automatically use the output tool,
+                the agent sends a follow-up message to request structured formatting. This parameter
+                allows customizing that message.
+                Defaults to "You must format the previous response as structured output."
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             retry_strategy: Strategy for retrying model calls on throttling or other transient errors.
                 Defaults to ModelRetryStrategy with max_attempts=6, initial_delay=4s, max_delay=240s.
