@@ -1063,10 +1063,13 @@ class Graph(MultiAgentBase):
                     if isinstance(node.executor, MultiAgentBase):
                         return node_responses
 
-                    agent = node.executor
-                    agent.messages = node_context["messages"]
-                    agent.state = AgentState(node_context["state"])
-                    agent._interrupt_state = _InterruptState.from_dict(node_context["interrupt_state"])
+                    # Restore Agent-specific state for interrupt resumption
+                    # Only Agent (not generic AgentBase) supports interrupt state restoration
+                    if isinstance(node.executor, Agent):
+                        node.executor.messages = node_context["messages"]
+                        node.executor.state = AgentState(node_context["state"])
+                        node.executor._interrupt_state = _InterruptState.from_dict(node_context["interrupt_state"])
+
                     return node_responses
 
         # Get satisfied dependencies
