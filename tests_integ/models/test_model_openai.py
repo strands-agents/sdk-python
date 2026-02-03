@@ -1,11 +1,11 @@
 import os
-import unittest.mock
 
 import pydantic
 import pytest
 
 import strands
 from strands import Agent, tool
+from strands.event_loop._retry import ModelRetryStrategy
 from strands.models.openai import OpenAIModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from tests_integ.models import providers
@@ -206,20 +206,19 @@ def test_rate_limit_throttling_integration_no_retries(model):
     to avoid waiting for the exponential backoff during testing.
     """
     # Patch the event loop constants to disable retries for this test
-    with unittest.mock.patch("strands.event_loop.event_loop.MAX_ATTEMPTS", 1):
-        agent = Agent(model=model)
+    agent = Agent(model=model, retry_strategy=ModelRetryStrategy(max_attempts=1))
 
-        # Create a message that's very long to trigger token-per-minute rate limits
-        # This should be large enough to exceed TPM limits immediately
-        very_long_text = "Really long text " * 20000
+    # Create a message that's very long to trigger token-per-minute rate limits
+    # This should be large enough to exceed TPM limits immediately
+    very_long_text = "Really long text " * 20000
 
-        # This should raise ModelThrottledException without retries
-        with pytest.raises(ModelThrottledException) as exc_info:
-            agent(very_long_text)
+    # This should raise ModelThrottledException without retries
+    with pytest.raises(ModelThrottledException) as exc_info:
+        agent(very_long_text)
 
-        # Verify it's a rate limit error
-        error_message = str(exc_info.value).lower()
-        assert "rate limit" in error_message or "tokens per min" in error_message
+    # Verify it's a rate limit error
+    error_message = str(exc_info.value).lower()
+    assert "insufficient_quota" in error_message
 
 
 def test_content_blocks_handling(model):
