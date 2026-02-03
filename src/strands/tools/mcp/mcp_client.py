@@ -128,6 +128,10 @@ _NON_FATAL_ERROR_PATTERNS = [
     "unknown request id",
 ]
 
+DEFAULT_TASK_TTL_MS = 60000
+DEFAULT_TASK_POLL_TIMEOUT_SECONDS = 300.0
+DEFAULT_TASK_CONFIG = TasksConfig(ttl_ms=DEFAULT_TASK_TTL_MS, poll_timeout_seconds=DEFAULT_TASK_POLL_TIMEOUT_SECONDS)
+
 
 class MCPClient(ToolProvider):
     """Represents a connection to a Model Context Protocol (MCP) server.
@@ -619,7 +623,10 @@ class MCPClient(ToolProvider):
 
         if use_task:
             self._log_debug_with_thread("tool=<%s> | using task-augmented execution", name)
-            poll_timeout = self._convert_timeout_for_polling(read_timeout_seconds)
+
+            # When task-augmented execution is used, the read_timeout_seconds parameter
+            # (which is a timedelta) needs to be converted to a float for the polling timeout.
+            poll_timeout = read_timeout_seconds.total_seconds() if read_timeout_seconds else None
 
             async def _call_as_task() -> MCPCallToolResult:
                 return await self._call_tool_as_task_and_poll_async(name, arguments, poll_timeout_seconds=poll_timeout)
@@ -1010,27 +1017,13 @@ class MCPClient(ToolProvider):
         """
         return self._experimental.get("tasks") is not None
 
-    def _get_task_ttl_ms(self) -> int:
-        """Get task TTL in milliseconds.
-
-        Returns:
-            Task TTL from config, or default of 60000 (1 minute).
-        """
-        tasks_config = self._experimental.get("tasks")
-        if tasks_config is None:
-            return 60000
-        return tasks_config.get("ttl_ms", 60000)
-
-    def _get_task_poll_timeout_seconds(self) -> float:
-        """Get task polling timeout in seconds.
-
-        Returns:
-            Polling timeout from config, or default of 300.0 (5 minutes).
-        """
-        tasks_config = self._experimental.get("tasks")
-        if tasks_config is None:
-            return 300.0
-        return tasks_config.get("poll_timeout_seconds", 300.0)
+    def _get_task_config(self) -> TasksConfig:
+        """Returns the task execution configuration, configured with defaults if not specified."""
+        task_config = self._experimental.get("tasks") or DEFAULT_TASK_CONFIG
+        return TasksConfig(
+            ttl_ms=task_config.get("ttl_ms", DEFAULT_TASK_TTL_MS),
+            poll_timeout_seconds=task_config.get("poll_timeout_seconds", DEFAULT_TASK_POLL_TIMEOUT_SECONDS),
+        )
 
     def _has_server_task_support(self) -> bool:
         """Check if the MCP server supports task-augmented tool calls.
@@ -1078,20 +1071,6 @@ class MCPClient(ToolProvider):
 
         # Default: 'forbidden', None, or unknown -> don't use tasks
         return False
-
-    def _convert_timeout_for_polling(self, read_timeout_seconds: timedelta | None) -> float | None:
-        """Convert a timedelta timeout to seconds for task polling.
-
-        When task-augmented execution is used, the read_timeout_seconds parameter
-        (which is a timedelta) needs to be converted to a float for the polling timeout.
-
-        Args:
-            read_timeout_seconds: Optional timedelta timeout from the call_tool API.
-
-        Returns:
-            Float seconds if timeout was specified, None to use default.
-        """
-        return read_timeout_seconds.total_seconds() if read_timeout_seconds else None
 
     def _create_task_error_result(self, message: str) -> MCPCallToolResult:
         """Create an error MCPCallToolResult with consistent formatting.
@@ -1149,8 +1128,12 @@ class MCPClient(ToolProvider):
         from mcp.types import TASK_STATUS_CANCELLED, TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, GetTaskResult
 
         session = cast(ClientSession, self._background_thread_session)
-        ttl = ttl_ms or self._get_task_ttl_ms()
-        timeout = poll_timeout_seconds or self._get_task_poll_timeout_seconds()
+
+        # Precedence: arg > config > default
+        timeout = poll_timeout_seconds or self._get_task_config().get(
+            "poll_timeout_seconds", DEFAULT_TASK_POLL_TIMEOUT_SECONDS
+        )
+        ttl = ttl_ms or self._get_task_config().get("ttl_ms", DEFAULT_TASK_TTL_MS)
 
         # Step 1: Create the task
         self._log_debug_with_thread("tool=<%s> | calling tool as task with ttl=%d ms", name, ttl)
