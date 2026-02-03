@@ -604,17 +604,20 @@ class Graph(MultiAgentBase):
             # Validate Agent-specific constraints for each node
             _validate_node_executor(node.executor)
 
-    def _activate_interrupt(self, node: GraphNode, interrupts: list[Interrupt]) -> MultiAgentNodeInterruptEvent:
+    def _activate_interrupt(
+        self, node: GraphNode, interrupts: list[Interrupt], from_hook: bool = False
+    ) -> MultiAgentNodeInterruptEvent:
         """Activate the interrupt state.
 
         Args:
             node: The interrupted node.
             interrupts: The interrupts raised by the user.
+            from_hook: Whether the interrupt originated from a hook (e.g., BeforeNodeCallEvent).
 
         Returns:
             MultiAgentNodeInterruptEvent
         """
-        logger.debug("node=<%s> | node interrupted", node.node_id)
+        logger.debug("node=<%s>, from_hook=<%s> | node interrupted", node.node_id, from_hook)
 
         node.execution_status = Status.INTERRUPTED
 
@@ -623,13 +626,20 @@ class Graph(MultiAgentBase):
 
         self._interrupt_state.interrupts.update({interrupt.id: interrupt for interrupt in interrupts})
         self._interrupt_state.activate()
+
+        self._interrupt_state.context[node.node_id] = {
+            "from_hook": from_hook,
+            "interrupt_ids": [interrupt.id for interrupt in interrupts],
+        }
+
         if isinstance(node.executor, Agent):
-            self._interrupt_state.context[node.node_id] = {
-                "activated": node.executor._interrupt_state.activated,
-                "interrupt_state": node.executor._interrupt_state.to_dict(),
-                "state": node.executor.state.get(),
-                "messages": node.executor.messages,
-            }
+            self._interrupt_state.context[node.node_id].update(
+                {
+                    "interrupt_state": node.executor._interrupt_state.to_dict(),
+                    "state": node.executor.state.get(),
+                    "messages": node.executor.messages,
+                }
+            )
 
         return MultiAgentNodeInterruptEvent(node.node_id, interrupts)
 
@@ -866,7 +876,7 @@ class Graph(MultiAgentBase):
         start_time = time.time()
         try:
             if interrupts:
-                yield self._activate_interrupt(node, interrupts)
+                yield self._activate_interrupt(node, interrupts, from_hook=True)
                 return
 
             if before_event.cancel_node:
@@ -896,20 +906,14 @@ class Graph(MultiAgentBase):
                 if multi_agent_result is None:
                     raise ValueError(f"Node '{node.node_id}' did not produce a result event")
 
-                if multi_agent_result.status == Status.INTERRUPTED:
-                    raise NotImplementedError(
-                        f"node_id=<{node.node_id}>, "
-                        "issue=<https://github.com/strands-agents/sdk-python/issues/204> "
-                        "| user raised interrupt from a multi agent node"
-                    )
-
                 node_result = NodeResult(
                     result=multi_agent_result,
                     execution_time=multi_agent_result.execution_time,
-                    status=Status.COMPLETED,
+                    status=multi_agent_result.status,
                     accumulated_usage=multi_agent_result.accumulated_usage,
                     accumulated_metrics=multi_agent_result.accumulated_metrics,
                     execution_count=multi_agent_result.execution_count,
+                    interrupts=multi_agent_result.interrupts,
                 )
 
             elif isinstance(node.executor, AgentBase):
@@ -1044,18 +1048,26 @@ class Graph(MultiAgentBase):
         """
         if self._interrupt_state.activated:
             context = self._interrupt_state.context
-            if node.node_id in context and context[node.node_id]["activated"]:
-                agent_context = context[node.node_id]
-                agent = cast(Agent, node.executor)
-                agent.messages = agent_context["messages"]
-                agent.state = AgentState(agent_context["state"])
-                agent._interrupt_state = _InterruptState.from_dict(agent_context["interrupt_state"])
+            if node.node_id in context:
+                node_context = context[node.node_id]
 
-                responses = context["responses"]
-                interrupts = agent._interrupt_state.interrupts
-                return [
-                    response for response in responses if response["interruptResponse"]["interruptId"] in interrupts
-                ]
+                # Only route responses if the interrupt originated from the node's execution
+                if not node_context["from_hook"]:
+                    # Filter responses to only those for this node's interrupts
+                    node_responses = [
+                        response
+                        for response in context["responses"]
+                        if response["interruptResponse"]["interruptId"] in node_context["interrupt_ids"]
+                    ]
+
+                    if isinstance(node.executor, MultiAgentBase):
+                        return node_responses
+
+                    agent = node.executor
+                    agent.messages = node_context["messages"]
+                    agent.state = AgentState(node_context["state"])
+                    agent._interrupt_state = _InterruptState.from_dict(node_context["interrupt_state"])
+                    return node_responses
 
         # Get satisfied dependencies
         dependency_results = {}

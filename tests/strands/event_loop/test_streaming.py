@@ -48,6 +48,7 @@ def moto_autouse(moto_env, moto_mock_aws):
         ),
     ],
 )
+@pytest.mark.filterwarnings("ignore:remove_blank_messages_content_text is deprecated:DeprecationWarning")
 def test_remove_blank_messages_content_text(messages, exp_result):
     tru_result = strands.event_loop.streaming.remove_blank_messages_content_text(messages)
 
