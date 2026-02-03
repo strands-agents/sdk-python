@@ -4,7 +4,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
-from strands.agent import Agent, AgentResult
+from strands.agent import Agent, AgentBase, AgentResult
 from strands.agent.state import AgentState
 from strands.hooks import AgentInitializedEvent, BeforeNodeCallEvent
 from strands.hooks.registry import HookProvider, HookRegistry
@@ -1102,9 +1102,6 @@ async def test_state_reset_only_with_cycles_enabled():
 
     # Create GraphNode
     node = GraphNode("test_node", agent)
-
-    # Simulate agent being in completed_nodes (as if revisited)
-    from strands.multiagent.graph import GraphState
 
     state = GraphState()
     state.completed_nodes.add(node)
@@ -2359,7 +2356,6 @@ def test_graph_interrupt_on_multiagent(agenerator):
 @pytest.mark.asyncio
 async def test_graph_with_agentbase_implementation(mock_strands_tracer, mock_use_span):
     """Test that Graph accepts any AgentBase implementation (not just Agent)."""
-    from strands.agent.base import AgentBase
 
     # Create a minimal AgentBase implementation
     class CustomAgentBase:
