@@ -81,13 +81,12 @@ class TasksConfig(TypedDict, total=False):
     create task -> poll for completion -> get result.
 
     Attributes:
-        ttl_ms: Task time-to-live in milliseconds. Defaults to 60000 (1 minute).
-        poll_timeout_seconds: Timeout for polling task completion in seconds.
-            Defaults to 300.0 (5 minutes).
+        ttl: Task time-to-live. Defaults to 1 minute.
+        poll_timeout: Timeout for polling task completion. Defaults to 5 minutes.
     """
 
-    ttl_ms: int
-    poll_timeout_seconds: float
+    ttl: timedelta
+    poll_timeout: timedelta
 
 
 class ExperimentalConfig(TypedDict, total=False):
@@ -103,7 +102,7 @@ class ExperimentalConfig(TypedDict, total=False):
             that support it.
     """
 
-    tasks: TasksConfig | None
+    tasks: TasksConfig
 
 
 MIME_TO_FORMAT: dict[str, ImageFormat] = {
@@ -128,9 +127,9 @@ _NON_FATAL_ERROR_PATTERNS = [
     "unknown request id",
 ]
 
-DEFAULT_TASK_TTL_MS = 60000
-DEFAULT_TASK_POLL_TIMEOUT_SECONDS = 300.0
-DEFAULT_TASK_CONFIG = TasksConfig(ttl_ms=DEFAULT_TASK_TTL_MS, poll_timeout_seconds=DEFAULT_TASK_POLL_TIMEOUT_SECONDS)
+DEFAULT_TASK_TTL = timedelta(minutes=1)
+DEFAULT_TASK_POLL_TIMEOUT = timedelta(minutes=5)
+DEFAULT_TASK_CONFIG = TasksConfig(ttl=DEFAULT_TASK_TTL, poll_timeout=DEFAULT_TASK_POLL_TIMEOUT)
 
 
 class MCPClient(ToolProvider):
@@ -624,12 +623,10 @@ class MCPClient(ToolProvider):
         if use_task:
             self._log_debug_with_thread("tool=<%s> | using task-augmented execution", name)
 
-            # When task-augmented execution is used, the read_timeout_seconds parameter
-            # (which is a timedelta) needs to be converted to a float for the polling timeout.
-            poll_timeout = read_timeout_seconds.total_seconds() if read_timeout_seconds else None
-
             async def _call_as_task() -> MCPCallToolResult:
-                return await self._call_tool_as_task_and_poll_async(name, arguments, poll_timeout_seconds=poll_timeout)
+                # When task-augmented execution is used, use the read_timeout_seconds parameter
+                # (which is a timedelta) for the polling timeout.
+                return await self._call_tool_as_task_and_poll_async(name, arguments, poll_timeout=read_timeout_seconds)
 
             return _call_as_task()
         else:
@@ -1021,8 +1018,8 @@ class MCPClient(ToolProvider):
         """Returns the task execution configuration, configured with defaults if not specified."""
         task_config = self._experimental.get("tasks") or DEFAULT_TASK_CONFIG
         return TasksConfig(
-            ttl_ms=task_config.get("ttl_ms", DEFAULT_TASK_TTL_MS),
-            poll_timeout_seconds=task_config.get("poll_timeout_seconds", DEFAULT_TASK_POLL_TIMEOUT_SECONDS),
+            ttl=task_config.get("ttl", DEFAULT_TASK_TTL),
+            poll_timeout=task_config.get("poll_timeout", DEFAULT_TASK_POLL_TIMEOUT),
         )
 
     def _has_server_task_support(self) -> bool:
@@ -1105,8 +1102,8 @@ class MCPClient(ToolProvider):
         self,
         name: str,
         arguments: dict[str, Any] | None = None,
-        ttl_ms: int | None = None,
-        poll_timeout_seconds: float | None = None,
+        ttl: timedelta | None = None,
+        poll_timeout: timedelta | None = None,
     ) -> MCPCallToolResult:
         """Call a tool using task-augmented execution and poll until completion.
 
@@ -1118,8 +1115,8 @@ class MCPClient(ToolProvider):
         Args:
             name: Name of the tool to call.
             arguments: Optional arguments to pass to the tool.
-            ttl_ms: Task time-to-live in milliseconds. Uses configured value if not specified.
-            poll_timeout_seconds: Timeout for polling in seconds. Uses configured value if not specified.
+            ttl: Task time-to-live. Uses configured value if not specified.
+            poll_timeout: Timeout for polling. Uses configured value if not specified.
 
         Returns:
             MCPCallToolResult: The final tool result after task completion.
@@ -1130,17 +1127,16 @@ class MCPClient(ToolProvider):
         session = cast(ClientSession, self._background_thread_session)
 
         # Precedence: arg > config > default
-        timeout = poll_timeout_seconds or self._get_task_config().get(
-            "poll_timeout_seconds", DEFAULT_TASK_POLL_TIMEOUT_SECONDS
-        )
-        ttl = ttl_ms or self._get_task_config().get("ttl_ms", DEFAULT_TASK_TTL_MS)
+        timeout = poll_timeout or self._get_task_config().get("poll_timeout", DEFAULT_TASK_POLL_TIMEOUT)
+        ttl = ttl or self._get_task_config().get("ttl", DEFAULT_TASK_TTL)
+        ttl_ms = int(ttl.total_seconds() * 1000)
 
         # Step 1: Create the task
-        self._log_debug_with_thread("tool=<%s> | calling tool as task with ttl=%d ms", name, ttl)
+        self._log_debug_with_thread("tool=<%s> | calling tool as task with ttl=%d ms", name, ttl_ms)
         create_result = await session.experimental.call_tool_as_task(
             name=name,
             arguments=arguments,
-            ttl=ttl,
+            ttl=ttl_ms,
         )
         task_id = create_result.task.taskId
         self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task created", name, task_id)
@@ -1161,7 +1157,7 @@ class MCPClient(ToolProvider):
             return final
 
         try:
-            final_status = await asyncio.wait_for(_poll_until_terminal(), timeout=timeout)
+            final_status = await asyncio.wait_for(_poll_until_terminal(), timeout=timeout.total_seconds())
         except asyncio.TimeoutError:
             self._log_debug_with_thread(
                 "tool=<%s>, task_id=<%s>, timeout=<%s> | task polling timed out", name, task_id, timeout

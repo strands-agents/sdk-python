@@ -12,7 +12,7 @@ from mcp.types import Tool as MCPTool
 from mcp.types import ToolExecution
 
 from strands.tools.mcp import MCPClient
-from strands.tools.mcp.mcp_client import DEFAULT_TASK_POLL_TIMEOUT_SECONDS, DEFAULT_TASK_TTL_MS
+from strands.tools.mcp.mcp_client import DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL
 
 from .conftest import create_server_capabilities
 
@@ -53,18 +53,18 @@ class TestTaskConfiguration:
     @pytest.mark.parametrize(
         "config,expected_ttl,expected_timeout",
         [
-            ({}, DEFAULT_TASK_TTL_MS, DEFAULT_TASK_POLL_TIMEOUT_SECONDS),
-            ({"ttl_ms": 120000}, 120000, DEFAULT_TASK_POLL_TIMEOUT_SECONDS),
-            ({"poll_timeout_seconds": 60.0}, DEFAULT_TASK_TTL_MS, 60.0),
-            ({"ttl_ms": 120000, "poll_timeout_seconds": 60.0}, 120000, 60.0),
+            ({}, DEFAULT_TASK_TTL, DEFAULT_TASK_POLL_TIMEOUT),
+            ({"ttl": 120000}, 120000, DEFAULT_TASK_POLL_TIMEOUT),
+            ({"poll_timeout": 60.0}, DEFAULT_TASK_TTL, 60.0),
+            ({"ttl": 120000, "poll_timeout": 60.0}, 120000, 60.0),
         ],
     )
     def test_task_config_values(self, mock_transport, mock_session, config, expected_ttl, expected_timeout):
         """Test task configuration values with various configs."""
         with MCPClient(mock_transport["transport_callable"], experimental={"tasks": config}) as client:
             config_actual = client._get_task_config()
-            assert config_actual.get("ttl_ms") == expected_ttl
-            assert config_actual.get("poll_timeout_seconds") == expected_timeout
+            assert config_actual.get("ttl") == expected_ttl
+            assert config_actual.get("poll_timeout") == expected_timeout
 
     def test_stop_resets_task_caches(self, mock_transport, mock_session):
         """Test that stop() resets the task support caches."""
@@ -132,7 +132,7 @@ class TestTaskExecution:
         mock_session.experimental.poll_task = infinite_poll
 
         with MCPClient(
-            mock_transport["transport_callable"], experimental={"tasks": {"poll_timeout_seconds": 0.1}}
+            mock_transport["transport_callable"], experimental={"tasks": {"poll_timeout": timedelta(seconds=0.1)}}
         ) as client:
             client.list_tools_sync()
             result = await client.call_tool_async(tool_use_id="t", name="slow_tool", arguments={})
@@ -152,7 +152,7 @@ class TestTaskExecution:
         mock_session.experimental.poll_task = infinite_poll
 
         with MCPClient(
-            mock_transport["transport_callable"], experimental={"tasks": {"poll_timeout_seconds": 300.0}}
+            mock_transport["transport_callable"], experimental={"tasks": {"poll_timeout": timedelta(minutes=5)}}
         ) as client:
             client.list_tools_sync()
             result = await client.call_tool_async(
