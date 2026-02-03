@@ -129,7 +129,7 @@ class ContentBlockStartToolUse(TypedDict, total=False):
     Attributes:
         name: The name of the tool that the model is requesting to use.
         toolUseId: The ID for the tool request.
-        thoughtSignature: Optional signature for Gemini thinking models.
+        thoughtSignature: Optional signature for thinking models (e.g., Gemini).
     """
 
     name: Required[str]

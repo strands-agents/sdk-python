@@ -89,6 +89,11 @@ class GeminiModel(Model):
         self._custom_client = client
         self.client_args = client_args or {}
 
+        # Track the last thought_signature seen from model responses.
+        # Gemini thinking models require this signature to be passed back on subsequent requests.
+        # Stored as base64 string for consistency with JSON storage in streaming.py.
+        self._last_thought_signature: str | None = None
+
         # Validate gemini_tools if provided
         if "gemini_tools" in self.config:
             self._validate_gemini_tools(self.config["gemini_tools"])
@@ -136,7 +141,10 @@ class GeminiModel(Model):
             return genai.Client(**self.client_args)
 
     def _format_request_content_part(
-        self, content: ContentBlock, tool_use_id_to_name: dict[str, str]
+        self,
+        content: ContentBlock,
+        tool_use_id_to_name: dict[str, str],
+        last_thought_signature: str | None = None,
     ) -> genai.types.Part:
         """Format content block into a Gemini part instance.
 
@@ -148,6 +156,8 @@ class GeminiModel(Model):
                 Store the mapping from toolUseId to name for later use in toolResult formatting. This mapping is built
                 as we format the request, ensuring that when we encounter toolResult blocks (which come after toolUse
                 blocks in the message history), we can look up the function name.
+            last_thought_signature: The last thought signature seen from a preceding reasoningContent block.
+                Used for Gemini thinking models that require thought_signature on function calls.
 
         Returns:
             Gemini part.
@@ -206,8 +216,11 @@ class GeminiModel(Model):
             tool_use_id = content["toolUse"]["toolUseId"]
             tool_use_id_to_name[tool_use_id] = content["toolUse"]["name"]
 
-            # Get thought_signature for Gemini thinking models (preserved by streaming.py)
-            tool_thought_sig = content["toolUse"].get("thoughtSignature")
+            # Get thought_signature for Gemini thinking models (all sources are base64 strings)
+            # Priority: toolUse.thoughtSignature, reasoningContent signature, instance state
+            sig_str: str | None = (
+                content["toolUse"].get("thoughtSignature") or last_thought_signature or self._last_thought_signature
+            )
 
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
@@ -215,8 +228,8 @@ class GeminiModel(Model):
                     id=tool_use_id,
                     name=content["toolUse"]["name"],
                 ),
-                # Include thought_signature for Gemini thinking models if available
-                thought_signature=base64.b64decode(tool_thought_sig) if tool_thought_sig else None,
+                # Decode base64 string to bytes only at API boundary
+                thought_signature=base64.b64decode(sig_str) if sig_str else None,
             )
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -236,6 +249,10 @@ class GeminiModel(Model):
         # available in tool result blocks, hence the mapping.
         tool_use_id_to_name: dict[str, str] = {}
 
+        # Track thought signature from reasoningContent blocks for Gemini thinking models.
+        # The signature is preserved by streaming.py and needs to be attached to subsequent function calls.
+        last_thought_signature: str | None = None
+
         contents = []
         for message in messages:
             parts = []
@@ -244,7 +261,16 @@ class GeminiModel(Model):
                 if _has_location_source(content):
                     logger.warning("Location sources are not supported by Gemini | skipping content block")
                     continue
-                parts.append(self._format_request_content_part(content, tool_use_id_to_name))
+
+                # Track thought signature from reasoningContent blocks
+                if "reasoningContent" in content:
+                    sig = content["reasoningContent"].get("reasoningText", {}).get("signature")
+                    if sig:
+                        last_thought_signature = sig
+
+                parts.append(
+                    self._format_request_content_part(content, tool_use_id_to_name, last_thought_signature)
+                )
 
             contents.append(
                 genai.types.Content(
@@ -501,8 +527,10 @@ class GeminiModel(Model):
 
                 for part in parts:
                     # Capture thought signature if present in this part
+                    # Store as base64 string for consistency with JSON storage in streaming.py
                     if part.thought_signature:
                         current_thought_signature = part.thought_signature
+                        self._last_thought_signature = base64.b64encode(part.thought_signature).decode("ascii")
 
                     if part.function_call:
                         # If this part doesn't have a signature but we've seen one, attach it
