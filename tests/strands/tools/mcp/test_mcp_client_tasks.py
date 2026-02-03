@@ -38,7 +38,6 @@ class TestTasksOptIn:
         """Test that _should_use_task returns False without opt-in even with server/tool support."""
         with MCPClient(mock_transport["transport_callable"]) as client:
             client._server_task_capable = True
-            client._tool_task_support_cache["test_tool"] = "required"
             assert client._should_use_task("test_tool") is False
 
         with MCPClient(mock_transport["transport_callable"], experimental={"tasks": {}}) as client:

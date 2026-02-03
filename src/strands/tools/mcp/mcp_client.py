@@ -195,7 +195,12 @@ class MCPClient(ToolProvider):
         # Task support configuration and caching
         self._experimental = experimental or {}
         self._server_task_capable: bool | None = None
-        self._tool_task_support_cache: dict[str, str | None] = {}
+
+        # Conditionally set up the task support cache (old SDK versions don't expose TaskExecutionMode)
+        if self._is_tasks_enabled():
+            from mcp.types import TaskExecutionMode
+
+            self._tool_task_support_cache: dict[str, TaskExecutionMode] = {}
 
     def __enter__(self) -> "MCPClient":
         """Context manager entry point which initializes the MCP server connection.
@@ -445,11 +450,12 @@ class MCPClient(ToolProvider):
 
         mcp_tools = []
         for tool in list_tools_response.tools:
-            # Cache taskSupport for task-augmented execution decisions
-            task_support = None
-            if tool.execution is not None and tool.execution.taskSupport is not None:
-                task_support = tool.execution.taskSupport
-            self._tool_task_support_cache[tool.name] = task_support
+            if self._is_tasks_enabled():
+                # Cache taskSupport for task-augmented execution decisions
+                task_support = None
+                if tool.execution is not None and tool.execution.taskSupport is not None:
+                    task_support = tool.execution.taskSupport
+                self._tool_task_support_cache[tool.name] = task_support or "forbidden"
 
             # Apply prefix if specified
             if effective_prefix:
@@ -1038,20 +1044,6 @@ class MCPClient(ToolProvider):
         """
         return self._server_task_capable or False
 
-    def _get_tool_task_support(self, tool_name: str) -> str | None:
-        """Get the taskSupport setting for a tool.
-
-        Returns the cached taskSupport value for the given tool name.
-        The cache is populated during list_tools_sync().
-
-        Args:
-            tool_name: Name of the tool to look up.
-
-        Returns:
-            The taskSupport value ('required', 'optional', 'forbidden') or None if not cached.
-        """
-        return self._tool_task_support_cache.get(tool_name)
-
     def _should_use_task(self, tool_name: str) -> bool:
         """Determine if task-augmented execution should be used for a tool.
 
@@ -1070,14 +1062,18 @@ class MCPClient(ToolProvider):
         if not self._is_tasks_enabled():
             return False
 
+        # Local import to avoid errors on old SDK versions that don't support Tasks
+        from mcp.types import TASK_OPTIONAL, TASK_REQUIRED
+
         # Server capability check (per MCP spec)
         if not self._has_server_task_support():
             return False
 
-        task_support = self._get_tool_task_support(tool_name)
+        # Tool-level capability check (cached during list_tools_sync)
+        task_support = self._tool_task_support_cache.get(tool_name)
 
-        # Use tasks for 'required' or 'optional' when server supports
-        if task_support == "required" or task_support == "optional":
+        # Use tasks for TASK_REQUIRED or TASK_OPTIONAL when server supports
+        if task_support == TASK_REQUIRED or task_support == TASK_OPTIONAL:
             return True
 
         # Default: 'forbidden', None, or unknown -> don't use tasks
@@ -1149,6 +1145,9 @@ class MCPClient(ToolProvider):
         Returns:
             MCPCallToolResult: The final tool result after task completion.
         """
+        # Local import to avoid errors on old SDK versions that don't support Tasks
+        from mcp.types import TASK_STATUS_CANCELLED, TASK_STATUS_COMPLETED, TASK_STATUS_FAILED, GetTaskResult
+
         session = cast(ClientSession, self._background_thread_session)
         ttl = ttl_ms or self._get_task_ttl_ms()
         timeout = poll_timeout_seconds or self._get_task_poll_timeout_seconds()
@@ -1165,17 +1164,17 @@ class MCPClient(ToolProvider):
 
         # Step 2: Poll until terminal status (with timeout protection)
         # Note: Using asyncio.wait_for() instead of asyncio.timeout() for Python 3.10 compatibility
-        async def _poll_until_terminal() -> Any:
+        async def _poll_until_terminal() -> GetTaskResult | None:
             """Inner function to poll task status until terminal state."""
             final = None
-            async for status in session.experimental.poll_task(task_id):
+            async for task in session.experimental.poll_task(task_id):
                 self._log_debug_with_thread(
                     "tool=<%s>, task_id=<%s>, status=<%s> | task status update",
                     name,
                     task_id,
-                    status.status,
+                    task.status,
                 )
-                final = status
+                final = task
             return final
 
         try:
@@ -1191,17 +1190,17 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("tool=<%s>, task_id=<%s> | polling completed without status", name, task_id)
             return self._create_task_error_result(f"Task {task_id} polling completed without status")
 
-        if final_status.status == "failed":
+        if final_status.status == TASK_STATUS_FAILED:
             error_msg = final_status.statusMessage or "Task failed"
             self._log_debug_with_thread("tool=<%s>, task_id=<%s>, error=<%s> | task failed", name, task_id, error_msg)
             return self._create_task_error_result(error_msg)
 
-        if final_status.status == "cancelled":
+        if final_status.status == TASK_STATUS_CANCELLED:
             self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task was cancelled", name, task_id)
             return self._create_task_error_result("Task was cancelled")
 
         # Step 4: Get the actual result for completed tasks (with error handling for race conditions)
-        if final_status.status == "completed":
+        if final_status.status == TASK_STATUS_COMPLETED:
             self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task completed, fetching result", name, task_id)
             try:
                 result = await session.experimental.get_task_result(task_id, MCPCallToolResult)
