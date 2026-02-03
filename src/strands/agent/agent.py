@@ -345,6 +345,7 @@ class Agent:
         *,
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
+        structured_output_prompt: str | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -363,6 +364,7 @@ class Agent:
                 - None: Use existing conversation history
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
+            structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -376,7 +378,11 @@ class Agent:
         """
         return run_async(
             lambda: self.invoke_async(
-                prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
+                prompt,
+                invocation_state=invocation_state,
+                structured_output_model=structured_output_model,
+                structured_output_prompt=structured_output_prompt,
+                **kwargs,
             )
         )
 
@@ -386,6 +392,7 @@ class Agent:
         *,
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
+        structured_output_prompt: str | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -404,6 +411,7 @@ class Agent:
                 - None: Use existing conversation history
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
+            structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -415,7 +423,11 @@ class Agent:
                 - state: The final state of the event loop
         """
         events = self.stream_async(
-            prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
+            prompt,
+            invocation_state=invocation_state,
+            structured_output_model=structured_output_model,
+            structured_output_prompt=structured_output_prompt,
+            **kwargs,
         )
         async for event in events:
             _ = event
@@ -549,6 +561,7 @@ class Agent:
         *,
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
+        structured_output_prompt: str | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -567,6 +580,7 @@ class Agent:
                 - None: Use existing conversation history
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
+            structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
             **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
@@ -624,7 +638,7 @@ class Agent:
 
             with trace_api.use_span(self.trace_span):
                 try:
-                    events = self._run_loop(messages, merged_state, structured_output_model)
+                    events = self._run_loop(messages, merged_state, structured_output_model, structured_output_prompt)
 
                     async for event in events:
                         event.prepare(invocation_state=merged_state)
@@ -652,6 +666,7 @@ class Agent:
         messages: Messages,
         invocation_state: dict[str, Any],
         structured_output_model: type[BaseModel] | None = None,
+        structured_output_prompt: str | None = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
 
@@ -659,6 +674,7 @@ class Agent:
             messages: The input messages to add to the conversation.
             invocation_state: Additional parameters to pass to the event loop.
             structured_output_model: Optional Pydantic model type for structured output.
+            structured_output_prompt: Optional custom prompt for forcing structured output.
 
         Yields:
             Events from the event loop cycle.
@@ -676,7 +692,7 @@ class Agent:
 
             structured_output_context = StructuredOutputContext(
                 structured_output_model or self._default_structured_output_model,
-                structured_output_prompt=self._structured_output_prompt,
+                structured_output_prompt=structured_output_prompt or self._structured_output_prompt,
             )
 
             # Execute the event loop cycle with retry logic for context limits
