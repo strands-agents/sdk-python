@@ -11,28 +11,25 @@ from mcp.types import TextContent as MCPTextContent
 from mcp.types import Tool as MCPTool
 from mcp.types import ToolExecution
 
-from strands.tools.mcp import MCPClient
-from strands.tools.mcp.mcp_client import DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL
+from strands.tools.mcp import MCPClient, TasksConfig
+from strands.tools.mcp.mcp_tasks import DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL
 
 from .conftest import create_server_capabilities
 
 
 class TestTasksOptIn:
-    """Tests for task opt-in behavior via experimental.tasks."""
+    """Tests for task opt-in behavior via tasks config."""
 
     @pytest.mark.parametrize(
-        "experimental,expected_enabled",
+        "tasks,expected_enabled",
         [
             (None, False),
-            ({}, False),
-            ({"tasks": None}, False),
-            ({"tasks": {}}, True),
-            ({"tasks": {"ttl_ms": 1000}}, True),
+            ({}, True),
         ],
     )
-    def test_tasks_enabled_state(self, mock_transport, mock_session, experimental, expected_enabled):
-        """Test _is_tasks_enabled based on experimental config."""
-        with MCPClient(mock_transport["transport_callable"], experimental=experimental) as client:
+    def test_tasks_enabled_state(self, mock_transport, mock_session, tasks, expected_enabled):
+        """Test _is_tasks_enabled based on tasks config."""
+        with MCPClient(mock_transport["transport_callable"], tasks=tasks) as client:
             assert client._is_tasks_enabled() is expected_enabled
 
     def test_should_use_task_requires_opt_in(self, mock_transport, mock_session):
@@ -41,7 +38,7 @@ class TestTasksOptIn:
             client._server_task_capable = True
             assert client._should_use_task("test_tool") is False
 
-        with MCPClient(mock_transport["transport_callable"], experimental={"tasks": {}}) as client:
+        with MCPClient(mock_transport["transport_callable"], tasks={}) as client:
             client._server_task_capable = True
             client._tool_task_support_cache["test_tool"] = "required"
             assert client._should_use_task("test_tool") is True
@@ -54,21 +51,25 @@ class TestTaskConfiguration:
         "config,expected_ttl,expected_timeout",
         [
             ({}, DEFAULT_TASK_TTL, DEFAULT_TASK_POLL_TIMEOUT),
-            ({"ttl": 120000}, 120000, DEFAULT_TASK_POLL_TIMEOUT),
-            ({"poll_timeout": 60.0}, DEFAULT_TASK_TTL, 60.0),
-            ({"ttl": 120000, "poll_timeout": 60.0}, 120000, 60.0),
+            ({"ttl": timedelta(seconds=120)}, timedelta(seconds=120), DEFAULT_TASK_POLL_TIMEOUT),
+            ({"poll_timeout": timedelta(seconds=60)}, DEFAULT_TASK_TTL, timedelta(seconds=60)),
+            (
+                {"ttl": timedelta(seconds=120), "poll_timeout": timedelta(seconds=60)},
+                timedelta(seconds=120),
+                timedelta(seconds=60),
+            ),
         ],
     )
     def test_task_config_values(self, mock_transport, mock_session, config, expected_ttl, expected_timeout):
         """Test task configuration values with various configs."""
-        with MCPClient(mock_transport["transport_callable"], experimental={"tasks": config}) as client:
+        with MCPClient(mock_transport["transport_callable"], tasks=config) as client:
             config_actual = client._get_task_config()
             assert config_actual.get("ttl") == expected_ttl
             assert config_actual.get("poll_timeout") == expected_timeout
 
     def test_stop_resets_task_caches(self, mock_transport, mock_session):
         """Test that stop() resets the task support caches."""
-        with MCPClient(mock_transport["transport_callable"], experimental={"tasks": {}}) as client:
+        with MCPClient(mock_transport["transport_callable"], tasks={}) as client:
             client._server_task_capable = True
             client._tool_task_support_cache["tool1"] = "required"
         assert client._server_task_capable is None
@@ -112,7 +113,7 @@ class TestTaskExecution:
 
         mock_session.experimental.poll_task = mock_poll_task
 
-        with MCPClient(mock_transport["transport_callable"], experimental={"tasks": {}}) as client:
+        with MCPClient(mock_transport["transport_callable"], tasks=TasksConfig()) as client:
             client._server_task_capable = True
             client._tool_task_support_cache["test_tool"] = "required"
             result = client.call_tool_sync(tool_use_id="test-id", name="test_tool", arguments={})
@@ -132,7 +133,7 @@ class TestTaskExecution:
         mock_session.experimental.poll_task = infinite_poll
 
         with MCPClient(
-            mock_transport["transport_callable"], experimental={"tasks": {"poll_timeout": timedelta(seconds=0.1)}}
+            mock_transport["transport_callable"], tasks=TasksConfig(poll_timeout=timedelta(seconds=0.1))
         ) as client:
             client.list_tools_sync()
             result = await client.call_tool_async(tool_use_id="t", name="slow_tool", arguments={})
@@ -152,7 +153,7 @@ class TestTaskExecution:
         mock_session.experimental.poll_task = infinite_poll
 
         with MCPClient(
-            mock_transport["transport_callable"], experimental={"tasks": {"poll_timeout": timedelta(minutes=5)}}
+            mock_transport["transport_callable"], tasks=TasksConfig(poll_timeout=timedelta(minutes=5))
         ) as client:
             client.list_tools_sync()
             result = await client.call_tool_async(
@@ -172,7 +173,7 @@ class TestTaskExecution:
         mock_session.experimental.poll_task = successful_poll
         mock_session.experimental.get_task_result = AsyncMock(side_effect=Exception("Network error"))
 
-        with MCPClient(mock_transport["transport_callable"], experimental={"tasks": {}}) as client:
+        with MCPClient(mock_transport["transport_callable"], tasks=TasksConfig()) as client:
             client.list_tools_sync()
             result = await client.call_tool_async(tool_use_id="t", name="failing_tool", arguments={})
             assert result["status"] == "error"
@@ -189,7 +190,7 @@ class TestTaskExecution:
 
         mock_session.experimental.poll_task = empty_poll
 
-        with MCPClient(mock_transport["transport_callable"], experimental={"tasks": {}}) as client:
+        with MCPClient(mock_transport["transport_callable"], tasks=TasksConfig()) as client:
             client.list_tools_sync()
             result = await client.call_tool_async(tool_use_id="t", name="empty_poll_tool", arguments={})
             assert result["status"] == "error"
@@ -208,7 +209,7 @@ class TestTaskExecution:
             return_value=MCPCallToolResult(content=[MCPTextContent(type="text", text="Done")], isError=False)
         )
 
-        with MCPClient(mock_transport["transport_callable"], experimental={"tasks": {}}) as client:
+        with MCPClient(mock_transport["transport_callable"], tasks=TasksConfig()) as client:
             client.list_tools_sync()
             result = await client.call_tool_async(tool_use_id="t", name="success_tool", arguments={})
             assert result["status"] == "success"

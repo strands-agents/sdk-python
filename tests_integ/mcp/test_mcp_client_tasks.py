@@ -9,8 +9,7 @@ from typing import Any
 import pytest
 from mcp.client.streamable_http import streamablehttp_client
 
-from strands.tools.mcp.mcp_client import MCPClient
-from strands.tools.mcp.mcp_types import MCPTransport
+from strands.tools.mcp import MCPClient, MCPTransport, TasksConfig
 
 
 def _find_available_port() -> int:
@@ -52,7 +51,7 @@ def task_mcp_client(task_server: Any, task_server_port: int) -> MCPClient:
     def transport_callback() -> MCPTransport:
         return streamablehttp_client(url=f"http://127.0.0.1:{task_server_port}/mcp")
 
-    return MCPClient(transport_callback, experimental={"tasks": {}})
+    return MCPClient(transport_callback, tasks=TasksConfig())
 
 
 @pytest.fixture
@@ -105,16 +104,10 @@ class TestMCPTaskSupport:
             assert r2["status"] == "success"
             assert "Task optional echo: Optional!" in r2["content"][0].get("text", "")
 
-    def test_task_support_caching_and_decision(self, task_mcp_client: MCPClient) -> None:
-        """Test taskSupport caching and _should_use_task decision logic."""
+    def test_task_support_tool_detection(self, task_mcp_client: MCPClient) -> None:
+        """Test tool-level task support detection."""
         with task_mcp_client:
             task_mcp_client.list_tools_sync()
-
-            # Verify cached values
-            assert task_mcp_client._get_tool_task_support("task_required_echo") == "required"
-            assert task_mcp_client._get_tool_task_support("task_optional_echo") == "optional"
-            assert task_mcp_client._get_tool_task_support("task_forbidden_echo") == "forbidden"
-            assert task_mcp_client._get_tool_task_support("echo") is None
 
             # Verify decision logic
             assert task_mcp_client._should_use_task("task_required_echo") is True

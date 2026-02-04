@@ -47,6 +47,7 @@ from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import mcp_instrumentation
+from .mcp_tasks import DEFAULT_TASK_CONFIG, DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL, TasksConfig
 from .mcp_types import MCPToolResult, MCPTransport
 
 logger = logging.getLogger(__name__)
@@ -73,38 +74,6 @@ class ToolFilters(TypedDict, total=False):
     rejected: list[_ToolMatcher]
 
 
-class TasksConfig(TypedDict, total=False):
-    """Configuration for MCP Tasks (task-augmented tool execution).
-
-    If this config is provided (not None), task-augmented execution is enabled.
-    When enabled, long-running tool calls use the MCP task workflow:
-    create task -> poll for completion -> get result.
-
-    Attributes:
-        ttl: Task time-to-live. Defaults to 1 minute.
-        poll_timeout: Timeout for polling task completion. Defaults to 5 minutes.
-    """
-
-    ttl: timedelta
-    poll_timeout: timedelta
-
-
-class ExperimentalConfig(TypedDict, total=False):
-    """Configuration for experimental MCPClient features.
-
-    Warning:
-        Features under this configuration are experimental and subject to change
-        in future revisions without notice.
-
-    Attributes:
-        tasks: Configuration for MCP Tasks (task-augmented tool execution).
-            If provided (not None), enables task-augmented execution for tools
-            that support it.
-    """
-
-    tasks: TasksConfig
-
-
 MIME_TO_FORMAT: dict[str, ImageFormat] = {
     "image/jpeg": "jpeg",
     "image/jpg": "jpeg",
@@ -126,10 +95,6 @@ _NON_FATAL_ERROR_PATTERNS = [
     # See: https://github.com/modelcontextprotocol/python-sdk/blob/c51936f61f35a15f0b1f8fb6887963e5baee1506/src/mcp/shared/session.py#L421
     "unknown request id",
 ]
-
-DEFAULT_TASK_TTL = timedelta(minutes=1)
-DEFAULT_TASK_POLL_TIMEOUT = timedelta(minutes=5)
-DEFAULT_TASK_CONFIG = TasksConfig(ttl=DEFAULT_TASK_TTL, poll_timeout=DEFAULT_TASK_POLL_TIMEOUT)
 
 
 class MCPClient(ToolProvider):
@@ -156,7 +121,7 @@ class MCPClient(ToolProvider):
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
         elicitation_callback: ElicitationFnT | None = None,
-        experimental: ExperimentalConfig | None = None,
+        tasks: TasksConfig | None = None,
     ) -> None:
         """Initialize a new MCP Server connection.
 
@@ -167,10 +132,9 @@ class MCPClient(ToolProvider):
             tool_filters: Optional filters to apply to tools.
             prefix: Optional prefix for tool names.
             elicitation_callback: Optional callback function to handle elicitation requests from the MCP server.
-            experimental: Configuration for experimental features. Currently supports:
-                - tasks: Enable MCP task-augmented execution for long-running tools.
-                  If provided (not None), enables task-augmented execution for tools
-                  that support it. See ExperimentalConfig and TasksConfig for details.
+            tasks: Configuration for MCP task-augmented execution for long-running tools.
+                If provided (not None), enables task-augmented execution for tools that support it.
+                See TasksConfig for details. This feature is experimental and subject to change.
         """
         self._startup_timeout = startup_timeout
         self._tool_filters = tool_filters
@@ -196,7 +160,7 @@ class MCPClient(ToolProvider):
         self._consumers: set[Any] = set()
 
         # Task support configuration and caching
-        self._experimental = experimental or {}
+        self._tasks = tasks
         self._server_task_capable: bool | None = None
 
         # Conditionally set up the task support cache (old SDK versions don't expose TaskExecutionMode)
@@ -1005,18 +969,18 @@ class MCPClient(ToolProvider):
         return True
 
     def _is_tasks_enabled(self) -> bool:
-        """Check if experimental tasks feature is enabled.
+        """Check if tasks feature is enabled.
 
-        Tasks are enabled if experimental.tasks is defined and not None.
+        Tasks are enabled if tasks config is defined and not None.
 
         Returns:
             True if task-augmented execution is enabled, False otherwise.
         """
-        return self._experimental.get("tasks") is not None
+        return self._tasks is not None
 
     def _get_task_config(self) -> TasksConfig:
         """Returns the task execution configuration, configured with defaults if not specified."""
-        task_config = self._experimental.get("tasks") or DEFAULT_TASK_CONFIG
+        task_config = self._tasks or DEFAULT_TASK_CONFIG
         return TasksConfig(
             ttl=task_config.get("ttl", DEFAULT_TASK_TTL),
             poll_timeout=task_config.get("poll_timeout", DEFAULT_TASK_POLL_TIMEOUT),
@@ -1038,7 +1002,7 @@ class MCPClient(ToolProvider):
         """Determine if task-augmented execution should be used for a tool.
 
         Task-augmented execution requires:
-        1. experimental.tasks is enabled (opt-in check)
+        1. tasks config is enabled (opt-in check)
         2. Server supports tasks (capability check)
         3. Tool taskSupport is 'required' or 'optional'
 
@@ -1048,7 +1012,7 @@ class MCPClient(ToolProvider):
         Returns:
             True if task-augmented execution should be used, False otherwise.
         """
-        # Opt-in check: tasks must be explicitly enabled via experimental.tasks
+        # Opt-in check: tasks must be explicitly enabled via tasks config
         if not self._is_tasks_enabled():
             return False
 
