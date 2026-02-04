@@ -1060,9 +1060,6 @@ class Graph(MultiAgentBase):
                         if response["interruptResponse"]["interruptId"] in node_context["interrupt_ids"]
                     ]
 
-                    if isinstance(node.executor, MultiAgentBase):
-                        return node_responses
-
                     # Restore Agent-specific state for interrupt resumption
                     # Only Agent (not generic AgentBase) supports interrupt state restoration
                     if isinstance(node.executor, Agent):
