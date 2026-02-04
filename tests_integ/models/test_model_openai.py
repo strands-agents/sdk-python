@@ -210,7 +210,7 @@ def test_rate_limit_throttling_integration_no_retries(model):
 
     # Create a message that's very long to trigger token-per-minute rate limits
     # This should be large enough to exceed TPM limits immediately
-    very_long_text = "Really long text " * 20000
+    very_long_text = "Really long text " * 600000
 
     # This should raise ModelThrottledException without retries
     with pytest.raises(ModelThrottledException) as exc_info:
@@ -218,7 +218,7 @@ def test_rate_limit_throttling_integration_no_retries(model):
 
     # Verify it's a rate limit error
     error_message = str(exc_info.value).lower()
-    assert "insufficient_quota" in error_message
+    assert "rate_limit_exceeded" in error_message
 
 
 def test_content_blocks_handling(model):
