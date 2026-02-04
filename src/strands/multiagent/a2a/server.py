@@ -256,24 +256,24 @@ class A2AServer:
             **kwargs: Additional keyword arguments to pass to uvicorn.run.
         """
         # Update host/port if overridden, and recalculate URLs if http_url wasn't explicitly set
-        effective_host = host or self.host
-        effective_port = port or self.port
+        if host is not None:
+            self.host = host
+        if port is not None:
+            self.port = port
 
         if host is not None or port is not None:
-            self.host = effective_host
-            self.port = effective_port
             # Only update the URL if it wasn't explicitly set via http_url parameter
             # (i.e., if the URL was auto-generated from host/port in __init__)
-            if not hasattr(self, "_http_url_explicit") or not self._http_url_explicit:
-                self.public_base_url = f"http://{effective_host}:{effective_port}"
+            if not self._http_url_explicit:
+                self.public_base_url = f"http://{self.host}:{self.port}"
                 self.http_url = f"{self.public_base_url}/"
 
         try:
             logger.info("Starting Strands A2A server...")
             if app_type == "fastapi":
-                uvicorn.run(self.to_fastapi_app(), host=effective_host, port=effective_port, **kwargs)
+                uvicorn.run(self.to_fastapi_app(), host=self.host, port=self.port, **kwargs)
             else:
-                uvicorn.run(self.to_starlette_app(), host=effective_host, port=effective_port, **kwargs)
+                uvicorn.run(self.to_starlette_app(), host=self.host, port=self.port, **kwargs)
         except KeyboardInterrupt:
             logger.warning("Strands A2A server shutdown requested (KeyboardInterrupt).")
         except Exception:
