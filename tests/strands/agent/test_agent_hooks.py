@@ -697,8 +697,8 @@ async def test_before_invocation_event_messages_none_in_structured_output(agener
 
 
 @pytest.mark.asyncio
-async def test_hook_terminate_on_successful_call():
-    """Test that hooks can terminate even on successful model calls based on response content."""
+async def test_hook_stop_loop_on_successful_call():
+    """Test that hooks can stop event loop even on successful model calls based on response content."""
 
     mock_provider = MockedModelProvider(
         [
@@ -713,8 +713,8 @@ async def test_hook_terminate_on_successful_call():
         ]
     )
 
-    # Hook that terminate if response is favorable
-    class SuccessfulTerminateHook:
+    # Hook that stop event loop if response is favorable
+    class SuccessfulStopLoopHook:
         def __init__(self, end_marker="success"):
             self.end_marker = end_marker
             self.call_count = 0
@@ -731,9 +731,9 @@ async def test_hook_terminate_on_successful_call():
                 text_content = "".join(block.get("text", "") for block in message.get("content", []))
 
                 if self.end_marker in text_content:
-                    event.terminate = True
+                    event.stop_loop = True
 
-    terminate_hook = SuccessfulTerminateHook(end_marker="success")
+    terminate_hook = SuccessfulStopLoopHook(end_marker="success")
     agent = Agent(model=mock_provider, hooks=[terminate_hook])
 
     result = agent("Generate a response")
@@ -746,8 +746,8 @@ async def test_hook_terminate_on_successful_call():
 
 
 @pytest.mark.asyncio
-async def test_hook_terminate_gracefully_on_limits(agent_tool, tool_use):
-    """Test that hooks can terminate agent gracefully after maximum counts reached."""
+async def test_hook_stop_loop_gracefully_on_limits(agent_tool, tool_use):
+    """Test that hooks can stop event-loop of agent gracefully after maximum counts reached."""
 
     mock_provider = MockedModelProvider(
         [
@@ -767,7 +767,7 @@ async def test_hook_terminate_gracefully_on_limits(agent_tool, tool_use):
     )
 
     # Hook that counts number of calls
-    class GracefulTerminateHook:
+    class GracefulStopLoopHook:
         def __init__(self, max_counts):
             self.max_counts = max_counts
             self.call_count = 0
@@ -779,9 +779,9 @@ async def test_hook_terminate_gracefully_on_limits(agent_tool, tool_use):
             self.call_count += 1
 
             if self.call_count > self.max_counts - 1:
-                event.terminate = True
+                event.stop_loop = True
 
-    terminate_hook = GracefulTerminateHook(max_counts=2)
+    terminate_hook = GracefulStopLoopHook(max_counts=2)
     agent = Agent(
         model=mock_provider,
         tools=[agent_tool],

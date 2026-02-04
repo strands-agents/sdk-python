@@ -365,9 +365,9 @@ async def _handle_model_execution(
                         stop_reason,
                     )
                     continue  # Retry the model call
-                elif after_model_call_event.terminate:
+                elif after_model_call_event.stop_loop:
                     logger.debug(
-                        "stop_reason=<%s>, termination_requested=<True> | hook requested agent termination",
+                        "stop_reason=<%s>, stop_loop_requested=<True> | hook requested agent stop-loop",
                         stop_reason,
                     )
                     invocation_state["request_state"]["stop_event_loop"] = True
