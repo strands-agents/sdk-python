@@ -11,12 +11,13 @@ from typing_extensions import TypedDict
 class TasksConfig(TypedDict, total=False):
     """Configuration for MCP Tasks (task-augmented tool execution).
 
-    If this config is provided (not None), task-augmented execution is enabled.
     When enabled, supported tool calls use the MCP task workflow:
     create task -> poll for completion -> get result.
 
     Warning:
-        This feature is experimental and subject to change in future revisions without notice.
+        This is an experimental feature in the 2025-11-25 MCP specification and
+        both the specification and the Strands Agents implementation of this
+        feature are subject to change.
 
     Attributes:
         ttl: Task time-to-live. Defaults to 1 minute.
