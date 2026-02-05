@@ -236,6 +236,47 @@ class Tracer:
         error = exception or Exception(error_message)
         self._end_span(span, error=error)
 
+    def add_evaluation_event(
+        self,
+        span: Span,
+        evaluation_name: str,
+        score: float,
+        score_label: str | None = None,
+        reasoning: str | None = None,
+        response_id: str | None = None,
+    ) -> None:
+        """Add a GenAI evaluation event to a span following OpenTelemetry semantic conventions.
+        
+        This method adds a 'gen_ai.evaluation.result' event to capture evaluation results
+        for quality, accuracy, or other characteristics of GenAI output.
+        
+        Args:
+            span: The span to add the evaluation event to
+            evaluation_name: Name of the evaluation metric (e.g., "relevance", "hallucination")
+            score: Numeric score from the evaluator
+            score_label: Human-readable interpretation of the score
+            reasoning: Explanation from the evaluator
+            response_id: Links eval to the completion being evaluated when span linking isn't possible
+        """
+        if not span or not span.is_recording():
+            return
+            
+        attributes = {
+            "gen_ai.evaluation.name": evaluation_name,
+            "gen_ai.evaluation.score": score,
+        }
+        
+        if score_label is not None:
+            attributes["gen_ai.evaluation.score.label"] = score_label
+            
+        if reasoning is not None:
+            attributes["gen_ai.evaluation.reasoning"] = reasoning
+            
+        if response_id is not None:
+            attributes["gen_ai.response.id"] = response_id
+        
+        self._add_event(span, "gen_ai.evaluation.result", attributes)
+
     def _add_event(self, span: Span | None, event_name: str, event_attributes: Attributes) -> None:
         """Add an event with attributes to a span.
 

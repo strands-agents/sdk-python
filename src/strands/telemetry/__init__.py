@@ -4,6 +4,14 @@ This module provides metrics and tracing functionality.
 """
 
 from .config import StrandsTelemetry
+from .evaluation import (
+    EvaluationResult,
+    EvaluationTracer,
+    add_accuracy_evaluation,
+    add_hallucination_evaluation,
+    add_relevance_evaluation,
+    get_evaluation_tracer,
+)
 from .metrics import EventLoopMetrics, MetricsClient, Trace, metrics_to_string
 from .tracer import Tracer, get_tracer
 
@@ -16,6 +24,13 @@ __all__ = [
     # Tracer
     "Tracer",
     "get_tracer",
+    # Evaluation
+    "EvaluationResult",
+    "EvaluationTracer",
+    "get_evaluation_tracer",
+    "add_relevance_evaluation",
+    "add_hallucination_evaluation",
+    "add_accuracy_evaluation",
     # Telemetry Setup
     "StrandsTelemetry",
 ]
