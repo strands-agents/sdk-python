@@ -7,9 +7,6 @@ from .config import StrandsTelemetry
 from .evaluation import (
     EvaluationResult,
     EvaluationTracer,
-    add_accuracy_evaluation,
-    add_hallucination_evaluation,
-    add_relevance_evaluation,
     get_evaluation_tracer,
 )
 from .metrics import EventLoopMetrics, MetricsClient, Trace, metrics_to_string
@@ -28,9 +25,6 @@ __all__ = [
     "EvaluationResult",
     "EvaluationTracer",
     "get_evaluation_tracer",
-    "add_relevance_evaluation",
-    "add_hallucination_evaluation",
-    "add_accuracy_evaluation",
     # Telemetry Setup
     "StrandsTelemetry",
 ]
