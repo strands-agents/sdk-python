@@ -215,6 +215,9 @@ class ToolExecutor(abc.ABC):
                     return
                 if structured_output_context.is_enabled:
                     kwargs["structured_output_context"] = structured_output_context
+
+                exception: Exception | None = None
+
                 async for event in selected_tool.stream(tool_use, invocation_state, **kwargs):
                     # Internal optimization; for built-in AgentTools, we yield TypedEvents out of .stream()
                     # so that we don't needlessly yield ToolStreamEvents for non-generator callbacks.
@@ -227,6 +230,8 @@ class ToolExecutor(abc.ABC):
                         return
 
                     if isinstance(event, ToolResultEvent):
+                        # Preserve exception from decorated tools before extracting tool_result
+                        exception = event.exception
                         # below the last "event" must point to the tool_result
                         event = event.tool_result
                         break
@@ -239,7 +244,7 @@ class ToolExecutor(abc.ABC):
                 result = cast(ToolResult, event)
 
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
-                    agent, selected_tool, tool_use, invocation_state, result
+                    agent, selected_tool, tool_use, invocation_state, result, exception=exception
                 )
 
                 # Check if retry requested (getattr for BidiAfterToolCallEvent compatibility)
