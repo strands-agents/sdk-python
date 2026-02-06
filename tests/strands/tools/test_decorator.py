@@ -1901,3 +1901,51 @@ def test_tool_nullable_optional_field_simplifies_anyof():
     # Since tag is not required, anyOf should be simplified away
     assert "anyOf" not in schema["properties"]["tag"]
     assert schema["properties"]["tag"]["type"] == "string"
+
+
+def test_tool_decorator_with_tags():
+    """Test that @tool decorator properly handles tags parameter."""
+
+    @strands.tool(tags=["test", "example"])
+    def tagged_tool(input: str) -> str:
+        """A tool with tags.
+
+        Args:
+            input: Input string
+        """
+        return f"Result: {input}"
+
+    assert tagged_tool.tool_spec.get("tags") == ["test", "example"]
+
+
+def test_tool_decorator_without_tags():
+    """Test that @tool decorator works without tags parameter."""
+
+    @strands.tool
+    def untagged_tool(input: str) -> str:
+        """A tool without tags.
+
+        Args:
+            input: Input string
+        """
+        return f"Result: {input}"
+
+    # tags should not be in the spec when not provided
+    assert "tags" not in untagged_tool.tool_spec
+
+
+def test_tool_decorator_with_multiple_tags():
+    """Test that @tool decorator handles multiple tags correctly."""
+
+    @strands.tool(tags=["data", "api", "external", "production"])
+    def multi_tagged_tool(query: str) -> str:
+        """A tool with multiple tags.
+
+        Args:
+            query: Query string
+        """
+        return f"Query: {query}"
+
+    tags = multi_tagged_tool.tool_spec.get("tags")
+    assert tags == ["data", "api", "external", "production"]
+    assert len(tags) == 4

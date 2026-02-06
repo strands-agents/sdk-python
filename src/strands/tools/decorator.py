@@ -682,6 +682,7 @@ def tool(
     inputSchema: JSONSchema | None = None,
     name: str | None = None,
     context: bool | str = False,
+    tags: list[str] | None = None,
 ) -> Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]: ...
 # Suppressing the type error because we want callers to be able to use both `tool` and `tool()` at the
 # call site, but the actual implementation handles that and it's not representable via the type-system
@@ -691,6 +692,7 @@ def tool(  # type: ignore
     inputSchema: JSONSchema | None = None,
     name: str | None = None,
     context: bool | str = False,
+    tags: list[str] | None = None,
 ) -> DecoratedFunctionTool[P, R] | Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]:
     """Decorator that transforms a Python function into a Strands tool.
 
@@ -719,6 +721,7 @@ def tool(  # type: ignore
         context: When provided, places an object in the designated parameter. If True, the param name
             defaults to 'tool_context', or if an override is needed, set context equal to a string to designate
             the param name.
+        tags: Optional list of tags for categorizing this tool (e.g., ["data", "api"]).
 
     Returns:
         An AgentTool that also mimics the original function when invoked
@@ -773,6 +776,8 @@ def tool(  # type: ignore
             tool_spec["description"] = description
         if inputSchema is not None:
             tool_spec["inputSchema"] = inputSchema
+        if tags is not None:
+            tool_spec["tags"] = tags
 
         tool_name = tool_spec.get("name", f.__name__)
 
