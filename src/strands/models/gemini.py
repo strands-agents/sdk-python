@@ -3,6 +3,7 @@
 - Docs: https://ai.google.dev/api
 """
 
+import base64
 import json
 import logging
 import mimetypes
@@ -88,6 +89,11 @@ class GeminiModel(Model):
         self._custom_client = client
         self.client_args = client_args or {}
 
+        # Track the last thought_signature seen from model responses.
+        # Gemini thinking models require this signature to be passed back on subsequent requests.
+        # Stored as base64 string for consistency with JSON storage in streaming.py.
+        self._last_thought_signature: str | None = None
+
         # Validate gemini_tools if provided
         if "gemini_tools" in self.config:
             self._validate_gemini_tools(self.config["gemini_tools"])
@@ -135,7 +141,10 @@ class GeminiModel(Model):
             return genai.Client(**self.client_args)
 
     def _format_request_content_part(
-        self, content: ContentBlock, tool_use_id_to_name: dict[str, str]
+        self,
+        content: ContentBlock,
+        tool_use_id_to_name: dict[str, str],
+        last_thought_signature: str | None = None,
     ) -> genai.types.Part:
         """Format content block into a Gemini part instance.
 
@@ -147,6 +156,8 @@ class GeminiModel(Model):
                 Store the mapping from toolUseId to name for later use in toolResult formatting. This mapping is built
                 as we format the request, ensuring that when we encounter toolResult blocks (which come after toolUse
                 blocks in the message history), we can look up the function name.
+            last_thought_signature: The last thought signature seen from a preceding reasoningContent block.
+                Used for Gemini thinking models that require thought_signature on function calls.
 
         Returns:
             Gemini part.
@@ -173,7 +184,7 @@ class GeminiModel(Model):
             return genai.types.Part(
                 text=content["reasoningContent"]["reasoningText"]["text"],
                 thought=True,
-                thought_signature=thought_signature.encode("utf-8") if thought_signature else None,
+                thought_signature=base64.b64decode(thought_signature) if thought_signature else None,
             )
 
         if "text" in content:
@@ -202,14 +213,23 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
-            tool_use_id_to_name[content["toolUse"]["toolUseId"]] = content["toolUse"]["name"]
+            tool_use_id = content["toolUse"]["toolUseId"]
+            tool_use_id_to_name[tool_use_id] = content["toolUse"]["name"]
+
+            # Get thought_signature for Gemini thinking models (all sources are base64 strings)
+            # Priority: toolUse.thoughtSignature, reasoningContent signature, instance state
+            sig_str: str | None = (
+                content["toolUse"].get("thoughtSignature") or last_thought_signature or self._last_thought_signature
+            )
 
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
-                    id=content["toolUse"]["toolUseId"],
+                    id=tool_use_id,
                     name=content["toolUse"]["name"],
                 ),
+                # Decode base64 string to bytes only at API boundary
+                thought_signature=base64.b64decode(sig_str) if sig_str else None,
             )
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -229,6 +249,10 @@ class GeminiModel(Model):
         # available in tool result blocks, hence the mapping.
         tool_use_id_to_name: dict[str, str] = {}
 
+        # Track thought signature from reasoningContent blocks for Gemini thinking models.
+        # The signature is preserved by streaming.py and needs to be attached to subsequent function calls.
+        last_thought_signature: str | None = None
+
         contents = []
         for message in messages:
             parts = []
@@ -237,7 +261,16 @@ class GeminiModel(Model):
                 if _has_location_source(content):
                     logger.warning("Location sources are not supported by Gemini | skipping content block")
                     continue
-                parts.append(self._format_request_content_part(content, tool_use_id_to_name))
+
+                # Track thought signature from reasoningContent blocks
+                if "reasoningContent" in content:
+                    sig = content["reasoningContent"].get("reasoningText", {}).get("signature")
+                    if sig:
+                        last_thought_signature = sig
+
+                parts.append(
+                    self._format_request_content_part(content, tool_use_id_to_name, last_thought_signature)
+                )
 
             contents.append(
                 genai.types.Content(
@@ -259,20 +292,27 @@ class GeminiModel(Model):
         Return:
             Gemini tool list.
         """
-        tools = [
-            genai.types.Tool(
-                function_declarations=[
-                    genai.types.FunctionDeclaration(
-                        description=tool_spec["description"],
-                        name=tool_spec["name"],
-                        parameters_json_schema=tool_spec["inputSchema"]["json"],
-                    )
-                    for tool_spec in tool_specs or []
-                ],
-            ),
-        ]
+        tools = []
+
+        # Only add function declarations tool if there are tool specs
+        if tool_specs:
+            tools.append(
+                genai.types.Tool(
+                    function_declarations=[
+                        genai.types.FunctionDeclaration(
+                            description=tool_spec["description"],
+                            name=tool_spec["name"],
+                            parameters_json_schema=tool_spec["inputSchema"]["json"],
+                        )
+                        for tool_spec in tool_specs
+                    ],
+                ),
+            )
+
+        # Add any Gemini-specific tools
         if self.config.get("gemini_tools"):
             tools.extend(self.config["gemini_tools"])
+
         return tools
 
     def _format_request_config(
@@ -293,11 +333,19 @@ class GeminiModel(Model):
         Returns:
             Gemini request config.
         """
-        return genai.types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            tools=self._format_request_tools(tool_specs),
+        tools = self._format_request_tools(tool_specs)
+
+        # Build config kwargs, only including tools if there are any
+        config_kwargs = {
+            "system_instruction": system_prompt,
             **(params or {}),
-        )
+        }
+
+        # Only include tools parameter if there are actual tools to pass
+        if tools:
+            config_kwargs["tools"] = tools
+
+        return genai.types.GenerateContentConfig(**config_kwargs)
 
     def _format_request(
         self,
@@ -349,13 +397,20 @@ class GeminiModel(Model):
                         # Use Gemini's provided ID or generate one if missing
                         tool_use_id = function_call.id or f"tooluse_{secrets.token_urlsafe(16)}"
 
+                        tool_use_start: dict[str, Any] = {
+                            "name": function_call.name,
+                            "toolUseId": tool_use_id,
+                        }
+                        # Include thoughtSignature for Gemini thinking models
+                        if event["data"].thought_signature:
+                            tool_use_start["thoughtSignature"] = base64.b64encode(
+                                event["data"].thought_signature
+                            ).decode("ascii")
+
                         return {
                             "contentBlockStart": {
                                 "start": {
-                                    "toolUse": {
-                                        "name": function_call.name,
-                                        "toolUseId": tool_use_id,
-                                    },
+                                    "toolUse": tool_use_start,  # type: ignore[typeddict-item]
                                 },
                             },
                         }
@@ -379,7 +434,11 @@ class GeminiModel(Model):
                                     "reasoningContent": {
                                         "text": event["data"].text,
                                         **(
-                                            {"signature": event["data"].thought_signature.decode("utf-8")}
+                                            {
+                                                "signature": base64.b64encode(event["data"].thought_signature).decode(
+                                                    "ascii"
+                                                )
+                                            }
                                             if event["data"].thought_signature
                                             else {}
                                         ),
@@ -457,6 +516,9 @@ class GeminiModel(Model):
             tool_used = False
             candidate = None
             event = None
+            # Track thought signature across parts within the stream
+            current_thought_signature: bytes | None = None
+
             async for event in response:
                 candidates = event.candidates
                 candidate = candidates[0] if candidates else None
@@ -464,7 +526,17 @@ class GeminiModel(Model):
                 parts = content.parts if content and content.parts else []
 
                 for part in parts:
+                    # Capture thought signature if present in this part
+                    # Store as base64 string for consistency with JSON storage in streaming.py
+                    if part.thought_signature:
+                        current_thought_signature = part.thought_signature
+                        self._last_thought_signature = base64.b64encode(part.thought_signature).decode("ascii")
+
                     if part.function_call:
+                        # If this part doesn't have a signature but we've seen one, attach it
+                        if not part.thought_signature and current_thought_signature:
+                            part.thought_signature = current_thought_signature
+
                         yield self._format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": part})
                         yield self._format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": part})
                         yield self._format_chunk({"chunk_type": "content_stop", "data_type": "tool", "data": part})

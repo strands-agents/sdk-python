@@ -186,6 +186,9 @@ def handle_content_block_start(event: ContentBlockStartEvent) -> dict[str, Any]:
         current_tool_use["toolUseId"] = tool_use_data["toolUseId"]
         current_tool_use["name"] = tool_use_data["name"]
         current_tool_use["input"] = ""
+        # Capture thoughtSignature for thinking models (e.g., Gemini)
+        if "thoughtSignature" in tool_use_data:
+            current_tool_use["thoughtSignature"] = tool_use_data["thoughtSignature"]
 
     return current_tool_use
 
