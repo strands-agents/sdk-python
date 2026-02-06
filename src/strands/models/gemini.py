@@ -3,6 +3,7 @@
 - Docs: https://ai.google.dev/api
 """
 
+import base64
 import json
 import logging
 import mimetypes
@@ -135,7 +136,9 @@ class GeminiModel(Model):
             return genai.Client(**self.client_args)
 
     def _format_request_content_part(
-        self, content: ContentBlock, tool_use_id_to_name: dict[str, str]
+        self,
+        content: ContentBlock,
+        tool_use_id_to_name: dict[str, str],
     ) -> genai.types.Part:
         """Format content block into a Gemini part instance.
 
@@ -173,7 +176,7 @@ class GeminiModel(Model):
             return genai.types.Part(
                 text=content["reasoningContent"]["reasoningText"]["text"],
                 thought=True,
-                thought_signature=thought_signature.encode("utf-8") if thought_signature else None,
+                thought_signature=base64.b64decode(thought_signature) if thought_signature else None,
             )
 
         if "text" in content:
@@ -202,14 +205,18 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
-            tool_use_id_to_name[content["toolUse"]["toolUseId"]] = content["toolUse"]["name"]
+            tool_use_id = content["toolUse"]["toolUseId"]
+            tool_use_id_to_name[tool_use_id] = content["toolUse"]["name"]
+
+            reasoning_signature = content["toolUse"].get("reasoningSignature")
 
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
-                    id=content["toolUse"]["toolUseId"],
+                    id=tool_use_id,
                     name=content["toolUse"]["name"],
                 ),
+                thought_signature=base64.b64decode(reasoning_signature) if reasoning_signature else None,
             )
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -259,20 +266,27 @@ class GeminiModel(Model):
         Return:
             Gemini tool list.
         """
-        tools = [
-            genai.types.Tool(
-                function_declarations=[
-                    genai.types.FunctionDeclaration(
-                        description=tool_spec["description"],
-                        name=tool_spec["name"],
-                        parameters_json_schema=tool_spec["inputSchema"]["json"],
-                    )
-                    for tool_spec in tool_specs or []
-                ],
-            ),
-        ]
+        tools = []
+
+        # Only add function declarations tool if there are tool specs
+        if tool_specs:
+            tools.append(
+                genai.types.Tool(
+                    function_declarations=[
+                        genai.types.FunctionDeclaration(
+                            description=tool_spec["description"],
+                            name=tool_spec["name"],
+                            parameters_json_schema=tool_spec["inputSchema"]["json"],
+                        )
+                        for tool_spec in tool_specs
+                    ],
+                ),
+            )
+
+        # Add any Gemini-specific tools
         if self.config.get("gemini_tools"):
             tools.extend(self.config["gemini_tools"])
+
         return tools
 
     def _format_request_config(
@@ -293,11 +307,19 @@ class GeminiModel(Model):
         Returns:
             Gemini request config.
         """
-        return genai.types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            tools=self._format_request_tools(tool_specs),
+        tools = self._format_request_tools(tool_specs)
+
+        # Build config kwargs, only including tools if there are any
+        config_kwargs = {
+            "system_instruction": system_prompt,
             **(params or {}),
-        )
+        }
+
+        # Only include tools parameter if there are actual tools to pass
+        if tools:
+            config_kwargs["tools"] = tools
+
+        return genai.types.GenerateContentConfig(**config_kwargs)
 
     def _format_request(
         self,
@@ -349,13 +371,18 @@ class GeminiModel(Model):
                         # Use Gemini's provided ID or generate one if missing
                         tool_use_id = function_call.id or f"tooluse_{secrets.token_urlsafe(16)}"
 
+                        tool_use_start: dict[str, Any] = {
+                            "name": function_call.name,
+                            "toolUseId": tool_use_id,
+                        }
+                        if event["data"].thought_signature:
+                            tool_use_start["reasoningSignature"] = base64.b64encode(
+                                event["data"].thought_signature
+                            ).decode("ascii")
                         return {
                             "contentBlockStart": {
                                 "start": {
-                                    "toolUse": {
-                                        "name": function_call.name,
-                                        "toolUseId": tool_use_id,
-                                    },
+                                    "toolUse": tool_use_start,  # type: ignore[typeddict-item]
                                 },
                             },
                         }
@@ -379,7 +406,11 @@ class GeminiModel(Model):
                                     "reasoningContent": {
                                         "text": event["data"].text,
                                         **(
-                                            {"signature": event["data"].thought_signature.decode("utf-8")}
+                                            {
+                                                "signature": base64.b64encode(event["data"].thought_signature).decode(
+                                                    "ascii"
+                                                )
+                                            }
                                             if event["data"].thought_signature
                                             else {}
                                         ),
