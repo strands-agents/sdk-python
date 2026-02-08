@@ -465,6 +465,10 @@ class GeminiModel(Model):
 
                 for part in parts:
                     if part.function_call:
+                        if data_type is not None:
+                            yield self._format_chunk({"chunk_type": "content_stop", "data_type": data_type})
+                            data_type = None
+
                         yield self._format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": part})
                         yield self._format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": part})
                         yield self._format_chunk({"chunk_type": "content_stop", "data_type": "tool", "data": part})
