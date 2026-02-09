@@ -4,20 +4,49 @@ from unittest.mock import Mock, patch
 import pytest
 
 from strands.agent.agent import Agent
-from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
+from strands.agent.conversation_manager.summarizing_conversation_manager import (
+    DEFAULT_SUMMARIZATION_PROMPT,
+    SummarizingConversationManager,
+)
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
+async def _mock_model_stream(response_text):
+    """Create an async generator that yields stream events for a text response.
+
+    This simulates what a real Model.stream() returns so that process_stream() can
+    reconstruct the assistant message.
+    """
+    yield {"messageStart": {"role": "assistant"}}
+    yield {"contentBlockStart": {"start": {}}}
+    yield {"contentBlockDelta": {"delta": {"text": response_text}}}
+    yield {"contentBlockStop": {}}
+    yield {"messageStop": {"stopReason": "end_turn"}}
+
+
+async def _mock_model_stream_error(error):
+    """Async generator that raises an exception, simulating a model failure."""
+    raise error
+    yield  # pragma: no cover – makes this a generator
+
+
 class MockAgent:
-    """Mock agent for testing summarization."""
+    """Mock agent for testing summarization.
+
+    In the default path (no summarization_agent) the manager now calls
+    ``agent.model.stream()`` directly, so the model attribute must return a
+    proper async iterable.  When used as a *summarization_agent* the manager
+    still calls ``agent("…")``, so the ``__call__`` interface is kept.
+    """
 
     def __init__(self, summary_response="This is a summary of the conversation."):
         self.summary_response = summary_response
         self.system_prompt = None
         self.messages = []
         self.model = Mock()
+        self.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream(self.summary_response))
         self.call_tracker = Mock()
         self.tool_registry = Mock()
         self.tool_names = []
@@ -149,11 +178,12 @@ def test_reduce_context_insufficient_messages_for_summarization(mock_agent):
 
 
 def test_reduce_context_raises_on_summarization_failure():
-    """Test that reduce_context raises exception when summarization fails."""
-    # Create an agent that will fail
+    """Test that reduce_context raises exception when model.stream() fails."""
     failing_agent = Mock()
-    failing_agent.side_effect = Exception("Agent failed")
-    failing_agent.system_prompt = None
+    failing_agent.model = Mock()
+    failing_agent.model.stream = Mock(
+        side_effect=lambda *a, **kw: _mock_model_stream_error(Exception("Agent failed"))
+    )
     failing_agent_messages: Messages = [
         {"role": "user", "content": [{"text": "Message 1"}]},
         {"role": "assistant", "content": [{"text": "Response 1"}]},
@@ -207,13 +237,13 @@ def test_generate_summary_with_tool_content(summarizing_manager, mock_agent):
     assert "text" in summary_content and summary_content["text"] == "This is a summary of the conversation."
 
 
-def test_generate_summary_raises_on_agent_failure():
-    """Test that _generate_summary raises exception when agent fails."""
+def test_generate_summary_raises_on_model_failure():
+    """Test that _generate_summary raises exception when model.stream() fails."""
     failing_agent = Mock()
-    failing_agent.side_effect = Exception("Agent failed")
-    failing_agent.system_prompt = None
-    empty_failing_messages: Messages = []
-    failing_agent.messages = empty_failing_messages
+    failing_agent.model = Mock()
+    failing_agent.model.stream = Mock(
+        side_effect=lambda *a, **kw: _mock_model_stream_error(Exception("Agent failed"))
+    )
 
     manager = SummarizingConversationManager()
 
@@ -222,7 +252,7 @@ def test_generate_summary_raises_on_agent_failure():
         {"role": "assistant", "content": [{"text": "Hi there"}]},
     ]
 
-    # Should raise the exception from the agent
+    # Should raise the exception from the model
     with pytest.raises(Exception, match="Agent failed"):
         manager._generate_summary(messages, failing_agent)
 
@@ -325,8 +355,8 @@ def test_uses_summarization_agent_when_provided():
     summary_agent.call_tracker.assert_called_once()
 
 
-def test_uses_parent_agent_when_no_summarization_agent():
-    """Test that parent agent is used when no summarization_agent is provided."""
+def test_default_path_calls_model_directly():
+    """Test that the default path (no summarization_agent) calls model.stream() directly."""
     manager = SummarizingConversationManager()
 
     messages: Messages = [
@@ -337,16 +367,36 @@ def test_uses_parent_agent_when_no_summarization_agent():
     parent_agent = create_mock_agent("Parent agent summary")
     summary = manager._generate_summary(messages, parent_agent)
 
-    # Should use the parent agent
+    # Should use the model directly (via model.stream)
     summary_content = summary["content"][0]
     assert "text" in summary_content and summary_content["text"] == "Parent agent summary"
 
-    # Assert that the parent agent was called
-    parent_agent.call_tracker.assert_called_once()
+    # model.stream() should have been called
+    parent_agent.model.stream.assert_called_once()
+
+    # The agent itself should NOT have been called (no re-entrant invocation)
+    parent_agent.call_tracker.assert_not_called()
 
 
-def test_uses_custom_system_prompt():
-    """Test that custom system prompt is used when provided."""
+def test_default_path_passes_correct_system_prompt():
+    """Test that the default path passes the correct system prompt to model.stream()."""
+    manager = SummarizingConversationManager()
+
+    messages: Messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there"}]},
+    ]
+
+    parent_agent = create_mock_agent()
+    manager._generate_summary(messages, parent_agent)
+
+    # Verify model.stream() was called with the default summarization system prompt
+    call_kwargs = parent_agent.model.stream.call_args
+    assert call_kwargs.kwargs["system_prompt"] == DEFAULT_SUMMARIZATION_PROMPT
+
+
+def test_default_path_uses_custom_system_prompt():
+    """Test that custom system prompt is passed to model.stream() in default path."""
     custom_prompt = "Custom system prompt for summarization"
     manager = SummarizingConversationManager(summarization_system_prompt=custom_prompt)
     mock_agent = create_mock_agent()
@@ -356,16 +406,15 @@ def test_uses_custom_system_prompt():
         {"role": "assistant", "content": [{"text": "Hi there"}]},
     ]
 
-    # Capture the agent's system prompt changes
-    original_prompt = mock_agent.system_prompt
     manager._generate_summary(messages, mock_agent)
 
-    # The agent's system prompt should be restored after summarization
-    assert mock_agent.system_prompt == original_prompt
+    # Verify model.stream() was called with the custom system prompt
+    call_kwargs = mock_agent.model.stream.call_args
+    assert call_kwargs.kwargs["system_prompt"] == custom_prompt
 
 
-def test_agent_state_restoration():
-    """Test that agent state is properly restored after summarization."""
+def test_default_path_does_not_modify_agent_state():
+    """Test that the default path does not modify any agent state."""
     manager = SummarizingConversationManager()
     mock_agent = create_mock_agent()
 
@@ -374,6 +423,7 @@ def test_agent_state_restoration():
     original_messages: Messages = [{"role": "user", "content": [{"text": "Original message"}]}]
     mock_agent.system_prompt = original_system_prompt
     mock_agent.messages = original_messages.copy()
+    original_tool_registry = mock_agent.tool_registry
 
     messages: Messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
@@ -382,33 +432,99 @@ def test_agent_state_restoration():
 
     manager._generate_summary(messages, mock_agent)
 
-    # State should be restored
+    # Agent state should be completely untouched
     assert mock_agent.system_prompt == original_system_prompt
     assert mock_agent.messages == original_messages
+    assert mock_agent.tool_registry is original_tool_registry
 
 
-def test_agent_state_restoration_on_exception():
-    """Test that agent state is restored even when summarization fails."""
+def test_default_path_does_not_modify_agent_state_on_exception():
+    """Test that agent state is untouched when model.stream() fails in default path."""
     manager = SummarizingConversationManager()
 
-    # Create an agent that fails during summarization
     mock_agent = Mock()
     mock_agent.system_prompt = "Original prompt"
     agent_messages: Messages = [{"role": "user", "content": [{"text": "Original"}]}]
     mock_agent.messages = agent_messages
-    mock_agent.side_effect = Exception("Summarization failed")
+    mock_agent.model = Mock()
+    mock_agent.model.stream = Mock(
+        side_effect=lambda *a, **kw: _mock_model_stream_error(Exception("Summarization failed"))
+    )
 
     messages: Messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
         {"role": "assistant", "content": [{"text": "Hi there"}]},
     ]
 
-    # Should restore state even on exception
     with pytest.raises(Exception, match="Summarization failed"):
         manager._generate_summary(messages, mock_agent)
 
-    # State should still be restored
+    # Agent state should be untouched (default path never modifies it)
     assert mock_agent.system_prompt == "Original prompt"
+    assert mock_agent.messages == agent_messages
+
+
+def test_default_path_passes_no_tool_specs():
+    """Test that model.stream() is called with tool_specs=None in default path."""
+    manager = SummarizingConversationManager()
+
+    messages: Messages = [{"role": "user", "content": [{"text": "test"}]}]
+    agent = create_mock_agent()
+
+    manager._generate_summary(messages, agent)
+
+    # model.stream() should be called with tool_specs=None
+    call_kwargs = agent.model.stream.call_args
+    assert call_kwargs.kwargs.get("tool_specs") is None or call_kwargs[0][1] is None
+
+
+def test_agent_path_state_restoration_with_summarization_agent():
+    """Test that summarization_agent state is properly restored after summarization."""
+    summary_agent = create_mock_agent("Summary from dedicated agent")
+    manager = SummarizingConversationManager(summarization_agent=summary_agent)
+
+    # Set initial state on the summarization agent
+    original_system_prompt = "Agent original prompt"
+    original_messages: Messages = [{"role": "user", "content": [{"text": "Agent original message"}]}]
+    summary_agent.system_prompt = original_system_prompt
+    summary_agent.messages = original_messages.copy()
+    original_tool_registry = summary_agent.tool_registry
+
+    messages: Messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there"}]},
+    ]
+
+    parent_agent = create_mock_agent("Should not be used")
+    manager._generate_summary(messages, parent_agent)
+
+    # Summarization agent state should be restored
+    assert summary_agent.system_prompt == original_system_prompt
+    assert summary_agent.messages == original_messages
+    assert summary_agent.tool_registry is original_tool_registry
+
+
+def test_agent_path_state_restoration_on_exception():
+    """Test that summarization_agent state is restored even when it fails."""
+    summary_agent = Mock()
+    summary_agent.system_prompt = "Original prompt"
+    agent_messages: Messages = [{"role": "user", "content": [{"text": "Original"}]}]
+    summary_agent.messages = agent_messages
+    summary_agent.side_effect = Exception("Summarization failed")
+    summary_agent.tool_names = []
+
+    manager = SummarizingConversationManager(summarization_agent=cast("Agent", summary_agent))
+
+    messages: Messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there"}]},
+    ]
+
+    with pytest.raises(Exception, match="Summarization failed"):
+        manager._generate_summary(messages, cast("Agent", Mock()))
+
+    # State should still be restored
+    assert summary_agent.system_prompt == "Original prompt"
 
 
 def test_reduce_context_tool_pair_adjustment_works_with_forward_search():
@@ -613,27 +729,47 @@ def test_summarizing_conversation_manager_properly_records_removed_message_count
 
 
 @patch("strands.agent.conversation_manager.summarizing_conversation_manager.ToolRegistry")
-def test_summarizing_conversation_manager_generate_summary_with_noop_tool(mock_registry_cls, summarizing_manager):
+def test_summarizing_conversation_manager_generate_summary_with_noop_tool_agent_path(
+    mock_registry_cls,
+):
+    """Test noop tool registration when using the agent path (summarization_agent provided)."""
     mock_registry = mock_registry_cls.return_value
 
+    summary_agent = create_mock_agent()
+    manager = SummarizingConversationManager(
+        summary_ratio=0.5,
+        preserve_recent_messages=2,
+        summarization_agent=summary_agent,
+    )
+
     messages = [{"role": "user", "content": [{"text": "test"}]}]
-    agent = create_mock_agent()
+    parent_agent = create_mock_agent()
 
-    original_tool_registry = agent.tool_registry
-    summarizing_manager._generate_summary(messages, agent)
+    original_tool_registry = summary_agent.tool_registry
+    manager._generate_summary(messages, parent_agent)
 
-    assert original_tool_registry == agent.tool_registry
+    assert original_tool_registry == summary_agent.tool_registry
     mock_registry.register_tool.assert_called_once()
 
 
 @patch("strands.agent.conversation_manager.summarizing_conversation_manager.ToolRegistry")
-def test_summarizing_conversation_manager_generate_summary_with_tools(mock_registry_cls, summarizing_manager):
+def test_summarizing_conversation_manager_generate_summary_with_tools_agent_path(
+    mock_registry_cls,
+):
+    """Test no noop tool registration when summarization_agent has tools."""
     mock_registry = mock_registry_cls.return_value
 
-    messages = [{"role": "user", "content": [{"text": "test"}]}]
-    agent = create_mock_agent()
-    agent.tool_names = ["test_tool"]
+    summary_agent = create_mock_agent()
+    summary_agent.tool_names = ["test_tool"]
+    manager = SummarizingConversationManager(
+        summary_ratio=0.5,
+        preserve_recent_messages=2,
+        summarization_agent=summary_agent,
+    )
 
-    summarizing_manager._generate_summary(messages, agent)
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    parent_agent = create_mock_agent()
+
+    manager._generate_summary(messages, parent_agent)
 
     mock_registry.register_tool.assert_not_called()
