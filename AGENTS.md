@@ -69,6 +69,7 @@ strands-agents/
 │   │   │   ├── mcp_client.py             # MCP client implementation
 │   │   │   ├── mcp_agent_tool.py         # MCP tool wrapper
 │   │   │   ├── mcp_types.py              # MCP type definitions
+│   │   │   ├── mcp_tasks.py              # Task-augmented execution config
 │   │   │   └── mcp_instrumentation.py    # MCP telemetry
 │   │   └── structured_output/            # Structured output handling
 │   │       ├── structured_output_tool.py
@@ -407,6 +408,60 @@ hatch test --all                     # Test all Python versions (3.10-3.13)
 - Use `moto` for mocking AWS services
 - Use `pytest.mark.asyncio` for async tests
 - Keep tests focused and independent
+
+## MCP Tasks (Experimental)
+
+The SDK supports MCP task-augmented execution for long-running tools. This feature is experimental and aligns with the MCP specification 2025-11-25.
+
+### Overview
+
+Task-augmented execution allows tools to run asynchronously with a workflow:
+1. Create task via `call_tool_as_task`
+2. Poll for completion via `poll_task`
+3. Get result via `get_task_result`
+
+### Configuration
+
+Enable tasks by passing a `TasksConfig` to `MCPClient`:
+
+```python
+from datetime import timedelta
+from strands.tools.mcp import MCPClient, TasksConfig
+
+# Enable with defaults (ttl=1min, poll_timeout=5min)
+client = MCPClient(transport, tasks_config={})
+
+# Or configure explicitly
+client = MCPClient(
+    transport,
+    tasks_config=TasksConfig(
+        ttl=timedelta(minutes=2),           # Task time-to-live
+        poll_timeout=timedelta(minutes=10),  # Polling timeout
+    ),
+)
+```
+
+### Tool Support Levels
+
+MCP tools declare their task support via `execution.taskSupport`:
+- `TASK_REQUIRED`: Tool must use task-augmented execution
+- `TASK_OPTIONAL`: Tool can use tasks if client opts in
+- `TASK_FORBIDDEN`: Tool does not support tasks (default)
+
+### Decision Logic
+
+Task-augmented execution is used when ALL conditions are met:
+1. Client opts in via `tasks_config` (not None)
+2. Server advertises task capability (`tasks.requests.tools.call`)
+3. Tool's `taskSupport` is `required` or `optional`
+
+### Key Files
+
+- `src/strands/tools/mcp/mcp_tasks.py` - `TasksConfig` and defaults
+- `src/strands/tools/mcp/mcp_client.py` - Task execution logic (`_call_tool_as_task_and_poll_async`)
+- `tests/strands/tools/mcp/test_mcp_client_tasks.py` - Unit tests
+- `tests_integ/mcp/test_mcp_client_tasks.py` - Integration tests
+- `tests_integ/mcp/task_echo_server.py` - Test server with task support
 
 ## Things to Do
 

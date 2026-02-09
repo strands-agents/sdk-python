@@ -51,7 +51,7 @@ def task_mcp_client(task_server: Any, task_server_port: int) -> MCPClient:
     def transport_callback() -> MCPTransport:
         return streamablehttp_client(url=f"http://127.0.0.1:{task_server_port}/mcp")
 
-    return MCPClient(transport_callback, tasks=TasksConfig())
+    return MCPClient(transport_callback, tasks_config=TasksConfig())
 
 
 @pytest.fixture

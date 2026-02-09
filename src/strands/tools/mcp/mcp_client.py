@@ -121,7 +121,7 @@ class MCPClient(ToolProvider):
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
         elicitation_callback: ElicitationFnT | None = None,
-        tasks: TasksConfig | None = None,
+        tasks_config: TasksConfig | None = None,
     ) -> None:
         """Initialize a new MCP Server connection.
 
@@ -132,7 +132,7 @@ class MCPClient(ToolProvider):
             tool_filters: Optional filters to apply to tools.
             prefix: Optional prefix for tool names.
             elicitation_callback: Optional callback function to handle elicitation requests from the MCP server.
-            tasks: Configuration for MCP task-augmented execution for long-running tools.
+            tasks_config: Configuration for MCP task-augmented execution for long-running tools.
                 If provided (not None), enables task-augmented execution for tools that support it.
                 See TasksConfig for details. This feature is experimental and subject to change.
         """
@@ -160,7 +160,7 @@ class MCPClient(ToolProvider):
         self._consumers: set[Any] = set()
 
         # Task support configuration and caching
-        self._tasks = tasks
+        self._tasks_config = tasks_config
         self._server_task_capable: bool | None = None
 
         # Conditionally set up the task support cache (old SDK versions don't expose TaskExecutionMode)
@@ -976,11 +976,11 @@ class MCPClient(ToolProvider):
         Returns:
             True if task-augmented execution is enabled, False otherwise.
         """
-        return self._tasks is not None
+        return self._tasks_config is not None
 
     def _get_task_config(self) -> TasksConfig:
         """Returns the task execution configuration, configured with defaults if not specified."""
-        task_config = self._tasks or DEFAULT_TASK_CONFIG
+        task_config = self._tasks_config or DEFAULT_TASK_CONFIG
         return TasksConfig(
             ttl=task_config.get("ttl", DEFAULT_TASK_TTL),
             poll_timeout=task_config.get("poll_timeout", DEFAULT_TASK_POLL_TIMEOUT),
@@ -1124,9 +1124,14 @@ class MCPClient(ToolProvider):
             final_status = await asyncio.wait_for(_poll_until_terminal(), timeout=timeout.total_seconds())
         except asyncio.TimeoutError:
             self._log_debug_with_thread(
-                "tool=<%s>, task_id=<%s>, timeout=<%s> | task polling timed out", name, task_id, timeout
+                "tool=<%s>, task_id=<%s>, timeout_seconds=<%s> | task polling timed out",
+                name,
+                task_id,
+                timeout.total_seconds(),
             )
-            return self._create_task_error_result(f"Task {task_id} polling timed out after {timeout} seconds")
+            return self._create_task_error_result(
+                f"Task {task_id} polling timed out after {timeout.total_seconds()} seconds"
+            )
 
         # Step 3: Handle terminal status
         if final_status is None:
