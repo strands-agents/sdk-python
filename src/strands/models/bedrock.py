@@ -391,7 +391,16 @@ class BedrockModel(Model):
         filtered_unknown_members = False
         dropped_deepseek_reasoning_content = False
 
-        guardrail_latest_message = self.config.get("guardrail_latest_message", False)
+        # Pre-compute the index of the last user message containing text or image content
+        # so that guardContent wrapping is maintained even when the final message is a toolResult.
+        last_user_text_idx = None
+        if self.config.get("guardrail_latest_message", False):
+            for ridx, msg in reversed(list(enumerate(messages))):
+                if msg["role"] == "user" and any(
+                    "text" in cb or "image" in cb for cb in msg.get("content", [])
+                ):
+                    last_user_text_idx = ridx
+                    break
 
         for idx, message in enumerate(messages):
             cleaned_content: list[dict[str, Any]] = []
@@ -413,12 +422,9 @@ class BedrockModel(Model):
                 if formatted_content is None:
                     continue
 
-                # Wrap text or image content in guardrailContent if this is the last user message
-                if (
-                    guardrail_latest_message
-                    and idx == len(messages) - 1
-                    and message["role"] == "user"
-                    and ("text" in formatted_content or "image" in formatted_content)
+                # Wrap text or image content in guardContent if this is the last user text/image message
+                if idx == last_user_text_idx and (
+                    "text" in formatted_content or "image" in formatted_content
                 ):
                     if "text" in formatted_content:
                         formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
