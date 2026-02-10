@@ -42,7 +42,7 @@ This module supports both the class-based HookProvider approach and the newer
 decorator-based @hook approach for maximum flexibility.
 """
 
-from .decorator import DecoratedFunctionHook, FunctionHookMetadata, HookMetadata, hook
+from .decorator import DecoratedFunctionHook, hook
 from .events import (
     AfterInvocationEvent,
     AfterModelCallEvent,
@@ -86,6 +86,4 @@ __all__ = [
     # Decorator
     "hook",
     "DecoratedFunctionHook",
-    "FunctionHookMetadata",
-    "HookMetadata",
 ]

@@ -20,7 +20,7 @@ Example:
 import functools
 import inspect
 import types
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import (
     Any,
@@ -31,7 +31,6 @@ from typing import (
     get_args,
     get_origin,
     get_type_hints,
-    overload,
 )
 
 from .registry import BaseHookEvent, HookCallback, HookProvider, HookRegistry
@@ -62,25 +61,21 @@ class FunctionHookMetadata:
     def __init__(
         self,
         func: Callable[..., Any],
-        event_types: Sequence[type[BaseHookEvent]] | None = None,
     ) -> None:
         """Initialize with the function to process.
 
         Args:
             func: The function to extract metadata from.
-            event_types: Optional explicit event types. If not provided,
-                        will be extracted from type hints.
         """
         self.func = func
         self.signature = inspect.signature(func)
-        self._explicit_event_types = list(event_types) if event_types else None
 
         # Validate and extract event types
         self._event_types = self._resolve_event_types()
         self._validate_event_types()
 
     def _resolve_event_types(self) -> list[type[BaseHookEvent]]:
-        """Resolve event types from explicit parameter or type hints.
+        """Resolve event types from type hints.
 
         Returns:
             List of event types this hook handles.
@@ -88,10 +83,6 @@ class FunctionHookMetadata:
         Raises:
             ValueError: If no event type can be determined.
         """
-        # Use explicit event types if provided
-        if self._explicit_event_types:
-            return self._explicit_event_types
-
         # Try to extract from type hints
         try:
             type_hints = get_type_hints(self.func)
@@ -107,7 +98,7 @@ class FunctionHookMetadata:
         if not event_params:
             raise ValueError(
                 f"Hook function '{self.func.__name__}' must have at least one parameter "
-                "for the event. Use @hook(event=EventType) if type hints are unavailable."
+                "for the event with a type hint."
             )
 
         first_param = event_params[0]
@@ -119,8 +110,7 @@ class FunctionHookMetadata:
                 event_type = first_param.annotation
             else:
                 raise ValueError(
-                    f"Hook function '{self.func.__name__}' must have a type hint for the event parameter, "
-                    "or use @hook(event=EventType) to specify the event type explicitly."
+                    f"Hook function '{self.func.__name__}' must have a type hint for the event parameter."
                 )
 
         # Handle Union types (e.g., BeforeToolCallEvent | AfterToolCallEvent)
@@ -258,38 +248,22 @@ class DecoratedFunctionHook(HookProvider, Generic[TEvent]):
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-@overload
-def hook(__func: F) -> DecoratedFunctionHook[Any]: ...
-
-
-@overload
-def hook(
-    *,
-    event: type[BaseHookEvent] | None = None,
-    events: Sequence[type[BaseHookEvent]] | None = None,
-) -> Callable[[F], DecoratedFunctionHook[Any]]: ...
-
-
 def hook(
     func: F | None = None,
-    event: type[BaseHookEvent] | None = None,
-    events: Sequence[type[BaseHookEvent]] | None = None,
 ) -> DecoratedFunctionHook[Any] | Callable[[F], DecoratedFunctionHook[Any]]:
     """Decorator that transforms a function into a HookProvider.
 
     The decorated function can be passed directly to Agent(hooks=[...]).
-    Event types are detected from type hints or can be specified explicitly.
+    Event types are automatically detected from the function's type hints.
 
     Args:
         func: The function to decorate.
-        event: Single event type to handle.
-        events: List of event types to handle.
 
     Returns:
         A DecoratedFunctionHook that implements HookProvider.
 
     Raises:
-        ValueError: If no event type can be determined.
+        ValueError: If no event type can be determined from type hints.
         ValueError: If event types are not subclasses of BaseHookEvent.
 
     Example:
@@ -306,21 +280,9 @@ def hook(
     """
 
     def decorator(f: F) -> DecoratedFunctionHook[Any]:
-        # Determine event types from parameters or type hints
-        event_types: list[type[BaseHookEvent]] | None = None
-
-        if events is not None:
-            event_types = list(events)
-        elif event is not None:
-            event_types = [event]
-        # Otherwise, let FunctionHookMetadata extract from type hints
-
-        # Create function hook metadata
-        hook_meta = FunctionHookMetadata(f, event_types)
-
+        hook_meta = FunctionHookMetadata(f)
         return DecoratedFunctionHook(f, hook_meta)
 
-    # Handle both @hook and @hook() syntax
     if func is None:
         return decorator
 

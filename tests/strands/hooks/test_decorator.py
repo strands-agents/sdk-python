@@ -1,5 +1,7 @@
 """Tests for the @hook decorator."""
 
+import asyncio
+import unittest.mock as mock
 from unittest.mock import MagicMock
 
 import pytest
@@ -10,12 +12,11 @@ from strands.hooks import (
     BeforeNodeCallEvent,
     BeforeToolCallEvent,
     DecoratedFunctionHook,
-    FunctionHookMetadata,
-    HookMetadata,
     HookProvider,
     HookRegistry,
     hook,
 )
+from strands.hooks.decorator import FunctionHookMetadata, HookMetadata
 
 
 class TestHookDecorator:
@@ -32,26 +33,6 @@ class TestHookDecorator:
         assert my_hook.name == "my_hook"
         assert my_hook.event_types == [BeforeToolCallEvent]
         assert not my_hook.is_async
-
-    def test_decorator_with_explicit_event(self):
-        """Test @hook(event=...) syntax."""
-
-        @hook(event=BeforeToolCallEvent)
-        def my_hook(event) -> None:
-            pass
-
-        assert isinstance(my_hook, DecoratedFunctionHook)
-        assert my_hook.event_types == [BeforeToolCallEvent]
-
-    def test_decorator_with_multiple_events(self):
-        """Test @hook(events=[...]) syntax for multiple event types."""
-
-        @hook(events=[BeforeToolCallEvent, AfterToolCallEvent])
-        def my_hook(event: BeforeToolCallEvent | AfterToolCallEvent) -> None:
-            pass
-
-        assert isinstance(my_hook, DecoratedFunctionHook)
-        assert set(my_hook.event_types) == {BeforeToolCallEvent, AfterToolCallEvent}
 
     def test_decorator_with_union_type_hint(self):
         """Test @hook with Union type hint extracts multiple event types."""
@@ -149,7 +130,7 @@ class TestHookDecorator:
         """Test that multi-event hooks register for all event types."""
         events_received = []
 
-        @hook(events=[BeforeToolCallEvent, AfterToolCallEvent])
+        @hook
         def multi_hook(event: BeforeToolCallEvent | AfterToolCallEvent) -> None:
             events_received.append(type(event).__name__)
 
@@ -232,14 +213,6 @@ class TestHookDecoratorErrors:
             def no_hint(event) -> None:
                 pass
 
-    def test_invalid_event_type_error(self):
-        """Test error when event type is not a BaseHookEvent subclass."""
-        with pytest.raises(ValueError, match="must be a subclass of BaseHookEvent"):
-
-            @hook(event=str)  # type: ignore
-            def invalid_event(event) -> None:
-                pass
-
     def test_invalid_union_type_error(self):
         """Test error when Union contains non-event types."""
         with pytest.raises(ValueError, match="must be subclasses of BaseHookEvent"):
@@ -258,14 +231,6 @@ class TestHookDecoratorErrors:
 
             @hook
             def invalid_hook(event: NotAnEvent) -> None:
-                pass
-
-    def test_invalid_single_event_type_in_explicit_list(self):
-        """Test error when explicit event list contains invalid type."""
-        with pytest.raises(ValueError, match="must be a subclass of BaseHookEvent"):
-
-            @hook(events=[str])  # type: ignore
-            def invalid_events_hook(event) -> None:
                 pass
 
 
@@ -287,15 +252,6 @@ class TestFunctionHookMetadata:
         assert hook_meta.description == "A test hook function."
         assert hook_meta.event_types == [BeforeToolCallEvent]
         assert not hook_meta.is_async
-
-    def test_explicit_event_types_override(self):
-        """Test that explicit event types override type hints."""
-
-        def my_func(event: BeforeToolCallEvent) -> None:
-            pass
-
-        metadata = FunctionHookMetadata(my_func, event_types=[AfterToolCallEvent])
-        assert metadata.event_types == [AfterToolCallEvent]
 
     def test_event_types_property(self):
         """Test FunctionHookMetadata.event_types property."""
@@ -337,8 +293,6 @@ class TestAsyncHooks:
 
     def test_async_hook_direct_invocation(self):
         """Test async hook direct invocation."""
-        import asyncio
-
         received_events = []
 
         @hook
@@ -353,8 +307,6 @@ class TestAsyncHooks:
 
     def test_async_hook_via_registry(self):
         """Test async hook when invoked via registry."""
-        import asyncio
-
         received_events = []
 
         @hook
@@ -550,7 +502,6 @@ class TestEdgeCases:
 
     def test_get_type_hints_exception_fallback(self):
         """Test fallback when get_type_hints raises an exception."""
-        import unittest.mock as mock
 
         def func_with_annotation(event: BeforeToolCallEvent) -> None:
             pass
@@ -561,7 +512,6 @@ class TestEdgeCases:
 
     def test_annotation_fallback_when_type_hints_empty(self):
         """Test annotation is used when get_type_hints returns empty dict."""
-        import unittest.mock as mock
 
         def func_with_annotation(event: BeforeToolCallEvent) -> None:
             pass
