@@ -586,3 +586,173 @@ async def test_self_loop_resume_from_persisted_state(tmp_path):
     assert result.status == Status.COMPLETED
     assert len(result.execution_order) == 5
     assert all(node.node_id == "loop_node" for node in result.execution_order)
+
+
+@pytest.mark.asyncio
+async def test_edge_execution_mode_and():
+    """Test AND edge execution mode - node waits for ALL predecessors to complete."""
+    from strands.multiagent import EdgeExecutionMode
+
+    # Create three parallel agents and one downstream agent
+    agent_a = Agent(
+        name="agent_a",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are Agent A. Respond briefly with 'A completed'.",
+    )
+    agent_b = Agent(
+        name="agent_b",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are Agent B. Respond briefly with 'B completed'.",
+    )
+    agent_c = Agent(
+        name="agent_c",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are Agent C. Respond briefly with 'C completed'.",
+    )
+    agent_z = Agent(
+        name="agent_z",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are Agent Z. Summarize the inputs you received from previous agents.",
+    )
+
+    # Build graph with AND mode: A, B, C all must complete before Z
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.add_node(agent_b, "B")
+    builder.add_node(agent_c, "C")
+    builder.add_node(agent_z, "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z")
+    builder.add_edge("C", "Z")
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+    builder.set_entry_point("C")
+    builder.set_edge_execution_mode(EdgeExecutionMode.AND)
+
+    graph = builder.build()
+    assert graph.edge_execution_mode == EdgeExecutionMode.AND
+
+    result = await graph.invoke_async("Execute all agents")
+
+    # Verify successful execution
+    assert result.status == Status.COMPLETED
+    assert result.completed_nodes == 4  # A, B, C, Z all completed
+
+    # Verify execution order: A, B, C should all be before Z
+    execution_ids = [node.node_id for node in result.execution_order]
+    z_index = execution_ids.index("Z")
+
+    # All of A, B, C must appear before Z in the execution order
+    assert "A" in execution_ids[:z_index], "A should complete before Z in AND mode"
+    assert "B" in execution_ids[:z_index], "B should complete before Z in AND mode"
+    assert "C" in execution_ids[:z_index], "C should complete before Z in AND mode"
+
+    # Verify Z only executed once
+    z_executions = sum(1 for node in result.execution_order if node.node_id == "Z")
+    assert z_executions == 1, "Z should execute exactly once"
+
+    # Verify Z received inputs from all predecessors
+    z_result = result.results["Z"]
+    assert z_result.status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_edge_execution_mode_or_default():
+    """Test OR edge execution mode (default) - node executes when ANY predecessor completes."""
+    from strands.multiagent import EdgeExecutionMode
+
+    # Create two parallel agents and one downstream agent
+    agent_a = Agent(
+        name="agent_a",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are Agent A. Respond briefly with 'A completed'.",
+    )
+    agent_b = Agent(
+        name="agent_b",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are Agent B. Respond briefly with 'B completed'.",
+    )
+    agent_z = Agent(
+        name="agent_z",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are Agent Z. Respond briefly acknowledging the input.",
+    )
+
+    # Build graph with default OR mode
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.add_node(agent_b, "B")
+    builder.add_node(agent_z, "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z")
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+    # Default is OR mode - don't set explicitly
+
+    graph = builder.build()
+    assert graph.edge_execution_mode == EdgeExecutionMode.OR
+
+    result = await graph.invoke_async("Execute all agents")
+
+    # Verify successful execution
+    assert result.status == Status.COMPLETED
+    assert result.completed_nodes == 3  # A, B, Z all completed
+
+    # In OR mode, Z executes once after A and B complete (since they run in parallel)
+    z_executions = sum(1 for node in result.execution_order if node.node_id == "Z")
+    assert z_executions == 1, "Z should execute exactly once"
+
+    # Verify all nodes are in results
+    assert "A" in result.results
+    assert "B" in result.results
+    assert "Z" in result.results
+
+
+@pytest.mark.asyncio
+async def test_edge_execution_mode_and_with_conditions():
+    """Test AND edge execution mode with conditional edges."""
+    from strands.multiagent import EdgeExecutionMode
+
+    agent_a = Agent(
+        name="agent_a",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are Agent A. Respond briefly.",
+    )
+    agent_b = Agent(
+        name="agent_b",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are Agent B. Respond briefly.",
+    )
+    agent_z = Agent(
+        name="agent_z",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are Agent Z. Respond briefly.",
+    )
+
+    # Condition that blocks B->Z edge
+    def block_b_to_z(state):
+        return False
+
+    # Build graph with AND mode and a blocked edge
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "A")
+    builder.add_node(agent_b, "B")
+    builder.add_node(agent_z, "Z")
+    builder.add_edge("A", "Z")
+    builder.add_edge("B", "Z", condition=block_b_to_z)  # This edge is blocked
+    builder.set_entry_point("A")
+    builder.set_entry_point("B")
+    builder.set_edge_execution_mode(EdgeExecutionMode.AND)
+
+    graph = builder.build()
+    result = await graph.invoke_async("Test AND mode with blocked condition")
+
+    # Z should NOT execute because in AND mode ALL conditions must be satisfied
+    assert result.status == Status.COMPLETED
+    assert result.completed_nodes == 2  # Only A and B completed
+
+    # Verify Z is not in execution order
+    execution_ids = [node.node_id for node in result.execution_order]
+    assert "A" in execution_ids
+    assert "B" in execution_ids
+    assert "Z" not in execution_ids
