@@ -492,7 +492,11 @@ class BedrockModel(Model):
         """
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CachePointBlock.html
         if "cachePoint" in content:
-            return {"cachePoint": {"type": content["cachePoint"]["type"]}}
+            cache_point = content["cachePoint"]
+            result = {"type": cache_point["type"]}
+            if "ttl" in cache_point:
+                result["ttl"] = cache_point["ttl"]
+            return {"cachePoint": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_DocumentBlock.html
         if "document" in content:

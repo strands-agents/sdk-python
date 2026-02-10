@@ -2050,6 +2050,53 @@ def test_format_request_filters_cache_point_content_blocks(model, model_id):
     assert "extraField" not in cache_point_block
 
 
+def test_format_request_preserves_cache_point_ttl(model, model_id):
+    """Test that format_request preserves the ttl field in cachePoint content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "cachePoint": {
+                        "type": "default",
+                        "ttl": "1h",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    cache_point_block = formatted_request["messages"][0]["content"][0]["cachePoint"]
+    expected = {"type": "default", "ttl": "1h"}
+    assert cache_point_block == expected
+    assert cache_point_block["ttl"] == "1h"
+
+
+def test_format_request_cache_point_without_ttl(model, model_id):
+    """Test that cache points work without ttl field (backward compatibility)."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "cachePoint": {
+                        "type": "default",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    cache_point_block = formatted_request["messages"][0]["content"][0]["cachePoint"]
+    expected = {"type": "default"}
+    assert cache_point_block == expected
+    assert "ttl" not in cache_point_block
+
+
 def test_config_validation_warns_on_unknown_keys(bedrock_client, captured_warnings):
     """Test that unknown config keys emit a warning."""
     BedrockModel(model_id="test-model", invalid_param="test")
