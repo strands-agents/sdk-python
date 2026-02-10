@@ -1116,3 +1116,84 @@ async def test_a2a_compliant_mode_uses_add_artifact(mock_strands_agent):
     assert mock_updater.add_artifact.call_args[1]["artifact_id"] == "artifact-123"
     assert mock_updater.add_artifact.call_args[1]["append"] is False
     mock_updater.update_status.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a2a_compliant_handle_result_first_chunk_with_content(mock_strands_agent):
+    """Test that A2A-compliant mode sends a TextPart with content when first chunk and result has content."""
+    executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
+    executor._current_artifact_id = "artifact-456"
+    executor._is_first_chunk = True
+
+    mock_updater = MagicMock()
+    mock_updater.add_artifact = AsyncMock()
+    mock_updater.complete = AsyncMock()
+
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.__str__ = MagicMock(return_value="Final response")
+
+    await executor._handle_agent_result(mock_result, mock_updater)
+
+    mock_updater.add_artifact.assert_called_once()
+    parts = mock_updater.add_artifact.call_args[0][0]
+    assert len(parts) == 1
+    assert parts[0].root.text == "Final response"
+    assert mock_updater.add_artifact.call_args[1]["artifact_id"] == "artifact-456"
+    assert mock_updater.add_artifact.call_args[1]["last_chunk"] is True
+    mock_updater.complete.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a2a_compliant_handle_result_first_chunk_with_none_result(mock_strands_agent):
+    """Test that A2A-compliant mode sends a TextPart with empty string when first chunk and result is None.
+
+    Per the A2A spec, parts must contain at least one part, so even with no result
+    we should send a TextPart with an empty string rather than an empty list.
+    """
+    executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
+    executor._current_artifact_id = "artifact-789"
+    executor._is_first_chunk = True
+
+    mock_updater = MagicMock()
+    mock_updater.add_artifact = AsyncMock()
+    mock_updater.complete = AsyncMock()
+
+    await executor._handle_agent_result(None, mock_updater)
+
+    mock_updater.add_artifact.assert_called_once()
+    parts = mock_updater.add_artifact.call_args[0][0]
+    assert len(parts) == 1
+    assert parts[0].root.text == ""
+    assert mock_updater.add_artifact.call_args[1]["artifact_id"] == "artifact-789"
+    assert mock_updater.add_artifact.call_args[1]["last_chunk"] is True
+    mock_updater.complete.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a2a_compliant_handle_result_not_first_chunk(mock_strands_agent):
+    """Test that A2A-compliant mode sends a TextPart with empty string when not the first chunk.
+
+    Per the A2A spec, parts must contain at least one part, so the final marker
+    chunk should include a TextPart with an empty string rather than an empty list.
+    """
+    executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
+    executor._current_artifact_id = "artifact-abc"
+    executor._is_first_chunk = False
+
+    mock_updater = MagicMock()
+    mock_updater.add_artifact = AsyncMock()
+    mock_updater.complete = AsyncMock()
+
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.__str__ = MagicMock(return_value="Some content")
+
+    await executor._handle_agent_result(mock_result, mock_updater)
+
+    mock_updater.add_artifact.assert_called_once()
+    parts = mock_updater.add_artifact.call_args[0][0]
+    assert len(parts) == 1
+    assert parts[0].root.text == ""
+    assert mock_updater.add_artifact.call_args[1]["artifact_id"] == "artifact-abc"
+    assert mock_updater.add_artifact.call_args[1]["append"] is True
+    assert mock_updater.add_artifact.call_args[1]["last_chunk"] is True
+    mock_updater.complete.assert_called_once()
