@@ -1,7 +1,7 @@
 """Bidirectional streaming package."""
 
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 if sys.version_info < (3, 12):
     raise ImportError("bidi only supported for >= Python 3.12")
@@ -34,13 +34,6 @@ from .types.events import (
     BidiUsageEvent,
     ModalityUsage,
 )
-
-# Type checking imports - not executed at runtime
-if TYPE_CHECKING:
-    from .agent.agent import BidiAgent
-    from .io.audio import BidiAudioIO
-    from .models.model import BidiModel
-    from .models.nova_sonic import BidiNovaSonicModel
 
 
 def __getattr__(name: str) -> Any:

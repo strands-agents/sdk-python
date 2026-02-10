@@ -11,6 +11,7 @@ import base64
 import logging
 import queue
 from typing import TYPE_CHECKING, Any
+import pyaudio
 
 from ..types.events import (
     BidiAudioInputEvent,
@@ -21,7 +22,6 @@ from ..types.events import (
 from ..types.io import BidiInput, BidiOutput
 
 if TYPE_CHECKING:
-    import pyaudio
 
     from ..agent.agent import BidiAgent
 
@@ -148,7 +148,6 @@ class _BidiAudioInput(BidiInput):
         Args:
             agent: The BidiAgent instance, providing access to model configuration.
         """
-        import pyaudio
 
         logger.debug("starting audio input stream")
 
@@ -196,7 +195,6 @@ class _BidiAudioInput(BidiInput):
 
     def _callback(self, in_data: bytes, *_: Any) -> tuple[None, Any]:
         """Callback to receive audio data from PyAudio."""
-        import pyaudio
 
         self._buffer.put(in_data)
         return (None, pyaudio.paContinue)
@@ -238,7 +236,6 @@ class _BidiAudioOutput(BidiOutput):
         Args:
             agent: The BidiAgent instance, providing access to model configuration.
         """
-        import pyaudio
 
         logger.debug("starting audio output stream")
 
@@ -290,7 +287,6 @@ class _BidiAudioOutput(BidiOutput):
 
     def _callback(self, _in_data: None, frame_count: int, *_: Any) -> tuple[bytes, Any]:
         """Callback to send audio data to PyAudio."""
-        import pyaudio
 
         byte_count = frame_count * pyaudio.get_sample_size(pyaudio.paInt16)
         data = self._buffer.get(byte_count)
@@ -313,15 +309,7 @@ class BidiAudioIO:
                 - output_device_index (int): Specific output device (default: None = system default)
                 - output_frames_per_buffer (int): Output buffer size (default: 512)
 
-        Raises:
-            ImportError: If pyaudio is not installed.
         """
-        try:
-            import pyaudio  # noqa: F401
-        except ImportError as e:
-            raise ImportError(
-                "BidiAudioIO requires pyaudio. Install it with: pip install strands-agents[bidi-io]"
-            ) from e
         self._config = config
 
     def input(self) -> _BidiAudioInput:

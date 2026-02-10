@@ -2,9 +2,8 @@
 
 import logging
 from typing import TYPE_CHECKING, Any
+from prompt_toolkit import PromptSession
 
-if TYPE_CHECKING:
-    from prompt_toolkit import PromptSession
 
 from ..types.events import (
     BidiConnectionCloseEvent,
@@ -25,7 +24,6 @@ class _BidiTextInput(BidiInput):
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Extract configs and setup prompt session."""
-        from prompt_toolkit import PromptSession
 
         prompt = config.get("input_prompt", "")
         self._session = PromptSession(prompt)
@@ -89,12 +87,6 @@ class BidiTextIO:
         Raises:
             ImportError: If prompt_toolkit is not installed.
         """
-        try:
-            import prompt_toolkit  # noqa: F401
-        except ImportError as e:
-            raise ImportError(
-                "BidiTextIO requires prompt_toolkit. Install it with: pip install strands-agents[bidi-io]"
-            ) from e
         self._config = config
 
     def input(self) -> _BidiTextInput:
