@@ -129,11 +129,17 @@ class TestMCPTaskSupport:
             assert task_mcp_client_disabled._is_tasks_enabled() is False
             assert task_mcp_client_disabled._should_use_task("task_required_echo") is False
 
-            # Tool calls still work via direct call_tool
+            # Direct call_tool still works for tools that support it
             result = task_mcp_client_disabled.call_tool_sync(
-                tool_use_id="t", name="task_required_echo", arguments={"message": "Direct!"}
+                tool_use_id="t", name="task_optional_echo", arguments={"message": "Direct!"}
             )
             assert result["status"] == "success"
+
+            # Task-required tools fail gracefully via direct call
+            result2 = task_mcp_client_disabled.call_tool_sync(
+                tool_use_id="t2", name="task_required_echo", arguments={"message": "Direct!"}
+            )
+            assert result2["status"] == "error"
 
     @pytest.mark.asyncio
     async def test_async_tool_call(self, task_mcp_client: MCPClient) -> None:
