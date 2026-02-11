@@ -6,7 +6,9 @@
 import json
 import logging
 import mimetypes
-from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
+import secrets
+from collections.abc import AsyncGenerator
+from typing import Any, TypedDict, TypeVar, cast
 
 import pydantic
 from google import genai
@@ -16,7 +18,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
-from ._validation import validate_config_keys
+from ._validation import _has_location_source, validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -40,30 +42,57 @@ class GeminiModel(Model):
             params: Additional model parameters (e.g., temperature).
                 For a complete list of supported parameters, see
                 https://ai.google.dev/api/generate-content#generationconfig.
+            gemini_tools: Gemini-specific tools that are not FunctionDeclarations
+                (e.g., GoogleSearch, CodeExecution, ComputerUse, UrlContext, FileSearch).
+                Use the standard tools interface for function calling tools.
+                For a complete list of supported tools, see
+                https://ai.google.dev/api/caching#Tool
         """
 
         model_id: Required[str]
         params: dict[str, Any]
+        gemini_tools: list[genai.types.Tool]
 
     def __init__(
         self,
         *,
-        client_args: Optional[dict[str, Any]] = None,
+        client: genai.Client | None = None,
+        client_args: dict[str, Any] | None = None,
         **model_config: Unpack[GeminiConfig],
     ) -> None:
         """Initialize provider instance.
 
         Args:
+            client: Pre-configured Gemini client to reuse across requests.
+                When provided, this client will be reused for all requests and will NOT be closed
+                by the model. The caller is responsible for managing the client lifecycle.
+                This is useful for:
+                - Injecting custom client wrappers
+                - Reusing connection pools within a single event loop/worker
+                - Centralizing observability, retries, and networking policy
+                Note: The client should not be shared across different asyncio event loops.
             client_args: Arguments for the underlying Gemini client (e.g., api_key).
                 For a complete list of supported arguments, see https://googleapis.github.io/python-genai/.
             **model_config: Configuration options for the Gemini model.
+
+        Raises:
+            ValueError: If both `client` and `client_args` are provided.
         """
         validate_config_keys(model_config, GeminiModel.GeminiConfig)
         self.config = GeminiModel.GeminiConfig(**model_config)
 
-        logger.debug("config=<%s> | initializing", self.config)
+        # Validate that only one client configuration method is provided
+        if client is not None and client_args is not None and len(client_args) > 0:
+            raise ValueError("Only one of 'client' or 'client_args' should be provided, not both.")
 
+        self._custom_client = client
         self.client_args = client_args or {}
+
+        # Validate gemini_tools if provided
+        if "gemini_tools" in self.config:
+            self._validate_gemini_tools(self.config["gemini_tools"])
+
+        logger.debug("config=<%s> | initializing", self.config)
 
     @override
     def update_config(self, **model_config: Unpack[GeminiConfig]) -> None:  # type: ignore[override]
@@ -72,6 +101,10 @@ class GeminiModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        # Validate gemini_tools if provided
+        if "gemini_tools" in model_config:
+            self._validate_gemini_tools(model_config["gemini_tools"])
+
         self.config.update(model_config)
 
     @override
@@ -83,13 +116,37 @@ class GeminiModel(Model):
         """
         return self.config
 
-    def _format_request_content_part(self, content: ContentBlock) -> genai.types.Part:
+    def _get_client(self) -> genai.Client:
+        """Get a Gemini client for making requests.
+
+        This method handles client lifecycle management:
+        - If an injected client was provided during initialization, it returns that client
+          without managing its lifecycle (caller is responsible for cleanup).
+        - Otherwise, creates a new genai.Client from client_args.
+
+        Returns:
+            genai.Client: A Gemini client instance.
+        """
+        if self._custom_client is not None:
+            # Use the injected client (caller manages lifecycle)
+            return self._custom_client
+        else:
+            # Create a new client from client_args
+            return genai.Client(**self.client_args)
+
+    def _format_request_content_part(
+        self, content: ContentBlock, tool_use_id_to_name: dict[str, str]
+    ) -> genai.types.Part:
         """Format content block into a Gemini part instance.
 
         - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Part
 
         Args:
             content: Message content to format.
+            tool_use_id_to_name: Mapping of tool use id to tool name.
+                Store the mapping from toolUseId to name for later use in toolResult formatting. This mapping is built
+                as we format the request, ensuring that when we encounter toolResult blocks (which come after toolUse
+                blocks in the message history), we can look up the function name.
 
         Returns:
             Gemini part.
@@ -123,16 +180,20 @@ class GeminiModel(Model):
             return genai.types.Part(text=content["text"])
 
         if "toolResult" in content:
+            tool_use_id = content["toolResult"]["toolUseId"]
+            function_name = tool_use_id_to_name.get(tool_use_id, tool_use_id)
+
             return genai.types.Part(
                 function_response=genai.types.FunctionResponse(
-                    id=content["toolResult"]["toolUseId"],
-                    name=content["toolResult"]["toolUseId"],
+                    id=tool_use_id,
+                    name=function_name,
                     response={
                         "output": [
                             tool_result_content
                             if "json" in tool_result_content
                             else self._format_request_content_part(
-                                cast(ContentBlock, tool_result_content)
+                                cast(ContentBlock, tool_result_content),
+                                tool_use_id_to_name,
                             ).to_json_dict()
                             for tool_result_content in content["toolResult"]["content"]
                         ],
@@ -141,6 +202,8 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
+            tool_use_id_to_name[content["toolUse"]["toolUseId"]] = content["toolUse"]["name"]
+
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
@@ -162,15 +225,30 @@ class GeminiModel(Model):
         Returns:
             Gemini content list.
         """
-        return [
-            genai.types.Content(
-                parts=[self._format_request_content_part(content) for content in message["content"]],
-                role="user" if message["role"] == "user" else "model",
-            )
-            for message in messages
-        ]
+        # Gemini FunctionResponses are constructed from tool result blocks. Function name is required but is not
+        # available in tool result blocks, hence the mapping.
+        tool_use_id_to_name: dict[str, str] = {}
 
-    def _format_request_tools(self, tool_specs: Optional[list[ToolSpec]]) -> list[genai.types.Tool | Any]:
+        contents = []
+        for message in messages:
+            parts = []
+            for content in message["content"]:
+                # Check for location sources and skip with warning
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by Gemini | skipping content block")
+                    continue
+                parts.append(self._format_request_content_part(content, tool_use_id_to_name))
+
+            contents.append(
+                genai.types.Content(
+                    parts=parts,
+                    role="user" if message["role"] == "user" else "model",
+                )
+            )
+
+        return contents
+
+    def _format_request_tools(self, tool_specs: list[ToolSpec] | None) -> list[genai.types.Tool | Any]:
         """Format tool specs into Gemini tools.
 
         - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Tool
@@ -181,7 +259,7 @@ class GeminiModel(Model):
         Return:
             Gemini tool list.
         """
-        return [
+        tools = [
             genai.types.Tool(
                 function_declarations=[
                     genai.types.FunctionDeclaration(
@@ -193,12 +271,15 @@ class GeminiModel(Model):
                 ],
             ),
         ]
+        if self.config.get("gemini_tools"):
+            tools.extend(self.config["gemini_tools"])
+        return tools
 
     def _format_request_config(
         self,
-        tool_specs: Optional[list[ToolSpec]],
-        system_prompt: Optional[str],
-        params: Optional[dict[str, Any]],
+        tool_specs: list[ToolSpec] | None,
+        system_prompt: str | None,
+        params: dict[str, Any] | None,
     ) -> genai.types.GenerateContentConfig:
         """Format Gemini request config.
 
@@ -221,9 +302,9 @@ class GeminiModel(Model):
     def _format_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]],
-        system_prompt: Optional[str],
-        params: Optional[dict[str, Any]],
+        tool_specs: list[ToolSpec] | None,
+        system_prompt: str | None,
+        params: dict[str, Any] | None,
     ) -> dict[str, Any]:
         """Format a Gemini streaming request.
 
@@ -264,16 +345,16 @@ class GeminiModel(Model):
             case "content_start":
                 match event["data_type"]:
                     case "tool":
-                        # Note: toolUseId is the only identifier available in a tool result. However, Gemini requires
-                        #       that name be set in the equivalent FunctionResponse type. Consequently, we assign
-                        #       function name to toolUseId in our tool use block. And another reason, function_call is
-                        #       not guaranteed to have id populated.
+                        function_call = event["data"].function_call
+                        # Use Gemini's provided ID or generate one if missing
+                        tool_use_id = function_call.id or f"tooluse_{secrets.token_urlsafe(16)}"
+
                         return {
                             "contentBlockStart": {
                                 "start": {
                                     "toolUse": {
-                                        "name": event["data"].function_call.name,
-                                        "toolUseId": event["data"].function_call.name,
+                                        "name": function_call.name,
+                                        "toolUseId": tool_use_id,
                                     },
                                 },
                             },
@@ -342,8 +423,8 @@ class GeminiModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -365,14 +446,17 @@ class GeminiModel(Model):
         """
         request = self._format_request(messages, tool_specs, system_prompt, self.config.get("params"))
 
-        client = genai.Client(**self.client_args).aio
+        client = self._get_client().aio
+
         try:
             response = await client.models.generate_content_stream(**request)
 
             yield self._format_chunk({"chunk_type": "message_start"})
-            yield self._format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
+            data_type: str | None = None
             tool_used = False
+            candidate = None
+            event = None
             async for event in response:
                 candidates = event.candidates
                 candidate = candidates[0] if candidates else None
@@ -387,22 +471,30 @@ class GeminiModel(Model):
                         tool_used = True
 
                     if part.text:
+                        new_data_type = "reasoning_content" if part.thought else "text"
+                        if new_data_type != data_type:
+                            if data_type is not None:
+                                yield self._format_chunk({"chunk_type": "content_stop", "data_type": data_type})
+                            yield self._format_chunk({"chunk_type": "content_start", "data_type": new_data_type})
+                            data_type = new_data_type
                         yield self._format_chunk(
                             {
                                 "chunk_type": "content_delta",
-                                "data_type": "reasoning_content" if part.thought else "text",
+                                "data_type": data_type,
                                 "data": part,
                             },
                         )
 
-            yield self._format_chunk({"chunk_type": "content_stop", "data_type": "text"})
+            if data_type is not None:
+                yield self._format_chunk({"chunk_type": "content_stop", "data_type": data_type})
             yield self._format_chunk(
                 {
                     "chunk_type": "message_stop",
                     "data": "TOOL_USE" if tool_used else (candidate.finish_reason if candidate else "STOP"),
                 }
             )
-            yield self._format_chunk({"chunk_type": "metadata", "data": event.usage_metadata})
+            if event:
+                yield self._format_chunk({"chunk_type": "metadata", "data": event.usage_metadata})
 
         except genai.errors.ClientError as error:
             if not error.message:
@@ -427,8 +519,8 @@ class GeminiModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model using Gemini's native structured output.
 
         - Docs: https://ai.google.dev/gemini-api/docs/structured-output
@@ -448,6 +540,30 @@ class GeminiModel(Model):
             "response_schema": output_model.model_json_schema(),
         }
         request = self._format_request(prompt, None, system_prompt, params)
-        client = genai.Client(**self.client_args).aio
+        client = self._get_client().aio
         response = await client.models.generate_content(**request)
         yield {"output": output_model.model_validate(response.parsed)}
+
+    @staticmethod
+    def _validate_gemini_tools(gemini_tools: list[genai.types.Tool]) -> None:
+        """Validate that gemini_tools does not contain FunctionDeclarations.
+
+        Gemini-specific tools should only include tools that cannot be represented
+        as FunctionDeclarations (e.g., GoogleSearch, CodeExecution, ComputerUse).
+        Standard function calling tools should use the tools interface instead.
+
+        Args:
+            gemini_tools: List of Gemini tools to validate
+
+        Raises:
+            ValueError: If any tool contains function_declarations
+        """
+        for tool in gemini_tools:
+            # Check if the tool has function_declarations attribute and it's not empty
+            if hasattr(tool, "function_declarations") and tool.function_declarations:
+                raise ValueError(
+                    "gemini_tools should not contain FunctionDeclarations. "
+                    "Use the standard tools interface for function calling tools. "
+                    "gemini_tools is reserved for Gemini-specific tools like "
+                    "GoogleSearch, CodeExecution, ComputerUse, UrlContext, and FileSearch."
+                )

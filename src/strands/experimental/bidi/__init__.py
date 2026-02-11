@@ -1,10 +1,5 @@
 """Bidirectional streaming package."""
 
-import sys
-
-if sys.version_info < (3, 12):
-    raise ImportError("bidi only supported for >= Python 3.12")
-
 # Main components - Primary user interface
 # Re-export standard agent events for tool handling
 from ...types._events import (
@@ -19,9 +14,6 @@ from .io.audio import BidiAudioIO
 
 # Model interface (for custom implementations)
 from .models.model import BidiModel
-from .models.nova_sonic import BidiNovaSonicModel
-
-
 
 # Event types - For type hints and event handling
 from .types.events import (
@@ -47,8 +39,6 @@ __all__ = [
     "BidiAgent",
     # IO channels
     "BidiAudioIO",
-    # Model providers
-    "BidiNovaSonicModel",
     # Input Event types
     "BidiTextInputEvent",
     "BidiAudioInputEvent",

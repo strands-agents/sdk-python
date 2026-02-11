@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from .....models import Model
 from .....types.tools import ToolUse
 from ...context_providers.ledger_provider import LedgerProvider
-from ...core.action import Guide, Interrupt, Proceed, SteeringAction
+from ...core.action import Guide, Interrupt, Proceed, ToolSteeringAction
 from ...core.context import SteeringContextProvider
 from ...core.handler import SteeringHandler
 from .mappers import DefaultPromptMapper, LLMPromptMapper
@@ -50,15 +50,19 @@ class LLMSteeringHandler(SteeringHandler):
             system_prompt: System prompt defining steering guidance rules
             prompt_mapper: Custom prompt mapper for evaluation prompts
             model: Optional model override for steering evaluation
-            context_providers: List of context providers for populating steering context
+            context_providers: List of context providers for populating steering context.
+                Defaults to [LedgerProvider()] if None. Pass an empty list to disable
+                context providers.
         """
-        providers = context_providers or [LedgerProvider()]
+        providers: list[SteeringContextProvider] = (
+            [LedgerProvider()] if context_providers is None else context_providers
+        )
         super().__init__(context_providers=providers)
         self.system_prompt = system_prompt
         self.prompt_mapper = prompt_mapper or DefaultPromptMapper()
         self.model = model
 
-    async def steer(self, agent: "Agent", tool_use: ToolUse, **kwargs: Any) -> SteeringAction:
+    async def steer_before_tool(self, *, agent: Agent, tool_use: ToolUse, **kwargs: Any) -> ToolSteeringAction:
         """Provide contextual guidance for tool usage.
 
         Args:
@@ -67,7 +71,7 @@ class LLMSteeringHandler(SteeringHandler):
             **kwargs: Additional keyword arguments for steering evaluation
 
         Returns:
-            SteeringAction indicating how to guide the agent's next action
+            SteeringAction indicating how to guide the tool execution
         """
         # Generate steering prompt
         prompt = self.prompt_mapper.create_steering_prompt(self.steering_context, tool_use=tool_use)
@@ -91,5 +95,5 @@ class LLMSteeringHandler(SteeringHandler):
             case "interrupt":
                 return Interrupt(reason=llm_result.reason)
             case _:
-                logger.warning("decision=<%s> | uŹknown llm decision, defaulting to proceed", llm_result.decision)  # type: ignore[unreachable]
+                logger.warning("decision=<%s> | unknown llm decision, defaulting to proceed", llm_result.decision)  # type: ignore[unreachable]
                 return Proceed(reason="Unknown LLM decision, defaulting to proceed")

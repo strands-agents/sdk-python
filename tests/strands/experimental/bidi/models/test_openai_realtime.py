@@ -9,6 +9,7 @@ Tests the unified BidiOpenAIRealtimeModel interface including:
 """
 
 import base64
+import itertools
 import json
 import unittest.mock
 
@@ -131,7 +132,9 @@ def test_audio_config_defaults(api_key, model_name):
 def test_audio_config_partial_override(api_key, model_name):
     """Test partial audio configuration override."""
     provider_config = {"audio": {"output_rate": 48000, "voice": "echo"}}
-    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config)
+    model = BidiOpenAIRealtimeModel(
+        model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
+    )
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 48000
@@ -154,7 +157,9 @@ def test_audio_config_full_override(api_key, model_name):
             "voice": "shimmer",
         }
     }
-    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config)
+    model = BidiOpenAIRealtimeModel(
+        model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
+    )
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
@@ -349,7 +354,7 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     model4 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     await model4.start()
     mock_ws.close.side_effect = Exception("Close failed")
-    with pytest.raises(ExceptionGroup):
+    with pytest.raises(Exception, match=r"failed stop sequence"):
         await model4.stop()
 
 
@@ -510,7 +515,7 @@ async def test_receive_lifecycle_events(mock_websocket, model):
             format="pcm",
             sample_rate=24000,
             channels=1,
-        )
+        ),
     ]
     assert tru_events == exp_events
 
@@ -518,7 +523,7 @@ async def test_receive_lifecycle_events(mock_websocket, model):
 @unittest.mock.patch("strands.experimental.bidi.models.openai_realtime.time.time")
 @pytest.mark.asyncio
 async def test_receive_timeout(mock_time, model):
-    mock_time.side_effect = [1, 2]
+    mock_time.side_effect = itertools.count()
     model.timeout_s = 1
 
     await model.start()

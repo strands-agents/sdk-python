@@ -7,7 +7,8 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, AsyncGenerator, Dict, List, Optional, Type, TypedDict, TypeVar, Union, cast
+from collections.abc import AsyncGenerator
+from typing import Any, TypedDict, TypeVar, cast
 
 import writerai
 from pydantic import BaseModel
@@ -17,7 +18,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
+from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -41,13 +42,13 @@ class WriterModel(Model):
         """
 
         model_id: str
-        max_tokens: Optional[int]
-        stop: Optional[Union[str, List[str]]]
-        stream_options: Dict[str, Any]
-        temperature: Optional[float]
-        top_p: Optional[float]
+        max_tokens: int | None
+        stop: str | list[str] | None
+        stream_options: dict[str, Any]
+        temperature: float | None
+        top_p: float | None
 
-    def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[WriterConfig]):
+    def __init__(self, client_args: dict[str, Any] | None = None, **model_config: Unpack[WriterConfig]):
         """Initialize provider instance.
 
         Args:
@@ -201,7 +202,7 @@ class WriterModel(Model):
             "content": formatted_contents,
         }
 
-    def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+    def _format_request_messages(self, messages: Messages, system_prompt: str | None = None) -> list[dict[str, Any]]:
         """Format a Writer compatible messages array.
 
         Args:
@@ -217,11 +218,21 @@ class WriterModel(Model):
         for message in messages:
             contents = message["content"]
 
+            # Filter out location sources
+            filtered_contents = []
+            for content in contents:
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by Writer | skipping content block")
+                    continue
+                filtered_contents.append(content)
+
             # Only palmyra V5 support multiple content. Other models support only '{"content": "text_content"}'
             if self.get_config().get("model_id", "") == "palmyra-x5":
-                formatted_contents: str | list[dict[str, Any]] = self._format_request_message_contents_vision(contents)
+                formatted_contents: str | list[dict[str, Any]] = self._format_request_message_contents_vision(
+                    filtered_contents
+                )
             else:
-                formatted_contents = self._format_request_message_contents(contents)
+                formatted_contents = self._format_request_message_contents(filtered_contents)
 
             formatted_tool_calls = [
                 self._format_request_message_tool_call(content["toolUse"])
@@ -245,7 +256,7 @@ class WriterModel(Model):
         return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
 
     def format_request(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self, messages: Messages, tool_specs: list[ToolSpec] | None = None, system_prompt: str | None = None
     ) -> Any:
         """Format a streaming request to the underlying model.
 
@@ -353,8 +364,8 @@ class WriterModel(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
@@ -431,8 +442,8 @@ class WriterModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        self, output_model: type[T], prompt: Messages, system_prompt: str | None = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model.
 
         Args:

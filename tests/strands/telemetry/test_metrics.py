@@ -240,9 +240,15 @@ def test_tool_metrics_add_call(success, tool, tool_metrics, mock_get_meter_provi
 @unittest.mock.patch.object(strands.telemetry.metrics.uuid, "uuid4")
 def test_event_loop_metrics_start_cycle(mock_uuid4, mock_time, event_loop_metrics, mock_get_meter_provider):
     mock_time.return_value = 1
-    mock_uuid4.return_value = "i1"
+    mock_event_loop_cycle_id = "i1"
+    mock_uuid4.return_value = mock_event_loop_cycle_id
 
-    tru_start_time, tru_cycle_trace = event_loop_metrics.start_cycle()
+    # Reset must be called first
+    event_loop_metrics.reset_usage_metrics()
+
+    tru_start_time, tru_cycle_trace = event_loop_metrics.start_cycle(
+        attributes={"event_loop_cycle_id": mock_event_loop_cycle_id}
+    )
     exp_start_time, exp_cycle_trace = 1, strands.telemetry.metrics.Trace("Cycle 1")
 
     tru_attrs = {"cycle_count": event_loop_metrics.cycle_count, "traces": event_loop_metrics.traces}
@@ -255,6 +261,13 @@ def test_event_loop_metrics_start_cycle(mock_uuid4, mock_time, event_loop_metric
         and tru_cycle_trace.to_dict() == exp_cycle_trace.to_dict()
         and tru_attrs == exp_attrs
     )
+
+    assert len(event_loop_metrics.agent_invocations) == 1
+    assert len(event_loop_metrics.agent_invocations[0].cycles) == 1
+    assert event_loop_metrics.agent_invocations[0].cycles[0].event_loop_cycle_id == "i1"
+    assert event_loop_metrics.agent_invocations[0].cycles[0].usage["inputTokens"] == 0
+    assert event_loop_metrics.agent_invocations[0].cycles[0].usage["outputTokens"] == 0
+    assert event_loop_metrics.agent_invocations[0].cycles[0].usage["totalTokens"] == 0
 
 
 @unittest.mock.patch.object(strands.telemetry.metrics.time, "time")
@@ -324,6 +337,9 @@ def test_event_loop_metrics_add_tool_usage(mock_time, trace, tool, event_loop_me
 
 
 def test_event_loop_metrics_update_usage(usage, event_loop_metrics, mock_get_meter_provider):
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "test-cycle"})
+
     for _ in range(3):
         event_loop_metrics.update_usage(usage)
 
@@ -331,6 +347,14 @@ def test_event_loop_metrics_update_usage(usage, event_loop_metrics, mock_get_met
     exp_usage = Usage(inputTokens=3, outputTokens=6, totalTokens=9, cacheWriteInputTokens=6)
 
     assert tru_usage == exp_usage
+
+    assert event_loop_metrics.latest_agent_invocation.usage == exp_usage
+
+    assert len(event_loop_metrics.agent_invocations) == 1
+    assert len(event_loop_metrics.agent_invocations[0].cycles) == 1
+    assert event_loop_metrics.agent_invocations[0].cycles[0].event_loop_cycle_id == "test-cycle"
+    assert event_loop_metrics.agent_invocations[0].cycles[0].usage == exp_usage
+
     mock_get_meter_provider.return_value.get_meter.assert_called()
     metrics_client = event_loop_metrics._metrics_client
     metrics_client.event_loop_input_tokens.record.assert_called()
@@ -370,6 +394,7 @@ def test_event_loop_metrics_get_summary(trace, tool, event_loop_metrics, mock_ge
             "outputTokens": 0,
             "totalTokens": 0,
         },
+        "agent_invocations": [],
         "average_cycle_time": 0,
         "tool_usage": {
             "tool1": {
@@ -476,3 +501,68 @@ def test_use_ProxyMeter_if_no_global_meter_provider():
 
     # Verify it's using a _ProxyMeter
     assert isinstance(metrics_client.meter, _ProxyMeter)
+
+
+def test_latest_agent_invocation_property(usage, event_loop_metrics, mock_get_meter_provider):
+    """Test the latest_agent_invocation property getter"""
+    # Initially, no invocations exist
+    assert event_loop_metrics.latest_agent_invocation is None
+
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "cycle-1"})
+    event_loop_metrics.update_usage(usage)
+
+    # latest_agent_invocation should return the first invocation
+    current = event_loop_metrics.latest_agent_invocation
+    assert current is not None
+    assert current.usage["inputTokens"] == 1
+    assert len(current.cycles) == 1
+
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "cycle-2"})
+    usage2 = Usage(inputTokens=10, outputTokens=20, totalTokens=30)
+    event_loop_metrics.update_usage(usage2)
+
+    # Should return the second invocation
+    current = event_loop_metrics.latest_agent_invocation
+    assert current is not None
+    assert current.usage["inputTokens"] == 10
+    assert len(current.cycles) == 1
+
+    assert len(event_loop_metrics.agent_invocations) == 2
+
+    assert current is event_loop_metrics.agent_invocations[-1]
+
+
+def test_reset_usage_metrics(usage, event_loop_metrics, mock_get_meter_provider):
+    """Test that reset_usage_metrics creates a new agent invocation but preserves accumulated_usage"""
+    # Add some usage across multiple cycles in first invocation
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "cycle-1"})
+    event_loop_metrics.update_usage(usage)
+
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "cycle-2"})
+    usage2 = Usage(inputTokens=10, outputTokens=20, totalTokens=30)
+    event_loop_metrics.update_usage(usage2)
+
+    assert len(event_loop_metrics.agent_invocations) == 1
+    assert event_loop_metrics.latest_agent_invocation.usage["inputTokens"] == 11
+    assert len(event_loop_metrics.latest_agent_invocation.cycles) == 2
+    assert event_loop_metrics.accumulated_usage["inputTokens"] == 11
+
+    # Reset - creates a new invocation
+    event_loop_metrics.reset_usage_metrics()
+
+    assert len(event_loop_metrics.agent_invocations) == 2
+
+    assert event_loop_metrics.latest_agent_invocation.usage["inputTokens"] == 0
+    assert event_loop_metrics.latest_agent_invocation.usage["outputTokens"] == 0
+    assert event_loop_metrics.latest_agent_invocation.usage["totalTokens"] == 0
+    assert len(event_loop_metrics.latest_agent_invocation.cycles) == 0
+
+    # Verify first invocation data is preserved
+    assert event_loop_metrics.agent_invocations[0].usage["inputTokens"] == 11
+    assert len(event_loop_metrics.agent_invocations[0].cycles) == 2
+
+    # Verify accumulated_usage is NOT cleared
+    assert event_loop_metrics.accumulated_usage["inputTokens"] == 11

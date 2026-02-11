@@ -10,17 +10,19 @@ async def test_stop_exception():
     func1 = AsyncMock()
     func2 = AsyncMock(side_effect=ValueError("stop 2 failed"))
     func3 = AsyncMock()
+    func4 = AsyncMock(side_effect=ValueError("stop 4 failed"))
 
-    with pytest.raises(ExceptionGroup) as exc_info:
-        await stop_all(func1, func2, func3)
+    with pytest.raises(Exception, match=r"failed stop sequence") as exc_info:
+        await stop_all(func1, func2, func3, func4)
 
     func1.assert_called_once()
     func2.assert_called_once()
     func3.assert_called_once()
+    func4.assert_called_once()
 
-    assert len(exc_info.value.exceptions) == 1
-    with pytest.raises(ValueError, match=r"stop 2 failed"):
-        raise exc_info.value.exceptions[0]
+    tru_message = str(exc_info.value)
+    assert "ValueError('stop 2 failed')" in tru_message
+    assert "ValueError('stop 4 failed')" in tru_message
 
 
 @pytest.mark.asyncio

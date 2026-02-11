@@ -98,7 +98,7 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> A
         if not config_path.exists():
             raise FileNotFoundError(f"Configuration file not found: {file_path}")
 
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             config_dict = json.load(f)
     elif isinstance(config, dict):
         config_dict = config.copy()

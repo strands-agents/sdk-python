@@ -1,6 +1,5 @@
 """Tests for Agent structured output functionality."""
 
-from typing import Optional
 from unittest import mock
 from unittest.mock import Mock, patch
 
@@ -28,7 +27,7 @@ class ProductModel(BaseModel):
 
     title: str
     price: float
-    description: Optional[str] = None
+    description: str | None = None
 
 
 @pytest.fixture
@@ -412,3 +411,160 @@ class TestAgentStructuredOutputEdgeCases:
             mock_event_loop.side_effect = mock_product_cycle
             result2 = agent("Get product", structured_output_model=product_model)
             assert result2.structured_output is pm
+
+
+class TestAgentStructuredOutputPrompt:
+    """Test Agent structured_output_prompt functionality."""
+
+    def test_agent_init_with_structured_output_prompt(self, user_model):
+        """Test that Agent can be initialized with a structured_output_prompt."""
+        custom_prompt = "Please format your response using the schema."
+        agent = Agent(structured_output_model=user_model, structured_output_prompt=custom_prompt)
+
+        assert agent._structured_output_prompt == custom_prompt
+
+    def test_agent_init_without_structured_output_prompt(self):
+        """Test that Agent can be initialized without structured_output_prompt."""
+        agent = Agent()
+
+        assert agent._structured_output_prompt is None
+
+    @patch("strands.agent.agent.event_loop_cycle")
+    def test_agent_call_with_default_structured_output_prompt(
+        self, mock_event_loop, user_model, mock_model, mock_metrics
+    ):
+        """Test Agent.__call__ uses default structured_output_prompt when not specified."""
+        custom_prompt = "Use the output schema to format your response."
+
+        async def mock_cycle(*args, **kwargs):
+            structured_output_context = kwargs.get("structured_output_context")
+            assert structured_output_context is not None
+            assert structured_output_context.structured_output_prompt == custom_prompt
+
+            yield EventLoopStopEvent(
+                stop_reason="end_turn",
+                message={"role": "assistant", "content": [{"text": "Response"}]},
+                metrics=mock_metrics,
+                request_state={},
+            )
+
+        mock_event_loop.side_effect = mock_cycle
+
+        # Create agent with default structured_output_prompt
+        agent = Agent(
+            model=mock_model,
+            structured_output_model=user_model,
+            structured_output_prompt=custom_prompt,
+        )
+        agent("Get user info")
+
+        mock_event_loop.assert_called_once()
+
+    @patch("strands.agent.agent.event_loop_cycle")
+    def test_agent_call_override_default_structured_output_prompt(
+        self, mock_event_loop, user_model, mock_model, mock_metrics
+    ):
+        """Test that invocation-level structured_output_prompt overrides default."""
+        default_prompt = "Default prompt for structured output."
+        override_prompt = "Override prompt for this specific call."
+
+        async def mock_cycle(*args, **kwargs):
+            structured_output_context = kwargs.get("structured_output_context")
+            # Should use override_prompt, not the default
+            assert structured_output_context.structured_output_prompt == override_prompt
+
+            yield EventLoopStopEvent(
+                stop_reason="end_turn",
+                message={"role": "assistant", "content": [{"text": "Response"}]},
+                metrics=mock_metrics,
+                request_state={},
+            )
+
+        mock_event_loop.side_effect = mock_cycle
+
+        # Create agent with default prompt, but override at call time
+        agent = Agent(
+            model=mock_model,
+            structured_output_model=user_model,
+            structured_output_prompt=default_prompt,
+        )
+        agent("Get user info", structured_output_prompt=override_prompt)
+
+        mock_event_loop.assert_called_once()
+
+    @patch("strands.agent.agent.event_loop_cycle")
+    def test_agent_call_with_invocation_prompt_no_default(self, mock_event_loop, user_model, mock_model, mock_metrics):
+        """Test that invocation-level prompt works when no default is set."""
+        invocation_prompt = "Format as structured output now."
+
+        async def mock_cycle(*args, **kwargs):
+            structured_output_context = kwargs.get("structured_output_context")
+            assert structured_output_context.structured_output_prompt == invocation_prompt
+
+            yield EventLoopStopEvent(
+                stop_reason="end_turn",
+                message={"role": "assistant", "content": [{"text": "Response"}]},
+                metrics=mock_metrics,
+                request_state={},
+            )
+
+        mock_event_loop.side_effect = mock_cycle
+
+        # Create agent without default prompt
+        agent = Agent(model=mock_model, structured_output_model=user_model)
+        agent("Get user info", structured_output_prompt=invocation_prompt)
+
+        mock_event_loop.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("strands.agent.agent.event_loop_cycle")
+    async def test_agent_invoke_async_with_structured_output_prompt(
+        self, mock_event_loop, user_model, mock_model, mock_metrics
+    ):
+        """Test Agent.invoke_async with structured_output_prompt."""
+        custom_prompt = "Async prompt for structured output."
+
+        async def mock_cycle(*args, **kwargs):
+            structured_output_context = kwargs.get("structured_output_context")
+            assert structured_output_context.structured_output_prompt == custom_prompt
+
+            yield EventLoopStopEvent(
+                stop_reason="end_turn",
+                message={"role": "assistant", "content": [{"text": "Response"}]},
+                metrics=mock_metrics,
+                request_state={},
+            )
+
+        mock_event_loop.side_effect = mock_cycle
+
+        agent = Agent(model=mock_model, structured_output_model=user_model)
+        await agent.invoke_async("Get user", structured_output_prompt=custom_prompt)
+
+        mock_event_loop.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("strands.agent.agent.event_loop_cycle")
+    async def test_agent_stream_async_with_structured_output_prompt(
+        self, mock_event_loop, user_model, mock_model, mock_metrics
+    ):
+        """Test Agent.stream_async with structured_output_prompt."""
+        custom_prompt = "Stream async prompt for structured output."
+
+        async def mock_cycle(*args, **kwargs):
+            structured_output_context = kwargs.get("structured_output_context")
+            assert structured_output_context.structured_output_prompt == custom_prompt
+
+            yield EventLoopStopEvent(
+                stop_reason="end_turn",
+                message={"role": "assistant", "content": [{"text": "Response"}]},
+                metrics=mock_metrics,
+                request_state={},
+            )
+
+        mock_event_loop.side_effect = mock_cycle
+
+        agent = Agent(model=mock_model, structured_output_model=user_model)
+        async for _ in agent.stream_async("Get user", structured_output_prompt=custom_prompt):
+            pass
+
+        mock_event_loop.assert_called_once()

@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import strands
-from strands.experimental.tools import ToolProvider
-from strands.tools import PythonAgentTool
+from strands.tools import PythonAgentTool, ToolProvider
 from strands.tools.decorator import DecoratedFunctionTool, tool
 from strands.tools.mcp import MCPClient
 from strands.tools.registry import ToolRegistry
 
 
+@pytest.mark.filterwarnings("ignore:load_tool_from_filepath is deprecated:DeprecationWarning")
 def test_load_tool_from_filepath_failure():
     """Test error handling when load_tool fails."""
     tool_registry = ToolRegistry()
@@ -511,3 +511,95 @@ def test_validate_tool_spec_with_ref_property():
     assert props["ref_field"] == {"$ref": "#/$defs/SomeType"}
     assert "type" not in props["ref_field"]
     assert "description" not in props["ref_field"]
+
+
+def test_tool_registry_replace_existing_tool():
+    """Test replacing an existing tool."""
+    old_tool = MagicMock()
+    old_tool.tool_name = "my_tool"
+    old_tool.is_dynamic = False
+    old_tool.supports_hot_reload = False
+
+    new_tool = MagicMock()
+    new_tool.tool_name = "my_tool"
+    new_tool.is_dynamic = False
+
+    registry = ToolRegistry()
+    registry.register_tool(old_tool)
+    registry.replace(new_tool)
+
+    assert registry.registry["my_tool"] == new_tool
+
+
+def test_tool_registry_replace_nonexistent_tool():
+    """Test replacing a tool that doesn't exist raises ValueError."""
+    new_tool = MagicMock()
+    new_tool.tool_name = "my_tool"
+
+    registry = ToolRegistry()
+
+    with pytest.raises(ValueError, match="Cannot replace tool 'my_tool' - tool does not exist"):
+        registry.replace(new_tool)
+
+
+def test_tool_registry_replace_dynamic_tool():
+    """Test replacing a dynamic tool updates both registries."""
+    old_tool = MagicMock()
+    old_tool.tool_name = "dynamic_tool"
+    old_tool.is_dynamic = True
+    old_tool.supports_hot_reload = True
+
+    new_tool = MagicMock()
+    new_tool.tool_name = "dynamic_tool"
+    new_tool.is_dynamic = True
+
+    registry = ToolRegistry()
+    registry.register_tool(old_tool)
+    registry.replace(new_tool)
+
+    assert registry.registry["dynamic_tool"] == new_tool
+    assert registry.dynamic_tools["dynamic_tool"] == new_tool
+
+
+def test_tool_registry_replace_dynamic_with_non_dynamic():
+    """Test replacing a dynamic tool with non-dynamic tool removes from dynamic_tools."""
+    old_tool = MagicMock()
+    old_tool.tool_name = "my_tool"
+    old_tool.is_dynamic = True
+    old_tool.supports_hot_reload = True
+
+    new_tool = MagicMock()
+    new_tool.tool_name = "my_tool"
+    new_tool.is_dynamic = False
+
+    registry = ToolRegistry()
+    registry.register_tool(old_tool)
+
+    assert "my_tool" in registry.dynamic_tools
+
+    registry.replace(new_tool)
+
+    assert registry.registry["my_tool"] == new_tool
+    assert "my_tool" not in registry.dynamic_tools
+
+
+def test_tool_registry_replace_non_dynamic_with_dynamic():
+    """Test replacing a non-dynamic tool with dynamic tool adds to dynamic_tools."""
+    old_tool = MagicMock()
+    old_tool.tool_name = "my_tool"
+    old_tool.is_dynamic = False
+    old_tool.supports_hot_reload = False
+
+    new_tool = MagicMock()
+    new_tool.tool_name = "my_tool"
+    new_tool.is_dynamic = True
+
+    registry = ToolRegistry()
+    registry.register_tool(old_tool)
+
+    assert "my_tool" not in registry.dynamic_tools
+
+    registry.replace(new_tool)
+
+    assert registry.registry["my_tool"] == new_tool
+    assert registry.dynamic_tools["my_tool"] == new_tool

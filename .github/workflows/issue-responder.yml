@@ -1,0 +1,66 @@
+name: Issue Responder
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  respond-to-issue:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.STRANDS_AGENTCORE_ACTIONS_ROLE }}
+          aws-region: us-west-2
+      - name: Invoke AgentCore with issue details
+        env:
+          GH_ISSUE_AGENTCORE_RUNTIME_ARN: ${{ secrets.GH_ISSUE_AGENTCORE_RUNTIME_ARN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          REPO: ${{ github.repository }}
+        run: |
+          npm install @aws-sdk/client-bedrock-agentcore
+          node - <<'JSEOF'
+          const { BedrockAgentCoreClient, InvokeAgentRuntimeCommand } = require("@aws-sdk/client-bedrock-agentcore");
+
+          const payload = JSON.stringify({
+            source: "github",
+            action: "issue_opened",
+            issue: {
+              number: parseInt(process.env.ISSUE_NUMBER),
+              title: process.env.ISSUE_TITLE,
+              body: process.env.ISSUE_BODY,
+              url: process.env.ISSUE_URL,
+              author: process.env.ISSUE_AUTHOR,
+              repo: process.env.REPO
+            }
+          });
+
+          console.log("Invoking AgentCore with payload:");
+          console.log(JSON.stringify(JSON.parse(payload), null, 2));
+
+          const client = new BedrockAgentCoreClient({ region: "us-west-2" });
+          
+          const sessionId = `github-issue-${process.env.ISSUE_NUMBER}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          
+          const command = new InvokeAgentRuntimeCommand({
+            agentRuntimeArn: process.env.GH_ISSUE_AGENTCORE_RUNTIME_ARN,
+            runtimeSessionId: sessionId,
+            payload: Buffer.from(payload)
+          });
+
+          (async () => {
+            const response = await client.send(command);
+            const textResponse = await response.response.transformToString();
+            console.log("Response:", textResponse);
+          })();
+          JSEOF

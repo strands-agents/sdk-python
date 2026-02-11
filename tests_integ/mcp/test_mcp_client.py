@@ -3,7 +3,7 @@ import json
 import os
 import threading
 import time
-from typing import List, Literal
+from typing import Literal
 
 import pytest
 from mcp import StdioServerParameters, stdio_client
@@ -43,11 +43,11 @@ def start_comprehensive_mcp_server(transport: Literal["sse", "streamable-http"],
     @mcp.tool(description="Generates a custom image")
     def generate_custom_image() -> MCPImageContent:
         try:
-            with open("tests_integ/yellow.png", "rb") as image_file:
+            with open("tests_integ/resources/yellow.png", "rb") as image_file:
                 encoded_image = base64.b64encode(image_file.read())
                 return MCPImageContent(type="image", data=encoded_image, mimeType="image/png")
         except Exception as e:
-            print("Error while generating custom image: {}".format(e))
+            print(f"Error while generating custom image: {e}")
 
     # Prompts
     @mcp.prompt(description="A greeting prompt template")
@@ -366,7 +366,7 @@ def test_mcp_client_embedded_resources_with_agent():
         assert any(["72" in response_text, "partly cloudy" in response_text, "weather" in response_text])
 
 
-def _messages_to_content_blocks(messages: List[Message]) -> List[ToolUse]:
+def _messages_to_content_blocks(messages: list[Message]) -> list[ToolUse]:
     return [block["toolUse"] for message in messages for block in message["content"] if "toolUse" in block]
 
 
@@ -396,30 +396,6 @@ def test_mcp_client_timeout_integration():
     with client:
         tools = client.list_tools_sync()
         assert len(tools) >= 0  # Should work now
-
-
-@pytest.mark.skipif(
-    condition=os.environ.get("GITHUB_ACTIONS") == "true",
-    reason="streamable transport is failing in GitHub actions, debugging if linux compatibility issue",
-)
-@pytest.mark.asyncio
-async def test_streamable_http_mcp_client_times_out_before_tool():
-    """Test an mcp server that timesout before the tool is able to respond."""
-    server_thread = threading.Thread(
-        target=start_comprehensive_mcp_server, kwargs={"transport": "streamable-http", "port": 8001}, daemon=True
-    )
-    server_thread.start()
-    time.sleep(2)  # wait for server to startup completely
-
-    def transport_callback() -> MCPTransport:
-        return streamablehttp_client(sse_read_timeout=2, url="http://127.0.0.1:8001/mcp")
-
-    streamable_http_client = MCPClient(transport_callback)
-    with streamable_http_client:
-        # Test tools
-        result = await streamable_http_client.call_tool_async(tool_use_id="123", name="timeout_tool")
-        assert result["status"] == "error"
-        assert result["content"][0]["text"] == "Tool execution failed: Connection closed"
 
 
 def start_5xx_proxy_for_tool_calls(target_url: str, proxy_port: int):

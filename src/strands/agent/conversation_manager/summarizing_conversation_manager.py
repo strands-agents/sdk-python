@@ -1,10 +1,12 @@
 """Summarizing conversation history management with configurable options."""
 
 import logging
-from typing import TYPE_CHECKING, Any, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from typing_extensions import override
 
+from ..._async import run_async
+from ...event_loop.streaming import process_stream
 from ...tools._tool_helpers import noop_tool
 from ...tools.registry import ToolRegistry
 from ...types.content import Message
@@ -62,7 +64,7 @@ class SummarizingConversationManager(ConversationManager):
         summary_ratio: float = 0.3,
         preserve_recent_messages: int = 10,
         summarization_agent: Optional["Agent"] = None,
-        summarization_system_prompt: Optional[str] = None,
+        summarization_system_prompt: str | None = None,
     ):
         """Initialize the summarizing conversation manager.
 
@@ -87,10 +89,10 @@ class SummarizingConversationManager(ConversationManager):
         self.preserve_recent_messages = preserve_recent_messages
         self.summarization_agent = summarization_agent
         self.summarization_system_prompt = summarization_system_prompt
-        self._summary_message: Optional[Message] = None
+        self._summary_message: Message | None = None
 
     @override
-    def restore_from_session(self, state: dict[str, Any]) -> Optional[list[Message]]:
+    def restore_from_session(self, state: dict[str, Any]) -> list[Message] | None:
         """Restores the Summarizing Conversation manager from its previous state in a session.
 
         Args:
@@ -121,7 +123,7 @@ class SummarizingConversationManager(ConversationManager):
         # No proactive management - summarization only happens on context overflow
         pass
 
-    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None, **kwargs: Any) -> None:
+    def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Reduce context using summarization.
 
         Args:
@@ -173,12 +175,20 @@ class SummarizingConversationManager(ConversationManager):
             logger.error("Summarization failed: %s", summarization_error)
             raise summarization_error from e
 
-    def _generate_summary(self, messages: List[Message], agent: "Agent") -> Message:
+    def _generate_summary(self, messages: list[Message], agent: "Agent") -> Message:
         """Generate a summary of the provided messages.
+
+        When a dedicated summarization_agent was provided at init time, it is invoked as before
+        (full agent pipeline, tool execution, etc.).
+
+        In the default case (no summarization_agent), the parent agent's *model* is called
+        directly via ``model.stream()``.  This avoids re-entering the agent pipeline which
+        would deadlock on ``_invocation_lock`` and corrupt metrics / traces / interrupt state.
 
         Args:
             messages: The messages to summarize.
-            agent: The agent instance to use for summarization.
+            agent: The agent instance whose model will be used for summarization when no
+                dedicated summarization_agent was configured.
 
         Returns:
             A message containing the conversation summary.
@@ -186,26 +196,32 @@ class SummarizingConversationManager(ConversationManager):
         Raises:
             Exception: If summary generation fails.
         """
-        # Choose which agent to use for summarization
-        summarization_agent = self.summarization_agent if self.summarization_agent is not None else agent
+        if self.summarization_agent is not None:
+            return self._generate_summary_with_agent(messages)
 
-        # Save original system prompt, messages, and tool registry to restore later
+        return self._generate_summary_with_model(messages, agent)
+
+    # ------------------------------------------------------------------
+    # Path 1 – dedicated summarization agent (backward-compatible)
+    # ------------------------------------------------------------------
+
+    def _generate_summary_with_agent(self, messages: list[Message]) -> Message:
+        """Generate a summary using the dedicated summarization agent.
+
+        Args:
+            messages: The messages to summarize.
+
+        Returns:
+            A message containing the conversation summary.
+        """
+        summarization_agent = self.summarization_agent
+        assert summarization_agent is not None  # guaranteed by caller
+
         original_system_prompt = summarization_agent.system_prompt
         original_messages = summarization_agent.messages.copy()
         original_tool_registry = summarization_agent.tool_registry
 
         try:
-            # Only override system prompt if no agent was provided during initialization
-            if self.summarization_agent is None:
-                # Use custom system prompt if provided, otherwise use default
-                system_prompt = (
-                    self.summarization_system_prompt
-                    if self.summarization_system_prompt is not None
-                    else DEFAULT_SUMMARIZATION_PROMPT
-                )
-                # Temporarily set the system prompt for summarization
-                summarization_agent.system_prompt = system_prompt
-
             # Add no-op tool if agent has no tools to satisfy tool spec requirement
             if not summarization_agent.tool_names:
                 tool_registry = ToolRegistry()
@@ -214,17 +230,62 @@ class SummarizingConversationManager(ConversationManager):
 
             summarization_agent.messages = messages
 
-            # Use the agent to generate summary with rich content (can use tools if needed)
             result = summarization_agent("Please summarize this conversation.")
             return cast(Message, {**result.message, "role": "user"})
 
         finally:
-            # Restore original agent state
             summarization_agent.system_prompt = original_system_prompt
             summarization_agent.messages = original_messages
             summarization_agent.tool_registry = original_tool_registry
 
-    def _adjust_split_point_for_tool_pairs(self, messages: List[Message], split_point: int) -> int:
+    # ------------------------------------------------------------------
+    # Path 2 – default case: call model.stream() directly
+    # ------------------------------------------------------------------
+
+    def _generate_summary_with_model(self, messages: list[Message], agent: "Agent") -> Message:
+        """Generate a summary by calling the agent's model directly.
+
+        This bypasses the full agent pipeline (lock, metrics, traces, tool loop) and
+        simply asks the underlying model to summarize the conversation.
+
+        Args:
+            messages: The messages to summarize.
+            agent: The parent agent whose model is used.
+
+        Returns:
+            A message containing the conversation summary.
+        """
+        system_prompt = (
+            self.summarization_system_prompt
+            if self.summarization_system_prompt is not None
+            else DEFAULT_SUMMARIZATION_PROMPT
+        )
+
+        # Build the message list: conversation history + summarization request
+        summarization_messages = list(messages) + [
+            {"role": "user", "content": [{"text": "Please summarize this conversation."}]}
+        ]
+
+        async def _call_model() -> Message:
+            chunks = agent.model.stream(
+                summarization_messages,
+                tool_specs=None,
+                system_prompt=system_prompt,
+            )
+
+            result_message: Message | None = None
+            async for event in process_stream(chunks):
+                if "stop" in event:
+                    _, result_message, _, _ = event["stop"]
+
+            if result_message is None:
+                raise RuntimeError("Failed to generate summary: no response from model")
+            return result_message
+
+        message = run_async(_call_model)
+        return cast(Message, {**message, "role": "user"})
+
+    def _adjust_split_point_for_tool_pairs(self, messages: list[Message], split_point: int) -> int:
         """Adjust the split point to avoid breaking ToolUse/ToolResult pairs.
 
         Uses the same logic as SlidingWindowConversationManager for consistency.

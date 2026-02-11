@@ -10,17 +10,18 @@ import os
 import sys
 import uuid
 import warnings
+from collections.abc import Iterable, Sequence
 from importlib import import_module, util
 from os.path import expanduser
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, cast
 
-from typing_extensions import TypedDict, cast
+from typing_extensions import TypedDict
 
 from .._async import run_async
-from ..experimental.tools import ToolProvider
 from ..tools.decorator import DecoratedFunctionTool
 from ..types.tools import AgentTool, ToolSpec
+from . import ToolProvider
 from .loader import load_tool_from_string, load_tools_from_module
 from .tools import _COMPOSITION_KEYWORDS, PythonAgentTool, normalize_schema, normalize_tool_spec
 
@@ -35,13 +36,13 @@ class ToolRegistry:
 
     def __init__(self) -> None:
         """Initialize the tool registry."""
-        self.registry: Dict[str, AgentTool] = {}
-        self.dynamic_tools: Dict[str, AgentTool] = {}
-        self.tool_config: Optional[Dict[str, Any]] = None
-        self._tool_providers: List[ToolProvider] = []
+        self.registry: dict[str, AgentTool] = {}
+        self.dynamic_tools: dict[str, AgentTool] = {}
+        self.tool_config: dict[str, Any] | None = None
+        self._tool_providers: list[ToolProvider] = []
         self._registry_id = str(uuid.uuid4())
 
-    def process_tools(self, tools: List[Any]) -> List[str]:
+    def process_tools(self, tools: list[Any]) -> list[str]:
         """Process tools list.
 
         Process list of tools that can contain local file path string, module import path string,
@@ -186,7 +187,7 @@ class ToolRegistry:
             logger.exception("tool_name=<%s> | failed to load tool", tool_name)
             raise ValueError(f"Failed to load tool {tool_name}: {exception_str}") from e
 
-    def get_all_tools_config(self) -> Dict[str, Any]:
+    def get_all_tools_config(self) -> dict[str, Any]:
         """Dynamically generate tool configuration by combining built-in and dynamic tools.
 
         Returns:
@@ -279,7 +280,33 @@ class ToolRegistry:
                 list(self.dynamic_tools.keys()),
             )
 
-    def get_tools_dirs(self) -> List[Path]:
+    def replace(self, new_tool: AgentTool) -> None:
+        """Replace an existing tool with a new implementation.
+
+        This performs a swap of the tool implementation in the registry.
+        The replacement takes effect on the next agent invocation.
+
+        Args:
+            new_tool: New tool implementation. Its name must match the tool being replaced.
+
+        Raises:
+            ValueError: If the tool doesn't exist.
+        """
+        tool_name = new_tool.tool_name
+
+        if tool_name not in self.registry:
+            raise ValueError(f"Cannot replace tool '{tool_name}' - tool does not exist")
+
+        # Update main registry
+        self.registry[tool_name] = new_tool
+
+        # Update dynamic_tools to match new tool's dynamic status
+        if new_tool.is_dynamic:
+            self.dynamic_tools[tool_name] = new_tool
+        elif tool_name in self.dynamic_tools:
+            del self.dynamic_tools[tool_name]
+
+    def get_tools_dirs(self) -> list[Path]:
         """Get all tool directory paths.
 
         Returns:
@@ -299,7 +326,7 @@ class ToolRegistry:
 
         return tool_dirs
 
-    def discover_tool_modules(self) -> Dict[str, Path]:
+    def discover_tool_modules(self) -> dict[str, Path]:
         """Discover available tool modules in all tools directories.
 
         Returns:
@@ -542,7 +569,7 @@ class ToolRegistry:
             A list of ToolSpecs.
         """
         all_tools = self.get_all_tools_config()
-        tools: List[ToolSpec] = [tool_spec for tool_spec in all_tools.values()]
+        tools: list[ToolSpec] = [tool_spec for tool_spec in all_tools.values()]
         return tools
 
     def register_dynamic_tool(self, tool: AgentTool) -> None:
@@ -619,7 +646,7 @@ class ToolRegistry:
 
         spec: ToolSpec
 
-    def _update_tool_config(self, tool_config: Dict[str, Any], new_tool: NewToolDict) -> None:
+    def _update_tool_config(self, tool_config: dict[str, Any], new_tool: NewToolDict) -> None:
         """Update tool configuration with a new tool.
 
         Args:
@@ -656,7 +683,7 @@ class ToolRegistry:
             tool_config["tools"].append(new_tool_entry)
             logger.debug("tool_name=<%s> | added new tool", new_tool_name)
 
-    def _scan_module_for_tools(self, module: Any) -> List[AgentTool]:
+    def _scan_module_for_tools(self, module: Any) -> list[AgentTool]:
         """Scan a module for function-based tools.
 
         Args:
@@ -665,7 +692,7 @@ class ToolRegistry:
         Returns:
             List of FunctionTool instances found in the module.
         """
-        tools: List[AgentTool] = []
+        tools: list[AgentTool] = []
 
         for name, obj in inspect.getmembers(module):
             if isinstance(obj, DecoratedFunctionTool):

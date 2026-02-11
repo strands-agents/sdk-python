@@ -2,8 +2,6 @@
 Comprehensive integration tests for structured output passed into the agent functionality.
 """
 
-from typing import List, Optional
-
 import pytest
 from pydantic import BaseModel, Field, field_validator
 
@@ -42,7 +40,7 @@ class Contact(BaseModel):
     """Contact information."""
 
     email: str
-    phone: Optional[str] = None
+    phone: str | None = None
     preferred_method: str = "email"
 
 
@@ -54,7 +52,7 @@ class Employee(BaseModel):
     department: str
     address: Address
     contact: Contact
-    skills: List[str]
+    skills: list[str]
     hire_date: str
     salary_range: str
 
@@ -65,7 +63,7 @@ class ProductReview(BaseModel):
     product_name: str
     rating: int = Field(ge=1, le=5, description="Rating from 1-5 stars")
     sentiment: str = Field(pattern="^(positive|negative|neutral)$")
-    key_points: List[str]
+    key_points: list[str]
     would_recommend: bool
 
 
@@ -84,7 +82,7 @@ class TaskList(BaseModel):
     """Task management structure."""
 
     project_name: str
-    tasks: List[str]
+    tasks: list[str]
     priority: str = Field(pattern="^(high|medium|low)$")
     due_date: str
     estimated_hours: int
@@ -102,7 +100,7 @@ class Company(BaseModel):
 
     name: str = Field(description="Company name")
     address: Address = Field(description="Company address")
-    employees: List[Person] = Field(description="list of persons")
+    employees: list[Person] = Field(description="list of persons")
 
 
 class Task(BaseModel):
@@ -132,16 +130,23 @@ class NameWithValidation(BaseModel):
 
 @tool
 def calculator(operation: str, a: float, b: float) -> float:
-    """Simple calculator tool for testing."""
-    if operation == "add":
+    """Simple calculator tool for testing.
+
+    Args:
+        operation: The operation to perform. One of: add, subtract, multiply, divide, power
+        a: The first number
+        b: The second number
+    """
+    op = operation.lower().strip()
+    if op in ("add", "+"):
         return a + b
-    elif operation == "subtract":
+    elif op in ("subtract", "-", "sub"):
         return a - b
-    elif operation == "multiply":
+    elif op in ("multiply", "*", "mul"):
         return a * b
-    elif operation == "divide":
-        return b / a if a != 0 else 0
-    elif operation == "power":
+    elif op in ("divide", "/", "div"):
+        return a / b if b != 0 else 0
+    elif op in ("power", "**", "pow"):
         return a**b
     else:
         return 0

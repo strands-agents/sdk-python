@@ -9,8 +9,9 @@ via hook provider objects.
 
 import inspect
 import logging
+from collections.abc import Awaitable, Generator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Awaitable, Generator, Generic, Protocol, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, runtime_checkable
 
 from ..interrupt import Interrupt, InterruptException
 
@@ -84,6 +85,7 @@ TInvokeEvent = TypeVar("TInvokeEvent", bound=BaseHookEvent)
 """Generic for invoking events - non-contravariant to enable returning events."""
 
 
+@runtime_checkable
 class HookProvider(Protocol):
     """Protocol for objects that provide hook callbacks to an agent.
 
@@ -153,9 +155,9 @@ class HookRegistry:
 
     def __init__(self) -> None:
         """Initialize an empty hook registry."""
-        self._registered_callbacks: dict[Type, list[HookCallback]] = {}
+        self._registered_callbacks: dict[type, list[HookCallback]] = {}
 
-    def add_callback(self, event_type: Type[TEvent], callback: HookCallback[TEvent]) -> None:
+    def add_callback(self, event_type: type[TEvent], callback: HookCallback[TEvent]) -> None:
         """Register a callback function for a specific event type.
 
         Args:
