@@ -19,7 +19,7 @@ from strands.models.bedrock import (
     DEFAULT_BEDROCK_REGION,
     DEFAULT_READ_TIMEOUT,
 )
-from strands.types.exceptions import ModelThrottledException
+from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from strands.types.tools import ToolSpec
 
 FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
@@ -1514,6 +1514,31 @@ async def test_add_note_on_validation_exception_throughput(bedrock_client, model
         "└ For more information see "
         "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
     ]
+
+
+@pytest.mark.parametrize(
+    "overflow_message",
+    [
+        "Input is too long for requested model",
+        "input length and `max_tokens` exceed context limit",
+        "too many total text bytes",
+        "prompt is too long: 903884 tokens > 200000 maximum",
+    ],
+)
+@pytest.mark.asyncio
+async def test_stream_context_window_overflow(overflow_message, bedrock_client, model, alist, messages):
+    """Test that ClientError with overflow messages raises ContextWindowOverflowException."""
+    error_response = {
+        "Error": {
+            "Code": "ValidationException",
+            "Message": f"An error occurred (ValidationException) when calling the ConverseStream operation: "
+            f"The model returned the following errors: {overflow_message}",
+        }
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConverseStream")
+
+    with pytest.raises(ContextWindowOverflowException):
+        await alist(model.stream(messages))
 
 
 @pytest.mark.asyncio
