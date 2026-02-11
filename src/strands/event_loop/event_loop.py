@@ -153,6 +153,11 @@ async def event_loop_cycle(
                 agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
             )
             async for model_event in model_events:
+                if isinstance(model_event, EventLoopStopEvent):
+                    agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+                    yield model_event
+                    await model_events.aclose()  # clean-up async for-loop to avoid CancelledError
+                    return
                 if not isinstance(model_event, ModelStopReason):
                     yield model_event
 
@@ -360,6 +365,18 @@ async def _handle_model_execution(
                         stop_reason,
                     )
                     continue  # Retry the model call
+                elif after_model_call_event.stop_loop:
+                    logger.debug(
+                        "stop_reason=<%s>, stop_loop_requested=<True> | hook requested agent stop-loop",
+                        stop_reason,
+                    )
+                    invocation_state["request_state"]["stop_event_loop"] = True
+                    yield EventLoopStopEvent(
+                        stop_reason,
+                        message,
+                        agent.event_loop_metrics,
+                        invocation_state["request_state"],
+                    )
 
                 if stop_reason == "max_tokens":
                     message = recover_message_on_max_tokens_reached(message)
