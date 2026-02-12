@@ -105,8 +105,9 @@ def convert_response_to_agent_result(response: A2AResponse) -> AgentResult:
                 for part in update_event.status.message.parts:
                     if hasattr(part, "root") and hasattr(part.root, "text"):
                         content.append({"text": part.root.text})
-        # Handle initial task or task without update event
-        elif update_event is None and task and hasattr(task, "artifacts") and task.artifacts is not None:
+
+        # Fall back to task.artifacts when no content was extracted from the event
+        if not content and task and hasattr(task, "artifacts") and task.artifacts is not None:
             for artifact in task.artifacts:
                 if hasattr(artifact, "parts"):
                     for part in artifact.parts:

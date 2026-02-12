@@ -182,6 +182,46 @@ def test_convert_task_status_update_event():
     assert result.message["content"][0]["text"] == "Status message"
 
 
+def test_convert_task_status_update_event_no_message_falls_back_to_task_artifacts():
+    """Test that TaskStatusUpdateEvent with no message falls back to task.artifacts."""
+    mock_task = MagicMock()
+    mock_part = MagicMock()
+    mock_part.root.text = "Artifact content"
+    mock_artifact = MagicMock()
+    mock_artifact.parts = [mock_part]
+    mock_task.artifacts = [mock_artifact]
+
+    mock_event = MagicMock(spec=TaskStatusUpdateEvent)
+    mock_status = MagicMock()
+    mock_status.message = None
+    mock_event.status = mock_status
+
+    result = convert_response_to_agent_result((mock_task, mock_event))
+
+    assert len(result.message["content"]) == 1
+    assert result.message["content"][0]["text"] == "Artifact content"
+
+
+def test_convert_task_artifact_update_event_empty_parts_falls_back_to_task_artifacts():
+    """Test that TaskArtifactUpdateEvent with empty parts falls back to task.artifacts."""
+    mock_task = MagicMock()
+    mock_part = MagicMock()
+    mock_part.root.text = "Full artifact content"
+    mock_artifact = MagicMock()
+    mock_artifact.parts = [mock_part]
+    mock_task.artifacts = [mock_artifact]
+
+    mock_event = MagicMock(spec=TaskArtifactUpdateEvent)
+    mock_event_artifact = MagicMock()
+    mock_event_artifact.parts = []
+    mock_event.artifact = mock_event_artifact
+
+    result = convert_response_to_agent_result((mock_task, mock_event))
+
+    assert len(result.message["content"]) == 1
+    assert result.message["content"][0]["text"] == "Full artifact content"
+
+
 def test_convert_response_handles_missing_data():
     """Test that response conversion handles missing/malformed data gracefully."""
     # TaskArtifactUpdateEvent with no artifact
