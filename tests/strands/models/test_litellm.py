@@ -815,7 +815,7 @@ async def test_stream_with_usage_in_final_event(litellm_acompletion, api_key, mo
 
 
 def test_format_request_messages_with_tool_calls_no_content():
-    """Test that messages with tool calls but no content are properly formatted."""
+    """Test that assistant messages with only tool calls are included and have no content field."""
     messages = [
         {"role": "user", "content": [{"text": "Use the calculator"}]},
         {
@@ -832,38 +832,19 @@ def test_format_request_messages_with_tool_calls_no_content():
         },
     ]
 
-    result = LiteLLMModel.format_request_messages(messages)
+    tru_result = LiteLLMModel.format_request_messages(messages)
 
-    # Assistant message should have tool_calls but no content field
-    assert len(result) == 2
-    assert result[1]["role"] == "assistant"
-    assert "tool_calls" in result[1]
-    assert "content" not in result[1]
-    assert result[1]["tool_calls"][0]["id"] == "c1"
-
-
-def test_format_request_messages_filters_tool_only_messages():
-    """Test that messages with only tool calls (no content) are included in output."""
-    messages = [
-        {"role": "user", "content": [{"text": "test"}]},
+    exp_result = [
+        {"role": "user", "content": [{"text": "Use the calculator", "type": "text"}]},
         {
             "role": "assistant",
-            "content": [
+            "tool_calls": [
                 {
-                    "toolUse": {
-                        "input": {},
-                        "name": "tool1",
-                        "toolUseId": "t1",
-                    },
-                },
+                    "function": {"arguments": '{"expression": "2+2"}', "name": "calculator"},
+                    "id": "c1",
+                    "type": "function",
+                }
             ],
         },
     ]
-
-    result = LiteLLMModel.format_request_messages(messages)
-
-    # Both messages should be included
-    assert len(result) == 2
-    assert result[0]["role"] == "user"
-    assert result[1]["role"] == "assistant"
-    assert "tool_calls" in result[1]
+    assert tru_result == exp_result
