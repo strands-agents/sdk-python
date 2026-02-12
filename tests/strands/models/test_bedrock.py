@@ -2405,6 +2405,85 @@ async def test_format_request_with_guardrail_latest_message(model):
     assert formatted_messages[2]["content"][1]["guardContent"]["image"]["format"] == "png"
 
 
+@pytest.mark.asyncio
+async def test_format_request_with_guardrail_latest_message_after_tool_use(model):
+    """Test that guardContent wraps the last user text message even when a toolResult follows it."""
+    model.update_config(
+        guardrail_id="test-guardrail",
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+    )
+
+    messages = [
+        {"role": "user", "content": [{"text": "First message"}]},
+        {"role": "assistant", "content": [{"text": "First response"}]},
+        {"role": "user", "content": [{"text": "what is the standard deduction?"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "tool-1",
+                        "name": "knowledge_base",
+                        "input": {"query": "standard deduction"},
+                    }
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "tool-1",
+                        "content": [{"text": "The standard deduction for 2024 is $14,600."}],
+                        "status": "success",
+                    }
+                }
+            ],
+        },
+    ]
+
+    request = model._format_request(messages)
+    formatted_messages = request["messages"]
+
+    assert len(formatted_messages) == 5
+
+    # Earlier user message should NOT be wrapped
+    assert "text" in formatted_messages[0]["content"][0]
+    assert formatted_messages[0]["content"][0]["text"] == "First message"
+
+    # Last user message with text content should be wrapped, even though a toolResult comes after
+    assert "guardContent" in formatted_messages[2]["content"][0]
+    assert formatted_messages[2]["content"][0]["guardContent"]["text"]["text"] == "what is the standard deduction?"
+
+    # toolResult-only user message should NOT be wrapped
+    assert "toolResult" in formatted_messages[4]["content"][0]
+    assert "guardContent" not in formatted_messages[4]["content"][0]
+
+
+@pytest.mark.asyncio
+async def test_format_request_with_guardrail_latest_message_wraps_final_user_text(model):
+    """Test that guardContent wraps the last user message when it contains text content."""
+    model.update_config(
+        guardrail_id="test-guardrail",
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+    )
+
+    messages = [
+        {"role": "user", "content": [{"text": "First message"}]},
+        {"role": "assistant", "content": [{"text": "First response"}]},
+        {"role": "user", "content": [{"text": "Tell me about taxes"}]},
+    ]
+
+    request = model._format_request(messages)
+    formatted_messages = request["messages"]
+
+    assert "guardContent" in formatted_messages[2]["content"][0]
+    assert formatted_messages[2]["content"][0]["guardContent"]["text"]["text"] == "Tell me about taxes"
+
+
 def test_supports_caching_true_for_claude(bedrock_client):
     """Test that supports_caching returns True for Claude models."""
     model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
