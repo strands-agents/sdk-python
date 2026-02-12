@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import unittest.mock
@@ -998,3 +999,83 @@ def test_format_request_filters_location_source_document(model, caplog):
     assert len(formatted_content) == 1
     assert "text" in formatted_content[0]
     assert "Location sources are not supported by Gemini" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_use_and_thought_signature(gemini_client, model):
+    """Verify that a thought_signature in a toolUse is sent back to the API as a base64 string."""
+    signature_input = "test_signature_to_send_back"
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "c1",
+                        "name": "calculator",
+                        "input": {"expression": "2+2"},
+                        "thoughtSignature": signature_input,
+                    }
+                }
+            ],
+        }
+    ]
+
+    await anext(model.stream(messages))
+
+    called_with_kwargs = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    sent_contents_as_dict = called_with_kwargs["contents"]
+
+    tool_use_part_as_dict = sent_contents_as_dict[0]["parts"][0]
+
+    assert "function_call" in tool_use_part_as_dict
+
+    expected_b64 = base64.b64encode(signature_input.encode("utf-8")).decode("utf-8")
+    assert tool_use_part_as_dict.get("thought_signature") == expected_b64
+
+
+@pytest.mark.asyncio
+async def test_stream_response_tool_use_with_thought_signature(gemini_client, model, messages, agenerator, alist):
+    """Test that thought signature from response is properly captured and stored in toolUse."""
+    mock_candidate = unittest.mock.Mock()
+    mock_candidate.finish_reason = "TOOL_USE"
+
+    mock_fn = unittest.mock.Mock(args={"expression": "2+2"})
+    mock_fn.name = "calculator"
+
+    mock_part = unittest.mock.Mock()
+    mock_part.function_call = mock_fn
+    mock_part.text = None
+    mock_part.thought = False
+
+    mock_candidate.content.parts = [mock_part]
+    mock_candidate.thought_signature = b"sig123"
+
+    mock_response = unittest.mock.Mock()
+    mock_response.candidates = [mock_candidate]
+
+    mock_meta = unittest.mock.Mock()
+    mock_meta.prompt_token_count = 1
+    mock_meta.total_token_count = 2
+    mock_response.usage_metadata = mock_meta
+
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator([mock_response])
+
+    tru_chunks = await alist(model.stream(messages))
+
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {
+            "contentBlockStart": {
+                "start": {"toolUse": {"name": "calculator", "toolUseId": "calculator", "thoughtSignature": "sig123"}}
+            }
+        },
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 2}, "metrics": {"latencyMs": 0}}},
+    ]
+
+    assert tru_chunks == exp_chunks
