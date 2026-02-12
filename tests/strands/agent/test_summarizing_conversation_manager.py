@@ -181,9 +181,7 @@ def test_reduce_context_raises_on_summarization_failure():
     """Test that reduce_context raises exception when model.stream() fails."""
     failing_agent = Mock()
     failing_agent.model = Mock()
-    failing_agent.model.stream = Mock(
-        side_effect=lambda *a, **kw: _mock_model_stream_error(Exception("Agent failed"))
-    )
+    failing_agent.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream_error(Exception("Agent failed")))
     failing_agent_messages: Messages = [
         {"role": "user", "content": [{"text": "Message 1"}]},
         {"role": "assistant", "content": [{"text": "Response 1"}]},
@@ -241,9 +239,7 @@ def test_generate_summary_raises_on_model_failure():
     """Test that _generate_summary raises exception when model.stream() fails."""
     failing_agent = Mock()
     failing_agent.model = Mock()
-    failing_agent.model.stream = Mock(
-        side_effect=lambda *a, **kw: _mock_model_stream_error(Exception("Agent failed"))
-    )
+    failing_agent.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream_error(Exception("Agent failed")))
 
     manager = SummarizingConversationManager()
 

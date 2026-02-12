@@ -106,7 +106,7 @@ def convert_response_to_agent_result(response: A2AResponse) -> AgentResult:
                     if hasattr(part, "root") and hasattr(part.root, "text"):
                         content.append({"text": part.root.text})
 
-        # Fall back to task.artifacts when no content was extracted from the event
+        # Use task.artifacts when no content was extracted from the event
         if not content and task and hasattr(task, "artifacts") and task.artifacts is not None:
             for artifact in task.artifacts:
                 if hasattr(artifact, "parts"):
