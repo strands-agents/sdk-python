@@ -1,24 +1,22 @@
 """Bidirectional streaming package."""
 
-# Main components - Primary user interface
-# Re-export standard agent events for tool handling
+import sys
+from typing import Any
+
+if sys.version_info < (3, 12):
+    raise ImportError("bidi only supported for >= Python 3.12")
+
+# Re-export standard agent events for tool handling (these are safe to import eagerly)
 from ...types._events import (
     ToolResultEvent,
     ToolStreamEvent,
     ToolUseStreamEvent,
 )
-from .agent.agent import BidiAgent
-
-# IO channels - Hardware abstraction
-from .io.audio import BidiAudioIO
-
-# Model interface (for custom implementations)
-from .models.model import BidiModel
 
 # Built-in tools
 from .tools import stop_conversation
 
-# Event types - For type hints and event handling
+# Event types - For type hints and event handling (these are safe to import eagerly)
 from .types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -36,6 +34,13 @@ from .types.events import (
     BidiUsageEvent,
     ModalityUsage,
 )
+
+from .agent.agent import BidiAgent
+from .models.model import BidiModel
+from .models.nova_sonic import BidiNovaSonicModel
+from .tools import stop_conversation
+from .io import BidiAudioIO
+
 
 __all__ = [
     # Main interface

@@ -1,9 +1,9 @@
 """Handle text input and output to and from bidi agent."""
 
 import logging
-from typing import Any
-
+from typing import TYPE_CHECKING, Any
 from prompt_toolkit import PromptSession
+
 
 from ..types.events import (
     BidiConnectionCloseEvent,
@@ -20,10 +20,13 @@ logger = logging.getLogger(__name__)
 class _BidiTextInput(BidiInput):
     """Handle text input from user."""
 
+    _session: "PromptSession"
+
     def __init__(self, config: dict[str, Any]) -> None:
         """Extract configs and setup prompt session."""
+
         prompt = config.get("input_prompt", "")
-        self._session: PromptSession = PromptSession(prompt)
+        self._session = PromptSession(prompt)
 
     async def __call__(self) -> BidiTextInputEvent:
         """Read user input from stdin."""
@@ -42,8 +45,13 @@ class _BidiTextOutput(BidiOutput):
 
         elif isinstance(event, BidiConnectionCloseEvent):
             if event.reason == "user_request":
-                print("user requested connection close using the stop_conversation tool.")
-                logger.debug("connection_id=<%s> | user requested connection close", event.connection_id)
+                print(
+                    "user requested connection close using the stop_conversation tool."
+                )
+                logger.debug(
+                    "connection_id=<%s> | user requested connection close",
+                    event.connection_id,
+                )
         elif isinstance(event, BidiTranscriptStreamEvent):
             text = event["text"]
             is_final = event["is_final"]
@@ -75,6 +83,9 @@ class BidiTextIO:
             **config: Optional I/O configurations.
 
                 - input_prompt (str): Input prompt to display on screen (default: blank)
+
+        Raises:
+            ImportError: If prompt_toolkit is not installed.
         """
         self._config = config
 

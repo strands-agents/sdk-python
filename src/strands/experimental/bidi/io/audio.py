@@ -11,13 +11,18 @@ import base64
 import logging
 import queue
 from typing import TYPE_CHECKING, Any
-
 import pyaudio
 
-from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiInterruptionEvent,
+    BidiOutputEvent,
+)
 from ..types.io import BidiInput, BidiOutput
 
 if TYPE_CHECKING:
+
     from ..agent.agent import BidiAgent
 
 logger = logging.getLogger(__name__)
@@ -116,8 +121,8 @@ class _BidiAudioInput(BidiInput):
         _buffer: Buffer for sharing audio data between agent and PyAudio.
     """
 
-    _audio: pyaudio.PyAudio
-    _stream: pyaudio.Stream
+    _audio: "pyaudio.PyAudio"
+    _stream: "pyaudio.Stream"
 
     _BUFFER_SIZE = None
     _DEVICE_INDEX = None
@@ -125,9 +130,15 @@ class _BidiAudioInput(BidiInput):
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Extract configs."""
-        self._buffer_size = config.get("input_buffer_size", _BidiAudioInput._BUFFER_SIZE)
-        self._device_index = config.get("input_device_index", _BidiAudioInput._DEVICE_INDEX)
-        self._frames_per_buffer = config.get("input_frames_per_buffer", _BidiAudioInput._FRAMES_PER_BUFFER)
+        self._buffer_size = config.get(
+            "input_buffer_size", _BidiAudioInput._BUFFER_SIZE
+        )
+        self._device_index = config.get(
+            "input_device_index", _BidiAudioInput._DEVICE_INDEX
+        )
+        self._frames_per_buffer = config.get(
+            "input_frames_per_buffer", _BidiAudioInput._FRAMES_PER_BUFFER
+        )
 
         self._buffer = _BidiAudioBuffer(self._buffer_size)
 
@@ -137,6 +148,7 @@ class _BidiAudioInput(BidiInput):
         Args:
             agent: The BidiAgent instance, providing access to model configuration.
         """
+
         logger.debug("starting audio input stream")
 
         self._channels = agent.model.config["audio"]["channels"]
@@ -183,6 +195,7 @@ class _BidiAudioInput(BidiInput):
 
     def _callback(self, in_data: bytes, *_: Any) -> tuple[None, Any]:
         """Callback to receive audio data from PyAudio."""
+
         self._buffer.put(in_data)
         return (None, pyaudio.paContinue)
 
@@ -196,8 +209,8 @@ class _BidiAudioOutput(BidiOutput):
         _buffer: Buffer for sharing audio data between agent and PyAudio.
     """
 
-    _audio: pyaudio.PyAudio
-    _stream: pyaudio.Stream
+    _audio: "pyaudio.PyAudio"
+    _stream: "pyaudio.Stream"
 
     _BUFFER_SIZE = None
     _DEVICE_INDEX = None
@@ -205,9 +218,15 @@ class _BidiAudioOutput(BidiOutput):
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Extract configs."""
-        self._buffer_size = config.get("output_buffer_size", _BidiAudioOutput._BUFFER_SIZE)
-        self._device_index = config.get("output_device_index", _BidiAudioOutput._DEVICE_INDEX)
-        self._frames_per_buffer = config.get("output_frames_per_buffer", _BidiAudioOutput._FRAMES_PER_BUFFER)
+        self._buffer_size = config.get(
+            "output_buffer_size", _BidiAudioOutput._BUFFER_SIZE
+        )
+        self._device_index = config.get(
+            "output_device_index", _BidiAudioOutput._DEVICE_INDEX
+        )
+        self._frames_per_buffer = config.get(
+            "output_frames_per_buffer", _BidiAudioOutput._FRAMES_PER_BUFFER
+        )
 
         self._buffer = _BidiAudioBuffer(self._buffer_size)
 
@@ -217,6 +236,7 @@ class _BidiAudioOutput(BidiOutput):
         Args:
             agent: The BidiAgent instance, providing access to model configuration.
         """
+
         logger.debug("starting audio output stream")
 
         self._channels = agent.model.config["audio"]["channels"]
@@ -254,14 +274,20 @@ class _BidiAudioOutput(BidiOutput):
         if isinstance(event, BidiAudioStreamEvent):
             data = base64.b64decode(event["audio"])
             self._buffer.put(data)
-            logger.debug("audio_bytes=<%d> | audio chunk buffered for playback", len(data))
+            logger.debug(
+                "audio_bytes=<%d> | audio chunk buffered for playback", len(data)
+            )
 
         elif isinstance(event, BidiInterruptionEvent):
-            logger.debug("reason=<%s> | clearing audio buffer due to interruption", event["reason"])
+            logger.debug(
+                "reason=<%s> | clearing audio buffer due to interruption",
+                event["reason"],
+            )
             self._buffer.clear()
 
     def _callback(self, _in_data: None, frame_count: int, *_: Any) -> tuple[bytes, Any]:
         """Callback to send audio data to PyAudio."""
+
         byte_count = frame_count * pyaudio.get_sample_size(pyaudio.paInt16)
         data = self._buffer.get(byte_count)
         return (data, pyaudio.paContinue)
@@ -282,6 +308,7 @@ class BidiAudioIO:
                 - output_buffer_size (int): Maximum output buffer size (default: None)
                 - output_device_index (int): Specific output device (default: None = system default)
                 - output_frames_per_buffer (int): Output buffer size (default: 512)
+
         """
         self._config = config
 
