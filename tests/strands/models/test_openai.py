@@ -180,6 +180,23 @@ def test_format_request_tool_message():
     assert tru_result == exp_result
 
 
+def test_format_request_tool_message_single_text_returns_string():
+    """Test that single text content is returned as string for model compatibility."""
+    tool_result = {
+        "content": [{"text": '{"result": "success"}'}],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    exp_result = {
+        "content": '{"result": "success"}',
+        "role": "tool",
+        "tool_call_id": "c1",
+    }
+    assert tru_result == exp_result
+
+
 def test_split_tool_message_images_with_image():
     """Test that images are extracted from tool messages."""
     tool_message = {
@@ -441,7 +458,7 @@ def test_format_request_messages(system_prompt):
             ],
         },
         {
-            "content": [{"text": "4", "type": "text"}],
+            "content": "4",
             "role": "tool",
             "tool_call_id": "c1",
         },

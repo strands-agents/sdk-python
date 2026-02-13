@@ -204,10 +204,18 @@ class OpenAIModel(Model):
             ],
         )
 
+        formatted_contents = [cls.format_request_message_content(content) for content in contents]
+
+        # If single text content, use string format for better model compatibility
+        if len(formatted_contents) == 1 and formatted_contents[0].get("type") == "text":
+            content: str | list[dict[str, Any]] = formatted_contents[0]["text"]
+        else:
+            content = formatted_contents
+
         return {
             "role": "tool",
             "tool_call_id": tool_result["toolUseId"],
-            "content": [cls.format_request_message_content(content) for content in contents],
+            "content": content,
         }
 
     @classmethod
