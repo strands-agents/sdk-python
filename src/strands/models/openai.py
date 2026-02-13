@@ -384,11 +384,14 @@ class OpenAIModel(Model):
 
             # Process tool messages to extract images into separate user messages
             # OpenAI API requires images to be in user role messages only
+            # All tool messages must be grouped together before any user messages with images
+            user_messages_with_images = []
             for tool_msg in formatted_tool_messages:
                 tool_msg_clean, user_msg_with_images = cls._split_tool_message_images(tool_msg)
                 formatted_messages.append(tool_msg_clean)
                 if user_msg_with_images:
-                    formatted_messages.append(user_msg_with_images)
+                    user_messages_with_images.append(user_msg_with_images)
+            formatted_messages.extend(user_messages_with_images)
 
         return formatted_messages
 

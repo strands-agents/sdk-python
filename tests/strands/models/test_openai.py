@@ -1450,3 +1450,86 @@ def test_format_request_messages_with_tool_calls_no_content():
         },
     ]
     assert tru_result == exp_result
+
+
+def test_format_request_messages_multiple_tool_calls_with_images():
+    """Test that multiple tool calls with image results are formatted correctly.
+
+    OpenAI requires all tool response messages to immediately follow the assistant
+    message with tool_calls, before any other messages. When tools return images,
+    the images are moved to user messages, but these must come after ALL tool messages.
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "Run the tools"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"input": {}, "name": "tool1", "toolUseId": "call_1"}},
+                {"toolUse": {"input": {}, "name": "tool2", "toolUseId": "call_2"}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "call_1",
+                        "content": [{"image": {"format": "png", "source": {"bytes": b"img1"}}}],
+                        "status": "success",
+                    }
+                },
+                {
+                    "toolResult": {
+                        "toolUseId": "call_2",
+                        "content": [{"image": {"format": "png", "source": {"bytes": b"img2"}}}],
+                        "status": "success",
+                    }
+                },
+            ],
+        },
+    ]
+
+    tru_result = OpenAIModel.format_request_messages(messages)
+
+    image_placeholder = (
+        "Tool successfully returned an image. The image is being provided in the following user message."
+    )
+    exp_result = [
+        {"role": "user", "content": [{"text": "Run the tools", "type": "text"}]},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"function": {"arguments": "{}", "name": "tool1"}, "id": "call_1", "type": "function"},
+                {"function": {"arguments": "{}", "name": "tool2"}, "id": "call_2", "type": "function"},
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": [{"type": "text", "text": image_placeholder}],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_2",
+            "content": [{"type": "text", "text": image_placeholder}],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image_url": {"detail": "auto", "format": "image/png", "url": "data:image/png;base64,aW1nMQ=="},
+                    "type": "image_url",
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image_url": {"detail": "auto", "format": "image/png", "url": "data:image/png;base64,aW1nMg=="},
+                    "type": "image_url",
+                }
+            ],
+        },
+    ]
+    assert tru_result == exp_result
