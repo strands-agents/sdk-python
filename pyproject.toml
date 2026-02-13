@@ -49,6 +49,7 @@ llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
 mistral = ["mistralai>=1.8.2"]
 ollama = ["ollama>=0.4.8,<1.0.0"]
 openai = ["openai>=1.68.0,<2.0.0"]
+portkey = ["portkey-ai>=1.0.0,<2.0.0", "openai>=1.68.0,<2.0.0"]
 writer = ["writer-sdk>=2.2.0,<3.0.0"]
 sagemaker = [
     "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0",
@@ -79,7 +80,7 @@ bidi = [
 bidi-gemini = ["google-genai>=1.32.0,<2.0.0"]
 bidi-openai = ["websockets>=15.0.0,<17.0.0"]
 
-all = ["strands-agents[a2a,anthropic,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
+all = ["strands-agents[a2a,anthropic,docs,gemini,litellm,llamaapi,mistral,ollama,openai,portkey,writer,sagemaker,otel]"]
 bidi-all = ["strands-agents[a2a,bidi,bidi-gemini,bidi-openai,docs,otel]"]
 
 dev = [
