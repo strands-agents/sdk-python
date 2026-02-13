@@ -84,14 +84,19 @@ class Plugin:
 
     # -- lifecycle -----------------------------------------------------------
 
-    def init_plugin(self, agent: "Agent") -> None:
+    def init_plugin(self, agent: "Agent", **kwargs: Any) -> None:
         """Optional hook called after the plugin's tools and hooks are registered.
 
         Override this method to perform additional setup that requires the
         fully-constructed agent (e.g. mutating ``agent.system_prompt``).
 
+        Subclasses should always accept ``**kwargs`` so that additional keyword
+        arguments can be introduced in future SDK versions without breaking
+        existing plugins.
+
         Args:
             agent: The agent that this plugin has been registered with.
+            **kwargs: Reserved for future use.
         """
 
     # -- internals -----------------------------------------------------------

@@ -1,6 +1,7 @@
 """Tests for the Plugin base class auto-discovery and properties."""
 
 import unittest.mock
+from typing import Any
 
 from strands.hooks import BeforeInvocationEvent, BeforeToolCallEvent
 from strands.hooks.decorator import DecoratedFunctionHook, hook
@@ -93,7 +94,7 @@ class InitPlugin(Plugin):
     name = "init-test"
     initialized_with: "unittest.mock.Mock | None" = None
 
-    def init_plugin(self, agent: "unittest.mock.Mock") -> None:  # type: ignore[override]
+    def init_plugin(self, agent: "unittest.mock.Mock", **kwargs: Any) -> None:  # type: ignore[override]
         self.initialized_with = agent
 
 

@@ -63,7 +63,7 @@ class FullPlugin(Plugin):
     def before_invocation(self, event: BeforeInvocationEvent) -> None:
         """Before invocation."""
 
-    def init_plugin(self, agent: Any) -> None:
+    def init_plugin(self, agent: Any, **kwargs: Any) -> None:
         self.init_called = True
 
 
@@ -72,7 +72,7 @@ class SystemPromptPlugin(Plugin):
 
     name = "system-prompt"
 
-    def init_plugin(self, agent: Any) -> None:
+    def init_plugin(self, agent: Any, **kwargs: Any) -> None:
         current = agent.system_prompt or ""
         agent.system_prompt = current + "\nYou are also a helpful math tutor."
 
@@ -199,13 +199,13 @@ class TestPluginInitCallback:
         class P1(Plugin):
             name = "p1"
 
-            def init_plugin(self, agent: Any) -> None:
+            def init_plugin(self, agent: Any, **kwargs: Any) -> None:
                 init_calls.append("p1")
 
         class P2(Plugin):
             name = "p2"
 
-            def init_plugin(self, agent: Any) -> None:
+            def init_plugin(self, agent: Any, **kwargs: Any) -> None:
                 init_calls.append("p2")
 
         Agent(
