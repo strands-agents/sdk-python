@@ -31,6 +31,7 @@ from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, even
 from ..tools._tool_helpers import generate_missing_tool_result_content
 
 if TYPE_CHECKING:
+    from ..plugins.plugin import Plugin
     from ..tools import ToolProvider
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
@@ -129,6 +130,7 @@ class Agent(AgentBase):
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
+        plugins: "list[Plugin] | None" = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -186,6 +188,12 @@ class Agent(AgentBase):
             retry_strategy: Strategy for retrying model calls on throttling or other transient errors.
                 Defaults to ModelRetryStrategy with max_attempts=6, initial_delay=4s, max_delay=240s.
                 Implement a custom HookProvider for custom retry logic, or pass None to disable retries.
+            plugins: List of Plugin instances to register with the agent.
+                Each plugin can contribute tools and hooks via ``@tool`` and ``@hook``
+                decorated methods, which are auto-discovered and registered during
+                agent initialization. An optional ``init_plugin(agent)`` callback is
+                invoked after registration for any additional setup.
+                Defaults to None.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -302,6 +310,16 @@ class Agent(AgentBase):
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
+
+        # Process plugins: register discovered tools, hooks, and call init_plugin
+        if plugins:
+            for plugin in plugins:
+                for plugin_tool in plugin.tools:
+                    self.tool_registry.register_tool(plugin_tool)
+                for plugin_hook in plugin.hooks:
+                    self.hooks.add_hook(plugin_hook)
+                plugin.init_plugin(self)
+
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
     @property
