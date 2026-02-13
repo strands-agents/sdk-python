@@ -87,3 +87,47 @@ def test_hook_registry_invoke_callbacks_coroutine(registry, agent):
 
     with pytest.raises(RuntimeError, match=r"use invoke_callbacks_async to invoke async callback"):
         registry.invoke_callbacks(BeforeInvocationEvent(agent=agent))
+
+
+def test_hook_registry_add_callback_infers_event_type(registry):
+    """Test that add_callback infers event type from callback type hint."""
+
+    def typed_callback(event: BeforeInvocationEvent) -> None:
+        pass
+
+    # Register without explicit event_type - should infer from type hint
+    registry.add_callback(typed_callback)
+
+    # Verify callback was registered
+    assert BeforeInvocationEvent in registry._registered_callbacks
+    assert typed_callback in registry._registered_callbacks[BeforeInvocationEvent]
+
+
+def test_hook_registry_add_callback_raises_error_no_type_hint(registry):
+    """Test that add_callback raises error when type hint is missing."""
+
+    def untyped_callback(event):
+        pass
+
+    with pytest.raises(ValueError, match="cannot infer event type"):
+        registry.add_callback(untyped_callback)
+
+
+def test_hook_registry_add_callback_raises_error_invalid_type_hint(registry):
+    """Test that add_callback raises error when type hint is not a BaseHookEvent subclass."""
+
+    def invalid_callback(event: str) -> None:
+        pass
+
+    with pytest.raises(ValueError, match="must be a subclass of BaseHookEvent"):
+        registry.add_callback(invalid_callback)
+
+
+def test_hook_registry_add_callback_raises_error_no_parameters(registry):
+    """Test that add_callback raises error when callback has no parameters."""
+
+    def no_param_callback() -> None:
+        pass
+
+    with pytest.raises(ValueError, match="callback has no parameters"):
+        registry.add_callback(no_param_callback)
