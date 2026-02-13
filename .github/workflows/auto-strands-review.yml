@@ -1,0 +1,49 @@
+name: Auto Strands Review
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  authorization-check:
+    name: Check access
+    permissions: read-all
+    runs-on: ubuntu-latest
+    outputs:
+      approval-env: ${{ steps.auth.outputs.result }}
+    steps:
+      - name: Check Authorization
+        id: auth
+        uses: strands-agents/devtools/authorization-check@main
+        with:
+          skip-check: false
+          username: ${{ github.event.pull_request.user.login || 'invalid' }}
+          allowed-roles: 'triage,write,admin'
+
+  trigger-review:
+    name: Trigger Strands Review
+    needs: authorization-check
+    environment: ${{ needs.authorization-check.outputs.approval-env }}
+    permissions:
+      actions: write
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Strands Command Workflow
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'strands-command.yml',
+              ref: 'main',
+              inputs: {
+                issue_id: String(context.payload.pull_request.number),
+                command: 'review',
+                session_id: ''
+              }
+            });
+            console.log(`Triggered /strands review for PR #${context.payload.pull_request.number}`);
