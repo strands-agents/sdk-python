@@ -8,7 +8,7 @@ SDK. These types are modeled after the Bedrock API.
 
 from typing import Literal
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from .citations import CitationsContentBlock
 from .media import DocumentContent, ImageContent, VideoContent
@@ -66,9 +66,11 @@ class CachePoint(TypedDict):
 
     Attributes:
         type: The type of cache point, typically "default".
+        ttl: Optional TTL duration for cache entries. Valid values are "5m" (5 minutes) or "1h" (1 hour).
     """
 
     type: str
+    ttl: NotRequired[Literal["5m", "1h"]]
 
 
 class ContentBlock(TypedDict, total=False):
