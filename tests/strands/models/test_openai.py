@@ -180,6 +180,23 @@ def test_format_request_tool_message():
     assert tru_result == exp_result
 
 
+def test_format_request_tool_message_single_text_returns_string():
+    """Test that single text content is returned as string for model compatibility."""
+    tool_result = {
+        "content": [{"text": '{"result": "success"}'}],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    exp_result = {
+        "content": '{"result": "success"}',
+        "role": "tool",
+        "tool_call_id": "c1",
+    }
+    assert tru_result == exp_result
+
+
 def test_split_tool_message_images_with_image():
     """Test that images are extracted from tool messages."""
     tool_message = {
@@ -441,7 +458,7 @@ def test_format_request_messages(system_prompt):
             ],
         },
         {
-            "content": [{"text": "4", "type": "text"}],
+            "content": "4",
             "role": "tool",
             "tool_call_id": "c1",
         },
@@ -1397,3 +1414,122 @@ def test_format_request_filters_location_source_document(model, caplog):
     assert len(formatted_content) == 1
     assert formatted_content[0]["type"] == "text"
     assert "Location sources are not supported by OpenAI" in caplog.text
+
+
+def test_format_request_messages_with_tool_calls_no_content():
+    """Test that assistant messages with only tool calls are included and have no content field."""
+    messages = [
+        {"role": "user", "content": [{"text": "Use the calculator"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "input": {"expression": "2+2"},
+                        "name": "calculator",
+                        "toolUseId": "c1",
+                    },
+                },
+            ],
+        },
+    ]
+
+    tru_result = OpenAIModel.format_request_messages(messages)
+
+    exp_result = [
+        {"role": "user", "content": [{"text": "Use the calculator", "type": "text"}]},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "function": {"arguments": '{"expression": "2+2"}', "name": "calculator"},
+                    "id": "c1",
+                    "type": "function",
+                }
+            ],
+        },
+    ]
+    assert tru_result == exp_result
+
+
+def test_format_request_messages_multiple_tool_calls_with_images():
+    """Test that multiple tool calls with image results are formatted correctly.
+
+    OpenAI requires all tool response messages to immediately follow the assistant
+    message with tool_calls, before any other messages. When tools return images,
+    the images are moved to user messages, but these must come after ALL tool messages.
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "Run the tools"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"input": {}, "name": "tool1", "toolUseId": "call_1"}},
+                {"toolUse": {"input": {}, "name": "tool2", "toolUseId": "call_2"}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "call_1",
+                        "content": [{"image": {"format": "png", "source": {"bytes": b"img1"}}}],
+                        "status": "success",
+                    }
+                },
+                {
+                    "toolResult": {
+                        "toolUseId": "call_2",
+                        "content": [{"image": {"format": "png", "source": {"bytes": b"img2"}}}],
+                        "status": "success",
+                    }
+                },
+            ],
+        },
+    ]
+
+    tru_result = OpenAIModel.format_request_messages(messages)
+
+    image_placeholder = (
+        "Tool successfully returned an image. The image is being provided in the following user message."
+    )
+    exp_result = [
+        {"role": "user", "content": [{"text": "Run the tools", "type": "text"}]},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"function": {"arguments": "{}", "name": "tool1"}, "id": "call_1", "type": "function"},
+                {"function": {"arguments": "{}", "name": "tool2"}, "id": "call_2", "type": "function"},
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": [{"type": "text", "text": image_placeholder}],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_2",
+            "content": [{"type": "text", "text": image_placeholder}],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image_url": {"detail": "auto", "format": "image/png", "url": "data:image/png;base64,aW1nMQ=="},
+                    "type": "image_url",
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image_url": {"detail": "auto", "format": "image/png", "url": "data:image/png;base64,aW1nMg=="},
+                    "type": "image_url",
+                }
+            ],
+        },
+    ]
+    assert tru_result == exp_result

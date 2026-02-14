@@ -204,10 +204,18 @@ class OpenAIModel(Model):
             ],
         )
 
+        formatted_contents = [cls.format_request_message_content(content) for content in contents]
+
+        # If single text content, use string format for better model compatibility
+        if len(formatted_contents) == 1 and formatted_contents[0].get("type") == "text":
+            content: str | list[dict[str, Any]] = formatted_contents[0]["text"]
+        else:
+            content = formatted_contents
+
         return {
             "role": "tool",
             "tool_call_id": tool_result["toolUseId"],
-            "content": [cls.format_request_message_content(content) for content in contents],
+            "content": content,
         }
 
     @classmethod
@@ -369,18 +377,21 @@ class OpenAIModel(Model):
 
             formatted_message = {
                 "role": message["role"],
-                "content": formatted_contents,
+                **({"content": formatted_contents} if formatted_contents else {}),
                 **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
             }
             formatted_messages.append(formatted_message)
 
             # Process tool messages to extract images into separate user messages
             # OpenAI API requires images to be in user role messages only
+            # All tool messages must be grouped together before any user messages with images
+            user_messages_with_images = []
             for tool_msg in formatted_tool_messages:
                 tool_msg_clean, user_msg_with_images = cls._split_tool_message_images(tool_msg)
                 formatted_messages.append(tool_msg_clean)
                 if user_msg_with_images:
-                    formatted_messages.append(user_msg_with_images)
+                    user_messages_with_images.append(user_msg_with_images)
+            formatted_messages.extend(user_messages_with_images)
 
         return formatted_messages
 
@@ -407,7 +418,7 @@ class OpenAIModel(Model):
         formatted_messages = cls._format_system_messages(system_prompt, system_prompt_content=system_prompt_content)
         formatted_messages.extend(cls._format_regular_messages(messages))
 
-        return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
+        return [message for message in formatted_messages if "content" in message or "tool_calls" in message]
 
     def format_request(
         self,
