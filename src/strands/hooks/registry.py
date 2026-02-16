@@ -18,6 +18,7 @@ from typing import (
     Protocol,
     TypeVar,
     get_type_hints,
+    overload,
     runtime_checkable,
 )
 
@@ -165,6 +166,12 @@ class HookRegistry:
         """Initialize an empty hook registry."""
         self._registered_callbacks: dict[type, list[HookCallback]] = {}
 
+    @overload
+    def add_callback(self, callback: HookCallback[TEvent]) -> None: ...
+
+    @overload
+    def add_callback(self, event_type: type[TEvent], callback: HookCallback[TEvent]) -> None: ...
+
     def add_callback(
         self,
         event_type: type[TEvent] | HookCallback[TEvent] | None = None,
@@ -172,14 +179,14 @@ class HookRegistry:
     ) -> None:
         """Register a callback function for a specific event type.
 
+        This method supports two call patterns:
+        1. ``add_callback(callback)`` - Event type inferred from callback's type hint
+        2. ``add_callback(event_type, callback)`` - Event type specified explicitly
+
         Args:
-            event_type: The class type of events this callback should handle, or the
-                callback function itself. If a callback is passed as this argument,
-                the event type will be inferred from its first parameter's type hint.
-                Note: In a future v2 release, the argument order will change to
-                (callback, event_type) for a cleaner API.
+            event_type: The class type of events this callback should handle.
+                When using the single-argument form, pass the callback here instead.
             callback: The callback function to invoke when events of this type occur.
-                Can be passed as the first positional argument if event_type is omitted.
 
         Raises:
             ValueError: If event_type is not provided and cannot be inferred from

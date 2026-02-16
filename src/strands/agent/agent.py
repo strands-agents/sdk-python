@@ -19,6 +19,7 @@ from typing import (
     TypeVar,
     Union,
     cast,
+    overload,
 )
 
 from opentelemetry import trace as trace_api
@@ -569,12 +570,22 @@ class Agent(AgentBase):
         """
         self.tool_registry.cleanup()
 
+    @overload
+    def add_hook(self, callback: HookCallback[TEvent]) -> None: ...
+
+    @overload
+    def add_hook(self, callback: HookCallback[TEvent], event_type: type[TEvent]) -> None: ...
+
     def add_hook(
         self,
         callback: HookCallback[TEvent],
         event_type: type[TEvent] | None = None,
     ) -> None:
         """Register a callback function for a specific event type.
+
+        This method supports two call patterns:
+        1. ``add_hook(callback)`` - Event type inferred from callback's type hint
+        2. ``add_hook(callback, event_type)`` - Event type specified explicitly
 
         Callbacks can be either synchronous or asynchronous functions.
 
