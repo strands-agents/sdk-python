@@ -20,7 +20,7 @@ jobs:
         with:
           skip-check: ${{ github.event_name == 'merge_group' }}
           username: ${{ github.event.pull_request.user.login || 'invalid' }}
-          allowed-roles: 'triage,write,admin'
+          allowed-roles: 'maintain,triage,write,admin'
   
   check-access-and-checkout:
     runs-on: ubuntu-latest

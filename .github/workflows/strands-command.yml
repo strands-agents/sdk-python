@@ -35,7 +35,7 @@ jobs:
         with:
           skip-check: ${{ github.event_name == 'workflow_dispatch' }}
           username: ${{ github.event.comment.user.login || 'invalid' }}
-          allowed-roles: 'triage,write,admin'
+          allowed-roles: 'maintain,triage,write,admin'
   
   setup-and-process:
     needs: [authorization-check]
