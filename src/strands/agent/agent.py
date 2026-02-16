@@ -19,7 +19,6 @@ from typing import (
     TypeVar,
     Union,
     cast,
-    overload,
 )
 
 from opentelemetry import trace as trace_api
@@ -569,12 +568,6 @@ class Agent(AgentBase):
         through finalizers as a fallback, but explicit cleanup is recommended.
         """
         self.tool_registry.cleanup()
-
-    @overload
-    def add_hook(self, callback: HookCallback[TEvent]) -> None: ...
-
-    @overload
-    def add_hook(self, callback: HookCallback[TEvent], event_type: type[TEvent]) -> None: ...
 
     def add_hook(
         self,
