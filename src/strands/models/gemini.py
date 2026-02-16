@@ -15,7 +15,7 @@ import pydantic
 from google import genai
 from typing_extensions import Required, Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, ContentBlockStartToolUse, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
@@ -354,7 +354,7 @@ class GeminiModel(Model):
                         # Use Gemini's provided ID or generate one if missing
                         tool_use_id = function_call.id or f"tooluse_{secrets.token_urlsafe(16)}"
 
-                        tool_use_start: dict[str, Any] = {
+                        tool_use_start: ContentBlockStartToolUse = {
                             "name": function_call.name,
                             "toolUseId": tool_use_id,
                         }
@@ -365,7 +365,7 @@ class GeminiModel(Model):
                         return {
                             "contentBlockStart": {
                                 "start": {
-                                    "toolUse": tool_use_start,  # type: ignore[typeddict-item]
+                                    "toolUse": tool_use_start,
                                 },
                             },
                         }
