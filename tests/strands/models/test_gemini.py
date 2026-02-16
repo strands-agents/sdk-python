@@ -203,7 +203,7 @@ async def test_stream_request_with_reasoning(gemini_client, model, model_id):
                 {
                     "reasoningContent": {
                         "reasoningText": {
-                            "signature": "abc",
+                            "signature": "YWJj",  # base64 of "abc"
                             "text": "reasoning_text",
                         },
                     },
@@ -260,6 +260,51 @@ async def test_stream_request_with_tool_spec(gemini_client, model, model_id, too
 
 @pytest.mark.asyncio
 async def test_stream_request_with_tool_use(gemini_client, model, model_id):
+    """Test toolUse with reasoningSignature is sent as function_call with thought_signature."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "c1",
+                        "name": "calculator",
+                        "input": {"expression": "2+2"},
+                        "reasoningSignature": "YWJj",  # base64 of "abc"
+                    },
+                },
+            ],
+        },
+    ]
+    await anext(model.stream(messages))
+
+    exp_request = {
+        "config": {
+            "tools": [{"function_declarations": []}],
+        },
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "function_call": {
+                            "args": {"expression": "2+2"},
+                            "id": "c1",
+                            "name": "calculator",
+                        },
+                        "thought_signature": "YWJj",
+                    },
+                ],
+                "role": "model",
+            },
+        ],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_use_no_reasoning_signature(gemini_client, model, model_id):
+    """Test toolUse without reasoningSignature is sent as function_call without thought_signature."""
     messages = [
         {
             "role": "assistant",
@@ -523,10 +568,57 @@ async def test_stream_response_tool_use(gemini_client, model, messages, agenerat
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
         {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "c1"}}}},
         {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
         {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+    ]
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_response_tool_use_with_thought_signature(gemini_client, model, messages, agenerator, alist):
+    """Test that tool use responses with thought_signature include reasoningSignature."""
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(
+                                    function_call=genai.types.FunctionCall(
+                                        args={"expression": "2+2"},
+                                        id="c1",
+                                        name="calculator",
+                                    ),
+                                    thought_signature=b"abc",
+                                ),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    tru_chunks = await alist(model.stream(messages))
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {
+            "contentBlockStart": {
+                "start": {
+                    "toolUse": {"name": "calculator", "toolUseId": "c1", "reasoningSignature": "YWJj"},
+                },
+            },
+        },
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "tool_use"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
@@ -565,10 +657,76 @@ async def test_stream_response_reasoning(gemini_client, model, messages, agenera
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
-        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "abc", "text": "test reason"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "YWJj", "text": "test reason"}}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+    ]
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_response_reasoning_and_text(gemini_client, model, messages, agenerator, alist):
+    """Test that both reasoning and text content are captured in separate blocks."""
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(
+                                    text="thinking about math",
+                                    thought=True,
+                                    thought_signature=b"sig1",
+                                ),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(
+                                    text="2 + 2 = 4",
+                                    thought=False,
+                                ),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=5,
+                ),
+            ),
+        ]
+    )
+
+    tru_chunks = await alist(model.stream(messages))
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"signature": "c2lnMQ==", "text": "thinking about math"}}
+            }
+        },
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "2 + 2 = 4"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 4, "totalTokens": 5}, "metrics": {"latencyMs": 0}}},
     ]
     assert tru_chunks == exp_chunks
 
@@ -623,8 +781,6 @@ async def test_stream_response_none_candidates(gemini_client, model, messages, a
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
     ]
@@ -643,8 +799,6 @@ async def test_stream_response_empty_stream(gemini_client, model, messages, agen
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
     ]
     assert tru_chunks == exp_chunks
@@ -878,3 +1032,67 @@ def test_init_with_both_client_and_client_args_raises_error():
 
     with pytest.raises(ValueError, match="Only one of 'client' or 'client_args' should be provided"):
         GeminiModel(client=mock_client, client_args={"api_key": "test"}, model_id="test-model")
+
+
+def test_format_request_filters_s3_source_image(model, caplog):
+    """Test that images with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.gemini")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "look at this image"},
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model._format_request(messages, None, None, None)
+
+    # Image with S3 source should be filtered, text should remain
+    formatted_content = request["contents"][0]["parts"]
+    assert len(formatted_content) == 1
+    assert "text" in formatted_content[0]
+    assert "Location sources are not supported by Gemini" in caplog.text
+
+
+def test_format_request_filters_location_source_document(model, caplog):
+    """Test that documents with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.gemini")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this document"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model._format_request(messages, None, None, None)
+
+    # Document with S3 source should be filtered, text should remain
+    formatted_content = request["contents"][0]["parts"]
+    assert len(formatted_content) == 1
+    assert "text" in formatted_content[0]
+    assert "Location sources are not supported by Gemini" in caplog.text

@@ -26,15 +26,16 @@ from opentelemetry import trace as trace_api
 
 from .._async import run_async
 from ..agent import Agent
+from ..agent.base import AgentBase
 from ..agent.state import AgentState
-from ..experimental.hooks.multiagent import (
+from ..hooks.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeMultiAgentInvocationEvent,
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
-from ..hooks import HookProvider, HookRegistry
+from ..hooks.registry import HookProvider, HookRegistry
 from ..interrupt import Interrupt, _InterruptState
 from ..session import SessionManager
 from ..telemetry import get_tracer
@@ -161,7 +162,7 @@ class GraphNode:
     """Represents a node in the graph."""
 
     node_id: str
-    executor: Agent | MultiAgentBase
+    executor: AgentBase | MultiAgentBase
     dependencies: set["GraphNode"] = field(default_factory=set)
     execution_status: Status = Status.PENDING
     result: NodeResult | None = None
@@ -206,7 +207,7 @@ class GraphNode:
 
 
 def _validate_node_executor(
-    executor: Agent | MultiAgentBase, existing_nodes: dict[str, GraphNode] | None = None
+    executor: AgentBase | MultiAgentBase, existing_nodes: dict[str, GraphNode] | None = None
 ) -> None:
     """Validate a node executor for graph compatibility.
 
@@ -245,8 +246,8 @@ class GraphBuilder:
         self._session_manager: SessionManager | None = None
         self._hooks: list[HookProvider] | None = None
 
-    def add_node(self, executor: Agent | MultiAgentBase, node_id: str | None = None) -> GraphNode:
-        """Add an Agent or MultiAgentBase instance as a node to the graph."""
+    def add_node(self, executor: AgentBase | MultiAgentBase, node_id: str | None = None) -> GraphNode:
+        """Add an AgentBase or MultiAgentBase instance as a node to the graph."""
         _validate_node_executor(executor, self.nodes)
 
         # Auto-generate node_id if not provided
@@ -603,17 +604,20 @@ class Graph(MultiAgentBase):
             # Validate Agent-specific constraints for each node
             _validate_node_executor(node.executor)
 
-    def _activate_interrupt(self, node: GraphNode, interrupts: list[Interrupt]) -> MultiAgentNodeInterruptEvent:
+    def _activate_interrupt(
+        self, node: GraphNode, interrupts: list[Interrupt], from_hook: bool = False
+    ) -> MultiAgentNodeInterruptEvent:
         """Activate the interrupt state.
 
         Args:
             node: The interrupted node.
             interrupts: The interrupts raised by the user.
+            from_hook: Whether the interrupt originated from a hook (e.g., BeforeNodeCallEvent).
 
         Returns:
             MultiAgentNodeInterruptEvent
         """
-        logger.debug("node=<%s> | node interrupted", node.node_id)
+        logger.debug("node=<%s>, from_hook=<%s> | node interrupted", node.node_id, from_hook)
 
         node.execution_status = Status.INTERRUPTED
 
@@ -622,6 +626,20 @@ class Graph(MultiAgentBase):
 
         self._interrupt_state.interrupts.update({interrupt.id: interrupt for interrupt in interrupts})
         self._interrupt_state.activate()
+
+        self._interrupt_state.context[node.node_id] = {
+            "from_hook": from_hook,
+            "interrupt_ids": [interrupt.id for interrupt in interrupts],
+        }
+
+        if isinstance(node.executor, Agent):
+            self._interrupt_state.context[node.node_id].update(
+                {
+                    "interrupt_state": node.executor._interrupt_state.to_dict(),
+                    "state": node.executor.state.get(),
+                    "messages": node.executor.messages,
+                }
+            )
 
         return MultiAgentNodeInterruptEvent(node.node_id, interrupts)
 
@@ -847,9 +865,8 @@ class Graph(MultiAgentBase):
         logger.debug("node_id=<%s> | executing node", node.node_id)
 
         # Emit node start event
-        start_event = MultiAgentNodeStartEvent(
-            node_id=node.node_id, node_type="agent" if isinstance(node.executor, Agent) else "multiagent"
-        )
+        node_type = "multiagent" if isinstance(node.executor, MultiAgentBase) else "agent"
+        start_event = MultiAgentNodeStartEvent(node_id=node.node_id, node_type=node_type)
         yield start_event
 
         before_event, interrupts = await self.hooks.invoke_callbacks_async(
@@ -859,7 +876,7 @@ class Graph(MultiAgentBase):
         start_time = time.time()
         try:
             if interrupts:
-                yield self._activate_interrupt(node, interrupts)
+                yield self._activate_interrupt(node, interrupts, from_hook=True)
                 return
 
             if before_event.cancel_node:
@@ -889,24 +906,18 @@ class Graph(MultiAgentBase):
                 if multi_agent_result is None:
                     raise ValueError(f"Node '{node.node_id}' did not produce a result event")
 
-                if multi_agent_result.status == Status.INTERRUPTED:
-                    raise NotImplementedError(
-                        f"node_id=<{node.node_id}>, "
-                        "issue=<https://github.com/strands-agents/sdk-python/issues/204> "
-                        "| user raised interrupt from a multi agent node"
-                    )
-
                 node_result = NodeResult(
                     result=multi_agent_result,
                     execution_time=multi_agent_result.execution_time,
-                    status=Status.COMPLETED,
+                    status=multi_agent_result.status,
                     accumulated_usage=multi_agent_result.accumulated_usage,
                     accumulated_metrics=multi_agent_result.accumulated_metrics,
                     execution_count=multi_agent_result.execution_count,
+                    interrupts=multi_agent_result.interrupts,
                 )
 
-            elif isinstance(node.executor, Agent):
-                # For agents, stream their events and collect result
+            elif isinstance(node.executor, AgentBase):
+                # For AgentBase implementations (Agent, A2AAgent, etc.), stream events and collect result
                 agent_response = None
                 async for event in node.executor.stream_async(node_input, invocation_state=invocation_state):
                     # Forward agent events with node context
@@ -920,16 +931,6 @@ class Graph(MultiAgentBase):
                 if agent_response is None:
                     raise ValueError(f"Node '{node.node_id}' did not produce a result event")
 
-                if agent_response.stop_reason == "interrupt":
-                    node.executor.messages.pop()  # remove interrupted tool use message
-                    node.executor._interrupt_state.deactivate()
-
-                    raise NotImplementedError(
-                        f"node_id=<{node.node_id}>, "
-                        "issue=<https://github.com/strands-agents/sdk-python/issues/204> "
-                        "| user raised interrupt from an agent node"
-                    )
-
                 # Extract metrics with defaults
                 response_metrics = getattr(agent_response, "metrics", None)
                 usage = getattr(
@@ -937,21 +938,31 @@ class Graph(MultiAgentBase):
                 )
                 metrics = getattr(response_metrics, "accumulated_metrics", Metrics(latencyMs=0))
 
+                # Handle stop_reason and interrupts (use getattr for AgentBase compatibility)
+                stop_reason = getattr(agent_response, "stop_reason", "end_turn")
+                interrupts = getattr(agent_response, "interrupts", None) or []
+
                 node_result = NodeResult(
                     result=agent_response,
                     execution_time=round((time.time() - start_time) * 1000),
-                    status=Status.COMPLETED,
+                    status=Status.INTERRUPTED if stop_reason == "interrupt" else Status.COMPLETED,
                     accumulated_usage=usage,
                     accumulated_metrics=metrics,
                     execution_count=1,
+                    interrupts=interrupts,
                 )
             else:
                 raise ValueError(f"Node '{node.node_id}' of type '{type(node.executor)}' is not supported")
 
-            # Mark as completed
-            node.execution_status = Status.COMPLETED
             node.result = node_result
             node.execution_time = node_result.execution_time
+
+            if node_result.status == Status.INTERRUPTED:
+                yield self._activate_interrupt(node, node_result.interrupts)
+                return
+
+            # Mark as completed
+            node.execution_status = Status.COMPLETED
             self.state.completed_nodes.add(node)
             self.state.results[node.node_id] = node_result
             self.state.execution_order.append(node)
@@ -1005,7 +1016,8 @@ class Graph(MultiAgentBase):
             raise
 
         finally:
-            await self.hooks.invoke_callbacks_async(AfterNodeCallEvent(self, node.node_id, invocation_state))
+            if node.execution_status != Status.INTERRUPTED:
+                await self.hooks.invoke_callbacks_async(AfterNodeCallEvent(self, node.node_id, invocation_state))
 
     def _accumulate_metrics(self, node_result: NodeResult) -> None:
         """Accumulate metrics from a node result."""
@@ -1017,6 +1029,8 @@ class Graph(MultiAgentBase):
 
     def _build_node_input(self, node: GraphNode) -> list[ContentBlock]:
         """Build input text for a node based on dependency outputs.
+
+        If resuming from an interrupt, return user responses.
 
         Example formatted output:
         ```
@@ -1032,6 +1046,29 @@ class Graph(MultiAgentBase):
           - Agent: Data validation complete. All records verified, no anomalies detected.
         ```
         """
+        if self._interrupt_state.activated:
+            context = self._interrupt_state.context
+            if node.node_id in context:
+                node_context = context[node.node_id]
+
+                # Only route responses if the interrupt originated from the node's execution
+                if not node_context["from_hook"]:
+                    # Filter responses to only those for this node's interrupts
+                    node_responses = [
+                        response
+                        for response in context["responses"]
+                        if response["interruptResponse"]["interruptId"] in node_context["interrupt_ids"]
+                    ]
+
+                    # Restore Agent-specific state for interrupt resumption
+                    # Only Agent (not generic AgentBase) supports interrupt state restoration
+                    if isinstance(node.executor, Agent):
+                        node.executor.messages = node_context["messages"]
+                        node.executor.state = AgentState(node_context["state"])
+                        node.executor._interrupt_state = _InterruptState.from_dict(node_context["interrupt_state"])
+
+                    return node_responses
+
         # Get satisfied dependencies
         dependency_results = {}
         for edge in self.edges:

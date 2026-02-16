@@ -48,6 +48,7 @@ def moto_autouse(moto_env, moto_mock_aws):
         ),
     ],
 )
+@pytest.mark.filterwarnings("ignore:remove_blank_messages_content_text is deprecated:DeprecationWarning")
 def test_remove_blank_messages_content_text(messages, exp_result):
     tru_result = strands.event_loop.streaming.remove_blank_messages_content_text(messages)
 
@@ -123,6 +124,10 @@ def test_handle_message_start():
         (
             {"start": {"toolUse": {"toolUseId": "test", "name": "test"}}},
             {"toolUseId": "test", "name": "test", "input": ""},
+        ),
+        (
+            {"start": {"toolUse": {"toolUseId": "test", "name": "test", "reasoningSignature": "YWJj"}}},
+            {"toolUseId": "test", "name": "test", "input": "", "reasoningSignature": "YWJj"},
         ),
     ],
 )
@@ -302,6 +307,39 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
+        # Tool Use - With reasoningSignature
+        (
+            {
+                "content": [],
+                "current_tool_use": {
+                    "toolUseId": "123",
+                    "name": "test",
+                    "input": '{"key": "value"}',
+                    "reasoningSignature": "YWJj",
+                },
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "123",
+                            "name": "test",
+                            "input": {"key": "value"},
+                            "reasoningSignature": "YWJj",
+                        }
+                    }
+                ],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",

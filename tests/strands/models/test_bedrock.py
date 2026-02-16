@@ -1,3 +1,5 @@
+import copy
+import logging
 import os
 import sys
 import traceback
@@ -12,14 +14,14 @@ from botocore.exceptions import ClientError, EventStreamError
 
 import strands
 from strands import _exception_notes
-from strands.models import BedrockModel
+from strands.models import BedrockModel, CacheConfig
 from strands.models.bedrock import (
     _DEFAULT_BEDROCK_MODEL_ID,
     DEFAULT_BEDROCK_MODEL_ID,
     DEFAULT_BEDROCK_REGION,
     DEFAULT_READ_TIMEOUT,
 )
-from strands.types.exceptions import ModelThrottledException
+from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from strands.types.tools import ToolSpec
 
 FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
@@ -29,7 +31,9 @@ FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
 def session_cls():
     # Mock the creation of a Session so that we don't depend on environment variables or profiles
     with unittest.mock.patch.object(strands.models.bedrock.boto3, "Session") as mock_session_cls:
-        mock_session_cls.return_value.region_name = None
+        mock_session = unittest.mock.Mock()
+        mock_session.region_name = None
+        mock_session_cls.return_value = mock_session
         yield mock_session_cls
 
 
@@ -214,66 +218,63 @@ def test__init__with_region_and_session_raises_value_error():
         _ = BedrockModel(region_name="us-east-1", boto_session=boto3.Session(region_name="us-east-1"))
 
 
-def test__init__default_user_agent(bedrock_client):
+def test__init__default_user_agent(session_cls, bedrock_client):
     """Set user agent when no boto_client_config is provided."""
-    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        mock_session = mock_session_cls.return_value
-        _ = BedrockModel()
+    _ = BedrockModel()
 
-        # Verify the client was created with the correct config
-        mock_session.client.assert_called_once()
-        args, kwargs = mock_session.client.call_args
-        assert kwargs["service_name"] == "bedrock-runtime"
-        assert isinstance(kwargs["config"], BotocoreConfig)
-        assert kwargs["config"].user_agent_extra == "strands-agents"
-        assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
+    # Verify the client was created with the correct config
+    client = session_cls.return_value.client
+    client.assert_called_once()
+    args, kwargs = client.call_args
+    assert kwargs["service_name"] == "bedrock-runtime"
+    assert isinstance(kwargs["config"], BotocoreConfig)
+    assert kwargs["config"].user_agent_extra == "strands-agents"
+    assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
 
 
-def test__init__default_read_timeout(bedrock_client):
+def test__init__default_read_timeout(session_cls, bedrock_client):
     """Set default read timeout when no boto_client_config is provided."""
-    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        mock_session = mock_session_cls.return_value
-        _ = BedrockModel()
 
-        # Verify the client was created with the correct read timeout
-        mock_session.client.assert_called_once()
-        args, kwargs = mock_session.client.call_args
-        assert isinstance(kwargs["config"], BotocoreConfig)
-        assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
+    _ = BedrockModel()
+
+    # Verify the client was created with the correct read timeout
+    client = session_cls.return_value.client
+    client.assert_called_once()
+    args, kwargs = client.call_args
+    assert isinstance(kwargs["config"], BotocoreConfig)
+    assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
 
 
-def test__init__with_custom_boto_client_config_no_user_agent(bedrock_client):
+def test__init__with_custom_boto_client_config_no_user_agent(session_cls, bedrock_client):
     """Set user agent when boto_client_config is provided without user_agent_extra."""
     custom_config = BotocoreConfig(read_timeout=900)
 
-    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        mock_session = mock_session_cls.return_value
-        _ = BedrockModel(boto_client_config=custom_config)
+    _ = BedrockModel(boto_client_config=custom_config)
 
-        # Verify the client was created with the correct config
-        mock_session.client.assert_called_once()
-        args, kwargs = mock_session.client.call_args
-        assert kwargs["service_name"] == "bedrock-runtime"
-        assert isinstance(kwargs["config"], BotocoreConfig)
-        assert kwargs["config"].user_agent_extra == "strands-agents"
-        assert kwargs["config"].read_timeout == 900
+    # Verify the client was created with the correct config
+    client = session_cls.return_value.client
+    client.assert_called_once()
+    args, kwargs = client.call_args
+    assert kwargs["service_name"] == "bedrock-runtime"
+    assert isinstance(kwargs["config"], BotocoreConfig)
+    assert kwargs["config"].user_agent_extra == "strands-agents"
+    assert kwargs["config"].read_timeout == 900
 
 
-def test__init__with_custom_boto_client_config_with_user_agent(bedrock_client):
+def test__init__with_custom_boto_client_config_with_user_agent(session_cls, bedrock_client):
     """Append to existing user agent when boto_client_config is provided with user_agent_extra."""
     custom_config = BotocoreConfig(user_agent_extra="existing-agent", read_timeout=900)
 
-    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        mock_session = mock_session_cls.return_value
-        _ = BedrockModel(boto_client_config=custom_config)
+    _ = BedrockModel(boto_client_config=custom_config)
 
-        # Verify the client was created with the correct config
-        mock_session.client.assert_called_once()
-        args, kwargs = mock_session.client.call_args
-        assert kwargs["service_name"] == "bedrock-runtime"
-        assert isinstance(kwargs["config"], BotocoreConfig)
-        assert kwargs["config"].user_agent_extra == "existing-agent strands-agents"
-        assert kwargs["config"].read_timeout == 900
+    # Verify the client was created with the correct config
+    client = session_cls.return_value.client
+    client.assert_called_once()
+    args, kwargs = client.call_args
+    assert kwargs["service_name"] == "bedrock-runtime"
+    assert isinstance(kwargs["config"], BotocoreConfig)
+    assert kwargs["config"].user_agent_extra == "existing-agent strands-agents"
+    assert kwargs["config"].read_timeout == 900
 
 
 def test__init__model_config(bedrock_client):
@@ -1516,10 +1517,34 @@ async def test_add_note_on_validation_exception_throughput(bedrock_client, model
     ]
 
 
+@pytest.mark.parametrize(
+    "overflow_message",
+    [
+        "Input is too long for requested model",
+        "input length and `max_tokens` exceed context limit",
+        "too many total text bytes",
+        "prompt is too long: 903884 tokens > 200000 maximum",
+    ],
+)
+@pytest.mark.asyncio
+async def test_stream_context_window_overflow(overflow_message, bedrock_client, model, alist, messages):
+    """Test that ClientError with overflow messages raises ContextWindowOverflowException."""
+    error_response = {
+        "Error": {
+            "Code": "ValidationException",
+            "Message": f"An error occurred (ValidationException) when calling the ConverseStream operation: "
+            f"The model returned the following errors: {overflow_message}",
+        }
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConverseStream")
+
+    with pytest.raises(ContextWindowOverflowException):
+        await alist(model.stream(messages))
+
+
 @pytest.mark.asyncio
 async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
     """Test that stream method logs debug messages at the expected stages."""
-    import logging
 
     # Set the logger to debug level to capture debug messages
     caplog.set_level(logging.DEBUG, logger="strands.models.bedrock")
@@ -1787,8 +1812,8 @@ def test_format_request_filters_image_content_blocks(model, model_id):
     assert "metadata" not in image_block
 
 
-def test_format_request_filters_nested_image_s3_fields(model, model_id):
-    """Test that s3Location is filtered out and only bytes source is preserved."""
+def test_format_request_image_s3_location_only(model, model_id):
+    """Test that image with only s3Location is properly formatted."""
     messages = [
         {
             "role": "user",
@@ -1797,8 +1822,7 @@ def test_format_request_filters_nested_image_s3_fields(model, model_id):
                     "image": {
                         "format": "png",
                         "source": {
-                            "bytes": b"image_data",
-                            "s3Location": {"bucket": "my-bucket", "key": "image.png", "extraField": "filtered"},
+                            "location": {"type": "s3", "uri": "s3://my-bucket/image.png"},
                         },
                     }
                 }
@@ -1809,8 +1833,146 @@ def test_format_request_filters_nested_image_s3_fields(model, model_id):
     formatted_request = model._format_request(messages)
     image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
 
+    assert image_source == {"s3Location": {"uri": "s3://my-bucket/image.png"}}
+
+
+def test_format_request_image_bytes_only(model, model_id):
+    """Test that image with only bytes source is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"bytes": b"image_data"},
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
+
     assert image_source == {"bytes": b"image_data"}
-    assert "s3Location" not in image_source
+
+
+def test_format_request_document_s3_location(model, model_id):
+    """Test that document with s3Location is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "report.pdf",
+                        "format": "pdf",
+                        "source": {
+                            "location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"},
+                        },
+                    }
+                },
+                {
+                    "document": {
+                        "name": "report.pdf",
+                        "format": "pdf",
+                        "source": {
+                            "location": {
+                                "type": "s3",
+                                "uri": "s3://my-bucket/report.pdf",
+                                "bucketOwner": "123456789012",
+                            },
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    document = formatted_request["messages"][0]["content"][0]["document"]
+    document_with_bucket_owner = formatted_request["messages"][0]["content"][1]["document"]
+
+    assert document["source"] == {"s3Location": {"uri": "s3://my-bucket/report.pdf"}}
+
+    assert document_with_bucket_owner["source"] == {
+        "s3Location": {"uri": "s3://my-bucket/report.pdf", "bucketOwner": "123456789012"}
+    }
+
+
+def test_format_request_unsupported_location(model, caplog):
+    """Test that document with s3Location is properly formatted."""
+
+    caplog.set_level(logging.WARNING, logger="strands.models.bedrock")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Hello!"},
+                {
+                    "document": {
+                        "name": "report.pdf",
+                        "format": "pdf",
+                        "source": {
+                            "location": {
+                                "type": "other",
+                            },
+                        },
+                    }
+                },
+                {
+                    "video": {
+                        "format": "mp4",
+                        "source": {
+                            "location": {
+                                "type": "other",
+                            },
+                        },
+                    }
+                },
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {
+                            "location": {
+                                "type": "other",
+                            },
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    assert len(formatted_request["messages"][0]["content"]) == 1
+    assert "Non s3 location sources are not supported by Bedrock | skipping content block" in caplog.text
+
+
+def test_format_request_video_s3_location(model, model_id):
+    """Test that video with s3Location is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "video": {
+                        "format": "mp4",
+                        "source": {
+                            "location": {"type": "s3", "uri": "s3://my-bucket/video.mp4"},
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    video_source = formatted_request["messages"][0]["content"][0]["video"]["source"]
+
+    assert video_source == {"s3Location": {"uri": "s3://my-bucket/video.mp4"}}
 
 
 def test_format_request_filters_document_content_blocks(model, model_id):
@@ -2241,3 +2403,114 @@ async def test_format_request_with_guardrail_latest_message(model):
     # Latest user message image should also be wrapped
     assert "guardContent" in formatted_messages[2]["content"][1]
     assert formatted_messages[2]["content"][1]["guardContent"]["image"]["format"] == "png"
+
+
+def test_supports_caching_true_for_claude(bedrock_client):
+    """Test that supports_caching returns True for Claude models."""
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+    assert model._supports_caching is True
+
+    model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0")
+    assert model2._supports_caching is True
+
+
+def test_supports_caching_false_for_non_claude(bedrock_client):
+    """Test that supports_caching returns False for non-Claude models."""
+    model = BedrockModel(model_id="amazon.nova-pro-v1:0")
+    assert model._supports_caching is False
+
+
+def test_inject_cache_point_adds_to_last_assistant(bedrock_client):
+    """Test that _inject_cache_point adds cache point to last assistant message."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there!"}]},
+        {"role": "user", "content": [{"text": "How are you?"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert len(cleaned_messages[1]["content"]) == 2
+    assert "cachePoint" in cleaned_messages[1]["content"][-1]
+    assert cleaned_messages[1]["content"][-1]["cachePoint"]["type"] == "default"
+
+
+def test_inject_cache_point_no_assistant_message(bedrock_client):
+    """Test that _inject_cache_point does nothing when no assistant message exists."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert len(cleaned_messages) == 1
+    assert len(cleaned_messages[0]["content"]) == 1
+
+
+def test_inject_cache_point_skipped_for_non_claude(bedrock_client):
+    """Test that cache point injection is skipped for non-Claude models."""
+    model = BedrockModel(model_id="amazon.nova-pro-v1:0", cache_config=CacheConfig(strategy="auto"))
+
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Response"}]},
+    ]
+
+    formatted = model._format_bedrock_messages(messages)
+
+    assert len(formatted[1]["content"]) == 1
+    assert "cachePoint" not in formatted[1]["content"][0]
+
+
+def test_format_bedrock_messages_does_not_mutate_original(bedrock_client):
+    """Test that _format_bedrock_messages does not mutate original messages."""
+
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    original_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there!"}]},
+        {"role": "user", "content": [{"text": "How are you?"}]},
+    ]
+
+    messages_before = copy.deepcopy(original_messages)
+    formatted = model._format_bedrock_messages(original_messages)
+
+    assert original_messages == messages_before
+    assert "cachePoint" not in original_messages[1]["content"][-1]
+    assert "cachePoint" in formatted[1]["content"][-1]
+
+
+def test_inject_cache_point_strips_existing_cache_points(bedrock_client):
+    """Test that _inject_cache_point strips existing cache points and adds new one at correct position."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    # Messages with existing cache points in various positions
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}, {"cachePoint": {"type": "default"}}]},
+        {"role": "assistant", "content": [{"text": "First response"}, {"cachePoint": {"type": "default"}}]},
+        {"role": "user", "content": [{"text": "Follow up"}]},
+        {"role": "assistant", "content": [{"text": "Second response"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    # All old cache points should be stripped
+    assert len(cleaned_messages[0]["content"]) == 1  # user: only text
+    assert len(cleaned_messages[1]["content"]) == 1  # first assistant: only text
+
+    # New cache point should be at end of last assistant message
+    assert len(cleaned_messages[3]["content"]) == 2
+    assert "cachePoint" in cleaned_messages[3]["content"][-1]

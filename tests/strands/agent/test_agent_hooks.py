@@ -104,7 +104,7 @@ def user():
 
 @pytest.fixture
 def mock_sleep():
-    with patch.object(strands.event_loop.event_loop.asyncio, "sleep", new_callable=AsyncMock) as mock:
+    with patch.object(strands.event_loop._retry.asyncio, "sleep", new_callable=AsyncMock) as mock:
         yield mock
 
 
@@ -160,14 +160,15 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
 
     assert length == 12
 
-    assert next(events) == BeforeInvocationEvent(agent=agent, messages=agent.messages[0:1])
+    assert next(events) == BeforeInvocationEvent(agent=agent, invocation_state=ANY, messages=agent.messages[0:1])
     assert next(events) == MessageAddedEvent(
         agent=agent,
         message=agent.messages[0],
     )
-    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
     assert next(events) == AfterModelCallEvent(
         agent=agent,
+        invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
             message={
                 "content": [{"toolUse": tool_use}],
@@ -193,9 +194,10 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
-    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
     assert next(events) == AfterModelCallEvent(
         agent=agent,
+        invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
             message=mock_model.agent_responses[1],
             stop_reason="end_turn",
@@ -204,7 +206,7 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
 
-    assert next(events) == AfterInvocationEvent(agent=agent, result=result)
+    assert next(events) == AfterInvocationEvent(agent=agent, invocation_state=ANY, result=result)
 
     assert len(agent.messages) == 4
 
@@ -215,8 +217,9 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
     iterator = agent.stream_async("test message")
     await anext(iterator)
 
-    # Verify first event is BeforeInvocationEvent with messages
+    # Verify first event is BeforeInvocationEvent with invocation_state and messages
     assert len(hook_provider.events_received) == 1
+    assert hook_provider.events_received[0].invocation_state is not None
     assert hook_provider.events_received[0].messages is not None
     assert hook_provider.events_received[0].messages[0]["role"] == "user"
 
@@ -230,14 +233,15 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
 
     assert length == 12
 
-    assert next(events) == BeforeInvocationEvent(agent=agent, messages=agent.messages[0:1])
+    assert next(events) == BeforeInvocationEvent(agent=agent, invocation_state=ANY, messages=agent.messages[0:1])
     assert next(events) == MessageAddedEvent(
         agent=agent,
         message=agent.messages[0],
     )
-    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
     assert next(events) == AfterModelCallEvent(
         agent=agent,
+        invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
             message={
                 "content": [{"toolUse": tool_use}],
@@ -263,9 +267,10 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
-    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
     assert next(events) == AfterModelCallEvent(
         agent=agent,
+        invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
             message=mock_model.agent_responses[1],
             stop_reason="end_turn",
@@ -274,11 +279,12 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
 
-    assert next(events) == AfterInvocationEvent(agent=agent, result=result)
+    assert next(events) == AfterInvocationEvent(agent=agent, invocation_state=ANY, result=result)
 
     assert len(agent.messages) == 4
 
 
+@pytest.mark.filterwarnings("ignore:Agent.structured_output method is deprecated:DeprecationWarning")
 def test_agent_structured_output_hooks(agent, hook_provider, user, agenerator):
     """Verify that the correct hook events are emitted as part of structured_output."""
 
@@ -289,12 +295,13 @@ def test_agent_structured_output_hooks(agent, hook_provider, user, agenerator):
 
     assert length == 2
 
-    assert next(events) == BeforeInvocationEvent(agent=agent)
-    assert next(events) == AfterInvocationEvent(agent=agent)
+    assert next(events) == BeforeInvocationEvent(agent=agent, invocation_state=ANY)
+    assert next(events) == AfterInvocationEvent(agent=agent, invocation_state=ANY)
 
     assert len(agent.messages) == 0  # no new messages added
 
 
+@pytest.mark.filterwarnings("ignore:Agent.structured_output_async method is deprecated:DeprecationWarning")
 @pytest.mark.asyncio
 async def test_agent_structured_async_output_hooks(agent, hook_provider, user, agenerator):
     """Verify that the correct hook events are emitted as part of structured_output_async."""
@@ -306,8 +313,8 @@ async def test_agent_structured_async_output_hooks(agent, hook_provider, user, a
 
     assert length == 2
 
-    assert next(events) == BeforeInvocationEvent(agent=agent)
-    assert next(events) == AfterInvocationEvent(agent=agent)
+    assert next(events) == BeforeInvocationEvent(agent=agent, invocation_state=ANY)
+    assert next(events) == AfterInvocationEvent(agent=agent, invocation_state=ANY)
 
     assert len(agent.messages) == 0  # no new messages added
 
@@ -662,6 +669,7 @@ def test_before_invocation_event_message_overwrite():
     assert agent.messages[0]["content"][0]["text"] == "GOODBYE"
 
 
+@pytest.mark.filterwarnings("ignore:Agent.structured_output_async method is deprecated:DeprecationWarning")
 @pytest.mark.asyncio
 async def test_before_invocation_event_messages_none_in_structured_output(agenerator):
     """Test that BeforeInvocationEvent.messages is None when called from deprecated structured_output."""

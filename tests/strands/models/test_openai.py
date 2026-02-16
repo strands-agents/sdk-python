@@ -1,3 +1,4 @@
+import logging
 import unittest.mock
 
 import openai
@@ -1035,6 +1036,92 @@ async def test_stream_context_overflow_exception(openai_client, model, messages)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Input is too long for requested model",
+        "input length and `max_tokens` exceed context limit",
+        "too many total text bytes",
+    ],
+)
+async def test_stream_alternative_context_overflow_messages(openai_client, model, messages, error_message):
+    """Test that alternative context overflow messages in APIError are properly converted."""
+    # Create a mock OpenAI APIError with alternative context overflow message
+    mock_error = openai.APIError(
+        message=error_message,
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": error_message}},
+    )
+
+    # Configure the mock client to raise the APIError
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that the stream method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert error_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Input is too long for requested model",
+        "input length and `max_tokens` exceed context limit",
+        "too many total text bytes",
+    ],
+)
+async def test_structured_output_alternative_context_overflow_messages(
+    openai_client, model, messages, test_output_model_cls, error_message
+):
+    """Test that alternative context overflow messages in APIError are properly converted in structured output."""
+    # Create a mock OpenAI APIError with alternative context overflow message
+    mock_error = openai.APIError(
+        message=error_message,
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": error_message}},
+    )
+
+    # Configure the mock client to raise the APIError
+    openai_client.beta.chat.completions.parse.side_effect = mock_error
+
+    # Test that the structured_output method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert error_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_api_error_passthrough(openai_client, model, messages):
+    """Test that APIError without overflow messages passes through unchanged."""
+    # Create a mock OpenAI APIError without overflow message
+    mock_error = openai.APIError(
+        message="Some other API error",
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": "Some other API error"}},
+    )
+
+    # Configure the mock client to raise the APIError
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that APIError without overflow messages passes through
+    with pytest.raises(openai.APIError) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the original exception is raised, not ContextWindowOverflowException
+    assert exc_info.value == mock_error
+
+
+@pytest.mark.asyncio
 async def test_stream_other_bad_request_errors_passthrough(openai_client, model, messages):
     """Test that other BadRequestError exceptions are not converted to ContextWindowOverflowException."""
     # Create a mock OpenAI BadRequestError with a different error code
@@ -1246,3 +1333,67 @@ def test_init_with_both_client_and_client_args_raises_error():
 
     with pytest.raises(ValueError, match="Only one of 'client' or 'client_args' should be provided"):
         OpenAIModel(client=mock_client, client_args={"api_key": "test"}, model_id="test-model")
+
+
+def test_format_request_filters_s3_source_image(model, caplog):
+    """Test that images with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.openai")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "look at this image"},
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Image with S3 source should be filtered, text should remain
+    formatted_content = request["messages"][0]["content"]
+    assert len(formatted_content) == 1
+    assert formatted_content[0]["type"] == "text"
+    assert "Location sources are not supported by OpenAI" in caplog.text
+
+
+def test_format_request_filters_location_source_document(model, caplog):
+    """Test that documents with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.openai")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this document"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Document with S3 source should be filtered, text should remain
+    formatted_content = request["messages"][0]["content"]
+    assert len(formatted_content) == 1
+    assert formatted_content[0]["type"] == "text"
+    assert "Location sources are not supported by OpenAI" in caplog.text

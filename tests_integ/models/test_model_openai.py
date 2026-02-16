@@ -1,11 +1,11 @@
 import os
-import unittest.mock
 
 import pydantic
 import pytest
 
 import strands
 from strands import Agent, tool
+from strands.event_loop._retry import ModelRetryStrategy
 from strands.models.openai import OpenAIModel
 from strands.models.openai_responses import OpenAIResponsesModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
@@ -52,10 +52,10 @@ def agent(model, tools):
 @pytest.fixture
 def weather():
     class Weather(pydantic.BaseModel):
-        """Extracts the time and weather from the user's message with the exact strings."""
+        """Extract time and weather values."""
 
-        time: str
-        weather: str
+        time: str = pydantic.Field(description="The time value only, e.g. '14:30' not 'The time is 14:30'")
+        weather: str = pydantic.Field(description="The weather condition only, e.g. 'rainy' not 'the weather is rainy'")
 
     return Weather(time="12:00", weather="sunny")
 
@@ -226,27 +226,25 @@ def test_rate_limit_throttling_integration_no_retries(model_class, model_id):
     the model properly raises a ModelThrottledException. We disable retries
     to avoid waiting for the exponential backoff during testing.
     """
-    # Patch the event loop constants to disable retries for this test
-    with unittest.mock.patch("strands.event_loop.event_loop.MAX_ATTEMPTS", 1):
-        model = model_class(
-            model_id=model_id,
-            client_args={
-                "api_key": os.getenv("OPENAI_API_KEY"),
-            },
-        )
-        agent = Agent(model=model)
+    model = model_class(
+        model_id=model_id,
+        client_args={
+            "api_key": os.getenv("OPENAI_API_KEY"),
+        },
+    )
+    agent = Agent(model=model, retry_strategy=ModelRetryStrategy(max_attempts=1))
 
-        # Create a message that's very long to trigger token-per-minute rate limits
-        # This should be large enough to exceed TPM limits immediately
-        very_long_text = "Really long text " * 20000
+    # Create a message that's very long to trigger token-per-minute rate limits
+    # This should be large enough to exceed TPM limits immediately
+    very_long_text = "Really long text " * 600000
 
-        # This should raise ModelThrottledException without retries
-        with pytest.raises(ModelThrottledException) as exc_info:
-            agent(very_long_text)
+    # This should raise ModelThrottledException without retries
+    with pytest.raises(ModelThrottledException) as exc_info:
+        agent(very_long_text)
 
-        # Verify it's a rate limit error
-        error_message = str(exc_info.value).lower()
-        assert "rate limit" in error_message or "tokens per min" in error_message
+    # Verify it's a rate limit error
+    error_message = str(exc_info.value).lower()
+    assert "rate_limit_exceeded" in error_message
 
 
 def test_content_blocks_handling(model):

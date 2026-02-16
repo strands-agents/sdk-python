@@ -58,11 +58,13 @@ class ToolUse(TypedDict):
             Can be any JSON-serializable type.
         name: The name of the tool to invoke.
         toolUseId: A unique identifier for this specific tool use request.
+        reasoningSignature: Token that ties the model's reasoning to this tool call.
     """
 
     input: Any
     name: str
     toolUseId: str
+    reasoningSignature: NotRequired[str]
 
 
 class ToolResultContent(TypedDict, total=False):

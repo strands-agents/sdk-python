@@ -20,12 +20,21 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys
+from ._validation import _has_location_source, validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+# Alternative context overflow error messages
+# These are commonly returned by OpenAI-compatible endpoints wrapping other providers
+# (e.g., Databricks serving Bedrock models)
+_CONTEXT_OVERFLOW_MESSAGES = [
+    "Input is too long for requested model",
+    "input length and `max_tokens` exceed context limit",
+    "too many total text bytes",
+]
 
 
 class Client(Protocol):
@@ -338,11 +347,17 @@ class OpenAIModel(Model):
                     "reasoningContent is not supported in multi-turn conversations with the Chat Completions API."
                 )
 
-            formatted_contents = [
-                cls.format_request_message_content(content)
-                for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
-            ]
+            # Filter out content blocks that shouldn't be formatted
+            filtered_contents = []
+            for content in contents:
+                if any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"]):
+                    continue
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by OpenAI | skipping content block")
+                    continue
+                filtered_contents.append(content)
+
+            formatted_contents = [cls.format_request_message_content(content) for content in filtered_contents]
             formatted_tool_calls = [
                 cls.format_request_message_tool_call(content["toolUse"]) for content in contents if "toolUse" in content
             ]
@@ -594,6 +609,14 @@ class OpenAIModel(Model):
                 # Rate limits (including TPM) require waiting/retrying, not context reduction
                 logger.warning("OpenAI threw rate limit error")
                 raise ModelThrottledException(str(e)) from e
+            except openai.APIError as e:
+                # Check for alternative context overflow error messages
+                error_message = str(e)
+                if any(overflow_msg in error_message for overflow_msg in _CONTEXT_OVERFLOW_MESSAGES):
+                    logger.warning("context window overflow error detected")
+                    raise ContextWindowOverflowException(error_message) from e
+                # Re-raise other APIError exceptions
+                raise
 
             logger.debug("got response from model")
             yield self.format_chunk({"chunk_type": "message_start"})
@@ -717,6 +740,14 @@ class OpenAIModel(Model):
                 # Rate limits (including TPM) require waiting/retrying, not context reduction
                 logger.warning("OpenAI threw rate limit error")
                 raise ModelThrottledException(str(e)) from e
+            except openai.APIError as e:
+                # Check for alternative context overflow error messages
+                error_message = str(e)
+                if any(overflow_msg in error_message for overflow_msg in _CONTEXT_OVERFLOW_MESSAGES):
+                    logger.warning("context window overflow error detected")
+                    raise ContextWindowOverflowException(error_message) from e
+                # Re-raise other APIError exceptions
+                raise
 
         parsed: T | None = None
         # Find the first choice with tool_calls

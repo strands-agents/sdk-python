@@ -13,15 +13,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_STRUCTURED_OUTPUT_PROMPT = "You must format the previous response as structured output."
+
 
 class StructuredOutputContext:
     """Per-invocation context for structured output execution."""
 
-    def __init__(self, structured_output_model: type[BaseModel] | None = None):
+    def __init__(
+        self,
+        structured_output_model: type[BaseModel] | None = None,
+        structured_output_prompt: str | None = None,
+    ):
         """Initialize a new structured output context.
 
         Args:
             structured_output_model: Optional Pydantic model type for structured output.
+            structured_output_prompt: Optional custom prompt message to use when forcing structured output.
+                Defaults to "You must format the previous response as structured output."
         """
         self.results: dict[str, BaseModel] = {}
         self.structured_output_model: type[BaseModel] | None = structured_output_model
@@ -31,6 +39,7 @@ class StructuredOutputContext:
         self.tool_choice: ToolChoice | None = None
         self.stop_loop: bool = False
         self.expected_tool_name: str | None = None
+        self.structured_output_prompt: str = structured_output_prompt or DEFAULT_STRUCTURED_OUTPUT_PROMPT
 
         if structured_output_model:
             self.structured_output_tool = StructuredOutputTool(structured_output_model)

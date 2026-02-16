@@ -1,6 +1,6 @@
 import base64
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from mcp import ListToolsResult
@@ -25,35 +25,7 @@ from strands.tools.mcp import MCPClient
 from strands.tools.mcp.mcp_types import MCPToolResult
 from strands.types.exceptions import MCPClientInitializationError
 
-
-@pytest.fixture
-def mock_transport():
-    mock_read_stream = AsyncMock()
-    mock_write_stream = AsyncMock()
-    mock_transport_cm = AsyncMock()
-    mock_transport_cm.__aenter__.return_value = (mock_read_stream, mock_write_stream)
-    mock_transport_callable = MagicMock(return_value=mock_transport_cm)
-
-    return {
-        "read_stream": mock_read_stream,
-        "write_stream": mock_write_stream,
-        "transport_cm": mock_transport_cm,
-        "transport_callable": mock_transport_callable,
-    }
-
-
-@pytest.fixture
-def mock_session():
-    mock_session = AsyncMock()
-    mock_session.initialize = AsyncMock()
-
-    # Create a mock context manager for ClientSession
-    mock_session_cm = AsyncMock()
-    mock_session_cm.__aenter__.return_value = mock_session
-
-    # Patch ClientSession to return our mock session
-    with patch("strands.tools.mcp.mcp_client.ClientSession", return_value=mock_session_cm):
-        yield mock_session
+# Fixtures mock_transport and mock_session are imported from conftest.py
 
 
 @pytest.fixture
@@ -632,7 +604,7 @@ def test_call_tool_sync_embedded_nested_base64_textual_mime(mock_transport, mock
 def test_call_tool_sync_embedded_image_blob(mock_transport, mock_session):
     """EmbeddedResource.resource (blob with image MIME) should map to image content."""
     # Read yellow.png file
-    with open("tests_integ/yellow.png", "rb") as image_file:
+    with open("tests_integ/resources/yellow.png", "rb") as image_file:
         png_data = image_file.read()
     payload = base64.b64encode(png_data).decode()
 

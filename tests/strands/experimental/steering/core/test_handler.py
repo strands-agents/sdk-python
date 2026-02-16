@@ -95,7 +95,7 @@ async def test_guide_action_flow():
     await handler._provide_tool_steering_guidance(event)
 
     # Should set cancel_tool with guidance message
-    expected_message = "Tool call cancelled given new guidance. Test guidance. Consider this approach and continue"
+    expected_message = "Tool call cancelled. Test guidance You MUST follow this guidance immediately."
     assert event.cancel_tool == expected_message
 
 
@@ -241,7 +241,7 @@ def test_context_callbacks_receive_steering_context():
 
     # Create a mock event and call the callback
     event = Mock(spec=BeforeToolCallEvent)
-    event.tool_use = {"name": "test_tool", "arguments": {}}
+    event.tool_use = {"name": "test_tool", "input": {}}
 
     # The callback should execute without error and update the steering context
     before_callback(event)

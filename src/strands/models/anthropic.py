@@ -20,7 +20,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
-from ._validation import validate_config_keys
+from ._validation import _has_location_source, validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -187,6 +187,11 @@ class AnthropicModel(Model):
             for content in message["content"]:
                 if "cachePoint" in content:
                     formatted_contents[-1]["cache_control"] = {"type": "ephemeral"}
+                    continue
+
+                # Check for location sources in image, document, or video content
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by Anthropic | skipping content block")
                     continue
 
                 formatted_contents.append(self._format_request_message_content(content))

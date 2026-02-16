@@ -91,8 +91,10 @@ dev = [
     "pytest>=9.0.0,<10.0.0",
     "pytest-cov>=7.0.0,<8.0.0",
     "pytest-asyncio>=1.0.0,<1.4.0",
+    "pytest-timeout>=2.0.0,<3.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "ruff>=0.13.0,<0.15.0",
+    "tenacity>=9.0.0,<10.0.0",
 ]
 
 [project.urls]
@@ -145,7 +147,9 @@ dependencies = [
     "pytest>=9.0.0,<10.0.0",
     "pytest-cov>=7.0.0,<8.0.0",
     "pytest-asyncio>=1.0.0,<1.4.0",
+    "pytest-timeout>=2.0.0,<3.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
+    "pytest-timeout>=2.0.0,<3.0.0",
     "moto>=5.1.0,<6.0.0",
 ]
 
@@ -237,7 +241,8 @@ convention = "google"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--ignore=tests/strands/experimental/bidi --ignore=tests_integ/bidi"
+addopts = "--ignore=tests/strands/experimental/bidi --ignore=tests_integ/bidi --junit-xml=build/test-results.xml"
+timeout = 90
 
 
 [tool.coverage.run]
@@ -294,7 +299,7 @@ prepare = [
     "hatch run bidi-test:test-cov",
 ]
 
-[tools.hatch.envs.bidi-lint]
+[tool.hatch.envs.bidi-lint]
 template = "bidi"
 
 [tool.hatch.envs.bidi-lint.scripts]

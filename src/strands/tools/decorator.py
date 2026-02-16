@@ -326,13 +326,20 @@ class FunctionToolMetadata:
                 del schema[key]
 
         # Process properties to clean up anyOf and similar structures
+        required_fields = schema.get("required", [])
         if "properties" in schema:
-            for _prop_name, prop_schema in schema["properties"].items():
+            for prop_name, prop_schema in schema["properties"].items():
                 # Handle anyOf constructs (common for Optional types)
                 if "anyOf" in prop_schema:
                     any_of = prop_schema["anyOf"]
                     # Handle Optional[Type] case (represented as anyOf[Type, null])
-                    if len(any_of) == 2 and any(item.get("type") == "null" for item in any_of):
+                    # Only simplify when the field is not required; required nullable
+                    # fields need anyOf preserved so the model can pass null.
+                    if (
+                        prop_name not in required_fields
+                        and len(any_of) == 2
+                        and any(item.get("type") == "null" for item in any_of)
+                    ):
                         # Find the non-null type
                         for item in any_of:
                             if item.get("type") != "null":
@@ -613,6 +620,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                     "status": "error",
                     "content": [{"text": f"Error: {error_msg}"}],
                 },
+                exception=e,
             )
         except Exception as e:
             # Return error result with exception details for any other error
@@ -625,14 +633,15 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                     "status": "error",
                     "content": [{"text": f"Error: {error_type} - {error_msg}"}],
                 },
+                exception=e,
             )
 
-    def _wrap_tool_result(self, tool_use_d: str, result: Any) -> ToolResultEvent:
+    def _wrap_tool_result(self, tool_use_d: str, result: Any, exception: Exception | None = None) -> ToolResultEvent:
         # FORMAT THE RESULT for Strands Agent
         if isinstance(result, dict) and "status" in result and "content" in result:
             # Result is already in the expected format, just add toolUseId
             result["toolUseId"] = tool_use_d
-            return ToolResultEvent(cast(ToolResult, result))
+            return ToolResultEvent(cast(ToolResult, result), exception=exception)
         else:
             # Wrap any other return value in the standard format
             # Always include at least one content item for consistency
@@ -641,7 +650,8 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                     "toolUseId": tool_use_d,
                     "status": "success",
                     "content": [{"text": str(result)}],
-                }
+                },
+                exception=exception,
             )
 
     @property

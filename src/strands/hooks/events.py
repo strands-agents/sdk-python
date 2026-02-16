@@ -4,7 +4,7 @@ This module defines the events that are emitted as Agents run through the lifecy
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
@@ -16,7 +16,10 @@ from ..types.content import Message, Messages
 from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
-from .registry import HookEvent
+from .registry import BaseHookEvent, HookEvent
+
+if TYPE_CHECKING:
+    from ..multiagent.base import MultiAgentBase
 
 
 @dataclass
@@ -45,10 +48,14 @@ class BeforeInvocationEvent(HookEvent):
       - Agent.structured_output
 
     Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
         messages: The input messages for this invocation. Can be modified by hooks
             to redact or transform content before processing.
     """
 
+    invocation_state: dict[str, Any] = field(default_factory=dict)
     messages: Messages | None = None
 
     def _can_write(self, name: str) -> bool:
@@ -72,11 +79,15 @@ class AfterInvocationEvent(HookEvent):
       - Agent.structured_output
 
     Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
         result: The result of the agent invocation, if available.
             This will be None when invoked from structured_output methods, as those return typed output directly rather
             than AgentResult.
     """
 
+    invocation_state: dict[str, Any] = field(default_factory=dict)
     result: "AgentResult | None" = None
 
     @property
@@ -155,6 +166,18 @@ class AfterToolCallEvent(HookEvent):
     Note: This event uses reverse callback ordering, meaning callbacks registered
     later will be invoked first during cleanup.
 
+    Tool Retrying:
+        When ``retry`` is set to True by a hook callback, the tool executor will
+        discard the current tool result and invoke the tool again. This has important
+        implications for streaming consumers:
+
+        - ToolStreamEvents (intermediate streaming events) from the discarded tool execution
+          will have already been emitted to callers before the retry occurs. Agent invokers
+          consuming streamed events should be prepared to handle this scenario, potentially
+          by tracking retry state or implementing idempotent event processing
+        - ToolResultEvent is NOT emitted for discarded attempts - only the final attempt's
+          result is emitted and added to the conversation history
+
     Attributes:
         selected_tool: The tool that was invoked. It may be None if tool lookup failed.
         tool_use: The tool parameters that were passed to the tool invoked.
@@ -162,6 +185,9 @@ class AfterToolCallEvent(HookEvent):
         result: The result of the tool invocation. Either a ToolResult on success
             or an Exception if the tool execution failed.
         cancel_message: The cancellation message if the user cancelled the tool call.
+        retry: Whether to retry the tool invocation. Can be set by hook callbacks
+            to trigger a retry. When True, the current result is discarded and the
+            tool is called again. Defaults to False.
     """
 
     selected_tool: AgentTool | None
@@ -170,9 +196,10 @@ class AfterToolCallEvent(HookEvent):
     result: ToolResult
     exception: Exception | None = None
     cancel_message: str | None = None
+    retry: bool = False
 
     def _can_write(self, name: str) -> bool:
-        return name == "result"
+        return name in ["result", "retry"]
 
     @property
     def should_reverse_callbacks(self) -> bool:
@@ -189,9 +216,14 @@ class BeforeModelCallEvent(HookEvent):
     that will be sent to the model.
 
     Note: This event is not fired for invocations to structured_output.
+
+    Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
     """
 
-    pass
+    invocation_state: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -220,6 +252,9 @@ class AfterModelCallEvent(HookEvent):
           conversation history
 
     Attributes:
+        invocation_state: State and configuration passed through the agent invocation.
+            This can include shared context for multi-agent coordination, request tracking,
+            and dynamic configuration.
         stop_response: The model response data if invocation was successful, None if failed.
         exception: Exception if the model invocation failed, None if successful.
         retry: Whether to retry the model invocation. Can be set by hook callbacks
@@ -239,12 +274,114 @@ class AfterModelCallEvent(HookEvent):
         message: Message
         stop_reason: StopReason
 
+    invocation_state: dict[str, Any] = field(default_factory=dict)
     stop_response: ModelStopResponse | None = None
     exception: Exception | None = None
     retry: bool = False
 
     def _can_write(self, name: str) -> bool:
         return name == "retry"
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
+
+
+# Multiagent hook events start here
+@dataclass
+class MultiAgentInitializedEvent(BaseHookEvent):
+    """Event triggered when multi-agent orchestrator initialized.
+
+    Attributes:
+        source: The multi-agent orchestrator instance
+        invocation_state: Configuration that user passes in
+    """
+
+    source: "MultiAgentBase"
+    invocation_state: dict[str, Any] | None = None
+
+
+@dataclass
+class BeforeNodeCallEvent(BaseHookEvent, _Interruptible):
+    """Event triggered before individual node execution starts.
+
+    Attributes:
+        source: The multi-agent orchestrator instance
+        node_id: ID of the node about to execute
+        invocation_state: Configuration that user passes in
+        cancel_node: A user defined message that when set, will cancel the node execution with status FAILED.
+            The message will be emitted under a MultiAgentNodeCancel event. If set to `True`, Strands will cancel the
+            node using a default cancel message.
+    """
+
+    source: "MultiAgentBase"
+    node_id: str
+    invocation_state: dict[str, Any] | None = None
+    cancel_node: bool | str = False
+
+    def _can_write(self, name: str) -> bool:
+        return name in ["cancel_node"]
+
+    @override
+    def _interrupt_id(self, name: str) -> str:
+        """Unique id for the interrupt.
+
+        Args:
+            name: User defined name for the interrupt.
+
+        Returns:
+            Interrupt id.
+        """
+        node_id = uuid.uuid5(uuid.NAMESPACE_OID, self.node_id)
+        call_id = uuid.uuid5(uuid.NAMESPACE_OID, name)
+        return f"v1:before_node_call:{node_id}:{call_id}"
+
+
+@dataclass
+class AfterNodeCallEvent(BaseHookEvent):
+    """Event triggered after individual node execution completes.
+
+    Attributes:
+        source: The multi-agent orchestrator instance
+        node_id: ID of the node that just completed execution
+        invocation_state: Configuration that user passes in
+    """
+
+    source: "MultiAgentBase"
+    node_id: str
+    invocation_state: dict[str, Any] | None = None
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
+
+
+@dataclass
+class BeforeMultiAgentInvocationEvent(BaseHookEvent):
+    """Event triggered before orchestrator execution starts.
+
+    Attributes:
+        source: The multi-agent orchestrator instance
+        invocation_state: Configuration that user passes in
+    """
+
+    source: "MultiAgentBase"
+    invocation_state: dict[str, Any] | None = None
+
+
+@dataclass
+class AfterMultiAgentInvocationEvent(BaseHookEvent):
+    """Event triggered after orchestrator execution completes.
+
+    Attributes:
+        source: The multi-agent orchestrator instance
+        invocation_state: Configuration that user passes in
+    """
+
+    source: "MultiAgentBase"
+    invocation_state: dict[str, Any] | None = None
 
     @property
     def should_reverse_callbacks(self) -> bool:

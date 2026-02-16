@@ -26,11 +26,12 @@ from pydantic import BaseModel
 
 from .. import _identifier
 from .._async import run_async
-from ..event_loop.event_loop import event_loop_cycle
+from ..event_loop._retry import ModelRetryStrategy
+from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
 from ..tools._tool_helpers import generate_missing_tool_result_content
 
 if TYPE_CHECKING:
-    from ..experimental.tools import ToolProvider
+    from ..tools import ToolProvider
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -58,6 +59,7 @@ from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
+from .base import AgentBase
 from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
@@ -77,12 +79,19 @@ class _DefaultCallbackHandlerSentinel:
     pass
 
 
+class _DefaultRetryStrategySentinel:
+    """Sentinel class to distinguish between explicit None and default parameter value for retry_strategy."""
+
+    pass
+
+
 _DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
+_DEFAULT_RETRY_STRATEGY = _DefaultRetryStrategySentinel()
 _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 
-class Agent:
+class Agent(AgentBase):
     """Core Agent implementation.
 
     An agent orchestrates the following workflow:
@@ -117,7 +126,9 @@ class Agent:
         state: AgentState | dict | None = None,
         hooks: list[HookProvider] | None = None,
         session_manager: SessionManager | None = None,
+        structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
+        retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -166,7 +177,15 @@ class Agent:
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
+            structured_output_prompt: Custom prompt message used when forcing structured output.
+                When using structured output, if the model doesn't automatically use the output tool,
+                the agent sends a follow-up message to request structured formatting. This parameter
+                allows customizing that message.
+                Defaults to "You must format the previous response as structured output."
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
+            retry_strategy: Strategy for retrying model calls on throttling or other transient errors.
+                Defaults to ModelRetryStrategy with max_attempts=6, initial_delay=4s, max_delay=240s.
+                Implement a custom HookProvider for custom retry logic, or pass None to disable retries.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -176,6 +195,7 @@ class Agent:
         # initializing self._system_prompt for backwards compatibility
         self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
+        self._structured_output_prompt = structured_output_prompt
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
@@ -244,6 +264,28 @@ class Agent:
         # separate event loops in different threads, so asyncio.Lock wouldn't work
         self._invocation_lock = threading.Lock()
 
+        # In the future, we'll have a RetryStrategy base class but until
+        # that API is determined we only allow ModelRetryStrategy
+        if (
+            retry_strategy is not None
+            and not isinstance(retry_strategy, _DefaultRetryStrategySentinel)
+            and type(retry_strategy) is not ModelRetryStrategy
+        ):
+            raise ValueError("retry_strategy must be an instance of ModelRetryStrategy")
+
+        # If not provided (using the default), create a new ModelRetryStrategy instance
+        # If explicitly set to None, disable retries (max_attempts=1 means no retries)
+        # Otherwise use the passed retry_strategy
+        if isinstance(retry_strategy, _DefaultRetryStrategySentinel):
+            self._retry_strategy = ModelRetryStrategy(
+                max_attempts=MAX_ATTEMPTS, max_delay=MAX_DELAY, initial_delay=INITIAL_DELAY
+            )
+        elif retry_strategy is None:
+            # If no retry strategy is passed in, then we turn retries off
+            self._retry_strategy = ModelRetryStrategy(max_attempts=1)
+        else:
+            self._retry_strategy = retry_strategy
+
         # Initialize session management functionality
         self._session_manager = session_manager
         if self._session_manager:
@@ -251,6 +293,9 @@ class Agent:
 
         # Allow conversation_managers to subscribe to hooks
         self.hooks.add_hook(self.conversation_manager)
+
+        # Register retry strategy as a hook
+        self.hooks.add_hook(self._retry_strategy)
 
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
 
@@ -319,6 +364,7 @@ class Agent:
         *,
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
+        structured_output_prompt: str | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -337,6 +383,7 @@ class Agent:
                 - None: Use existing conversation history
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
+            structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -350,7 +397,11 @@ class Agent:
         """
         return run_async(
             lambda: self.invoke_async(
-                prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
+                prompt,
+                invocation_state=invocation_state,
+                structured_output_model=structured_output_model,
+                structured_output_prompt=structured_output_prompt,
+                **kwargs,
             )
         )
 
@@ -360,6 +411,7 @@ class Agent:
         *,
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
+        structured_output_prompt: str | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -378,6 +430,7 @@ class Agent:
                 - None: Use existing conversation history
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
+            structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -389,7 +442,11 @@ class Agent:
                 - state: The final state of the event loop
         """
         events = self.stream_async(
-            prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
+            prompt,
+            invocation_state=invocation_state,
+            structured_output_model=structured_output_model,
+            structured_output_prompt=structured_output_prompt,
+            **kwargs,
         )
         async for event in events:
             _ = event
@@ -455,7 +512,7 @@ class Agent:
             category=DeprecationWarning,
             stacklevel=2,
         )
-        await self.hooks.invoke_callbacks_async(BeforeInvocationEvent(agent=self))
+        await self.hooks.invoke_callbacks_async(BeforeInvocationEvent(agent=self, invocation_state={}))
         with self.tracer.tracer.start_as_current_span(
             "execute_structured_output", kind=trace_api.SpanKind.CLIENT
         ) as structured_output_span:
@@ -496,7 +553,7 @@ class Agent:
                 return event["output"]
 
             finally:
-                await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self))
+                await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self, invocation_state={}))
 
     def cleanup(self) -> None:
         """Clean up resources used by the agent.
@@ -523,6 +580,7 @@ class Agent:
         *,
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
+        structured_output_prompt: str | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -541,6 +599,7 @@ class Agent:
                 - None: Use existing conversation history
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
+            structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
             **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
@@ -598,7 +657,7 @@ class Agent:
 
             with trace_api.use_span(self.trace_span):
                 try:
-                    events = self._run_loop(messages, merged_state, structured_output_model)
+                    events = self._run_loop(messages, merged_state, structured_output_model, structured_output_prompt)
 
                     async for event in events:
                         event.prepare(invocation_state=merged_state)
@@ -626,6 +685,7 @@ class Agent:
         messages: Messages,
         invocation_state: dict[str, Any],
         structured_output_model: type[BaseModel] | None = None,
+        structured_output_prompt: str | None = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
 
@@ -633,12 +693,13 @@ class Agent:
             messages: The input messages to add to the conversation.
             invocation_state: Additional parameters to pass to the event loop.
             structured_output_model: Optional Pydantic model type for structured output.
+            structured_output_prompt: Optional custom prompt for forcing structured output.
 
         Yields:
             Events from the event loop cycle.
         """
         before_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
-            BeforeInvocationEvent(agent=self, messages=messages)
+            BeforeInvocationEvent(agent=self, invocation_state=invocation_state, messages=messages)
         )
         messages = before_invocation_event.messages if before_invocation_event.messages is not None else messages
 
@@ -649,7 +710,8 @@ class Agent:
             await self._append_messages(*messages)
 
             structured_output_context = StructuredOutputContext(
-                structured_output_model or self._default_structured_output_model
+                structured_output_model or self._default_structured_output_model,
+                structured_output_prompt=structured_output_prompt or self._structured_output_prompt,
             )
 
             # Execute the event loop cycle with retry logic for context limits
@@ -676,7 +738,9 @@ class Agent:
 
         finally:
             self.conversation_manager.apply_management(self)
-            await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self, result=agent_result))
+            await self.hooks.invoke_callbacks_async(
+                AfterInvocationEvent(agent=self, invocation_state=invocation_state, result=agent_result)
+            )
 
     async def _execute_event_loop_cycle(
         self, invocation_state: dict[str, Any], structured_output_context: StructuredOutputContext | None = None

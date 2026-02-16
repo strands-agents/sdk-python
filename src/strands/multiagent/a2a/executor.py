@@ -191,16 +191,15 @@ class StrandsA2AExecutor(AgentExecutor):
         if self.enable_a2a_compliant_streaming:
             if self._is_first_chunk:
                 final_content = str(result) if result else ""
-                parts = [Part(root=TextPart(text=final_content))] if final_content else []
                 await updater.add_artifact(
-                    parts,
+                    [Part(root=TextPart(text=final_content))],
                     artifact_id=self._current_artifact_id,
                     name="agent_response",
                     last_chunk=True,
                 )
             else:
                 await updater.add_artifact(
-                    [],
+                    [Part(root=TextPart(text=""))],
                     artifact_id=self._current_artifact_id,
                     name="agent_response",
                     append=True,
