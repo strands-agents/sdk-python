@@ -63,6 +63,10 @@ T = TypeVar("T", bound=BaseModel)
 
 # Maximum file size for media content in tool results (20MB)
 _MAX_MEDIA_SIZE_BYTES = 20 * 1024 * 1024
+_MAX_MEDIA_SIZE_LABEL = "20MB"
+_DEFAULT_MIME_TYPE = "application/octet-stream"
+_CONTEXT_WINDOW_OVERFLOW_MSG = "OpenAI Responses API threw context window overflow error"
+_RATE_LIMIT_MSG = "OpenAI Responses API threw rate limit error"
 
 
 def _encode_media_to_data_url(data: bytes, format_ext: str, media_type: str = "image") -> str:
@@ -77,13 +81,14 @@ def _encode_media_to_data_url(data: bytes, format_ext: str, media_type: str = "i
         Base64-encoded data URL string.
 
     Raises:
-        ValueError: If the media size exceeds the maximum allowed size (20MB).
+        ValueError: If the media size exceeds the maximum allowed size.
     """
     if len(data) > _MAX_MEDIA_SIZE_BYTES:
         raise ValueError(
-            f"{media_type.capitalize()} size {len(data)} bytes exceeds maximum of {_MAX_MEDIA_SIZE_BYTES} bytes (20MB)"
+            f"{media_type.capitalize()} size {len(data)} bytes exceeds maximum of"
+            f" {_MAX_MEDIA_SIZE_BYTES} bytes ({_MAX_MEDIA_SIZE_LABEL})"
         )
-    mime_type = mimetypes.types_map.get(f".{format_ext}", "application/octet-stream")
+    mime_type = mimetypes.types_map.get(f".{format_ext}", _DEFAULT_MIME_TYPE)
     encoded_data = base64.b64encode(data).decode("utf-8")
     return f"data:{mime_type};base64,{encoded_data}"
 
@@ -193,17 +198,17 @@ class OpenAIResponsesModel(Model):
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
-        logger.debug("formatting request for OpenAI Responses API")
+        logger.debug("Step 1: formatting request for OpenAI Responses API")
         request = self._format_request(messages, tool_specs, system_prompt, tool_choice)
-        logger.debug("formatted request=<%s>", request)
+        logger.debug("Step 1: formatted request=<%s>", request)
 
-        logger.debug("invoking OpenAI Responses API model")
+        logger.debug("Step 2: invoking OpenAI Responses API model")
 
         async with openai.AsyncOpenAI(**self.client_args) as client:
             try:
                 response = await client.responses.create(**request)
 
-                logger.debug("got response from OpenAI Responses API model")
+                logger.debug("Step 3: streaming response from OpenAI Responses API model")
 
                 yield self._format_chunk({"chunk_type": "message_start"})
 
@@ -291,11 +296,11 @@ class OpenAIResponsesModel(Model):
                             break
             except openai.BadRequestError as e:
                 if hasattr(e, "code") and e.code == "context_length_exceeded":
-                    logger.warning("OpenAI Responses API threw context window overflow error")
+                    logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
                     raise ContextWindowOverflowException(str(e)) from e
                 raise
             except openai.RateLimitError as e:
-                logger.warning("OpenAI Responses API threw rate limit error")
+                logger.warning(_RATE_LIMIT_MSG)
                 raise ModelThrottledException(str(e)) from e
 
             # Close current content block if we had any
@@ -330,7 +335,7 @@ class OpenAIResponsesModel(Model):
             if final_usage:
                 yield self._format_chunk({"chunk_type": "metadata", "data": final_usage})
 
-        logger.debug("finished streaming response from OpenAI Responses API model")
+        logger.debug("Step 4: finished streaming response from OpenAI Responses API model")
 
     @override
     async def structured_output(
@@ -360,11 +365,11 @@ class OpenAIResponsesModel(Model):
                 )
             except openai.BadRequestError as e:
                 if hasattr(e, "code") and e.code == "context_length_exceeded":
-                    logger.warning("OpenAI Responses API threw context window overflow error")
+                    logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
                     raise ContextWindowOverflowException(str(e)) from e
                 raise
             except openai.RateLimitError as e:
-                logger.warning("OpenAI Responses API threw rate limit error")
+                logger.warning(_RATE_LIMIT_MSG)
                 raise ModelThrottledException(str(e)) from e
 
         if response.output_parsed:
@@ -511,15 +516,13 @@ class OpenAIResponsesModel(Model):
             ValueError: If the image or document size exceeds the maximum allowed size (20MB).
         """
         if "document" in content:
-            data_url = _encode_media_to_data_url(
-                content["document"]["source"]["bytes"], content["document"]["format"], "document"
-            )
+            doc = content["document"]
+            data_url = _encode_media_to_data_url(doc["source"]["bytes"], doc["format"], "document")
             return {"type": "input_file", "file_url": data_url}
 
         if "image" in content:
-            data_url = _encode_media_to_data_url(
-                content["image"]["source"]["bytes"], content["image"]["format"], "image"
-            )
+            img = content["image"]
+            data_url = _encode_media_to_data_url(img["source"]["bytes"], img["format"], "image")
             return {"type": "input_image", "image_url": data_url}
 
         if "text" in content:
@@ -572,15 +575,13 @@ class OpenAIResponsesModel(Model):
                 output_parts.append({"type": "input_text", "text": content["text"]})
             elif "image" in content:
                 has_media = True
-                data_url = _encode_media_to_data_url(
-                    content["image"]["source"]["bytes"], content["image"]["format"], "image"
-                )
+                img = content["image"]
+                data_url = _encode_media_to_data_url(img["source"]["bytes"], img["format"], "image")
                 output_parts.append({"type": "input_image", "image_url": data_url})
             elif "document" in content:
                 has_media = True
-                data_url = _encode_media_to_data_url(
-                    content["document"]["source"]["bytes"], content["document"]["format"], "document"
-                )
+                doc = content["document"]
+                data_url = _encode_media_to_data_url(doc["source"]["bytes"], doc["format"], "document")
                 output_parts.append({"type": "input_file", "file_url": data_url})
 
         # Return array if has media content, otherwise join as string for simpler text-only cases
