@@ -125,6 +125,10 @@ def test_handle_message_start():
             {"start": {"toolUse": {"toolUseId": "test", "name": "test"}}},
             {"toolUseId": "test", "name": "test", "input": ""},
         ),
+        (
+            {"start": {"toolUse": {"toolUseId": "test", "name": "test", "reasoningSignature": "sig123"}}},
+            {"toolUseId": "test", "name": "test", "input": "", "reasoningSignature": "sig123"},
+        ),
     ],
 )
 def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use):
@@ -303,6 +307,39 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
+        # Tool Use - With reasoningSignature
+        (
+            {
+                "content": [],
+                "current_tool_use": {
+                    "toolUseId": "123",
+                    "name": "test",
+                    "input": '{"key": "value"}',
+                    "reasoningSignature": "sig456",
+                },
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "123",
+                            "name": "test",
+                            "input": {"key": "value"},
+                            "reasoningSignature": "sig456",
+                        }
+                    }
+                ],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
