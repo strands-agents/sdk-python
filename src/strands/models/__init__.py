@@ -55,6 +55,10 @@ def __getattr__(name: str) -> Any:
         from .openai import OpenAIModel
 
         return OpenAIModel
+    if name == "PortkeyModel":
+        from .portkey import PortkeyModel
+
+        return PortkeyModel
     if name == "SageMakerAIModel":
         from .sagemaker import SageMakerAIModel
 
