@@ -3,6 +3,7 @@
 - Docs: https://ai.google.dev/api
 """
 
+import base64
 import json
 import logging
 import mimetypes
@@ -14,7 +15,7 @@ import pydantic
 from google import genai
 from typing_extensions import Required, Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, ContentBlockStartToolUse, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
@@ -173,7 +174,7 @@ class GeminiModel(Model):
             return genai.types.Part(
                 text=content["reasoningContent"]["reasoningText"]["text"],
                 thought=True,
-                thought_signature=thought_signature.encode("utf-8") if thought_signature else None,
+                thought_signature=base64.b64decode(thought_signature) if thought_signature else None,
             )
 
         if "text" in content:
@@ -202,14 +203,18 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
-            tool_use_id_to_name[content["toolUse"]["toolUseId"]] = content["toolUse"]["name"]
+            tool_use_id = content["toolUse"]["toolUseId"]
+            tool_use_id_to_name[tool_use_id] = content["toolUse"]["name"]
+
+            reasoning_signature = content["toolUse"].get("reasoningSignature")
 
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
-                    id=content["toolUse"]["toolUseId"],
+                    id=tool_use_id,
                     name=content["toolUse"]["name"],
                 ),
+                thought_signature=base64.b64decode(reasoning_signature) if reasoning_signature else None,
             )
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -349,13 +354,18 @@ class GeminiModel(Model):
                         # Use Gemini's provided ID or generate one if missing
                         tool_use_id = function_call.id or f"tooluse_{secrets.token_urlsafe(16)}"
 
+                        tool_use_start: ContentBlockStartToolUse = {
+                            "name": function_call.name,
+                            "toolUseId": tool_use_id,
+                        }
+                        if event["data"].thought_signature:
+                            tool_use_start["reasoningSignature"] = base64.b64encode(
+                                event["data"].thought_signature
+                            ).decode("ascii")
                         return {
                             "contentBlockStart": {
                                 "start": {
-                                    "toolUse": {
-                                        "name": function_call.name,
-                                        "toolUseId": tool_use_id,
-                                    },
+                                    "toolUse": tool_use_start,
                                 },
                             },
                         }
@@ -379,7 +389,11 @@ class GeminiModel(Model):
                                     "reasoningContent": {
                                         "text": event["data"].text,
                                         **(
-                                            {"signature": event["data"].thought_signature.decode("utf-8")}
+                                            {
+                                                "signature": base64.b64encode(event["data"].thought_signature).decode(
+                                                    "ascii"
+                                                )
+                                            }
                                             if event["data"].thought_signature
                                             else {}
                                         ),
