@@ -21,29 +21,48 @@ import logging
 import mimetypes
 from collections.abc import AsyncGenerator
 from importlib.metadata import version as get_package_version
+from types import SimpleNamespace
 from typing import Any, Protocol, TypedDict, TypeVar, cast
 
-import openai
 from packaging.version import Version
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock, Messages
-from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
-from ..types.streaming import StreamEvent
-from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys
-from .model import Model
+# Validate OpenAI SDK version at import time - Responses API requires v2.0.0+
+# A major version bump is proposed in https://github.com/strands-agents/sdk-python/pull/1370
+_MIN_OPENAI_VERSION = Version("2.0.0")
+
+try:
+    _openai_version = Version(get_package_version("openai"))
+    if _openai_version < _MIN_OPENAI_VERSION:
+        raise ImportError(
+            f"OpenAIResponsesModel requires openai>={_MIN_OPENAI_VERSION} (found {_openai_version}). "
+            "Install/upgrade with: pip install -U openai. "
+            "For older SDKs, use OpenAIModel (Chat Completions)."
+        )
+except ImportError:
+    # Re-raise ImportError as-is (covers both our explicit raise above and missing openai package)
+    raise
+except Exception as e:
+    raise ImportError(
+        f"OpenAIResponsesModel requires openai>={_MIN_OPENAI_VERSION}. Install with: pip install -U openai"
+    ) from e
+
+import openai  # noqa: E402 - must import after version check
+
+from ..types.content import ContentBlock, Messages  # noqa: E402
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
+from ..types.streaming import StreamEvent  # noqa: E402
+from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
+from ._validation import validate_config_keys  # noqa: E402
+from .model import Model  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
-# Minimum OpenAI SDK version required for Responses API
-_MIN_OPENAI_VERSION = Version("2.0.0")
-
 # Maximum file size for media content in tool results (20MB)
-MAX_MEDIA_SIZE_BYTES = 20 * 1024 * 1024
+_MAX_MEDIA_SIZE_BYTES = 20 * 1024 * 1024
 
 
 def _encode_media_to_data_url(data: bytes, format_ext: str, media_type: str = "image") -> str:
@@ -60,13 +79,22 @@ def _encode_media_to_data_url(data: bytes, format_ext: str, media_type: str = "i
     Raises:
         ValueError: If the media size exceeds the maximum allowed size (20MB).
     """
-    if len(data) > MAX_MEDIA_SIZE_BYTES:
+    if len(data) > _MAX_MEDIA_SIZE_BYTES:
         raise ValueError(
-            f"{media_type.capitalize()} size {len(data)} bytes exceeds maximum of {MAX_MEDIA_SIZE_BYTES} bytes (20MB)"
+            f"{media_type.capitalize()} size {len(data)} bytes exceeds maximum of {_MAX_MEDIA_SIZE_BYTES} bytes (20MB)"
         )
     mime_type = mimetypes.types_map.get(f".{format_ext}", "application/octet-stream")
     encoded_data = base64.b64encode(data).decode("utf-8")
     return f"data:{mime_type};base64,{encoded_data}"
+
+
+class _ToolCallInfo(TypedDict):
+    """Internal type for tracking tool call information during streaming."""
+
+    name: str
+    arguments: str
+    call_id: str
+    item_id: str
 
 
 class Client(Protocol):
@@ -80,7 +108,12 @@ class Client(Protocol):
 
 
 class OpenAIResponsesModel(Model):
-    """OpenAI Responses API model provider implementation."""
+    """OpenAI Responses API model provider implementation.
+
+    Note:
+        This implementation currently only supports function tools (custom tools defined via tool_specs).
+        OpenAI's built-in system tools are not yet supported.
+    """
 
     client: Client
     client_args: dict[str, Any]
@@ -108,19 +141,7 @@ class OpenAIResponsesModel(Model):
             client_args: Arguments for the OpenAI client.
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
             **model_config: Configuration options for the OpenAI Responses API model.
-
-        Raises:
-            ImportError: If the installed OpenAI SDK version is less than 2.0.0.
         """
-        # Validate OpenAI SDK version - Responses API requires v2.0.0+
-        openai_version = Version(get_package_version("openai"))
-        if openai_version < _MIN_OPENAI_VERSION:
-            raise ImportError(
-                f"OpenAIResponsesModel requires openai>={_MIN_OPENAI_VERSION} (found {openai_version}). "
-                "Install/upgrade with: pip install -U openai. "
-                "For older SDKs, use OpenAIModel (Chat Completions)."
-            )
-
         validate_config_keys(model_config, self.OpenAIResponsesConfig)
         self.config = dict(model_config)
         self.client_args = client_args or {}
@@ -181,33 +202,38 @@ class OpenAIResponsesModel(Model):
         async with openai.AsyncOpenAI(**self.client_args) as client:
             try:
                 response = await client.responses.create(**request)
-            except openai.BadRequestError as e:
-                if hasattr(e, "code") and e.code == "context_length_exceeded":
-                    logger.warning("OpenAI Responses API threw context window overflow error")
-                    raise ContextWindowOverflowException(str(e)) from e
-                raise
-            except openai.RateLimitError as e:
-                logger.warning("OpenAI Responses API threw rate limit error")
-                raise ModelThrottledException(str(e)) from e
 
-            logger.debug("got response from OpenAI Responses API model")
+                logger.debug("got response from OpenAI Responses API model")
 
-            yield self._format_chunk({"chunk_type": "message_start"})
+                yield self._format_chunk({"chunk_type": "message_start"})
 
-            tool_calls: dict[str, dict[str, Any]] = {}
-            final_usage = None
-            has_text_content = False
+                tool_calls: dict[str, _ToolCallInfo] = {}
+                final_usage = None
+                data_type: str | None = None
+                stop_reason: str | None = None
 
-            try:
                 async for event in response:
                     if hasattr(event, "type"):
-                        if event.type == "response.output_text.delta":
-                            # Text content streaming
-                            if not has_text_content:
-                                yield self._format_chunk({"chunk_type": "content_start", "data_type": "text"})
-                                has_text_content = True
+                        if event.type == "response.reasoning_text.delta":
+                            # Reasoning content streaming (for o1/o3 reasoning models)
+                            chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
+                            for chunk in chunks:
+                                yield chunk
                             if hasattr(event, "delta") and isinstance(event.delta, str):
-                                has_text_content = True
+                                yield self._format_chunk(
+                                    {
+                                        "chunk_type": "content_delta",
+                                        "data_type": "reasoning_content",
+                                        "data": event.delta,
+                                    }
+                                )
+
+                        elif event.type == "response.output_text.delta":
+                            # Text content streaming
+                            chunks, data_type = self._stream_switch_content("text", data_type)
+                            for chunk in chunks:
+                                yield chunk
+                            if hasattr(event, "delta") and isinstance(event.delta, str):
                                 yield self._format_chunk(
                                     {"chunk_type": "content_delta", "data_type": "text", "data": event.delta}
                                 )
@@ -228,12 +254,35 @@ class OpenAIResponsesModel(Model):
                                 }
 
                         elif event.type == "response.function_call_arguments.delta":
-                            # Tool arguments streaming - match by item_id
+                            # Tool arguments streaming - accumulate deltas by item_id
                             if hasattr(event, "delta") and hasattr(event, "item_id"):
                                 for _call_id, call_info in tool_calls.items():
                                     if call_info["item_id"] == event.item_id:
                                         call_info["arguments"] += event.delta
                                         break
+
+                        elif event.type == "response.function_call_arguments.done":
+                            # Tool arguments complete - use final arguments as source of truth
+                            if hasattr(event, "arguments") and hasattr(event, "item_id"):
+                                for _call_id, call_info in tool_calls.items():
+                                    if call_info["item_id"] == event.item_id:
+                                        call_info["arguments"] = event.arguments
+                                        break
+
+                        elif event.type == "response.incomplete":
+                            # Response stopped early (e.g., max tokens reached)
+                            if hasattr(event, "response"):
+                                if hasattr(event.response, "usage"):
+                                    final_usage = event.response.usage
+                                # Check if stopped due to max_output_tokens
+                                if (
+                                    hasattr(event.response, "incomplete_details")
+                                    and event.response.incomplete_details
+                                    and getattr(event.response.incomplete_details, "reason", None)
+                                    == "max_output_tokens"
+                                ):
+                                    stop_reason = "length"
+                            break
 
                         elif event.type == "response.completed":
                             # Response complete
@@ -249,41 +298,37 @@ class OpenAIResponsesModel(Model):
                 logger.warning("OpenAI Responses API threw rate limit error")
                 raise ModelThrottledException(str(e)) from e
 
-            # Close text content if we had any
-            if has_text_content:
-                yield self._format_chunk({"chunk_type": "content_stop", "data_type": "text"})
+            # Close current content block if we had any
+            if data_type:
+                yield self._format_chunk({"chunk_type": "content_stop", "data_type": data_type})
 
-            # Yield tool calls if any
+            # Emit tool calls with complete arguments.
+            # We emit a single delta per tool containing the full arguments rather than streaming
+            # incremental argument deltas. The Responses API streams argument chunks via separate
+            # events (response.function_call_arguments.delta) which we accumulate above, then use
+            # the final arguments from response.function_call_arguments.done. This approach ensures
+            # we emit valid, complete JSON arguments rather than partial fragments.
             for call_info in tool_calls.values():
-                mock_tool_call = type(
-                    "MockToolCall",
-                    (),
-                    {
-                        "function": type(
-                            "MockFunction", (), {"name": call_info["name"], "arguments": call_info["arguments"]}
-                        )(),
-                        "id": call_info["call_id"],
-                    },
-                )()
+                tool_call = SimpleNamespace(
+                    function=SimpleNamespace(name=call_info["name"], arguments=call_info["arguments"]),
+                    id=call_info["call_id"],
+                )
 
-                yield self._format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": mock_tool_call})
-                yield self._format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": mock_tool_call})
+                yield self._format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_call})
+                yield self._format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_call})
                 yield self._format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
-            finish_reason = "tool_calls" if tool_calls else "stop"
+            # Determine finish reason: tool_calls > max_tokens (length) > normal stop
+            if tool_calls:
+                finish_reason = "tool_calls"
+            elif stop_reason == "length":
+                finish_reason = "length"
+            else:
+                finish_reason = "stop"
             yield self._format_chunk({"chunk_type": "message_stop", "data": finish_reason})
 
             if final_usage:
-                usage_data = type(
-                    "Usage",
-                    (),
-                    {
-                        "prompt_tokens": getattr(final_usage, "input_tokens", 0),
-                        "completion_tokens": getattr(final_usage, "output_tokens", 0),
-                        "total_tokens": getattr(final_usage, "total_tokens", 0),
-                    },
-                )()
-                yield self._format_chunk({"chunk_type": "metadata", "data": usage_data})
+                yield self._format_chunk({"chunk_type": "metadata", "data": final_usage})
 
         logger.debug("finished streaming response from OpenAI Responses API model")
 
@@ -414,12 +459,6 @@ class OpenAIResponsesModel(Model):
 
         for message in messages:
             role = message["role"]
-            if role == "system":
-                # Skip system messages - the Responses API uses "instructions" parameter
-                # for system prompts instead of including them in the input items array.
-                # This is handled in _format_request() where system_prompt is passed separately.
-                continue  # type: ignore[unreachable]
-
             contents = message["content"]
 
             formatted_contents = [
@@ -557,6 +596,26 @@ class OpenAIResponsesModel(Model):
             "output": output,
         }
 
+    def _stream_switch_content(self, data_type: str, prev_data_type: str | None) -> tuple[list[StreamEvent], str]:
+        """Handle switching to a new content stream.
+
+        Args:
+            data_type: The next content data type.
+            prev_data_type: The previous content data type.
+
+        Returns:
+            Tuple containing:
+            - Stop block for previous content and the start block for the next content.
+            - Next content data type.
+        """
+        chunks: list[StreamEvent] = []
+        if data_type != prev_data_type:
+            if prev_data_type is not None:
+                chunks.append(self._format_chunk({"chunk_type": "content_stop", "data_type": prev_data_type}))
+            chunks.append(self._format_chunk({"chunk_type": "content_start", "data_type": data_type}))
+
+        return chunks, data_type
+
     def _format_chunk(self, event: dict[str, Any]) -> StreamEvent:
         """Format an OpenAI response event into a standardized message chunk.
 
@@ -613,12 +672,13 @@ class OpenAIResponsesModel(Model):
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
+                # Responses API uses input_tokens/output_tokens naming convention
                 return {
                     "metadata": {
                         "usage": {
-                            "inputTokens": event["data"].prompt_tokens,
-                            "outputTokens": event["data"].completion_tokens,
-                            "totalTokens": event["data"].total_tokens,
+                            "inputTokens": getattr(event["data"], "input_tokens", 0),
+                            "outputTokens": getattr(event["data"], "output_tokens", 0),
+                            "totalTokens": getattr(event["data"], "total_tokens", 0),
                         },
                         "metrics": {
                             "latencyMs": 0,  # TODO

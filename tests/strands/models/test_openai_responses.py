@@ -5,7 +5,7 @@ import pydantic
 import pytest
 
 import strands
-from strands.models.openai_responses import MAX_MEDIA_SIZE_BYTES, OpenAIResponsesModel
+from strands.models.openai_responses import _MAX_MEDIA_SIZE_BYTES, OpenAIResponsesModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
 
@@ -23,17 +23,8 @@ def model_id():
 
 
 @pytest.fixture
-def mock_openai_version():
-    """Mock the OpenAI version check to allow testing with v1.x SDK."""
-    with unittest.mock.patch("strands.models.openai_responses.get_package_version") as mock_version:
-        mock_version.return_value = "2.0.0"
-        yield mock_version
-
-
-@pytest.fixture
-def model(openai_client, model_id, mock_openai_version):
+def model(openai_client, model_id):
     _ = openai_client
-    _ = mock_openai_version
     return OpenAIResponsesModel(model_id=model_id, params={"max_output_tokens": 100})
 
 
@@ -75,8 +66,7 @@ def test_output_model_cls():
     return TestOutputModel
 
 
-def test__init__(model_id, mock_openai_version):
-    _ = mock_openai_version
+def test__init__(model_id):
     model = OpenAIResponsesModel(model_id=model_id, params={"max_output_tokens": 100})
 
     tru_config = model.get_config()
@@ -380,7 +370,7 @@ def test_format_request(model, messages, tool_specs, system_prompt):
         (
             {
                 "chunk_type": "metadata",
-                "data": unittest.mock.Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150),
+                "data": unittest.mock.Mock(input_tokens=100, output_tokens=50, total_tokens=150),
             },
             {
                 "metadata": {
@@ -476,6 +466,102 @@ async def test_stream_with_tool_calls(openai_client, model, agenerator, alist):
     # Should include tool call events
     assert any("toolUse" in str(event) for event in tru_events)
     assert {"messageStop": {"stopReason": "tool_use"}} in tru_events
+
+
+@pytest.mark.asyncio
+async def test_stream_with_tool_calls_done_event(openai_client, model, agenerator, alist):
+    """Test that response.function_call_arguments.done overwrites accumulated deltas."""
+    mock_tool_event = unittest.mock.Mock(
+        type="response.output_item.added",
+        item=unittest.mock.Mock(type="function_call", call_id="call_1", name="calculator", id="item_1"),
+    )
+    # Simulate partial delta that would produce incomplete JSON
+    mock_args_delta = unittest.mock.Mock(
+        type="response.function_call_arguments.delta", delta='{"expr', item_id="item_1"
+    )
+    # The done event provides the complete, correct arguments
+    mock_args_done = unittest.mock.Mock(
+        type="response.function_call_arguments.done", arguments='{"expression": "2+2"}', item_id="item_1"
+    )
+    mock_complete_event = unittest.mock.Mock(
+        type="response.completed",
+        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+    )
+
+    openai_client.responses.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_tool_event, mock_args_delta, mock_args_done, mock_complete_event])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "calculate 2+2"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    # Find the tool use delta event and verify it has the final (done) arguments, not the partial delta
+    tool_deltas = [e for e in tru_events if "contentBlockDelta" in e and "toolUse" in e["contentBlockDelta"]["delta"]]
+    assert len(tool_deltas) == 1
+    assert tool_deltas[0]["contentBlockDelta"]["delta"]["toolUse"]["input"] == '{"expression": "2+2"}'
+
+
+@pytest.mark.asyncio
+async def test_stream_response_incomplete(openai_client, model, agenerator, alist):
+    """Test that response.incomplete sets stop_reason to length when max_output_tokens is reached."""
+    mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="Truncated resp")
+    mock_incomplete_event = unittest.mock.Mock(
+        type="response.incomplete",
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=100, total_tokens=110),
+            incomplete_details=unittest.mock.Mock(reason="max_output_tokens"),
+        ),
+    )
+
+    openai_client.responses.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_text_event, mock_incomplete_event])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "write a long essay"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    assert {"messageStop": {"stopReason": "max_tokens"}} in tru_events
+    # Verify usage was still captured
+    metadata_events = [e for e in tru_events if "metadata" in e]
+    assert len(metadata_events) == 1
+    assert metadata_events[0]["metadata"]["usage"]["inputTokens"] == 10
+    assert metadata_events[0]["metadata"]["usage"]["outputTokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_stream_reasoning_content(openai_client, model, agenerator, alist):
+    """Test that reasoning content (o1/o3 models) is streamed correctly."""
+    mock_reasoning_event = unittest.mock.Mock(type="response.reasoning_text.delta", delta="Let me think...")
+    mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="The answer is 42")
+    mock_complete_event = unittest.mock.Mock(
+        type="response.completed",
+        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=20, total_tokens=30)),
+    )
+
+    openai_client.responses.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_reasoning_event, mock_text_event, mock_complete_event])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "think step by step"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    # Verify reasoning content block was emitted
+    reasoning_deltas = [
+        e for e in tru_events if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"]
+    ]
+    assert len(reasoning_deltas) == 1
+    assert reasoning_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"]["text"] == "Let me think..."
+
+    # Verify text content block was also emitted
+    text_deltas = [e for e in tru_events if "contentBlockDelta" in e and "text" in e["contentBlockDelta"]["delta"]]
+    assert len(text_deltas) == 1
+    assert text_deltas[0]["contentBlockDelta"]["delta"]["text"] == "The answer is 42"
+
+    # Verify content blocks were properly opened and closed (reasoning start/stop, then text start/stop)
+    content_starts = [e for e in tru_events if "contentBlockStart" in e]
+    content_stops = [e for e in tru_events if "contentBlockStop" in e]
+    assert len(content_starts) == 2  # one for reasoning, one for text
+    assert len(content_stops) == 2
 
 
 @pytest.mark.asyncio
@@ -639,9 +725,8 @@ async def test_structured_output_rate_limit_as_throttle(openai_client, model, me
     assert exc_info.value.__cause__ == mock_error
 
 
-def test_config_validation_warns_on_unknown_keys(openai_client, captured_warnings, mock_openai_version):
+def test_config_validation_warns_on_unknown_keys(openai_client, captured_warnings):
     """Test that unknown config keys emit a warning."""
-    _ = mock_openai_version
     OpenAIResponsesModel({"api_key": "test"}, model_id="test-model", invalid_param="test")
 
     assert len(captured_warnings) == 1
@@ -685,7 +770,7 @@ def test_format_request_with_tool_choice(model, messages, tool_specs):
 
 def test_format_request_message_content_image_size_limit():
     """Test that oversized images raise ValueError."""
-    oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
+    oversized_data = b"x" * (_MAX_MEDIA_SIZE_BYTES + 1)
     content = {"image": {"format": "png", "source": {"bytes": oversized_data}}}
 
     with pytest.raises(ValueError, match="Image size .* exceeds maximum"):
@@ -694,7 +779,7 @@ def test_format_request_message_content_image_size_limit():
 
 def test_format_request_message_content_document_size_limit():
     """Test that oversized documents raise ValueError."""
-    oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
+    oversized_data = b"x" * (_MAX_MEDIA_SIZE_BYTES + 1)
     content = {"document": {"format": "pdf", "name": "large.pdf", "source": {"bytes": oversized_data}}}
 
     with pytest.raises(ValueError, match="Document size .* exceeds maximum"):
@@ -703,7 +788,7 @@ def test_format_request_message_content_document_size_limit():
 
 def test_format_request_tool_message_image_size_limit():
     """Test that oversized images in tool results raise ValueError."""
-    oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
+    oversized_data = b"x" * (_MAX_MEDIA_SIZE_BYTES + 1)
     tool_result = {
         "content": [{"image": {"format": "png", "source": {"bytes": oversized_data}}}],
         "status": "success",
@@ -716,7 +801,7 @@ def test_format_request_tool_message_image_size_limit():
 
 def test_format_request_tool_message_document_size_limit():
     """Test that oversized documents in tool results raise ValueError."""
-    oversized_data = b"x" * (MAX_MEDIA_SIZE_BYTES + 1)
+    oversized_data = b"x" * (_MAX_MEDIA_SIZE_BYTES + 1)
     tool_result = {
         "content": [{"document": {"format": "pdf", "name": "large.pdf", "source": {"bytes": oversized_data}}}],
         "status": "success",
@@ -728,9 +813,29 @@ def test_format_request_tool_message_document_size_limit():
 
 
 def test_openai_version_check():
-    """Test that initialization fails with old OpenAI SDK version."""
-    with unittest.mock.patch("strands.models.openai_responses.get_package_version") as mock_version:
-        mock_version.return_value = "1.99.0"
+    """Test that module import fails with old OpenAI SDK version."""
+    import importlib
 
+    import strands.models.openai_responses as openai_responses_module
+
+    def mock_old_version(package_name: str) -> str:
+        if package_name == "openai":
+            return "1.99.0"
+        from importlib.metadata import version
+
+        return version(package_name)
+
+    def mock_valid_version(package_name: str) -> str:
+        if package_name == "openai":
+            return "2.0.0"
+        from importlib.metadata import version
+
+        return version(package_name)
+
+    with unittest.mock.patch("importlib.metadata.version", mock_old_version):
         with pytest.raises(ImportError, match="OpenAIResponsesModel requires openai>=2.0.0"):
-            OpenAIResponsesModel(model_id="gpt-4o")
+            importlib.reload(openai_responses_module)
+
+    # Reload with valid version to restore module state
+    with unittest.mock.patch("importlib.metadata.version", mock_valid_version):
+        importlib.reload(openai_responses_module)
