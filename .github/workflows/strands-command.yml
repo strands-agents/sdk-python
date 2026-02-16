@@ -27,7 +27,7 @@ jobs:
     permissions: read-all
     runs-on: ubuntu-latest
     outputs:
-      approval-env: ${{ steps.auth.outputs.result }}
+      approval-env: ${{ steps.auth.outputs.approval-env }}
     steps:
       - name: Check Authorization
         id: auth
