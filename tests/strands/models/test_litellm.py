@@ -812,3 +812,39 @@ async def test_stream_with_usage_in_final_event(litellm_acompletion, api_key, mo
     assert metadata_events[0]["metadata"]["usage"]["inputTokens"] == 10
     assert metadata_events[0]["metadata"]["usage"]["outputTokens"] == 5
     assert metadata_events[0]["metadata"]["usage"]["totalTokens"] == 15
+
+
+def test_format_request_messages_with_tool_calls_no_content():
+    """Test that assistant messages with only tool calls are included and have no content field."""
+    messages = [
+        {"role": "user", "content": [{"text": "Use the calculator"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "input": {"expression": "2+2"},
+                        "name": "calculator",
+                        "toolUseId": "c1",
+                    },
+                },
+            ],
+        },
+    ]
+
+    tru_result = LiteLLMModel.format_request_messages(messages)
+
+    exp_result = [
+        {"role": "user", "content": [{"text": "Use the calculator", "type": "text"}]},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "function": {"arguments": '{"expression": "2+2"}', "name": "calculator"},
+                    "id": "c1",
+                    "type": "function",
+                }
+            ],
+        },
+    ]
+    assert tru_result == exp_result

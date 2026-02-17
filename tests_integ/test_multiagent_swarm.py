@@ -113,6 +113,7 @@ def verify_hook():
     return VerifyHook()
 
 
+@pytest.mark.timeout(120)
 def test_swarm_execution_with_string(researcher_agent, analyst_agent, writer_agent, hook_provider):
     """Test swarm execution with string input."""
     # Create the swarm
