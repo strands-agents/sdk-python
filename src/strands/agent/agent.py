@@ -129,7 +129,7 @@ class Agent(AgentBase):
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
-        concurrent_invocation_mode: ConcurrentInvocationMode = "throw",
+        concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
     ):
         """Initialize the Agent with the specified configuration.
 
