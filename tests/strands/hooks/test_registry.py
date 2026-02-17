@@ -131,3 +131,65 @@ def test_hook_registry_add_callback_raises_error_no_parameters(registry):
 
     with pytest.raises(ValueError, match="callback has no parameters"):
         registry.add_callback(no_param_callback)
+
+
+def test_hook_registry_add_callback_raises_error_when_callback_is_none(registry):
+    """Test that add_callback raises error when callback is None and event_type is None."""
+    with pytest.raises(ValueError, match="callback is required"):
+        registry.add_callback(None, None)
+
+
+def test_hook_registry_add_callback_raises_error_when_event_type_is_type_without_callback(registry):
+    """Test that add_callback raises error when event_type is a type but callback is None."""
+    with pytest.raises(ValueError, match="callback is required when event_type is a type"):
+        registry.add_callback(BeforeInvocationEvent, None)
+
+
+def test_hook_registry_add_callback_raises_error_when_event_type_is_callable_with_callback(registry):
+    """Test that add_callback raises error when event_type is callable and callback is provided."""
+
+    def callback1(event: BeforeInvocationEvent) -> None:
+        pass
+
+    def callback2(event: BeforeInvocationEvent) -> None:
+        pass
+
+    with pytest.raises(ValueError, match="event_type must be a type when callback is provided"):
+        registry.add_callback(callback1, callback2)
+
+
+def test_hook_registry_add_callback_infers_event_type_when_callback_provided_without_event_type(registry):
+    """Test that add_callback infers event type when callback is provided but event_type is None."""
+
+    def typed_callback(event: BeforeInvocationEvent) -> None:
+        pass
+
+    registry.add_callback(None, typed_callback)
+
+    assert BeforeInvocationEvent in registry._registered_callbacks
+    assert typed_callback in registry._registered_callbacks[BeforeInvocationEvent]
+
+
+def test_hook_registry_add_callback_with_explicit_event_type_and_callback(registry):
+    """Test that add_callback works with explicit event_type and callback."""
+
+    def callback(event: BeforeInvocationEvent) -> None:
+        pass
+
+    registry.add_callback(BeforeInvocationEvent, callback)
+
+    assert BeforeInvocationEvent in registry._registered_callbacks
+    assert callback in registry._registered_callbacks[BeforeInvocationEvent]
+
+
+def test_hook_registry_add_callback_raises_error_on_type_hints_failure(registry):
+    """Test that add_callback raises error when get_type_hints fails."""
+
+    class BadCallback:
+        def __call__(self, event: "NonExistentType") -> None:  # noqa: F821
+            pass
+
+    callback = BadCallback()
+
+    with pytest.raises(ValueError, match="failed to get type hints for callback"):
+        registry.add_callback(callback)

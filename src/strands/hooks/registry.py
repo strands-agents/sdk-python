@@ -18,7 +18,6 @@ from typing import (
     Protocol,
     TypeVar,
     get_type_hints,
-    overload,
     runtime_checkable,
 )
 
@@ -165,12 +164,6 @@ class HookRegistry:
     def __init__(self) -> None:
         """Initialize an empty hook registry."""
         self._registered_callbacks: dict[type, list[HookCallback]] = {}
-
-    @overload
-    def add_callback(self, callback: HookCallback[TEvent]) -> None: ...
-
-    @overload
-    def add_callback(self, event_type: type[TEvent], callback: HookCallback[TEvent]) -> None: ...
 
     def add_callback(
         self,

@@ -605,6 +605,8 @@ class Agent(AgentBase):
             # With explicit event type
             agent.add_hook(log_model_call, BeforeModelCallEvent)
             ```
+        Docs:
+            https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/hooks/
         """
         if event_type is not None:
             self.hooks.add_callback(event_type, callback)

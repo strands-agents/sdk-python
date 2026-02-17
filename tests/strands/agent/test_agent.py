@@ -20,7 +20,7 @@ from strands.agent.conversation_manager.null_conversation_manager import NullCon
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
-from strands.hooks import BeforeToolCallEvent
+from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
@@ -2479,8 +2479,6 @@ def test_agent_direct_tool_call_during_invocation_succeeds_with_record_false(too
 
 def test_agent_add_hook_registers_callback():
     """Test that add_hook registers a callback with the hooks registry."""
-    from strands.hooks import BeforeModelCallEvent
-
     agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
     callback = unittest.mock.Mock()
 
@@ -2496,8 +2494,6 @@ def test_agent_add_hook_registers_callback():
 
 def test_agent_add_hook_delegates_to_hooks_add_callback():
     """Test that add_hook delegates to self.hooks.add_callback."""
-    from strands.hooks import BeforeInvocationEvent
-
     agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
     callback = unittest.mock.Mock()
 
@@ -2510,7 +2506,6 @@ def test_agent_add_hook_delegates_to_hooks_add_callback():
 @pytest.mark.asyncio
 async def test_agent_add_hook_works_with_async_callback():
     """Test that add_hook works with async callbacks."""
-    from strands.hooks import BeforeModelCallEvent
 
     agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
     async_callback = unittest.mock.AsyncMock()
@@ -2527,18 +2522,17 @@ async def test_agent_add_hook_works_with_async_callback():
 
 def test_agent_add_hook_infers_event_type_from_callback():
     """Test that add_hook infers event type from callback type hint."""
-    from strands.hooks import BeforeModelCallEvent
-
     agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
+    callback_invoked = []
 
     def typed_callback(event: BeforeModelCallEvent) -> None:
-        pass
+        callback_invoked.append(event)
 
-    # Register without explicit event_type - should infer from type hint
     agent.add_hook(typed_callback)
-
-    # Verify callback was registered by checking it gets invoked
     agent("test prompt")
+
+    assert len(callback_invoked) == 1
+    assert isinstance(callback_invoked[0], BeforeModelCallEvent)
 
 
 def test_agent_add_hook_raises_error_when_no_type_hint():
