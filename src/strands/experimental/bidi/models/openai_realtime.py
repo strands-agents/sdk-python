@@ -10,7 +10,8 @@ import logging
 import os
 import time
 import uuid
-from typing import Any, AsyncGenerator, Literal, cast
+from collections.abc import AsyncGenerator
+from typing import Any, Literal, cast
 
 import websockets
 from websockets import ClientConnection
@@ -434,7 +435,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
             try:
                 message = await asyncio.wait_for(self._websocket.recv(), timeout=10)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
             openai_event = json.loads(message)

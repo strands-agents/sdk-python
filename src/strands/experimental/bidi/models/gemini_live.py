@@ -15,7 +15,8 @@ Key improvements over custom WebSocket implementation:
 import base64
 import logging
 import uuid
-from typing import Any, AsyncGenerator, cast
+from collections.abc import AsyncGenerator
+from typing import Any, cast
 
 from google import genai
 from google.genai import types as genai_types
