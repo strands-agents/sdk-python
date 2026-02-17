@@ -1,8 +1,13 @@
-"""LLM steering prompt mappers for generating evaluation prompts."""
+"""LLM steering prompt mappers for generating evaluation prompts.
+
+Extends the original mappers module with model output steering support.
+"""
 
 import json
 from typing import Any, Protocol
 
+from .....types.content import Message
+from .....types.streaming import StopReason
 from .....types.tools import ToolUse
 from ...core.context import SteeringContext
 
@@ -126,5 +131,134 @@ class DefaultPromptMapper(LLMPromptMapper):
             action_type=action_type,
             action_type_title=action_type.title(),
             context_str=context_str,
+            event_description=event_description,
+        )
+
+
+# Agent SOP format for model output evaluation
+_MODEL_STEERING_PROMPT_TEMPLATE = """# Steering Evaluation
+
+## Overview
+
+You are a STEERING AGENT that evaluates a {action_type} that ANOTHER AGENT has produced.
+Your job is to check whether the agent's output follows the instructions it was given.
+You act as a quality gate that catches instruction violations before the response is returned.
+
+**YOUR ROLE:**
+- Compare the agent's output against its system prompt instructions
+- Allow output that follows the instructions to proceed without modification
+- Reject output that violates any explicit instruction and explain what to fix
+
+**CRITICAL CONSTRAINTS:**
+- Base decisions ONLY on the agent's system prompt and the output provided below
+- Do NOT inject your own style preferences or opinions
+- Do NOT reject output just because you would have written it differently
+- Focus ONLY on clear violations of explicit instructions in the system prompt
+
+## Context
+
+{context_str}
+
+## Agent's System Prompt
+
+{agent_system_prompt}
+
+## Event to Evaluate
+
+{event_description}
+
+## Steps
+
+### 1. Analyze the {action_type_title}
+
+Review the agent's system prompt and compare it against the model output. Look for:
+
+- Direct violations of explicit rules or constraints in the system prompt
+- Content that contradicts specific instructions
+- Patterns the system prompt explicitly prohibits
+- Required elements that are missing from the output
+
+**Constraints:**
+- You MUST only check rules stated in the agent's system prompt
+- You MUST NOT apply rules that are not in the system prompt
+- You SHOULD quote the specific violation when rejecting
+- You MAY reference the relevant system prompt rule to justify your decision
+
+### 2. Make Steering Decision
+
+**Constraints:**
+- You MUST respond with exactly one of: "proceed" or "guide"
+- You MUST quote the specific violation if rejecting
+- Your reason will be shown to the AGENT as guidance for a rewrite
+
+**Decision Options:**
+- "proceed" if the output follows the agent's system prompt instructions
+- "guide" if the output violates a specific instruction (explain what to fix)
+"""
+
+
+class LLMModelPromptMapper(Protocol):
+    """Protocol for mapping model output to an LLM evaluation prompt."""
+
+    def create_steering_prompt(
+        self,
+        steering_context: SteeringContext,
+        message: Message,
+        stop_reason: StopReason,
+        agent_system_prompt: str | None = None,
+        **kwargs: Any,
+    ) -> str:
+        """Create steering prompt for model output evaluation.
+
+        Args:
+            steering_context: Steering context with populated data
+            message: The model's generated message
+            stop_reason: The reason the model stopped generating
+            agent_system_prompt: The agent's system prompt (instructions to check against)
+            **kwargs: Additional event data
+
+        Returns:
+            Formatted prompt string for LLM evaluation
+        """
+        ...
+
+
+class DefaultModelPromptMapper(LLMModelPromptMapper):
+    """Default prompt mapper for model output steering evaluation.
+
+    Uses the Agent SOP template with the event description containing the
+    agent's system prompt and model output. The steering agent checks
+    whether the output follows the instructions.
+    """
+
+    def create_steering_prompt(
+        self,
+        steering_context: SteeringContext,
+        message: Message,
+        stop_reason: StopReason,
+        agent_system_prompt: str | None = None,
+        **kwargs: Any,
+    ) -> str:
+        """Create model output steering prompt using Agent SOP structure."""
+        context_str = (
+            json.dumps(steering_context.data.get(), indent=2) if steering_context.data.get() else "No context available"
+        )
+
+        # Extract text from message
+        text_parts = []
+        for block in message.get("content", []):
+            if "text" in block:
+                text_parts.append(block["text"])
+        model_output = "\n".join(text_parts) if text_parts else "(no text content)"
+
+        system_prompt_str = agent_system_prompt or "(system prompt not available)"
+
+        event_description = f"Model Output:\n{model_output}"
+
+        return _MODEL_STEERING_PROMPT_TEMPLATE.format(
+            action_type="model response",
+            action_type_title="Model Response",
+            context_str=context_str,
+            agent_system_prompt=system_prompt_str,
             event_description=event_description,
         )
