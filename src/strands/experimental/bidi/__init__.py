@@ -35,11 +35,50 @@ from .types.events import (
     ModalityUsage,
 )
 
-from .agent.agent import BidiAgent
-from .models.model import BidiModel
-from .models.nova_sonic import BidiNovaSonicModel
-from .tools import stop_conversation
-from .io import BidiAudioIO
+
+def __getattr__(name: str) -> Any:
+    """Lazy import classes to avoid requiring optional dependencies."""
+    if name == "BidiAgent":
+        try:
+            from .agent.agent import BidiAgent
+
+            return BidiAgent
+        except ImportError as e:
+            raise ImportError(
+                "BidiAgent requires aws_sdk_bedrock_runtime. Install it with: pip install strands-agents[bidi]"
+            ) from e
+    elif name == "BidiAudioIO":
+        from .io import BidiAudioIO
+
+        return BidiAudioIO
+    elif name == "BidiModel":
+        try:
+            from .models.model import BidiModel
+
+            return BidiModel
+        except ImportError as e:
+            raise ImportError(
+                "BidiModel requires aws_sdk_bedrock_runtime. Install it with: pip install strands-agents[bidi]"
+            ) from e
+    elif name == "BidiNovaSonicModel":
+        try:
+            from .models.nova_sonic import BidiNovaSonicModel
+
+            return BidiNovaSonicModel
+        except ImportError as e:
+            raise ImportError(
+                "BidiNovaSonicModel requires aws_sdk_bedrock_runtime. Install it with: pip install strands-agents[bidi]"
+            ) from e
+    elif name == "stop_conversation":
+        try:
+            from .tools import stop_conversation
+
+            return stop_conversation
+        except ImportError as e:
+            raise ImportError(
+                "stop_conversation requires aws_sdk_bedrock_runtime. Install it with: pip install strands-agents[bidi]"
+            ) from e
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [
