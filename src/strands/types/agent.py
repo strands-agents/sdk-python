@@ -15,5 +15,9 @@ ConcurrentInvocationMode = Literal["throw", "unsafe_reentrant"]
 
 Values:
     throw: Raises ConcurrencyException if concurrent invocation is attempted (default).
-    unsafe_reentrant: Allows concurrent invocations without locking (unsafe, restores pre-lock behavior).
+    unsafe_reentrant: Allows concurrent invocations without locking.
+
+Warning:
+    The ``unsafe_reentrant`` mode makes no guarantees about resulting behavior and is
+    provided only for advanced use cases where the caller understands the risks.
 """

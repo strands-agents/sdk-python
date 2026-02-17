@@ -189,8 +189,9 @@ class Agent(AgentBase):
                 Implement a custom HookProvider for custom retry logic, or pass None to disable retries.
             concurrent_invocation_mode: Mode controlling concurrent invocation behavior.
                 Defaults to "throw" which raises ConcurrencyException if concurrent invocation is attempted.
-                Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations
-                (restores pre-locking behavior, use with caution).
+                Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
+                Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
+                only for advanced use cases where the caller understands the risks.
 
         Raises:
             ValueError: If agent id contains path separators.
