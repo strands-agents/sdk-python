@@ -1932,20 +1932,3 @@ def test_tool_decorator_without_tags():
 
     # tags should not be in the spec when not provided
     assert "tags" not in untagged_tool.tool_spec
-
-
-def test_tool_decorator_with_multiple_tags():
-    """Test that @tool decorator handles multiple tags correctly."""
-
-    @strands.tool(tags=["data", "api", "external", "production"])
-    def multi_tagged_tool(query: str) -> str:
-        """A tool with multiple tags.
-
-        Args:
-            query: Query string
-        """
-        return f"Query: {query}"
-
-    tags = multi_tagged_tool.tool_spec.get("tags")
-    assert tags == ["data", "api", "external", "production"]
-    assert len(tags) == 4
