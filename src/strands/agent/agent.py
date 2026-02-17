@@ -633,7 +633,7 @@ class Agent(AgentBase):
         # Using threading.Lock instead of asyncio.Lock because run_async() creates
         # separate event loops in different threads
         lock_acquired = False
-        if self._concurrent_invocation_mode == "throw":
+        if self._concurrent_invocation_mode == ConcurrentInvocationMode.THROW:
             lock_acquired = self._invocation_lock.acquire(blocking=False)
             if not lock_acquired:
                 raise ConcurrencyException(

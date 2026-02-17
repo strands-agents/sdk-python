@@ -2382,6 +2382,22 @@ def test_agent_concurrent_invocation_mode_stores_value():
     assert agent_reentrant._concurrent_invocation_mode == "unsafe_reentrant"
 
 
+def test_agent_concurrent_invocation_mode_accepts_enum():
+    """Test that concurrent_invocation_mode accepts enum values as well as strings."""
+    from strands.types.agent import ConcurrentInvocationMode
+
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello"}]}])
+
+    # Using enum values
+    agent_throw = Agent(model=model, concurrent_invocation_mode=ConcurrentInvocationMode.THROW)
+    assert agent_throw._concurrent_invocation_mode == "throw"
+    assert agent_throw._concurrent_invocation_mode == ConcurrentInvocationMode.THROW
+
+    agent_reentrant = Agent(model=model, concurrent_invocation_mode=ConcurrentInvocationMode.UNSAFE_REENTRANT)
+    assert agent_reentrant._concurrent_invocation_mode == "unsafe_reentrant"
+    assert agent_reentrant._concurrent_invocation_mode == ConcurrentInvocationMode.UNSAFE_REENTRANT
+
+
 @pytest.mark.asyncio
 async def test_agent_sequential_invocations_work():
     """Test that sequential invocations work correctly after lock is released."""

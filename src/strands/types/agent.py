@@ -3,21 +3,26 @@
 This module defines the types used for an Agent.
 """
 
-from typing import Literal, TypeAlias
+from enum import Enum
+from typing import TypeAlias
 
 from .content import ContentBlock, Messages
 from .interrupt import InterruptResponseContent
 
 AgentInput: TypeAlias = str | list[ContentBlock] | list[InterruptResponseContent] | Messages | None
 
-ConcurrentInvocationMode = Literal["throw", "unsafe_reentrant"]
-"""Mode controlling concurrent invocation behavior.
 
-Values:
-    throw: Raises ConcurrencyException if concurrent invocation is attempted (default).
-    unsafe_reentrant: Allows concurrent invocations without locking.
+class ConcurrentInvocationMode(str, Enum):
+    """Mode controlling concurrent invocation behavior.
 
-Warning:
-    The ``unsafe_reentrant`` mode makes no guarantees about resulting behavior and is
-    provided only for advanced use cases where the caller understands the risks.
-"""
+    Values:
+        THROW: Raises ConcurrencyException if concurrent invocation is attempted (default).
+        UNSAFE_REENTRANT: Allows concurrent invocations without locking.
+
+    Warning:
+        The ``UNSAFE_REENTRANT`` mode makes no guarantees about resulting behavior and is
+        provided only for advanced use cases where the caller understands the risks.
+    """
+
+    THROW = "throw"
+    UNSAFE_REENTRANT = "unsafe_reentrant"
