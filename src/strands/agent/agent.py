@@ -632,7 +632,6 @@ class Agent(AgentBase):
         # Conditionally acquire lock based on concurrent_invocation_mode
         # Using threading.Lock instead of asyncio.Lock because run_async() creates
         # separate event loops in different threads
-        lock_acquired = False
         if self._concurrent_invocation_mode == ConcurrentInvocationMode.THROW:
             lock_acquired = self._invocation_lock.acquire(blocking=False)
             if not lock_acquired:
@@ -687,7 +686,7 @@ class Agent(AgentBase):
                     raise
 
         finally:
-            if lock_acquired:
+            if self._invocation_lock.locked():
                 self._invocation_lock.release()
 
     async def _run_loop(

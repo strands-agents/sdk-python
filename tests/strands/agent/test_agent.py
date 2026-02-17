@@ -26,6 +26,7 @@ from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
 from strands.types._events import EventLoopStopEvent, ModelStreamEvent
+from strands.types.agent import ConcurrentInvocationMode
 from strands.types.content import Messages
 from strands.types.exceptions import ConcurrencyException, ContextWindowOverflowException, EventLoopException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
@@ -2235,16 +2236,13 @@ def test_agent_concurrent_call_raises_exception():
 
     results = []
     errors = []
-    lock = threading.Lock()
 
     def invoke():
         try:
             result = agent("test")
-            with lock:
-                results.append(result)
+            results.append(result)
         except ConcurrencyException as e:
-            with lock:
-                errors.append(e)
+            errors.append(e)
 
     # Start first thread and wait for it to begin streaming
     t1 = threading.Thread(target=invoke)
@@ -2384,7 +2382,6 @@ def test_agent_concurrent_invocation_mode_stores_value():
 
 def test_agent_concurrent_invocation_mode_accepts_enum():
     """Test that concurrent_invocation_mode accepts enum values as well as strings."""
-    from strands.types.agent import ConcurrentInvocationMode
 
     model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello"}]}])
 
