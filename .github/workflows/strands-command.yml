@@ -79,7 +79,7 @@ jobs:
           write_permission: 'false'
 
   finalize:
-    if: always()
+    if: always() && (startsWith(github.event.comment.body, '/strands') || github.event_name == 'workflow_dispatch')
     needs: [setup-and-process, execute-readonly-agent]
     permissions:
       contents: write
