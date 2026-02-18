@@ -4,7 +4,8 @@ import unittest.mock
 
 import pytest
 
-from strands.plugins import Plugin, PluginRegistry
+from strands.plugins import Plugin
+from strands.plugins.registry import _PluginRegistry
 
 # Plugin Protocol Tests
 
@@ -118,13 +119,7 @@ def test_plugin_protocol_with_property_name():
     assert plugin.name == "property-plugin"
 
 
-# PluginRegistry Tests
-
-
-@pytest.fixture
-def registry():
-    """Create a fresh PluginRegistry for each test."""
-    return PluginRegistry()
+# _PluginRegistry Tests
 
 
 @pytest.fixture
@@ -133,20 +128,30 @@ def mock_agent():
     return unittest.mock.Mock()
 
 
-def test_plugin_registry_add_plugin(registry, mock_agent):
-    """Test adding a plugin to the registry."""
+@pytest.fixture
+def registry(mock_agent):
+    """Create a fresh _PluginRegistry for each test."""
+    return _PluginRegistry(mock_agent)
+
+
+def test_plugin_registry_add_plugin_calls_init_plugin(registry, mock_agent):
+    """Test adding a plugin calls its init_plugin method."""
 
     class TestPlugin:
         name = "test-plugin"
 
+        def __init__(self):
+            self.initialized = False
+
         def init_plugin(self, agent):
-            pass
+            self.initialized = True
+            agent.plugin_initialized = True
 
     plugin = TestPlugin()
-    registry.add_plugin(plugin, mock_agent)
+    registry.add_plugin(plugin)
 
-    assert registry.has_plugin("test-plugin")
-    assert registry.get_plugin("test-plugin") is plugin
+    assert plugin.initialized
+    assert mock_agent.plugin_initialized
 
 
 def test_plugin_registry_add_duplicate_raises_error(registry, mock_agent):
@@ -161,51 +166,82 @@ def test_plugin_registry_add_duplicate_raises_error(registry, mock_agent):
     plugin1 = TestPlugin()
     plugin2 = TestPlugin()
 
-    registry.add_plugin(plugin1, mock_agent)
+    registry.add_plugin(plugin1)
 
     with pytest.raises(ValueError, match="plugin_name=<test-plugin> | plugin already registered"):
-        registry.add_plugin(plugin2, mock_agent)
+        registry.add_plugin(plugin2)
 
 
-def test_plugin_registry_get_plugin_not_found(registry):
-    """Test getting a plugin that doesn't exist returns None."""
-    assert registry.get_plugin("nonexistent") is None
+def test_plugin_registry_add_plugin_async_raises_runtime_error(registry):
+    """Test that add_plugin raises RuntimeError for async plugins."""
 
+    class AsyncPlugin:
+        name = "async-plugin"
 
-def test_plugin_registry_has_plugin_false(registry):
-    """Test has_plugin returns False for unregistered plugins."""
-    assert not registry.has_plugin("nonexistent")
-
-
-def test_plugin_registry_list_plugins(registry, mock_agent):
-    """Test listing all registered plugins."""
-
-    class Plugin1:
-        name = "plugin-1"
-
-        def init_plugin(self, agent):
+        async def init_plugin(self, agent):
             pass
 
-    class Plugin2:
-        name = "plugin-2"
+    plugin = AsyncPlugin()
+
+    with pytest.raises(RuntimeError, match="use add_plugin_async instead"):
+        registry.add_plugin(plugin)
+
+
+@pytest.mark.asyncio
+async def test_plugin_registry_add_plugin_async_with_sync_plugin(mock_agent):
+    """Test add_plugin_async works with sync plugins."""
+    registry = _PluginRegistry(mock_agent)
+
+    class SyncPlugin:
+        name = "sync-plugin"
+
+        def __init__(self):
+            self.initialized = False
 
         def init_plugin(self, agent):
+            self.initialized = True
+
+    plugin = SyncPlugin()
+    await registry.add_plugin_async(plugin)
+
+    assert plugin.initialized
+
+
+@pytest.mark.asyncio
+async def test_plugin_registry_add_plugin_async_with_async_plugin(mock_agent):
+    """Test add_plugin_async works with async plugins."""
+    registry = _PluginRegistry(mock_agent)
+
+    class AsyncPlugin:
+        name = "async-plugin"
+
+        def __init__(self):
+            self.initialized = False
+
+        async def init_plugin(self, agent):
+            self.initialized = True
+
+    plugin = AsyncPlugin()
+    await registry.add_plugin_async(plugin)
+
+    assert plugin.initialized
+
+
+@pytest.mark.asyncio
+async def test_plugin_registry_add_plugin_async_duplicate_raises_error(mock_agent):
+    """Test that add_plugin_async raises error for duplicate plugins."""
+    registry = _PluginRegistry(mock_agent)
+
+    class TestPlugin:
+        name = "test-plugin"
+
+        async def init_plugin(self, agent):
             pass
 
-    class Plugin3:
-        name = "plugin-3"
+    plugin1 = TestPlugin()
+    plugin2 = TestPlugin()
 
-        def init_plugin(self, agent):
-            pass
+    await registry.add_plugin_async(plugin1)
 
-    registry.add_plugin(Plugin1(), mock_agent)
-    registry.add_plugin(Plugin2(), mock_agent)
-    registry.add_plugin(Plugin3(), mock_agent)
-
-    plugin_names = registry.list_plugins()
-    assert plugin_names == ["plugin-1", "plugin-2", "plugin-3"]
-
-
-def test_plugin_registry_list_plugins_empty(registry):
-    """Test listing plugins when registry is empty."""
-    assert registry.list_plugins() == []
+    with pytest.raises(ValueError, match="plugin_name=<test-plugin> | plugin already registered"):
+        await registry.add_plugin_async(plugin2)
