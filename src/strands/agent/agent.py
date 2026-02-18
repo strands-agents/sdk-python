@@ -615,7 +615,7 @@ class Agent(AgentBase):
             # With explicit event type
             agent.add_hook(log_model_call, BeforeModelCallEvent)
 
-            # With union type hint (registers for both types)
+            # With union type hint (registers for all types)
             def log_event(event: BeforeModelCallEvent | AfterModelCallEvent) -> None:
                 print(f"Event: {type(event).__name__}")
             agent.add_hook(log_event)
