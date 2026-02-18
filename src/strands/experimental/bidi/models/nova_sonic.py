@@ -15,17 +15,13 @@ Nova Sonic specifics:
 Note, BidiNovaSonicModel is only supported for Python 3.12+
 """
 
-import sys
-
-if sys.version_info < (3, 12):
-    raise ImportError("BidiNovaSonicModel is only supported for Python 3.12+")
-
 import asyncio
 import base64
 import json
 import logging
 import uuid
-from typing import Any, AsyncGenerator, cast
+from collections.abc import AsyncGenerator
+from typing import Any, cast
 
 import boto3
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
