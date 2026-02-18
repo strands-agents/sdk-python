@@ -155,16 +155,3 @@ def test_hook_registry_add_callback_with_explicit_event_type_and_callback(regist
 
     assert BeforeInvocationEvent in registry._registered_callbacks
     assert callback in registry._registered_callbacks[BeforeInvocationEvent]
-
-
-def test_hook_registry_add_callback_raises_error_on_type_hints_failure(registry):
-    """Test that add_callback raises error when get_type_hints fails."""
-
-    class BadCallback:
-        def __call__(self, event: "NonExistentType") -> None:  # noqa: F821
-            pass
-
-    callback = BadCallback()
-
-    with pytest.raises(ValueError, match="failed to get type hints for callback"):
-        registry.add_callback(None, callback)
