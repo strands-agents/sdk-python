@@ -5,7 +5,7 @@ extend agent behavior through a standardized initialization pattern.
 
 Example Usage:
     ```python
-    from strands.plugins import Plugin, PluginRegistry
+    from strands.plugins import Plugin
 
     class LoggingPlugin:
         name = "logging"
@@ -15,18 +15,11 @@ Example Usage:
 
         def on_model_call(self, event: BeforeModelCallEvent) -> None:
             print(f"Model called for {event.agent.name}")
-
-    # Use with registry
-    registry = PluginRegistry()
-    plugin = LoggingPlugin()
-    registry.add_plugin(plugin, agent)
     ```
 """
 
 from .plugin import Plugin
-from .registry import PluginRegistry
 
 __all__ = [
     "Plugin",
-    "PluginRegistry",
 ]
