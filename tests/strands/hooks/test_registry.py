@@ -2,7 +2,7 @@ import unittest.mock
 
 import pytest
 
-from strands.hooks import AgentInitializedEvent, BeforeInvocationEvent, BeforeToolCallEvent, HookRegistry, Plugin
+from strands.hooks import AgentInitializedEvent, BeforeInvocationEvent, BeforeToolCallEvent, HookRegistry
 from strands.interrupt import Interrupt, _InterruptState
 
 
