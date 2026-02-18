@@ -185,7 +185,7 @@ class HookRegistry:
         type in the list (duplicates are ignored).
 
         Args:
-            event_type: The class type(s) of events this callback should handle.
+            event_type: The lifecycle event type(s) this callback should handle.
                 Can be a single type, a list of types, or None to infer from type hints.
             callback: The callback function to invoke when events of this type occur.
 
