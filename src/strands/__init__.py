@@ -4,7 +4,7 @@ from . import agent, models, telemetry, types
 from .agent.agent import Agent
 from .agent.base import AgentBase
 from .event_loop._retry import ModelRetryStrategy
-from .hooks.registry import Plugin
+from .plugins import Plugin
 from .tools.decorator import tool
 from .types.tools import ToolContext
 
