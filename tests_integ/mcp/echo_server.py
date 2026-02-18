@@ -16,11 +16,14 @@ Usage:
 """
 
 import base64
+import json
 from typing import Literal
 
 from mcp.server import FastMCP
-from mcp.types import BlobResourceContents, EmbeddedResource, TextResourceContents
+from mcp.types import BlobResourceContents, CallToolResult, EmbeddedResource, TextContent, TextResourceContents
 from pydantic import BaseModel
+
+TEST_IMAGE_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
 
 
 class EchoResponse(BaseModel):
@@ -50,6 +53,16 @@ def start_echo_server():
     def echo_with_structured_content(to_echo: str) -> EchoResponse:
         return EchoResponse(echoed=to_echo, message_length=len(to_echo))
 
+    @mcp.tool(description="Echos response back with metadata")
+    def echo_with_metadata(to_echo: str):
+        """Return structured content and metadata in the tool result."""
+
+        return CallToolResult(
+            content=[TextContent(type="text", text=to_echo)],
+            isError=False,
+            _meta={"metadata": {"nested": 1}, "shallow": "val"},
+        )
+
     @mcp.tool(description="Get current weather information for a location")
     def get_weather(location: Literal["New York", "London", "Tokyo"] = "New York"):
         """Get weather data including forecasts and alerts for the specified location"""
@@ -71,15 +84,13 @@ def start_echo_server():
                     resource=BlobResourceContents(
                         uri="https://weather.api/data/london.json",
                         mimeType="application/json",
-                        blob=base64.b64encode(
-                            '{"temperature": 18, "condition": "rainy", "humidity": 85}'.encode()
-                        ).decode(),
+                        blob=base64.b64encode(b'{"temperature": 18, "condition": "rainy", "humidity": 85}').decode(),
                     ),
                 )
             ]
         elif location.lower() == "tokyo":
             # Read yellow.png file for weather icon
-            with open("tests_integ/yellow.png", "rb") as image_file:
+            with open("tests_integ/resources/yellow.png", "rb") as image_file:
                 png_data = image_file.read()
             return [
                 EmbeddedResource(
@@ -91,6 +102,22 @@ def start_echo_server():
                     ),
                 )
             ]
+
+    # Resources
+    @mcp.resource("test://static-text")
+    def static_text_resource() -> str:
+        """A static text resource for testing"""
+        return "This is the content of the static text resource."
+
+    @mcp.resource("test://static-binary")
+    def static_binary_resource() -> bytes:
+        """A static binary resource (image) for testing"""
+        return base64.b64decode(TEST_IMAGE_BASE64)
+
+    @mcp.resource("test://template/{id}/data")
+    def template_resource(id: str) -> str:
+        """A resource template with parameter substitution"""
+        return json.dumps({"id": id, "templateTest": True, "data": f"Data for ID: {id}"})
 
     mcp.run(transport="stdio")
 

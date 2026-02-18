@@ -11,6 +11,7 @@ from opentelemetry.trace import (
 
 from strands.telemetry.tracer import JSONEncoder, Tracer, get_tracer, serialize
 from strands.types.content import ContentBlock
+from strands.types.interrupt import InterruptResponseContent
 from strands.types.streaming import Metrics, StopReason, Usage
 
 
@@ -148,8 +149,11 @@ def test_start_model_invoke_span(mock_tracer):
 
         messages = [{"role": "user", "content": [{"text": "Hello"}]}]
         model_id = "test-model"
+        custom_attrs = {"custom_key": "custom_value", "user_id": "12345"}
 
-        span = tracer.start_model_invoke_span(messages=messages, agent_name="TestAgent", model_id=model_id)
+        span = tracer.start_model_invoke_span(
+            messages=messages, agent_name="TestAgent", model_id=model_id, custom_trace_attributes=custom_attrs
+        )
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "chat"
@@ -157,6 +161,8 @@ def test_start_model_invoke_span(mock_tracer):
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
         mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "chat")
         mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
+        mock_span.set_attribute.assert_any_call("custom_key", "custom_value")
+        mock_span.set_attribute.assert_any_call("user_id", "12345")
         mock_span.add_event.assert_called_with(
             "gen_ai.user.message", attributes={"content": json.dumps(messages[0]["content"])}
         )
@@ -240,8 +246,6 @@ def test_end_model_invoke_span(mock_span):
         "gen_ai.choice",
         attributes={"message": json.dumps(message["content"]), "finish_reason": "end_turn"},
     )
-    mock_span.set_status.assert_called_once_with(StatusCode.OK)
-    mock_span.end.assert_called_once()
 
 
 def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
@@ -278,9 +282,6 @@ def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
             },
         )
 
-        mock_span.set_status.assert_called_once_with(StatusCode.OK)
-        mock_span.end.assert_called_once()
-
 
 def test_start_tool_call_span(mock_tracer):
     """Test starting a tool call span."""
@@ -292,8 +293,9 @@ def test_start_tool_call_span(mock_tracer):
         mock_tracer.start_span.return_value = mock_span
 
         tool = {"name": "test-tool", "toolUseId": "123", "input": {"param": "value"}}
+        custom_attrs = {"session_id": "abc123", "environment": "production"}
 
-        span = tracer.start_tool_call_span(tool)
+        span = tracer.start_tool_call_span(tool, custom_trace_attributes=custom_attrs)
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "execute_tool test-tool"
@@ -301,6 +303,8 @@ def test_start_tool_call_span(mock_tracer):
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
         mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "execute_tool")
         mock_span.set_attribute.assert_any_call("gen_ai.tool.call.id", "123")
+        mock_span.set_attribute.assert_any_call("session_id", "abc123")
+        mock_span.set_attribute.assert_any_call("environment", "production")
         mock_span.add_event.assert_any_call(
             "gen_ai.tool.message", attributes={"role": "tool", "content": json.dumps({"param": "value"}), "id": "123"}
         )
@@ -360,14 +364,17 @@ def test_start_swarm_call_span_with_string_task(mock_tracer):
         mock_tracer.start_span.return_value = mock_span
 
         task = "Design foo bar"
+        custom_attrs = {"workflow_id": "wf-789", "priority": "high"}
 
-        span = tracer.start_multiagent_span(task, "swarm")
+        span = tracer.start_multiagent_span(task, "swarm", custom_trace_attributes=custom_attrs)
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "invoke_swarm"
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
         mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "swarm")
         mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "invoke_swarm")
+        mock_span.set_attribute.assert_any_call("workflow_id", "wf-789")
+        mock_span.set_attribute.assert_any_call("priority", "high")
         mock_span.add_event.assert_any_call("gen_ai.user.message", attributes={"content": "Design foo bar"})
         assert span is not None
 
@@ -394,6 +401,34 @@ def test_start_swarm_span_with_contentblock_task(mock_tracer):
             "gen_ai.user.message", attributes={"content": '[{"text": "Original Task: foo bar"}]'}
         )
         assert span is not None
+
+
+@pytest.mark.parametrize(
+    "task, expected_parts",
+    [
+        ([ContentBlock(text="Test message")], [{"type": "text", "content": "Test message"}]),
+        (
+            [InterruptResponseContent(interruptResponse={"interruptId": "test-id", "response": "approved"})],
+            [{"type": "interrupt_response", "id": "test-id", "response": "approved"}],
+        ),
+    ],
+)
+def test_start_multiagent_span_task_part_conversion(mock_tracer, task, expected_parts, monkeypatch):
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
+
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        tracer.start_multiagent_span(task, "swarm")
+
+        expected_content = json.dumps([{"role": "user", "parts": expected_parts}])
+        mock_span.add_event.assert_any_call(
+            "gen_ai.client.inference.operation.details", attributes={"gen_ai.input.messages": expected_content}
+        )
 
 
 def test_start_swarm_span_with_contentblock_task_latest_conventions(mock_tracer, monkeypatch):
@@ -546,12 +581,17 @@ def test_start_event_loop_cycle_span(mock_tracer):
 
         event_loop_kwargs = {"event_loop_cycle_id": "cycle-123"}
         messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+        custom_attrs = {"request_id": "req-456", "trace_level": "debug"}
 
-        span = tracer.start_event_loop_cycle_span(event_loop_kwargs, messages=messages)
+        span = tracer.start_event_loop_cycle_span(
+            event_loop_kwargs, messages=messages, custom_trace_attributes=custom_attrs
+        )
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "execute_event_loop_cycle"
         mock_span.set_attribute.assert_any_call("event_loop.cycle_id", "cycle-123")
+        mock_span.set_attribute.assert_any_call("request_id", "req-456")
+        mock_span.set_attribute.assert_any_call("trace_level", "debug")
         mock_span.add_event.assert_any_call(
             "gen_ai.user.message", attributes={"content": json.dumps([{"text": "Hello"}])}
         )
@@ -605,8 +645,6 @@ def test_end_event_loop_cycle_span(mock_span):
             "tool.result": json.dumps(tool_result_message["content"]),
         },
     )
-    mock_span.set_status.assert_called_once_with(StatusCode.OK)
-    mock_span.end.assert_called_once()
 
 
 def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
@@ -642,8 +680,6 @@ def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
             )
         },
     )
-    mock_span.set_status.assert_called_once_with(StatusCode.OK)
-    mock_span.end.assert_called_once()
 
 
 def test_start_agent_span(mock_tracer):
@@ -749,6 +785,36 @@ def test_end_agent_span(mock_span):
     mock_span.end.assert_called_once()
 
 
+def test_end_agent_span_with_langfuse_observation_type(mock_span, monkeypatch):
+    """Test ending an agent span with Langfuse observation type to prevent double counting the tokens."""
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://us.cloud.langfuse.com")
+    tracer = Tracer()
+
+    # Mock AgentResult with metrics
+    mock_metrics = mock.MagicMock()
+    mock_metrics.accumulated_usage = {"inputTokens": 50, "outputTokens": 100, "totalTokens": 150}
+
+    mock_response = mock.MagicMock()
+    mock_response.metrics = mock_metrics
+    mock_response.stop_reason = "end_turn"
+    mock_response.__str__ = mock.MagicMock(return_value="Agent response")
+
+    tracer.end_agent_span(mock_span, mock_response)
+    mock_span.set_attribute.assert_any_call("langfuse.observation.type", "span")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 50)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
+    mock_span.add_event.assert_any_call(
+        "gen_ai.choice",
+        attributes={"message": "Agent response", "finish_reason": "end_turn"},
+    )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
+
+
 def test_end_agent_span_latest_conventions(mock_span, monkeypatch):
     """Test ending an agent span with the latest semantic conventions."""
     monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
@@ -815,8 +881,6 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
     mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 3)
     mock_span.set_attribute.assert_any_call("gen_ai.server.request.duration", 10)
     mock_span.set_attribute.assert_any_call("gen_ai.server.time_to_first_token", 5)
-    mock_span.set_status.assert_called_once_with(StatusCode.OK)
-    mock_span.end.assert_called_once()
 
 
 def test_end_agent_span_with_cache_metrics(mock_span):

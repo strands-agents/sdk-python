@@ -1,14 +1,23 @@
 """Tests for the StrandsA2AExecutor class."""
 
+import base64
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from a2a.types import InternalError, UnsupportedOperationError
+from a2a.types import DataPart, FilePart, InternalError, TextPart, UnsupportedOperationError
 from a2a.utils.errors import ServerError
 
 from strands.agent.agent_result import AgentResult as SAAgentResult
 from strands.multiagent.a2a.executor import StrandsA2AExecutor
 from strands.types.content import ContentBlock
+
+# Suppress A2A compliance warnings for legacy streaming mode tests
+pytestmark = pytest.mark.filterwarnings("ignore:The default A2A response stream.*:UserWarning")
+
+# Test data constants
+VALID_PNG_BYTES = b"fake_png_data"
+VALID_MP4_BYTES = b"fake_mp4_data"
+VALID_DOCUMENT_BYTES = b"fake_document_data"
 
 
 def test_executor_initialization(mock_strands_agent):
@@ -96,18 +105,15 @@ def test_convert_a2a_parts_to_content_blocks_text_part():
 
 def test_convert_a2a_parts_to_content_blocks_file_part_image_bytes():
     """Test conversion of FilePart with image bytes to ContentBlock."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
 
-    # Create test image bytes (no base64 encoding needed)
-    test_bytes = b"fake_image_data"
+    base64_bytes = base64.b64encode(VALID_PNG_BYTES).decode("utf-8")
 
     # Mock file object
     file_obj = MagicMock()
-    file_obj.name = "test_image.jpeg"
-    file_obj.mime_type = "image/jpeg"
-    file_obj.bytes = test_bytes
+    file_obj.name = "test_image.png"
+    file_obj.mime_type = "image/png"
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -123,24 +129,21 @@ def test_convert_a2a_parts_to_content_blocks_file_part_image_bytes():
     assert len(result) == 1
     content_block = result[0]
     assert "image" in content_block
-    assert content_block["image"]["format"] == "jpeg"
-    assert content_block["image"]["source"]["bytes"] == test_bytes
+    assert content_block["image"]["format"] == "png"
+    assert content_block["image"]["source"]["bytes"] == VALID_PNG_BYTES
 
 
 def test_convert_a2a_parts_to_content_blocks_file_part_video_bytes():
     """Test conversion of FilePart with video bytes to ContentBlock."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
 
-    # Create test video bytes (no base64 encoding needed)
-    test_bytes = b"fake_video_data"
+    base64_bytes = base64.b64encode(VALID_MP4_BYTES).decode("utf-8")
 
     # Mock file object
     file_obj = MagicMock()
     file_obj.name = "test_video.mp4"
     file_obj.mime_type = "video/mp4"
-    file_obj.bytes = test_bytes
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -157,23 +160,20 @@ def test_convert_a2a_parts_to_content_blocks_file_part_video_bytes():
     content_block = result[0]
     assert "video" in content_block
     assert content_block["video"]["format"] == "mp4"
-    assert content_block["video"]["source"]["bytes"] == test_bytes
+    assert content_block["video"]["source"]["bytes"] == VALID_MP4_BYTES
 
 
 def test_convert_a2a_parts_to_content_blocks_file_part_document_bytes():
     """Test conversion of FilePart with document bytes to ContentBlock."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
 
-    # Create test document bytes (no base64 encoding needed)
-    test_bytes = b"fake_document_data"
+    base64_bytes = base64.b64encode(VALID_DOCUMENT_BYTES).decode("utf-8")
 
     # Mock file object
     file_obj = MagicMock()
     file_obj.name = "test_document.pdf"
     file_obj.mime_type = "application/pdf"
-    file_obj.bytes = test_bytes
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -191,7 +191,7 @@ def test_convert_a2a_parts_to_content_blocks_file_part_document_bytes():
     assert "document" in content_block
     assert content_block["document"]["format"] == "pdf"
     assert content_block["document"]["name"] == "test_document"
-    assert content_block["document"]["source"]["bytes"] == test_bytes
+    assert content_block["document"]["source"]["bytes"] == VALID_DOCUMENT_BYTES
 
 
 def test_convert_a2a_parts_to_content_blocks_file_part_uri():
@@ -226,15 +226,15 @@ def test_convert_a2a_parts_to_content_blocks_file_part_uri():
 
 def test_convert_a2a_parts_to_content_blocks_file_part_with_bytes():
     """Test conversion of FilePart with bytes data."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
+
+    base64_bytes = base64.b64encode(VALID_PNG_BYTES).decode("utf-8")
 
     # Mock file object with bytes (no validation needed since no decoding)
     file_obj = MagicMock()
     file_obj.name = "test_image.png"
     file_obj.mime_type = "image/png"
-    file_obj.bytes = b"some_binary_data"
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -250,7 +250,34 @@ def test_convert_a2a_parts_to_content_blocks_file_part_with_bytes():
     assert len(result) == 1
     content_block = result[0]
     assert "image" in content_block
-    assert content_block["image"]["source"]["bytes"] == b"some_binary_data"
+    assert content_block["image"]["source"]["bytes"] == VALID_PNG_BYTES
+
+
+def test_convert_a2a_parts_to_content_blocks_file_part_invalid_base64():
+    """Test conversion of FilePart with invalid base64 data raises ValueError."""
+    executor = StrandsA2AExecutor(MagicMock())
+
+    # Invalid base64 string - contains invalid characters
+    invalid_base64 = "SGVsbG8gV29ybGQ@#$%"
+
+    # Mock file object with invalid base64 bytes
+    file_obj = MagicMock()
+    file_obj.name = "test.txt"
+    file_obj.mime_type = "text/plain"
+    file_obj.bytes = invalid_base64
+    file_obj.uri = None
+
+    # Mock FilePart
+    file_part = MagicMock(spec=FilePart)
+    file_part.file = file_obj
+    part = MagicMock()
+    part.root = file_part
+
+    # Should handle the base64 decode error gracefully and return empty list
+    result = executor._convert_a2a_parts_to_content_blocks([part])
+    assert isinstance(result, list)
+    # The part should be skipped due to base64 decode error
+    assert len(result) == 0
 
 
 def test_convert_a2a_parts_to_content_blocks_data_part():
@@ -704,15 +731,15 @@ def test_convert_a2a_parts_to_content_blocks_empty_list():
 
 def test_convert_a2a_parts_to_content_blocks_file_part_no_name():
     """Test conversion of FilePart with no file name."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
+
+    base64_bytes = base64.b64encode(VALID_DOCUMENT_BYTES).decode("utf-8")
 
     # Mock file object without name
     file_obj = MagicMock()
     delattr(file_obj, "name")  # Remove name attribute
     file_obj.mime_type = "text/plain"
-    file_obj.bytes = b"test content"
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -733,15 +760,15 @@ def test_convert_a2a_parts_to_content_blocks_file_part_no_name():
 
 def test_convert_a2a_parts_to_content_blocks_file_part_no_mime_type():
     """Test conversion of FilePart with no MIME type."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
+
+    base64_bytes = base64.b64encode(VALID_DOCUMENT_BYTES).decode("utf-8")
 
     # Mock file object without MIME type
     file_obj = MagicMock()
     file_obj.name = "test_file"
     delattr(file_obj, "mime_type")
-    file_obj.bytes = b"test content"
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -837,7 +864,6 @@ async def test_execute_streaming_mode_raises_error_for_empty_content_blocks(
 @pytest.mark.asyncio
 async def test_execute_with_mixed_part_types(mock_strands_agent, mock_request_context, mock_event_queue):
     """Test execute with a message containing mixed A2A part types."""
-    from a2a.types import DataPart, FilePart, TextPart
 
     async def mock_stream(content_blocks):
         """Mock streaming function."""
@@ -866,7 +892,7 @@ async def test_execute_with_mixed_part_types(mock_strands_agent, mock_request_co
     file_obj = MagicMock()
     file_obj.name = "image.png"
     file_obj.mime_type = "image/png"
-    file_obj.bytes = b"fake_image"
+    file_obj.bytes = base64.b64encode(VALID_PNG_BYTES).decode("utf-8")
     file_obj.uri = None
     file_part = MagicMock(spec=FilePart)
     file_part.file = file_obj
@@ -907,8 +933,6 @@ def test_integration_example():
 
     This test serves as documentation for the conversion functionality.
     """
-    from a2a.types import DataPart, FilePart, TextPart
-
     executor = StrandsA2AExecutor(MagicMock())
 
     # Example 1: Text content
@@ -918,7 +942,7 @@ def test_integration_example():
     text_part_mock.root = text_part
 
     # Example 2: Image file
-    image_bytes = b"fake_image_content"
+    image_bytes = base64.b64encode(VALID_PNG_BYTES).decode("utf-8")
     image_file = MagicMock()
     image_file.name = "photo.jpg"
     image_file.mime_type = "image/jpeg"
@@ -931,7 +955,7 @@ def test_integration_example():
     image_part_mock.root = image_part
 
     # Example 3: Document file
-    doc_bytes = b"PDF document content"
+    doc_bytes = base64.b64encode(VALID_DOCUMENT_BYTES).decode("utf-8")
     doc_file = MagicMock()
     doc_file.name = "report.pdf"
     doc_file.mime_type = "application/pdf"
@@ -962,13 +986,13 @@ def test_integration_example():
     # Image part becomes image ContentBlock with proper format and bytes
     assert "image" in content_blocks[1]
     assert content_blocks[1]["image"]["format"] == "jpeg"
-    assert content_blocks[1]["image"]["source"]["bytes"] == image_bytes
+    assert content_blocks[1]["image"]["source"]["bytes"] == VALID_PNG_BYTES
 
     # Document part becomes document ContentBlock
     assert "document" in content_blocks[2]
     assert content_blocks[2]["document"]["format"] == "pdf"
     assert content_blocks[2]["document"]["name"] == "report"  # Extension stripped
-    assert content_blocks[2]["document"]["source"]["bytes"] == doc_bytes
+    assert content_blocks[2]["document"]["source"]["bytes"] == VALID_DOCUMENT_BYTES
 
     # Data part becomes text ContentBlock with JSON representation
     assert "text" in content_blocks[3]
@@ -999,3 +1023,177 @@ def test_default_formats_modularization():
     assert executor._get_file_format_from_mime_type("", "document") == "txt"
     assert executor._get_file_format_from_mime_type("", "image") == "png"
     assert executor._get_file_format_from_mime_type("", "video") == "mp4"
+
+
+# Tests for enable_a2a_compliant_streaming parameter
+
+
+@pytest.mark.asyncio
+async def test_legacy_mode_emits_deprecation_warning(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that legacy streaming (default) emits deprecation warning."""
+    from a2a.types import TextPart
+
+    executor = StrandsA2AExecutor(mock_strands_agent)  # Default is False
+
+    # Mock stream_async
+    async def mock_stream(content_blocks):
+        yield {"result": None}
+
+    mock_strands_agent.stream_async = MagicMock(return_value=mock_stream([]))
+
+    # Mock task
+    mock_task = MagicMock()
+    mock_task.id = "test-task-id"
+    mock_task.context_id = "test-context-id"
+    mock_request_context.current_task = mock_task
+
+    # Mock message
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "test"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    with pytest.warns(UserWarning, match="does not conform to what is expected in the A2A spec"):
+        await executor.execute(mock_request_context, mock_event_queue)
+
+
+@pytest.mark.asyncio
+async def test_a2a_compliant_mode_no_warning(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that A2A-compliant mode does not emit warning."""
+    import warnings
+
+    from a2a.types import TextPart
+
+    executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
+
+    # Mock stream_async
+    async def mock_stream(content_blocks):
+        yield {"result": None}
+
+    mock_strands_agent.stream_async = MagicMock(return_value=mock_stream([]))
+
+    # Mock task
+    mock_task = MagicMock()
+    mock_task.id = "test-task-id"
+    mock_task.context_id = "test-context-id"
+    mock_request_context.current_task = mock_task
+
+    # Mock message
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "test"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        try:
+            await executor.execute(mock_request_context, mock_event_queue)
+        except UserWarning:
+            pytest.fail("Should not emit warning")
+
+
+@pytest.mark.asyncio
+async def test_a2a_compliant_mode_uses_add_artifact(mock_strands_agent):
+    """Test that A2A-compliant mode uses add_artifact with artifact_id."""
+    executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
+    executor._current_artifact_id = "artifact-123"
+    executor._is_first_chunk = True
+
+    mock_updater = MagicMock()
+    mock_updater.add_artifact = AsyncMock()
+    mock_updater.update_status = AsyncMock()
+
+    event = {"data": "content"}
+    await executor._handle_streaming_event(event, mock_updater)
+
+    mock_updater.add_artifact.assert_called_once()
+    assert mock_updater.add_artifact.call_args[1]["artifact_id"] == "artifact-123"
+    assert mock_updater.add_artifact.call_args[1]["append"] is False
+    mock_updater.update_status.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a2a_compliant_handle_result_first_chunk_with_content(mock_strands_agent):
+    """Test that A2A-compliant mode sends a TextPart with content when first chunk and result has content."""
+    executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
+    executor._current_artifact_id = "artifact-456"
+    executor._is_first_chunk = True
+
+    mock_updater = MagicMock()
+    mock_updater.add_artifact = AsyncMock()
+    mock_updater.complete = AsyncMock()
+
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.__str__ = MagicMock(return_value="Final response")
+
+    await executor._handle_agent_result(mock_result, mock_updater)
+
+    mock_updater.add_artifact.assert_called_once()
+    parts = mock_updater.add_artifact.call_args[0][0]
+    assert len(parts) == 1
+    assert parts[0].root.text == "Final response"
+    assert mock_updater.add_artifact.call_args[1]["artifact_id"] == "artifact-456"
+    assert mock_updater.add_artifact.call_args[1]["last_chunk"] is True
+    mock_updater.complete.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a2a_compliant_handle_result_first_chunk_with_none_result(mock_strands_agent):
+    """Test that A2A-compliant mode sends a TextPart with empty string when first chunk and result is None.
+
+    Per the A2A spec, parts must contain at least one part, so even with no result
+    we should send a TextPart with an empty string rather than an empty list.
+    """
+    executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
+    executor._current_artifact_id = "artifact-789"
+    executor._is_first_chunk = True
+
+    mock_updater = MagicMock()
+    mock_updater.add_artifact = AsyncMock()
+    mock_updater.complete = AsyncMock()
+
+    await executor._handle_agent_result(None, mock_updater)
+
+    mock_updater.add_artifact.assert_called_once()
+    parts = mock_updater.add_artifact.call_args[0][0]
+    assert len(parts) == 1
+    assert parts[0].root.text == ""
+    assert mock_updater.add_artifact.call_args[1]["artifact_id"] == "artifact-789"
+    assert mock_updater.add_artifact.call_args[1]["last_chunk"] is True
+    mock_updater.complete.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_a2a_compliant_handle_result_not_first_chunk(mock_strands_agent):
+    """Test that A2A-compliant mode sends a TextPart with empty string when not the first chunk.
+
+    Per the A2A spec, parts must contain at least one part, so the final marker
+    chunk should include a TextPart with an empty string rather than an empty list.
+    """
+    executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
+    executor._current_artifact_id = "artifact-abc"
+    executor._is_first_chunk = False
+
+    mock_updater = MagicMock()
+    mock_updater.add_artifact = AsyncMock()
+    mock_updater.complete = AsyncMock()
+
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.__str__ = MagicMock(return_value="Some content")
+
+    await executor._handle_agent_result(mock_result, mock_updater)
+
+    mock_updater.add_artifact.assert_called_once()
+    parts = mock_updater.add_artifact.call_args[0][0]
+    assert len(parts) == 1
+    assert parts[0].root.text == ""
+    assert mock_updater.add_artifact.call_args[1]["artifact_id"] == "artifact-abc"
+    assert mock_updater.add_artifact.call_args[1]["append"] is True
+    assert mock_updater.add_artifact.call_args[1]["last_chunk"] is True
+    mock_updater.complete.assert_called_once()

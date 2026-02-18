@@ -3,7 +3,8 @@ Tests for the function-based tool decorator pattern.
 """
 
 from asyncio import Queue
-from typing import Annotated, Any, AsyncGenerator, Dict, List, Optional, Union
+from collections.abc import AsyncGenerator
+from typing import Annotated, Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -267,7 +268,7 @@ async def test_tool_with_optional_params(alist):
     """Test tool decorator with optional parameters."""
 
     @strands.tool
-    def test_tool(required: str, optional: Optional[int] = None) -> str:
+    def test_tool(required: str, optional: int | None = None) -> str:
         """Test with optional param.
 
         Args:
@@ -864,7 +865,7 @@ async def test_return_type_validation(alist):
 
     # Define tool with Union return type
     @strands.tool
-    def union_return_tool(param: str) -> Union[Dict[str, Any], str, None]:
+    def union_return_tool(param: str) -> dict[str, Any] | str | None:
         """Tool with Union return type.
 
         Args:
@@ -936,7 +937,7 @@ async def test_complex_parameter_types(alist):
     """Test handling of complex parameter types like nested dictionaries."""
 
     @strands.tool
-    def complex_type_tool(config: Dict[str, Any]) -> str:
+    def complex_type_tool(config: dict[str, Any]) -> str:
         """Tool with complex parameter type.
 
         Args:
@@ -965,7 +966,7 @@ async def test_custom_tool_result_handling(alist):
     """Test that a function returning a properly formatted tool result dictionary is handled correctly."""
 
     @strands.tool
-    def custom_result_tool(param: str) -> Dict[str, Any]:
+    def custom_result_tool(param: str) -> dict[str, Any]:
         """Tool that returns a custom tool result dictionary.
 
         Args:
@@ -1079,11 +1080,11 @@ async def test_detailed_validation_errors(alist):
 @pytest.mark.asyncio
 async def test_tool_complex_validation_edge_cases(alist):
     """Test validation of complex schema edge cases."""
-    from typing import Any, Dict, Union
+    from typing import Any
 
     # Define a tool with a complex anyOf type that could trigger edge case handling
     @strands.tool
-    def edge_case_tool(param: Union[Dict[str, Any], None]) -> str:
+    def edge_case_tool(param: dict[str, Any] | None) -> str:
         """Tool with complex anyOf structure.
 
         Args:
@@ -1236,10 +1237,10 @@ async def test_tool_general_exception_handling(alist):
 @pytest.mark.asyncio
 async def test_tool_with_complex_anyof_schema(alist):
     """Test handling of complex anyOf structures in the schema."""
-    from typing import Any, Dict, List, Union
+    from typing import Any
 
     @strands.tool
-    def complex_schema_tool(union_param: Union[List[int], Dict[str, Any], str, None]) -> str:
+    def complex_schema_tool(union_param: list[int] | dict[str, Any] | str | None) -> str:
         """Tool with a complex Union type that creates anyOf in schema.
 
         Args:
@@ -1680,7 +1681,7 @@ def test_tool_decorator_annotated_optional_type():
 
     @strands.tool
     def optional_annotated_tool(
-        required: Annotated[str, "Required parameter"], optional: Annotated[Optional[str], "Optional parameter"] = None
+        required: Annotated[str, "Required parameter"], optional: Annotated[str | None, "Optional parameter"] = None
     ) -> str:
         """Tool with optional annotated parameter."""
         return f"{required}, {optional}"
@@ -1702,7 +1703,7 @@ def test_tool_decorator_annotated_complex_types():
 
     @strands.tool
     def complex_annotated_tool(
-        tags: Annotated[List[str], "List of tag strings"], config: Annotated[Dict[str, Any], "Configuration dictionary"]
+        tags: Annotated[list[str], "List of tag strings"], config: Annotated[dict[str, Any], "Configuration dictionary"]
     ) -> str:
         """Tool with complex annotated types."""
         return f"Tags: {len(tags)}, Config: {len(config)}"
@@ -1822,3 +1823,158 @@ def test_tool_decorator_annotated_field_with_inner_default():
         @strands.tool
         def inner_default_tool(name: str, level: Annotated[int, Field(description="A level value", default=10)]) -> str:
             return f"{name} is at level {level}"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_carries_exception_runtime_error(alist):
+    """Test that ToolResultEvent carries exception when tool raises RuntimeError."""
+
+    @strands.tool
+    def error_tool():
+        """Tool that raises a RuntimeError."""
+        raise RuntimeError("test runtime error")
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(error_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert hasattr(result_event, "exception")
+    assert isinstance(result_event.exception, RuntimeError)
+    assert str(result_event.exception) == "test runtime error"
+    assert result_event.tool_result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_carries_exception_value_error(alist):
+    """Test that ToolResultEvent carries exception when tool raises ValueError."""
+
+    @strands.tool
+    def validation_error_tool():
+        """Tool that raises a ValueError."""
+        raise ValueError("validation failed")
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(validation_error_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert hasattr(result_event, "exception")
+    assert isinstance(result_event.exception, ValueError)
+    assert str(result_event.exception) == "validation failed"
+    assert result_event.tool_result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_no_exception_on_success(alist):
+    """Test that ToolResultEvent.exception is None when tool succeeds."""
+
+    @strands.tool
+    def success_tool():
+        """Tool that succeeds."""
+        return "success"
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(success_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert result_event.exception is None
+    assert result_event.tool_result["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_carries_exception_assertion_error(alist):
+    """Test that ToolResultEvent carries AssertionError for unexpected failures."""
+
+    @strands.tool
+    def assertion_error_tool():
+        """Tool that raises an AssertionError."""
+        raise AssertionError("unexpected assertion failure")
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(assertion_error_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert isinstance(result_event.exception, AssertionError)
+    assert "unexpected assertion failure" in str(result_event.exception)
+    assert result_event.tool_result["status"] == "error"
+
+
+def test_tool_nullable_required_field_preserves_anyof():
+    """Test that a required nullable field preserves anyOf so the model can pass null.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1525
+    """
+    from enum import Enum
+
+    class Priority(str, Enum):
+        HIGH = "high"
+        MEDIUM = "medium"
+        LOW = "low"
+
+    @strands.tool
+    def prioritized_task(description: str, priority: Priority | None) -> str:
+        """Create a task with optional priority.
+
+        Args:
+            description: Task description
+            priority: Optional priority level
+        """
+        return f"{description}: {priority}"
+
+    spec = prioritized_task.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    expected_schema = {
+        "$defs": {
+            "Priority": {
+                "enum": ["high", "medium", "low"],
+                "title": "Priority",
+                "type": "string",
+            },
+        },
+        "type": "object",
+        "properties": {
+            "description": {
+                "type": "string",
+                "description": "Task description",
+            },
+            "priority": {
+                "anyOf": [
+                    {"$ref": "#/$defs/Priority"},
+                    {"type": "null"},
+                ],
+                "description": "Optional priority level",
+            },
+        },
+        "required": ["description", "priority"],
+    }
+
+    assert schema == expected_schema
+
+
+def test_tool_nullable_optional_field_simplifies_anyof():
+    """Test that a non-required nullable field still gets anyOf simplified."""
+
+    @strands.tool
+    def my_tool(name: str, tag: str | None = None) -> str:
+        """A tool.
+
+        Args:
+            name: The name
+            tag: An optional tag
+        """
+        return f"{name}: {tag}"
+
+    spec = my_tool.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # tag has a default, so it should NOT be required
+    assert "name" in schema["required"]
+    assert "tag" not in schema["required"]
+
+    # Since tag is not required, anyOf should be simplified away
+    assert "anyOf" not in schema["properties"]["tag"]
+    assert schema["properties"]["tag"]["type"] == "string"

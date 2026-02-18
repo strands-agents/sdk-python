@@ -5,7 +5,8 @@ providing a structured way to observe to different events of the event loop and
 agent lifecycle.
 """
 
-from typing import TYPE_CHECKING, Any, Sequence, cast
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
 from typing_extensions import override
@@ -145,7 +146,7 @@ class ToolUseStreamEvent(ModelStreamEvent):
 
     def __init__(self, delta: ContentBlockDelta, current_tool_use: dict[str, Any]) -> None:
         """Initialize with delta and current tool use state."""
-        super().__init__({"delta": delta, "current_tool_use": current_tool_use})
+        super().__init__({"type": "tool_use_stream", "delta": delta, "current_tool_use": current_tool_use})
 
 
 class TextStreamEvent(ModelStreamEvent):
@@ -161,7 +162,7 @@ class CitationStreamEvent(ModelStreamEvent):
 
     def __init__(self, delta: ContentBlockDelta, citation: Citation) -> None:
         """Initialize with delta and citation content."""
-        super().__init__({"callback": {"citation": citation, "delta": delta}})
+        super().__init__({"citation": citation, "delta": delta})
 
 
 class ReasoningTextStreamEvent(ModelStreamEvent):
@@ -275,18 +276,23 @@ class EventLoopThrottleEvent(TypedEvent):
 class ToolResultEvent(TypedEvent):
     """Event emitted when a tool execution completes."""
 
-    def __init__(self, tool_result: ToolResult) -> None:
-        """Initialize with the completed tool result.
+    def __init__(self, tool_result: ToolResult, exception: Exception | None = None) -> None:
+        """Initialize tool result event."""
+        super().__init__({"type": "tool_result", "tool_result": tool_result})
+        self._exception = exception
 
-        Args:
-            tool_result: Final result from the tool execution
+    @property
+    def exception(self) -> Exception | None:
+        """The original exception that occurred, if any.
+
+        Can be used for re-raising or type-based error handling.
         """
-        super().__init__({"tool_result": tool_result})
+        return self._exception
 
     @property
     def tool_use_id(self) -> str:
         """The toolUseId associated with this result."""
-        return cast(str, cast(ToolResult, self.get("tool_result")).get("toolUseId"))
+        return cast(ToolResult, self.get("tool_result"))["toolUseId"]
 
     @property
     def tool_result(self) -> ToolResult:
@@ -309,12 +315,12 @@ class ToolStreamEvent(TypedEvent):
             tool_use: The tool invocation producing the stream
             tool_stream_data: The yielded event from the tool execution
         """
-        super().__init__({"tool_stream_event": {"tool_use": tool_use, "data": tool_stream_data}})
+        super().__init__({"type": "tool_stream", "tool_stream_event": {"tool_use": tool_use, "data": tool_stream_data}})
 
     @property
     def tool_use_id(self) -> str:
         """The toolUseId associated with this stream."""
-        return cast(str, cast(ToolUse, cast(dict, self.get("tool_stream_event")).get("tool_use")).get("toolUseId"))
+        return cast(ToolUse, cast(dict, self.get("tool_stream_event")).get("tool_use"))["toolUseId"]
 
 
 class ToolCancelEvent(TypedEvent):
@@ -332,7 +338,7 @@ class ToolCancelEvent(TypedEvent):
     @property
     def tool_use_id(self) -> str:
         """The id of the tool cancelled."""
-        return cast(str, cast(ToolUse, cast(dict, self.get("tool_cancel_event")).get("tool_use")).get("toolUseId"))
+        return cast(ToolUse, cast(dict, self.get("tool_cancel_event")).get("tool_use"))["toolUseId"]
 
     @property
     def message(self) -> str:
@@ -350,7 +356,7 @@ class ToolInterruptEvent(TypedEvent):
     @property
     def tool_use_id(self) -> str:
         """The id of the tool interrupted."""
-        return cast(str, cast(ToolUse, cast(dict, self.get("tool_interrupt_event")).get("tool_use")).get("toolUseId"))
+        return cast(ToolUse, cast(dict, self.get("tool_interrupt_event")).get("tool_use"))["toolUseId"]
 
     @property
     def interrupts(self) -> list[Interrupt]:
@@ -524,3 +530,46 @@ class MultiAgentNodeStreamEvent(TypedEvent):
                 "event": agent_event,  # Nest agent event to avoid field conflicts
             }
         )
+
+
+class MultiAgentNodeCancelEvent(TypedEvent):
+    """Event emitted when a user cancels node execution from their BeforeNodeCallEvent hook."""
+
+    def __init__(self, node_id: str, message: str) -> None:
+        """Initialize with cancel message.
+
+        Args:
+            node_id: Unique identifier for the node.
+            message: The node cancellation message.
+        """
+        super().__init__(
+            {
+                "type": "multiagent_node_cancel",
+                "node_id": node_id,
+                "message": message,
+            }
+        )
+
+
+class MultiAgentNodeInterruptEvent(TypedEvent):
+    """Event emitted when a node is interrupted."""
+
+    def __init__(self, node_id: str, interrupts: list[Interrupt]) -> None:
+        """Set interrupt in the event payload.
+
+        Args:
+            node_id: Unique identifier for the node generating the event.
+            interrupts: Interrupts raised by user.
+        """
+        super().__init__(
+            {
+                "type": "multiagent_node_interrupt",
+                "node_id": node_id,
+                "interrupts": interrupts,
+            }
+        )
+
+    @property
+    def interrupts(self) -> list[Interrupt]:
+        """The interrupt instances."""
+        return cast(list[Interrupt], self["interrupts"])

@@ -4,7 +4,8 @@ import json
 import logging
 import time
 import warnings
-from typing import Any, AsyncGenerator, AsyncIterable, Optional
+from collections.abc import AsyncGenerator, AsyncIterable
+from typing import Any
 
 from ..models.model import Model
 from ..tools import InvalidToolUseNameException
@@ -185,6 +186,8 @@ def handle_content_block_start(event: ContentBlockStartEvent) -> dict[str, Any]:
         current_tool_use["toolUseId"] = tool_use_data["toolUseId"]
         current_tool_use["name"] = tool_use_data["name"]
         current_tool_use["input"] = ""
+        if "reasoningSignature" in tool_use_data:
+            current_tool_use["reasoningSignature"] = tool_use_data["reasoningSignature"]
 
     return current_tool_use
 
@@ -285,16 +288,19 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
             name=tool_use_name,
             input=current_tool_use["input"],
         )
+        if "reasoningSignature" in current_tool_use:
+            tool_use["reasoningSignature"] = current_tool_use["reasoningSignature"]
         content.append({"toolUse": tool_use})
         state["current_tool_use"] = {}
 
     elif text:
-        content.append({"text": text})
-        state["text"] = ""
         if citations_content:
-            citations_block: CitationsContentBlock = {"citations": citations_content}
+            citations_block: CitationsContentBlock = {"citations": citations_content, "content": [{"text": text}]}
             content.append({"citationsContent": citations_block})
             state["citationsContent"] = []
+        else:
+            content.append({"text": text})
+        state["text"] = ""
 
     elif reasoning_text:
         content_block: ContentBlock = {
@@ -350,8 +356,11 @@ def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | Non
     Returns:
         The extracted usage metrics and latency.
     """
-    usage = Usage(**event["usage"])
-    metrics = Metrics(**event["metrics"])
+    # MetadataEvent has total=False, making all fields optional, but Usage and Metrics types
+    # have Required fields. Provide defaults to handle cases where custom models don't
+    # provide usage/metrics (e.g., when latency info is unavailable).
+    usage = Usage(**{"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, **event.get("usage", {})})
+    metrics = Metrics(**{"latencyMs": 0, **event.get("metrics", {})})
     if time_to_first_byte_ms:
         metrics["timeToFirstByteMs"] = time_to_first_byte_ms
 
@@ -415,12 +424,13 @@ async def process_stream(
 
 async def stream_messages(
     model: Model,
-    system_prompt: Optional[str],
+    system_prompt: str | None,
     messages: Messages,
     tool_specs: list[ToolSpec],
     *,
-    tool_choice: Optional[Any] = None,
-    system_prompt_content: Optional[list[SystemContentBlock]] = None,
+    tool_choice: Any | None = None,
+    system_prompt_content: list[SystemContentBlock] | None = None,
+    invocation_state: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Streams messages to the model and processes the response.
@@ -433,6 +443,7 @@ async def stream_messages(
         tool_choice: Optional tool choice constraint for forcing specific tool usage.
         system_prompt_content: The authoritative system prompt content blocks that always contains the
             system prompt data.
+        invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
         **kwargs: Additional keyword arguments for future extensibility.
 
     Yields:
@@ -449,6 +460,7 @@ async def stream_messages(
         system_prompt,
         tool_choice=tool_choice,
         system_prompt_content=system_prompt_content,
+        invocation_state=invocation_state,
     )
 
     async for event in process_stream(chunks, start_time):

@@ -852,3 +852,174 @@ def test_serve_at_root_edge_cases(mock_strands_agent):
     )
     assert server3.mount_path == ""
     assert server3.http_url == "http://api.example.com/v1/agents/team1/agent1/"
+
+
+def test_to_starlette_app_with_app_kwargs(mock_strands_agent):
+    """Test that to_starlette_app passes app_kwargs to the Starlette constructor."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    a2a_agent = A2AServer(mock_strands_agent, skills=[])
+
+    app = a2a_agent.to_starlette_app(app_kwargs={"debug": True})
+
+    assert isinstance(app, Starlette)
+    assert app.debug is True
+
+
+def test_to_fastapi_app_with_app_kwargs(mock_strands_agent):
+    """Test that to_fastapi_app passes app_kwargs to the FastAPI constructor."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    a2a_agent = A2AServer(mock_strands_agent, skills=[])
+
+    app = a2a_agent.to_fastapi_app(app_kwargs={"title": "Custom Agent Title"})
+
+    assert isinstance(app, FastAPI)
+    assert app.title == "Custom Agent Title"
+
+
+@patch("uvicorn.run")
+def test_serve_with_overridden_host_port_updates_agent_card_url(mock_run, mock_strands_agent):
+    """Test that serve() with host/port overrides updates the agent card URL.
+
+    This test verifies the fix for issue #1258 where specifying host/port in serve()
+    did not update the agent card URL, causing clients to fail when trying to connect.
+    """
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    a2a_agent = A2AServer(mock_strands_agent, skills=[])
+
+    # Verify initial URL from constructor defaults
+    assert a2a_agent.http_url == "http://127.0.0.1:9000/"
+    assert a2a_agent.public_base_url == "http://127.0.0.1:9000"
+
+    # Call serve with different host and port
+    a2a_agent.serve(host="localhost", port=9210)
+
+    # Verify URL was updated to match the actual serve parameters
+    assert a2a_agent.http_url == "http://localhost:9210/"
+    assert a2a_agent.public_base_url == "http://localhost:9210"
+    assert a2a_agent.host == "localhost"
+    assert a2a_agent.port == 9210
+
+    # Verify the agent card reflects the updated URL
+    card = a2a_agent.public_agent_card
+    assert card.url == "http://localhost:9210/"
+
+    # Verify uvicorn was called with the overridden parameters
+    mock_run.assert_called_once()
+    _, kwargs = mock_run.call_args
+    assert kwargs["host"] == "localhost"
+    assert kwargs["port"] == 9210
+
+
+@patch("uvicorn.run")
+def test_serve_with_overridden_port_only_updates_url(mock_run, mock_strands_agent):
+    """Test that serve() with only port override updates the agent card URL."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    a2a_agent = A2AServer(mock_strands_agent, skills=[])
+
+    # Call serve with different port only
+    a2a_agent.serve(port=8080)
+
+    # Verify URL was updated with the new port
+    assert a2a_agent.http_url == "http://127.0.0.1:8080/"
+    assert a2a_agent.port == 8080
+
+    # Verify uvicorn was called with the correct parameters
+    mock_run.assert_called_once()
+    _, kwargs = mock_run.call_args
+    assert kwargs["host"] == "127.0.0.1"
+    assert kwargs["port"] == 8080
+
+
+@patch("uvicorn.run")
+def test_serve_with_overridden_host_only_updates_url(mock_run, mock_strands_agent):
+    """Test that serve() with only host override updates the agent card URL."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    a2a_agent = A2AServer(mock_strands_agent, skills=[])
+
+    # Call serve with different host only
+    a2a_agent.serve(host="0.0.0.0")
+
+    # Verify URL was updated with the new host
+    assert a2a_agent.http_url == "http://0.0.0.0:9000/"
+    assert a2a_agent.host == "0.0.0.0"
+
+    # Verify uvicorn was called with the correct parameters
+    mock_run.assert_called_once()
+    _, kwargs = mock_run.call_args
+    assert kwargs["host"] == "0.0.0.0"
+    assert kwargs["port"] == 9000
+
+
+@patch("uvicorn.run")
+def test_serve_with_explicit_http_url_does_not_override_url(mock_run, mock_strands_agent):
+    """Test that serve() with host/port does not override explicitly set http_url.
+
+    When a user explicitly sets http_url in the constructor (e.g., for load balancer scenarios),
+    the serve() method should NOT override the URL even if host/port are provided.
+    """
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    # Create server with explicit http_url (simulating load balancer scenario)
+    a2a_agent = A2AServer(
+        mock_strands_agent,
+        host="0.0.0.0",
+        port=8080,
+        http_url="https://my-alb.amazonaws.com/agent1",
+        skills=[],
+    )
+
+    # Verify initial URL is the explicit one
+    assert a2a_agent.http_url == "https://my-alb.amazonaws.com/agent1/"
+    assert a2a_agent._http_url_explicit is True
+
+    # Call serve with different host/port (the local binding)
+    a2a_agent.serve(host="0.0.0.0", port=9000)
+
+    # Verify URL was NOT changed (explicit http_url should be preserved)
+    assert a2a_agent.http_url == "https://my-alb.amazonaws.com/agent1/"
+    assert a2a_agent.public_base_url == "https://my-alb.amazonaws.com"
+
+    # But host/port should still be updated for the actual binding
+    assert a2a_agent.host == "0.0.0.0"
+    assert a2a_agent.port == 9000
+
+    # Verify the agent card still shows the public URL
+    card = a2a_agent.public_agent_card
+    assert card.url == "https://my-alb.amazonaws.com/agent1/"
+
+
+@patch("uvicorn.run")
+def test_serve_without_overrides_does_not_change_url(mock_run, mock_strands_agent):
+    """Test that serve() without host/port parameters does not modify the URL."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    a2a_agent = A2AServer(mock_strands_agent, host="localhost", port=8000, skills=[])
+
+    # Verify initial URL
+    assert a2a_agent.http_url == "http://localhost:8000/"
+
+    # Call serve without overrides
+    a2a_agent.serve()
+
+    # Verify URL was NOT changed
+    assert a2a_agent.http_url == "http://localhost:8000/"
+    assert a2a_agent.host == "localhost"
+    assert a2a_agent.port == 8000
+
+
+def test_http_url_explicit_flag_set_correctly(mock_strands_agent):
+    """Test that _http_url_explicit flag is set correctly during initialization."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    # Without explicit http_url
+    server1 = A2AServer(mock_strands_agent, skills=[])
+    assert server1._http_url_explicit is False
+
+    # With explicit http_url
+    server2 = A2AServer(mock_strands_agent, http_url="http://example.com/agent", skills=[])
+    assert server2._http_url_explicit is True

@@ -1,13 +1,22 @@
 import os
 import re
+import sys
 import tempfile
 import textwrap
 
 import pytest
 
 from strands.tools.decorator import DecoratedFunctionTool
-from strands.tools.loader import ToolLoader, load_tools_from_file_path
+from strands.tools.loader import _TOOL_MODULE_PREFIX, ToolLoader, load_tools_from_file_path
 from strands.tools.tools import PythonAgentTool
+
+# Suppress deprecation warnings for deprecated ToolLoader methods being tested
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:ToolLoader.load_python_tool is deprecated:DeprecationWarning",
+    "ignore:ToolLoader.load_python_tools is deprecated:DeprecationWarning",
+    "ignore:ToolLoader.load_tool is deprecated:DeprecationWarning",
+    "ignore:ToolLoader.load_tools is deprecated:DeprecationWarning",
+)
 
 
 @pytest.fixture
@@ -317,3 +326,29 @@ def test_load_tools_from_file_path_module_spec_missing():
     with tempfile.NamedTemporaryFile() as f:
         with pytest.raises(ImportError, match=f"Could not create spec for {os.path.basename(f.name)}"):
             load_tools_from_file_path(f.name)
+
+
+def test_tool_module_prefix_prevents_collision():
+    """Test that tool modules are loaded with prefix to prevent sys.modules collisions."""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(
+            textwrap.dedent("""
+            import strands
+
+            @strands.tools.tool
+            def test_tool():
+                return "test"
+        """)
+        )
+        f.flush()
+
+        # Load the tool
+        tools = load_tools_from_file_path(f.name)
+
+        # Check that module is in sys.modules with prefix
+        module_name = os.path.basename(f.name).split(".")[0]
+        prefixed_name = f"{_TOOL_MODULE_PREFIX}{module_name}"
+
+        assert prefixed_name in sys.modules
+        assert len(tools) == 1
+        assert tools[0].tool_name == "test_tool"

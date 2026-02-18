@@ -1,3 +1,4 @@
+import logging
 import unittest.mock
 
 import openai
@@ -13,7 +14,10 @@ from strands.types.exceptions import ContextWindowOverflowException, ModelThrott
 def openai_client():
     with unittest.mock.patch.object(strands.models.openai.openai, "AsyncOpenAI") as mock_client_cls:
         mock_client = unittest.mock.AsyncMock()
-        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        # Make the mock client work as an async context manager
+        mock_client.__aenter__ = unittest.mock.AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = unittest.mock.AsyncMock(return_value=None)
+        mock_client_cls.return_value = mock_client
         yield mock_client
 
 
@@ -176,6 +180,206 @@ def test_format_request_tool_message():
     assert tru_result == exp_result
 
 
+def test_format_request_tool_message_single_text_returns_string():
+    """Test that single text content is returned as string for model compatibility."""
+    tool_result = {
+        "content": [{"text": '{"result": "success"}'}],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    exp_result = {
+        "content": '{"result": "success"}',
+        "role": "tool",
+        "tool_call_id": "c1",
+    }
+    assert tru_result == exp_result
+
+
+def test_split_tool_message_images_with_image():
+    """Test that images are extracted from tool messages."""
+    tool_message = {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": [
+            {"type": "text", "text": "Result"},
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,iVBORw0KGgo=", "detail": "auto", "format": "image/png"},
+            },
+        ],
+    }
+
+    tool_clean, user_with_image = OpenAIModel._split_tool_message_images(tool_message)
+
+    # Tool message should now have the original text plus the appended informational text
+    assert tool_clean["role"] == "tool"
+    assert tool_clean["tool_call_id"] == "c1"
+    assert len(tool_clean["content"]) == 2
+    assert tool_clean["content"][0]["type"] == "text"
+    assert tool_clean["content"][0]["text"] == "Result"
+    assert "Tool successfully returned an image" in tool_clean["content"][1]["text"]
+
+    # User message should have the image
+    assert user_with_image is not None
+    assert user_with_image["role"] == "user"
+    assert len(user_with_image["content"]) == 1
+    assert user_with_image["content"][0]["type"] == "image_url"
+
+
+def test_split_tool_message_images_without_image():
+    """Test that tool messages without images are unchanged."""
+    tool_message = {"role": "tool", "tool_call_id": "c1", "content": [{"type": "text", "text": "Result"}]}
+
+    tool_clean, user_with_image = OpenAIModel._split_tool_message_images(tool_message)
+
+    assert tool_clean == tool_message
+    assert user_with_image is None
+
+
+def test_split_tool_message_images_only_image():
+    """Test tool message with only image content."""
+    tool_message = {
+        "role": "tool",
+        "tool_call_id": "c1",
+        "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="}}],
+    }
+
+    tool_clean, user_with_image = OpenAIModel._split_tool_message_images(tool_message)
+
+    # Tool message should have default text
+    assert tool_clean["role"] == "tool"
+    assert len(tool_clean["content"]) == 1
+    assert "successfully" in tool_clean["content"][0]["text"].lower()
+
+    # User message should have the image
+    assert user_with_image is not None
+    assert user_with_image["role"] == "user"
+    assert len(user_with_image["content"]) == 1
+
+
+def test_split_tool_message_images_non_tool_role():
+    """Test that messages with roles other than 'tool' are ignored."""
+    user_msg = {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+    clean, extra = OpenAIModel._split_tool_message_images(user_msg)
+    assert clean == user_msg
+    assert extra is None
+
+
+def test_split_tool_message_images_invalid_content_type():
+    """Test that messages with non-list content are ignored."""
+    invalid_msg = {"role": "tool", "content": "not a list"}
+    clean, extra = OpenAIModel._split_tool_message_images(invalid_msg)
+    assert clean == invalid_msg
+    assert extra is None
+
+
+def test_format_request_messages_with_tool_result_containing_image():
+    """Test that tool results with images are properly split into tool and user messages."""
+    messages = [
+        {
+            "content": [{"text": "Run the tool"}],
+            "role": "user",
+        },
+        {
+            "content": [
+                {
+                    "toolUse": {
+                        "input": {},
+                        "name": "image_tool",
+                        "toolUseId": "t1",
+                    },
+                },
+            ],
+            "role": "assistant",
+        },
+        {
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "t1",
+                        "status": "success",
+                        "content": [
+                            {"text": "Image generated"},
+                            {
+                                "image": {
+                                    "format": "png",
+                                    "source": {"bytes": b"fake_image_data"},
+                                }
+                            },
+                        ],
+                    }
+                }
+            ],
+            "role": "user",
+        },
+    ]
+
+    formatted = OpenAIModel.format_request_messages(messages)
+
+    # Find the tool message
+    tool_messages = [msg for msg in formatted if msg.get("role") == "tool"]
+    assert len(tool_messages) == 1
+
+    # Tool message should only have text content
+    tool_msg = tool_messages[0]
+    assert all(c.get("type") != "image_url" for c in tool_msg["content"])
+
+    # There should be a user message right after the tool message with the image
+    tool_msg_idx = formatted.index(tool_msg)
+    assert tool_msg_idx + 1 < len(formatted)
+    user_msg = formatted[tool_msg_idx + 1]
+    assert user_msg["role"] == "user"
+    assert any(c.get("type") == "image_url" for c in user_msg["content"])
+
+
+def test_format_request_messages_with_multiple_images_in_tool_result():
+    """Test tool result with multiple images."""
+    messages = [
+        {
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "t1",
+                        "status": "success",
+                        "content": [
+                            {"text": "Two images generated"},
+                            {
+                                "image": {
+                                    "format": "png",
+                                    "source": {"bytes": b"image1"},
+                                }
+                            },
+                            {
+                                "image": {
+                                    "format": "jpg",
+                                    "source": {"bytes": b"image2"},
+                                }
+                            },
+                        ],
+                    }
+                }
+            ],
+            "role": "user",
+        },
+    ]
+
+    formatted = OpenAIModel.format_request_messages(messages)
+
+    # Find user message with images
+    user_image_msgs = [
+        msg
+        for msg in formatted
+        if msg.get("role") == "user" and any(c.get("type") == "image_url" for c in msg.get("content", []))
+    ]
+    assert len(user_image_msgs) == 1
+
+    # Should have both images
+    image_contents = [c for c in user_image_msgs[0]["content"] if c.get("type") == "image_url"]
+    assert len(image_contents) == 2
+
+
 def test_format_request_tool_choice_auto():
     tool_choice = {"auto": {}}
 
@@ -254,7 +458,7 @@ def test_format_request_messages(system_prompt):
             ],
         },
         {
-            "content": [{"text": "4", "type": "text"}],
+            "content": "4",
             "role": "tool",
             "tool_call_id": "c1",
         },
@@ -849,6 +1053,92 @@ async def test_stream_context_overflow_exception(openai_client, model, messages)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Input is too long for requested model",
+        "input length and `max_tokens` exceed context limit",
+        "too many total text bytes",
+    ],
+)
+async def test_stream_alternative_context_overflow_messages(openai_client, model, messages, error_message):
+    """Test that alternative context overflow messages in APIError are properly converted."""
+    # Create a mock OpenAI APIError with alternative context overflow message
+    mock_error = openai.APIError(
+        message=error_message,
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": error_message}},
+    )
+
+    # Configure the mock client to raise the APIError
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that the stream method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert error_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Input is too long for requested model",
+        "input length and `max_tokens` exceed context limit",
+        "too many total text bytes",
+    ],
+)
+async def test_structured_output_alternative_context_overflow_messages(
+    openai_client, model, messages, test_output_model_cls, error_message
+):
+    """Test that alternative context overflow messages in APIError are properly converted in structured output."""
+    # Create a mock OpenAI APIError with alternative context overflow message
+    mock_error = openai.APIError(
+        message=error_message,
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": error_message}},
+    )
+
+    # Configure the mock client to raise the APIError
+    openai_client.beta.chat.completions.parse.side_effect = mock_error
+
+    # Test that the structured_output method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert error_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_api_error_passthrough(openai_client, model, messages):
+    """Test that APIError without overflow messages passes through unchanged."""
+    # Create a mock OpenAI APIError without overflow message
+    mock_error = openai.APIError(
+        message="Some other API error",
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": "Some other API error"}},
+    )
+
+    # Configure the mock client to raise the APIError
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that APIError without overflow messages passes through
+    with pytest.raises(openai.APIError) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the original exception is raised, not ContextWindowOverflowException
+    assert exc_info.value == mock_error
+
+
+@pytest.mark.asyncio
 async def test_stream_other_bad_request_errors_passthrough(openai_client, model, messages):
     """Test that other BadRequestError exceptions are not converted to ContextWindowOverflowException."""
     # Create a mock OpenAI BadRequestError with a different error code
@@ -986,3 +1276,260 @@ def test_format_request_messages_drops_cache_points():
     ]
 
     assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_stream_with_injected_client(model_id, agenerator, alist):
+    """Test that stream works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.AsyncMock()
+    mock_injected_client.close = unittest.mock.AsyncMock()
+
+    mock_delta = unittest.mock.Mock(content="Hello", tool_calls=None, reasoning_content=None)
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
+    mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
+    mock_event_3 = unittest.mock.Mock()
+
+    mock_injected_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3])
+    )
+
+    # Create model with injected client
+    model = OpenAIModel(client=mock_injected_client, model_id=model_id, params={"max_tokens": 1})
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    # Verify events were generated
+    assert len(tru_events) > 0
+
+    # Verify the injected client was used
+    mock_injected_client.chat.completions.create.assert_called_once()
+
+    # Verify the injected client was NOT closed
+    mock_injected_client.close.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_structured_output_with_injected_client(model_id, test_output_model_cls, alist):
+    """Test that structured_output works with an injected client and doesn't close it."""
+    # Create a mock injected client
+    mock_injected_client = unittest.mock.AsyncMock()
+    mock_injected_client.close = unittest.mock.AsyncMock()
+
+    mock_parsed_instance = test_output_model_cls(name="John", age=30)
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message.parsed = mock_parsed_instance
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    mock_injected_client.beta.chat.completions.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    # Create model with injected client
+    model = OpenAIModel(client=mock_injected_client, model_id=model_id, params={"max_tokens": 1})
+
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
+
+    # Verify output was generated
+    assert len(events) == 1
+    assert events[0] == {"output": test_output_model_cls(name="John", age=30)}
+
+    # Verify the injected client was used
+    mock_injected_client.beta.chat.completions.parse.assert_called_once()
+
+    # Verify the injected client was NOT closed
+    mock_injected_client.close.assert_not_called()
+
+
+def test_init_with_both_client_and_client_args_raises_error():
+    """Test that providing both client and client_args raises ValueError."""
+    mock_client = unittest.mock.AsyncMock()
+
+    with pytest.raises(ValueError, match="Only one of 'client' or 'client_args' should be provided"):
+        OpenAIModel(client=mock_client, client_args={"api_key": "test"}, model_id="test-model")
+
+
+def test_format_request_filters_s3_source_image(model, caplog):
+    """Test that images with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.openai")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "look at this image"},
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Image with S3 source should be filtered, text should remain
+    formatted_content = request["messages"][0]["content"]
+    assert len(formatted_content) == 1
+    assert formatted_content[0]["type"] == "text"
+    assert "Location sources are not supported by OpenAI" in caplog.text
+
+
+def test_format_request_filters_location_source_document(model, caplog):
+    """Test that documents with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.openai")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this document"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Document with S3 source should be filtered, text should remain
+    formatted_content = request["messages"][0]["content"]
+    assert len(formatted_content) == 1
+    assert formatted_content[0]["type"] == "text"
+    assert "Location sources are not supported by OpenAI" in caplog.text
+
+
+def test_format_request_messages_with_tool_calls_no_content():
+    """Test that assistant messages with only tool calls are included and have no content field."""
+    messages = [
+        {"role": "user", "content": [{"text": "Use the calculator"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "input": {"expression": "2+2"},
+                        "name": "calculator",
+                        "toolUseId": "c1",
+                    },
+                },
+            ],
+        },
+    ]
+
+    tru_result = OpenAIModel.format_request_messages(messages)
+
+    exp_result = [
+        {"role": "user", "content": [{"text": "Use the calculator", "type": "text"}]},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "function": {"arguments": '{"expression": "2+2"}', "name": "calculator"},
+                    "id": "c1",
+                    "type": "function",
+                }
+            ],
+        },
+    ]
+    assert tru_result == exp_result
+
+
+def test_format_request_messages_multiple_tool_calls_with_images():
+    """Test that multiple tool calls with image results are formatted correctly.
+
+    OpenAI requires all tool response messages to immediately follow the assistant
+    message with tool_calls, before any other messages. When tools return images,
+    the images are moved to user messages, but these must come after ALL tool messages.
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "Run the tools"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"input": {}, "name": "tool1", "toolUseId": "call_1"}},
+                {"toolUse": {"input": {}, "name": "tool2", "toolUseId": "call_2"}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "call_1",
+                        "content": [{"image": {"format": "png", "source": {"bytes": b"img1"}}}],
+                        "status": "success",
+                    }
+                },
+                {
+                    "toolResult": {
+                        "toolUseId": "call_2",
+                        "content": [{"image": {"format": "png", "source": {"bytes": b"img2"}}}],
+                        "status": "success",
+                    }
+                },
+            ],
+        },
+    ]
+
+    tru_result = OpenAIModel.format_request_messages(messages)
+
+    image_placeholder = (
+        "Tool successfully returned an image. The image is being provided in the following user message."
+    )
+    exp_result = [
+        {"role": "user", "content": [{"text": "Run the tools", "type": "text"}]},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"function": {"arguments": "{}", "name": "tool1"}, "id": "call_1", "type": "function"},
+                {"function": {"arguments": "{}", "name": "tool2"}, "id": "call_2", "type": "function"},
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": [{"type": "text", "text": image_placeholder}],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_2",
+            "content": [{"type": "text", "text": image_placeholder}],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image_url": {"detail": "auto", "format": "image/png", "url": "data:image/png;base64,aW1nMQ=="},
+                    "type": "image_url",
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image_url": {"detail": "auto", "format": "image/png", "url": "data:image/png;base64,aW1nMg=="},
+                    "type": "image_url",
+                }
+            ],
+        },
+    ]
+    assert tru_result == exp_result

@@ -3,7 +3,7 @@ Aggregates all providers for testing all providers in one go.
 """
 
 import os
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import requests
 from pytest import mark
@@ -26,7 +26,7 @@ class ProviderInfo:
         self,
         id: str,
         factory: Callable[[], Model],
-        environment_variable: Optional[str] = None,
+        environment_variable: str | None = None,
     ) -> None:
         self.id = id
         self.model_factory = factory

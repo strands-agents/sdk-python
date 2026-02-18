@@ -7,16 +7,14 @@ These types are modeled after the Bedrock API.
 
 import uuid
 from abc import ABC, abstractmethod
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
+from typing import Any, Literal, Protocol
 
 from typing_extensions import NotRequired, TypedDict
 
 from .interrupt import _Interruptible
 from .media import DocumentContent, ImageContent
-
-if TYPE_CHECKING:
-    from .. import Agent
 
 JSONSchema = dict
 """Type alias for JSON Schema dictionaries."""
@@ -60,11 +58,13 @@ class ToolUse(TypedDict):
             Can be any JSON-serializable type.
         name: The name of the tool to invoke.
         toolUseId: A unique identifier for this specific tool use request.
+        reasoningSignature: Token that ties the model's reasoning to this tool call.
     """
 
     input: Any
     name: str
     toolUseId: str
+    reasoningSignature: NotRequired[str]
 
 
 class ToolResultContent(TypedDict, total=False):
@@ -136,7 +136,7 @@ class ToolContext(_Interruptible):
 
     Attributes:
         tool_use: The complete ToolUse object containing tool invocation details.
-        agent: The Agent instance executing this tool, providing access to conversation history,
+        agent: The Agent or BidiAgent instance executing this tool, providing access to conversation history,
                model configuration, and other agent state.
         invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
                           agent.invoke_async(), etc.).
@@ -147,7 +147,7 @@ class ToolContext(_Interruptible):
     """
 
     tool_use: ToolUse
-    agent: "Agent"
+    agent: Any  # Agent or BidiAgent - using Any for backwards compatibility
     invocation_state: dict[str, Any]
 
     def _interrupt_id(self, name: str) -> str:
@@ -167,11 +167,7 @@ ToolChoiceAutoDict = dict[Literal["auto"], ToolChoiceAuto]
 ToolChoiceAnyDict = dict[Literal["any"], ToolChoiceAny]
 ToolChoiceToolDict = dict[Literal["tool"], ToolChoiceTool]
 
-ToolChoice = Union[
-    ToolChoiceAutoDict,
-    ToolChoiceAnyDict,
-    ToolChoiceToolDict,
-]
+ToolChoice = ToolChoiceAutoDict | ToolChoiceAnyDict | ToolChoiceToolDict
 """
 Configuration for how the model should choose tools.
 
@@ -204,12 +200,7 @@ class ToolFunc(Protocol):
 
     __name__: str
 
-    def __call__(
-        self, *args: Any, **kwargs: Any
-    ) -> Union[
-        ToolResult,
-        Awaitable[ToolResult],
-    ]:
+    def __call__(self, *args: Any, **kwargs: Any) -> ToolResult | Awaitable[ToolResult]:
         """Function signature for Python decorated and module based tools.
 
         Returns:

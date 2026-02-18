@@ -1,14 +1,16 @@
 """Configuration validation utilities for model providers."""
 
 import warnings
-from typing import Any, Mapping, Type
+from collections.abc import Mapping
+from typing import Any
 
 from typing_extensions import get_type_hints
 
+from ..types.content import ContentBlock
 from ..types.tools import ToolChoice
 
 
-def validate_config_keys(config_dict: Mapping[str, Any], config_class: Type) -> None:
+def validate_config_keys(config_dict: Mapping[str, Any], config_class: type) -> None:
     """Validate that config keys match the TypedDict fields.
 
     Args:
@@ -40,3 +42,23 @@ def warn_on_tool_choice_not_supported(tool_choice: ToolChoice | None) -> None:
             "A ToolChoice was provided to this provider but is not supported and will be ignored",
             stacklevel=4,
         )
+
+
+def _has_location_source(content: ContentBlock) -> bool:
+    """Check if a content block contains a location source.
+
+    Providers need to explicitly define an implementation to support content locations.
+
+    Args:
+        content: Content block to check.
+
+    Returns:
+        True if the content block contains an location source, False otherwise.
+    """
+    if "image" in content:
+        return "location" in content["image"].get("source", {})
+    if "document" in content:
+        return "location" in content["document"].get("source", {})
+    if "video" in content:
+        return "location" in content["video"].get("source", {})
+    return False

@@ -6,6 +6,7 @@ It allows MCP tools to be seamlessly integrated and used within the agent ecosys
 """
 
 import logging
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from mcp.types import Tool as MCPTool
@@ -28,7 +29,13 @@ class MCPAgentTool(AgentTool):
     seamlessly within the agent framework.
     """
 
-    def __init__(self, mcp_tool: MCPTool, mcp_client: "MCPClient", name_override: str | None = None) -> None:
+    def __init__(
+        self,
+        mcp_tool: MCPTool,
+        mcp_client: "MCPClient",
+        name_override: str | None = None,
+        timeout: timedelta | None = None,
+    ) -> None:
         """Initialize a new MCPAgentTool instance.
 
         Args:
@@ -36,12 +43,14 @@ class MCPAgentTool(AgentTool):
             mcp_client: The MCP server connection to use for tool invocation
             name_override: Optional name to use for the agent tool (for disambiguation)
                            If None, uses the original MCP tool name
+            timeout: Optional timeout duration for tool execution
         """
         super().__init__()
         logger.debug("tool_name=<%s> | creating mcp agent tool", mcp_tool.name)
         self.mcp_tool = mcp_tool
         self.mcp_client = mcp_client
         self._agent_tool_name = name_override or mcp_tool.name
+        self.timeout = timeout
 
     @property
     def tool_name(self) -> str:
@@ -105,5 +114,6 @@ class MCPAgentTool(AgentTool):
             tool_use_id=tool_use["toolUseId"],
             name=self.mcp_tool.name,  # Use original MCP name for server communication
             arguments=tool_use["input"],
+            read_timeout_seconds=self.timeout,
         )
         yield ToolResultEvent(result)

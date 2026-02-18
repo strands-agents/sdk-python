@@ -6,6 +6,9 @@ on:
       ref:
         required: true
         type: string
+    secrets:
+      CODECOV_TOKEN:
+        required: false
 
 jobs:
   unit-test:
@@ -57,7 +60,7 @@ jobs:
       LOG_LEVEL: DEBUG
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}  # Explicitly define which commit to check out
           persist-credentials: false  # Don't persist credentials for subsequent actions
@@ -65,6 +68,20 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install system audio dependencies (Linux)
+        if: matrix.os-name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y portaudio19-dev libasound2-dev
+      - name: Install system audio dependencies (macOS)
+        if: matrix.os-name == 'macOS'
+        run: |
+          brew install portaudio
+      - name: Install system audio dependencies (Windows)
+        if: matrix.os-name == 'windows'
+        run: |
+          # Windows typically has audio libraries available by default
+          echo "Windows audio dependencies handled by PyAudio wheels"
       - name: Install dependencies
         run: |
           pip install --no-cache-dir hatch
@@ -84,7 +101,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
@@ -95,6 +112,11 @@ jobs:
           python-version: '3.10'
           cache: 'pip'
 
+      - name: Install system audio dependencies (Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y portaudio19-dev libasound2-dev
+
       - name: Install dependencies
         run: |
           pip install --no-cache-dir hatch
@@ -103,3 +125,4 @@ jobs:
         id: lint
         run: hatch fmt --linter --check
         continue-on-error: false
+

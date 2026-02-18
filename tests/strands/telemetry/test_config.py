@@ -2,6 +2,7 @@ from unittest import mock
 
 import pytest
 
+import strands.telemetry.config as telemetry_config
 from strands.telemetry import StrandsTelemetry
 
 
@@ -212,3 +213,21 @@ def test_setup_otlp_exporter_exception(mock_resource, mock_tracer_provider, mock
     telemetry.setup_otlp_exporter()
 
     mock_otlp_exporter.assert_called_once()
+
+
+def test_get_otel_resource_uses_default_service_name(monkeypatch):
+    monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
+    monkeypatch.setattr(telemetry_config, "version", lambda _: "0.0.0")
+
+    resource = telemetry_config.get_otel_resource()
+
+    assert resource.attributes.get("service.name") == "strands-agents"
+
+
+def test_get_otel_resource_respects_otel_service_name(monkeypatch):
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "my-service")
+    monkeypatch.setattr(telemetry_config, "version", lambda _: "0.0.0")
+
+    resource = telemetry_config.get_otel_resource()
+
+    assert resource.attributes.get("service.name") == "my-service"

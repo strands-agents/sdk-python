@@ -8,9 +8,12 @@ The A2A AgentExecutor ensures clients receive responses for synchronous and
 streamed requests to the A2AServer.
 """
 
+import base64
 import json
 import logging
 import mimetypes
+import uuid
+import warnings
 from typing import Any, Literal
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -48,13 +51,21 @@ class StrandsA2AExecutor(AgentExecutor):
     # Handle special cases where format differs from extension
     FORMAT_MAPPINGS = {"jpg": "jpeg", "htm": "html", "3gp": "three_gp", "3gpp": "three_gp", "3g2": "three_gp"}
 
-    def __init__(self, agent: SAAgent):
+    # A2A-compliant streaming mode
+    _current_artifact_id: str | None
+    _is_first_chunk: bool
+
+    def __init__(self, agent: SAAgent, *, enable_a2a_compliant_streaming: bool = False):
         """Initialize a StrandsA2AExecutor.
 
         Args:
             agent: The Strands Agent instance to adapt to the A2A protocol.
+            enable_a2a_compliant_streaming: If True, uses A2A-compliant streaming with
+                artifact updates. If False, uses legacy status updates streaming behavior
+                for backwards compatibility. Defaults to False.
         """
         self.agent = agent
+        self.enable_a2a_compliant_streaming = enable_a2a_compliant_streaming
 
     async def execute(
         self,
@@ -103,12 +114,30 @@ class StrandsA2AExecutor(AgentExecutor):
         else:
             raise ValueError("No content blocks available")
 
+        if not self.enable_a2a_compliant_streaming:
+            warnings.warn(
+                "The default A2A response stream implemented in the strands sdk does not conform to "
+                "what is expected in the A2A spec. Please set the `enable_a2a_compliant_streaming` "
+                "boolean to `True` on your `A2AServer` class to properly conform to the spec. "
+                "In the next major version release, this will be the default behavior.",
+                UserWarning,
+                stacklevel=3,
+            )
+
+        if self.enable_a2a_compliant_streaming:
+            self._current_artifact_id = str(uuid.uuid4())
+            self._is_first_chunk = True
+
         try:
             async for event in self.agent.stream_async(content_blocks):
                 await self._handle_streaming_event(event, updater)
         except Exception:
             logger.exception("Error in streaming execution")
             raise
+        finally:
+            if self.enable_a2a_compliant_streaming:
+                self._current_artifact_id = None
+                self._is_first_chunk = True
 
     async def _handle_streaming_event(self, event: dict[str, Any], updater: TaskUpdater) -> None:
         """Handle a single streaming event from the Strands Agent.
@@ -124,28 +153,59 @@ class StrandsA2AExecutor(AgentExecutor):
         logger.debug("Streaming event: %s", event)
         if "data" in event:
             if text_content := event["data"]:
-                await updater.update_status(
-                    TaskState.working,
-                    new_agent_text_message(
-                        text_content,
-                        updater.context_id,
-                        updater.task_id,
-                    ),
-                )
+                if self.enable_a2a_compliant_streaming:
+                    await updater.add_artifact(
+                        [Part(root=TextPart(text=text_content))],
+                        artifact_id=self._current_artifact_id,
+                        name="agent_response",
+                        append=not self._is_first_chunk,
+                    )
+                    self._is_first_chunk = False
+                else:
+                    # Legacy use update_status with agent message
+                    await updater.update_status(
+                        TaskState.working,
+                        new_agent_text_message(
+                            text_content,
+                            updater.context_id,
+                            updater.task_id,
+                        ),
+                    )
         elif "result" in event:
             await self._handle_agent_result(event["result"], updater)
 
     async def _handle_agent_result(self, result: SAAgentResult | None, updater: TaskUpdater) -> None:
         """Handle the final result from the Strands Agent.
 
-        Processes the agent's final result, extracts text content from the response,
-        and adds it as an artifact to the task before marking the task as complete.
+        For A2A-compliant streaming: sends the final artifact chunk marker and marks
+        the task as complete. If no data chunks were previously sent, includes the
+        result content.
+
+        For legacy streaming: adds the final result as a simple artifact without
+        artifact_id tracking.
 
         Args:
             result: The agent result object containing the final response, or None if no result.
             updater: The task updater for managing task state and adding the final artifact.
         """
-        if final_content := str(result):
+        if self.enable_a2a_compliant_streaming:
+            if self._is_first_chunk:
+                final_content = str(result) if result else ""
+                await updater.add_artifact(
+                    [Part(root=TextPart(text=final_content))],
+                    artifact_id=self._current_artifact_id,
+                    name="agent_response",
+                    last_chunk=True,
+                )
+            else:
+                await updater.add_artifact(
+                    [Part(root=TextPart(text=""))],
+                    artifact_id=self._current_artifact_id,
+                    name="agent_response",
+                    append=True,
+                    last_chunk=True,
+                )
+        elif final_content := str(result):
             await updater.add_artifact(
                 [Part(root=TextPart(text=final_content))],
                 name="agent_response",
@@ -274,12 +334,18 @@ class StrandsA2AExecutor(AgentExecutor):
                     uri_data = getattr(file_obj, "uri", None)
 
                     if bytes_data:
+                        try:
+                            # A2A bytes are always base64-encoded strings
+                            decoded_bytes = base64.b64decode(bytes_data)
+                        except Exception as e:
+                            raise ValueError(f"Failed to decode base64 data for file '{raw_file_name}': {e}") from e
+
                         if file_type == "image":
                             content_blocks.append(
                                 ContentBlock(
                                     image=ImageContent(
                                         format=file_format,  # type: ignore
-                                        source=ImageSource(bytes=bytes_data),
+                                        source=ImageSource(bytes=decoded_bytes),
                                     )
                                 )
                             )
@@ -288,7 +354,7 @@ class StrandsA2AExecutor(AgentExecutor):
                                 ContentBlock(
                                     video=VideoContent(
                                         format=file_format,  # type: ignore
-                                        source=VideoSource(bytes=bytes_data),
+                                        source=VideoSource(bytes=decoded_bytes),
                                     )
                                 )
                             )
@@ -298,7 +364,7 @@ class StrandsA2AExecutor(AgentExecutor):
                                     document=DocumentContent(
                                         format=file_format,  # type: ignore
                                         name=file_name,
-                                        source=DocumentSource(bytes=bytes_data),
+                                        source=DocumentSource(bytes=decoded_bytes),
                                     )
                                 )
                             )
@@ -306,15 +372,13 @@ class StrandsA2AExecutor(AgentExecutor):
                     elif uri_data:
                         # For URI files, create a text representation since Strands ContentBlocks expect bytes
                         content_blocks.append(
-                            ContentBlock(
-                                text="[File: %s (%s)] - Referenced file at: %s" % (file_name, mime_type, uri_data)
-                            )
+                            ContentBlock(text=f"[File: {file_name} ({mime_type})] - Referenced file at: {uri_data}")
                         )
                 elif isinstance(part_root, DataPart):
                     # Handle DataPart - convert structured data to JSON text
                     try:
                         data_text = json.dumps(part_root.data, indent=2)
-                        content_blocks.append(ContentBlock(text="[Structured Data]\n%s" % data_text))
+                        content_blocks.append(ContentBlock(text=f"[Structured Data]\n{data_text}"))
                     except Exception:
                         logger.exception("Failed to serialize data part")
             except Exception:
