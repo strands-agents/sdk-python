@@ -37,10 +37,12 @@ from ..hooks import (
     AfterInvocationEvent,
     AgentInitializedEvent,
     BeforeInvocationEvent,
+    HookCallback,
     HookProvider,
     HookRegistry,
     MessageAddedEvent,
 )
+from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
 from ..models.bedrock import BedrockModel
 from ..models.model import Model
@@ -573,6 +575,47 @@ class Agent(AgentBase):
         through finalizers as a fallback, but explicit cleanup is recommended.
         """
         self.tool_registry.cleanup()
+
+    def add_hook(
+        self, callback: HookCallback[TEvent], event_type: type[TEvent] | None = None, **kwargs: dict[str, Any]
+    ) -> None:
+        """Register a callback function for a specific event type.
+
+        This method supports two call patterns:
+        1. ``add_hook(callback)`` - Event type inferred from callback's type hint
+        2. ``add_hook(callback, event_type)`` - Event type specified explicitly
+
+        Callbacks can be either synchronous or asynchronous functions.
+
+        Args:
+            callback: The callback function to invoke when events of this type occur.
+            event_type: The class type of events this callback should handle.
+                If not provided, the event type will be inferred from the callback's
+                first parameter type hint.
+            **kwargs: Additional arguments (ignored).
+
+
+        Raises:
+            ValueError: If event_type is not provided and cannot be inferred from
+                the callback's type hints.
+
+        Example:
+            ```python
+            def log_model_call(event: BeforeModelCallEvent) -> None:
+                print(f"Calling model for agent: {event.agent.name}")
+
+            agent = Agent()
+
+            # With event type inferred from type hint
+            agent.add_hook(log_model_call)
+
+            # With explicit event type
+            agent.add_hook(log_model_call, BeforeModelCallEvent)
+            ```
+        Docs:
+            https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/hooks/
+        """
+        self.hooks.add_callback(event_type, callback)
 
     def __del__(self) -> None:
         """Clean up resources when agent is garbage collected."""

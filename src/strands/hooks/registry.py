@@ -11,7 +11,15 @@ import inspect
 import logging
 from collections.abc import Awaitable, Generator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Protocol,
+    TypeVar,
+    get_type_hints,
+    runtime_checkable,
+)
 
 from ..interrupt import Interrupt, InterruptException
 
@@ -157,27 +165,98 @@ class HookRegistry:
         """Initialize an empty hook registry."""
         self._registered_callbacks: dict[type, list[HookCallback]] = {}
 
-    def add_callback(self, event_type: type[TEvent], callback: HookCallback[TEvent]) -> None:
+    def add_callback(
+        self,
+        event_type: type[TEvent] | None,
+        callback: HookCallback[TEvent],
+    ) -> None:
         """Register a callback function for a specific event type.
+
+        If ``event_type`` is None, then this will check the callback handler type hint
+        for the lifecycle event type.
 
         Args:
             event_type: The class type of events this callback should handle.
             callback: The callback function to invoke when events of this type occur.
+
+        Raises:
+            ValueError: If event_type is not provided and cannot be inferred from
+                the callback's type hints, or if AgentInitializedEvent is registered
+                with an async callback.
 
         Example:
             ```python
             def my_handler(event: StartRequestEvent):
                 print("Request started")
 
+            # With explicit event type
             registry.add_callback(StartRequestEvent, my_handler)
+
+            # With event type inferred from type hint
+            registry.add_callback(None, my_handler)
             ```
         """
+        resolved_event_type: type[TEvent]
+
+        # Support both add_callback(None, callback) and add_callback(event_type, callback)
+        if event_type is None:
+            # callback provided but event_type is None - infer it
+            resolved_event_type = self._infer_event_type(callback)
+        else:
+            resolved_event_type = event_type
+
         # Related issue: https://github.com/strands-agents/sdk-python/issues/330
-        if event_type.__name__ == "AgentInitializedEvent" and inspect.iscoroutinefunction(callback):
+        if resolved_event_type.__name__ == "AgentInitializedEvent" and inspect.iscoroutinefunction(callback):
             raise ValueError("AgentInitializedEvent can only be registered with a synchronous callback")
 
-        callbacks = self._registered_callbacks.setdefault(event_type, [])
+        callbacks = self._registered_callbacks.setdefault(resolved_event_type, [])
         callbacks.append(callback)
+
+    def _infer_event_type(self, callback: HookCallback[TEvent]) -> type[TEvent]:
+        """Infer the event type from a callback's type hints.
+
+        Args:
+            callback: The callback function to inspect.
+
+        Returns:
+            The event type inferred from the callback's first parameter type hint.
+
+        Raises:
+            ValueError: If the event type cannot be inferred from the callback's type hints.
+        """
+        try:
+            hints = get_type_hints(callback)
+        except Exception as e:
+            logger.debug("callback=<%s>, error=<%s> | failed to get type hints", callback, e)
+            raise ValueError(
+                "failed to get type hints for callback | cannot infer event type, please provide event_type explicitly"
+            ) from e
+
+        # Get the first parameter's type hint
+        sig = inspect.signature(callback)
+        params = list(sig.parameters.values())
+
+        if not params:
+            raise ValueError(
+                "callback has no parameters | cannot infer event type, please provide event_type explicitly"
+            )
+
+        first_param = params[0]
+        type_hint = hints.get(first_param.name)
+
+        if type_hint is None:
+            raise ValueError(
+                f"parameter=<{first_param.name}> has no type hint | "
+                "cannot infer event type, please provide event_type explicitly"
+            )
+
+        # Handle single type
+        if isinstance(type_hint, type) and issubclass(type_hint, BaseHookEvent):
+            return type_hint  # type: ignore[return-value]
+
+        raise ValueError(
+            f"parameter=<{first_param.name}>, type=<{type_hint}> | type hint must be a subclass of BaseHookEvent"
+        )
 
     def add_hook(self, hook: HookProvider) -> None:
         """Register all callbacks from a hook provider.
