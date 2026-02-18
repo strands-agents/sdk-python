@@ -54,7 +54,7 @@ from ..tools.registry import ToolRegistry
 from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
-from ..types.agent import AgentInput
+from ..types.agent import AgentInput, ConcurrentInvocationMode
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.traces import AttributeValue
@@ -129,6 +129,7 @@ class Agent(AgentBase):
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
+        concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -186,6 +187,11 @@ class Agent(AgentBase):
             retry_strategy: Strategy for retrying model calls on throttling or other transient errors.
                 Defaults to ModelRetryStrategy with max_attempts=6, initial_delay=4s, max_delay=240s.
                 Implement a custom HookProvider for custom retry logic, or pass None to disable retries.
+            concurrent_invocation_mode: Mode controlling concurrent invocation behavior.
+                Defaults to "throw" which raises ConcurrencyException if concurrent invocation is attempted.
+                Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
+                Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
+                only for advanced use cases where the caller understands the risks.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -263,6 +269,7 @@ class Agent(AgentBase):
         # Using threading.Lock instead of asyncio.Lock because run_async() creates
         # separate event loops in different threads, so asyncio.Lock wouldn't work
         self._invocation_lock = threading.Lock()
+        self._concurrent_invocation_mode = concurrent_invocation_mode
 
         # In the future, we'll have a RetryStrategy base class but until
         # that API is determined we only allow ModelRetryStrategy
@@ -622,14 +629,15 @@ class Agent(AgentBase):
                     yield event["data"]
             ```
         """
-        # Acquire lock to prevent concurrent invocations
+        # Conditionally acquire lock based on concurrent_invocation_mode
         # Using threading.Lock instead of asyncio.Lock because run_async() creates
         # separate event loops in different threads
-        acquired = self._invocation_lock.acquire(blocking=False)
-        if not acquired:
-            raise ConcurrencyException(
-                "Agent is already processing a request. Concurrent invocations are not supported."
-            )
+        if self._concurrent_invocation_mode == ConcurrentInvocationMode.THROW:
+            lock_acquired = self._invocation_lock.acquire(blocking=False)
+            if not lock_acquired:
+                raise ConcurrencyException(
+                    "Agent is already processing a request. Concurrent invocations are not supported."
+                )
 
         try:
             self._interrupt_state.resume(prompt)
@@ -678,7 +686,8 @@ class Agent(AgentBase):
                     raise
 
         finally:
-            self._invocation_lock.release()
+            if self._invocation_lock.locked():
+                self._invocation_lock.release()
 
     async def _run_loop(
         self,
