@@ -8,6 +8,7 @@ import inspect
 import logging
 from typing import TYPE_CHECKING
 
+from .._async import run_async
 from .plugin import Plugin
 
 if TYPE_CHECKING:
@@ -49,33 +50,8 @@ class _PluginRegistry:
     def add_plugin(self, plugin: Plugin) -> None:
         """Add and initialize a plugin with the agent.
 
-        This method registers the plugin and calls its init_plugin method
-        synchronously. For async init_plugin implementations, use add_plugin_async.
-
-        Args:
-            plugin: The plugin to add and initialize.
-
-        Raises:
-            ValueError: If a plugin with the same name is already registered.
-            RuntimeError: If the plugin's init_plugin is async (use add_plugin_async instead).
-        """
-        if plugin.name in self._plugins:
-            raise ValueError(f"plugin_name=<{plugin.name}> | plugin already registered")
-
-        if inspect.iscoroutinefunction(plugin.init_plugin):
-            raise RuntimeError(
-                f"plugin_name=<{plugin.name}> | plugin has async init_plugin, use add_plugin_async instead"
-            )
-
-        logger.debug("plugin_name=<%s> | registering and initializing plugin", plugin.name)
-        self._plugins[plugin.name] = plugin
-        plugin.init_plugin(self._agent)
-
-    async def add_plugin_async(self, plugin: Plugin) -> None:
-        """Add and initialize a plugin with the agent asynchronously.
-
-        This method registers the plugin and calls its init_plugin method,
-        supporting both sync and async implementations.
+        This method registers the plugin and calls its init_plugin method.
+        Handles both sync and async init_plugin implementations automatically.
 
         Args:
             plugin: The plugin to add and initialize.
@@ -90,7 +66,7 @@ class _PluginRegistry:
         self._plugins[plugin.name] = plugin
 
         if inspect.iscoroutinefunction(plugin.init_plugin):
-            await plugin.init_plugin(self._agent)
+            run_async(lambda: plugin.init_plugin(self._agent))
         else:
             plugin.init_plugin(self._agent)
 
