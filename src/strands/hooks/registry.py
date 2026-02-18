@@ -19,6 +19,7 @@ from typing import (
     Protocol,
     TypeVar,
     Union,
+    cast,
     get_args,
     get_origin,
     get_type_hints,
@@ -229,13 +230,8 @@ class HookRegistry:
             # Single event type provided explicitly
             resolved_event_types = [event_type]
 
-        # Deduplicate event types
-        seen: set[type[TEvent]] = set()
-        unique_event_types: list[type[TEvent]] = []
-        for et in resolved_event_types:
-            if et not in seen:
-                seen.add(et)
-                unique_event_types.append(et)
+        # Deduplicate event types while preserving order
+        unique_event_types: set[type[TEvent]] = set(resolved_event_types)
 
         # Register callback for each event type
         for resolved_event_type in unique_event_types:
@@ -315,12 +311,12 @@ class HookRegistry:
                     raise ValueError("None is not a valid event type in union")
                 if not (isinstance(arg, type) and issubclass(arg, BaseHookEvent)):
                     raise ValueError(f"Invalid type in union: {arg} | must be a subclass of BaseHookEvent")
-                event_types.append(arg)  # type: ignore[arg-type]
+                event_types.append(cast(type[TEvent], arg))
             return event_types
 
         # Handle single type
         if isinstance(type_hint, type) and issubclass(type_hint, BaseHookEvent):
-            return [type_hint]  # type: ignore[list-item]
+            return [cast(type[TEvent], type_hint)]
 
         raise ValueError(
             f"parameter=<{first_param.name}>, type=<{type_hint}> | type hint must be a subclass of BaseHookEvent"
