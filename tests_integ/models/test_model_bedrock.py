@@ -1,3 +1,4 @@
+import time
 import uuid
 
 import pydantic
@@ -376,8 +377,6 @@ def test_prompt_caching_with_1h_ttl(non_streaming_model):
     Uses unique content per test run to avoid cache conflicts with concurrent CI runs.
     Even with 1hr TTL, unique content ensures cache entries don't interfere across tests.
     """
-    import time
-
     # Use timestamp to ensure unique content per test run (avoids CI conflicts)
     unique_id = str(int(time.time() * 1000000))  # microsecond timestamp
     # Minimum 1024 tokens required for caching
@@ -416,8 +415,6 @@ def test_prompt_caching_with_1h_ttl(non_streaming_model):
 
 def test_prompt_caching_with_ttl_in_messages(streaming_model):
     """Test prompt caching with TTL in message content and verify cache metrics."""
-    import uuid
-
     agent = Agent(model=streaming_model, load_tools_from_directory=False)
 
     unique_id = str(uuid.uuid4())
