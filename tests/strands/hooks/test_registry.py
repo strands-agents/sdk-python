@@ -96,7 +96,7 @@ def test_hook_registry_add_callback_infers_event_type(registry):
         pass
 
     # Register without explicit event_type - should infer from type hint
-    registry.add_callback(typed_callback)
+    registry.add_callback(None, typed_callback)
 
     # Verify callback was registered
     assert BeforeInvocationEvent in registry._registered_callbacks
@@ -110,7 +110,7 @@ def test_hook_registry_add_callback_raises_error_no_type_hint(registry):
         pass
 
     with pytest.raises(ValueError, match="cannot infer event type"):
-        registry.add_callback(untyped_callback)
+        registry.add_callback(None, untyped_callback)
 
 
 def test_hook_registry_add_callback_raises_error_invalid_type_hint(registry):
@@ -120,7 +120,7 @@ def test_hook_registry_add_callback_raises_error_invalid_type_hint(registry):
         pass
 
     with pytest.raises(ValueError, match="must be a subclass of BaseHookEvent"):
-        registry.add_callback(invalid_callback)
+        registry.add_callback(None, invalid_callback)
 
 
 def test_hook_registry_add_callback_raises_error_no_parameters(registry):
@@ -130,32 +130,7 @@ def test_hook_registry_add_callback_raises_error_no_parameters(registry):
         pass
 
     with pytest.raises(ValueError, match="callback has no parameters"):
-        registry.add_callback(no_param_callback)
-
-
-def test_hook_registry_add_callback_raises_error_when_callback_is_none(registry):
-    """Test that add_callback raises error when callback is None and event_type is None."""
-    with pytest.raises(ValueError, match="callback is required"):
-        registry.add_callback(None, None)
-
-
-def test_hook_registry_add_callback_raises_error_when_event_type_is_type_without_callback(registry):
-    """Test that add_callback raises error when event_type is a type but callback is None."""
-    with pytest.raises(ValueError, match="callback is required when event_type is a type"):
-        registry.add_callback(BeforeInvocationEvent, None)
-
-
-def test_hook_registry_add_callback_raises_error_when_event_type_is_callable_with_callback(registry):
-    """Test that add_callback raises error when event_type is callable and callback is provided."""
-
-    def callback1(event: BeforeInvocationEvent) -> None:
-        pass
-
-    def callback2(event: BeforeInvocationEvent) -> None:
-        pass
-
-    with pytest.raises(ValueError, match="event_type must be a type when callback is provided"):
-        registry.add_callback(callback1, callback2)
+        registry.add_callback(None, no_param_callback)
 
 
 def test_hook_registry_add_callback_infers_event_type_when_callback_provided_without_event_type(registry):
@@ -192,4 +167,4 @@ def test_hook_registry_add_callback_raises_error_on_type_hints_failure(registry)
     callback = BadCallback()
 
     with pytest.raises(ValueError, match="failed to get type hints for callback"):
-        registry.add_callback(callback)
+        registry.add_callback(None, callback)

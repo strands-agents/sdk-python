@@ -167,18 +167,16 @@ class HookRegistry:
 
     def add_callback(
         self,
-        event_type: type[TEvent] | HookCallback[TEvent] | None = None,
-        callback: HookCallback[TEvent] | None = None,
+        event_type: type[TEvent] | None,
+        callback: HookCallback[TEvent],
     ) -> None:
         """Register a callback function for a specific event type.
 
-        This method supports two call patterns:
-        1. ``add_callback(callback)`` - Event type inferred from callback's type hint
-        2. ``add_callback(event_type, callback)`` - Event type specified explicitly
+        If ``event_type`` is None, then this will check the callback handler type hint
+        for the lifecycle event type.
 
         Args:
             event_type: The class type of events this callback should handle.
-                When using the single-argument form, pass the callback here instead.
             callback: The callback function to invoke when events of this type occur.
 
         Raises:
@@ -195,40 +193,24 @@ class HookRegistry:
             registry.add_callback(StartRequestEvent, my_handler)
 
             # With event type inferred from type hint
-            registry.add_callback(my_handler)
+            registry.add_callback(None, my_handler)
             ```
         """
-        resolved_callback: HookCallback[TEvent]
         resolved_event_type: type[TEvent]
 
-        # Support both add_callback(callback) and add_callback(event_type, callback)
-        if callback is None:
-            if event_type is None:
-                raise ValueError("callback is required")
-            # First argument is actually the callback, infer event_type
-            if callable(event_type) and not isinstance(event_type, type):
-                resolved_callback = event_type
-                resolved_event_type = self._infer_event_type(resolved_callback)
-            else:
-                raise ValueError("callback is required when event_type is a type")
-        elif event_type is None:
+        # Support both add_callback(None, callback) and add_callback(event_type, callback)
+        if event_type is None:
             # callback provided but event_type is None - infer it
-            resolved_callback = callback
             resolved_event_type = self._infer_event_type(callback)
         else:
-            # Both provided - event_type should be a type
-            if isinstance(event_type, type):
-                resolved_callback = callback
-                resolved_event_type = event_type
-            else:
-                raise ValueError("event_type must be a type when callback is provided")
+            resolved_event_type = event_type
 
         # Related issue: https://github.com/strands-agents/sdk-python/issues/330
-        if resolved_event_type.__name__ == "AgentInitializedEvent" and inspect.iscoroutinefunction(resolved_callback):
+        if resolved_event_type.__name__ == "AgentInitializedEvent" and inspect.iscoroutinefunction(callback):
             raise ValueError("AgentInitializedEvent can only be registered with a synchronous callback")
 
         callbacks = self._registered_callbacks.setdefault(resolved_event_type, [])
-        callbacks.append(resolved_callback)
+        callbacks.append(callback)
 
     def _infer_event_type(self, callback: HookCallback[TEvent]) -> type[TEvent]:
         """Infer the event type from a callback's type hints.
