@@ -31,6 +31,9 @@ jobs:
         - os: ubuntu-latest
           os-name: 'linux'
           python-version: "3.13"
+        - os: ubuntu-latest
+          os-name: 'linux'
+          python-version: "3.14"
         # Windows
         - os: windows-latest
           os-name: 'windows'
@@ -44,10 +47,13 @@ jobs:
         - os: windows-latest
           os-name: 'windows'
           python-version: "3.13"
+        - os: windows-latest
+          os-name: 'windows'
+          python-version: "3.14"
         # MacOS - latest only; not enough runners for macOS
         - os: macos-latest
           os-name: 'macOS'
-          python-version: "3.13"
+          python-version: "3.14"
       fail-fast: true
     runs-on: ${{ matrix.os }}
     env:
