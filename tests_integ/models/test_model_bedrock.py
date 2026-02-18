@@ -1,3 +1,5 @@
+import uuid
+
 import pydantic
 import pytest
 
@@ -332,8 +334,6 @@ def test_prompt_caching_with_5m_ttl(streaming_model):
     1. First call creates cache (cacheWriteInputTokens > 0)
     2. Second call reads from cache (cacheReadInputTokens > 0)
     """
-    import uuid
-
     # Use unique identifier to avoid cache conflicts between test runs
     unique_id = str(uuid.uuid4())
     # Minimum 1024 tokens required for caching
@@ -455,8 +455,6 @@ def test_prompt_caching_backward_compatibility_no_ttl(non_streaming_model):
     Verifies that cache points work correctly when TTL is not specified,
     maintaining backward compatibility with existing code.
     """
-    import uuid
-
     unique_id = str(uuid.uuid4())
     large_context = f"Background information for test {unique_id}: " + ("This is important context. " * 200)
 

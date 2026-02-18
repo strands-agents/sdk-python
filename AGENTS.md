@@ -413,6 +413,7 @@ hatch test --all                     # Test all Python versions (3.10-3.13)
 - Use `moto` for mocking AWS services
 - Use `pytest.mark.asyncio` for async tests
 - Keep tests focused and independent
+- Import packages at the top of the test files
 
 ## MCP Tasks (Experimental)
 
