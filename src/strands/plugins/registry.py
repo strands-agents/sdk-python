@@ -6,7 +6,8 @@ plugins that have been initialized with an agent instance.
 
 import inspect
 import logging
-from typing import TYPE_CHECKING
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, cast
 
 from .._async import run_async
 from .plugin import Plugin
@@ -66,7 +67,7 @@ class _PluginRegistry:
         self._plugins[plugin.name] = plugin
 
         if inspect.iscoroutinefunction(plugin.init_plugin):
-            run_async(lambda: plugin.init_plugin(self._agent))
+            async_plugin_init = cast(Callable[..., Awaitable[None]], plugin.init_plugin)
+            run_async(lambda: async_plugin_init(self._agent))
         else:
             plugin.init_plugin(self._agent)
-
