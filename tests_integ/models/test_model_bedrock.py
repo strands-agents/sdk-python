@@ -323,3 +323,159 @@ def test_multi_prompt_system_content():
     agent = Agent(system_prompt=system_prompt_content, load_tools_from_directory=False)
     # just verifying there is no failure
     agent("Hello!")
+
+
+def test_prompt_caching_with_5m_ttl(streaming_model):
+    """Test prompt caching with 5 minute TTL and verify cache metrics.
+
+    This test verifies:
+    1. First call creates cache (cacheWriteInputTokens > 0)
+    2. Second call reads from cache (cacheReadInputTokens > 0)
+    """
+    import uuid
+
+    # Use unique identifier to avoid cache conflicts between test runs
+    unique_id = str(uuid.uuid4())
+    # Minimum 1024 tokens required for caching
+    large_context = f"Background information for test {unique_id}: " + ("This is important context. " * 200)
+
+    system_prompt_with_cache = [
+        {"text": large_context},
+        {"cachePoint": {"type": "default", "ttl": "5m"}},
+        {"text": "You are a helpful assistant."},
+    ]
+
+    agent = Agent(
+        model=streaming_model,
+        system_prompt=system_prompt_with_cache,
+        load_tools_from_directory=False,
+    )
+
+    # First call should create the cache (cache write)
+    result1 = agent("What is 2+2?")
+    assert len(str(result1)) > 0
+
+    # Verify cache write occurred on first call
+    assert result1.metrics.accumulated_usage.get("cacheWriteInputTokens", 0) > 0, (
+        "Expected cacheWriteInputTokens > 0 on first call"
+    )
+
+    # Second call should use the cached content (cache read)
+    result2 = agent("What is 3+3?")
+    assert len(str(result2)) > 0
+
+    # Verify cache read occurred on second call
+    assert result2.metrics.accumulated_usage.get("cacheReadInputTokens", 0) > 0, (
+        "Expected cacheReadInputTokens > 0 on second call"
+    )
+
+
+def test_prompt_caching_with_1h_ttl(non_streaming_model):
+    """Test prompt caching with 1 hour TTL and verify cache metrics.
+
+    Uses unique content per test run to avoid cache conflicts with concurrent CI runs.
+    Even with 1hr TTL, unique content ensures cache entries don't interfere across tests.
+    """
+    import time
+
+    # Use timestamp to ensure unique content per test run (avoids CI conflicts)
+    unique_id = str(int(time.time() * 1000000))  # microsecond timestamp
+    # Minimum 1024 tokens required for caching
+    large_context = f"Background information for test {unique_id}: " + ("This is important context. " * 200)
+
+    system_prompt_with_cache = [
+        {"text": large_context},
+        {"cachePoint": {"type": "default", "ttl": "1h"}},
+        {"text": "You are a helpful assistant."},
+    ]
+
+    agent = Agent(
+        model=non_streaming_model,
+        system_prompt=system_prompt_with_cache,
+        load_tools_from_directory=False,
+    )
+
+    # First call should create the cache
+    result1 = agent("What is 2+2?")
+    assert len(str(result1)) > 0
+
+    # Verify cache write occurred
+    assert result1.metrics.accumulated_usage.get("cacheWriteInputTokens", 0) > 0, (
+        "Expected cacheWriteInputTokens > 0 on first call with 1h TTL"
+    )
+
+    # Second call should use the cached content
+    result2 = agent("What is 3+3?")
+    assert len(str(result2)) > 0
+
+    # Verify cache read occurred
+    assert result2.metrics.accumulated_usage.get("cacheReadInputTokens", 0) > 0, (
+        "Expected cacheReadInputTokens > 0 on second call with 1h TTL"
+    )
+
+
+def test_prompt_caching_with_ttl_in_messages(streaming_model):
+    """Test prompt caching with TTL in message content and verify cache metrics."""
+    import uuid
+
+    agent = Agent(model=streaming_model, load_tools_from_directory=False)
+
+    unique_id = str(uuid.uuid4())
+    # Large content block to cache (minimum 1024 tokens)
+    large_text = f"Important context for test {unique_id}: " + ("This is critical information. " * 200)
+
+    content_with_cache = [
+        {"text": large_text},
+        {"cachePoint": {"type": "default", "ttl": "5m"}},
+        {"text": "Based on the context above, what is 5+5?"},
+    ]
+
+    # First call creates cache
+    result1 = agent(content_with_cache)
+    assert len(str(result1)) > 0
+
+    # Verify cache write in message content
+    assert result1.metrics.accumulated_usage.get("cacheWriteInputTokens", 0) > 0, (
+        "Expected cacheWriteInputTokens > 0 when caching message content"
+    )
+
+    # Subsequent call should use cache
+    result2 = agent("What about 10+10?")
+    assert len(str(result2)) > 0
+
+    # Verify cache read on subsequent call
+    assert result2.metrics.accumulated_usage.get("cacheReadInputTokens", 0) > 0, (
+        "Expected cacheReadInputTokens > 0 on subsequent call"
+    )
+
+
+def test_prompt_caching_backward_compatibility_no_ttl(non_streaming_model):
+    """Test that prompt caching works without TTL (backward compatibility).
+
+    Verifies that cache points work correctly when TTL is not specified,
+    maintaining backward compatibility with existing code.
+    """
+    import uuid
+
+    unique_id = str(uuid.uuid4())
+    large_context = f"Background information for test {unique_id}: " + ("This is important context. " * 200)
+
+    system_prompt_with_cache = [
+        {"text": large_context},
+        {"cachePoint": {"type": "default"}},  # No TTL specified
+        {"text": "You are a helpful assistant."},
+    ]
+
+    agent = Agent(
+        model=non_streaming_model,
+        system_prompt=system_prompt_with_cache,
+        load_tools_from_directory=False,
+    )
+
+    result = agent("Hello!")
+    assert len(str(result)) > 0
+
+    # Verify cache write occurred even without TTL
+    assert result.metrics.accumulated_usage.get("cacheWriteInputTokens", 0) > 0, (
+        "Expected cacheWriteInputTokens > 0 even without TTL specified"
+    )
