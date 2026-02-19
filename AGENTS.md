@@ -126,6 +126,10 @@ strands-agents/
 │   │   ├── events.py                     # Hook event definitions
 │   │   └── registry.py                   # Hook registration
 │   │
+│   ├── plugins/                          # Plugin system
+│   │   ├── plugin.py                     # Plugin Protocol definition
+│   │   └── registry.py                   # PluginRegistry for tracking plugins
+│   │
 │   ├── handlers/                         # Event handlers
 │   │   └── callback_handler.py           # Callback handling
 │   │
@@ -171,6 +175,7 @@ strands-agents/
 │       ├── session/
 │       ├── telemetry/
 │       ├── hooks/
+│       ├── plugins/
 │       ├── handlers/
 │       ├── experimental/
 │       └── utils/
