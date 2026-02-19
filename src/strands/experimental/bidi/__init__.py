@@ -1,5 +1,7 @@
 """Bidirectional streaming package."""
 
+from typing import Any
+
 # Main components - Primary user interface
 # Re-export standard agent events for tool handling
 from ...types._events import (
@@ -8,9 +10,6 @@ from ...types._events import (
     ToolUseStreamEvent,
 )
 from .agent.agent import BidiAgent
-
-# IO channels - Hardware abstraction
-from .io.audio import BidiAudioIO
 
 # Model interface (for custom implementations)
 from .models.model import BidiModel
@@ -40,8 +39,6 @@ from .types.events import (
 __all__ = [
     # Main interface
     "BidiAgent",
-    # IO channels
-    "BidiAudioIO",
     # Built-in tools
     "stop_conversation",
     # Input Event types
@@ -68,3 +65,19 @@ __all__ = [
     # Model interface
     "BidiModel",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy load IO implementations only when accessed.
+
+    This defers the import of optional dependencies until actually needed.
+    """
+    if name == "BidiAudioIO":
+        from .io.audio import BidiAudioIO
+
+        return BidiAudioIO
+    if name == "BidiTextIO":
+        from .io.text import BidiTextIO
+
+        return BidiTextIO
+    raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")
