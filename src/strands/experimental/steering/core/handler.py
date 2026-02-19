@@ -38,6 +38,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from ....hooks.events import AfterModelCallEvent, BeforeToolCallEvent
+from ....plugins.plugin import Plugin
 from ....types.content import Message
 from ....types.streaming import StopReason
 from ....types.tools import ToolUse
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class SteeringHandler:
+class SteeringHandler(Plugin):
     """Base class for steering handlers that provide contextual guidance to agents.
 
     Steering handlers maintain local context and register hook callbacks

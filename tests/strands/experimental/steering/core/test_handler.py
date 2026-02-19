@@ -11,7 +11,7 @@ from strands.hooks.events import AfterModelCallEvent, BeforeToolCallEvent
 from strands.plugins.plugin import Plugin
 
 
-class ConcreteSteeringHandler(SteeringHandler):
+class TestSteeringHandler(SteeringHandler):
     """Test implementation of SteeringHandler."""
 
     async def steer_before_tool(self, *, agent, tool_use, **kwargs):
@@ -20,26 +20,26 @@ class ConcreteSteeringHandler(SteeringHandler):
 
 def test_steering_handler_initialization():
     """Test SteeringHandler initialization."""
-    handler = ConcreteSteeringHandler()
+    handler = TestSteeringHandler()
     assert handler is not None
 
 
 def test_steering_handler_has_name_attribute():
     """Test SteeringHandler has name attribute for Plugin protocol."""
-    handler = ConcreteSteeringHandler()
+    handler = TestSteeringHandler()
     assert hasattr(handler, "name")
     assert handler.name == "steering"
 
 
 def test_steering_handler_is_plugin():
     """Test SteeringHandler implements Plugin protocol."""
-    handler = ConcreteSteeringHandler()
+    handler = TestSteeringHandler()
     assert isinstance(handler, Plugin)
 
 
 def test_init_plugin():
     """Test init_plugin registers hooks on agent."""
-    handler = ConcreteSteeringHandler()
+    handler = TestSteeringHandler()
     agent = Mock()
 
     handler.init_plugin(agent)
@@ -51,7 +51,7 @@ def test_init_plugin():
 
 def test_steering_context_initialization():
     """Test steering context is initialized."""
-    handler = ConcreteSteeringHandler()
+    handler = TestSteeringHandler()
 
     assert handler.steering_context is not None
     assert isinstance(handler.steering_context, SteeringContext)
@@ -59,7 +59,7 @@ def test_steering_context_initialization():
 
 def test_steering_context_persistence():
     """Test steering context persists across calls."""
-    handler = ConcreteSteeringHandler()
+    handler = TestSteeringHandler()
 
     handler.steering_context.data.set("test", "value")
     assert handler.steering_context.data.get("test") == "value"
@@ -67,7 +67,7 @@ def test_steering_context_persistence():
 
 def test_steering_context_access():
     """Test steering context can be accessed and modified."""
-    handler = ConcreteSteeringHandler()
+    handler = TestSteeringHandler()
 
     handler.steering_context.data.set("key", "value")
     assert handler.steering_context.data.get("key") == "value"
@@ -206,7 +206,7 @@ class MockContextProvider(SteeringContextProvider):
         return self.callbacks
 
 
-class ConcreteSteeringHandlerWithProvider(SteeringHandler):
+class TestSteeringHandlerWithProvider(SteeringHandler):
     """Test implementation with context callbacks."""
 
     def __init__(self, context_callbacks=None):
@@ -220,7 +220,7 @@ class ConcreteSteeringHandlerWithProvider(SteeringHandler):
 def test_handler_registers_context_provider_hooks():
     """Test that handler registers hooks from context callbacks."""
     mock_callback = MockContextCallback()
-    handler = ConcreteSteeringHandlerWithProvider(context_callbacks=[mock_callback])
+    handler = TestSteeringHandlerWithProvider(context_callbacks=[mock_callback])
     agent = Mock()
 
     handler.init_plugin(agent)
@@ -238,7 +238,7 @@ def test_handler_registers_context_provider_hooks():
 def test_context_callbacks_receive_steering_context():
     """Test that context callbacks receive the handler's steering context."""
     mock_callback = MockContextCallback()
-    handler = ConcreteSteeringHandlerWithProvider(context_callbacks=[mock_callback])
+    handler = TestSteeringHandlerWithProvider(context_callbacks=[mock_callback])
     agent = Mock()
 
     handler.init_plugin(agent)
@@ -268,7 +268,7 @@ def test_multiple_context_callbacks_registered():
     callback1 = MockContextCallback()
     callback2 = MockContextCallback()
 
-    handler = ConcreteSteeringHandlerWithProvider(context_callbacks=[callback1, callback2])
+    handler = TestSteeringHandlerWithProvider(context_callbacks=[callback1, callback2])
     agent = Mock()
 
     handler.init_plugin(agent)
@@ -283,7 +283,7 @@ def test_handler_initialization_with_callbacks():
     callback1 = MockContextCallback()
     callback2 = MockContextCallback()
 
-    handler = ConcreteSteeringHandlerWithProvider(context_callbacks=[callback1, callback2])
+    handler = TestSteeringHandlerWithProvider(context_callbacks=[callback1, callback2])
 
     # Should have stored the callbacks
     assert len(handler._context_callbacks) == 2
@@ -459,7 +459,7 @@ async def test_tool_steering_exception_handling():
 @pytest.mark.asyncio
 async def test_default_steer_before_tool_returns_proceed():
     """Test default steer_before_tool returns Proceed."""
-    handler = ConcreteSteeringHandler()
+    handler = TestSteeringHandler()
     agent = Mock()
     tool_use = {"name": "test_tool"}
 
@@ -473,7 +473,7 @@ async def test_default_steer_before_tool_returns_proceed():
 @pytest.mark.asyncio
 async def test_default_steer_after_model_returns_proceed():
     """Test default steer_after_model returns Proceed."""
-    handler = ConcreteSteeringHandler()
+    handler = TestSteeringHandler()
     agent = Mock()
     message = {"role": "assistant", "content": [{"text": "Hello"}]}
     stop_reason = "end_turn"
@@ -487,7 +487,7 @@ async def test_default_steer_after_model_returns_proceed():
 
 def test_init_plugin_registers_model_steering():
     """Test that init_plugin registers model steering callback."""
-    handler = ConcreteSteeringHandler()
+    handler = TestSteeringHandler()
     agent = Mock()
 
     handler.init_plugin(agent)
