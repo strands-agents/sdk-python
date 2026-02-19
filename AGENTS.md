@@ -127,7 +127,8 @@ strands-agents/
 │   │   └── registry.py                   # Hook registration
 │   │
 │   ├── plugins/                          # Plugin system
-│   │   ├── plugin.py                     # Plugin definition
+│   │   ├── plugin.py                     # Plugin base class
+│   │   ├── decorator.py                  # @hook decorator
 │   │   └── registry.py                   # PluginRegistry for tracking plugins
 │   │
 │   ├── handlers/                         # Event handlers
