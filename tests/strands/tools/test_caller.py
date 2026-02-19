@@ -1,8 +1,11 @@
+import gc
 import unittest.mock
+import weakref
 
 import pytest
 
 from strands import Agent, tool
+from strands.tools.tool_provider import ToolProvider
 
 
 @pytest.fixture
@@ -312,3 +315,92 @@ def test_agent_tool_caller_interrupt_activated():
     exp_message = r"cannot directly call tool during interrupt"
     with pytest.raises(RuntimeError, match=exp_message):
         agent.tool.test_tool()
+
+
+def test_agent_collected_without_cyclic_gc():
+    """Verify that Agent is destroyed by refcounting alone (no cyclic GC needed).
+
+    This ensures that the weakref-based back-references in _ToolCaller and _PluginRegistry
+    do not create reference cycles that would delay cleanup until the cyclic garbage collector runs.
+    When cleanup is delayed until interpreter shutdown, MCPClient.stop() hangs because its
+    background thread cannot complete async cleanup at that point.
+    """
+    gc.disable()
+    try:
+        agent = Agent()
+        ref = weakref.ref(agent)
+        del agent
+
+        # Without the weakref fix, the agent would survive here because of circular references,
+        # and only be collected when gc.collect() runs.
+        assert ref() is None, "Agent was not collected by refcounting alone; a reference cycle likely exists"
+    finally:
+        gc.enable()
+
+
+class _MockToolProvider(ToolProvider):
+    """Minimal ToolProvider that tracks cleanup calls, mimicking MCPClient lifecycle."""
+
+    def __init__(self):
+        self.consumers: set = set()
+        self.cleanup_called = False
+
+    async def load_tools(self, **kwargs):
+        return []
+
+    def add_consumer(self, consumer_id, **kwargs):
+        self.consumers.add(consumer_id)
+
+    def remove_consumer(self, consumer_id, **kwargs):
+        self.consumers.discard(consumer_id)
+        if not self.consumers:
+            self.cleanup_called = True
+
+
+def test_agent_with_tool_provider_cleaned_up_when_function_returns():
+    """Replicate the hang from issue #1732: Agent with MCPClient created inside a function.
+
+    When an Agent using a managed MCPClient (as ToolProvider) is created inside a function,
+    the script used to hang on exit. The Agent went out of scope when the function returned,
+    but circular references (Agent → _ToolCaller._agent → Agent) prevented refcount-based
+    destruction. Cleanup was deferred to the cyclic GC during interpreter shutdown, where
+    MCPClient.stop() → thread.join() would hang.
+
+    This test verifies that with the weakref fix, the Agent is destroyed immediately when
+    the function returns, and the tool provider's cleanup runs promptly.
+    """
+    provider = _MockToolProvider()
+
+    def get_agent():
+        return Agent(tools=[provider])
+
+    def main():
+        agent = get_agent()  # noqa: F841
+
+    gc.disable()
+    try:
+        main()
+        # Without the fix, the agent survives here (ref cycle keeps it alive).
+        # Cleanup would only happen when gc.collect() runs — too late during interpreter shutdown.
+        assert provider.cleanup_called, (
+            "Tool provider was not cleaned up when the function returned; "
+            "Agent likely leaked due to a reference cycle"
+        )
+    finally:
+        gc.enable()
+
+
+def test_agent_with_tool_provider_cleaned_up_on_del():
+    """Replicate the working case from issue #1732: Agent at module scope, explicitly deleted.
+
+    In the issue, an Agent created at module level did not hang because module-level variables
+    are cleared early during interpreter shutdown (while the runtime is still functional).
+    This test verifies the equivalent: explicitly deleting the agent triggers immediate cleanup.
+    """
+    provider = _MockToolProvider()
+
+    agent = Agent(tools=[provider])
+    assert not provider.cleanup_called
+
+    del agent
+    assert provider.cleanup_called, "Tool provider was not cleaned up after del agent"
