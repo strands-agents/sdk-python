@@ -13,7 +13,7 @@ Core components:
 
 Usage:
     handler = LLMSteeringHandler(system_prompt="...")
-    agent = Agent(tools=[...], hooks=[handler])
+    agent = Agent(tools=[...], plugins=[handler])
 """
 
 # Core primitives
