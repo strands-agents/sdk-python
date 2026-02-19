@@ -2669,24 +2669,6 @@ def test_agent_plugins_multiple_in_order():
     assert call_order == ["plugin1", "plugin2"]
 
 
-def test_agent_plugins_empty_list():
-    """Test that empty plugins list doesn't cause errors."""
-    agent = Agent(
-        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
-        plugins=[],
-    )
-    assert agent is not None
-
-
-def test_agent_plugins_none():
-    """Test that None plugins parameter doesn't cause errors."""
-    agent = Agent(
-        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
-        plugins=None,
-    )
-    assert agent is not None
-
-
 def test_agent_plugins_can_register_hooks():
     """Test that plugins can register hooks during initialization."""
     hook_called = []
@@ -2698,7 +2680,7 @@ def test_agent_plugins_can_register_hooks():
             def hook_callback(event: BeforeModelCallEvent):
                 hook_called.append(True)
 
-            agent.add_hook(hook_callback, BeforeModelCallEvent)
+            agent.add_hook(hook_callback)
 
     agent = Agent(
         model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),

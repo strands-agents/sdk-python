@@ -323,7 +323,7 @@ class Agent(AgentBase):
 
         if plugins:
             for plugin in plugins:
-                self._plugin_registry.add_plugin(plugin)
+                self._plugin_registry.add_and_init(plugin)
 
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
