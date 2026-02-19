@@ -35,7 +35,7 @@ class _PluginRegistry:
                 pass
 
         plugin = MyPlugin()
-        registry.add_plugin(plugin)
+        registry.add_and_init(plugin)
         ```
     """
 
@@ -48,7 +48,7 @@ class _PluginRegistry:
         self._agent = agent
         self._plugins: dict[str, Plugin] = {}
 
-    def add_plugin(self, plugin: Plugin) -> None:
+    def add_and_init(self, plugin: Plugin) -> None:
         """Add and initialize a plugin with the agent.
 
         This method registers the plugin and calls its init_plugin method.
