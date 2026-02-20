@@ -2,7 +2,7 @@
 
 This module provides the SkillsPlugin class that extends the Plugin base class
 to add AgentSkills.io skill support. The plugin registers a tool for activating
-and deactivating skills, and injects skill metadata into the system prompt.
+skills, and injects skill metadata into the system prompt.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ...hooks.events import AfterInvocationEvent, BeforeInvocationEvent
+from ...hooks.events import BeforeInvocationEvent
 from ...hooks.registry import HookRegistry
 from ...plugins.plugin import Plugin
 from ...tools.decorator import tool
@@ -20,7 +20,6 @@ from .skill import Skill
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
-    from ...types.content import SystemContentBlock
 
 logger = logging.getLogger(__name__)
 
@@ -28,52 +27,39 @@ _STATE_KEY = "skills_plugin"
 
 
 def _make_skills_tool(plugin: SkillsPlugin) -> Any:
-    """Create the skills tool that allows the agent to activate and deactivate skills.
+    """Create the skills tool that allows the agent to activate skills.
 
     Args:
         plugin: The SkillsPlugin instance that manages skill state.
 
     Returns:
-        A decorated tool function for skill activation and deactivation.
+        A decorated tool function for skill activation.
     """
 
     @tool
-    def skills(action: str, skill_name: str = "") -> str:
-        """Activate or deactivate a skill to load its full instructions.
+    def skills(skill_name: str) -> str:
+        """Activate a skill to load its full instructions.
 
         Use this tool to load the complete instructions for a skill listed in
-        the available_skills section of your system prompt.
+        the available_skills section of your system prompt. Activating a new
+        skill replaces the previously active one.
 
         Args:
-            action: The action to perform. Use "activate" to load a skill's full instructions,
-                or "deactivate" to unload the currently active skill.
-            skill_name: Name of the skill to activate. Required for "activate" action.
+            skill_name: Name of the skill to activate.
         """
-        if action == "activate":
-            if not skill_name:
-                return "Error: skill_name is required for activate action."
+        if not skill_name:
+            return "Error: skill_name is required."
 
-            found = plugin._find_skill(skill_name)
-            if found is None:
-                available = ", ".join(s.name for s in plugin._skills)
-                return f"Skill '{skill_name}' not found. Available skills: {available}"
+        found = plugin._find_skill(skill_name)
+        if found is None:
+            available = ", ".join(s.name for s in plugin._skills)
+            return f"Skill '{skill_name}' not found. Available skills: {available}"
 
-            plugin._active_skill = found
-            plugin._persist_state()
+        plugin._active_skill = found
+        plugin._persist_state()
 
-            logger.debug("skill_name=<%s> | skill activated", skill_name)
-            return found.instructions or f"Skill '{skill_name}' activated (no instructions available)."
-
-        elif action == "deactivate":
-            deactivated_name = plugin._active_skill.name if plugin._active_skill else skill_name
-            plugin._active_skill = None
-            plugin._persist_state()
-
-            logger.debug("skill_name=<%s> | skill deactivated", deactivated_name)
-            return f"Skill '{deactivated_name}' deactivated."
-
-        else:
-            return f"Unknown action: '{action}'. Use 'activate' or 'deactivate'."
+        logger.debug("skill_name=<%s> | skill activated", skill_name)
+        return found.instructions or f"Skill '{skill_name}' activated (no instructions available)."
 
     return skills
 
@@ -83,9 +69,9 @@ class SkillsPlugin(Plugin):
 
     The SkillsPlugin extends the Plugin base class and provides:
 
-    1. A ``skills`` tool that allows the agent to activate/deactivate skills on demand
+    1. A ``skills`` tool that allows the agent to activate skills on demand
     2. System prompt injection of available skill metadata before each invocation
-    3. Single active skill management (activating a new skill deactivates the previous one)
+    3. Single active skill management (activating a new skill replaces the previous one)
     4. Session persistence of active skill state via ``agent.state``
 
     Skills can be provided as filesystem paths (to individual skill directories or
@@ -125,8 +111,7 @@ class SkillsPlugin(Plugin):
         self._skills: list[Skill] = self._resolve_skills(skills)
         self._active_skill: Skill | None = None
         self._agent: Agent | None = None
-        self._saved_system_prompt: str | None = None
-        self._saved_system_prompt_content: list[SystemContentBlock] | None = None
+        self._original_system_prompt: str | None = None
 
     def init_plugin(self, agent: Agent) -> None:
         """Initialize the plugin with an agent instance.
@@ -153,7 +138,6 @@ class SkillsPlugin(Plugin):
             **kwargs: Additional keyword arguments for future extensibility.
         """
         registry.add_callback(BeforeInvocationEvent, self._on_before_invocation)
-        registry.add_callback(AfterInvocationEvent, self._on_after_invocation)
 
     @property
     def skills(self) -> list[Skill]:
@@ -189,43 +173,26 @@ class SkillsPlugin(Plugin):
     def _on_before_invocation(self, event: BeforeInvocationEvent) -> None:
         """Inject skill metadata into the system prompt before each invocation.
 
-        Saves the current system prompt and appends an XML block listing
-        all available skills so the model knows what it can activate.
+        Captures the original system prompt on first call, then rebuilds the
+        prompt with the skills XML block on each invocation.
 
         Args:
             event: The before-invocation event containing the agent reference.
         """
         agent = event.agent
 
-        # Save original system prompt for restoration after invocation
-        self._saved_system_prompt = agent._system_prompt
-        self._saved_system_prompt_content = agent._system_prompt_content
+        # Capture the original system prompt on first invocation
+        if self._original_system_prompt is None:
+            self._original_system_prompt = agent._system_prompt or ""
 
         if not self._skills:
             return
 
         skills_xml = self._generate_skills_xml()
-        current: str = agent._system_prompt or ""
-        new_prompt = f"{current}\n\n{skills_xml}" if current else skills_xml
+        new_prompt = f"{self._original_system_prompt}\n\n{skills_xml}" if self._original_system_prompt else skills_xml
 
-        # Directly set both representations to avoid re-parsing through the setter
-        # and to preserve cache control blocks in the original content
         agent._system_prompt = new_prompt
         agent._system_prompt_content = [{"text": new_prompt}]
-
-    def _on_after_invocation(self, event: AfterInvocationEvent) -> None:
-        """Restore the original system prompt after invocation completes.
-
-        Args:
-            event: The after-invocation event containing the agent reference.
-        """
-        agent = event.agent
-
-        # Restore original system prompt directly to preserve content block types
-        agent._system_prompt = self._saved_system_prompt
-        agent._system_prompt_content = self._saved_system_prompt_content
-        self._saved_system_prompt = None
-        self._saved_system_prompt_content = None
 
     def _generate_skills_xml(self) -> str:
         """Generate the XML block listing available skills for the system prompt.

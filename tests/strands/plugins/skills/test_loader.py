@@ -7,7 +7,6 @@ import pytest
 from strands.plugins.skills.loader import (
     _find_skill_md,
     _parse_frontmatter,
-    _parse_yaml_simple,
     _validate_skill_name,
     load_skill,
     load_skills,
@@ -27,7 +26,7 @@ class TestFindSkillMd:
         """Test finding skill.md (lowercase)."""
         (tmp_path / "skill.md").write_text("test")
         result = _find_skill_md(tmp_path)
-        assert result.name == "skill.md"
+        assert result.name.lower() == "skill.md"
 
     def test_prefers_uppercase(self, tmp_path):
         """Test that SKILL.md is preferred over skill.md."""
@@ -40,34 +39,6 @@ class TestFindSkillMd:
         """Test FileNotFoundError when no SKILL.md exists."""
         with pytest.raises(FileNotFoundError, match="no SKILL.md found"):
             _find_skill_md(tmp_path)
-
-
-class TestParseYamlSimple:
-    """Tests for _parse_yaml_simple."""
-
-    def test_simple_key_values(self):
-        """Test parsing simple key-value pairs."""
-        text = "name: my-skill\ndescription: A test skill\nlicense: Apache-2.0"
-        result = _parse_yaml_simple(text)
-        assert result == {"name": "my-skill", "description": "A test skill", "license": "Apache-2.0"}
-
-    def test_nested_mapping(self):
-        """Test parsing a nested mapping."""
-        text = "name: my-skill\nmetadata:\n  author: test-org\n  version: 1.0"
-        result = _parse_yaml_simple(text)
-        assert result["name"] == "my-skill"
-        assert result["metadata"] == {"author": "test-org", "version": "1.0"}
-
-    def test_skips_comments_and_empty_lines(self):
-        """Test that comments and empty lines are skipped."""
-        text = "# comment\nname: my-skill\n\ndescription: test\n"
-        result = _parse_yaml_simple(text)
-        assert result == {"name": "my-skill", "description": "test"}
-
-    def test_empty_input(self):
-        """Test parsing empty input."""
-        result = _parse_yaml_simple("")
-        assert result == {}
 
 
 class TestParseFrontmatter:

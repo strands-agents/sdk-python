@@ -12,6 +12,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .skill import Skill
 
 logger = logging.getLogger(__name__)
@@ -45,72 +47,14 @@ def _find_skill_md(skill_dir: Path) -> Path:
 def _parse_yaml(yaml_text: str) -> dict[str, Any]:
     """Parse YAML text into a dictionary.
 
-    Uses PyYAML if available, otherwise falls back to simple key-value parsing
-    that handles the basic SKILL.md frontmatter format.
-
     Args:
         yaml_text: YAML-formatted text to parse.
 
     Returns:
         Dictionary of parsed key-value pairs.
     """
-    try:
-        import yaml
-
-        result = yaml.safe_load(yaml_text)
-        return result if isinstance(result, dict) else {}
-    except ImportError:
-        logger.debug("PyYAML not available, using simple frontmatter parser")
-        return _parse_yaml_simple(yaml_text)
-
-
-def _parse_yaml_simple(yaml_text: str) -> dict[str, Any]:
-    """Simple YAML parser for skill frontmatter.
-
-    Handles basic key-value pairs and single-level nested mappings. This parser
-    is intentionally limited to the subset of YAML used in SKILL.md frontmatter.
-
-    Args:
-        yaml_text: YAML-formatted text to parse.
-
-    Returns:
-        Dictionary of parsed key-value pairs.
-    """
-    result: dict[str, Any] = {}
-    current_key: str | None = None
-    current_nested: dict[str, str] | None = None
-
-    for line in yaml_text.split("\n"):
-        if not line.strip() or line.strip().startswith("#"):
-            continue
-
-        indent = len(line) - len(line.lstrip())
-
-        if indent == 0 and ":" in line:
-            # Save previous nested mapping if any
-            if current_key is not None and current_nested is not None:
-                result[current_key] = current_nested
-                current_nested = None
-
-            key, _, value = line.partition(":")
-            key = key.strip()
-            value = value.strip()
-            current_key = key
-
-            if value:
-                result[key] = value
-            else:
-                current_nested = {}
-
-        elif indent > 0 and current_nested is not None and ":" in line.strip():
-            nested_key, _, nested_value = line.strip().partition(":")
-            current_nested[nested_key.strip()] = nested_value.strip()
-
-    # Save final nested mapping
-    if current_key is not None and current_nested is not None:
-        result[current_key] = current_nested
-
-    return result
+    result = yaml.safe_load(yaml_text)
+    return result if isinstance(result, dict) else {}
 
 
 def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:

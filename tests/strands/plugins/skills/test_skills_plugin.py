@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from strands.hooks.events import AfterInvocationEvent, BeforeInvocationEvent
+from strands.hooks.events import BeforeInvocationEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins.skills.skill import Skill
 from strands.plugins.skills.skills_plugin import SkillsPlugin, _make_skills_tool
@@ -187,7 +187,7 @@ class TestSkillsTool:
         plugin._agent = _mock_agent()
 
         skills_tool = _make_skills_tool(plugin)
-        result = skills_tool(action="activate", skill_name="test-skill")
+        result = skills_tool(skill_name="test-skill")
 
         assert result == "Full instructions here."
         assert plugin.active_skill is not None
@@ -200,7 +200,7 @@ class TestSkillsTool:
         plugin._agent = _mock_agent()
 
         skills_tool = _make_skills_tool(plugin)
-        result = skills_tool(action="activate", skill_name="nonexistent")
+        result = skills_tool(skill_name="nonexistent")
 
         assert "not found" in result
         assert "test-skill" in result
@@ -213,10 +213,10 @@ class TestSkillsTool:
         plugin._agent = _mock_agent()
 
         skills_tool = _make_skills_tool(plugin)
-        skills_tool(action="activate", skill_name="skill-a")
+        skills_tool(skill_name="skill-a")
         assert plugin.active_skill.name == "skill-a"
 
-        skills_tool(action="activate", skill_name="skill-b")
+        skills_tool(skill_name="skill-b")
         assert plugin.active_skill.name == "skill-b"
 
     def test_activate_without_name(self):
@@ -225,32 +225,9 @@ class TestSkillsTool:
         plugin._agent = _mock_agent()
 
         skills_tool = _make_skills_tool(plugin)
-        result = skills_tool(action="activate", skill_name="")
+        result = skills_tool(skill_name="")
 
         assert "required" in result.lower()
-
-    def test_deactivate_skill(self):
-        """Test deactivating a skill."""
-        skill = _make_skill()
-        plugin = SkillsPlugin(skills=[skill])
-        plugin._agent = _mock_agent()
-        plugin._active_skill = skill
-
-        skills_tool = _make_skills_tool(plugin)
-        result = skills_tool(action="deactivate", skill_name="test-skill")
-
-        assert "deactivated" in result.lower()
-        assert plugin.active_skill is None
-
-    def test_unknown_action(self):
-        """Test unknown action returns error message."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
-        plugin._agent = _mock_agent()
-
-        skills_tool = _make_skills_tool(plugin)
-        result = skills_tool(action="unknown")
-
-        assert "Unknown action" in result
 
     def test_activate_persists_state(self):
         """Test that activating a skill persists state."""
@@ -259,7 +236,7 @@ class TestSkillsTool:
         plugin._agent = agent
 
         skills_tool = _make_skills_tool(plugin)
-        skills_tool(action="activate", skill_name="test-skill")
+        skills_tool(skill_name="test-skill")
 
         agent.state.set.assert_called()
 
@@ -293,24 +270,21 @@ class TestSystemPromptInjection:
         assert agent._system_prompt.startswith("Original prompt.")
         assert "<available_skills>" in agent._system_prompt
 
-    def test_after_invocation_restores_prompt(self):
-        """Test that after_invocation restores the original system prompt."""
+    def test_repeated_invocations_do_not_accumulate(self):
+        """Test that repeated invocations rebuild from original prompt."""
         plugin = SkillsPlugin(skills=[_make_skill()])
         agent = _mock_agent()
-        original_prompt = "Original prompt."
-        original_content = [{"text": "Original prompt."}]
-        agent._system_prompt = original_prompt
-        agent._system_prompt_content = original_content
+        agent._system_prompt = "Original prompt."
+        agent._system_prompt_content = [{"text": "Original prompt."}]
 
-        # Simulate before/after cycle
-        before_event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(before_event)
-        assert agent._system_prompt != original_prompt
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+        first_prompt = agent._system_prompt
 
-        after_event = AfterInvocationEvent(agent=agent)
-        plugin._on_after_invocation(after_event)
-        assert agent._system_prompt == original_prompt
-        assert agent._system_prompt_content == original_content
+        plugin._on_before_invocation(event)
+        second_prompt = agent._system_prompt
+
+        assert first_prompt == second_prompt
 
     def test_no_skills_skips_injection(self):
         """Test that injection is skipped when no skills are available."""
