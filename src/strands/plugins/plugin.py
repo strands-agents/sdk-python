@@ -9,7 +9,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable
 from typing import TYPE_CHECKING
 
-from strands.tools.decorator import DecoratedFunctionTool
+from ..tools.decorator import DecoratedFunctionTool
+from .decorator import _WrappedHookCallable
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -74,17 +75,13 @@ class Plugin(ABC):
         Scans the class for methods decorated with @hook and @tool and stores
         references for later registration when init_plugin is called.
         """
-        self._hooks: list[object] = []
+        self._hooks: list[_WrappedHookCallable] = []
         self._tools: list[DecoratedFunctionTool] = []
         self._discover_decorated_methods()
 
     def _discover_decorated_methods(self) -> None:
         """Scan class for @hook and @tool decorated methods."""
         for name in dir(self):
-            # Skip private and dunder methods
-            if name.startswith("_"):
-                continue
-
             try:
                 attr = getattr(self, name)
             except Exception:
@@ -118,7 +115,7 @@ class Plugin(ABC):
         for hook_callback in self._hooks:
             event_types = getattr(hook_callback, "_hook_event_types", [])
             for event_type in event_types:
-                agent.hooks.add_callback(event_type, hook_callback)
+                agent.add_hook(hook_callback, event_type)
                 logger.debug(
                     "plugin=<%s>, hook=<%s>, event_type=<%s> | registered hook",
                     self.name,
