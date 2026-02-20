@@ -328,17 +328,25 @@ def test_multi_prompt_system_content():
     agent("Hello!")
 
 
-def test_prompt_caching_with_5m_ttl(streaming_model):
+def test_prompt_caching_with_5m_ttl():
     """Test prompt caching with 5 minute TTL and verify cache metrics.
 
     This test verifies:
     1. First call creates cache (cacheWriteInputTokens > 0)
     2. Second call reads from cache (cacheReadInputTokens > 0)
+
+    Uses Claude Haiku 4.5 which supports TTL in CachePointBlock on Bedrock.
+    Older models (e.g. Claude Sonnet 4) reject the TTL field with a ValidationException.
     """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        streaming=False,
+    )
+
     # Use unique identifier to avoid cache conflicts between test runs
     unique_id = str(uuid.uuid4())
-    # Minimum 1024 tokens required for caching
-    large_context = f"Background information for test {unique_id}: " + ("This is important context. " * 200)
+    # Minimum 4096 tokens required for caching with Haiku 4.5
+    large_context = f"Background information for test {unique_id}: " + ("This is important context. " * 1000)
 
     system_prompt_with_cache = [
         {"text": large_context},
@@ -347,7 +355,7 @@ def test_prompt_caching_with_5m_ttl(streaming_model):
     ]
 
     agent = Agent(
-        model=streaming_model,
+        model=model,
         system_prompt=system_prompt_with_cache,
         load_tools_from_directory=False,
     )
@@ -371,16 +379,22 @@ def test_prompt_caching_with_5m_ttl(streaming_model):
     )
 
 
-def test_prompt_caching_with_1h_ttl(non_streaming_model):
+def test_prompt_caching_with_1h_ttl():
     """Test prompt caching with 1 hour TTL and verify cache metrics.
 
+    Uses Claude Haiku 4.5 which supports 1hr TTL.
     Uses unique content per test run to avoid cache conflicts with concurrent CI runs.
     Even with 1hr TTL, unique content ensures cache entries don't interfere across tests.
     """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        streaming=False,
+    )
+
     # Use timestamp to ensure unique content per test run (avoids CI conflicts)
     unique_id = str(int(time.time() * 1000000))  # microsecond timestamp
-    # Minimum 1024 tokens required for caching
-    large_context = f"Background information for test {unique_id}: " + ("This is important context. " * 200)
+    # Minimum 4096 tokens required for caching with Haiku 4.5
+    large_context = f"Background information for test {unique_id}: " + ("This is important context. " * 1000)
 
     system_prompt_with_cache = [
         {"text": large_context},
@@ -389,7 +403,7 @@ def test_prompt_caching_with_1h_ttl(non_streaming_model):
     ]
 
     agent = Agent(
-        model=non_streaming_model,
+        model=model,
         system_prompt=system_prompt_with_cache,
         load_tools_from_directory=False,
     )
@@ -413,13 +427,21 @@ def test_prompt_caching_with_1h_ttl(non_streaming_model):
     )
 
 
-def test_prompt_caching_with_ttl_in_messages(streaming_model):
-    """Test prompt caching with TTL in message content and verify cache metrics."""
-    agent = Agent(model=streaming_model, load_tools_from_directory=False)
+def test_prompt_caching_with_ttl_in_messages():
+    """Test prompt caching with TTL in message content and verify cache metrics.
+
+    Uses Claude Haiku 4.5 which supports TTL in CachePointBlock on Bedrock.
+    Older models (e.g. Claude Sonnet 4) reject the TTL field with a ValidationException.
+    """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        streaming=False,
+    )
+    agent = Agent(model=model, load_tools_from_directory=False)
 
     unique_id = str(uuid.uuid4())
-    # Large content block to cache (minimum 1024 tokens)
-    large_text = f"Important context for test {unique_id}: " + ("This is critical information. " * 200)
+    # Minimum 4096 tokens required for caching with Haiku 4.5
+    large_text = f"Important context for test {unique_id}: " + ("This is critical information. " * 1000)
 
     content_with_cache = [
         {"text": large_text},
