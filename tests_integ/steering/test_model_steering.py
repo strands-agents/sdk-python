@@ -39,7 +39,7 @@ class SimpleModelSteeringHandler(SteeringHandler):
 def test_model_steering_proceeds_without_intervention():
     """Test that model steering can accept responses without modification."""
     handler = SimpleModelSteeringHandler(should_guide=False)
-    agent = Agent(hooks=[handler])
+    agent = Agent(plugins=[handler])
 
     response = agent("What is 2+2?")
 
@@ -54,7 +54,7 @@ def test_model_steering_proceeds_without_intervention():
 def test_model_steering_guide_triggers_retry():
     """Test that Guide action triggers model retry."""
     handler = SimpleModelSteeringHandler(should_guide=True, guidance_message="Please provide a more detailed response.")
-    agent = Agent(hooks=[handler])
+    agent = Agent(plugins=[handler])
 
     response = agent("What is the capital of France?")
 
@@ -85,7 +85,7 @@ def test_model_steering_guide_influences_retry_response():
             return Proceed(reason="Response is good now")
 
     handler = SpecificGuidanceHandler()
-    agent = Agent(hooks=[handler])
+    agent = Agent(plugins=[handler])
 
     response = agent("What is the capital of France?")
 
@@ -122,7 +122,7 @@ def test_model_steering_multiple_retries():
             return Proceed(reason="Response is good now")
 
     handler = MultiRetryHandler()
-    agent = Agent(hooks=[handler])
+    agent = Agent(plugins=[handler])
 
     response = agent("Explain machine learning.")
 
@@ -195,7 +195,7 @@ def test_model_steering_forces_tool_usage_on_unrelated_prompt():
             return Proceed(reason="Guidance was provided")
 
     handler = ForceToolUsageHandler(required_tool="log_activity")
-    agent = Agent(tools=[log_activity], hooks=[handler])
+    agent = Agent(tools=[log_activity], plugins=[handler])
 
     # Ask a question that clearly doesn't need the logging tool
     response = agent("What is 2 + 2?")
