@@ -4,9 +4,9 @@ This module defines the Plugin base class, which provides a composable way to
 add behavior changes to agents through a standardized initialization pattern.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable
-import logging
 from typing import TYPE_CHECKING
 
 from strands.tools.decorator import DecoratedFunctionTool
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from ..agent import Agent
 
 logger = logging.getLogger(__name__)
+
 
 class Plugin(ABC):
     """Base class for objects that extend agent functionality.
@@ -99,7 +100,6 @@ class Plugin(ABC):
             if isinstance(attr, DecoratedFunctionTool):
                 self._tools.append(attr)
                 logger.debug("plugin=<%s>, tool=<%s> | discovered tool method", self.name, name)
-
 
     def init_agent(self, agent: "Agent") -> None | Awaitable[None]:
         """Initialize the agent instance.

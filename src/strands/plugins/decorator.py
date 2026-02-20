@@ -29,86 +29,13 @@ Example:
     ```
 """
 
-import functools
-import inspect
-import logging
-import types
 from collections.abc import Callable
-from typing import TypeVar, Union, cast, get_args, get_origin, get_type_hints, overload
+from typing import TypeVar, overload
 
-from ..hooks.registry import BaseHookEvent, HookCallback, TEvent
-
-logger = logging.getLogger(__name__)
+from ..hooks._type_inference import infer_event_types
 
 # Type for wrapped function
 T = TypeVar("T", bound=Callable[..., object])
-
-
-def _infer_event_types(callback: HookCallback[TEvent]) -> list[type[TEvent]]:
-    """Infer the event type(s) from a callback's type hints.
-
-    Supports both single types and union types (A | B or Union[A, B]).
-
-    This logic is adapted from HookRegistry._infer_event_types to provide
-    consistent behavior for event type inference.
-
-    Args:
-        callback: The callback function to inspect.
-
-    Returns:
-        A list of event types inferred from the callback's first parameter type hint.
-
-    Raises:
-        ValueError: If the event type cannot be inferred from the callback's type hints,
-            or if a union contains None or non-BaseHookEvent types.
-    """
-    try:
-        hints = get_type_hints(callback)
-    except Exception as e:
-        logger.debug("callback=<%s>, error=<%s> | failed to get type hints", callback, e)
-        raise ValueError(
-            "failed to get type hints for callback | cannot infer event type, please provide event_type explicitly"
-        ) from e
-
-    # Get the first parameter's type hint
-    sig = inspect.signature(callback)
-    params = list(sig.parameters.values())
-
-    if not params:
-        raise ValueError("callback has no parameters | cannot infer event type, please provide event_type explicitly")
-
-    # For methods, skip 'self' parameter
-    first_param = params[0]
-    if first_param.name == "self" and len(params) > 1:
-        first_param = params[1]
-
-    type_hint = hints.get(first_param.name)
-
-    if type_hint is None:
-        raise ValueError(
-            f"parameter=<{first_param.name}> has no type hint | "
-            "cannot infer event type, please provide event_type explicitly"
-        )
-
-    # Check if it's a Union type (Union[A, B] or A | B)
-    origin = get_origin(type_hint)
-    if origin is Union or origin is types.UnionType:
-        event_types: list[type[TEvent]] = []
-        for arg in get_args(type_hint):
-            if arg is type(None):
-                raise ValueError("None is not a valid event type in union")
-            if not (isinstance(arg, type) and issubclass(arg, BaseHookEvent)):
-                raise ValueError(f"Invalid type in union: {arg} | must be a subclass of BaseHookEvent")
-            event_types.append(cast(type[TEvent], arg))
-        return event_types
-
-    # Handle single type
-    if isinstance(type_hint, type) and issubclass(type_hint, BaseHookEvent):
-        return [cast(type[TEvent], type_hint)]
-
-    raise ValueError(
-        f"parameter=<{first_param.name}>, type=<{type_hint}> | type hint must be a subclass of BaseHookEvent"
-    )
 
 
 # Handle @hook
@@ -165,21 +92,13 @@ def hook(  # type: ignore[misc]
     """
 
     def decorator(f: T) -> T:
-        # Infer event types from type hints
-        event_types = _infer_event_types(f)
+        # Infer event types from type hints (skip 'self' for methods)
+        event_types = infer_event_types(f, skip_self=True)
 
         # Store hook metadata on the function
-        f._hook_event_types = event_types
+        f._hook_event_types = event_types  # type: ignore[attr-defined]
 
-        # Preserve original function metadata
-        @functools.wraps(f)
-        def wrapper(*args: object, **kwargs: object) -> object:
-            return f(*args, **kwargs)
-
-        # Copy hook metadata to wrapper
-        wrapper._hook_event_types = event_types
-
-        return cast(T, wrapper)
+        return f
 
     # Handle both @hook and @hook() syntax
     if func is None:
