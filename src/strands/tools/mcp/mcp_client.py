@@ -24,8 +24,10 @@ from typing import Any, TypeVar, cast
 import anyio
 from mcp import ClientSession, ListToolsResult
 from mcp.client.session import ElicitationFnT
+from mcp.shared.exceptions import McpError
 from mcp.types import (
     BlobResourceContents,
+    ElicitationRequiredErrorData,
     GetPromptResult,
     ListPromptsResult,
     ListResourcesResult,
@@ -37,8 +39,6 @@ from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import EmbeddedResource as MCPEmbeddedResource
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
-from mcp.types import ElicitationRequiredErrorData
-from mcp.shared.exceptions import McpError
 from pydantic import AnyUrl
 from typing_extensions import Protocol, TypedDict
 
@@ -669,7 +669,8 @@ class MCPClient(ToolProvider):
             return self._handle_tool_execution_error(tool_use_id, e)
 
     def _handle_tool_execution_error(self, tool_use_id: str, exception: Exception) -> MCPToolResult:
-        """Create error ToolResult with consistent logging and elicitation callback support
+        """Create error ToolResult with consistent logging and elicitation callback support.
+
         Args:
             tool_use_id: Unique identifier for this tool use.
             exception: The exception that occurred during tool execution.
@@ -691,14 +692,16 @@ class MCPClient(ToolProvider):
                     return MCPToolResult(
                         status="error",
                         toolUseId=tool_use_id,
-                        content=[{
-                            "text": (
-                                f"URL_ELICITATION_REQUIRED: {message}\n\n"
-                                f"The user must open the following URL(s) in their browser "
-                                f"to complete authorization:\n\n{url_list}\n\n"
-                                f"After the user completes the flow, retry this tool call."
-                            )
-                        }],
+                        content=[
+                            {
+                                "text": (
+                                    f"URL_ELICITATION_REQUIRED: {message}\n\n"
+                                    f"The user must open the following URL(s) in their browser "
+                                    f"to complete authorization:\n\n{url_list}\n\n"
+                                    f"After the user completes the flow, retry this tool call."
+                                )
+                            }
+                        ],
                     )
             except Exception:
                 logger.debug("Failed to parse ElicitationRequiredErrorData from -32042 error", exc_info=True)
