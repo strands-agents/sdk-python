@@ -37,6 +37,8 @@ from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import EmbeddedResource as MCPEmbeddedResource
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
+from mcp.types import ElicitationRequiredErrorData
+from mcp.shared.exceptions import McpError
 from pydantic import AnyUrl
 from typing_extensions import Protocol, TypedDict
 
@@ -667,7 +669,40 @@ class MCPClient(ToolProvider):
             return self._handle_tool_execution_error(tool_use_id, e)
 
     def _handle_tool_execution_error(self, tool_use_id: str, exception: Exception) -> MCPToolResult:
-        """Create error ToolResult with consistent logging."""
+        """Create error ToolResult with consistent logging and elicitation callback support
+        Args:
+            tool_use_id: Unique identifier for this tool use.
+            exception: The exception that occurred during tool execution.
+
+        Returns:
+            MCPToolResult: Error result containing either the elicitation URL(s) or the
+                original exception message.
+        """
+        if isinstance(exception, McpError) and exception.error.code == -32042:
+            try:
+                error_data = ElicitationRequiredErrorData.model_validate(exception.error.data)
+                elicitation_urls = [e.url for e in error_data.elicitations if e.url]
+                elicitation_messages = [e.message for e in error_data.elicitations if e.message]
+
+                if elicitation_urls:
+                    url_list = "\n".join(elicitation_urls)
+                    message = elicitation_messages[0] if elicitation_messages else "Authorization required."
+
+                    return MCPToolResult(
+                        status="error",
+                        toolUseId=tool_use_id,
+                        content=[{
+                            "text": (
+                                f"URL_ELICITATION_REQUIRED: {message}\n\n"
+                                f"The user must open the following URL(s) in their browser "
+                                f"to complete authorization:\n\n{url_list}\n\n"
+                                f"After the user completes the flow, retry this tool call."
+                            )
+                        }],
+                    )
+            except Exception:
+                logger.debug("Failed to parse ElicitationRequiredErrorData from -32042 error", exc_info=True)
+
         return MCPToolResult(
             status="error",
             toolUseId=tool_use_id,
