@@ -12,8 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ...hooks.events import BeforeInvocationEvent
-from ...hooks.registry import HookRegistry
-from ...plugins.plugin import Plugin
+from ...plugins import Plugin, hook
 from ...tools.decorator import tool
 from .loader import load_skill, load_skills
 from .skill import Skill
@@ -24,44 +23,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STATE_KEY = "skills_plugin"
-
-
-def _make_skills_tool(plugin: SkillsPlugin) -> Any:
-    """Create the skills tool that allows the agent to activate skills.
-
-    Args:
-        plugin: The SkillsPlugin instance that manages skill state.
-
-    Returns:
-        A decorated tool function for skill activation.
-    """
-
-    @tool
-    def skills(skill_name: str) -> str:
-        """Activate a skill to load its full instructions.
-
-        Use this tool to load the complete instructions for a skill listed in
-        the available_skills section of your system prompt. Activating a new
-        skill replaces the previously active one.
-
-        Args:
-            skill_name: Name of the skill to activate.
-        """
-        if not skill_name:
-            return "Error: skill_name is required."
-
-        found = plugin._find_skill(skill_name)
-        if found is None:
-            available = ", ".join(s.name for s in plugin._skills)
-            return f"Skill '{skill_name}' not found. Available skills: {available}"
-
-        plugin._active_skill = found
-        plugin._persist_state()
-
-        logger.debug("skill_name=<%s> | skill activated", skill_name)
-        return found.instructions or f"Skill '{skill_name}' activated (no instructions available)."
-
-    return skills
 
 
 class SkillsPlugin(Plugin):
@@ -112,64 +73,48 @@ class SkillsPlugin(Plugin):
         self._active_skill: Skill | None = None
         self._agent: Agent | None = None
         self._original_system_prompt: str | None = None
+        super().__init__()
 
     def init_plugin(self, agent: Agent) -> None:
         """Initialize the plugin with an agent instance.
 
-        Registers the skills tool and hooks with the agent.
+        Registers the skills tool and hooks with the agent, then restores
+        any persisted state from a previous session.
 
         Args:
             agent: The agent instance to extend with skills support.
         """
         self._agent = agent
-
-        agent.tool_registry.process_tools([_make_skills_tool(self)])
-        agent.hooks.add_hook(self)
-
+        super().init_plugin(agent)
         self._restore_state()
-
         logger.debug("skill_count=<%d> | skills plugin initialized", len(self._skills))
 
-    def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
-        """Register hook callbacks with the agent's hook registry.
+    @tool
+    def skills(self, skill_name: str) -> str:
+        """Activate a skill to load its full instructions.
+
+        Use this tool to load the complete instructions for a skill listed in
+        the available_skills section of your system prompt. Activating a new
+        skill replaces the previously active one.
 
         Args:
-            registry: The hook registry to register callbacks with.
-            **kwargs: Additional keyword arguments for future extensibility.
+            skill_name: Name of the skill to activate.
         """
-        registry.add_callback(BeforeInvocationEvent, self._on_before_invocation)
+        if not skill_name:
+            return "Error: skill_name is required."
 
-    @property
-    def skills(self) -> list[Skill]:
-        """Get the list of available skills.
+        found = self._find_skill(skill_name)
+        if found is None:
+            available = ", ".join(s.name for s in self._skills)
+            return f"Skill '{skill_name}' not found. Available skills: {available}"
 
-        Returns:
-            A copy of the current skills list.
-        """
-        return list(self._skills)
-
-    @skills.setter
-    def skills(self, value: list[str | Path | Skill]) -> None:
-        """Set the available skills, resolving paths as needed.
-
-        Deactivates any currently active skill when skills are changed.
-
-        Args:
-            value: List of skill sources to resolve.
-        """
-        self._skills = self._resolve_skills(value)
-        self._active_skill = None
+        self._active_skill = found
         self._persist_state()
 
-    @property
-    def active_skill(self) -> Skill | None:
-        """Get the currently active skill.
+        logger.debug("skill_name=<%s> | skill activated", skill_name)
+        return found.instructions or f"Skill '{skill_name}' activated (no instructions available)."
 
-        Returns:
-            The active Skill instance, or None if no skill is active.
-        """
-        return self._active_skill
-
+    @hook
     def _on_before_invocation(self, event: BeforeInvocationEvent) -> None:
         """Inject skill metadata into the system prompt before each invocation.
 
@@ -193,6 +138,37 @@ class SkillsPlugin(Plugin):
 
         agent._system_prompt = new_prompt
         agent._system_prompt_content = [{"text": new_prompt}]
+
+    @property
+    def available_skills(self) -> list[Skill]:
+        """Get the list of available skills.
+
+        Returns:
+            A copy of the current skills list.
+        """
+        return list(self._skills)
+
+    @available_skills.setter
+    def available_skills(self, value: list[str | Path | Skill]) -> None:
+        """Set the available skills, resolving paths as needed.
+
+        Deactivates any currently active skill when skills are changed.
+
+        Args:
+            value: List of skill sources to resolve.
+        """
+        self._skills = self._resolve_skills(value)
+        self._active_skill = None
+        self._persist_state()
+
+    @property
+    def active_skill(self) -> Skill | None:
+        """Get the currently active skill.
+
+        Returns:
+            The active Skill instance, or None if no skill is active.
+        """
+        return self._active_skill
 
     def _generate_skills_xml(self) -> str:
         """Generate the XML block listing available skills for the system prompt.

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 from strands.hooks.events import BeforeInvocationEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins.skills.skill import Skill
-from strands.plugins.skills.skills_plugin import SkillsPlugin, _make_skills_tool
+from strands.plugins.skills.skills_plugin import SkillsPlugin
 
 
 def _make_skill(name: str = "test-skill", description: str = "A test skill", instructions: str = "Do the thing."):
@@ -29,6 +29,9 @@ def _mock_agent():
     agent._system_prompt = "You are an agent."
     agent._system_prompt_content = [{"text": "You are an agent."}]
     agent.hooks = HookRegistry()
+    agent.add_hook = MagicMock(
+        side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback)
+    )
     agent.tool_registry = MagicMock()
     agent.tool_registry.process_tools = MagicMock(return_value=["skills"])
     agent.state = MagicMock()
@@ -45,16 +48,16 @@ class TestSkillsPluginInit:
         skill = _make_skill()
         plugin = SkillsPlugin(skills=[skill])
 
-        assert len(plugin.skills) == 1
-        assert plugin.skills[0].name == "test-skill"
+        assert len(plugin.available_skills) == 1
+        assert plugin.available_skills[0].name == "test-skill"
 
     def test_init_with_filesystem_paths(self, tmp_path):
         """Test initialization with filesystem paths."""
         _make_skill_dir(tmp_path, "fs-skill")
         plugin = SkillsPlugin(skills=[str(tmp_path / "fs-skill")])
 
-        assert len(plugin.skills) == 1
-        assert plugin.skills[0].name == "fs-skill"
+        assert len(plugin.available_skills) == 1
+        assert plugin.available_skills[0].name == "fs-skill"
 
     def test_init_with_parent_directory(self, tmp_path):
         """Test initialization with a parent directory containing skills."""
@@ -62,7 +65,7 @@ class TestSkillsPluginInit:
         _make_skill_dir(tmp_path, "skill-b")
         plugin = SkillsPlugin(skills=[tmp_path])
 
-        assert len(plugin.skills) == 2
+        assert len(plugin.available_skills) == 2
 
     def test_init_with_mixed_sources(self, tmp_path):
         """Test initialization with mixed skill sources."""
@@ -70,19 +73,19 @@ class TestSkillsPluginInit:
         direct_skill = _make_skill(name="direct-skill", description="Direct")
         plugin = SkillsPlugin(skills=[str(tmp_path / "fs-skill"), direct_skill])
 
-        assert len(plugin.skills) == 2
-        names = {s.name for s in plugin.skills}
+        assert len(plugin.available_skills) == 2
+        names = {s.name for s in plugin.available_skills}
         assert names == {"fs-skill", "direct-skill"}
 
     def test_init_skips_nonexistent_paths(self, tmp_path):
         """Test that nonexistent paths are skipped gracefully."""
         plugin = SkillsPlugin(skills=[str(tmp_path / "nonexistent")])
-        assert len(plugin.skills) == 0
+        assert len(plugin.available_skills) == 0
 
     def test_init_empty_skills(self):
         """Test initialization with empty skills list."""
         plugin = SkillsPlugin(skills=[])
-        assert plugin.skills == []
+        assert plugin.available_skills == []
         assert plugin.active_skill is None
 
     def test_name_attribute(self):
@@ -102,8 +105,6 @@ class TestSkillsPluginInitPlugin:
         plugin.init_plugin(agent)
 
         agent.tool_registry.process_tools.assert_called_once()
-        args = agent.tool_registry.process_tools.call_args[0][0]
-        assert len(args) == 1
 
     def test_registers_hooks(self):
         """Test that init_plugin registers hook callbacks."""
@@ -112,7 +113,6 @@ class TestSkillsPluginInitPlugin:
 
         plugin.init_plugin(agent)
 
-        # Verify hooks were registered by checking the registry has callbacks
         assert agent.hooks.has_callbacks()
 
     def test_stores_agent_reference(self):
@@ -140,34 +140,34 @@ class TestSkillsPluginInitPlugin:
 class TestSkillsPluginProperties:
     """Tests for SkillsPlugin properties."""
 
-    def test_skills_getter_returns_copy(self):
-        """Test that the skills getter returns a copy of the list."""
+    def test_available_skills_getter_returns_copy(self):
+        """Test that the available_skills getter returns a copy of the list."""
         skill = _make_skill()
         plugin = SkillsPlugin(skills=[skill])
 
-        skills_list = plugin.skills
+        skills_list = plugin.available_skills
         skills_list.append(_make_skill(name="another-skill", description="Another"))
 
-        assert len(plugin.skills) == 1
+        assert len(plugin.available_skills) == 1
 
-    def test_skills_setter(self):
+    def test_available_skills_setter(self):
         """Test setting skills via the property setter."""
         plugin = SkillsPlugin(skills=[_make_skill()])
         plugin._agent = _mock_agent()
 
         new_skill = _make_skill(name="new-skill", description="New")
-        plugin.skills = [new_skill]
+        plugin.available_skills = [new_skill]
 
-        assert len(plugin.skills) == 1
-        assert plugin.skills[0].name == "new-skill"
+        assert len(plugin.available_skills) == 1
+        assert plugin.available_skills[0].name == "new-skill"
 
-    def test_skills_setter_deactivates_current(self):
+    def test_available_skills_setter_deactivates_current(self):
         """Test that setting skills deactivates the current active skill."""
         plugin = SkillsPlugin(skills=[_make_skill()])
         plugin._agent = _mock_agent()
         plugin._active_skill = _make_skill()
 
-        plugin.skills = [_make_skill(name="new-skill", description="New")]
+        plugin.available_skills = [_make_skill(name="new-skill", description="New")]
 
         assert plugin.active_skill is None
 
@@ -178,7 +178,7 @@ class TestSkillsPluginProperties:
 
 
 class TestSkillsTool:
-    """Tests for the skills tool function."""
+    """Tests for the skills tool method."""
 
     def test_activate_skill(self):
         """Test activating a skill returns its instructions."""
@@ -186,8 +186,7 @@ class TestSkillsTool:
         plugin = SkillsPlugin(skills=[skill])
         plugin._agent = _mock_agent()
 
-        skills_tool = _make_skills_tool(plugin)
-        result = skills_tool(skill_name="test-skill")
+        result = plugin.skills(skill_name="test-skill")
 
         assert result == "Full instructions here."
         assert plugin.active_skill is not None
@@ -199,8 +198,7 @@ class TestSkillsTool:
         plugin = SkillsPlugin(skills=[skill])
         plugin._agent = _mock_agent()
 
-        skills_tool = _make_skills_tool(plugin)
-        result = skills_tool(skill_name="nonexistent")
+        result = plugin.skills(skill_name="nonexistent")
 
         assert "not found" in result
         assert "test-skill" in result
@@ -212,11 +210,10 @@ class TestSkillsTool:
         plugin = SkillsPlugin(skills=[skill1, skill2])
         plugin._agent = _mock_agent()
 
-        skills_tool = _make_skills_tool(plugin)
-        skills_tool(skill_name="skill-a")
+        plugin.skills(skill_name="skill-a")
         assert plugin.active_skill.name == "skill-a"
 
-        skills_tool(skill_name="skill-b")
+        plugin.skills(skill_name="skill-b")
         assert plugin.active_skill.name == "skill-b"
 
     def test_activate_without_name(self):
@@ -224,8 +221,7 @@ class TestSkillsTool:
         plugin = SkillsPlugin(skills=[_make_skill()])
         plugin._agent = _mock_agent()
 
-        skills_tool = _make_skills_tool(plugin)
-        result = skills_tool(skill_name="")
+        result = plugin.skills(skill_name="")
 
         assert "required" in result.lower()
 
@@ -235,8 +231,7 @@ class TestSkillsTool:
         agent = _mock_agent()
         plugin._agent = agent
 
-        skills_tool = _make_skills_tool(plugin)
-        skills_tool(skill_name="test-skill")
+        plugin.skills(skill_name="test-skill")
 
         agent.state.set.assert_called()
 
@@ -344,19 +339,6 @@ class TestSkillsXmlGeneration:
 
         assert "<available_skills>" in xml
         assert "</available_skills>" in xml
-
-
-class TestHookRegistration:
-    """Tests for hook registration."""
-
-    def test_register_hooks(self):
-        """Test that register_hooks adds callbacks to the registry."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
-        registry = HookRegistry()
-
-        plugin.register_hooks(registry)
-
-        assert registry.has_callbacks()
 
 
 class TestSessionPersistence:

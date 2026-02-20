@@ -237,6 +237,7 @@ def test_handler_registers_context_provider_hooks():
     # Context callback should be registered
     assert BeforeToolCallEvent in event_types
 
+
 @pytest.mark.asyncio
 async def test_context_callbacks_receive_steering_context():
     """Test that context callbacks receive the handler's steering context."""
