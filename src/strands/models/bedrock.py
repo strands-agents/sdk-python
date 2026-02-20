@@ -530,7 +530,14 @@ class BedrockModel(Model):
         if "guardContent" in content:
             guard = content["guardContent"]
             guard_text = guard["text"]
-            result = {"text": {"text": guard_text["text"], "qualifiers": guard_text["qualifiers"]}}
+
+            # Start with the required 'text' field
+            result = {"text": {"text": guard_text["text"]}}
+
+            # Check for the optional 'qualifiers' field and add it only if it exists
+            if "qualifiers" in guard_text:
+                result["text"]["qualifiers"] = guard_text["qualifiers"]
+
             return {"guardContent": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
