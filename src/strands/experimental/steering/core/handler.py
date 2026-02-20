@@ -38,7 +38,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from ....hooks.events import AfterModelCallEvent, BeforeToolCallEvent
-from ....plugins.plugin import Plugin
+from ....plugins import Plugin, hook
 from ....types.content import Message
 from ....types.streaming import StopReason
 from ....types.tools import ToolUse
@@ -66,6 +66,7 @@ class SteeringHandler(Plugin):
         Args:
             context_providers: List of context providers for context updates
         """
+        super().__init__()
         self.steering_context = SteeringContext()
         self._context_callbacks = []
 
@@ -83,17 +84,14 @@ class SteeringHandler(Plugin):
         Args:
             agent: The agent instance to attach steering to.
         """
+        super().init_plugin(agent)
+
         # Register context update callbacks
         for callback in self._context_callbacks:
             agent.add_hook(lambda event, callback=callback: callback(event, self.steering_context), callback.event_type)
 
-        # Register tool steering guidance
-        agent.add_hook(self._provide_tool_steering_guidance, BeforeToolCallEvent)
-
-        # Register model steering guidance
-        agent.add_hook(self._provide_model_steering_guidance, AfterModelCallEvent)
-
-    async def _provide_tool_steering_guidance(self, event: BeforeToolCallEvent) -> None:
+    @hook
+    async def provide_tool_steering_guidance(self, event: BeforeToolCallEvent) -> None:
         """Provide steering guidance for tool call."""
         tool_name = event.tool_use["name"]
         logger.debug("tool_name=<%s> | providing tool steering guidance", tool_name)
@@ -133,7 +131,8 @@ class SteeringHandler(Plugin):
         else:
             raise ValueError(f"Unknown steering action type for tool call: {action}")
 
-    async def _provide_model_steering_guidance(self, event: AfterModelCallEvent) -> None:
+    @hook
+    async def provide_model_steering_guidance(self, event: AfterModelCallEvent) -> None:
         """Provide steering guidance for model response."""
         logger.debug("providing model steering guidance")
 
