@@ -7,7 +7,7 @@ import pytest
 from strands.plugins import Plugin
 from strands.plugins.registry import _PluginRegistry
 
-# Plugin Protocol Tests
+# Plugin Tests
 
 
 def test_plugin_class_requires_inheritance():

@@ -56,8 +56,6 @@ class SteeringHandler(Plugin):
 
     Steering handlers maintain local context and register hook callbacks
     to populate context data as needed for guidance decisions.
-
-    Implements the Plugin protocol for agent integration.
     """
 
     name: str = "steering"

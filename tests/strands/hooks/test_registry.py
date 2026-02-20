@@ -164,6 +164,7 @@ def test_hook_registry_add_callback_with_explicit_event_type_and_callback(regist
     assert BeforeInvocationEvent in registry._registered_callbacks
     assert callback in registry._registered_callbacks[BeforeInvocationEvent]
 
+
 # ========== Tests for union type support ==========
 
 

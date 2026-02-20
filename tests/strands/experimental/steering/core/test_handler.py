@@ -8,7 +8,7 @@ from strands.experimental.steering.core.action import Guide, Interrupt, Proceed
 from strands.experimental.steering.core.context import SteeringContext, SteeringContextCallback, SteeringContextProvider
 from strands.experimental.steering.core.handler import SteeringHandler
 from strands.hooks.events import AfterModelCallEvent, BeforeToolCallEvent
-from strands.plugins.plugin import Plugin
+from strands.plugins import Plugin
 
 
 class TestSteeringHandler(SteeringHandler):
@@ -25,14 +25,14 @@ def test_steering_handler_initialization():
 
 
 def test_steering_handler_has_name_attribute():
-    """Test SteeringHandler has name attribute for Plugin protocol."""
+    """Test SteeringHandler has name attribute for Plugin."""
     handler = TestSteeringHandler()
     assert hasattr(handler, "name")
     assert handler.name == "steering"
 
 
 def test_steering_handler_is_plugin():
-    """Test SteeringHandler implements Plugin protocol."""
+    """Test SteeringHandler implements Plugin."""
     handler = TestSteeringHandler()
     assert isinstance(handler, Plugin)
 
