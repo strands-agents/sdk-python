@@ -128,7 +128,11 @@ strands-agents/
 │   │
 │   ├── plugins/                          # Plugin system
 │   │   ├── plugin.py                     # Plugin Protocol definition
-│   │   └── registry.py                   # PluginRegistry for tracking plugins
+│   │   ├── registry.py                   # PluginRegistry for tracking plugins
+│   │   └── skills/                       # AgentSkills.io integration
+│   │       ├── skill.py                  # Skill dataclass
+│   │       ├── skills_plugin.py          # SkillsPlugin implementation
+│   │       └── loader.py                 # Skill loading/parsing from SKILL.md
 │   │
 │   ├── handlers/                         # Event handlers
 │   │   └── callback_handler.py           # Callback handling
