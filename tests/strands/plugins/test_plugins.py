@@ -10,10 +10,10 @@ from strands.plugins.registry import _PluginRegistry
 # Plugin Protocol Tests
 
 
-def test_plugin_protocol_is_runtime_checkable():
-    """Test that Plugin Protocol is runtime checkable with isinstance."""
+def test_plugin_class_requires_inheritance():
+    """Test that Plugin class requires inheritance."""
 
-    class MyPlugin:
+    class MyPlugin(Plugin):
         name = "my-plugin"
 
         def init_plugin(self, agent):
@@ -23,10 +23,10 @@ def test_plugin_protocol_is_runtime_checkable():
     assert isinstance(plugin, Plugin)
 
 
-def test_plugin_protocol_sync_implementation():
-    """Test Plugin Protocol works with synchronous init_plugin."""
+def test_plugin_class_sync_implementation():
+    """Test Plugin class works with synchronous init_plugin."""
 
-    class SyncPlugin:
+    class SyncPlugin(Plugin):
         name = "sync-plugin"
 
         def init_plugin(self, agent):
@@ -35,7 +35,7 @@ def test_plugin_protocol_sync_implementation():
     plugin = SyncPlugin()
     mock_agent = unittest.mock.Mock()
 
-    # Verify the plugin matches the protocol
+    # Verify the plugin is an instance of Plugin
     assert isinstance(plugin, Plugin)
     assert plugin.name == "sync-plugin"
 
@@ -45,10 +45,10 @@ def test_plugin_protocol_sync_implementation():
 
 
 @pytest.mark.asyncio
-async def test_plugin_protocol_async_implementation():
-    """Test Plugin Protocol works with asynchronous init_plugin."""
+async def test_plugin_class_async_implementation():
+    """Test Plugin class works with asynchronous init_plugin."""
 
-    class AsyncPlugin:
+    class AsyncPlugin(Plugin):
         name = "async-plugin"
 
         async def init_plugin(self, agent):
@@ -57,7 +57,7 @@ async def test_plugin_protocol_async_implementation():
     plugin = AsyncPlugin()
     mock_agent = unittest.mock.Mock()
 
-    # Verify the plugin matches the protocol
+    # Verify the plugin is an instance of Plugin
     assert isinstance(plugin, Plugin)
     assert plugin.name == "async-plugin"
 
@@ -66,33 +66,33 @@ async def test_plugin_protocol_async_implementation():
     assert mock_agent.custom_attribute == "initialized by async plugin"
 
 
-def test_plugin_protocol_requires_name():
-    """Test that Plugin Protocol requires a name property."""
+def test_plugin_class_requires_name():
+    """Test that Plugin class requires a name property."""
 
-    class PluginWithoutName:
-        def init_plugin(self, agent):
-            pass
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
 
-    plugin = PluginWithoutName()
-    # A class without 'name' should not pass isinstance check
-    assert not isinstance(plugin, Plugin)
+        class PluginWithoutName(Plugin):
+            def init_plugin(self, agent):
+                pass
 
-
-def test_plugin_protocol_requires_init_plugin_method():
-    """Test that Plugin Protocol requires an init_plugin method."""
-
-    class PluginWithoutInitPlugin:
-        name = "incomplete-plugin"
-
-    plugin = PluginWithoutInitPlugin()
-    # A class without 'init_plugin' should not pass isinstance check
-    assert not isinstance(plugin, Plugin)
+        PluginWithoutName()
 
 
-def test_plugin_protocol_with_class_attribute_name():
-    """Test Plugin Protocol works when name is a class attribute."""
+def test_plugin_class_requires_init_plugin_method():
+    """Test that Plugin class requires an init_plugin method."""
 
-    class PluginWithClassAttribute:
+    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+
+        class PluginWithoutInitPlugin(Plugin):
+            name = "incomplete-plugin"
+
+        PluginWithoutInitPlugin()
+
+
+def test_plugin_class_with_class_attribute_name():
+    """Test Plugin class works when name is a class attribute."""
+
+    class PluginWithClassAttribute(Plugin):
         name: str = "class-attr-plugin"
 
         def init_plugin(self, agent):
@@ -103,10 +103,10 @@ def test_plugin_protocol_with_class_attribute_name():
     assert plugin.name == "class-attr-plugin"
 
 
-def test_plugin_protocol_with_property_name():
-    """Test Plugin Protocol works when name is a property."""
+def test_plugin_class_with_property_name():
+    """Test Plugin class works when name is a property."""
 
-    class PluginWithProperty:
+    class PluginWithProperty(Plugin):
         @property
         def name(self):
             return "property-plugin"
@@ -137,7 +137,7 @@ def registry(mock_agent):
 def test_plugin_registry_add_and_init_calls_init_plugin(registry, mock_agent):
     """Test adding a plugin calls its init_plugin method."""
 
-    class TestPlugin:
+    class TestPlugin(Plugin):
         name = "test-plugin"
 
         def __init__(self):
@@ -157,7 +157,7 @@ def test_plugin_registry_add_and_init_calls_init_plugin(registry, mock_agent):
 def test_plugin_registry_add_duplicate_raises_error(registry, mock_agent):
     """Test that adding a duplicate plugin raises an error."""
 
-    class TestPlugin:
+    class TestPlugin(Plugin):
         name = "test-plugin"
 
         def init_plugin(self, agent):
@@ -175,7 +175,7 @@ def test_plugin_registry_add_duplicate_raises_error(registry, mock_agent):
 def test_plugin_registry_add_and_init_with_async_plugin(registry, mock_agent):
     """Test that add_and_init handles async plugins using run_async."""
 
-    class AsyncPlugin:
+    class AsyncPlugin(Plugin):
         name = "async-plugin"
 
         def __init__(self):

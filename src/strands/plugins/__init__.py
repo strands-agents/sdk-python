@@ -7,7 +7,7 @@ Example Usage:
     ```python
     from strands.plugins import Plugin
 
-    class LoggingPlugin:
+    class LoggingPlugin(Plugin):
         name = "logging"
 
         def init_plugin(self, agent: Agent) -> None:

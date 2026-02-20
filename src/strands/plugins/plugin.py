@@ -1,19 +1,19 @@
-"""Plugin protocol for extending agent functionality.
+"""Plugin base class for extending agent functionality.
 
-This module defines the Plugin Protocol, which provides a composable way to
+This module defines the Plugin base class, which provides a composable way to
 add behavior changes to agents through a standardized initialization pattern.
 """
 
+from abc import ABC, abstractmethod
 from collections.abc import Awaitable
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..agent import Agent
 
 
-@runtime_checkable
-class Plugin(Protocol):
-    """Protocol for objects that extend agent functionality.
+class Plugin(ABC):
+    """Base class for objects that extend agent functionality.
 
     Plugins provide a composable way to add behavior changes to agents.
     They are initialized with an agent instance and can register hooks,
@@ -24,7 +24,7 @@ class Plugin(Protocol):
 
     Example:
         ```python
-        class MyPlugin:
+        class MyPlugin(Plugin):
             name = "my-plugin"
 
             def init_plugin(self, agent: Agent) -> None:
@@ -32,8 +32,13 @@ class Plugin(Protocol):
         ```
     """
 
-    name: str
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """A stable string identifier for the plugin."""
+        ...
 
+    @abstractmethod
     def init_plugin(self, agent: "Agent") -> None | Awaitable[None]:
         """Initialize the plugin with an agent instance.
 
