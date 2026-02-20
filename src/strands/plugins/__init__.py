@@ -19,7 +19,9 @@ Example Usage:
 """
 
 from .plugin import Plugin
+from .skills import SkillsPlugin
 
 __all__ = [
     "Plugin",
+    "SkillsPlugin",
 ]
