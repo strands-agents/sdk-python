@@ -9,24 +9,12 @@ via hook provider objects.
 
 import inspect
 import logging
-import types
 from collections.abc import Awaitable, Generator
 from dataclasses import dataclass
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Generic,
-    Protocol,
-    TypeVar,
-    Union,
-    cast,
-    get_args,
-    get_origin,
-    get_type_hints,
-    runtime_checkable,
-)
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, runtime_checkable
 
 from ..interrupt import Interrupt, InterruptException
+from ._type_inference import infer_event_types
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -276,51 +264,7 @@ class HookRegistry:
             ValueError: If the event type cannot be inferred from the callback's type hints,
                 or if a union contains None or non-BaseHookEvent types.
         """
-        try:
-            hints = get_type_hints(callback)
-        except Exception as e:
-            logger.debug("callback=<%s>, error=<%s> | failed to get type hints", callback, e)
-            raise ValueError(
-                "failed to get type hints for callback | cannot infer event type, please provide event_type explicitly"
-            ) from e
-
-        # Get the first parameter's type hint
-        sig = inspect.signature(callback)
-        params = list(sig.parameters.values())
-
-        if not params:
-            raise ValueError(
-                "callback has no parameters | cannot infer event type, please provide event_type explicitly"
-            )
-
-        first_param = params[0]
-        type_hint = hints.get(first_param.name)
-
-        if type_hint is None:
-            raise ValueError(
-                f"parameter=<{first_param.name}> has no type hint | "
-                "cannot infer event type, please provide event_type explicitly"
-            )
-
-        # Check if it's a Union type (Union[A, B] or A | B)
-        origin = get_origin(type_hint)
-        if origin is Union or origin is types.UnionType:
-            event_types: list[type[TEvent]] = []
-            for arg in get_args(type_hint):
-                if arg is type(None):
-                    raise ValueError("None is not a valid event type in union")
-                if not (isinstance(arg, type) and issubclass(arg, BaseHookEvent)):
-                    raise ValueError(f"Invalid type in union: {arg} | must be a subclass of BaseHookEvent")
-                event_types.append(cast(type[TEvent], arg))
-            return event_types
-
-        # Handle single type
-        if isinstance(type_hint, type) and issubclass(type_hint, BaseHookEvent):
-            return [cast(type[TEvent], type_hint)]
-
-        raise ValueError(
-            f"parameter=<{first_param.name}>, type=<{type_hint}> | type hint must be a subclass of BaseHookEvent"
-        )
+        return infer_event_types(callback, skip_self=False)
 
     def add_hook(self, hook: HookProvider) -> None:
         """Register all callbacks from a hook provider.
