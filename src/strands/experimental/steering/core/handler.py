@@ -35,11 +35,10 @@ SteeringAction handling for steer_after_model:
 """
 
 import logging
-from abc import ABC
 from typing import TYPE_CHECKING, Any
 
 from ....hooks.events import AfterModelCallEvent, BeforeToolCallEvent
-from ....hooks.registry import HookProvider, HookRegistry
+from ....plugins import Plugin, hook
 from ....types.content import Message
 from ....types.streaming import StopReason
 from ....types.tools import ToolUse
@@ -52,12 +51,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class SteeringHandler(HookProvider, ABC):
+class SteeringHandler(Plugin):
     """Base class for steering handlers that provide contextual guidance to agents.
 
     Steering handlers maintain local context and register hook callbacks
     to populate context data as needed for guidance decisions.
     """
+
+    name: str = "steering"
 
     def __init__(self, context_providers: list[SteeringContextProvider] | None = None):
         """Initialize the steering handler.
@@ -75,21 +76,22 @@ class SteeringHandler(HookProvider, ABC):
 
         logger.debug("handler_class=<%s> | initialized", self.__class__.__name__)
 
-    def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
-        """Register hooks for steering guidance and context updates."""
+    def init_plugin(self, agent: "Agent") -> None:
+        """Initialize the steering handler with an agent.
+
+        Registers hook callbacks for steering guidance and context updates.
+
+        Args:
+            agent: The agent instance to attach steering to.
+        """
+        super().init_plugin(agent)
+
         # Register context update callbacks
         for callback in self._context_callbacks:
-            registry.add_callback(
-                callback.event_type, lambda event, callback=callback: callback(event, self.steering_context)
-            )
+            agent.add_hook(lambda event, callback=callback: callback(event, self.steering_context), callback.event_type)
 
-        # Register tool steering guidance
-        registry.add_callback(BeforeToolCallEvent, self._provide_tool_steering_guidance)
-
-        # Register model steering guidance
-        registry.add_callback(AfterModelCallEvent, self._provide_model_steering_guidance)
-
-    async def _provide_tool_steering_guidance(self, event: BeforeToolCallEvent) -> None:
+    @hook
+    async def provide_tool_steering_guidance(self, event: BeforeToolCallEvent) -> None:
         """Provide steering guidance for tool call."""
         tool_name = event.tool_use["name"]
         logger.debug("tool_name=<%s> | providing tool steering guidance", tool_name)
@@ -129,7 +131,8 @@ class SteeringHandler(HookProvider, ABC):
         else:
             raise ValueError(f"Unknown steering action type for tool call: {action}")
 
-    async def _provide_model_steering_guidance(self, event: AfterModelCallEvent) -> None:
+    @hook
+    async def provide_model_steering_guidance(self, event: AfterModelCallEvent) -> None:
         """Provide steering guidance for model response."""
         logger.debug("providing model steering guidance")
 
