@@ -9,7 +9,7 @@ from ..._async import run_async
 from ...event_loop.streaming import process_stream
 from ...tools._tool_helpers import noop_tool
 from ...tools.registry import ToolRegistry
-from ...types.content import Message
+from ...types.content import ContentBlock, Message
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import AgentTool
 from .conversation_manager import ConversationManager
@@ -231,7 +231,22 @@ class SummarizingConversationManager(ConversationManager):
             summarization_agent.messages = messages
 
             result = summarization_agent("Please summarize this conversation.")
-            return cast(Message, {**result.message, "role": "user"})
+
+            # Filter content to only include blocks valid for user messages.
+            # User messages cannot contain toolUse or reasoningContent blocks (those are assistant-only).
+            # This is important when using structured_output_model, which adds toolUse blocks to responses.
+            filtered_content: List[ContentBlock] = [
+                content_block
+                for content_block in result.message.get("content", [])
+                if "toolUse" not in content_block and "reasoningContent" not in content_block
+            ]
+
+            # If no valid content remains after filtering, create a text block from the result
+            if not filtered_content:
+                # Use the string representation of the result as fallback
+                filtered_content = [cast(ContentBlock, {"text": str(result)})]
+
+            return cast(Message, {"role": "user", "content": filtered_content})
 
         finally:
             summarization_agent.system_prompt = original_system_prompt
