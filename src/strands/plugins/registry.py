@@ -28,7 +28,7 @@ class _PluginRegistry:
         ```python
         registry = _PluginRegistry(agent)
 
-        class MyPlugin:
+        class MyPlugin(Plugin):
             name = "my-plugin"
 
             def init_plugin(self, agent: Agent) -> None:
