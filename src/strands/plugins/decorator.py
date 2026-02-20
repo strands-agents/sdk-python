@@ -1,111 +1,69 @@
 """Hook decorator for Plugin methods.
 
-This module provides the @hook decorator that marks methods as hook callbacks
-for automatic registration when the plugin is attached to an agent.
-
-The @hook decorator performs several functions:
-
-1. Marks methods as hook callbacks for automatic discovery by Plugin base class
-2. Infers event types from the callback's type hints (consistent with HookRegistry.add_callback)
-3. Supports both @hook and @hook() syntax
-4. Supports union types for multiple event types (e.g., BeforeModelCallEvent | AfterModelCallEvent)
-5. Stores hook metadata on the decorated method for later discovery
+Marks methods as hook callbacks for automatic registration when the plugin
+is attached to an agent. Infers event types from type hints and supports
+union types for multiple events.
 
 Example:
     ```python
-    from strands.plugins import Plugin, hook
-    from strands.hooks import BeforeModelCallEvent, AfterModelCallEvent
-
     class MyPlugin(Plugin):
-        name = "my-plugin"
-
         @hook
         def on_model_call(self, event: BeforeModelCallEvent):
-            print(event)
-
-        @hook
-        def on_any_model_event(self, event: BeforeModelCallEvent | AfterModelCallEvent):
             print(event)
     ```
 """
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, TypeVar, overload
+from typing import Generic, cast, overload
 
-if TYPE_CHECKING:
-    from ..hooks.registry import BaseHookEvent
+from ..hooks._type_inference import infer_event_types
+from ..hooks.registry import HookCallback, TEvent
 
-# Type for wrapped function
-T = TypeVar("T", bound=Callable[..., object])
+
+class _WrappedHookCallable(HookCallback, Generic[TEvent]):
+    """Wrapped version of HookCallback that includes a `_hook_event_types` argument."""
+
+    _hook_event_types: list[TEvent]
 
 
 # Handle @hook
 @overload
-def hook(__func: T) -> T: ...
+def hook(__func: HookCallback) -> _WrappedHookCallable: ...
 
 
 # Handle @hook()
 @overload
-def hook() -> Callable[[T], T]: ...
+def hook() -> Callable[[HookCallback], _WrappedHookCallable]: ...
 
 
 def hook(
-    func: T | None = None,
-) -> T | Callable[[T], T]:
-    """Decorator that marks a method as a hook callback for automatic registration.
+    func: HookCallback | None = None,
+) -> _WrappedHookCallable | Callable[[HookCallback], _WrappedHookCallable]:
+    """Mark a method as a hook callback for automatic registration.
 
-    This decorator enables declarative hook registration in Plugin classes. When a
-    Plugin is attached to an agent, methods marked with @hook are automatically
-    discovered and registered with the agent's hook registry.
-
-    The event type is inferred from the callback's type hint on the first parameter
-    (after 'self' for instance methods). Union types are supported for registering
-    a single callback for multiple event types.
-
-    The decorator can be used in two ways:
-    - As a simple decorator: `@hook`
-    - With parentheses: `@hook()`
+    Infers event type from the callback's type hint. Supports union types
+    for multiple events. Can be used as @hook or @hook().
 
     Args:
-        func: The function to decorate. When used as a simple decorator, this is
-            the function being decorated. When used with parentheses, this will be None.
+        func: The function to decorate.
 
     Returns:
-        The decorated function with hook metadata attached.
+        The decorated function with hook metadata.
 
     Raises:
-        ValueError: If the event type cannot be inferred from type hints, or if
-            the type hint is not a valid HookEvent subclass.
-
-    Example:
-        ```python
-        class MyPlugin(Plugin):
-            name = "my-plugin"
-
-            @hook
-            def on_model_call(self, event: BeforeModelCallEvent):
-                print(f"Model called: {event}")
-
-            @hook
-            def on_any_event(self, event: BeforeModelCallEvent | AfterModelCallEvent):
-                print(f"Event: {type(event).__name__}")
-        ```
+        ValueError: If event type cannot be inferred from type hints.
     """
 
-    def decorator(f: T) -> T:
-        # Import here to avoid circular dependency at runtime
-        from ..hooks._type_inference import infer_event_types
-
+    def decorator(f: HookCallback[TEvent]) -> _WrappedHookCallable[TEvent]:
         # Infer event types from type hints
-        event_types: list[type[BaseHookEvent]] = infer_event_types(f)  # type: ignore[arg-type]
+        event_types: list[type[TEvent]] = infer_event_types(f)
 
         # Store hook metadata on the function
-        f._hook_event_types = event_types  # type: ignore[attr-defined]
+        f_wrapped = cast(_WrappedHookCallable, f)
+        f_wrapped._hook_event_types = event_types
 
-        return f
+        return f_wrapped
 
-    # Handle both @hook and @hook() syntax
     if func is None:
         return decorator
-
     return decorator(func)

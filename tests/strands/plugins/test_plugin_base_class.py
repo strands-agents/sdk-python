@@ -9,6 +9,16 @@ from strands.plugins import Plugin, hook
 from strands.tools.decorator import tool
 
 
+def _configure_mock_agent_with_hooks():
+    """Helper to create a mock agent with working add_hook."""
+    mock_agent = unittest.mock.MagicMock()
+    mock_agent.hooks = HookRegistry()
+    mock_agent.add_hook.side_effect = lambda callback, event_type=None: mock_agent.hooks.add_callback(
+        event_type, callback
+    )
+    return mock_agent
+
+
 class TestPluginBaseClass:
     """Tests for Plugin base class basics."""
 
@@ -145,8 +155,7 @@ class TestPluginInitPlugin:
                 pass
 
         plugin = MyPlugin()
-        mock_agent = unittest.mock.MagicMock()
-        mock_agent.hooks = HookRegistry()
+        mock_agent = _configure_mock_agent_with_hooks()
 
         plugin.init_agent(mock_agent)
 
@@ -190,8 +199,7 @@ class TestPluginInitPlugin:
                 return param
 
         plugin = MyPlugin()
-        mock_agent = unittest.mock.MagicMock()
-        mock_agent.hooks = HookRegistry()
+        mock_agent = _configure_mock_agent_with_hooks()
         mock_agent.tool_registry = unittest.mock.MagicMock()
 
         plugin.init_agent(mock_agent)
@@ -215,8 +223,7 @@ class TestPluginHookWithUnionTypes:
                 pass
 
         plugin = MyPlugin()
-        mock_agent = unittest.mock.MagicMock()
-        mock_agent.hooks = HookRegistry()
+        mock_agent = _configure_mock_agent_with_hooks()
 
         plugin.init_agent(mock_agent)
 
@@ -240,10 +247,8 @@ class TestPluginMultipleAgents:
 
         plugin = MyPlugin()
 
-        mock_agent1 = unittest.mock.MagicMock()
-        mock_agent1.hooks = HookRegistry()
-        mock_agent2 = unittest.mock.MagicMock()
-        mock_agent2.hooks = HookRegistry()
+        mock_agent1 = _configure_mock_agent_with_hooks()
+        mock_agent2 = _configure_mock_agent_with_hooks()
 
         plugin.init_agent(mock_agent1)
         plugin.init_agent(mock_agent2)
@@ -273,8 +278,7 @@ class TestPluginSubclassOverride:
                 super().init_agent(agent)
 
         plugin = MyPlugin()
-        mock_agent = unittest.mock.MagicMock()
-        mock_agent.hooks = HookRegistry()
+        mock_agent = _configure_mock_agent_with_hooks()
 
         plugin.init_agent(mock_agent)
 
@@ -304,8 +308,7 @@ class TestPluginSubclassOverride:
                 manual_hook_added = True
 
         plugin = MyPlugin()
-        mock_agent = unittest.mock.MagicMock()
-        mock_agent.hooks = HookRegistry()
+        mock_agent = _configure_mock_agent_with_hooks()
 
         plugin.init_agent(mock_agent)
 
@@ -334,8 +337,7 @@ class TestPluginAsyncInitPlugin:
                 super().init_agent(agent)
 
         plugin = MyPlugin()
-        mock_agent = unittest.mock.MagicMock()
-        mock_agent.hooks = HookRegistry()
+        mock_agent = _configure_mock_agent_with_hooks()
 
         await plugin.init_agent(mock_agent)
 
@@ -361,8 +363,7 @@ class TestPluginBoundMethods:
                 self.events_received.append(event)
 
         plugin = MyPlugin()
-        mock_agent = unittest.mock.MagicMock()
-        mock_agent.hooks = HookRegistry()
+        mock_agent = _configure_mock_agent_with_hooks()
 
         plugin.init_agent(mock_agent)
 

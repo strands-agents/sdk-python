@@ -84,7 +84,7 @@ class SteeringHandler(Plugin):
         Args:
             agent: The agent instance to attach steering to.
         """
-        super().init_plugin(agent)
+        super().init_agent(agent)
 
         # Register context update callbacks
         for callback in self._context_callbacks:
