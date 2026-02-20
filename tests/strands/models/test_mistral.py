@@ -451,9 +451,9 @@ async def test_stream(mistral_client, model, agenerator, alist, captured_warning
                     delta=unittest.mock.Mock(content="test stream", tool_calls=None),
                     finish_reason="end_turn",
                 )
-            ]
+            ],
+            usage=mock_usage,
         ),
-        usage=mock_usage,
     )
 
     mistral_client.chat.stream_async = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))
@@ -492,9 +492,9 @@ async def test_tool_choice_not_supported_warns(mistral_client, model, agenerator
                     delta=unittest.mock.Mock(content="test stream", tool_calls=None),
                     finish_reason="end_turn",
                 )
-            ]
+            ],
+            usage=mock_usage,
         ),
-        usage=mock_usage,
     )
 
     mistral_client.chat.stream_async = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))
