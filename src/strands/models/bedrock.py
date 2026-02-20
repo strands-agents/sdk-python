@@ -493,12 +493,16 @@ class BedrockModel(Model):
         """
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CachePointBlock.html
         if "cachePoint" in content:
-            return {"cachePoint": {"type": content["cachePoint"]["type"]}}
+            cache_point = content["cachePoint"]
+            result: dict[str, Any] = {"type": cache_point["type"]}
+            if "ttl" in cache_point:
+                result["ttl"] = cache_point["ttl"]
+            return {"cachePoint": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_DocumentBlock.html
         if "document" in content:
             document = content["document"]
-            result: dict[str, Any] = {}
+            result = {}
 
             # Handle required fields (all optional due to total=False)
             if "name" in document:
