@@ -11,15 +11,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def infer_event_types(callback: "HookCallback[TEvent]", skip_self: bool = False) -> "list[type[TEvent]]":
+def infer_event_types(callback: "HookCallback[TEvent]") -> "list[type[TEvent]]":
     """Infer the event type(s) from a callback's type hints.
 
     Supports both single types and union types (A | B or Union[A, B]).
 
     Args:
         callback: The callback function to inspect.
-        skip_self: If True, skip 'self' parameter when looking for event type hint.
-            Use True for instance methods, False for standalone functions.
 
     Returns:
         A list of event types inferred from the callback's first parameter type hint.
@@ -46,9 +44,9 @@ def infer_event_types(callback: "HookCallback[TEvent]", skip_self: bool = False)
     if not params:
         raise ValueError("callback has no parameters | cannot infer event type, please provide event_type explicitly")
 
-    # For methods, skip 'self' parameter if requested
+    # Skip 'self' parameter for methods
     first_param = params[0]
-    if skip_self and first_param.name == "self" and len(params) > 1:
+    if first_param.name == "self" and len(params) > 1:
         first_param = params[1]
 
     type_hint = hints.get(first_param.name)

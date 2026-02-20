@@ -213,7 +213,7 @@ class HookRegistry:
             resolved_event_types = self._validate_event_type_list(event_type)
         elif event_type is None:
             # Infer event type(s) from callback type hints
-            resolved_event_types = self._infer_event_types(callback)
+            resolved_event_types = infer_event_types(callback)
         else:
             # Single event type provided explicitly
             resolved_event_types = [event_type]
@@ -248,23 +248,6 @@ class HookRegistry:
                 raise ValueError(f"Invalid event type: {et} | must be a subclass of BaseHookEvent")
             validated.append(et)
         return validated
-
-    def _infer_event_types(self, callback: HookCallback[TEvent]) -> list[type[TEvent]]:
-        """Infer the event type(s) from a callback's type hints.
-
-        Supports both single types and union types (A | B or Union[A, B]).
-
-        Args:
-            callback: The callback function to inspect.
-
-        Returns:
-            A list of event types inferred from the callback's first parameter type hint.
-
-        Raises:
-            ValueError: If the event type cannot be inferred from the callback's type hints,
-                or if a union contains None or non-BaseHookEvent types.
-        """
-        return infer_event_types(callback, skip_self=False)
 
     def add_hook(self, hook: HookProvider) -> None:
         """Register all callbacks from a hook provider.

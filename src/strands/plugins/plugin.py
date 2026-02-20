@@ -135,3 +135,5 @@ class Plugin(ABC):
                     self.name,
                     tool.tool_name,
                 )
+
+        return None
