@@ -1,13 +1,13 @@
 """Tools for converting Pydantic models to Bedrock tools."""
 
-from typing import Any, Dict, Optional, Type, Union
+from typing import Any, Union
 
 from pydantic import BaseModel
 
 from ...types.tools import ToolSpec
 
 
-def _flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+def _flatten_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Flattens a JSON schema by removing $defs and resolving $ref references.
 
     Handles required vs optional fields properly.
@@ -80,11 +80,11 @@ def _flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _process_property(
-    prop: Dict[str, Any],
-    defs: Dict[str, Any],
+    prop: dict[str, Any],
+    defs: dict[str, Any],
     is_required: bool = False,
     fully_expand: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Process a property in a schema, resolving any references.
 
     Args:
@@ -174,8 +174,8 @@ def _process_property(
 
 
 def _process_schema_object(
-    schema_obj: Dict[str, Any], defs: Dict[str, Any], fully_expand: bool = True
-) -> Dict[str, Any]:
+    schema_obj: dict[str, Any], defs: dict[str, Any], fully_expand: bool = True
+) -> dict[str, Any]:
     """Process a schema object, typically from $defs, to resolve all nested properties.
 
     Args:
@@ -218,7 +218,7 @@ def _process_schema_object(
     return result
 
 
-def _process_nested_dict(d: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
+def _process_nested_dict(d: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any]:
     """Recursively processes nested dictionaries and resolves $ref references.
 
     Args:
@@ -228,7 +228,7 @@ def _process_nested_dict(d: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, A
     Returns:
         Processed dictionary
     """
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
 
     # Handle direct reference
     if "$ref" in d:
@@ -258,8 +258,8 @@ def _process_nested_dict(d: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, A
 
 
 def convert_pydantic_to_tool_spec(
-    model: Type[BaseModel],
-    description: Optional[str] = None,
+    model: type[BaseModel],
+    description: str | None = None,
 ) -> ToolSpec:
     """Converts a Pydantic model to a tool description for the Amazon Bedrock Converse API.
 
@@ -302,7 +302,7 @@ def convert_pydantic_to_tool_spec(
     )
 
 
-def _expand_nested_properties(schema: Dict[str, Any], model: Type[BaseModel]) -> None:
+def _expand_nested_properties(schema: dict[str, Any], model: type[BaseModel]) -> None:
     """Expand the properties of nested models in the schema to include their full structure.
 
     This updates the schema in place.
@@ -348,7 +348,7 @@ def _expand_nested_properties(schema: Dict[str, Any], model: Type[BaseModel]) ->
             schema["properties"][prop_name] = expanded_object
 
 
-def _process_referenced_models(schema: Dict[str, Any], model: Type[BaseModel]) -> None:
+def _process_referenced_models(schema: dict[str, Any], model: type[BaseModel]) -> None:
     """Process referenced models to ensure their docstrings are included.
 
     This updates the schema in place.
@@ -388,7 +388,7 @@ def _process_referenced_models(schema: Dict[str, Any], model: Type[BaseModel]) -
                     _process_properties(ref_def, field_type)
 
 
-def _process_properties(schema_def: Dict[str, Any], model: Type[BaseModel]) -> None:
+def _process_properties(schema_def: dict[str, Any], model: type[BaseModel]) -> None:
     """Process properties in a schema definition to add descriptions from field metadata.
 
     Args:

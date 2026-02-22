@@ -44,16 +44,13 @@ import asyncio
 import functools
 import inspect
 import logging
+from collections.abc import Callable
 from typing import (
     Annotated,
     Any,
-    Callable,
     Generic,
-    Optional,
     ParamSpec,
-    Type,
     TypeVar,
-    Union,
     cast,
     get_args,
     get_origin,
@@ -101,7 +98,7 @@ class FunctionToolMetadata:
         """
         self.func = func
         self.signature = inspect.signature(func)
-        self.type_hints = get_type_hints(func)
+        self.type_hints = get_type_hints(func, include_extras=True)
         self._context_param = context_param
 
         self._validate_signature()
@@ -183,7 +180,7 @@ class FunctionToolMetadata:
                 # Found the parameter, no need to check further
                 break
 
-    def _create_input_model(self) -> Type[BaseModel]:
+    def _create_input_model(self) -> type[BaseModel]:
         """Create a Pydantic model from function signature for input validation.
 
         This method analyzes the function's signature, type hints, and docstring to create a Pydantic model that can
@@ -201,9 +198,17 @@ class FunctionToolMetadata:
             if self._is_special_parameter(name):
                 continue
 
-            # Use param.annotation directly to get the raw type hint. Using get_type_hints()
-            # can cause inconsistent behavior across Python versions for complex Annotated types.
-            param_type = param.annotation
+            # Handle PEP 563 (from __future__ import annotations):
+            # - When PEP 563 is active, param.annotation is a string literal that needs resolution
+            # - When PEP 563 is not active, param.annotation is the actual type object (may include Annotated)
+            # We check if param.annotation is a string to determine if we need type hint resolution.
+            # This preserves Annotated metadata correctly in both cases and is consistent across Python versions.
+            if isinstance(param.annotation, str):
+                # PEP 563 active: resolve string annotation
+                param_type = self.type_hints.get(name, param.annotation)
+            else:
+                # PEP 563 not active: use the actual type object directly
+                param_type = param.annotation
             if param_type is inspect.Parameter.empty:
                 param_type = Any
             default = ... if param.default is inspect.Parameter.empty else param.default
@@ -321,13 +326,20 @@ class FunctionToolMetadata:
                 del schema[key]
 
         # Process properties to clean up anyOf and similar structures
+        required_fields = schema.get("required", [])
         if "properties" in schema:
-            for _prop_name, prop_schema in schema["properties"].items():
+            for prop_name, prop_schema in schema["properties"].items():
                 # Handle anyOf constructs (common for Optional types)
                 if "anyOf" in prop_schema:
                     any_of = prop_schema["anyOf"]
                     # Handle Optional[Type] case (represented as anyOf[Type, null])
-                    if len(any_of) == 2 and any(item.get("type") == "null" for item in any_of):
+                    # Only simplify when the field is not required; required nullable
+                    # fields need anyOf preserved so the model can pass null.
+                    if (
+                        prop_name not in required_fields
+                        and len(any_of) == 2
+                        and any(item.get("type") == "null" for item in any_of)
+                    ):
                         # Find the non-null type
                         for item in any_of:
                             if item.get("type") != "null":
@@ -463,7 +475,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
 
         functools.update_wrapper(wrapper=self, wrapped=self._tool_func)
 
-    def __get__(self, instance: Any, obj_type: Optional[Type] = None) -> "DecoratedFunctionTool[P, R]":
+    def __get__(self, instance: Any, obj_type: type | None = None) -> "DecoratedFunctionTool[P, R]":
         """Descriptor protocol implementation for proper method binding.
 
         This method enables the decorated function to work correctly when used as a class method.
@@ -608,6 +620,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                     "status": "error",
                     "content": [{"text": f"Error: {error_msg}"}],
                 },
+                exception=e,
             )
         except Exception as e:
             # Return error result with exception details for any other error
@@ -620,14 +633,15 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                     "status": "error",
                     "content": [{"text": f"Error: {error_type} - {error_msg}"}],
                 },
+                exception=e,
             )
 
-    def _wrap_tool_result(self, tool_use_d: str, result: Any) -> ToolResultEvent:
+    def _wrap_tool_result(self, tool_use_d: str, result: Any, exception: Exception | None = None) -> ToolResultEvent:
         # FORMAT THE RESULT for Strands Agent
         if isinstance(result, dict) and "status" in result and "content" in result:
             # Result is already in the expected format, just add toolUseId
             result["toolUseId"] = tool_use_d
-            return ToolResultEvent(cast(ToolResult, result))
+            return ToolResultEvent(cast(ToolResult, result), exception=exception)
         else:
             # Wrap any other return value in the standard format
             # Always include at least one content item for consistency
@@ -636,7 +650,8 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                     "toolUseId": tool_use_d,
                     "status": "success",
                     "content": [{"text": str(result)}],
-                }
+                },
+                exception=exception,
             )
 
     @property
@@ -666,20 +681,20 @@ def tool(__func: Callable[P, R]) -> DecoratedFunctionTool[P, R]: ...
 # Handle @decorator()
 @overload
 def tool(
-    description: Optional[str] = None,
-    inputSchema: Optional[JSONSchema] = None,
-    name: Optional[str] = None,
+    description: str | None = None,
+    inputSchema: JSONSchema | None = None,
+    name: str | None = None,
     context: bool | str = False,
 ) -> Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]: ...
 # Suppressing the type error because we want callers to be able to use both `tool` and `tool()` at the
 # call site, but the actual implementation handles that and it's not representable via the type-system
 def tool(  # type: ignore
-    func: Optional[Callable[P, R]] = None,
-    description: Optional[str] = None,
-    inputSchema: Optional[JSONSchema] = None,
-    name: Optional[str] = None,
+    func: Callable[P, R] | None = None,
+    description: str | None = None,
+    inputSchema: JSONSchema | None = None,
+    name: str | None = None,
     context: bool | str = False,
-) -> Union[DecoratedFunctionTool[P, R], Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]]:
+) -> DecoratedFunctionTool[P, R] | Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]:
     """Decorator that transforms a Python function into a Strands tool.
 
     This decorator seamlessly enables a function to be called both as a regular Python function and as a Strands tool.

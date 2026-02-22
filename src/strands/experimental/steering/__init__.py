@@ -9,11 +9,11 @@ Core components:
 - SteeringHandler: Base class for guidance logic with local context
 - SteeringContextCallback: Protocol for context update functions
 - SteeringContextProvider: Protocol for multi-event context providers
-- SteeringAction: Proceed/Guide/Interrupt decisions
+- ToolSteeringAction/ModelSteeringAction: Proceed/Guide/Interrupt decisions
 
 Usage:
     handler = LLMSteeringHandler(system_prompt="...")
-    agent = Agent(tools=[...], hooks=[handler])
+    agent = Agent(tools=[...], plugins=[handler])
 """
 
 # Core primitives
@@ -23,7 +23,7 @@ from .context_providers.ledger_provider import (
     LedgerBeforeToolCall,
     LedgerProvider,
 )
-from .core.action import Guide, Interrupt, Proceed, SteeringAction
+from .core.action import Guide, Interrupt, ModelSteeringAction, Proceed, ToolSteeringAction
 from .core.context import SteeringContextCallback, SteeringContextProvider
 from .core.handler import SteeringHandler
 
@@ -31,7 +31,8 @@ from .core.handler import SteeringHandler
 from .handlers.llm import LLMPromptMapper, LLMSteeringHandler
 
 __all__ = [
-    "SteeringAction",
+    "ToolSteeringAction",
+    "ModelSteeringAction",
     "Proceed",
     "Guide",
     "Interrupt",

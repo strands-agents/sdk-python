@@ -5,7 +5,8 @@ providing a structured way to observe to different events of the event loop and
 agent lifecycle.
 """
 
-from typing import TYPE_CHECKING, Any, Sequence, cast
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic import BaseModel
 from typing_extensions import override
@@ -275,13 +276,18 @@ class EventLoopThrottleEvent(TypedEvent):
 class ToolResultEvent(TypedEvent):
     """Event emitted when a tool execution completes."""
 
-    def __init__(self, tool_result: ToolResult) -> None:
-        """Initialize with the completed tool result.
-
-        Args:
-            tool_result: Final result from the tool execution
-        """
+    def __init__(self, tool_result: ToolResult, exception: Exception | None = None) -> None:
+        """Initialize tool result event."""
         super().__init__({"type": "tool_result", "tool_result": tool_result})
+        self._exception = exception
+
+    @property
+    def exception(self) -> Exception | None:
+        """The original exception that occurred, if any.
+
+        Can be used for re-raising or type-based error handling.
+        """
+        return self._exception
 
     @property
     def tool_use_id(self) -> str:

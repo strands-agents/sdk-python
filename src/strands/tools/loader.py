@@ -9,7 +9,7 @@ from importlib.machinery import ModuleSpec
 from pathlib import Path
 from posixpath import expanduser
 from types import ModuleType
-from typing import List, cast
+from typing import cast
 
 from ..types.tools import AgentTool
 from .decorator import DecoratedFunctionTool
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 _TOOL_MODULE_PREFIX = "_strands_tool_"
 
 
-def load_tool_from_string(tool_string: str) -> List[AgentTool]:
+def load_tool_from_string(tool_string: str) -> list[AgentTool]:
     """Load tools follows strands supported input string formats.
 
     This function can load a tool based on a string in the following ways:
@@ -42,7 +42,7 @@ def load_tool_from_string(tool_string: str) -> List[AgentTool]:
     return load_tools_from_module_path(tool_string)
 
 
-def load_tools_from_file_path(tool_path: str) -> List[AgentTool]:
+def load_tools_from_file_path(tool_path: str) -> list[AgentTool]:
     """Load module from specified path, and then load tools from that module.
 
     This function attempts to load the passed in path as a python module, and if it succeeds,
@@ -116,7 +116,7 @@ def load_tools_from_module(module: ModuleType, module_name: str) -> list[AgentTo
     # Try and see if any of the attributes in the module are function-based tools decorated with @tool
     # This means that there may be more than one tool available in this module, so we load them all
 
-    function_tools: List[AgentTool] = []
+    function_tools: list[AgentTool] = []
     # Function tools will appear as attributes in the module
     for attr_name in dir(module):
         attr = getattr(module, attr_name)
@@ -153,7 +153,7 @@ class ToolLoader:
     """Handles loading of tools from different sources."""
 
     @staticmethod
-    def load_python_tools(tool_path: str, tool_name: str) -> List[AgentTool]:
+    def load_python_tools(tool_path: str, tool_name: str) -> list[AgentTool]:
         """DEPRECATED: Load a Python tool module and return all discovered function-based tools as a list.
 
         This method always returns a list of AgentTool (possibly length 1). It is the
@@ -206,7 +206,7 @@ class ToolLoader:
             spec.loader.exec_module(module)
 
             # Collect function-based tools decorated with @tool
-            function_tools: List[AgentTool] = []
+            function_tools: list[AgentTool] = []
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
                 if isinstance(attr, DecoratedFunctionTool):

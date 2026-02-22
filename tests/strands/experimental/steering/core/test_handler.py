@@ -1,20 +1,20 @@
 """Unit tests for steering handler base class."""
 
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from strands.experimental.steering.core.action import Guide, Interrupt, Proceed
 from strands.experimental.steering.core.context import SteeringContext, SteeringContextCallback, SteeringContextProvider
 from strands.experimental.steering.core.handler import SteeringHandler
-from strands.hooks.events import BeforeToolCallEvent
-from strands.hooks.registry import HookRegistry
+from strands.hooks.events import AfterModelCallEvent, BeforeToolCallEvent
+from strands.plugins import Plugin
 
 
 class TestSteeringHandler(SteeringHandler):
     """Test implementation of SteeringHandler."""
 
-    async def steer(self, agent, tool_use, **kwargs):
+    async def steer_before_tool(self, *, agent, tool_use, **kwargs):
         return Proceed(reason="Test proceed")
 
 
@@ -24,16 +24,29 @@ def test_steering_handler_initialization():
     assert handler is not None
 
 
-def test_register_hooks():
-    """Test hook registration."""
+def test_steering_handler_has_name_attribute():
+    """Test SteeringHandler has name attribute for Plugin."""
     handler = TestSteeringHandler()
-    registry = Mock(spec=HookRegistry)
+    assert hasattr(handler, "name")
+    assert handler.name == "steering"
 
-    handler.register_hooks(registry)
 
-    # Verify hooks were registered
-    assert registry.add_callback.call_count >= 1
-    registry.add_callback.assert_any_call(BeforeToolCallEvent, handler._provide_steering_guidance)
+def test_steering_handler_is_plugin():
+    """Test SteeringHandler implements Plugin."""
+    handler = TestSteeringHandler()
+    assert isinstance(handler, Plugin)
+
+
+def test_init_plugin():
+    """Test init_plugin registers hooks on agent."""
+    handler = TestSteeringHandler()
+    agent = Mock()
+
+    handler.init_plugin(agent)
+
+    # Verify hooks were registered (tool and model steering hooks)
+    assert agent.add_hook.call_count >= 2
+    agent.add_hook.assert_any_call(handler._provide_tool_steering_guidance, BeforeToolCallEvent)
 
 
 def test_steering_context_initialization():
@@ -65,7 +78,7 @@ async def test_proceed_action_flow():
     """Test complete flow with Proceed action."""
 
     class ProceedHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Proceed(reason="Test proceed")
 
     handler = ProceedHandler()
@@ -73,7 +86,7 @@ async def test_proceed_action_flow():
     tool_use = {"name": "test_tool"}
     event = BeforeToolCallEvent(agent=agent, selected_tool=None, tool_use=tool_use, invocation_state={})
 
-    await handler._provide_steering_guidance(event)
+    await handler._provide_tool_steering_guidance(event)
 
     # Should not modify event for Proceed
     assert not event.cancel_tool
@@ -84,7 +97,7 @@ async def test_guide_action_flow():
     """Test complete flow with Guide action."""
 
     class GuideHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Guide(reason="Test guidance")
 
     handler = GuideHandler()
@@ -92,10 +105,10 @@ async def test_guide_action_flow():
     tool_use = {"name": "test_tool"}
     event = BeforeToolCallEvent(agent=agent, selected_tool=None, tool_use=tool_use, invocation_state={})
 
-    await handler._provide_steering_guidance(event)
+    await handler._provide_tool_steering_guidance(event)
 
     # Should set cancel_tool with guidance message
-    expected_message = "Tool call cancelled given new guidance. Test guidance. Consider this approach and continue"
+    expected_message = "Tool call cancelled. Test guidance You MUST follow this guidance immediately."
     assert event.cancel_tool == expected_message
 
 
@@ -104,7 +117,7 @@ async def test_interrupt_action_approved_flow():
     """Test complete flow with Interrupt action when approved."""
 
     class InterruptHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Interrupt(reason="Need approval")
 
     handler = InterruptHandler()
@@ -113,7 +126,7 @@ async def test_interrupt_action_approved_flow():
     event.tool_use = tool_use
     event.interrupt = Mock(return_value=True)  # Approved
 
-    await handler._provide_steering_guidance(event)
+    await handler._provide_tool_steering_guidance(event)
 
     event.interrupt.assert_called_once()
 
@@ -123,7 +136,7 @@ async def test_interrupt_action_denied_flow():
     """Test complete flow with Interrupt action when denied."""
 
     class InterruptHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Interrupt(reason="Need approval")
 
     handler = InterruptHandler()
@@ -132,7 +145,7 @@ async def test_interrupt_action_denied_flow():
     event.tool_use = tool_use
     event.interrupt = Mock(return_value=False)  # Denied
 
-    await handler._provide_steering_guidance(event)
+    await handler._provide_tool_steering_guidance(event)
 
     event.interrupt.assert_called_once()
     assert event.cancel_tool.startswith("Manual approval denied:")
@@ -143,7 +156,7 @@ async def test_unknown_action_flow():
     """Test complete flow with unknown action type raises error."""
 
     class UnknownActionHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Mock()  # Not a valid SteeringAction
 
     handler = UnknownActionHandler()
@@ -152,27 +165,27 @@ async def test_unknown_action_flow():
     event = BeforeToolCallEvent(agent=agent, selected_tool=None, tool_use=tool_use, invocation_state={})
 
     with pytest.raises(ValueError, match="Unknown steering action type"):
-        await handler._provide_steering_guidance(event)
+        await handler._provide_tool_steering_guidance(event)
 
 
-def test_register_steering_hooks_override():
-    """Test that _register_steering_hooks can be overridden."""
+def test_init_plugin_override():
+    """Test that init_plugin can be overridden."""
 
     class CustomHandler(SteeringHandler):
-        async def steer(self, agent, tool_use, **kwargs):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Proceed(reason="Custom")
 
-        def register_hooks(self, registry, **kwargs):
+        def init_plugin(self, agent):
             # Custom hook registration - don't call parent
             pass
 
     handler = CustomHandler()
-    registry = Mock(spec=HookRegistry)
+    agent = Mock()
 
-    handler.register_hooks(registry)
+    handler.init_plugin(agent)
 
     # Should not register any hooks
-    assert registry.add_callback.call_count == 0
+    assert agent.add_hook.call_count == 0
 
 
 # Integration tests with context providers
@@ -200,7 +213,7 @@ class TestSteeringHandlerWithProvider(SteeringHandler):
         providers = [MockContextProvider(context_callbacks)] if context_callbacks else None
         super().__init__(context_providers=providers)
 
-    async def steer(self, agent, tool_use, **kwargs):
+    async def steer_before_tool(self, *, agent, tool_use, **kwargs):
         return Proceed(reason="Test proceed")
 
 
@@ -208,16 +221,16 @@ def test_handler_registers_context_provider_hooks():
     """Test that handler registers hooks from context callbacks."""
     mock_callback = MockContextCallback()
     handler = TestSteeringHandlerWithProvider(context_callbacks=[mock_callback])
-    registry = Mock(spec=HookRegistry)
+    agent = Mock()
 
-    handler.register_hooks(registry)
+    handler.init_plugin(agent)
 
     # Should register hooks for context callback and steering guidance
-    assert registry.add_callback.call_count >= 2
+    assert agent.add_hook.call_count >= 2
 
     # Check that BeforeToolCallEvent was registered
-    call_args = [call[0] for call in registry.add_callback.call_args_list]
-    event_types = [args[0] for args in call_args]
+    call_args = [call[0] for call in agent.add_hook.call_args_list]
+    event_types = [args[1] for args in call_args]
 
     assert BeforeToolCallEvent in event_types
 
@@ -226,22 +239,22 @@ def test_context_callbacks_receive_steering_context():
     """Test that context callbacks receive the handler's steering context."""
     mock_callback = MockContextCallback()
     handler = TestSteeringHandlerWithProvider(context_callbacks=[mock_callback])
-    registry = Mock(spec=HookRegistry)
+    agent = Mock()
 
-    handler.register_hooks(registry)
+    handler.init_plugin(agent)
 
     # Get the registered callback for BeforeToolCallEvent
     before_callback = None
-    for call in registry.add_callback.call_args_list:
-        if call[0][0] == BeforeToolCallEvent:
-            before_callback = call[0][1]
+    for call in agent.add_hook.call_args_list:
+        if call[0][1] == BeforeToolCallEvent:
+            before_callback = call[0][0]
             break
 
     assert before_callback is not None
 
     # Create a mock event and call the callback
     event = Mock(spec=BeforeToolCallEvent)
-    event.tool_use = {"name": "test_tool", "arguments": {}}
+    event.tool_use = {"name": "test_tool", "input": {}}
 
     # The callback should execute without error and update the steering context
     before_callback(event)
@@ -256,13 +269,13 @@ def test_multiple_context_callbacks_registered():
     callback2 = MockContextCallback()
 
     handler = TestSteeringHandlerWithProvider(context_callbacks=[callback1, callback2])
-    registry = Mock(spec=HookRegistry)
+    agent = Mock()
 
-    handler.register_hooks(registry)
+    handler.init_plugin(agent)
 
-    # Should register one callback for each context provider plus steering guidance
-    expected_calls = 2 + 1  # 2 callbacks + 1 for steering guidance
-    assert registry.add_callback.call_count >= expected_calls
+    # Should register one callback for each context provider plus tool and model steering guidance
+    expected_calls = 2 + 2  # 2 callbacks + 2 for steering guidance (tool and model)
+    assert agent.add_hook.call_count >= expected_calls
 
 
 def test_handler_initialization_with_callbacks():
@@ -276,3 +289,208 @@ def test_handler_initialization_with_callbacks():
     assert len(handler._context_callbacks) == 2
     assert callback1 in handler._context_callbacks
     assert callback2 in handler._context_callbacks
+
+
+# Model steering tests
+@pytest.mark.asyncio
+async def test_model_steering_proceed_action_flow():
+    """Test model steering with Proceed action."""
+
+    class ModelProceedHandler(SteeringHandler):
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
+            return Proceed(reason="Model response accepted")
+
+    handler = ModelProceedHandler()
+    agent = Mock()
+    stop_response = Mock()
+    stop_response.message = {"role": "assistant", "content": [{"text": "Hello"}]}
+    stop_response.stop_reason = "end_turn"
+    event = Mock(spec=AfterModelCallEvent)
+    event.agent = agent
+    event.stop_response = stop_response
+    event.retry = False
+
+    await handler._provide_model_steering_guidance(event)
+
+    # Should not set retry for Proceed
+    assert event.retry is False
+
+
+@pytest.mark.asyncio
+async def test_model_steering_guide_action_flow():
+    """Test model steering with Guide action sets retry and adds message."""
+
+    class ModelGuideHandler(SteeringHandler):
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
+            return Guide(reason="Please improve your response")
+
+    handler = ModelGuideHandler()
+    agent = AsyncMock()
+    stop_response = Mock()
+    stop_response.message = {"role": "assistant", "content": [{"text": "Hello"}]}
+    stop_response.stop_reason = "end_turn"
+    event = Mock(spec=AfterModelCallEvent)
+    event.agent = agent
+    event.stop_response = stop_response
+    event.retry = False
+
+    await handler._provide_model_steering_guidance(event)
+
+    # Should set retry flag
+    assert event.retry is True
+    # Should add guidance message to conversation
+    agent._append_messages.assert_called_once()
+    call_args = agent._append_messages.call_args[0][0]
+    assert call_args["role"] == "user"
+    assert "Please improve your response" in call_args["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_model_steering_skips_when_no_stop_response():
+    """Test model steering skips when stop_response is None."""
+
+    class ModelProceedHandler(SteeringHandler):
+        def __init__(self):
+            super().__init__()
+            self.steer_called = False
+
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
+            self.steer_called = True
+            return Proceed(reason="Should not be called")
+
+    handler = ModelProceedHandler()
+    event = Mock(spec=AfterModelCallEvent)
+    event.stop_response = None
+
+    await handler._provide_model_steering_guidance(event)
+
+    # steer_after_model should not have been called
+    assert handler.steer_called is False
+
+
+@pytest.mark.asyncio
+async def test_model_steering_unknown_action_raises_error():
+    """Test model steering with unknown action type raises error."""
+
+    class UnknownModelActionHandler(SteeringHandler):
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
+            return Mock()  # Not a valid ModelSteeringAction
+
+    handler = UnknownModelActionHandler()
+    agent = Mock()
+    stop_response = Mock()
+    stop_response.message = {"role": "assistant", "content": [{"text": "Hello"}]}
+    stop_response.stop_reason = "end_turn"
+    event = Mock(spec=AfterModelCallEvent)
+    event.agent = agent
+    event.stop_response = stop_response
+
+    with pytest.raises(ValueError, match="Unknown steering action type for model response"):
+        await handler._provide_model_steering_guidance(event)
+
+
+@pytest.mark.asyncio
+async def test_model_steering_interrupt_raises_error():
+    """Test model steering with Interrupt action raises error (not supported for model steering)."""
+
+    class InterruptModelHandler(SteeringHandler):
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
+            return Interrupt(reason="Should not be allowed")
+
+    handler = InterruptModelHandler()
+    agent = Mock()
+    stop_response = Mock()
+    stop_response.message = {"role": "assistant", "content": [{"text": "Hello"}]}
+    stop_response.stop_reason = "end_turn"
+    event = Mock(spec=AfterModelCallEvent)
+    event.agent = agent
+    event.stop_response = stop_response
+
+    with pytest.raises(ValueError, match="Unknown steering action type for model response"):
+        await handler._provide_model_steering_guidance(event)
+
+
+@pytest.mark.asyncio
+async def test_model_steering_exception_handling():
+    """Test model steering handles exceptions gracefully."""
+
+    class ExceptionModelHandler(SteeringHandler):
+        async def steer_after_model(self, *, agent, message, stop_reason, **kwargs):
+            raise RuntimeError("Test exception")
+
+    handler = ExceptionModelHandler()
+    agent = Mock()
+    stop_response = Mock()
+    stop_response.message = {"role": "assistant", "content": [{"text": "Hello"}]}
+    stop_response.stop_reason = "end_turn"
+    event = Mock(spec=AfterModelCallEvent)
+    event.agent = agent
+    event.stop_response = stop_response
+    event.retry = False
+
+    # Should not raise, just return early
+    await handler._provide_model_steering_guidance(event)
+
+    # retry should not be set since exception occurred
+    assert event.retry is False
+
+
+@pytest.mark.asyncio
+async def test_tool_steering_exception_handling():
+    """Test tool steering handles exceptions gracefully."""
+
+    class ExceptionToolHandler(SteeringHandler):
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
+            raise RuntimeError("Test exception")
+
+    handler = ExceptionToolHandler()
+    agent = Mock()
+    tool_use = {"name": "test_tool"}
+    event = BeforeToolCallEvent(agent=agent, selected_tool=None, tool_use=tool_use, invocation_state={})
+
+    # Should not raise, just return early
+    await handler._provide_tool_steering_guidance(event)
+
+    # cancel_tool should not be set since exception occurred
+    assert not event.cancel_tool
+
+
+# Default implementation tests
+@pytest.mark.asyncio
+async def test_default_steer_before_tool_returns_proceed():
+    """Test default steer_before_tool returns Proceed."""
+    handler = TestSteeringHandler()
+    agent = Mock()
+    tool_use = {"name": "test_tool"}
+
+    # Call the parent's default implementation
+    result = await SteeringHandler.steer_before_tool(handler, agent=agent, tool_use=tool_use)
+
+    assert isinstance(result, Proceed)
+    assert "Default implementation" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_default_steer_after_model_returns_proceed():
+    """Test default steer_after_model returns Proceed."""
+    handler = TestSteeringHandler()
+    agent = Mock()
+    message = {"role": "assistant", "content": [{"text": "Hello"}]}
+    stop_reason = "end_turn"
+
+    # Call the parent's default implementation
+    result = await SteeringHandler.steer_after_model(handler, agent=agent, message=message, stop_reason=stop_reason)
+
+    assert isinstance(result, Proceed)
+    assert "Default implementation" in result.reason
+
+
+def test_init_plugin_registers_model_steering():
+    """Test that init_plugin registers model steering callback."""
+    handler = TestSteeringHandler()
+    agent = Mock()
+
+    handler.init_plugin(agent)
+
+    # Verify model steering hook was registered
+    agent.add_hook.assert_any_call(handler._provide_model_steering_guidance, AfterModelCallEvent)

@@ -1,3 +1,4 @@
+import logging
 import unittest.mock
 
 import pydantic
@@ -592,3 +593,65 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert len(captured_warnings) == 1
     assert "Invalid configuration parameters" in str(captured_warnings[0].message)
     assert "wrong_param" in str(captured_warnings[0].message)
+
+
+def test_format_request_filters_s3_source_image(model, caplog):
+    """Test that images with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.mistral")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "look at this image"},
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    formatted_messages = model._format_request_messages(messages)
+
+    # Image with S3 source should be filtered, text should remain
+    user_content = formatted_messages[0]["content"]
+    assert user_content == "look at this image"
+    assert "Location sources are not supported by Mistral" in caplog.text
+
+
+def test_format_request_filters_location_source_document(model, caplog):
+    """Test that documents with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.mistral")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this document"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    formatted_messages = model._format_request_messages(messages)
+
+    # Document with S3 source should be filtered, text should remain
+    user_content = formatted_messages[0]["content"]
+    assert user_content == "analyze this document"
+    assert "Location sources are not supported by Mistral" in caplog.text

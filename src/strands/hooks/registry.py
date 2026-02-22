@@ -9,8 +9,22 @@ via hook provider objects.
 
 import inspect
 import logging
+import types
+from collections.abc import Awaitable, Generator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Awaitable, Generator, Generic, Protocol, Type, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Generic,
+    Protocol,
+    TypeVar,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+    runtime_checkable,
+)
 
 from ..interrupt import Interrupt, InterruptException
 
@@ -84,6 +98,7 @@ TInvokeEvent = TypeVar("TInvokeEvent", bound=BaseHookEvent)
 """Generic for invoking events - non-contravariant to enable returning events."""
 
 
+@runtime_checkable
 class HookProvider(Protocol):
     """Protocol for objects that provide hook callbacks to an agent.
 
@@ -153,29 +168,159 @@ class HookRegistry:
 
     def __init__(self) -> None:
         """Initialize an empty hook registry."""
-        self._registered_callbacks: dict[Type, list[HookCallback]] = {}
+        self._registered_callbacks: dict[type, list[HookCallback]] = {}
 
-    def add_callback(self, event_type: Type[TEvent], callback: HookCallback[TEvent]) -> None:
+    def add_callback(
+        self,
+        event_type: type[TEvent] | list[type[TEvent]] | None,
+        callback: HookCallback[TEvent],
+    ) -> None:
         """Register a callback function for a specific event type.
 
+        If ``event_type`` is None, then this will check the callback handler type hint
+        for the lifecycle event type. Union types (``A | B`` or ``Union[A, B]``) in
+        type hints will register the callback for each event type in the union.
+
+        If ``event_type`` is a list, the callback will be registered for each event
+        type in the list (duplicates are ignored).
+
         Args:
-            event_type: The class type of events this callback should handle.
+            event_type: The lifecycle event type(s) this callback should handle.
+                Can be a single type, a list of types, or None to infer from type hints.
             callback: The callback function to invoke when events of this type occur.
+
+        Raises:
+            ValueError: If event_type is not provided and cannot be inferred from
+                the callback's type hints, or if AgentInitializedEvent is registered
+                with an async callback, or if the event_type list is empty.
 
         Example:
             ```python
             def my_handler(event: StartRequestEvent):
                 print("Request started")
 
+            # With explicit event type
             registry.add_callback(StartRequestEvent, my_handler)
+
+            # With event type inferred from type hint
+            registry.add_callback(None, my_handler)
+
+            # With union type hint (registers for both types)
+            def union_handler(event: BeforeModelCallEvent | AfterModelCallEvent):
+                print(f"Event: {type(event).__name__}")
+            registry.add_callback(None, union_handler)
+
+            # With list of event types
+            def multi_handler(event):
+                print(f"Event: {type(event).__name__}")
+            registry.add_callback([BeforeModelCallEvent, AfterModelCallEvent], multi_handler)
             ```
         """
-        # Related issue: https://github.com/strands-agents/sdk-python/issues/330
-        if event_type.__name__ == "AgentInitializedEvent" and inspect.iscoroutinefunction(callback):
-            raise ValueError("AgentInitializedEvent can only be registered with a synchronous callback")
+        resolved_event_types: list[type[TEvent]]
 
-        callbacks = self._registered_callbacks.setdefault(event_type, [])
-        callbacks.append(callback)
+        # Handle list of event types
+        if isinstance(event_type, list):
+            if not event_type:
+                raise ValueError("event_type list cannot be empty")
+            resolved_event_types = self._validate_event_type_list(event_type)
+        elif event_type is None:
+            # Infer event type(s) from callback type hints
+            resolved_event_types = self._infer_event_types(callback)
+        else:
+            # Single event type provided explicitly
+            resolved_event_types = [event_type]
+
+        # Deduplicate event types while preserving order
+        unique_event_types: set[type[TEvent]] = set(resolved_event_types)
+
+        # Register callback for each event type
+        for resolved_event_type in unique_event_types:
+            # Related issue: https://github.com/strands-agents/sdk-python/issues/330
+            if resolved_event_type.__name__ == "AgentInitializedEvent" and inspect.iscoroutinefunction(callback):
+                raise ValueError("AgentInitializedEvent can only be registered with a synchronous callback")
+
+            callbacks = self._registered_callbacks.setdefault(resolved_event_type, [])
+            callbacks.append(callback)
+
+    def _validate_event_type_list(self, event_types: list[type[TEvent]]) -> list[type[TEvent]]:
+        """Validate that all types in a list are valid BaseHookEvent subclasses.
+
+        Args:
+            event_types: List of event types to validate.
+
+        Returns:
+            The validated list of event types.
+
+        Raises:
+            ValueError: If any type is not a valid BaseHookEvent subclass.
+        """
+        validated: list[type[TEvent]] = []
+        for et in event_types:
+            if not (isinstance(et, type) and issubclass(et, BaseHookEvent)):
+                raise ValueError(f"Invalid event type: {et} | must be a subclass of BaseHookEvent")
+            validated.append(et)
+        return validated
+
+    def _infer_event_types(self, callback: HookCallback[TEvent]) -> list[type[TEvent]]:
+        """Infer the event type(s) from a callback's type hints.
+
+        Supports both single types and union types (A | B or Union[A, B]).
+
+        Args:
+            callback: The callback function to inspect.
+
+        Returns:
+            A list of event types inferred from the callback's first parameter type hint.
+
+        Raises:
+            ValueError: If the event type cannot be inferred from the callback's type hints,
+                or if a union contains None or non-BaseHookEvent types.
+        """
+        try:
+            hints = get_type_hints(callback)
+        except Exception as e:
+            logger.debug("callback=<%s>, error=<%s> | failed to get type hints", callback, e)
+            raise ValueError(
+                "failed to get type hints for callback | cannot infer event type, please provide event_type explicitly"
+            ) from e
+
+        # Get the first parameter's type hint
+        sig = inspect.signature(callback)
+        params = list(sig.parameters.values())
+
+        if not params:
+            raise ValueError(
+                "callback has no parameters | cannot infer event type, please provide event_type explicitly"
+            )
+
+        first_param = params[0]
+        type_hint = hints.get(first_param.name)
+
+        if type_hint is None:
+            raise ValueError(
+                f"parameter=<{first_param.name}> has no type hint | "
+                "cannot infer event type, please provide event_type explicitly"
+            )
+
+        # Check if it's a Union type (Union[A, B] or A | B)
+        origin = get_origin(type_hint)
+        if origin is Union or origin is types.UnionType:
+            event_types: list[type[TEvent]] = []
+            for arg in get_args(type_hint):
+                if arg is type(None):
+                    raise ValueError("None is not a valid event type in union")
+                if not (isinstance(arg, type) and issubclass(arg, BaseHookEvent)):
+                    raise ValueError(f"Invalid type in union: {arg} | must be a subclass of BaseHookEvent")
+                event_types.append(cast(type[TEvent], arg))
+            return event_types
+
+        # Handle single type
+        if isinstance(type_hint, type) and issubclass(type_hint, BaseHookEvent):
+            return [cast(type[TEvent], type_hint)]
+
+        raise ValueError(
+            f"parameter=<{first_param.name}>, type=<{type_hint}> | type hint must be a subclass of BaseHookEvent"
+        )
 
     def add_hook(self, hook: HookProvider) -> None:
         """Register all callbacks from a hook provider.

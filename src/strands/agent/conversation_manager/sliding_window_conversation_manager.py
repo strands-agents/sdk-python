@@ -1,11 +1,12 @@
 """Sliding window conversation history management."""
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
+from ...hooks import BeforeModelCallEvent, HookRegistry
 from ...types.content import Messages
 from ...types.exceptions import ContextWindowOverflowException
 from .conversation_manager import ConversationManager
@@ -18,19 +19,102 @@ class SlidingWindowConversationManager(ConversationManager):
 
     This class handles the logic of maintaining a conversation window that preserves tool usage pairs and avoids
     invalid window states.
+
+    Supports proactive management during agent loop execution via the per_turn parameter.
     """
 
-    def __init__(self, window_size: int = 40, should_truncate_results: bool = True):
+    def __init__(self, window_size: int = 40, should_truncate_results: bool = True, *, per_turn: bool | int = False):
         """Initialize the sliding window conversation manager.
 
         Args:
             window_size: Maximum number of messages to keep in the agent's history.
                 Defaults to 40 messages.
             should_truncate_results: Truncate tool results when a message is too large for the model's context window
+            per_turn: Controls when to apply message management during agent execution.
+                - False (default): Only apply management at the end (default behavior)
+                - True: Apply management before every model call
+                - int (e.g., 3): Apply management before every N model calls
+
+                When to use per_turn: If your agent performs many tool operations in loops
+                (e.g., web browsing with frequent screenshots), enable per_turn to proactively
+                manage message history and prevent the agent loop from slowing down. Start with
+                per_turn=True and adjust to a specific frequency (e.g., per_turn=5) if needed
+                for performance tuning.
+
+        Raises:
+            ValueError: If per_turn is 0 or a negative integer.
         """
         super().__init__()
+
         self.window_size = window_size
         self.should_truncate_results = should_truncate_results
+        self.per_turn = per_turn
+        self._model_call_count = 0
+
+    def register_hooks(self, registry: "HookRegistry", **kwargs: Any) -> None:
+        """Register hook callbacks for per-turn conversation management.
+
+        Args:
+            registry: The hook registry to register callbacks with.
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        super().register_hooks(registry, **kwargs)
+
+        # Always register the callback - per_turn check happens in the callback
+        registry.add_callback(BeforeModelCallEvent, self._on_before_model_call)
+
+    def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
+        """Handle before model call event for per-turn management.
+
+        This callback is invoked before each model call. It tracks the model call count and applies message management
+        based on the per_turn configuration.
+
+        Args:
+            event: The before model call event containing the agent and model execution details.
+        """
+        # Check if per_turn is enabled
+        if self.per_turn is False:
+            return
+
+        self._model_call_count += 1
+
+        # Determine if we should apply management
+        should_apply = False
+        if self.per_turn is True:
+            should_apply = True
+        elif isinstance(self.per_turn, int) and self.per_turn > 0:
+            should_apply = self._model_call_count % self.per_turn == 0
+
+        if should_apply:
+            logger.debug(
+                "model_call_count=<%d>, per_turn=<%s> | applying per-turn conversation management",
+                self._model_call_count,
+                self.per_turn,
+            )
+            self.apply_management(event.agent)
+
+    def get_state(self) -> dict[str, Any]:
+        """Get the current state of the conversation manager.
+
+        Returns:
+            Dictionary containing the manager's state, including model call count for per-turn tracking.
+        """
+        state = super().get_state()
+        state["model_call_count"] = self._model_call_count
+        return state
+
+    def restore_from_session(self, state: dict[str, Any]) -> list | None:
+        """Restore the conversation manager's state from a session.
+
+        Args:
+            state: Previous state of the conversation manager
+
+        Returns:
+            Optional list of messages to prepend to the agent's messages.
+        """
+        result = super().restore_from_session(state)
+        self._model_call_count = state.get("model_call_count", 0)
+        return result
 
     def apply_management(self, agent: "Agent", **kwargs: Any) -> None:
         """Apply the sliding window to the agent's messages array to maintain a manageable history size.
@@ -52,7 +136,7 @@ class SlidingWindowConversationManager(ConversationManager):
             return
         self.reduce_context(agent)
 
-    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None, **kwargs: Any) -> None:
+    def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Trim the oldest messages to reduce the conversation context size.
 
         The method handles special cases where trimming the messages leads to:
@@ -151,7 +235,7 @@ class SlidingWindowConversationManager(ConversationManager):
 
         return changes_made
 
-    def _find_last_message_with_tool_results(self, messages: Messages) -> Optional[int]:
+    def _find_last_message_with_tool_results(self, messages: Messages) -> int | None:
         """Find the index of the last message containing tool results.
 
         This is useful for identifying messages that might need to be truncated to reduce context size.

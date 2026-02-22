@@ -31,6 +31,9 @@ jobs:
         - os: ubuntu-latest
           os-name: 'linux'
           python-version: "3.13"
+        - os: ubuntu-latest
+          os-name: 'linux'
+          python-version: "3.14"
         # Windows
         - os: windows-latest
           os-name: 'windows'
@@ -44,17 +47,20 @@ jobs:
         - os: windows-latest
           os-name: 'windows'
           python-version: "3.13"
+        - os: windows-latest
+          os-name: 'windows'
+          python-version: "3.14"
         # MacOS - latest only; not enough runners for macOS
         - os: macos-latest
           os-name: 'macOS'
-          python-version: "3.13"
+          python-version: "3.14"
       fail-fast: true
     runs-on: ${{ matrix.os }}
     env:
       LOG_LEVEL: DEBUG
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}  # Explicitly define which commit to check out
           persist-credentials: false  # Don't persist credentials for subsequent actions
@@ -95,7 +101,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false

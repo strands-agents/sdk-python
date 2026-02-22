@@ -25,14 +25,13 @@ from ....tools._caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
+from ....tools.tool_provider import ToolProvider
 from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
-from ...tools import ToolProvider
 from .._async import _TaskGroup, stop_all
 from ..models.model import BidiModel
-from ..models.nova_sonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
 from ..types.events import (
     BidiAudioInputEvent,
@@ -100,13 +99,13 @@ class BidiAgent:
             ValueError: If model configuration is invalid or state is invalid type.
             TypeError: If model type is unsupported.
         """
-        self.model = (
-            BidiNovaSonicModel()
-            if not model
-            else BidiNovaSonicModel(model_id=model)
-            if isinstance(model, str)
-            else model
-        )
+        if isinstance(model, BidiModel):
+            self.model = model
+        else:
+            from ..models.nova_sonic import BidiNovaSonicModel
+
+            self.model = BidiNovaSonicModel(model_id=model) if isinstance(model, str) else BidiNovaSonicModel()
+
         self.system_prompt = system_prompt
         self.messages = messages or []
 

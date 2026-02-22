@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 import strands
-from strands.experimental.tools import ToolProvider
-from strands.tools import PythonAgentTool
+from strands.tools import PythonAgentTool, ToolProvider
 from strands.tools.decorator import DecoratedFunctionTool, tool
 from strands.tools.mcp import MCPClient
 from strands.tools.registry import ToolRegistry
 
 
+@pytest.mark.filterwarnings("ignore:load_tool_from_filepath is deprecated:DeprecationWarning")
 def test_load_tool_from_filepath_failure():
     """Test error handling when load_tool fails."""
     tool_registry = ToolRegistry()

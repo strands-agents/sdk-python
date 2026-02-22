@@ -42,6 +42,7 @@ class A2AServer:
         queue_manager: QueueManager | None = None,
         push_config_store: PushNotificationConfigStore | None = None,
         push_sender: PushNotificationSender | None = None,
+        enable_a2a_compliant_streaming: bool = False,
     ):
         """Initialize an A2A-compatible server from a Strands agent.
 
@@ -66,6 +67,9 @@ class A2AServer:
                 no push notification configuration is used.
             push_sender: Custom push notification sender implementation. If None,
                 no push notifications are sent.
+            enable_a2a_compliant_streaming: If True, uses A2A-compliant streaming with
+                artifact updates. If False, uses legacy status updates streaming behavior
+                for backwards compatibility. Defaults to False.
         """
         self.host = host
         self.port = port
@@ -75,6 +79,7 @@ class A2AServer:
             # Parse the provided URL to extract components for mounting
             self.public_base_url, self.mount_path = self._parse_public_url(http_url)
             self.http_url = http_url.rstrip("/") + "/"
+            self._http_url_explicit = True
 
             # Override mount path if serve_at_root is requested
             if serve_at_root:
@@ -84,13 +89,16 @@ class A2AServer:
             self.public_base_url = f"http://{host}:{port}"
             self.http_url = f"{self.public_base_url}/"
             self.mount_path = ""
+            self._http_url_explicit = False
 
         self.strands_agent = agent
         self.name = self.strands_agent.name
         self.description = self.strands_agent.description
         self.capabilities = AgentCapabilities(streaming=True)
         self.request_handler = DefaultRequestHandler(
-            agent_executor=StrandsA2AExecutor(self.strands_agent),
+            agent_executor=StrandsA2AExecutor(
+                self.strands_agent, enable_a2a_compliant_streaming=enable_a2a_compliant_streaming
+            ),
             task_store=task_store or InMemoryTaskStore(),
             queue_manager=queue_manager,
             push_config_store=push_config_store,
@@ -247,12 +255,25 @@ class A2AServer:
             port: The port number to bind the server to. Defaults to 9000.
             **kwargs: Additional keyword arguments to pass to uvicorn.run.
         """
+        # Update host/port if overridden, and recalculate URLs if http_url wasn't explicitly set
+        if host is not None:
+            self.host = host
+        if port is not None:
+            self.port = port
+
+        if host is not None or port is not None:
+            # Only update the URL if it wasn't explicitly set via http_url parameter
+            # (i.e., if the URL was auto-generated from host/port in __init__)
+            if not self._http_url_explicit:
+                self.public_base_url = f"http://{self.host}:{self.port}"
+                self.http_url = f"{self.public_base_url}/"
+
         try:
             logger.info("Starting Strands A2A server...")
             if app_type == "fastapi":
-                uvicorn.run(self.to_fastapi_app(), host=host or self.host, port=port or self.port, **kwargs)
+                uvicorn.run(self.to_fastapi_app(), host=self.host, port=self.port, **kwargs)
             else:
-                uvicorn.run(self.to_starlette_app(), host=host or self.host, port=port or self.port, **kwargs)
+                uvicorn.run(self.to_starlette_app(), host=self.host, port=self.port, **kwargs)
         except KeyboardInterrupt:
             logger.warning("Strands A2A server shutdown requested (KeyboardInterrupt).")
         except Exception:

@@ -3,28 +3,32 @@ import importlib
 import json
 import os
 import textwrap
+import threading
 import unittest.mock
 import warnings
+from collections.abc import AsyncGenerator
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from pydantic import BaseModel
 
 import strands
-from strands import Agent
+from strands import Agent, ToolContext
 from strands.agent import AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
-from strands.hooks import BeforeToolCallEvent
+from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
 from strands.types._events import EventLoopStopEvent, ModelStreamEvent
+from strands.types.agent import ConcurrentInvocationMode
 from strands.types.content import Messages
-from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
+from strands.types.exceptions import ConcurrencyException, ContextWindowOverflowException, EventLoopException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -36,7 +40,11 @@ FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
 @pytest.fixture
 def mock_model(request):
     async def stream(*args, **kwargs):
-        result = mock.mock_stream(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+        # Skip deep copy of invocation_state which contains non-serializable objects (agent, spans, etc.)
+        copied_kwargs = {
+            key: value if key == "invocation_state" else copy.deepcopy(value) for key, value in kwargs.items()
+        }
+        result = mock.mock_stream(*copy.deepcopy(args), **copied_kwargs)
         # If result is already an async generator, yield from it
         if hasattr(result, "__aiter__"):
             async for item in result:
@@ -185,6 +193,29 @@ def user():
     return User(name="Jane Doe", age=30, email="jane@doe.com")
 
 
+class SyncEventMockedModel(MockedModelProvider):
+    """A mock model that uses events to synchronize concurrent threads.
+
+    This model signals when it starts streaming and waits for a proceed signal,
+    allowing deterministic testing of concurrent behavior without relying on sleeps.
+    """
+
+    def __init__(self, agent_responses):
+        super().__init__(agent_responses)
+        self.started_event = threading.Event()
+        self.proceed_event = threading.Event()
+
+    async def stream(
+        self, messages, tool_specs=None, system_prompt=None, tool_choice=None, **kwargs
+    ) -> AsyncGenerator[Any, None]:
+        # Signal that streaming has started
+        self.started_event.set()
+        # Wait for signal to proceed
+        self.proceed_event.wait()
+        async for event in super().stream(messages, tool_specs, system_prompt, tool_choice, **kwargs):
+            yield event
+
+
 def test_agent__init__tool_loader_format(tool_decorated, tool_module, tool_imported, tool_registry):
     _ = tool_registry
 
@@ -325,6 +356,7 @@ def test_agent__call__(
                 system_prompt,
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
+                invocation_state=unittest.mock.ANY,
             ),
             unittest.mock.call(
                 [
@@ -363,6 +395,7 @@ def test_agent__call__(
                 system_prompt,
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
+                invocation_state=unittest.mock.ANY,
             ),
         ],
     )
@@ -484,6 +517,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         unittest.mock.ANY,
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
+        invocation_state=unittest.mock.ANY,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -629,6 +663,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         unittest.mock.ANY,
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
+        invocation_state=unittest.mock.ANY,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
@@ -2182,3 +2217,475 @@ def test_agent_skips_fix_for_valid_conversation(mock_model, agenerator):
     # Should not have added any toolResult messages
     # Only the new user message and assistant response should be added
     assert len(agent.messages) == original_length + 2
+
+
+# ============================================================================
+# Concurrency Exception Tests
+# ============================================================================
+
+
+def test_agent_concurrent_call_raises_exception():
+    """Test that concurrent __call__() calls raise ConcurrencyException."""
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "hello"}]},
+            {"role": "assistant", "content": [{"text": "world"}]},
+        ]
+    )
+    agent = Agent(model=model, concurrent_invocation_mode="throw")
+
+    results = []
+    errors = []
+
+    def invoke():
+        try:
+            result = agent("test")
+            results.append(result)
+        except ConcurrencyException as e:
+            errors.append(e)
+
+    # Start first thread and wait for it to begin streaming
+    t1 = threading.Thread(target=invoke)
+    t1.start()
+    model.started_event.wait()  # Wait until first thread is in the model.stream()
+
+    # Start second thread while first is still running
+    t2 = threading.Thread(target=invoke)
+    t2.start()
+
+    # Give second thread time to attempt invocation and fail
+    t2.join(timeout=1.0)
+
+    # Now let first thread complete
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+
+    # One should succeed, one should raise ConcurrencyException
+    assert len(results) == 1, f"Expected 1 success, got {len(results)}"
+    assert len(errors) == 1, f"Expected 1 error, got {len(errors)}"
+    assert "concurrent" in str(errors[0]).lower() and "invocation" in str(errors[0]).lower()
+
+
+def test_agent_concurrent_structured_output_raises_exception():
+    """Test that concurrent structured_output() calls raise ConcurrencyException.
+
+    Note: This test validates that the sync invocation path is protected.
+    The concurrent __call__() test already validates the core functionality.
+    """
+    # Events for synchronization
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "response1"}]},
+            {"role": "assistant", "content": [{"text": "response2"}]},
+        ],
+    )
+    agent = Agent(model=model, concurrent_invocation_mode="throw")
+
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke():
+        try:
+            result = agent("test")
+            with lock:
+                results.append(result)
+        except ConcurrencyException as e:
+            with lock:
+                errors.append(e)
+
+    # Start first thread and wait for it to begin streaming
+    t1 = threading.Thread(target=invoke)
+    t1.start()
+    model.started_event.wait()  # Wait until first thread is in the model.stream()
+
+    # Start second thread while first is still running
+    t2 = threading.Thread(target=invoke)
+    t2.start()
+
+    # Give second thread time to attempt invocation and fail
+    t2.join(timeout=1.0)
+
+    # Now let first thread complete
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+
+    # One should succeed, one should raise ConcurrencyException
+    assert len(results) == 1, f"Expected 1 success, got {len(results)}"
+    assert len(errors) == 1, f"Expected 1 error, got {len(errors)}"
+    assert "concurrent" in str(errors[0]).lower() and "invocation" in str(errors[0]).lower()
+
+
+def test_agent_concurrent_call_succeeds_with_unsafe_reentrant_mode():
+    """Test that concurrent __call__() calls succeed when concurrent_invocation_mode is 'unsafe_reentrant'."""
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "hello"}]},
+            {"role": "assistant", "content": [{"text": "world"}]},
+        ]
+    )
+    agent = Agent(model=model, concurrent_invocation_mode="unsafe_reentrant")
+
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke():
+        try:
+            result = agent("test")
+            with lock:
+                results.append(result)
+        except ConcurrencyException as e:
+            with lock:
+                errors.append(e)
+
+    # Start first thread and wait for it to begin streaming
+    t1 = threading.Thread(target=invoke)
+    t1.start()
+    model.started_event.wait()  # Wait until first thread is in the model.stream()
+
+    # Start second thread while first is still running
+    t2 = threading.Thread(target=invoke)
+    t2.start()
+
+    # Let both threads proceed
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+
+    # Both should succeed, no ConcurrencyException raised
+    assert len(errors) == 0, f"Expected 0 errors, got {len(errors)}: {errors}"
+    assert len(results) == 2, f"Expected 2 successes, got {len(results)}"
+
+
+def test_agent_concurrent_invocation_mode_default_is_throw():
+    """Test that the default concurrent_invocation_mode is 'throw'."""
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello"}]}])
+    agent = Agent(model=model)
+
+    # Verify the default mode
+    assert agent._concurrent_invocation_mode == "throw"
+
+
+def test_agent_concurrent_invocation_mode_stores_value():
+    """Test that concurrent_invocation_mode is stored correctly as instance variable."""
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello"}]}])
+
+    agent_throw = Agent(model=model, concurrent_invocation_mode="throw")
+    assert agent_throw._concurrent_invocation_mode == "throw"
+
+    agent_reentrant = Agent(model=model, concurrent_invocation_mode="unsafe_reentrant")
+    assert agent_reentrant._concurrent_invocation_mode == "unsafe_reentrant"
+
+
+def test_agent_concurrent_invocation_mode_accepts_enum():
+    """Test that concurrent_invocation_mode accepts enum values as well as strings."""
+
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello"}]}])
+
+    # Using enum values
+    agent_throw = Agent(model=model, concurrent_invocation_mode=ConcurrentInvocationMode.THROW)
+    assert agent_throw._concurrent_invocation_mode == "throw"
+    assert agent_throw._concurrent_invocation_mode == ConcurrentInvocationMode.THROW
+
+    agent_reentrant = Agent(model=model, concurrent_invocation_mode=ConcurrentInvocationMode.UNSAFE_REENTRANT)
+    assert agent_reentrant._concurrent_invocation_mode == "unsafe_reentrant"
+    assert agent_reentrant._concurrent_invocation_mode == ConcurrentInvocationMode.UNSAFE_REENTRANT
+
+
+@pytest.mark.asyncio
+async def test_agent_sequential_invocations_work():
+    """Test that sequential invocations work correctly after lock is released."""
+    model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "response1"}]},
+            {"role": "assistant", "content": [{"text": "response2"}]},
+            {"role": "assistant", "content": [{"text": "response3"}]},
+        ]
+    )
+    agent = Agent(model=model)
+
+    # All sequential calls should succeed
+    result1 = await agent.invoke_async("test1")
+    assert result1.message["content"][0]["text"] == "response1"
+
+    result2 = await agent.invoke_async("test2")
+    assert result2.message["content"][0]["text"] == "response2"
+
+    result3 = await agent.invoke_async("test3")
+    assert result3.message["content"][0]["text"] == "response3"
+
+
+@pytest.mark.asyncio
+async def test_agent_lock_released_on_exception():
+    """Test that lock is released when an exception occurs during invocation."""
+
+    # Create a mock model that raises an explicit error
+    mock_model = unittest.mock.Mock()
+
+    async def failing_stream(*args, **kwargs):
+        raise RuntimeError("Simulated model failure")
+        yield  # Make this an async generator
+
+    mock_model.stream = failing_stream
+
+    agent = Agent(model=mock_model)
+
+    # First call will fail due to the simulated error
+    with pytest.raises(RuntimeError, match="Simulated model failure"):
+        await agent.invoke_async("test")
+
+    # Lock should be released, so this should not raise ConcurrencyException
+    # It will still raise RuntimeError, but that's expected
+    with pytest.raises(RuntimeError, match="Simulated model failure"):
+        await agent.invoke_async("test")
+
+
+def test_agent_direct_tool_call_during_invocation_raises_exception(tool_decorated):
+    """Test that direct tool call during agent invocation raises ConcurrencyException."""
+
+    tool_calls = []
+
+    @strands.tool
+    def tool_to_invoke():
+        tool_calls.append("tool_to_invoke")
+        return "called"
+
+    @strands.tool(context=True)
+    def agent_tool(tool_context: ToolContext) -> str:
+        tool_context.agent.tool.tool_to_invoke(record_direct_tool_call=True)
+        return "tool result"
+
+    model = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "test-123",
+                            "name": "agent_tool",
+                            "input": {},
+                        }
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "Done"}]},
+        ]
+    )
+    agent = Agent(model=model, tools=[agent_tool, tool_to_invoke])
+    agent("Hi")
+
+    # Tool call should have not succeeded
+    assert len(tool_calls) == 0
+
+    assert agent.messages[-2] == {
+        "content": [
+            {
+                "toolResult": {
+                    "content": [
+                        {
+                            "text": "Error: ConcurrencyException - Direct tool call cannot be made while the agent is "
+                            "in the middle of an invocation. Set record_direct_tool_call=False to allow direct tool "
+                            "calls during agent invocation."
+                        }
+                    ],
+                    "status": "error",
+                    "toolUseId": "test-123",
+                }
+            }
+        ],
+        "role": "user",
+    }
+
+
+def test_agent_direct_tool_call_during_invocation_succeeds_with_record_false(tool_decorated):
+    """Test that direct tool call during agent invocation succeeds when record_direct_tool_call=False."""
+    tool_calls = []
+
+    @strands.tool
+    def tool_to_invoke():
+        tool_calls.append("tool_to_invoke")
+        return "called"
+
+    @strands.tool(context=True)
+    def agent_tool(tool_context: ToolContext) -> str:
+        tool_context.agent.tool.tool_to_invoke(record_direct_tool_call=False)
+        return "tool result"
+
+    model = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "test-123",
+                            "name": "agent_tool",
+                            "input": {},
+                        }
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "Done"}]},
+        ]
+    )
+    agent = Agent(model=model, tools=[agent_tool, tool_to_invoke])
+    agent("Hi")
+
+    # Tool call should have succeeded
+    assert len(tool_calls) == 1
+
+    assert agent.messages[-2] == {
+        "content": [
+            {
+                "toolResult": {
+                    "content": [{"text": "tool result"}],
+                    "status": "success",
+                    "toolUseId": "test-123",
+                }
+            }
+        ],
+        "role": "user",
+    }
+
+
+def test_agent_add_hook_registers_callback():
+    """Test that add_hook registers a callback with the hooks registry."""
+    agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
+    callback = unittest.mock.Mock()
+
+    agent.add_hook(callback, BeforeModelCallEvent)
+
+    # Verify callback was registered by checking it gets invoked
+    agent("test prompt")
+    callback.assert_called_once()
+    # Verify it was called with the correct event type
+    call_args = callback.call_args[0]
+    assert isinstance(call_args[0], BeforeModelCallEvent)
+
+
+def test_agent_add_hook_delegates_to_hooks_add_callback():
+    """Test that add_hook delegates to self.hooks.add_callback."""
+    agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
+    callback = unittest.mock.Mock()
+
+    # Spy on the hooks.add_callback method
+    with unittest.mock.patch.object(agent.hooks, "add_callback") as mock_add_callback:
+        agent.add_hook(callback, BeforeInvocationEvent)
+        mock_add_callback.assert_called_once_with(BeforeInvocationEvent, callback)
+
+
+@pytest.mark.asyncio
+async def test_agent_add_hook_works_with_async_callback():
+    """Test that add_hook works with async callbacks."""
+
+    agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
+    async_callback = unittest.mock.AsyncMock()
+
+    agent.add_hook(async_callback, BeforeModelCallEvent)
+
+    # Use stream_async to invoke the agent with async support
+    _ = [event async for event in agent.stream_async("test prompt")]
+    async_callback.assert_called_once()
+    # Verify it was called with the correct event type
+    call_args = async_callback.call_args[0]
+    assert isinstance(call_args[0], BeforeModelCallEvent)
+
+
+def test_agent_add_hook_infers_event_type_from_callback():
+    """Test that add_hook infers event type from callback type hint."""
+    agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
+    callback_invoked = []
+
+    def typed_callback(event: BeforeModelCallEvent) -> None:
+        callback_invoked.append(event)
+
+    agent.add_hook(typed_callback)
+    agent("test prompt")
+
+    assert len(callback_invoked) == 1
+    assert isinstance(callback_invoked[0], BeforeModelCallEvent)
+
+
+def test_agent_add_hook_raises_error_when_no_type_hint():
+    """Test that add_hook raises error when event type cannot be inferred."""
+    agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
+
+    def untyped_callback(event):
+        pass
+
+    with pytest.raises(ValueError, match="cannot infer event type"):
+        agent.add_hook(untyped_callback)
+
+
+def test_agent_plugins_sync_initialization():
+    """Test that plugins with sync init_plugin are initialized correctly."""
+    plugin_mock = unittest.mock.Mock()
+    plugin_mock.name = "test-plugin"
+    plugin_mock.init_plugin = unittest.mock.Mock()
+
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        plugins=[plugin_mock],
+    )
+
+    plugin_mock.init_plugin.assert_called_once_with(agent)
+
+
+def test_agent_plugins_async_initialization():
+    """Test that plugins with async init_plugin are initialized correctly."""
+    plugin_mock = unittest.mock.Mock()
+    plugin_mock.name = "async-plugin"
+    plugin_mock.init_plugin = unittest.mock.AsyncMock()
+
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        plugins=[plugin_mock],
+    )
+
+    plugin_mock.init_plugin.assert_called_once_with(agent)
+
+
+def test_agent_plugins_multiple_in_order():
+    """Test that multiple plugins are initialized in order."""
+    call_order = []
+
+    plugin1 = unittest.mock.Mock()
+    plugin1.name = "plugin1"
+    plugin1.init_plugin = unittest.mock.Mock(side_effect=lambda agent: call_order.append("plugin1"))
+
+    plugin2 = unittest.mock.Mock()
+    plugin2.name = "plugin2"
+    plugin2.init_plugin = unittest.mock.Mock(side_effect=lambda agent: call_order.append("plugin2"))
+
+    Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        plugins=[plugin1, plugin2],
+    )
+
+    assert call_order == ["plugin1", "plugin2"]
+
+
+def test_agent_plugins_can_register_hooks():
+    """Test that plugins can register hooks during initialization."""
+    hook_called = []
+
+    class TestPlugin:
+        name = "hook-plugin"
+
+        def init_plugin(self, agent):
+            def hook_callback(event: BeforeModelCallEvent):
+                hook_called.append(True)
+
+            agent.add_hook(hook_callback)
+
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        plugins=[TestPlugin()],
+    )
+
+    agent("test")
+    assert len(hook_called) == 1

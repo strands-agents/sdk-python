@@ -1,10 +1,11 @@
 """Tests for StructuredOutputContext class."""
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
-from strands.tools.structured_output._structured_output_context import StructuredOutputContext
+from strands.tools.structured_output._structured_output_context import (
+    DEFAULT_STRUCTURED_OUTPUT_PROMPT,
+    StructuredOutputContext,
+)
 from strands.tools.structured_output.structured_output_tool import StructuredOutputTool
 
 
@@ -13,7 +14,7 @@ class SampleModel(BaseModel):
 
     name: str = Field(..., description="Name field")
     age: int = Field(..., description="Age field", ge=0)
-    email: Optional[str] = Field(None, description="Optional email field")
+    email: str | None = Field(None, description="Optional email field")
 
 
 class AnotherSampleModel(BaseModel):
@@ -37,6 +38,7 @@ class TestStructuredOutputContext:
         assert context.forced_mode is False
         assert context.tool_choice is None
         assert context.stop_loop is False
+        assert context.structured_output_prompt == DEFAULT_STRUCTURED_OUTPUT_PROMPT
 
     def test_initialization_without_structured_output_model(self):
         """Test initialization without a structured output model."""
@@ -49,6 +51,31 @@ class TestStructuredOutputContext:
         assert context.forced_mode is False
         assert context.tool_choice is None
         assert context.stop_loop is False
+        assert context.structured_output_prompt == DEFAULT_STRUCTURED_OUTPUT_PROMPT
+
+    def test_initialization_with_custom_prompt(self):
+        """Test initialization with a custom structured output prompt."""
+        custom_prompt = "Please format your response using the output schema."
+        context = StructuredOutputContext(
+            structured_output_model=SampleModel,
+            structured_output_prompt=custom_prompt,
+        )
+
+        assert context.structured_output_model == SampleModel
+        assert context.structured_output_prompt == custom_prompt
+
+    def test_initialization_with_none_prompt_uses_default(self):
+        """Test that None prompt falls back to default."""
+        context = StructuredOutputContext(
+            structured_output_model=SampleModel,
+            structured_output_prompt=None,
+        )
+
+        assert context.structured_output_prompt == DEFAULT_STRUCTURED_OUTPUT_PROMPT
+
+    def test_default_prompt_constant_value(self):
+        """Test the default prompt constant has expected value."""
+        assert DEFAULT_STRUCTURED_OUTPUT_PROMPT == "You must format the previous response as structured output."
 
     def test_is_enabled_property(self):
         """Test the is_enabled property."""

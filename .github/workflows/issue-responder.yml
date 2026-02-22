@@ -14,10 +14,10 @@ jobs:
     
     steps:
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.STRANDS_AGENTCORE_ACTIONS_ROLE }}
-          aws-region: us-west-2
+          aws-region: us-east-1
       - name: Invoke AgentCore with issue details
         env:
           GH_ISSUE_AGENTCORE_RUNTIME_ARN: ${{ secrets.GH_ISSUE_AGENTCORE_RUNTIME_ARN }}
@@ -48,7 +48,7 @@ jobs:
           console.log("Invoking AgentCore with payload:");
           console.log(JSON.stringify(JSON.parse(payload), null, 2));
 
-          const client = new BedrockAgentCoreClient({ region: "us-west-2" });
+          const client = new BedrockAgentCoreClient({ region: "us-east-1" });
           
           const sessionId = `github-issue-${process.env.ISSUE_NUMBER}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
           

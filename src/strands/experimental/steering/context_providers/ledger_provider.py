@@ -46,8 +46,9 @@ class LedgerBeforeToolCall(SteeringContextCallback[BeforeToolCallEvent]):
 
         tool_call_entry = {
             "timestamp": datetime.now().isoformat(),
+            "tool_use_id": event.tool_use.get("toolUseId"),
             "tool_name": event.tool_use.get("name"),
-            "tool_args": event.tool_use.get("arguments", {}),
+            "tool_args": event.tool_use.get("input", {}),
             "status": "pending",
         }
         ledger["tool_calls"].append(tool_call_entry)
@@ -62,16 +63,21 @@ class LedgerAfterToolCall(SteeringContextCallback[AfterToolCallEvent]):
         ledger = steering_context.data.get("ledger") or {}
 
         if ledger.get("tool_calls"):
-            last_call = ledger["tool_calls"][-1]
-            last_call.update(
-                {
-                    "completion_timestamp": datetime.now().isoformat(),
-                    "status": event.result["status"],
-                    "result": event.result["content"],
-                    "error": str(event.exception) if event.exception else None,
-                }
-            )
-            steering_context.data.set("ledger", ledger)
+            tool_use_id = event.tool_use.get("toolUseId")
+
+            # Search for the matching tool call in the ledger to update it
+            for call in reversed(ledger["tool_calls"]):
+                if call.get("tool_use_id") == tool_use_id and call.get("status") == "pending":
+                    call.update(
+                        {
+                            "completion_timestamp": datetime.now().isoformat(),
+                            "status": event.result["status"],
+                            "result": event.result["content"],
+                            "error": str(event.exception) if event.exception else None,
+                        }
+                    )
+                    steering_context.data.set("ledger", ledger)
+                    break
 
 
 class LedgerProvider(SteeringContextProvider):
