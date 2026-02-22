@@ -106,7 +106,7 @@ def conversation_manager(request):
                 {"role": "assistant", "content": [{"text": "Second response"}]},
             ],
         ),
-        # 7 - Message count above max window size - Preserve tool use/tool result pairs
+        # 7 - Message count above max window size - Keep latest user turn as first message
         (
             {"window_size": 2},
             [
@@ -115,11 +115,10 @@ def conversation_manager(request):
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "456", "content": [], "status": "success"}}]},
             ],
             [
-                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "456", "content": [], "status": "success"}}]},
             ],
         ),
-        # 8 - Test sliding window behavior - preserve tool use/result pairs across cut boundary
+        # 8 - Test sliding window behavior - avoid assistant-first reduced history
         (
             {"window_size": 3},
             [
@@ -129,12 +128,11 @@ def conversation_manager(request):
                 {"role": "assistant", "content": [{"text": "Response after tool use"}]},
             ],
             [
-                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "123", "content": [], "status": "success"}}]},
                 {"role": "assistant", "content": [{"text": "Response after tool use"}]},
             ],
         ),
-        # 9 - Test sliding window with multiple tool pairs that need preservation
+        # 9 - Test sliding window with multiple tool pairs while keeping user as first turn
         (
             {"window_size": 4},
             [
@@ -146,7 +144,6 @@ def conversation_manager(request):
                 {"role": "assistant", "content": [{"text": "Final response"}]},
             ],
             [
-                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool2", "input": {}}}]},
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "456", "content": [], "status": "success"}}]},
                 {"role": "assistant", "content": [{"text": "Final response"}]},
             ],
@@ -192,7 +189,6 @@ def test_sliding_window_conversation_manager_with_tool_results_truncated():
     manager.reduce_context(test_agent)
 
     expected_messages = [
-        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
         {
             "role": "user",
             "content": [
@@ -208,6 +204,52 @@ def test_sliding_window_conversation_manager_with_tool_results_truncated():
     ]
 
     assert messages == expected_messages
+
+
+def test_sliding_window_conversation_manager_scans_older_tool_results_when_latest_is_already_truncated():
+    manager = SlidingWindowConversationManager(1)
+    messages = [
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "old", "name": "tool1", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "old", "content": [{"text": "large input"}], "status": "success"}}
+            ],
+        },
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "new", "name": "tool2", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "new",
+                        "content": [{"text": "The tool result was too large!"}],
+                        "status": "error",
+                    }
+                }
+            ],
+        },
+    ]
+    test_agent = Agent(messages=messages)
+
+    manager.reduce_context(test_agent)
+
+    assert messages[0]["role"] == "user"
+    assert messages[0]["content"][0]["toolResult"]["toolUseId"] == "old"
+    assert messages[0]["content"][0]["toolResult"]["content"] == [{"text": "The tool result was too large!"}]
+    assert messages[0]["content"][0]["toolResult"]["status"] == "error"
+
+
+def test_sliding_window_conversation_manager_raises_when_reduced_history_has_no_user_messages():
+    manager = SlidingWindowConversationManager(1, should_truncate_results=False)
+    messages = [
+        {"role": "user", "content": [{"text": "First message"}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
+    ]
+    test_agent = Agent(messages=messages)
+
+    with pytest.raises(ContextWindowOverflowException, match="Unable to trim conversation context!"):
+        manager.apply_management(test_agent)
 
 
 def test_null_conversation_manager_reduce_context_raises_context_window_overflow_exception():

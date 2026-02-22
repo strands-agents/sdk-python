@@ -162,10 +162,15 @@ class SlidingWindowConversationManager(ConversationManager):
             logger.debug(
                 "message_index=<%s> | found message with tool results at index", last_message_idx_with_tool_results
             )
-            results_truncated = self._truncate_tool_results(messages, last_message_idx_with_tool_results)
-            if results_truncated:
-                logger.debug("message_index=<%s> | tool results truncated", last_message_idx_with_tool_results)
-                return
+            for message_index in range(last_message_idx_with_tool_results, -1, -1):
+                if not any("toolResult" in content for content in messages[message_index]["content"]):
+                    continue
+
+                results_truncated = self._truncate_tool_results(messages, message_index)
+                if results_truncated:
+                    logger.debug("message_index=<%s> | tool results truncated", message_index)
+                    self._ensure_starts_with_user_turn(messages, e)
+                    return
 
         # Try to trim index id when tool result cannot be truncated anymore
         # If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size
@@ -195,6 +200,23 @@ class SlidingWindowConversationManager(ConversationManager):
 
         # Overwrite message history
         messages[:] = messages[trim_index:]
+        self._ensure_starts_with_user_turn(messages, e)
+
+    def _ensure_starts_with_user_turn(self, messages: Messages, e: Exception | None = None) -> None:
+        """Ensure reduced history does not start with assistant tool calls."""
+        removed_non_user_messages = 0
+        while (
+            messages
+            and messages[0]["role"] != "user"
+            and any("toolUse" in content for content in messages[0]["content"])
+        ):
+            messages.pop(0)
+            removed_non_user_messages += 1
+
+        self.removed_message_count += removed_non_user_messages
+
+        if not messages:
+            raise ContextWindowOverflowException("Unable to trim conversation context!") from e
 
     def _truncate_tool_results(self, messages: Messages, msg_idx: int) -> bool:
         """Truncate tool results in a message to reduce context size.
@@ -227,7 +249,7 @@ class SlidingWindowConversationManager(ConversationManager):
                     and tool_result_content_text == tool_result_too_large_message
                 ):
                     logger.info("ToolResult has already been updated, skipping overwrite")
-                    return False
+                    continue
                 # Update status to error with informative message
                 message["content"][i]["toolResult"]["status"] = "error"
                 message["content"][i]["toolResult"]["content"] = [{"text": tool_result_too_large_message}]
