@@ -188,7 +188,7 @@ class TestSkillsTool:
 
         result = plugin.skills(skill_name="test-skill")
 
-        assert result == "Full instructions here."
+        assert "Full instructions here." in result
         assert plugin.active_skill is not None
         assert plugin.active_skill.name == "test-skill"
 
@@ -339,6 +339,141 @@ class TestSkillsXmlGeneration:
 
         assert "<available_skills>" in xml
         assert "</available_skills>" in xml
+
+    def test_location_included_when_path_set(self, tmp_path):
+        """Test that location element is included when skill has a path."""
+        skill = _make_skill()
+        skill.path = tmp_path / "test-skill"
+        plugin = SkillsPlugin(skills=[skill])
+        xml = plugin._generate_skills_xml()
+
+        assert f"<location>{tmp_path / 'test-skill' / 'SKILL.md'}</location>" in xml
+
+    def test_location_omitted_when_path_none(self):
+        """Test that location element is omitted for programmatic skills."""
+        skill = _make_skill()
+        assert skill.path is None
+        plugin = SkillsPlugin(skills=[skill])
+        xml = plugin._generate_skills_xml()
+
+        assert "<location>" not in xml
+
+
+class TestSkillResponseFormat:
+    """Tests for _format_skill_response."""
+
+    def test_instructions_only(self):
+        """Test response with just instructions."""
+        skill = _make_skill(instructions="Do the thing.")
+        plugin = SkillsPlugin(skills=[skill])
+        result = plugin._format_skill_response(skill)
+
+        assert result == "Do the thing."
+
+    def test_no_instructions(self):
+        """Test response when skill has no instructions."""
+        skill = _make_skill(instructions="")
+        plugin = SkillsPlugin(skills=[skill])
+        result = plugin._format_skill_response(skill)
+
+        assert "no instructions available" in result.lower()
+
+    def test_includes_allowed_tools(self):
+        """Test response includes allowed tools when set."""
+        skill = _make_skill(instructions="Do the thing.")
+        skill.allowed_tools = ["Bash", "Read"]
+        plugin = SkillsPlugin(skills=[skill])
+        result = plugin._format_skill_response(skill)
+
+        assert "Do the thing." in result
+        assert "Allowed tools: Bash, Read" in result
+
+    def test_includes_compatibility(self):
+        """Test response includes compatibility when set."""
+        skill = _make_skill(instructions="Do the thing.")
+        skill.compatibility = "Requires docker"
+        plugin = SkillsPlugin(skills=[skill])
+        result = plugin._format_skill_response(skill)
+
+        assert "Compatibility: Requires docker" in result
+
+    def test_includes_location(self, tmp_path):
+        """Test response includes location when path is set."""
+        skill = _make_skill(instructions="Do the thing.")
+        skill.path = tmp_path / "test-skill"
+        plugin = SkillsPlugin(skills=[skill])
+        result = plugin._format_skill_response(skill)
+
+        assert f"Location: {tmp_path / 'test-skill' / 'SKILL.md'}" in result
+
+    def test_all_metadata(self, tmp_path):
+        """Test response with all metadata fields."""
+        skill = _make_skill(instructions="Do the thing.")
+        skill.allowed_tools = ["Bash"]
+        skill.compatibility = "Requires git"
+        skill.path = tmp_path / "test-skill"
+        plugin = SkillsPlugin(skills=[skill])
+        result = plugin._format_skill_response(skill)
+
+        assert "Do the thing." in result
+        assert "---" in result
+        assert "Allowed tools: Bash" in result
+        assert "Compatibility: Requires git" in result
+        assert "Location:" in result
+
+    def test_includes_resource_listing(self, tmp_path):
+        """Test response includes resource files from optional directories."""
+        skill_dir = tmp_path / "test-skill"
+        skill_dir.mkdir()
+        (skill_dir / "scripts").mkdir()
+        (skill_dir / "scripts" / "extract.py").write_text("# extract")
+        (skill_dir / "references").mkdir()
+        (skill_dir / "references" / "REFERENCE.md").write_text("# ref")
+
+        skill = _make_skill(instructions="Do the thing.")
+        skill.path = skill_dir
+        plugin = SkillsPlugin(skills=[skill])
+        result = plugin._format_skill_response(skill)
+
+        assert "Available resources:" in result
+        assert "scripts/extract.py" in result
+        assert "references/REFERENCE.md" in result
+
+    def test_no_resources_when_no_path(self):
+        """Test that resources section is omitted for programmatic skills."""
+        skill = _make_skill(instructions="Do the thing.")
+        plugin = SkillsPlugin(skills=[skill])
+        result = plugin._format_skill_response(skill)
+
+        assert "Available resources:" not in result
+
+    def test_no_resources_when_dirs_empty(self, tmp_path):
+        """Test that resources section is omitted when optional dirs don't exist."""
+        skill_dir = tmp_path / "test-skill"
+        skill_dir.mkdir()
+
+        skill = _make_skill(instructions="Do the thing.")
+        skill.path = skill_dir
+        plugin = SkillsPlugin(skills=[skill])
+        result = plugin._format_skill_response(skill)
+
+        assert "Available resources:" not in result
+
+    def test_resource_listing_truncated(self, tmp_path):
+        """Test that resource listing is truncated at the max file limit."""
+        skill_dir = tmp_path / "test-skill"
+        scripts_dir = skill_dir / "scripts"
+        scripts_dir.mkdir(parents=True)
+        for i in range(55):
+            (scripts_dir / f"script_{i:03d}.py").write_text(f"# script {i}")
+
+        skill = _make_skill(instructions="Do the thing.")
+        skill.path = skill_dir
+        plugin = SkillsPlugin(skills=[skill])
+        result = plugin._format_skill_response(skill)
+
+        assert "Available resources:" in result
+        assert "truncated at 20 files" in result
 
 
 class TestSessionPersistence:

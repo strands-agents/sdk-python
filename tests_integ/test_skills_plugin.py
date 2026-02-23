@@ -57,7 +57,8 @@ def test_direct_tool_invocation_and_state_persistence(agent, skills_plugin):
 
     # Tool returned the skill instructions
     assert result["status"] == "success"
-    assert "translation expert" in result["content"][0]["text"].lower()
+    response_text = result["content"][0]["text"].lower()
+    assert "translation expert" in response_text
 
     # Plugin tracks the active skill
     assert skills_plugin.active_skill is not None

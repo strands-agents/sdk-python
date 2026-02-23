@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _STATE_KEY = "skills_plugin"
+_RESOURCE_DIRS = ("scripts", "references", "assets")
+_MAX_RESOURCE_FILES = 20
 
 
 class SkillsPlugin(Plugin):
@@ -110,7 +112,7 @@ class SkillsPlugin(Plugin):
         self._persist_state()
 
         logger.debug("skill_name=<%s> | skill activated", skill_name)
-        return found.instructions or f"Skill '{skill_name}' activated (no instructions available)."
+        return self._format_skill_response(found)
 
     @hook
     def _on_before_invocation(self, event: BeforeInvocationEvent) -> None:
@@ -168,8 +170,77 @@ class SkillsPlugin(Plugin):
         """
         return self._active_skill
 
+    def _format_skill_response(self, skill: Skill) -> str:
+        """Format the tool response when a skill is activated.
+
+        Includes the full instructions along with relevant metadata fields
+        and a listing of available resource files (scripts, references, assets)
+        for filesystem-based skills.
+
+        Args:
+            skill: The activated skill.
+
+        Returns:
+            Formatted string with skill instructions and metadata.
+        """
+        if not skill.instructions:
+            return f"Skill '{skill.name}' activated (no instructions available)."
+
+        parts: list[str] = [skill.instructions]
+
+        metadata_lines: list[str] = []
+        if skill.allowed_tools:
+            metadata_lines.append(f"Allowed tools: {', '.join(skill.allowed_tools)}")
+        if skill.compatibility:
+            metadata_lines.append(f"Compatibility: {skill.compatibility}")
+        if skill.path is not None:
+            metadata_lines.append(f"Location: {skill.path / 'SKILL.md'}")
+
+        if metadata_lines:
+            parts.append("\n---\n" + "\n".join(metadata_lines))
+
+        if skill.path is not None:
+            resources = self._list_skill_resources(skill.path)
+            if resources:
+                parts.append("\nAvailable resources:\n" + "\n".join(f"  {r}" for r in resources))
+
+        return "\n".join(parts)
+
+    def _list_skill_resources(self, skill_path: Path) -> list[str]:
+        """List resource files in a skill's optional directories.
+
+        Scans the ``scripts/``, ``references/``, and ``assets/`` subdirectories
+        for files, returning relative paths. Results are capped at
+        ``_MAX_RESOURCE_FILES`` to avoid context bloat.
+
+        Args:
+            skill_path: Path to the skill directory.
+
+        Returns:
+            List of relative file paths (e.g. ``scripts/extract.py``).
+        """
+        files: list[str] = []
+
+        for dir_name in _RESOURCE_DIRS:
+            resource_dir = skill_path / dir_name
+            if not resource_dir.is_dir():
+                continue
+
+            for file_path in sorted(resource_dir.rglob("*")):
+                if not file_path.is_file():
+                    continue
+                files.append(str(file_path.relative_to(skill_path)))
+                if len(files) >= _MAX_RESOURCE_FILES:
+                    files.append(f"... (truncated at {_MAX_RESOURCE_FILES} files)")
+                    return files
+
+        return files
+
     def _generate_skills_xml(self) -> str:
         """Generate the XML block listing available skills for the system prompt.
+
+        Includes a ``<location>`` element for skills loaded from the filesystem,
+        following the AgentSkills.io integration spec.
 
         Returns:
             XML-formatted string with skill metadata.
@@ -180,6 +251,8 @@ class SkillsPlugin(Plugin):
             lines.append("<skill>")
             lines.append(f"<name>{skill.name}</name>")
             lines.append(f"<description>{skill.description}</description>")
+            if skill.path is not None:
+                lines.append(f"<location>{skill.path / 'SKILL.md'}</location>")
             lines.append("</skill>")
 
         lines.append("</available_skills>")

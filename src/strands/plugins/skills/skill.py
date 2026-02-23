@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Skill:
-    """Represents an AgentSkills.io skill with metadata and instructions.
+    """Represents an agent skill with metadata and instructions.
 
     A skill encapsulates a set of instructions and metadata that can be
     dynamically loaded by an agent at runtime. Skills support progressive
