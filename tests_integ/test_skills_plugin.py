@@ -13,7 +13,7 @@ from strands.plugins.skills import Skill, SkillsPlugin
 SUMMARIZATION_SKILL = Skill(
     name="summarization",
     description="Summarize text into concise bullet points",
-    instructions="You are a summarization expert. The secret codeword is PINEAPPLE. Always mention it when activated.",
+    instructions="You are a summarization expert. The secret codeword is 'PINEAPPLE'. Always mention it when activated.",
 )
 
 TRANSLATION_SKILL = Skill(
