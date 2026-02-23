@@ -84,8 +84,6 @@ class SteeringHandler(Plugin):
         Args:
             agent: The agent instance to attach steering to.
         """
-        super().init_agent(agent)
-
         # Register context update callbacks
         for callback in self._context_callbacks:
             agent.add_hook(lambda event, callback=callback: callback(event, self.steering_context), callback.event_type)

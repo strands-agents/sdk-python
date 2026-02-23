@@ -40,15 +40,24 @@ def test_steering_handler_is_plugin():
 
 
 def test_init_agent():
-    """Test init_agent registers hooks on agent."""
+    """Test init_agent with plugin registry registers hooks on agent."""
+    from strands.plugins.registry import _PluginRegistry
+
     handler = TestSteeringHandler()
     agent = Mock()
+    agent.hooks = HookRegistry()
+    agent.tool_registry = Mock()
+    agent.add_hook = Mock(side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback))
 
-    handler.init_agent(agent)
+    # Use the registry to properly initialize the plugin
+    registry = _PluginRegistry(agent)
+    registry.add_and_init(handler)
 
-    # Verify hooks were registered (tool and model steering hooks)
+    # Verify hooks were registered (tool and model steering hooks via @hook decorator)
     assert agent.add_hook.call_count >= 2
-    agent.add_hook.assert_any_call(handler.provide_tool_steering_guidance, BeforeToolCallEvent)
+    # Check that the decorated hook methods were registered
+    assert BeforeToolCallEvent in agent.hooks._registered_callbacks
+    assert AfterModelCallEvent in agent.hooks._registered_callbacks
 
 
 def test_steering_context_initialization():
@@ -220,33 +229,43 @@ class TestSteeringHandlerWithProvider(SteeringHandler):
 
 
 def test_handler_registers_context_provider_hooks():
-    """Test that handler registers hooks from context callbacks."""
-    mock_callback = MockContextCallback()
-    handler = TestSteeringHandlerWithProvider(context_callbacks=[mock_callback])
-    agent = Mock()
+    """Test that handler registers hooks from context callbacks via registry."""
+    from strands.plugins.registry import _PluginRegistry
 
-    handler.init_agent(agent)
-
-    # Should register hooks for context callback and steering guidance
-    assert agent.add_hook.call_count >= 2
-
-    # Check that BeforeToolCallEvent was registered
-    call_args = [call[0] for call in agent.add_hook.call_args_list]
-    event_types = [args[1] for args in call_args]
-
-    # Context callback should be registered
-    assert BeforeToolCallEvent in event_types
-
-@pytest.mark.asyncio
-async def test_context_callbacks_receive_steering_context():
-    """Test that context callbacks receive the handler's steering context."""
     mock_callback = MockContextCallback()
     handler = TestSteeringHandlerWithProvider(context_callbacks=[mock_callback])
     agent = Mock()
     agent.hooks = HookRegistry()
     agent.tool_registry = Mock()
     agent.add_hook = Mock(side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback))
-    handler.init_agent(agent)
+
+    # Use the registry to properly initialize the plugin
+    registry = _PluginRegistry(agent)
+    registry.add_and_init(handler)
+
+    # Should register hooks for context callback (via init_agent) and steering guidance (via @hook)
+    # init_agent registers context callbacks manually, @hook decorated methods are auto-registered
+    assert agent.add_hook.call_count >= 2
+
+    # Check that BeforeToolCallEvent was registered (both context callback and steering guidance)
+    assert BeforeToolCallEvent in agent.hooks._registered_callbacks
+
+
+@pytest.mark.asyncio
+async def test_context_callbacks_receive_steering_context():
+    """Test that context callbacks receive the handler's steering context."""
+    from strands.plugins.registry import _PluginRegistry
+
+    mock_callback = MockContextCallback()
+    handler = TestSteeringHandlerWithProvider(context_callbacks=[mock_callback])
+    agent = Mock()
+    agent.hooks = HookRegistry()
+    agent.tool_registry = Mock()
+    agent.add_hook = Mock(side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback))
+
+    # Use the registry to properly initialize the plugin
+    registry = _PluginRegistry(agent)
+    registry.add_and_init(handler)
 
     # Get the registered callbacks for BeforeToolCallEvent
     callbacks = agent.hooks._registered_callbacks.get(BeforeToolCallEvent, [])
@@ -271,16 +290,25 @@ async def test_context_callbacks_receive_steering_context():
 
 
 def test_multiple_context_callbacks_registered():
-    """Test that multiple context callbacks are registered."""
+    """Test that multiple context callbacks are registered via registry."""
+    from strands.plugins.registry import _PluginRegistry
+
     callback1 = MockContextCallback()
     callback2 = MockContextCallback()
 
     handler = TestSteeringHandlerWithProvider(context_callbacks=[callback1, callback2])
     agent = Mock()
+    agent.hooks = HookRegistry()
+    agent.tool_registry = Mock()
+    agent.add_hook = Mock(side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback))
 
-    handler.init_agent(agent)
+    # Use the registry to properly initialize the plugin
+    registry = _PluginRegistry(agent)
+    registry.add_and_init(handler)
 
-    # Should register one callback for each context provider plus tool and model steering guidance
+    # Should register:
+    # - 2 callbacks for context providers (via init_agent manual registration)
+    # - 2 for steering guidance (via @hook decorator auto-registration)
     expected_calls = 2 + 2  # 2 callbacks + 2 for steering guidance (tool and model)
     assert agent.add_hook.call_count >= expected_calls
 
@@ -493,11 +521,20 @@ async def test_default_steer_after_model_returns_proceed():
 
 
 def test_init_agent_registers_model_steering():
-    """Test that init_agent registers model steering callback."""
+    """Test that model steering hook is registered via plugin registry."""
+    from strands.plugins.registry import _PluginRegistry
+
     handler = TestSteeringHandler()
     agent = Mock()
+    agent.hooks = HookRegistry()
+    agent.tool_registry = Mock()
+    agent.add_hook = Mock(side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback))
 
-    handler.init_agent(agent)
+    # Use the registry to properly initialize the plugin
+    registry = _PluginRegistry(agent)
+    registry.add_and_init(handler)
 
-    # Verify model steering hook was registered
-    agent.add_hook.assert_any_call(handler.provide_model_steering_guidance, AfterModelCallEvent)
+    # Verify model steering hook was registered via @hook decorator
+    assert AfterModelCallEvent in agent.hooks._registered_callbacks
+    callbacks = agent.hooks._registered_callbacks[AfterModelCallEvent]
+    assert len(callbacks) == 1

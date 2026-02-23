@@ -28,7 +28,7 @@ def test_plugin_base_class_sync_implementation():
         name = "sync-plugin"
 
         def init_agent(self, agent):
-            super().init_agent(agent)
+            # No super() needed - registry handles auto-registration
             agent.custom_attribute = "initialized by plugin"
 
     plugin = SyncPlugin()
@@ -53,7 +53,7 @@ async def test_plugin_base_class_async_implementation():
         name = "async-plugin"
 
         async def init_agent(self, agent):
-            super().init_agent(agent)
+            # No super() needed - registry handles auto-registration
             agent.custom_attribute = "initialized by async plugin"
 
     plugin = AsyncPlugin()
@@ -127,6 +127,7 @@ def mock_agent():
     agent = unittest.mock.Mock()
     agent.hooks = HookRegistry()
     agent.tool_registry = unittest.mock.MagicMock()
+    agent.add_hook = unittest.mock.Mock()
     return agent
 
 
@@ -147,7 +148,7 @@ def test_plugin_registry_add_and_init_calls_init_agent(registry, mock_agent):
             self.initialized = False
 
         def init_agent(self, agent):
-            super().init_agent(agent)
+            # No super() needed - registry handles auto-registration
             self.initialized = True
             agent.plugin_initialized = True
 
@@ -184,7 +185,7 @@ def test_plugin_registry_add_and_init_with_async_plugin(registry, mock_agent):
             self.initialized = False
 
         async def init_agent(self, agent):
-            super().init_agent(agent)
+            # No super() needed - registry handles auto-registration
             self.initialized = True
             agent.async_plugin_initialized = True
 

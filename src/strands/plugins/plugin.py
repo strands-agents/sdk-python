@@ -1,7 +1,7 @@
 """Plugin base class for extending agent functionality.
 
 This module defines the Plugin base class, which provides a composable way to
-add behavior changes to agents through a standardized initialization pattern.
+add behavior changes to agents through automatic hook and tool registration.
 """
 
 import logging
@@ -27,13 +27,14 @@ class Plugin(ABC):
 
     Attributes:
         name: A stable string identifier for the plugin (must be provided by subclass)
-        _hooks: List of discovered @hook decorated methods (populated in __init__)
-        _tools: List of discovered @tool decorated methods (populated in __init__)
+        hooks: Tuple of discovered @hook decorated methods (read-only)
+        tools: Tuple of discovered @tool decorated methods (read-only)
 
     Example using decorators (recommended):
         ```python
         from strands.plugins import Plugin, hook
         from strands.hooks import BeforeModelCallEvent
+        from strands import tool
 
         class MyPlugin(Plugin):
             name = "my-plugin"
@@ -48,14 +49,14 @@ class Plugin(ABC):
                 return f"Result: {param}"
         ```
 
-    Example with manual registration:
+    Example with custom initialization:
         ```python
         class MyPlugin(Plugin):
             name = "my-plugin"
 
             def init_agent(self, agent: Agent) -> None:
-                super().init_agent(agent)  # Register decorated methods
-                # Add additional manual hooks if needed
+                # Custom initialization logic - no super() needed
+                # Decorated hooks/tools are auto-registered by the plugin registry
                 agent.hooks.add_callback(BeforeModelCallEvent, self.custom_hook)
 
             def custom_hook(self, event: BeforeModelCallEvent):
@@ -73,17 +74,35 @@ class Plugin(ABC):
         """Initialize the plugin and discover decorated methods.
 
         Scans the class for methods decorated with @hook and @tool and stores
-        references for later registration when init_agent is called.
+        references for later registration when the plugin is attached to an agent.
         """
         self._hooks: list[_WrappedHookCallable] = []
         self._tools: list[DecoratedFunctionTool] = []
         self._discover_decorated_methods()
 
+    @property
+    def hooks(self) -> tuple[_WrappedHookCallable, ...]:
+        """Discovered @hook decorated methods.
+
+        Returns a tuple of hook callbacks that will be auto-registered
+        when the plugin is attached to an agent.
+        """
+        return tuple(self._hooks)
+
+    @property
+    def tools(self) -> tuple[DecoratedFunctionTool, ...]:
+        """Discovered @tool decorated methods.
+
+        Returns a tuple of tools that will be auto-registered
+        when the plugin is attached to an agent.
+        """
+        return tuple(self._tools)
+
     def _discover_decorated_methods(self) -> None:
         """Scan class for @hook and @tool decorated methods."""
-        for name in dir(self):
+        for attr_name in dir(self):
             try:
-                attr = getattr(self, name)
+                attr = getattr(self, attr_name)
             except Exception:
                 # Skip attributes that can't be accessed
                 continue
@@ -91,46 +110,21 @@ class Plugin(ABC):
             # Check for @hook decorated methods
             if hasattr(attr, "_hook_event_types") and callable(attr):
                 self._hooks.append(attr)
-                logger.debug("plugin=<%s>, hook=<%s> | discovered hook method", self.name, name)
+                logger.debug("plugin=<%s>, hook=<%s> | discovered hook method", self.name, attr_name)
 
             # Check for @tool decorated methods (DecoratedFunctionTool instances)
             if isinstance(attr, DecoratedFunctionTool):
                 self._tools.append(attr)
-                logger.debug("plugin=<%s>, tool=<%s> | discovered tool method", self.name, name)
+                logger.debug("plugin=<%s>, tool=<%s> | discovered tool method", self.name, attr_name)
 
     def init_agent(self, agent: "Agent") -> None | Awaitable[None]:
         """Initialize the agent instance.
 
-        Default implementation that registers all discovered @hook methods
-        with the agent's hook registry and adds all discovered @tool methods
-        to the agent's tools list.
-
-        Subclasses can override this method and call super().init_agent(agent)
-        to retain automatic registration while adding custom initialization logic.
+        Override this method to add custom initialization logic. Decorated
+        hooks and tools are automatically registered by the plugin registry,
+        so there's no need to call super().init_agent(agent).
 
         Args:
             agent: The agent instance to initialize.
         """
-        # Register discovered hooks with the agent's hook registry
-        for hook_callback in self._hooks:
-            event_types = getattr(hook_callback, "_hook_event_types", [])
-            for event_type in event_types:
-                agent.add_hook(hook_callback, event_type)
-                logger.debug(
-                    "plugin=<%s>, hook=<%s>, event_type=<%s> | registered hook",
-                    self.name,
-                    getattr(hook_callback, "__name__", repr(hook_callback)),
-                    event_type.__name__,
-                )
-
-        # Register discovered tools with the agent's tool registry
-        if self._tools:
-            agent.tool_registry.process_tools(self._tools)
-            for tool in self._tools:
-                logger.debug(
-                    "plugin=<%s>, tool=<%s> | registered tool",
-                    self.name,
-                    tool.tool_name,
-                )
-
         return None

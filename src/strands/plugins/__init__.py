@@ -7,6 +7,7 @@ Example Usage with Decorators (recommended):
     ```python
     from strands.plugins import Plugin, hook
     from strands.hooks import BeforeModelCallEvent
+    from strands import tool
 
     class LoggingPlugin(Plugin):
         name = "logging"
@@ -22,7 +23,7 @@ Example Usage with Decorators (recommended):
             return "Logged"
     ```
 
-Example Usage with Manual Registration:
+Example Usage with Custom Initialization:
     ```python
     from strands.plugins import Plugin
     from strands.hooks import BeforeModelCallEvent
@@ -31,8 +32,8 @@ Example Usage with Manual Registration:
         name = "logging"
 
         def init_agent(self, agent: Agent) -> None:
-            super().init_agent(agent)  # Register decorated methods
-            # Add additional manual hooks
+            # Custom initialization - no super() needed
+            # Decorated hooks/tools are auto-registered by the registry
             agent.hooks.add_callback(BeforeModelCallEvent, self.on_model_call)
 
         def on_model_call(self, event: BeforeModelCallEvent) -> None:
