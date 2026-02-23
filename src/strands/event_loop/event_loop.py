@@ -346,8 +346,7 @@ async def _handle_model_execution(
                     agent=agent,
                     invocation_state=invocation_state,
                     stop_response=AfterModelCallEvent.ModelStopResponse(
-                        stop_reason=stop_reason,
-                        message=message,
+                        stop_reason=stop_reason, message=message, usage=usage, metrics=metrics
                     ),
                 )
 

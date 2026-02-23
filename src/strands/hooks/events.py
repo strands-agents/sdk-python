@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from ..agent.agent_result import AgentResult
 
 from ..types.content import Message, Messages
+from ..types.event_loop import Metrics, Usage
 from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
@@ -269,10 +270,14 @@ class AfterModelCallEvent(HookEvent):
         Attributes:
             stop_reason: The reason the model stopped generating.
             message: The generated message from the model.
+            usage: Token usage information for model interactions.
+            metrics: Performance metrics for model interactions.
         """
 
         message: Message
         stop_reason: StopReason
+        usage: Usage | None = None
+        metrics: Metrics | None = None
 
     invocation_state: dict[str, Any] = field(default_factory=dict)
     stop_response: ModelStopResponse | None = None
