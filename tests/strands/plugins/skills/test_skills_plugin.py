@@ -417,7 +417,7 @@ class TestResolveSkills:
         plugin = SkillsPlugin(skills=[skill])
 
         assert len(plugin._skills) == 1
-        assert plugin._skills[0] is skill
+        assert plugin._skills["test-skill"] is skill
 
     def test_resolve_skill_directory_path(self, tmp_path):
         """Test resolving a path to a skill directory."""
@@ -425,7 +425,7 @@ class TestResolveSkills:
         plugin = SkillsPlugin(skills=[tmp_path / "path-skill"])
 
         assert len(plugin._skills) == 1
-        assert plugin._skills[0].name == "path-skill"
+        assert "path-skill" in plugin._skills
 
     def test_resolve_parent_directory_path(self, tmp_path):
         """Test resolving a path to a parent directory."""
@@ -441,7 +441,7 @@ class TestResolveSkills:
         plugin = SkillsPlugin(skills=[skill_dir / "SKILL.md"])
 
         assert len(plugin._skills) == 1
-        assert plugin._skills[0].name == "file-skill"
+        assert "file-skill" in plugin._skills
 
     def test_resolve_nonexistent_path(self, tmp_path):
         """Test that nonexistent paths are skipped."""

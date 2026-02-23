@@ -1,7 +1,7 @@
-"""SkillsPlugin for integrating AgentSkills.io skills into Strands agents.
+"""SkillsPlugin for integrating Agent Skills into Strands agents.
 
 This module provides the SkillsPlugin class that extends the Plugin base class
-to add AgentSkills.io skill support. The plugin registers a tool for activating
+to add Agent Skills support. The plugin registers a tool for activating
 skills, and injects skill metadata into the system prompt.
 """
 
@@ -26,14 +26,13 @@ _STATE_KEY = "skills_plugin"
 
 
 class SkillsPlugin(Plugin):
-    """Plugin that integrates AgentSkills.io skills into a Strands agent.
+    """Plugin that integrates Agent Skills into a Strands agent.
 
     The SkillsPlugin extends the Plugin base class and provides:
 
     1. A ``skills`` tool that allows the agent to activate skills on demand
     2. System prompt injection of available skill metadata before each invocation
-    3. Single active skill management (activating a new skill replaces the previous one)
-    4. Session persistence of active skill state via ``agent.state``
+    3. Session persistence of active skill state via ``agent.state``
 
     Skills can be provided as filesystem paths (to individual skill directories or
     parent directories containing multiple skills) or as pre-built ``Skill`` instances.
@@ -69,7 +68,7 @@ class SkillsPlugin(Plugin):
                 - A ``str`` or ``Path`` to a parent directory (containing skill subdirectories)
                 - A ``Skill`` dataclass instance
         """
-        self._skills: list[Skill] = self._resolve_skills(skills)
+        self._skills: dict[str, Skill] = self._resolve_skills(skills)
         self._active_skill: Skill | None = None
         self._agent: Agent | None = None
         self._original_system_prompt: str | None = None
@@ -94,8 +93,7 @@ class SkillsPlugin(Plugin):
         """Activate a skill to load its full instructions.
 
         Use this tool to load the complete instructions for a skill listed in
-        the available_skills section of your system prompt. Activating a new
-        skill replaces the previously active one.
+        the available_skills section of your system prompt.
 
         Args:
             skill_name: Name of the skill to activate.
@@ -103,9 +101,9 @@ class SkillsPlugin(Plugin):
         if not skill_name:
             return "Error: skill_name is required."
 
-        found = self._find_skill(skill_name)
+        found = self._skills.get(skill_name)
         if found is None:
-            available = ", ".join(s.name for s in self._skills)
+            available = ", ".join(self._skills)
             return f"Skill '{skill_name}' not found. Available skills: {available}"
 
         self._active_skill = found
@@ -146,7 +144,7 @@ class SkillsPlugin(Plugin):
         Returns:
             A copy of the current skills list.
         """
-        return list(self._skills)
+        return list(self._skills.values())
 
     @available_skills.setter
     def available_skills(self, value: list[str | Path | Skill]) -> None:
@@ -178,7 +176,7 @@ class SkillsPlugin(Plugin):
         """
         lines: list[str] = ["<available_skills>"]
 
-        for skill in self._skills:
+        for skill in self._skills.values():
             lines.append("<skill>")
             lines.append(f"<name>{skill.name}</name>")
             lines.append(f"<description>{skill.description}</description>")
@@ -187,21 +185,7 @@ class SkillsPlugin(Plugin):
         lines.append("</available_skills>")
         return "\n".join(lines)
 
-    def _find_skill(self, skill_name: str) -> Skill | None:
-        """Find a skill by name in the available skills list.
-
-        Args:
-            skill_name: The name of the skill to find.
-
-        Returns:
-            The matching Skill instance, or None if not found.
-        """
-        for skill in self._skills:
-            if skill.name == skill_name:
-                return skill
-        return None
-
-    def _resolve_skills(self, sources: list[str | Path | Skill]) -> list[Skill]:
+    def _resolve_skills(self, sources: list[str | Path | Skill]) -> dict[str, Skill]:
         """Resolve a list of skill sources into Skill instances.
 
         Each source can be a Skill instance, a path to a skill directory,
@@ -211,13 +195,13 @@ class SkillsPlugin(Plugin):
             sources: List of skill sources to resolve.
 
         Returns:
-            List of resolved Skill instances.
+            Dict mapping skill names to Skill instances.
         """
-        resolved: list[Skill] = []
+        resolved: dict[str, Skill] = {}
 
         for source in sources:
             if isinstance(source, Skill):
-                resolved.append(source)
+                resolved[source.name] = source
             else:
                 path = Path(source).resolve()
                 if not path.exists():
@@ -230,15 +214,18 @@ class SkillsPlugin(Plugin):
 
                     if has_skill_md:
                         try:
-                            resolved.append(load_skill(path))
+                            skill = load_skill(path)
+                            resolved[skill.name] = skill
                         except (ValueError, FileNotFoundError) as e:
                             logger.warning("path=<%s> | failed to load skill: %s", path, e)
                     else:
                         # Treat as parent directory containing skill subdirectories
-                        resolved.extend(load_skills(path))
+                        for skill in load_skills(path):
+                            resolved[skill.name] = skill
                 elif path.is_file() and path.name.lower() == "skill.md":
                     try:
-                        resolved.append(load_skill(path))
+                        skill = load_skill(path)
+                        resolved[skill.name] = skill
                     except (ValueError, FileNotFoundError) as e:
                         logger.warning("path=<%s> | failed to load skill: %s", path, e)
 
@@ -266,6 +253,6 @@ class SkillsPlugin(Plugin):
 
         active_name = state_data.get("active_skill_name")
         if isinstance(active_name, str):
-            self._active_skill = self._find_skill(active_name)
+            self._active_skill = self._skills.get(active_name)
             if self._active_skill:
                 logger.debug("skill_name=<%s> | restored active skill from state", active_name)
