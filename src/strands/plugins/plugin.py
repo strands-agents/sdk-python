@@ -27,8 +27,8 @@ class Plugin(ABC):
 
     Attributes:
         name: A stable string identifier for the plugin (must be provided by subclass)
-        hooks: Tuple of discovered @hook decorated methods (read-only)
-        tools: Tuple of discovered @tool decorated methods (read-only)
+        hooks: List of discovered @hook decorated methods (mutable for filtering)
+        tools: List of discovered @tool decorated methods (mutable for filtering)
 
     Example using decorators (recommended):
         ```python
