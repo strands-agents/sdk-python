@@ -141,8 +141,8 @@ class TestPluginAutoDiscovery:
         assert len(plugin.hooks) == 1
         assert plugin.hooks[0].__name__ == "decorated_hook"
 
-    def test_hooks_property_returns_tuple(self):
-        """Test that hooks property returns an immutable tuple."""
+    def test_hooks_property_returns_list(self):
+        """Test that hooks property returns a mutable list."""
 
         class MyPlugin(Plugin):
             name = "my-plugin"
@@ -152,10 +152,10 @@ class TestPluginAutoDiscovery:
                 pass
 
         plugin = MyPlugin()
-        assert isinstance(plugin.hooks, tuple)
+        assert isinstance(plugin.hooks, list)
 
-    def test_tools_property_returns_tuple(self):
-        """Test that tools property returns an immutable tuple."""
+    def test_tools_property_returns_list(self):
+        """Test that tools property returns a mutable list."""
 
         class MyPlugin(Plugin):
             name = "my-plugin"
@@ -166,7 +166,53 @@ class TestPluginAutoDiscovery:
                 return param
 
         plugin = MyPlugin()
-        assert isinstance(plugin.tools, tuple)
+        assert isinstance(plugin.tools, list)
+
+    def test_hooks_can_be_filtered(self):
+        """Test that hooks list can be modified before registration."""
+
+        class MyPlugin(Plugin):
+            name = "my-plugin"
+
+            @hook
+            def hook1(self, event: BeforeModelCallEvent):
+                pass
+
+            @hook
+            def hook2(self, event: BeforeInvocationEvent):
+                pass
+
+        plugin = MyPlugin()
+        assert len(plugin.hooks) == 2
+
+        # Filter out hook1
+        plugin.hooks[:] = [h for h in plugin.hooks if h.__name__ != "hook1"]
+        assert len(plugin.hooks) == 1
+        assert plugin.hooks[0].__name__ == "hook2"
+
+    def test_tools_can_be_filtered(self):
+        """Test that tools list can be modified before registration."""
+
+        class MyPlugin(Plugin):
+            name = "my-plugin"
+
+            @tool
+            def tool1(self, param: str) -> str:
+                """Tool 1."""
+                return param
+
+            @tool
+            def tool2(self, param: str) -> str:
+                """Tool 2."""
+                return param
+
+        plugin = MyPlugin()
+        assert len(plugin.tools) == 2
+
+        # Filter out tool1
+        plugin.tools[:] = [t for t in plugin.tools if t.tool_name != "tool1"]
+        assert len(plugin.tools) == 1
+        assert plugin.tools[0].tool_name == "tool2"
 
 
 class TestPluginRegistryAutoRegistration:

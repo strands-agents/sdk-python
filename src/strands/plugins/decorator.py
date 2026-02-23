@@ -21,9 +21,9 @@ from ..hooks.registry import HookCallback, TEvent
 
 
 class _WrappedHookCallable(HookCallback, Generic[TEvent]):
-    """Wrapped version of HookCallback that includes a `_hook_event_types` argument."""
+    """Wrapped version of HookCallback that includes a `_hook_event_types` attribute."""
 
-    _hook_event_types: list[TEvent]
+    _hook_event_types: list[type[TEvent]]
 
 
 # Handle @hook

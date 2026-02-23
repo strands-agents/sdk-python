@@ -81,22 +81,24 @@ class Plugin(ABC):
         self._discover_decorated_methods()
 
     @property
-    def hooks(self) -> tuple[_WrappedHookCallable, ...]:
+    def hooks(self) -> list[_WrappedHookCallable]:
         """Discovered @hook decorated methods.
 
-        Returns a tuple of hook callbacks that will be auto-registered
-        when the plugin is attached to an agent.
+        Returns the list of hook callbacks that will be auto-registered
+        when the plugin is attached to an agent. This list is mutable,
+        allowing users to filter or modify hooks before registration.
         """
-        return tuple(self._hooks)
+        return self._hooks
 
     @property
-    def tools(self) -> tuple[DecoratedFunctionTool, ...]:
+    def tools(self) -> list[DecoratedFunctionTool]:
         """Discovered @tool decorated methods.
 
-        Returns a tuple of tools that will be auto-registered
-        when the plugin is attached to an agent.
+        Returns the list of tools that will be auto-registered
+        when the plugin is attached to an agent. This list is mutable,
+        allowing users to filter or modify tools before registration.
         """
-        return tuple(self._tools)
+        return self._tools
 
     def _discover_decorated_methods(self) -> None:
         """Scan class for @hook and @tool decorated methods."""
