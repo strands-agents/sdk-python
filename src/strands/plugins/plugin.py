@@ -27,8 +27,8 @@ class Plugin(ABC):
 
     Attributes:
         name: A stable string identifier for the plugin (must be provided by subclass)
-        hooks: List of discovered @hook decorated methods (mutable for filtering)
-        tools: List of discovered @tool decorated methods (mutable for filtering)
+        hooks: List of hooks the plugin provides, auto-discovered from @hook decorated methods
+        tools: List of tools the plugin provides, auto-discovered from @tool decorated methods
 
     Example using decorators (recommended):
         ```python
@@ -82,22 +82,12 @@ class Plugin(ABC):
 
     @property
     def hooks(self) -> list[_WrappedHookCallable]:
-        """Discovered @hook decorated methods.
-
-        Returns the list of hook callbacks that will be auto-registered
-        when the plugin is attached to an agent. This list is mutable,
-        allowing users to filter or modify hooks before registration.
-        """
+        """List of hooks the plugin provides, auto-discovered from @hook decorated methods."""
         return self._hooks
 
     @property
     def tools(self) -> list[DecoratedFunctionTool]:
-        """Discovered @tool decorated methods.
-
-        Returns the list of tools that will be auto-registered
-        when the plugin is attached to an agent. This list is mutable,
-        allowing users to filter or modify tools before registration.
-        """
+        """List of tools the plugin provides, auto-discovered from @tool decorated methods."""
         return self._tools
 
     def _discover_decorated_methods(self) -> None:
