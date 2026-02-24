@@ -4,7 +4,7 @@ import json
 import logging
 import time
 import warnings
-from collections.abc import AsyncGenerator, AsyncIterable
+from collections.abc import AsyncGenerator, AsyncIterable, Awaitable, Callable
 from typing import Any
 
 from ..models.model import Model
@@ -40,6 +40,10 @@ from ..types.streaming import (
 from ..types.tools import ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
+
+# Type for chunk interceptor callback
+# Takes a chunk and returns (modified_chunk, skip) where skip=True means don't process this chunk
+ChunkInterceptor = Callable[[StreamEvent], Awaitable[tuple[StreamEvent, bool]]]
 
 
 def _normalize_messages(messages: Messages) -> Messages:
@@ -368,13 +372,18 @@ def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | Non
 
 
 async def process_stream(
-    chunks: AsyncIterable[StreamEvent], start_time: float | None = None
+    chunks: AsyncIterable[StreamEvent],
+    start_time: float | None = None,
+    chunk_interceptor: ChunkInterceptor | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
     Args:
         chunks: The chunks of the response stream from the model.
         start_time: Time when the model request is initiated
+        chunk_interceptor: Optional callback to intercept and modify chunks before processing.
+            The callback receives a chunk and returns (modified_chunk, skip). If skip is True,
+            the chunk is not processed or yielded.
 
     Yields:
         The reason for stopping, the constructed message, and the usage metrics.
@@ -395,6 +404,12 @@ async def process_stream(
     metrics: Metrics = Metrics(latencyMs=0, timeToFirstByteMs=0)
 
     async for chunk in chunks:
+        # Invoke chunk interceptor BEFORE processing if provided
+        if chunk_interceptor is not None:
+            chunk, skip = await chunk_interceptor(chunk)
+            if skip:
+                continue
+
         # Track first byte time when we get first content
         if first_byte_time is None and ("contentBlockDelta" in chunk or "contentBlockStart" in chunk):
             first_byte_time = time.time()
@@ -431,6 +446,7 @@ async def stream_messages(
     tool_choice: Any | None = None,
     system_prompt_content: list[SystemContentBlock] | None = None,
     invocation_state: dict[str, Any] | None = None,
+    chunk_interceptor: ChunkInterceptor | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Streams messages to the model and processes the response.
@@ -444,6 +460,9 @@ async def stream_messages(
         system_prompt_content: The authoritative system prompt content blocks that always contains the
             system prompt data.
         invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
+        chunk_interceptor: Optional callback to intercept and modify chunks before processing.
+            The callback receives a chunk and returns (modified_chunk, skip). If skip is True,
+            the chunk is not processed or yielded.
         **kwargs: Additional keyword arguments for future extensibility.
 
     Yields:
@@ -463,5 +482,5 @@ async def stream_messages(
         invocation_state=invocation_state,
     )
 
-    async for event in process_stream(chunks, start_time):
+    async for event in process_stream(chunks, start_time, chunk_interceptor):
         yield event

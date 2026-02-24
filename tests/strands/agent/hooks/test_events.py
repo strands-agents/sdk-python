@@ -10,6 +10,7 @@ from strands.hooks import (
     AgentInitializedEvent,
     BeforeInvocationEvent,
     BeforeModelCallEvent,
+    BeforeStreamChunkEvent,
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
@@ -230,3 +231,58 @@ def test_before_invocation_event_agent_not_writable(start_request_event_with_mes
     """Test that BeforeInvocationEvent.agent is not writable."""
     with pytest.raises(AttributeError, match="Property agent is not writable"):
         start_request_event_with_messages.agent = Mock()
+
+
+@pytest.fixture
+def before_stream_chunk_event(agent):
+    chunk = {"contentBlockDelta": {"delta": {"text": "Hello"}}}
+    return BeforeStreamChunkEvent(
+        agent=agent,
+        chunk=chunk,
+        invocation_state={"test": "state"},
+    )
+
+
+def test_before_stream_chunk_event_should_not_reverse_callbacks(before_stream_chunk_event):
+    """Test that BeforeStreamChunkEvent does not reverse callbacks."""
+    assert before_stream_chunk_event.should_reverse_callbacks is False
+
+
+def test_before_stream_chunk_event_can_write_chunk(before_stream_chunk_event):
+    """Test that BeforeStreamChunkEvent.chunk is writable."""
+    new_chunk = {"contentBlockDelta": {"delta": {"text": "Modified"}}}
+    before_stream_chunk_event.chunk = new_chunk
+    assert before_stream_chunk_event.chunk == new_chunk
+
+
+def test_before_stream_chunk_event_can_write_skip(before_stream_chunk_event):
+    """Test that BeforeStreamChunkEvent.skip is writable."""
+    assert before_stream_chunk_event.skip is False
+    before_stream_chunk_event.skip = True
+    assert before_stream_chunk_event.skip is True
+
+
+def test_before_stream_chunk_event_cannot_write_agent(before_stream_chunk_event):
+    """Test that BeforeStreamChunkEvent.agent is not writable."""
+    with pytest.raises(AttributeError, match="Property agent is not writable"):
+        before_stream_chunk_event.agent = Mock()
+
+
+def test_before_stream_chunk_event_cannot_write_invocation_state(before_stream_chunk_event):
+    """Test that BeforeStreamChunkEvent.invocation_state is not writable."""
+    with pytest.raises(AttributeError, match="Property invocation_state is not writable"):
+        before_stream_chunk_event.invocation_state = {}
+
+
+def test_before_stream_chunk_event_skip_defaults_to_false(agent):
+    """Test that BeforeStreamChunkEvent.skip defaults to False."""
+    chunk = {"contentBlockDelta": {"delta": {"text": "Hello"}}}
+    event = BeforeStreamChunkEvent(agent=agent, chunk=chunk)
+    assert event.skip is False
+
+
+def test_before_stream_chunk_event_invocation_state_defaults_to_empty(agent):
+    """Test that BeforeStreamChunkEvent.invocation_state defaults to empty dict."""
+    chunk = {"contentBlockDelta": {"delta": {"text": "Hello"}}}
+    event = BeforeStreamChunkEvent(agent=agent, chunk=chunk)
+    assert event.invocation_state == {}

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 from ..types.content import Message, Messages
 from ..types.interrupt import _Interruptible
-from ..types.streaming import StopReason
+from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import AgentTool, ToolResult, ToolUse
 from .registry import BaseHookEvent, HookEvent
 
@@ -286,6 +286,48 @@ class AfterModelCallEvent(HookEvent):
     def should_reverse_callbacks(self) -> bool:
         """True to invoke callbacks in reverse order."""
         return True
+
+
+@dataclass
+class BeforeStreamChunkEvent(HookEvent):
+    """Event triggered before each stream chunk is processed.
+
+    This event is fired for each chunk received from the model BEFORE the chunk
+    is processed for message building or yielded as stream events. Hook providers
+    can use this event to:
+
+    - Monitor streaming progress in real-time
+    - Modify chunk content before processing (affects final message and all events)
+    - Filter/skip chunks entirely by setting skip=True
+    - Implement content transformation (e.g., redaction, translation)
+
+    When skip=True:
+        - The chunk is not processed at all
+        - No events (ModelStreamChunkEvent, TextStreamEvent, etc.) are yielded
+        - The chunk does not contribute to the final message
+
+    When chunk is modified:
+        - The modified chunk is used for all downstream processing
+        - TextStreamEvent will contain the modified text
+        - The final message will contain the modified content
+
+    Performance Note:
+        This event fires for every stream chunk, so callbacks should execute
+        quickly to avoid impacting streaming latency.
+
+    Attributes:
+        chunk: The raw stream event from the model. Can be modified by hooks
+            to transform content before processing.
+        skip: When True, the chunk is skipped entirely (not processed or yielded).
+        invocation_state: State passed through agent invocation.
+    """
+
+    chunk: StreamEvent
+    invocation_state: dict[str, Any] = field(default_factory=dict)
+    skip: bool = False
+
+    def _can_write(self, name: str) -> bool:
+        return name in ["chunk", "skip"]
 
 
 # Multiagent hook events start here

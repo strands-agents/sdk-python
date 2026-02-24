@@ -41,6 +41,7 @@ from .events import (
     BeforeModelCallEvent,
     BeforeMultiAgentInvocationEvent,
     BeforeNodeCallEvent,
+    BeforeStreamChunkEvent,
     BeforeToolCallEvent,
     MessageAddedEvent,
     MultiAgentInitializedEvent,
@@ -50,6 +51,7 @@ from .registry import BaseHookEvent, HookCallback, HookEvent, HookProvider, Hook
 __all__ = [
     "AgentInitializedEvent",
     "BeforeInvocationEvent",
+    "BeforeStreamChunkEvent",
     "BeforeToolCallEvent",
     "AfterToolCallEvent",
     "BeforeModelCallEvent",
