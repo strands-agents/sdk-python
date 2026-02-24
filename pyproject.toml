@@ -49,11 +49,11 @@ litellm = ["litellm>=1.75.9,<2.0.0", "openai>=1.68.0,<1.110.0"]
 llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
 mistral = ["mistralai>=1.8.2"]
 ollama = ["ollama>=0.4.8,<1.0.0"]
-openai = ["openai>=1.68.0,<2.0.0"]
+openai = ["openai>=1.68.0,<3.0.0"]
 writer = ["writer-sdk>=2.2.0,<3.0.0"]
 sagemaker = [
     "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0",
-    "openai>=1.68.0,<2.0.0",  # SageMaker uses OpenAI-compatible interface
+    "openai>=1.68.0,<3.0.0",  # SageMaker uses OpenAI-compatible interface
 ]
 otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
 docs = [
