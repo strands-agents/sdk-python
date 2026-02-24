@@ -43,6 +43,7 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.21.0,<1.0.0"]
+camb = ["camb>=0.0.1"]
 gemini = ["google-genai>=1.32.0,<2.0.0"]
 litellm = ["litellm>=1.75.9,<2.0.0", "openai>=1.68.0,<1.110.0"]
 llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
