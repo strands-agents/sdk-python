@@ -621,7 +621,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
                         },
                     },
                 },
-                {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"random_string": "abcdEfghI123"}'}}}},
+                {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"random_string": "' + "X" * 500 + '"}'}}}},
                 {"contentBlockStop": {}},
                 {"messageStop": {"stopReason": "tool_use"}},
             ]
@@ -635,12 +635,14 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
 
     agent("test message")
 
+    large_input = "X" * 500
+    truncated_text = large_input[:200] + "...\n\n... [truncated: 100 chars removed] ...\n\n..." + large_input[-200:]
     expected_messages = [
         {"role": "user", "content": [{"text": "test message"}]},
         {
             "role": "assistant",
             "content": [
-                {"toolUse": {"toolUseId": "t1", "name": "tool_decorated", "input": {"random_string": "abcdEfghI123"}}}
+                {"toolUse": {"toolUseId": "t1", "name": "tool_decorated", "input": {"random_string": large_input}}}
             ],
         },
         {
@@ -649,8 +651,8 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
                 {
                     "toolResult": {
                         "toolUseId": "t1",
-                        "status": "error",
-                        "content": [{"text": "The tool result was too large!"}],
+                        "status": "success",
+                        "content": [{"text": truncated_text}],
                     }
                 }
             ],

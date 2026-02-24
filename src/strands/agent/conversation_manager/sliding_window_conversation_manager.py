@@ -7,11 +7,14 @@ if TYPE_CHECKING:
     from ...agent.agent import Agent
 
 from ...hooks import BeforeModelCallEvent, HookRegistry
-from ...types.content import Messages
+from ...types.content import ContentBlock, Messages
 from ...types.exceptions import ContextWindowOverflowException
+from ...types.tools import ToolResultContent
 from .conversation_manager import ConversationManager
 
 logger = logging.getLogger(__name__)
+
+_PRESERVE_CHARS = 200
 
 
 class SlidingWindowConversationManager(ConversationManager):
@@ -23,7 +26,13 @@ class SlidingWindowConversationManager(ConversationManager):
     Supports proactive management during agent loop execution via the per_turn parameter.
     """
 
-    def __init__(self, window_size: int = 40, should_truncate_results: bool = True, *, per_turn: bool | int = False):
+    def __init__(
+        self,
+        window_size: int = 40,
+        should_truncate_results: bool = True,
+        *,
+        per_turn: bool | int = False,
+    ):
         """Initialize the sliding window conversation manager.
 
         Args:
@@ -44,6 +53,9 @@ class SlidingWindowConversationManager(ConversationManager):
         Raises:
             ValueError: If per_turn is 0 or a negative integer.
         """
+        if isinstance(per_turn, int) and not isinstance(per_turn, bool) and per_turn <= 0:
+            raise ValueError(f"per_turn must be a positive integer, True, or False, got {per_turn}")
+
         super().__init__()
 
         self.window_size = window_size
@@ -157,14 +169,14 @@ class SlidingWindowConversationManager(ConversationManager):
         messages = agent.messages
 
         # Try to truncate the tool result first
-        last_message_idx_with_tool_results = self._find_last_message_with_tool_results(messages)
-        if last_message_idx_with_tool_results is not None and self.should_truncate_results:
+        oldest_message_idx_with_tool_results = self._find_oldest_message_with_tool_results(messages)
+        if oldest_message_idx_with_tool_results is not None and self.should_truncate_results:
             logger.debug(
-                "message_index=<%s> | found message with tool results at index", last_message_idx_with_tool_results
+                "message_index=<%s> | found message with tool results at index", oldest_message_idx_with_tool_results
             )
-            results_truncated = self._truncate_tool_results(messages, last_message_idx_with_tool_results)
+            results_truncated = self._truncate_tool_results(messages, oldest_message_idx_with_tool_results)
             if results_truncated:
-                logger.debug("message_index=<%s> | tool results truncated", last_message_idx_with_tool_results)
+                logger.debug("message_index=<%s> | tool results truncated", oldest_message_idx_with_tool_results)
                 return
 
         # Try to trim index id when tool result cannot be truncated anymore
@@ -197,10 +209,15 @@ class SlidingWindowConversationManager(ConversationManager):
         messages[:] = messages[trim_index:]
 
     def _truncate_tool_results(self, messages: Messages, msg_idx: int) -> bool:
-        """Truncate tool results in a message to reduce context size.
+        """Truncate tool results and replace image blocks in a message to reduce context size.
 
-        When a message contains tool results that are too large for the model's context window, this function
-        replaces the content of those tool results with a simple error message.
+        For text blocks within tool results, all blocks are partially truncated unless they
+        have already been truncated. The first and last _PRESERVE_CHARS characters are kept,
+        and the removed middle is replaced with a notice indicating how many characters were
+        removed. The tool result status is not changed.
+
+        Image blocks (both at the top level of the message content and nested inside tool
+        result content) are replaced with a short descriptive placeholder.
 
         Args:
             messages: The conversation message history.
@@ -214,50 +231,90 @@ class SlidingWindowConversationManager(ConversationManager):
 
         message = messages[msg_idx]
         changes_made = False
-        tool_result_too_large_message = "The tool result was too large!"
-        for i, content in enumerate(message.get("content", [])):
-            if isinstance(content, dict) and "toolResult" in content:
-                tool_result_content_text = next(
-                    (item["text"] for item in content["toolResult"]["content"] if "text" in item),
-                    "",
-                )
-                # make the overwriting logic togglable
-                if (
-                    message["content"][i]["toolResult"]["status"] == "error"
-                    and tool_result_content_text == tool_result_too_large_message
-                ):
-                    logger.info("ToolResult has already been updated, skipping overwrite")
-                    return False
-                # Update status to error with informative message
-                message["content"][i]["toolResult"]["status"] = "error"
-                message["content"][i]["toolResult"]["content"] = [{"text": tool_result_too_large_message}]
+        new_content: list[ContentBlock] = []
+
+        for content in message.get("content", []):
+            # Replace top-level image blocks with a descriptive placeholder
+            if "image" in content:
+                image: Any = content["image"]
+                media_type = image.get("format", "unknown")
+                source: Any = image.get("source", {})
+                data = source.get("bytes", b"")
+                size = len(data) if data else 0
+                new_content.append({"text": f"[image: {media_type}, {size} bytes]"})
                 changes_made = True
+                continue
+
+            if "toolResult" in content:
+                tool_result: Any = content["toolResult"]
+                tool_result_items = tool_result.get("content", [])
+                new_items: list[ToolResultContent] = []
+                item_changed = False
+
+                for item in tool_result_items:
+                    # Replace image items nested inside toolResult content
+                    if "image" in item:
+                        image = item["image"]
+                        media_type = image.get("format", "unknown")
+                        source = image.get("source", {})
+                        data = source.get("bytes", b"")
+                        size = len(data) if data else 0
+                        new_items.append({"text": f"[image: {media_type}, {size} bytes]"})
+                        item_changed = True
+                        continue
+
+                    # Partially truncate text items that have not already been truncated
+                    if "text" in item:
+                        text = item["text"]
+                        truncation_marker = "... [truncated:"
+                        if truncation_marker not in text and len(text) > 2 * _PRESERVE_CHARS:
+                            prefix = text[:_PRESERVE_CHARS]
+                            suffix = text[-_PRESERVE_CHARS:]
+                            removed = len(text) - 2 * _PRESERVE_CHARS
+                            truncated_text = (
+                                f"{prefix}...\n\n... [truncated: {removed} chars removed] ...\n\n...{suffix}"
+                            )
+                            new_items.append({"text": truncated_text})
+                            item_changed = True
+                            continue
+
+                    new_items.append(item)
+
+                if item_changed:
+                    updated_tool_result: Any = {
+                        **{k: v for k, v in tool_result.items() if k != "content"},
+                        "content": new_items,
+                    }
+                    new_content.append({"toolResult": updated_tool_result})
+                    changes_made = True
+                else:
+                    new_content.append(content)
+                continue
+
+            new_content.append(content)
+
+        if changes_made:
+            message["content"] = new_content
 
         return changes_made
 
-    def _find_last_message_with_tool_results(self, messages: Messages) -> int | None:
-        """Find the index of the last message containing tool results.
+    def _find_oldest_message_with_tool_results(self, messages: Messages) -> int | None:
+        """Find the index of the oldest message containing tool results.
 
-        This is useful for identifying messages that might need to be truncated to reduce context size.
+        Iterates from oldest to newest so that truncation targets the least-recent
+        (and therefore least relevant) tool results first.
 
         Args:
             messages: The conversation message history.
 
         Returns:
-            Index of the last message with tool results, or None if no such message exists.
+            Index of the oldest message with tool results, or None if no such message exists.
         """
-        # Iterate backwards through all messages (from newest to oldest)
-        for idx in range(len(messages) - 1, -1, -1):
-            # Check if this message has any content with toolResult
+        # Iterate from oldest to newest
+        for idx in range(len(messages)):
             current_message = messages[idx]
-            has_tool_result = False
-
             for content in current_message.get("content", []):
                 if isinstance(content, dict) and "toolResult" in content:
-                    has_tool_result = True
-                    break
-
-            if has_tool_result:
-                return idx
+                    return idx
 
         return None
