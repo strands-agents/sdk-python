@@ -19,7 +19,7 @@ from opentelemetry import trace as trace_api
 from .._middleware.stages import InvokeModelContext, InvokeModelResult, InvokeModelStage
 from .._middleware.types import MiddlewareResult
 from ..experimental.checkpoint import Checkpoint, CheckpointPosition
-from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
+from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, BeforeStreamChunkEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -45,7 +45,7 @@ from ..types.exceptions import (
     MaxTokensReachedException,
     StructuredOutputException,
 )
-from ..types.streaming import StopReason
+from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolResult, ToolUse
 from ._recover_message_on_max_tokens_reached import recover_message_on_max_tokens_reached
 from ._retry import ModelRetryStrategy
@@ -664,6 +664,17 @@ def _make_invoke_model_terminal(
         )
         with trace_api.use_span(model_invoke_span, end_on_exit=False):
             try:
+                # Create chunk interceptor that invokes BeforeStreamChunkEvent hook
+                async def chunk_interceptor(chunk: StreamEvent) -> tuple[StreamEvent, bool]:
+                    """Intercept chunks and invoke BeforeStreamChunkEvent hook."""
+                    stream_chunk_event = BeforeStreamChunkEvent(
+                        agent=agent,
+                        chunk=chunk,
+                        invocation_state=ctx.invocation_state,
+                    )
+                    await agent.hooks.invoke_callbacks_async(stream_chunk_event)
+                    return stream_chunk_event.chunk, stream_chunk_event.skip
+
                 async for event in stream_messages(
                     agent.model,
                     system_prompt_str,
@@ -674,6 +685,7 @@ def _make_invoke_model_terminal(
                     invocation_state=ctx.invocation_state,
                     model_state=agent._model_state,
                     cancel_signal=agent._cancel_signal,
+                    chunk_interceptor=chunk_interceptor,
                 ):
                     yield event
 
