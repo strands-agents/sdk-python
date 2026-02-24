@@ -743,12 +743,10 @@ class BedrockModel(Model):
         """
 
         def callback(event: StreamEvent | None = None) -> None:
-            loop.call_soon_threadsafe(queue.put_nowait, event)
-            if event is None:
-                return
+            asyncio.run_coroutine_threadsafe(queue.put(event), loop).result()
 
         loop = asyncio.get_event_loop()
-        queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
+        queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue(maxsize=1)
 
         # Handle backward compatibility: if system_prompt is provided but system_prompt_content is None
         if system_prompt and system_prompt_content is None:
