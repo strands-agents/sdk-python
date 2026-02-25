@@ -141,6 +141,14 @@ async def test_stream_e2e_success(alist):
         {"event": {"contentBlockStop": {}}},
         {"event": {"messageStop": {"stopReason": "tool_use"}}},
         {
+            "event": {
+                "metadata": {
+                    "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                    "metrics": {"latencyMs": 100},
+                }
+            }
+        },
+        {
             "message": {
                 "content": [
                     {"text": "Okay invoking normal tool"},
@@ -198,6 +206,14 @@ async def test_stream_e2e_success(alist):
         },
         {"event": {"contentBlockStop": {}}},
         {"event": {"messageStop": {"stopReason": "tool_use"}}},
+        {
+            "event": {
+                "metadata": {
+                    "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                    "metrics": {"latencyMs": 100},
+                }
+            }
+        },
         {
             "message": {
                 "content": [
@@ -257,6 +273,14 @@ async def test_stream_e2e_success(alist):
         {"event": {"contentBlockStop": {}}},
         {"event": {"messageStop": {"stopReason": "tool_use"}}},
         {
+            "event": {
+                "metadata": {
+                    "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                    "metrics": {"latencyMs": 100},
+                }
+            }
+        },
+        {
             "message": {
                 "content": [
                     {"text": "Invoking streaming tool"},
@@ -307,6 +331,14 @@ async def test_stream_e2e_success(alist):
         },
         {"event": {"contentBlockStop": {}}},
         {"event": {"messageStop": {"stopReason": "end_turn"}}},
+        {
+            "event": {
+                "metadata": {
+                    "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                    "metrics": {"latencyMs": 100},
+                }
+            }
+        },
         {"message": {"content": [{"text": "I invoked the tools!"}], "role": "assistant"}},
         {
             "result": AgentResult(
@@ -371,6 +403,14 @@ async def test_stream_e2e_throttle_and_redact(alist, mock_sleep):
         },
         {"event": {"contentBlockStop": {}}},
         {"event": {"messageStop": {"stopReason": "guardrail_intervened"}}},
+        {
+            "event": {
+                "metadata": {
+                    "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                    "metrics": {"latencyMs": 100},
+                }
+            }
+        },
         {"message": {"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant"}},
         {
             "result": AgentResult(
@@ -435,6 +475,14 @@ async def test_stream_e2e_reasoning_redacted_content(alist):
         },
         {"event": {"contentBlockStop": {}}},
         {"event": {"messageStop": {"stopReason": "end_turn"}}},
+        {
+            "event": {
+                "metadata": {
+                    "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                    "metrics": {"latencyMs": 100},
+                }
+            }
+        },
         {
             "message": {
                 "content": [

@@ -840,6 +840,12 @@ async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, 
             [
                 {"contentBlockDelta": {"delta": {"text": "test text"}}},
                 {"contentBlockStop": {}},
+                {
+                    "metadata": {
+                        "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                        "metrics": {"latencyMs": 100},
+                    }
+                },
             ]
         ),
     ]
@@ -878,7 +884,10 @@ async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, 
         agent=agent,
         invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
-            message={"content": [{"text": "test text"}], "role": "assistant"}, stop_reason="end_turn"
+            message={"content": [{"text": "test text"}], "role": "assistant"},
+            stop_reason="end_turn",
+            usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+            metrics={"latencyMs": 100},
         ),
         exception=None,
     )
