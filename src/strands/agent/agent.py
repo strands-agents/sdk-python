@@ -768,10 +768,6 @@ class Agent(AgentBase):
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
 
-        Supports automatic resume: if a hook sets ``resume`` on the AfterInvocationEvent
-        to a non-None agent input, the loop re-invokes with that input, triggering a full
-        new invocation cycle including BeforeInvocationEvent.
-
         Args:
             messages: The input messages to add to the conversation.
             invocation_state: Additional parameters to pass to the event loop.
