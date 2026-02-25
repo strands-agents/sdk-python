@@ -12,6 +12,7 @@ from typing_extensions import override
 if TYPE_CHECKING:
     from ..agent.agent_result import AgentResult
 
+from ..types.agent import AgentInput
 from ..types.content import Message, Messages
 from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
@@ -78,6 +79,13 @@ class AfterInvocationEvent(HookEvent):
       - Agent.stream_async
       - Agent.structured_output
 
+    Resume:
+        When ``resume`` is set to a non-None value by a hook callback, the agent will
+        automatically re-invoke itself with the provided input. This enables hooks to
+        implement autonomous looping patterns where the agent continues processing
+        based on its previous result. The resume triggers a full new invocation cycle
+        including ``BeforeInvocationEvent``.
+
     Attributes:
         invocation_state: State and configuration passed through the agent invocation.
             This can include shared context for multi-agent coordination, request tracking,
@@ -85,10 +93,17 @@ class AfterInvocationEvent(HookEvent):
         result: The result of the agent invocation, if available.
             This will be None when invoked from structured_output methods, as those return typed output directly rather
             than AgentResult.
+        resume: When set to a non-None agent input by a hook callback, the agent will
+            re-invoke itself with this input. The value can be any valid AgentInput
+            (str, content blocks, messages, etc.). Defaults to None (no resume).
     """
 
     invocation_state: dict[str, Any] = field(default_factory=dict)
     result: "AgentResult | None" = None
+    resume: AgentInput = None
+
+    def _can_write(self, name: str) -> bool:
+        return name == "resume"
 
     @property
     def should_reverse_callbacks(self) -> bool:

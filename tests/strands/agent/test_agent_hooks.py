@@ -694,3 +694,120 @@ async def test_before_invocation_event_messages_none_in_structured_output(agener
 
     # structured_output_async uses deprecated path that doesn't pass messages
     assert received_messages is None
+
+
+def test_after_invocation_resume_triggers_new_invocation():
+    """Test that setting resume on AfterInvocationEvent re-invokes the agent."""
+    mock_provider = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "First response"}]},
+            {"role": "assistant", "content": [{"text": "Second response"}]},
+        ]
+    )
+
+    resume_count = 0
+
+    async def resume_once(event: AfterInvocationEvent):
+        nonlocal resume_count
+        if resume_count == 0:
+            resume_count += 1
+            event.resume = "continue"
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(AfterInvocationEvent, resume_once)
+
+    result = agent("start")
+
+    # Agent should have been invoked twice
+    assert resume_count == 1
+    assert result.message["content"][0]["text"] == "Second response"
+    # 4 messages: user1, assistant1, user2 (resume), assistant2
+    assert len(agent.messages) == 4
+    assert agent.messages[0]["content"][0]["text"] == "start"
+    assert agent.messages[2]["content"][0]["text"] == "continue"
+
+
+def test_after_invocation_resume_none_does_not_loop():
+    """Test that resume=None (default) does not re-invoke the agent."""
+    mock_provider = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "Only response"}]},
+        ]
+    )
+
+    call_count = 0
+
+    async def no_resume(event: AfterInvocationEvent):
+        nonlocal call_count
+        call_count += 1
+        # Don't set resume - should remain None
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(AfterInvocationEvent, no_resume)
+
+    result = agent("hello")
+
+    assert call_count == 1
+    assert result.message["content"][0]["text"] == "Only response"
+
+
+def test_after_invocation_resume_fires_before_invocation_event():
+    """Test that resume triggers BeforeInvocationEvent on each iteration."""
+    mock_provider = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "First"}]},
+            {"role": "assistant", "content": [{"text": "Second"}]},
+        ]
+    )
+
+    before_invocation_count = 0
+    after_invocation_count = 0
+
+    async def count_before(event: BeforeInvocationEvent):
+        nonlocal before_invocation_count
+        before_invocation_count += 1
+
+    async def resume_once(event: AfterInvocationEvent):
+        nonlocal after_invocation_count
+        after_invocation_count += 1
+        if after_invocation_count == 1:
+            event.resume = "next"
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeInvocationEvent, count_before)
+    agent.hooks.add_callback(AfterInvocationEvent, resume_once)
+
+    agent("start")
+
+    # BeforeInvocationEvent should fire for both the initial and resumed invocation
+    assert before_invocation_count == 2
+    assert after_invocation_count == 2
+
+
+def test_after_invocation_resume_multiple_times():
+    """Test that resume can chain multiple re-invocations."""
+    mock_provider = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "Response 1"}]},
+            {"role": "assistant", "content": [{"text": "Response 2"}]},
+            {"role": "assistant", "content": [{"text": "Response 3"}]},
+        ]
+    )
+
+    resume_count = 0
+
+    async def resume_twice(event: AfterInvocationEvent):
+        nonlocal resume_count
+        if resume_count < 2:
+            resume_count += 1
+            event.resume = f"iteration {resume_count + 1}"
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(AfterInvocationEvent, resume_twice)
+
+    result = agent("iteration 1")
+
+    assert resume_count == 2
+    assert result.message["content"][0]["text"] == "Response 3"
+    # 6 messages: 3 user + 3 assistant
+    assert len(agent.messages) == 6
