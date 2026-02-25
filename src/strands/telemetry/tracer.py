@@ -110,6 +110,17 @@ class Tracer:
         opt_in_env = os.getenv("OTEL_SEMCONV_STABILITY_OPT_IN", "")
         return {value.strip() for value in opt_in_env.split(",")}
 
+    @property
+    def is_langfuse(self) -> bool:
+        """Check if Langfuse is configured as the OTLP endpoint.
+
+        Returns:
+            True if Langfuse is the OTLP endpoint, False otherwise.
+        """
+        return "langfuse" in os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "") or "langfuse" in os.getenv(
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""
+        )
+
     def _start_span(
         self,
         span_name: str,
@@ -142,22 +153,9 @@ class Tracer:
 
         # Add all provided attributes
         if attributes:
-            self._set_attributes(span, attributes)
+            span.set_attributes(attributes)
 
         return span
-
-    def _set_attributes(self, span: Span, attributes: dict[str, AttributeValue]) -> None:
-        """Set attributes on a span, handling different value types appropriately.
-
-        Args:
-            span: The span to set attributes on
-            attributes: Dictionary of attributes to set
-        """
-        if not span:
-            return
-
-        for key, value in attributes.items():
-            span.set_attribute(key, value)
 
     def _add_optional_usage_and_metrics_attributes(
         self, attributes: dict[str, AttributeValue], usage: Usage, metrics: Metrics
@@ -203,7 +201,7 @@ class Tracer:
 
             # Add any additional attributes
             if attributes:
-                self._set_attributes(span, attributes)
+                span.set_attributes(attributes)
 
             # Handle error if present
             if error:
@@ -236,16 +234,23 @@ class Tracer:
         error = exception or Exception(error_message)
         self._end_span(span, error=error)
 
-    def _add_event(self, span: Span | None, event_name: str, event_attributes: Attributes) -> None:
+    def _add_event(
+        self, span: Span | None, event_name: str, event_attributes: Attributes, to_span_attributes: bool = False
+    ) -> None:
         """Add an event with attributes to a span.
 
         Args:
             span: The span to add the event to
             event_name: Name of the event
             event_attributes: Dictionary of attributes to set on the event
+            to_span_attributes: Add the attributes to span attributes
         """
         if not span:
             return
+
+        # Add to span attribute since some backend can't read the events
+        if to_span_attributes and event_attributes:
+            span.set_attributes(event_attributes)
 
         span.add_event(event_name, attributes=event_attributes)
 
@@ -358,6 +363,7 @@ class Tracer:
                         ]
                     ),
                 },
+                to_span_attributes=self.is_langfuse,
             )
         else:
             self._add_event(
@@ -366,7 +372,7 @@ class Tracer:
                 event_attributes={"finish_reason": str(stop_reason), "message": serialize(message["content"])},
             )
 
-        self._set_attributes(span, attributes)
+        span.set_attributes(attributes)
 
     def start_tool_call_span(
         self,
@@ -423,6 +429,7 @@ class Tracer:
                         ]
                     )
                 },
+                to_span_attributes=self.is_langfuse,
             )
         else:
             self._add_event(
@@ -476,6 +483,7 @@ class Tracer:
                             ]
                         )
                     },
+                    to_span_attributes=self.is_langfuse,
                 )
             else:
                 self._add_event(
@@ -572,6 +580,7 @@ class Tracer:
                             ]
                         )
                     },
+                    to_span_attributes=self.is_langfuse,
                 )
             else:
                 self._add_event(span, "gen_ai.choice", event_attributes=event_attributes)
@@ -666,6 +675,7 @@ class Tracer:
                             ]
                         )
                     },
+                    to_span_attributes=self.is_langfuse,
                 )
             else:
                 self._add_event(
@@ -675,9 +685,7 @@ class Tracer:
                 )
 
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
-                if "langfuse" in os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "") or "langfuse" in os.getenv(
-                    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""
-                ):
+                if self.is_langfuse:
                     attributes.update({"langfuse.observation.type": "span"})
                 accumulated_usage = response.metrics.accumulated_usage
                 attributes.update(
@@ -736,6 +744,7 @@ class Tracer:
                 span,
                 "gen_ai.client.inference.operation.details",
                 {"gen_ai.input.messages": serialize([{"role": "user", "parts": parts}])},
+                to_span_attributes=self.is_langfuse,
             )
         else:
             self._add_event(
@@ -767,6 +776,7 @@ class Tracer:
                             ]
                         )
                     },
+                    to_span_attributes=self.is_langfuse,
                 )
             else:
                 self._add_event(
@@ -816,7 +826,10 @@ class Tracer:
                     {"role": message["role"], "parts": self._map_content_blocks_to_otel_parts(message["content"])}
                 )
             self._add_event(
-                span, "gen_ai.client.inference.operation.details", {"gen_ai.input.messages": serialize(input_messages)}
+                span,
+                "gen_ai.client.inference.operation.details",
+                {"gen_ai.input.messages": serialize(input_messages)},
+                to_span_attributes=self.is_langfuse,
             )
         else:
             for message in messages:
