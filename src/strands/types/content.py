@@ -66,9 +66,11 @@ class CachePoint(TypedDict):
 
     Attributes:
         type: The type of cache point, typically "default".
+        ttl: Optional TTL duration for cache entries. Valid values are "5m" (5 minutes) or "1h" (1 hour).
     """
 
     type: str
+    ttl: NotRequired[Literal["5m", "1h"]]
 
 
 class ContentBlock(TypedDict, total=False):
