@@ -10,7 +10,7 @@ Example Usage:
     class LoggingPlugin(Plugin):
         name = "logging"
 
-        def init_plugin(self, agent: Agent) -> None:
+        def init_agent(self, agent: Agent) -> None:
             agent.add_hook(self.on_model_call, BeforeModelCallEvent)
 
         def on_model_call(self, event: BeforeModelCallEvent) -> None:

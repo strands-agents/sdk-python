@@ -31,7 +31,7 @@ class _PluginRegistry:
         class MyPlugin(Plugin):
             name = "my-plugin"
 
-            def init_plugin(self, agent: Agent) -> None:
+            def init_agent(self, agent: Agent) -> None:
                 pass
 
         plugin = MyPlugin()
@@ -51,8 +51,8 @@ class _PluginRegistry:
     def add_and_init(self, plugin: Plugin) -> None:
         """Add and initialize a plugin with the agent.
 
-        This method registers the plugin and calls its init_plugin method.
-        Handles both sync and async init_plugin implementations automatically.
+        This method registers the plugin and calls its init_agent method.
+        Handles both sync and async init_agent implementations automatically.
 
         Args:
             plugin: The plugin to add and initialize.
@@ -66,8 +66,8 @@ class _PluginRegistry:
         logger.debug("plugin_name=<%s> | registering and initializing plugin", plugin.name)
         self._plugins[plugin.name] = plugin
 
-        if inspect.iscoroutinefunction(plugin.init_plugin):
-            async_plugin_init = cast(Callable[..., Awaitable[None]], plugin.init_plugin)
+        if inspect.iscoroutinefunction(plugin.init_agent):
+            async_plugin_init = cast(Callable[..., Awaitable[None]], plugin.init_agent)
             run_async(lambda: async_plugin_init(self._agent))
         else:
-            plugin.init_plugin(self._agent)
+            plugin.init_agent(self._agent)
