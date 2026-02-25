@@ -230,3 +230,33 @@ def test_before_invocation_event_agent_not_writable(start_request_event_with_mes
     """Test that BeforeInvocationEvent.agent is not writable."""
     with pytest.raises(AttributeError, match="Property agent is not writable"):
         start_request_event_with_messages.agent = Mock()
+
+
+def test_after_invocation_event_resume_defaults_to_none(agent):
+    """Test that AfterInvocationEvent.resume defaults to None."""
+    event = AfterInvocationEvent(agent=agent, result=None)
+    assert event.resume is None
+
+
+def test_after_invocation_event_resume_is_writable(agent):
+    """Test that AfterInvocationEvent.resume can be set by hooks."""
+    event = AfterInvocationEvent(agent=agent, result=None)
+    event.resume = "continue with this input"
+    assert event.resume == "continue with this input"
+
+
+def test_after_invocation_event_resume_accepts_various_input_types(agent):
+    """Test that resume accepts all AgentInput types."""
+    event = AfterInvocationEvent(agent=agent, result=None)
+
+    # String input
+    event.resume = "hello"
+    assert event.resume == "hello"
+
+    # Content block list
+    event.resume = [{"text": "hello"}]
+    assert event.resume == [{"text": "hello"}]
+
+    # None to stop
+    event.resume = None
+    assert event.resume is None
