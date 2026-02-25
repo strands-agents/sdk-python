@@ -73,7 +73,6 @@ class SkillsPlugin(Plugin):
         self._skills: dict[str, Skill] = self._resolve_skills(skills)
         self._active_skill: Skill | None = None
         self._agent: Agent | None = None
-        self._original_system_prompt: str | None = None
         super().__init__()
 
     def init_plugin(self, agent: Agent) -> None:
@@ -118,26 +117,37 @@ class SkillsPlugin(Plugin):
     def _on_before_invocation(self, event: BeforeInvocationEvent) -> None:
         """Inject skill metadata into the system prompt before each invocation.
 
-        Captures the original system prompt on first call, then rebuilds the
-        prompt with the skills XML block on each invocation.
+        Removes the previously injected XML block (if any) via exact string
+        replacement, then appends a fresh one. Uses agent state to track the
+        injected XML per-agent, so a single plugin instance can be shared
+        across multiple agents safely.
 
         Args:
             event: The before-invocation event containing the agent reference.
         """
         agent = event.agent
 
-        # Capture the original system prompt on first invocation
-        if self._original_system_prompt is None:
-            self._original_system_prompt = agent._system_prompt or ""
-
         if not self._skills:
             return
 
-        skills_xml = self._generate_skills_xml()
-        new_prompt = f"{self._original_system_prompt}\n\n{skills_xml}" if self._original_system_prompt else skills_xml
+        current_prompt = agent.system_prompt or ""
 
-        agent._system_prompt = new_prompt
-        agent._system_prompt_content = [{"text": new_prompt}]
+        # Remove the previously injected XML block by exact match
+        state_data = agent.state.get(_STATE_KEY)
+        last_injected_xml = state_data.get("last_injected_xml") if isinstance(state_data, dict) else None
+        if last_injected_xml is not None:
+            if last_injected_xml in current_prompt:
+                current_prompt = current_prompt.replace(last_injected_xml, "")
+            else:
+                logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
+
+        skills_xml = self._generate_skills_xml()
+        injection = f"\n\n{skills_xml}"
+        new_prompt = f"{current_prompt}{injection}" if current_prompt else skills_xml
+
+        new_injected_xml = injection if current_prompt else skills_xml
+        self._set_state_field(agent, "last_injected_xml", new_injected_xml)
+        agent.system_prompt = new_prompt
 
     @property
     def available_skills(self) -> list[Skill]:
@@ -229,7 +239,7 @@ class SkillsPlugin(Plugin):
             for file_path in sorted(resource_dir.rglob("*")):
                 if not file_path.is_file():
                     continue
-                files.append(str(file_path.relative_to(skill_path)))
+                files.append(file_path.relative_to(skill_path).as_posix())
                 if len(files) >= _MAX_RESOURCE_FILES:
                     files.append(f"... (truncated at {_MAX_RESOURCE_FILES} files)")
                     return files
@@ -274,6 +284,8 @@ class SkillsPlugin(Plugin):
 
         for source in sources:
             if isinstance(source, Skill):
+                if source.name in resolved:
+                    logger.warning("name=<%s> | duplicate skill name, overwriting previous skill", source.name)
                 resolved[source.name] = source
             else:
                 path = Path(source).resolve()
@@ -288,16 +300,26 @@ class SkillsPlugin(Plugin):
                     if has_skill_md:
                         try:
                             skill = load_skill(path)
+                            if skill.name in resolved:
+                                logger.warning(
+                                    "name=<%s> | duplicate skill name, overwriting previous skill", skill.name
+                                )
                             resolved[skill.name] = skill
                         except (ValueError, FileNotFoundError) as e:
                             logger.warning("path=<%s> | failed to load skill: %s", path, e)
                     else:
                         # Treat as parent directory containing skill subdirectories
                         for skill in load_skills(path):
+                            if skill.name in resolved:
+                                logger.warning(
+                                    "name=<%s> | duplicate skill name, overwriting previous skill", skill.name
+                                )
                             resolved[skill.name] = skill
                 elif path.is_file() and path.name.lower() == "skill.md":
                     try:
                         skill = load_skill(path)
+                        if skill.name in resolved:
+                            logger.warning("name=<%s> | duplicate skill name, overwriting previous skill", skill.name)
                         resolved[skill.name] = skill
                     except (ValueError, FileNotFoundError) as e:
                         logger.warning("path=<%s> | failed to load skill: %s", path, e)
@@ -310,10 +332,21 @@ class SkillsPlugin(Plugin):
         if self._agent is None:
             return
 
-        state_data: dict[str, Any] = {
-            "active_skill_name": self._active_skill.name if self._active_skill else None,
-        }
-        self._agent.state.set(_STATE_KEY, state_data)
+        self._set_state_field(self._agent, "active_skill_name", self._active_skill.name if self._active_skill else None)
+
+    def _set_state_field(self, agent: Agent, key: str, value: Any) -> None:
+        """Set a single field in the plugin's agent state dict.
+
+        Args:
+            agent: The agent whose state to update.
+            key: The state field key.
+            value: The value to set.
+        """
+        state_data = agent.state.get(_STATE_KEY)
+        if not isinstance(state_data, dict):
+            state_data = {}
+        state_data[key] = value
+        agent.state.set(_STATE_KEY, state_data)
 
     def _restore_state(self) -> None:
         """Restore the active skill from agent state if available."""

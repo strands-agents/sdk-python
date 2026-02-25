@@ -60,8 +60,8 @@ def _parse_yaml(yaml_text: str) -> dict[str, Any]:
 def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     """Parse YAML frontmatter and body from SKILL.md content.
 
-    Extracts the YAML frontmatter between ``---`` delimiters and returns
-    parsed key-value pairs along with the remaining markdown body.
+    Extracts the YAML frontmatter between ``---`` delimiters at line boundaries
+    and returns parsed key-value pairs along with the remaining markdown body.
 
     Args:
         content: Full content of a SKILL.md file.
@@ -76,12 +76,13 @@ def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     if not stripped.startswith("---"):
         raise ValueError("SKILL.md must start with --- frontmatter delimiter")
 
-    end_idx = stripped.find("---", 3)
-    if end_idx == -1:
+    # Find the closing --- delimiter (first line after the opener that is only dashes)
+    match = re.search(r"\n^---\s*$", stripped, re.MULTILINE)
+    if match is None:
         raise ValueError("SKILL.md frontmatter missing closing --- delimiter")
 
-    frontmatter_str = stripped[3:end_idx].strip()
-    body = stripped[end_idx + 3 :].strip()
+    frontmatter_str = stripped[3 : match.start()].strip()
+    body = stripped[match.end() :].strip()
 
     frontmatter = _parse_yaml(frontmatter_str)
     return frontmatter, body
@@ -162,11 +163,13 @@ def load_skill(skill_path: str | Path) -> Skill:
 
     _validate_skill_name(name, skill_dir)
 
-    # Parse allowed-tools (space-delimited string per spec)
+    # Parse allowed-tools (space-delimited string or YAML list)
     allowed_tools_raw = frontmatter.get("allowed-tools") or frontmatter.get("allowed_tools")
     allowed_tools: list[str] | None = None
     if isinstance(allowed_tools_raw, str) and allowed_tools_raw.strip():
         allowed_tools = allowed_tools_raw.strip().split()
+    elif isinstance(allowed_tools_raw, list):
+        allowed_tools = [str(item) for item in allowed_tools_raw if item]
 
     # Parse metadata (nested mapping)
     metadata_raw = frontmatter.get("metadata", {})

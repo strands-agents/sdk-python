@@ -79,6 +79,14 @@ class TestParseFrontmatter:
         assert frontmatter["metadata"]["author"] == "acme"
         assert body == "Body here."
 
+    def test_frontmatter_with_dashes_in_yaml_value(self):
+        """Test that --- inside a YAML value does not break parsing."""
+        content = "---\nname: test-skill\ndescription: has --- inside\n---\nBody here."
+        frontmatter, body = _parse_frontmatter(content)
+        assert frontmatter["name"] == "test-skill"
+        assert frontmatter["description"] == "has --- inside"
+        assert body == "Body here."
+
 
 class TestValidateSkillName:
     """Tests for _validate_skill_name."""
@@ -169,7 +177,7 @@ class TestLoadSkill:
         assert skill.name == "direct-skill"
 
     def test_load_with_allowed_tools(self, tmp_path):
-        """Test loading a skill with allowed-tools field."""
+        """Test loading a skill with allowed-tools field as space-delimited string."""
         skill_dir = tmp_path / "tool-skill"
         skill_dir.mkdir()
         content = "---\nname: tool-skill\ndescription: test\nallowed-tools: read write execute\n---\nBody."
@@ -177,6 +185,16 @@ class TestLoadSkill:
 
         skill = load_skill(skill_dir)
         assert skill.allowed_tools == ["read", "write", "execute"]
+
+    def test_load_with_allowed_tools_yaml_list(self, tmp_path):
+        """Test loading a skill with allowed-tools as a YAML list."""
+        skill_dir = tmp_path / "list-skill"
+        skill_dir.mkdir()
+        content = "---\nname: list-skill\ndescription: test\nallowed-tools:\n  - read\n  - write\n---\nBody."
+        (skill_dir / "SKILL.md").write_text(content)
+
+        skill = load_skill(skill_dir)
+        assert skill.allowed_tools == ["read", "write"]
 
     def test_load_with_metadata(self, tmp_path):
         """Test loading a skill with nested metadata."""

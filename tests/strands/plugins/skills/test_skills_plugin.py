@@ -1,5 +1,6 @@
 """Tests for the SkillsPlugin."""
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -28,16 +29,36 @@ def _mock_agent():
     agent = MagicMock()
     agent._system_prompt = "You are an agent."
     agent._system_prompt_content = [{"text": "You are an agent."}]
+
+    # Make system_prompt property behave like the real Agent
+    type(agent).system_prompt = property(
+        lambda self: self._system_prompt,
+        lambda self, value: _set_system_prompt(self, value),
+    )
+
     agent.hooks = HookRegistry()
     agent.add_hook = MagicMock(
         side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback)
     )
     agent.tool_registry = MagicMock()
     agent.tool_registry.process_tools = MagicMock(return_value=["skills"])
+
+    # Use a real dict-backed state so get/set work correctly
+    state_store: dict[str, object] = {}
     agent.state = MagicMock()
-    agent.state.get = MagicMock(return_value=None)
-    agent.state.set = MagicMock()
+    agent.state.get = MagicMock(side_effect=lambda key: state_store.get(key))
+    agent.state.set = MagicMock(side_effect=lambda key, value: state_store.__setitem__(key, value))
     return agent
+
+
+def _set_system_prompt(agent: MagicMock, value: str | None) -> None:
+    """Simulate the Agent.system_prompt setter."""
+    if isinstance(value, str):
+        agent._system_prompt = value
+        agent._system_prompt_content = [{"text": value}]
+    elif value is None:
+        agent._system_prompt = None
+        agent._system_prompt_content = None
 
 
 class TestSkillsPluginInit:
@@ -129,7 +150,7 @@ class TestSkillsPluginInitPlugin:
         skill = _make_skill()
         plugin = SkillsPlugin(skills=[skill])
         agent = _mock_agent()
-        agent.state.get = MagicMock(return_value={"active_skill_name": "test-skill"})
+        agent.state.set("skills_plugin", {"active_skill_name": "test-skill"})
 
         plugin.init_plugin(agent)
 
@@ -248,9 +269,9 @@ class TestSystemPromptInjection:
         event = BeforeInvocationEvent(agent=agent)
         plugin._on_before_invocation(event)
 
-        assert "<available_skills>" in agent._system_prompt
-        assert "<name>test-skill</name>" in agent._system_prompt
-        assert "<description>A test skill</description>" in agent._system_prompt
+        assert "<available_skills>" in agent.system_prompt
+        assert "<name>test-skill</name>" in agent.system_prompt
+        assert "<description>A test skill</description>" in agent.system_prompt
 
     def test_before_invocation_preserves_existing_prompt(self):
         """Test that existing system prompt content is preserved."""
@@ -262,11 +283,11 @@ class TestSystemPromptInjection:
         event = BeforeInvocationEvent(agent=agent)
         plugin._on_before_invocation(event)
 
-        assert agent._system_prompt.startswith("Original prompt.")
-        assert "<available_skills>" in agent._system_prompt
+        assert agent.system_prompt.startswith("Original prompt.")
+        assert "<available_skills>" in agent.system_prompt
 
     def test_repeated_invocations_do_not_accumulate(self):
-        """Test that repeated invocations rebuild from original prompt."""
+        """Test that repeated invocations rebuild from current prompt without accumulation."""
         plugin = SkillsPlugin(skills=[_make_skill()])
         agent = _mock_agent()
         agent._system_prompt = "Original prompt."
@@ -274,10 +295,10 @@ class TestSystemPromptInjection:
 
         event = BeforeInvocationEvent(agent=agent)
         plugin._on_before_invocation(event)
-        first_prompt = agent._system_prompt
+        first_prompt = agent.system_prompt
 
         plugin._on_before_invocation(event)
-        second_prompt = agent._system_prompt
+        second_prompt = agent.system_prompt
 
         assert first_prompt == second_prompt
 
@@ -292,7 +313,7 @@ class TestSystemPromptInjection:
         event = BeforeInvocationEvent(agent=agent)
         plugin._on_before_invocation(event)
 
-        assert agent._system_prompt == original_prompt
+        assert agent.system_prompt == original_prompt
 
     def test_none_system_prompt_handled(self):
         """Test handling when system prompt is None."""
@@ -304,7 +325,58 @@ class TestSystemPromptInjection:
         event = BeforeInvocationEvent(agent=agent)
         plugin._on_before_invocation(event)
 
-        assert "<available_skills>" in agent._system_prompt
+        assert "<available_skills>" in agent.system_prompt
+
+    def test_preserves_other_plugin_modifications(self):
+        """Test that modifications by other plugins/hooks are preserved."""
+        plugin = SkillsPlugin(skills=[_make_skill()])
+        agent = _mock_agent()
+        agent._system_prompt = "Original prompt."
+        agent._system_prompt_content = [{"text": "Original prompt."}]
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        # Simulate another plugin modifying the prompt
+        agent.system_prompt = agent.system_prompt + "\n\nExtra context from another plugin."
+
+        plugin._on_before_invocation(event)
+
+        assert "Extra context from another plugin." in agent.system_prompt
+        assert "<available_skills>" in agent.system_prompt
+
+    def test_uses_public_system_prompt_setter(self):
+        """Test that the hook uses the public system_prompt setter."""
+        plugin = SkillsPlugin(skills=[_make_skill()])
+        agent = _mock_agent()
+        agent._system_prompt = "Original."
+        agent._system_prompt_content = [{"text": "Original."}]
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        # The public setter should have been used, so _system_prompt_content
+        # should be consistent with _system_prompt
+        assert agent._system_prompt_content == [{"text": agent._system_prompt}]
+
+    def test_warns_when_previous_xml_not_found(self, caplog):
+        """Test that a warning is logged when the previously injected XML is missing from the prompt."""
+        plugin = SkillsPlugin(skills=[_make_skill()])
+        agent = _mock_agent()
+        agent._system_prompt = "Original prompt."
+        agent._system_prompt_content = [{"text": "Original prompt."}]
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        # Completely replace the system prompt, removing the injected XML
+        agent.system_prompt = "Totally new prompt."
+
+        with caplog.at_level(logging.WARNING):
+            plugin._on_before_invocation(event)
+
+        assert "unable to find previously injected skills XML in system prompt" in caplog.text
+        assert "<available_skills>" in agent.system_prompt
 
 
 class TestSkillsXmlGeneration:
@@ -505,7 +577,7 @@ class TestSessionPersistence:
         skill = _make_skill()
         plugin = SkillsPlugin(skills=[skill])
         agent = _mock_agent()
-        agent.state.get = MagicMock(return_value={"active_skill_name": "test-skill"})
+        agent.state.set("skills_plugin", {"active_skill_name": "test-skill"})
         plugin._agent = agent
 
         plugin._restore_state()
@@ -517,7 +589,6 @@ class TestSessionPersistence:
         """Test restore when no state data exists."""
         plugin = SkillsPlugin(skills=[_make_skill()])
         agent = _mock_agent()
-        agent.state.get = MagicMock(return_value=None)
         plugin._agent = agent
 
         plugin._restore_state()
@@ -528,7 +599,7 @@ class TestSessionPersistence:
         """Test restore when saved skill is no longer available."""
         plugin = SkillsPlugin(skills=[_make_skill()])
         agent = _mock_agent()
-        agent.state.get = MagicMock(return_value={"active_skill_name": "removed-skill"})
+        agent.state.set("skills_plugin", {"active_skill_name": "removed-skill"})
         plugin._agent = agent
 
         plugin._restore_state()

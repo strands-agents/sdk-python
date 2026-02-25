@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from strands.plugins.skills.skill import Skill
 
 
@@ -52,22 +50,3 @@ class TestSkillDataclass:
 
         skill1.metadata["key"] = "value"
         assert "key" not in skill2.metadata
-
-    def test_skill_from_path(self, tmp_path):
-        """Test loading a Skill from a path using from_path classmethod."""
-        skill_dir = tmp_path / "my-skill"
-        skill_dir.mkdir()
-        (skill_dir / "SKILL.md").write_text(
-            "---\nname: my-skill\ndescription: Test skill\n---\n# Instructions\nDo stuff.\n"
-        )
-
-        skill = Skill.from_path(skill_dir)
-
-        assert skill.name == "my-skill"
-        assert skill.description == "Test skill"
-        assert "Do stuff." in skill.instructions
-
-    def test_skill_from_path_not_found(self, tmp_path):
-        """Test that from_path raises FileNotFoundError for missing paths."""
-        with pytest.raises(FileNotFoundError):
-            Skill.from_path(tmp_path / "nonexistent")

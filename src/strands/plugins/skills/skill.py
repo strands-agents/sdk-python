@@ -6,11 +6,8 @@ skill with its metadata and instructions.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -41,21 +38,3 @@ class Skill:
     metadata: dict[str, str] = field(default_factory=dict)
     license: str | None = None
     compatibility: str | None = None
-
-    @classmethod
-    def from_path(cls, skill_path: str | Path) -> Skill:
-        """Load a skill from a directory containing SKILL.md.
-
-        Args:
-            skill_path: Path to the skill directory or SKILL.md file.
-
-        Returns:
-            A Skill instance populated from the SKILL.md file.
-
-        Raises:
-            FileNotFoundError: If SKILL.md cannot be found.
-            ValueError: If the skill name is invalid or metadata is malformed.
-        """
-        from .loader import load_skill
-
-        return load_skill(skill_path)
