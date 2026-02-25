@@ -1915,20 +1915,5 @@ def test_tool_decorator_with_tags():
         """
         return f"Result: {input}"
 
-    assert tagged_tool.tool_spec.get("tags") == ["test", "example"]
-
-
-def test_tool_decorator_without_tags():
-    """Test that @tool decorator works without tags parameter."""
-
-    @strands.tool
-    def untagged_tool(input: str) -> str:
-        """A tool without tags.
-
-        Args:
-            input: Input string
-        """
-        return f"Result: {input}"
-
-    # tags should not be in the spec when not provided
-    assert "tags" not in untagged_tool.tool_spec
+    assert tagged_tool.tags == ["test", "example"]
+    assert "tags" not in tagged_tool.tool_spec

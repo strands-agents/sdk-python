@@ -30,14 +30,12 @@ class ToolSpec(TypedDict):
         outputSchema: Optional JSON Schema defining the expected output format.
             Note: Not all model providers support this field. Providers that don't
             support it should filter it out before sending to their API.
-        tags: Optional list of tags for categorization and metadata.
     """
 
     description: str
     inputSchema: JSONSchema
     name: str
     outputSchema: NotRequired[JSONSchema]
-    tags: NotRequired[list[str]]
 
 
 class Tool(TypedDict):
@@ -217,10 +215,12 @@ class AgentTool(ABC):
     """
 
     _is_dynamic: bool
+    _tags: list[str]
 
     def __init__(self) -> None:
         """Initialize the base agent tool with default dynamic state."""
         self._is_dynamic = False
+        self._tags = []
 
     @property
     @abstractmethod
@@ -285,6 +285,24 @@ class AgentTool(ABC):
     def mark_dynamic(self) -> None:
         """Mark this tool as dynamically loaded."""
         self._is_dynamic = True
+
+    @property
+    def tags(self) -> list[str]:
+        """Tags for categorizing this tool (e.g., for A2A skill metadata).
+
+        Returns:
+            List of tag strings. Empty list by default.
+        """
+        return self._tags
+
+    @tags.setter
+    def tags(self, value: list[str]) -> None:
+        """Set tags for this tool.
+
+        Args:
+            value: List of tag strings.
+        """
+        self._tags = value
 
     def get_display_properties(self) -> dict[str, str]:
         """Get properties to display in UI representations of this tool.

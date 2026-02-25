@@ -165,12 +165,12 @@ class A2AServer:
         """
         return [
             AgentSkill(
-                name=config["name"],
-                id=config["name"],
-                description=config["description"],
-                tags=config.get("tags", []),
+                name=tool.tool_name,
+                id=tool.tool_name,
+                description=tool.tool_spec["description"],
+                tags=tool.tags,
             )
-            for config in self.strands_agent.tool_registry.get_all_tools_config().values()
+            for tool in self.strands_agent.tool_registry.get_all_tools().values()
         ]
 
     @property

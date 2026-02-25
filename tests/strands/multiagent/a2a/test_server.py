@@ -1,7 +1,7 @@
 """Tests for the A2AAgent class."""
 
 from collections import OrderedDict
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from a2a.types import AgentCapabilities, AgentCard, AgentSkill
@@ -11,11 +11,21 @@ from starlette.applications import Starlette
 from strands.multiagent.a2a.server import A2AServer
 
 
+def _mock_tool(name, description, tags=None):
+    """Create a mock AgentTool for testing."""
+    tool = MagicMock()
+    tool.tool_name = name
+    tool.tool_spec = {"name": name, "description": description}
+    tool.tags = tags or []
+    return tool
+
+
 def test_a2a_agent_initialization(mock_strands_agent):
     """Test that A2AAgent initializes correctly with default values."""
     # Mock tool registry for default skills
-    mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {
+        "test_tool": _mock_tool("test_tool", "A test tool"),
+    }
 
     a2a_agent = A2AServer(mock_strands_agent)
 
@@ -74,23 +84,12 @@ def test_a2a_agent_initialization_with_custom_skills(mock_strands_agent):
 
 
 def test_a2a_agent_skills_with_tags(mock_strands_agent):
-    """Test that A2AAgent properly extracts tags from tool configs."""
+    """Test that A2AAgent properly extracts tags from tool objects."""
 
-    mock_tool_config = {
-        "weather_tool": {
-            "name": "weather_tool",
-            "description": "Get weather information",
-            "tags": ["weather", "data", "api"],
-            "inputSchema": {"json": {"type": "object", "properties": {}}},
-        },
-        "no_tags_tool": {
-            "name": "no_tags_tool",
-            "description": "Tool without tags",
-            "inputSchema": {"json": {"type": "object", "properties": {}}},
-        },
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {
+        "weather_tool": _mock_tool("weather_tool", "Get weather information", tags=["weather", "data", "api"]),
+        "no_tags_tool": _mock_tool("no_tags_tool", "Tool without tags"),
     }
-
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
 
@@ -108,9 +107,6 @@ def test_a2a_agent_skills_with_tags(mock_strands_agent):
 
 def test_public_agent_card(mock_strands_agent):
     """Test that public_agent_card returns a valid AgentCard."""
-    # Mock empty tool registry for this test
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
-
     a2a_agent = A2AServer(mock_strands_agent, skills=[])
 
     card = a2a_agent.public_agent_card
@@ -147,7 +143,7 @@ def test_public_agent_card_with_missing_description(mock_strands_agent):
 def test_agent_skills_empty_registry(mock_strands_agent):
     """Test that agent_skills returns an empty list when no tools are registered."""
     # Mock empty tool registry
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent.agent_skills
@@ -159,8 +155,9 @@ def test_agent_skills_empty_registry(mock_strands_agent):
 def test_agent_skills_with_single_tool(mock_strands_agent):
     """Test that agent_skills returns correct skills for a single tool."""
     # Mock tool registry with one tool
-    mock_tool_config = {"calculator": {"name": "calculator", "description": "Performs basic mathematical calculations"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {
+        "calculator": _mock_tool("calculator", "Performs basic mathematical calculations"),
+    }
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent.agent_skills
@@ -178,12 +175,11 @@ def test_agent_skills_with_single_tool(mock_strands_agent):
 def test_agent_skills_with_multiple_tools(mock_strands_agent):
     """Test that agent_skills returns correct skills for multiple tools."""
     # Mock tool registry with multiple tools
-    mock_tool_config = {
-        "calculator": {"name": "calculator", "description": "Performs basic mathematical calculations"},
-        "weather": {"name": "weather", "description": "Gets current weather information"},
-        "file_reader": {"name": "file_reader", "description": "Reads and processes files"},
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {
+        "calculator": _mock_tool("calculator", "Performs basic mathematical calculations"),
+        "weather": _mock_tool("weather", "Gets current weather information"),
+        "file_reader": _mock_tool("file_reader", "Reads and processes files"),
     }
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent.agent_skills
@@ -208,22 +204,12 @@ def test_agent_skills_with_multiple_tools(mock_strands_agent):
 def test_agent_skills_with_complex_tool_config(mock_strands_agent):
     """Test that agent_skills handles complex tool configurations correctly."""
     # Mock tool registry with complex tool configuration
-    mock_tool_config = {
-        "advanced_calculator": {
-            "name": "advanced_calculator",
-            "description": "Advanced mathematical operations including trigonometry and statistics",
-            "inputSchema": {
-                "json": {
-                    "type": "object",
-                    "properties": {
-                        "operation": {"type": "string", "description": "The operation to perform"},
-                        "values": {"type": "array", "description": "Array of numbers"},
-                    },
-                }
-            },
-        }
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {
+        "advanced_calculator": _mock_tool(
+            "advanced_calculator",
+            "Advanced mathematical operations including trigonometry and statistics",
+        ),
     }
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent.agent_skills
@@ -241,15 +227,13 @@ def test_agent_skills_with_complex_tool_config(mock_strands_agent):
 def test_agent_skills_preserves_tool_order(mock_strands_agent):
     """Test that agent_skills preserves the order of tools from the registry."""
     # Mock tool registry with ordered tools
-
-    mock_tool_config = OrderedDict(
+    mock_strands_agent.tool_registry.get_all_tools.return_value = OrderedDict(
         [
-            ("tool_a", {"name": "tool_a", "description": "First tool"}),
-            ("tool_b", {"name": "tool_b", "description": "Second tool"}),
-            ("tool_c", {"name": "tool_c", "description": "Third tool"}),
+            ("tool_a", _mock_tool("tool_a", "First tool")),
+            ("tool_b", _mock_tool("tool_b", "Second tool")),
+            ("tool_c", _mock_tool("tool_c", "Third tool")),
         ]
     )
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent.agent_skills
@@ -262,14 +246,12 @@ def test_agent_skills_preserves_tool_order(mock_strands_agent):
 
 def test_agent_skills_handles_missing_description(mock_strands_agent):
     """Test that agent_skills handles tools with missing description gracefully."""
-    # Mock tool registry with tool missing description
-    mock_tool_config = {
-        "incomplete_tool": {
-            "name": "incomplete_tool"
-            # Missing description
-        }
-    }
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    # Mock tool with missing description in tool_spec
+    tool = MagicMock()
+    tool.tool_name = "incomplete_tool"
+    tool.tool_spec = {"name": "incomplete_tool"}  # Missing description
+    tool.tags = []
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {"incomplete_tool": tool}
 
     a2a_agent = A2AServer(mock_strands_agent)
 
@@ -278,30 +260,13 @@ def test_agent_skills_handles_missing_description(mock_strands_agent):
         _ = a2a_agent.agent_skills
 
 
-def test_agent_skills_handles_missing_name(mock_strands_agent):
-    """Test that agent_skills handles tools with missing name gracefully."""
-    # Mock tool registry with tool missing name
-    mock_tool_config = {
-        "incomplete_tool": {
-            "description": "A tool without a name"
-            # Missing name
-        }
-    }
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
-
-    a2a_agent = A2AServer(mock_strands_agent)
-
-    # This should raise a KeyError when accessing agent_skills due to missing name
-    with pytest.raises(KeyError):
-        _ = a2a_agent.agent_skills
-
-
 def test_agent_skills_setter(mock_strands_agent):
     """Test that agent_skills setter works correctly."""
 
     # Mock tool registry for initial setup
-    mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {
+        "test_tool": _mock_tool("test_tool", "A test tool"),
+    }
 
     a2a_agent = A2AServer(mock_strands_agent)
 
@@ -328,11 +293,10 @@ def test_agent_skills_setter(mock_strands_agent):
 def test_get_skills_from_tools_method(mock_strands_agent):
     """Test the _get_skills_from_tools method directly."""
     # Mock tool registry with multiple tools
-    mock_tool_config = {
-        "calculator": {"name": "calculator", "description": "Performs basic mathematical calculations"},
-        "weather": {"name": "weather", "description": "Gets current weather information"},
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {
+        "calculator": _mock_tool("calculator", "Performs basic mathematical calculations"),
+        "weather": _mock_tool("weather", "Gets current weather information"),
     }
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent._get_skills_from_tools()
@@ -353,8 +317,9 @@ def test_get_skills_from_tools_method(mock_strands_agent):
 
 def test_initialization_with_none_skills_uses_tools(mock_strands_agent):
     """Test that passing skills=None uses tools from the agent."""
-    mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {
+        "test_tool": _mock_tool("test_tool", "A test tool"),
+    }
 
     a2a_agent = A2AServer(mock_strands_agent, skills=None)
 
@@ -377,8 +342,9 @@ def test_initialization_with_empty_skills_list(mock_strands_agent):
 
 def test_lazy_loading_behavior(mock_strands_agent):
     """Test that skills are only loaded from tools when accessed and no explicit skills are provided."""
-    mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {
+        "test_tool": _mock_tool("test_tool", "A test tool"),
+    }
 
     # Create agent without explicit skills
     a2a_agent = A2AServer(mock_strands_agent)
@@ -401,8 +367,9 @@ def test_explicit_skills_override_tools(mock_strands_agent):
     """Test that explicitly provided skills override tool-based skills."""
 
     # Mock tool registry with tools
-    mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {
+        "test_tool": _mock_tool("test_tool", "A test tool"),
+    }
 
     # Provide explicit skills
     explicit_skills = [AgentSkill(name="explicit_skill", id="explicit_skill", description="An explicit skill", tags=[])]
@@ -419,7 +386,7 @@ def test_explicit_skills_override_tools(mock_strands_agent):
 def test_skills_not_loaded_during_initialization(mock_strands_agent):
     """Test that skills are not loaded from tools during initialization."""
     # Create a mock that would raise an exception if called
-    mock_strands_agent.tool_registry.get_all_tools_config.side_effect = Exception("Should not be called during init")
+    mock_strands_agent.tool_registry.get_all_tools.side_effect = Exception("Should not be called during init")
 
     # This should not raise an exception because tools are not accessed during initialization
     a2a_agent = A2AServer(mock_strands_agent)
@@ -428,9 +395,10 @@ def test_skills_not_loaded_during_initialization(mock_strands_agent):
     assert a2a_agent._agent_skills is None
 
     # Reset the mock to return proper data for when skills are actually accessed
-    mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.side_effect = None
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.get_all_tools.side_effect = None
+    mock_strands_agent.tool_registry.get_all_tools.return_value = {
+        "test_tool": _mock_tool("test_tool", "A test tool"),
+    }
 
     # Now accessing skills should work
     skills = a2a_agent.agent_skills
@@ -546,7 +514,6 @@ def test_serve_handles_general_exception(mock_run, mock_strands_agent, caplog):
 
 def test_initialization_with_http_url_no_path(mock_strands_agent):
     """Test initialization with http_url containing no path."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(
         mock_strands_agent, host="0.0.0.0", port=8080, http_url="http://my-alb.amazonaws.com", skills=[]
@@ -561,7 +528,6 @@ def test_initialization_with_http_url_no_path(mock_strands_agent):
 
 def test_initialization_with_http_url_with_path(mock_strands_agent):
     """Test initialization with http_url containing a path for mounting."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(
         mock_strands_agent, host="0.0.0.0", port=8080, http_url="http://my-alb.amazonaws.com/agent1", skills=[]
@@ -576,7 +542,6 @@ def test_initialization_with_http_url_with_path(mock_strands_agent):
 
 def test_initialization_with_https_url(mock_strands_agent):
     """Test initialization with HTTPS URL."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, http_url="https://my-alb.amazonaws.com/secure-agent", skills=[])
 
@@ -587,7 +552,6 @@ def test_initialization_with_https_url(mock_strands_agent):
 
 def test_initialization_with_http_url_with_port(mock_strands_agent):
     """Test initialization with http_url containing explicit port."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, http_url="http://my-server.com:8080/api/agent", skills=[])
 
@@ -598,7 +562,7 @@ def test_initialization_with_http_url_with_port(mock_strands_agent):
 
 def test_parse_public_url_method(mock_strands_agent):
     """Test the _parse_public_url method directly."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
     a2a_agent = A2AServer(mock_strands_agent, skills=[])
 
     # Test various URL formats
@@ -621,7 +585,6 @@ def test_parse_public_url_method(mock_strands_agent):
 
 def test_public_agent_card_with_http_url(mock_strands_agent):
     """Test that public_agent_card uses the http_url when provided."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, http_url="https://my-alb.amazonaws.com/agent1", skills=[])
 
@@ -635,7 +598,6 @@ def test_public_agent_card_with_http_url(mock_strands_agent):
 
 def test_to_starlette_app_with_mounting(mock_strands_agent):
     """Test that to_starlette_app creates mounted app when mount_path exists."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, http_url="http://example.com/agent1", skills=[])
 
@@ -646,7 +608,6 @@ def test_to_starlette_app_with_mounting(mock_strands_agent):
 
 def test_to_starlette_app_without_mounting(mock_strands_agent):
     """Test that to_starlette_app creates regular app when no mount_path."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, http_url="http://example.com", skills=[])
 
@@ -657,7 +618,6 @@ def test_to_starlette_app_without_mounting(mock_strands_agent):
 
 def test_to_fastapi_app_with_mounting(mock_strands_agent):
     """Test that to_fastapi_app creates mounted app when mount_path exists."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, http_url="http://example.com/agent1", skills=[])
 
@@ -668,7 +628,6 @@ def test_to_fastapi_app_with_mounting(mock_strands_agent):
 
 def test_to_fastapi_app_without_mounting(mock_strands_agent):
     """Test that to_fastapi_app creates regular app when no mount_path."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, http_url="http://example.com", skills=[])
 
@@ -679,7 +638,6 @@ def test_to_fastapi_app_without_mounting(mock_strands_agent):
 
 def test_backwards_compatibility_without_http_url(mock_strands_agent):
     """Test that the old behavior is preserved when http_url is not provided."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, host="localhost", port=9000, skills=[])
 
@@ -697,7 +655,6 @@ def test_backwards_compatibility_without_http_url(mock_strands_agent):
 
 def test_mount_path_logging(mock_strands_agent, caplog):
     """Test that mounting logs the correct message."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, http_url="http://example.com/test-agent", skills=[])
 
@@ -714,7 +671,6 @@ def test_mount_path_logging(mock_strands_agent, caplog):
 
 def test_http_url_trailing_slash_handling(mock_strands_agent):
     """Test that trailing slashes in http_url are handled correctly."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     # Test with trailing slash
     a2a_agent1 = A2AServer(mock_strands_agent, http_url="http://example.com/agent1/", skills=[])
@@ -731,7 +687,6 @@ def test_http_url_trailing_slash_handling(mock_strands_agent):
 
 def test_serve_at_root_default_behavior(mock_strands_agent):
     """Test default behavior extracts mount path from http_url."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     server = A2AServer(mock_strands_agent, http_url="http://my-alb.com/agent1", skills=[])
 
@@ -741,7 +696,6 @@ def test_serve_at_root_default_behavior(mock_strands_agent):
 
 def test_serve_at_root_overrides_mounting(mock_strands_agent):
     """Test serve_at_root=True overrides automatic path mounting."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     server = A2AServer(mock_strands_agent, http_url="http://my-alb.com/agent1", serve_at_root=True, skills=[])
 
@@ -751,7 +705,6 @@ def test_serve_at_root_overrides_mounting(mock_strands_agent):
 
 def test_serve_at_root_with_no_path(mock_strands_agent):
     """Test serve_at_root=True when no path in URL (redundant but valid)."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     server = A2AServer(mock_strands_agent, host="localhost", port=8080, serve_at_root=True, skills=[])
 
@@ -761,7 +714,6 @@ def test_serve_at_root_with_no_path(mock_strands_agent):
 
 def test_serve_at_root_complex_path(mock_strands_agent):
     """Test serve_at_root=True with complex nested paths."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     server = A2AServer(
         mock_strands_agent, http_url="http://api.example.com/v1/agents/my-agent", serve_at_root=True, skills=[]
@@ -774,8 +726,6 @@ def test_serve_at_root_complex_path(mock_strands_agent):
 def test_serve_at_root_fastapi_mounting_behavior(mock_strands_agent):
     """Test FastAPI mounting behavior with serve_at_root."""
     from fastapi.testclient import TestClient
-
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     # Normal mounting
     server_mounted = A2AServer(mock_strands_agent, http_url="http://my-alb.com/agent1", skills=[])
@@ -795,8 +745,6 @@ def test_serve_at_root_fastapi_root_behavior(mock_strands_agent):
     """Test FastAPI serve_at_root behavior."""
     from fastapi.testclient import TestClient
 
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
-
     # Serve at root
     server_root = A2AServer(mock_strands_agent, http_url="http://my-alb.com/agent1", serve_at_root=True, skills=[])
     app_root = server_root.to_fastapi_app()
@@ -814,8 +762,6 @@ def test_serve_at_root_fastapi_root_behavior(mock_strands_agent):
 def test_serve_at_root_starlette_behavior(mock_strands_agent):
     """Test Starlette serve_at_root behavior."""
     from starlette.testclient import TestClient
-
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     # Normal mounting
     server_mounted = A2AServer(mock_strands_agent, http_url="http://my-alb.com/agent1", skills=[])
@@ -839,8 +785,6 @@ def test_serve_at_root_starlette_behavior(mock_strands_agent):
 def test_serve_at_root_alb_scenarios(mock_strands_agent):
     """Test common ALB deployment scenarios."""
     from fastapi.testclient import TestClient
-
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     # ALB with path preservation
     server_preserved = A2AServer(mock_strands_agent, http_url="http://my-alb.amazonaws.com/agent1", skills=[])
@@ -869,7 +813,6 @@ def test_serve_at_root_alb_scenarios(mock_strands_agent):
 
 def test_serve_at_root_edge_cases(mock_strands_agent):
     """Test edge cases for serve_at_root parameter."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     # Root path in URL
     server1 = A2AServer(mock_strands_agent, http_url="http://example.com/", skills=[])
@@ -889,7 +832,6 @@ def test_serve_at_root_edge_cases(mock_strands_agent):
 
 def test_to_starlette_app_with_app_kwargs(mock_strands_agent):
     """Test that to_starlette_app passes app_kwargs to the Starlette constructor."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, skills=[])
 
@@ -901,7 +843,6 @@ def test_to_starlette_app_with_app_kwargs(mock_strands_agent):
 
 def test_to_fastapi_app_with_app_kwargs(mock_strands_agent):
     """Test that to_fastapi_app passes app_kwargs to the FastAPI constructor."""
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, skills=[])
 
