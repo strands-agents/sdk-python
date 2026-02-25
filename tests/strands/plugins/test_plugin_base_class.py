@@ -90,6 +90,31 @@ class TestPluginAutoDiscovery:
         assert "hook1" in hook_names
         assert "hook2" in hook_names
 
+    def test_hooks_preserve_definition_order(self):
+        """Test that hooks are discovered in definition order, not alphabetical."""
+
+        class MyPlugin(Plugin):
+            name = "my-plugin"
+
+            @hook
+            def z_last_alphabetically(self, event: BeforeModelCallEvent):
+                pass
+
+            @hook
+            def a_first_alphabetically(self, event: BeforeModelCallEvent):
+                pass
+
+            @hook
+            def m_middle_alphabetically(self, event: BeforeModelCallEvent):
+                pass
+
+        plugin = MyPlugin()
+        assert len(plugin.hooks) == 3
+        # Should be in definition order, not alphabetical
+        assert plugin.hooks[0].__name__ == "z_last_alphabetically"
+        assert plugin.hooks[1].__name__ == "a_first_alphabetically"
+        assert plugin.hooks[2].__name__ == "m_middle_alphabetically"
+
     def test_plugin_discovers_tool_decorated_methods(self):
         """Test that Plugin.__init__ discovers @tool decorated methods."""
 

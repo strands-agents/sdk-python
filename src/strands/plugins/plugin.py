@@ -91,23 +91,30 @@ class Plugin(ABC):
         return self._tools
 
     def _discover_decorated_methods(self) -> None:
-        """Scan class for @hook and @tool decorated methods."""
-        for attr_name in dir(self):
-            try:
-                attr = getattr(self, attr_name)
-            except Exception:
-                # Skip attributes that can't be accessed
-                continue
+        """Scan class for @hook and @tool decorated methods in declaration order."""
+        seen: set[str] = set()
+        # Walk MRO so parent class hooks come first, child overrides win
+        for cls in reversed(type(self).__mro__):
+            for name in cls.__dict__:
+                if name in seen:
+                    continue
+                seen.add(name)
 
-            # Check for @hook decorated methods
-            if hasattr(attr, "_hook_event_types") and callable(attr):
-                self._hooks.append(attr)
-                logger.debug("plugin=<%s>, hook=<%s> | discovered hook method", self.name, attr_name)
+                # Get the bound method from self
+                try:
+                    bound = getattr(self, name)
+                except Exception:
+                    continue
 
-            # Check for @tool decorated methods (DecoratedFunctionTool instances)
-            if isinstance(attr, DecoratedFunctionTool):
-                self._tools.append(attr)
-                logger.debug("plugin=<%s>, tool=<%s> | discovered tool method", self.name, attr_name)
+                # Check for @hook decorated methods
+                if hasattr(bound, "_hook_event_types") and callable(bound):
+                    self._hooks.append(bound)
+                    logger.debug("plugin=<%s>, hook=<%s> | discovered hook method", self.name, name)
+
+                # Check for @tool decorated methods (DecoratedFunctionTool instances)
+                if isinstance(bound, DecoratedFunctionTool):
+                    self._tools.append(bound)
+                    logger.debug("plugin=<%s>, tool=<%s> | discovered tool method", self.name, name)
 
     def init_agent(self, agent: "Agent") -> None | Awaitable[None]:
         """Initialize the agent instance.
