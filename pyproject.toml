@@ -35,6 +35,7 @@ dependencies = [
     "mcp>=1.23.0,<2.0.0",
     "pydantic>=2.4.0,<3.0.0",
     "typing-extensions>=4.13.2,<5.0.0",
+    "pyyaml>=6.0.0,<7.0.0",
     "watchdog>=6.0.0,<7.0.0",
     "opentelemetry-api>=1.30.0,<2.0.0",
     "opentelemetry-sdk>=1.30.0,<2.0.0",
