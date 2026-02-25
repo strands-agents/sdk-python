@@ -40,7 +40,7 @@ class Plugin(ABC):
 
     @abstractmethod
     def init_agent(self, agent: "Agent") -> None | Awaitable[None]:
-        """Initialize the an agent instance.
+        """Initialize the agent instance.
 
         Args:
             agent: The agent instance to initialize.
