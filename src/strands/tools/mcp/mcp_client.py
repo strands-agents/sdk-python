@@ -795,8 +795,33 @@ class MCPClient(ToolProvider):
         sets it as the current event loop, and runs the async_background_thread
         coroutine until completion. In this case "until completion" means until the _close_future is resolved.
         This allows for a long-running event loop.
+
+        Note: When running in ASGI environments (e.g., uvicorn), the parent thread may have
+        an active event loop. Since PR #1444 uses contextvars.copy_context() to propagate
+        context variables, the "running loop" marker may also be copied. We clear both the
+        running loop marker and thread-local event loop to ensure isolation.
         """
         self._log_debug_with_thread("setting up background task event loop")
+
+        # Clear any inherited event loop state from parent thread context.
+        # This is critical when running under ASGI servers (uvicorn, hypercorn) where
+        # the parent thread has an active event loop and contextvars.copy_context()
+        # copies the _running_loop contextvar. Without clearing this, run_until_complete()
+        # fails with "Cannot run the event loop while another loop is running".
+        # See: https://github.com/strands-agents/sdk-python/issues/1512
+        try:
+            import asyncio.events as events
+
+            events._set_running_loop(None)
+        except (AttributeError, RuntimeError):
+            # _set_running_loop may not exist in all Python versions or may fail
+            pass
+
+        try:
+            asyncio.set_event_loop(None)
+        except RuntimeError:
+            pass
+
         self._background_thread_event_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._background_thread_event_loop)
         self._background_thread_event_loop.run_until_complete(self._async_background_thread())
