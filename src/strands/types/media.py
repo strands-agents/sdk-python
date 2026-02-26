@@ -135,3 +135,29 @@ class VideoContent(TypedDict):
 
     format: VideoFormat
     source: VideoSource
+
+
+AudioFormat = Literal["mp3", "wav", "flac", "ogg", "aac", "webm"]
+"""Supported audio formats."""
+
+
+class AudioSource(TypedDict):
+    """Contains the content of audio data.
+
+    Attributes:
+        bytes: The binary content of the audio.
+    """
+
+    bytes: bytes
+
+
+class AudioContent(TypedDict):
+    """Audio to include in a message.
+
+    Attributes:
+        format: The format of the audio (e.g., "mp3", "wav").
+        source: The source containing the audio's binary content.
+    """
+
+    format: AudioFormat
+    source: AudioSource
