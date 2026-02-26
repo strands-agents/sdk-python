@@ -885,7 +885,10 @@ async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, 
 
     # Final message
     assert next(events) == MessageAddedEvent(
-        agent=agent, message={"content": [{"text": "test text"}], "role": "assistant"}
+        agent=agent,
+        message={"content": [{"text": "test text"}], "role": "assistant"},
+        usage={"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+        metrics={"latencyMs": 0, "timeToFirstByteMs": 0},
     )
 
 
