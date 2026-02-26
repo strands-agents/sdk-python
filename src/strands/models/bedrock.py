@@ -363,6 +363,23 @@ class BedrockModel(Model):
             messages[last_assistant_idx]["content"].append({"cachePoint": {"type": "default"}})
             logger.debug("msg_idx=<%s> | added cache point to last assistant message", last_assistant_idx)
 
+    def _find_last_user_text_message_index(self, messages: Messages) -> int | None:
+        """Find the index of the last user message containing text or image content.
+
+        This is used for guardrail_latest_message to ensure that guardContent wrapping
+        targets the correct message even when toolResult messages follow.
+
+        Args:
+            messages: List of messages to search
+
+        Returns:
+            Index of the last user message with text/image content, or None if not found
+        """
+        for idx, msg in reversed(list(enumerate(messages))):
+            if msg["role"] == "user" and any("text" in cb or "image" in cb for cb in msg.get("content", [])):
+                return idx
+        return None
+
     def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
 
@@ -391,16 +408,12 @@ class BedrockModel(Model):
         filtered_unknown_members = False
         dropped_deepseek_reasoning_content = False
 
-        # Pre-compute the index of the last user message containing text or image content
-        # so that guardContent wrapping is maintained even when the final message is a toolResult.
+        # Pre-compute the index of the last user message containing text or image content.
+        # This ensures guardContent wrapping is maintained across tool execution cycles, where
+        # the final message in the list is a toolResult (role=user) rather than text/image content.
         last_user_text_idx = None
         if self.config.get("guardrail_latest_message", False):
-            for ridx, msg in reversed(list(enumerate(messages))):
-                if msg["role"] == "user" and any(
-                    "text" in cb or "image" in cb for cb in msg.get("content", [])
-                ):
-                    last_user_text_idx = ridx
-                    break
+            last_user_text_idx = self._find_last_user_text_message_index(messages)
 
         for idx, message in enumerate(messages):
             cleaned_content: list[dict[str, Any]] = []

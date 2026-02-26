@@ -2484,6 +2484,89 @@ async def test_format_request_with_guardrail_latest_message_wraps_final_user_tex
     assert formatted_messages[2]["content"][0]["guardContent"]["text"]["text"] == "Tell me about taxes"
 
 
+@pytest.mark.asyncio
+async def test_format_request_with_guardrail_multiple_sequential_tool_calls(model):
+    """Test guardContent with multiple tool calls in sequence (no new user input between)."""
+    model.update_config(
+        guardrail_id="test-guardrail",
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+    )
+
+    messages = [
+        {"role": "user", "content": [{"text": "First question"}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "tool1", "input": {}}}]},
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "Result 1"}], "status": "success"}}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t2", "name": "tool2", "input": {}}}]},
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "t2", "content": [{"text": "Result 2"}], "status": "success"}}]},
+    ]
+
+    request = model._format_request(messages)
+    formatted_messages = request["messages"]
+
+    # Should wrap the first user text message, not the toolResults
+    assert "guardContent" in formatted_messages[0]["content"][0]
+    assert formatted_messages[0]["content"][0]["guardContent"]["text"]["text"] == "First question"
+
+    # toolResults should not be wrapped
+    assert "toolResult" in formatted_messages[2]["content"][0]
+    assert "guardContent" not in formatted_messages[2]["content"][0]
+    assert "toolResult" in formatted_messages[4]["content"][0]
+    assert "guardContent" not in formatted_messages[4]["content"][0]
+
+
+@pytest.mark.asyncio
+async def test_format_request_with_guardrail_image_before_tool_result(model):
+    """Test guardContent wraps image content even when toolResult follows."""
+    model.update_config(
+        guardrail_id="test-guardrail",
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+    )
+
+    messages = [
+        {"role": "user", "content": [{"image": {"format": "png", "source": {"bytes": b"fake"}}}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "vision", "input": {}}}]},
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "I see a cat"}], "status": "success"}}]},
+    ]
+
+    request = model._format_request(messages)
+    formatted_messages = request["messages"]
+
+    # Image should be wrapped even though toolResult comes after
+    assert "guardContent" in formatted_messages[0]["content"][0]
+    assert "image" in formatted_messages[0]["content"][0]["guardContent"]
+
+
+@pytest.mark.asyncio
+async def test_format_request_with_guardrail_multiple_tool_results_same_message(model):
+    """Test guardContent with multiple parallel tool calls (multiple toolResults in one message)."""
+    model.update_config(
+        guardrail_id="test-guardrail",
+        guardrail_version="DRAFT",
+        guardrail_latest_message=True,
+    )
+
+    messages = [
+        {"role": "user", "content": [{"text": "Question requiring multiple tools"}]},
+        {"role": "assistant", "content": [
+            {"toolUse": {"toolUseId": "t1", "name": "tool1", "input": {}}},
+            {"toolUse": {"toolUseId": "t2", "name": "tool2", "input": {}}},
+        ]},
+        {"role": "user", "content": [
+            {"toolResult": {"toolUseId": "t1", "content": [{"text": "Result 1"}], "status": "success"}},
+            {"toolResult": {"toolUseId": "t2", "content": [{"text": "Result 2"}], "status": "success"}},
+        ]},
+    ]
+
+    request = model._format_request(messages)
+    formatted_messages = request["messages"]
+
+    # Should wrap the question
+    assert "guardContent" in formatted_messages[0]["content"][0]
+    assert formatted_messages[0]["content"][0]["guardContent"]["text"]["text"] == "Question requiring multiple tools"
+
+
 def test_supports_caching_true_for_claude(bedrock_client):
     """Test that supports_caching returns True for Claude models."""
     model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
