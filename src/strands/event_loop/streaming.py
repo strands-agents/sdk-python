@@ -251,6 +251,13 @@ def handle_content_block_delta(
             state["redactedContent"] = state.get("redactedContent", b"") + redacted_content
             typed_event = ReasoningRedactedContentStreamEvent(redacted_content=redacted_content, delta=delta_content)
 
+    elif "image" in delta_content:
+        if "image" not in state:
+            state["image"] = []
+
+        state["image"].append(delta_content["image"])
+        typed_event = ModelStreamEvent(delta_content)
+
     return state, typed_event
 
 
@@ -319,6 +326,11 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
     elif redacted_content:
         content.append({"reasoningContent": {"redactedContent": redacted_content}})
         state["redactedContent"] = b""
+    elif state.get("image"):
+        # Add all accumulated image blocks to content
+        for image_data in state["image"]:
+            content.append({"image": image_data})
+        state["image"] = []
 
     return state
 
@@ -388,6 +400,7 @@ async def process_stream(
         "current_tool_use": {},
         "reasoningText": "",
         "citationsContent": [],
+        "image": [],
     }
     state["content"] = state["message"]["content"]
 

@@ -965,6 +965,13 @@ class BedrockModel(Model):
                         "sourceContent": citation["sourceContent"],
                     }
                     yield {"contentBlockDelta": {"delta": {"citation": citation_metadata}}}
+            elif "image" in content:
+                # Yield image content as a delta
+                yield {
+                    "contentBlockDelta": {
+                        "delta": {"image": content["image"]},
+                    }
+                }
 
             # Yield contentBlockStop event
             yield {"contentBlockStop": {}}
