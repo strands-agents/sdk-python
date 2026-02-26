@@ -819,6 +819,124 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_respects_streaming_flag(openai_client, model_id, alist):
+    """Test that the streaming flag in config is respected."""
+    # Model configured to NOT stream
+    model = OpenAIModel(client_args={}, model_id=model_id, params={"max_tokens": 1}, streaming=False)
+
+    # Mock a non-streaming response object
+    mock_choice = unittest.mock.Mock()
+    mock_choice.finish_reason = "stop"
+    mock_choice.message = unittest.mock.Mock()
+    mock_choice.message.content = "non-stream result"
+    mock_choice.message.tool_calls = None
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+    mock_response.usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=mock_response)
+
+    # Consume the generator and verify the events
+    response_gen = model.stream([{"role": "user", "content": [{"text": "hi"}]}])
+    tru_events = await alist(response_gen)
+
+    expected_request = {
+        "max_tokens": 1,
+        "model": model_id,
+        "messages": [{"role": "user", "content": [{"text": "hi", "type": "text"}]}],
+        "stream": False,
+        "tools": [],
+    }
+    openai_client.chat.completions.create.assert_called_once_with(**expected_request)
+
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "non-stream result"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                "metrics": {"latencyMs": 0},
+            }
+        },
+    ]
+    assert tru_events == exp_events
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_tool_call(openai_client, model_id, alist):
+    """Test that tool calls work correctly in non-streaming mode (Fix for #778)."""
+    # Mock a tool call in a non-streaming response
+    mock_tool_call = unittest.mock.Mock()
+    mock_tool_call.id = "t1"
+    mock_tool_call.function.name = "get_weather"
+    mock_tool_call.function.arguments = '{"location": "London"}'
+
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message.content = None
+    mock_choice.message.tool_calls = [mock_tool_call]
+    mock_choice.finish_reason = "tool_calls"
+
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+    mock_response.usage = None
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=mock_response)
+
+    model = OpenAIModel(model_id=model_id, streaming=False)
+    messages = [{"role": "user", "content": [{"text": "What is the weather?"}]}]
+
+    events = await alist(model.stream(messages))
+
+    # Verify tool use events were emitted
+    tool_starts = [e for e in events if "contentBlockStart" in e and "toolUse" in e["contentBlockStart"]["start"]]
+    assert len(tool_starts) == 1
+    assert tool_starts[0]["contentBlockStart"]["start"]["toolUse"]["name"] == "get_weather"
+
+    tool_deltas = [e for e in events if "contentBlockDelta" in e and "toolUse" in e["contentBlockDelta"]["delta"]]
+    assert len(tool_deltas) == 1
+    assert tool_deltas[0]["contentBlockDelta"]["delta"]["toolUse"]["input"] == '{"location": "London"}'
+
+    # Verify stop reason
+    stop_event = next(e for e in events if "messageStop" in e)
+    assert stop_event["messageStop"]["stopReason"] == "tool_use"
+
+
+@pytest.mark.asyncio
+async def test_stream_non_streaming_multi_block_response(openai_client, model_id, alist):
+    """Test non-streaming response with multiple content blocks (text and reasoning)."""
+    # Mock a response with a list of blocks
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message.content = [
+        {"reasoningContent": {"reasoningText": {"text": "I will check the weather."}}},
+        {"text": "Checking weather now..."},
+        "Additional string block",
+    ]
+    mock_choice.message.tool_calls = None
+    mock_choice.finish_reason = "stop"
+
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+    mock_response.usage = None
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=mock_response)
+
+    model = OpenAIModel(model_id=model_id, streaming=False)
+    events = await alist(model.stream([{"role": "user", "content": [{"text": "hi"}]}]))
+
+    # Verify both types of content were captured
+    event_contents = [e["contentBlockDelta"]["delta"] for e in events if "contentBlockDelta" in e]
+
+    assert any(
+        "reasoningContent" in c and c["reasoningContent"]["text"] == "I will check the weather." for c in event_contents
+    )
+    assert any("text" in c and c["text"] == "Checking weather now..." for c in event_contents)
+    assert any("text" in c and c["text"] == "Additional string block" for c in event_contents)
+
+
+@pytest.mark.asyncio
 async def test_stream_empty(openai_client, model_id, model, agenerator, alist):
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
 
