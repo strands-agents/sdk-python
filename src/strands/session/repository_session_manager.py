@@ -172,28 +172,24 @@ class RepositorySessionManager(SessionManager):
            Before 1.15.0, strands had a bug where they persisted sessions with a potentially broken messages array.
            This method retroactively fixes that issue by adding a tool_result outside of session management.
            After 1.15.0, this bug is no longer present.
-        2. Orphaned toolResult messages without corresponding toolUse (e.g., when pagination truncates messages)
+        2. Orphaned toolResult messages without corresponding toolUse (e.g., when pagination truncates messages,
+           context is summarized, or messages are removed by conversation managers)
 
         Args:
             messages: The list of messages to fix
-            agent_id: The agent ID for fetching previous messages
-            removed_message_count: Number of messages removed by the conversation manager
 
         Returns:
             Fixed list of messages with proper tool use/result pairs
         """
-        # First, check if the oldest message has orphaned toolResult (no preceding toolUse) and remove it.
-        if messages:
-            first_message = messages[0]
-            if first_message["role"] == "user" and any("toolResult" in content for content in first_message["content"]):
-                logger.warning(
-                    "Session message history starts with orphaned toolResult with no preceding toolUse. "
-                    "This typically happens when messages are truncated due to pagination limits. "
-                    "Removing orphaned toolResult message to maintain valid conversation structure."
-                )
-                messages.pop(0)
+        # First, remove orphaned toolResult blocks throughout the conversation.
+        # This handles cases where toolUse blocks were removed due to:
+        # - Pagination/truncation of conversation history
+        # - Context summarization
+        # - Conversation manager pruning
+        # Related: https://github.com/strands-agents/sdk-python/issues/1610
+        messages = self._remove_orphaned_tool_results(messages)
 
-        # Then check for orphaned toolUse messages
+        # Then check for orphaned toolUse messages and add missing toolResults
         for index, message in enumerate(messages):
             # Check all but the latest message in the messages array
             # The latest message being orphaned is handled in the agent class
@@ -227,6 +223,78 @@ class RepositorySessionManager(SessionManager):
                             # The message following the toolUse was not a toolResult, so lets insert it
                             messages.insert(index + 1, {"role": "user", "content": missing_content_blocks})
         return messages
+
+    def _remove_orphaned_tool_results(self, messages: list[Message]) -> list[Message]:
+        """Remove orphaned toolResult blocks that have no matching toolUse.
+
+        This scans through all messages and removes any toolResult blocks whose
+        toolUseId doesn't have a corresponding toolUse block in preceding messages.
+
+        This is necessary because:
+        - Context truncation/summarization may remove toolUse blocks but keep toolResults
+        - Pagination may load partial conversation history
+        - Conversation managers may prune messages creating orphaned results
+
+        Related issues:
+        - https://github.com/strands-agents/sdk-python/issues/1610
+        - Anthropic Claude Code #13964: orphaned tool_result blocks after context truncation
+        - Pydantic AI, OpenHands, LiteLLM: similar ValidationException issues
+
+        Args:
+            messages: The list of messages to scan
+
+        Returns:
+            Messages with orphaned toolResult blocks removed
+        """
+        if not messages:
+            return messages
+
+        # Collect all toolUse IDs from all messages
+        all_tool_use_ids: set[str] = set()
+        for message in messages:
+            for content in message.get("content", []):
+                if "toolUse" in content:
+                    all_tool_use_ids.add(content["toolUse"]["toolUseId"])
+
+        # Track if we removed any orphaned results for logging
+        removed_any = False
+
+        # Filter out orphaned toolResult blocks from all messages
+        filtered_messages: list[Message] = []
+        for message in messages:
+            if message["role"] == "user":
+                filtered_content = []
+                for content in message.get("content", []):
+                    if "toolResult" in content:
+                        tool_use_id = content["toolResult"].get("toolUseId")
+                        if tool_use_id in all_tool_use_ids:
+                            # Keep this toolResult - it has a matching toolUse
+                            filtered_content.append(content)
+                        else:
+                            # This is an orphaned toolResult - skip it
+                            removed_any = True
+                    else:
+                        # Not a toolResult, keep it
+                        filtered_content.append(content)
+
+                # Only include the message if it still has content
+                if filtered_content:
+                    filtered_messages.append({"role": message["role"], "content": filtered_content})
+                # If message is now empty (was only orphaned toolResults), skip it entirely
+                elif removed_any:
+                    pass  # Message dropped
+            else:
+                # Non-user messages (assistant) - keep as-is
+                filtered_messages.append(message)
+
+        if removed_any:
+            logger.warning(
+                "Session message history had orphaned toolResult blocks with no matching toolUse. "
+                "This typically happens when context is truncated or summarized. "
+                "Removed orphaned toolResult blocks to maintain valid conversation structure."
+            )
+
+        return filtered_messages
 
     def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
         """Serialize and update the multi-agent state into the session repository.
