@@ -496,8 +496,8 @@ class MistralModel(Model):
 
                             yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
-                            if hasattr(chunk, "usage"):
-                                yield self.format_chunk({"chunk_type": "metadata", "data": chunk.usage})
+                            if hasattr(chunk, "data") and hasattr(chunk.data, "usage") and chunk.data.usage:
+                                yield self.format_chunk({"chunk_type": "metadata", "data": chunk.data.usage})
 
         except Exception as e:
             if "rate" in str(e).lower() or "429" in str(e):
