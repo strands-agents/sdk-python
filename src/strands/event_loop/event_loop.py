@@ -33,6 +33,7 @@ from ..types._events import (
     TypedEvent,
 )
 from ..types.content import Message, Messages
+from ..types.event_loop import Metrics, Usage
 from ..types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
@@ -53,6 +54,23 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 6
 INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
+
+
+def _should_cancel(invocation_state: dict[str, Any]) -> bool:
+    """Check if cancellation has been requested.
+
+    This helper function checks the cancellation token in the invocation state
+    and returns True if cancellation has been requested. It's called at strategic
+    checkpoints throughout the event loop to enable graceful termination.
+
+    Args:
+        invocation_state: Invocation state containing optional cancellation token.
+
+    Returns:
+        True if cancellation has been requested, False otherwise.
+    """
+    token = invocation_state.get("cancellation_token")
+    return token.is_cancelled() if token else False
 
 
 def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
@@ -128,6 +146,22 @@ async def event_loop_cycle(
 
     yield StartEvent()
     yield StartEventLoopEvent()
+
+    # CHECKPOINT 1: Check for cancellation at start of event loop cycle
+    # This allows cancellation before any model or tool execution begins
+    if _should_cancel(invocation_state):
+        logger.debug(
+            "event_loop_cycle_id=<%s> | cancellation detected at cycle start",
+            invocation_state.get("event_loop_cycle_id"),
+        )
+        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
+        yield EventLoopStopEvent(
+            "cancelled",
+            {"role": "assistant", "content": []},
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+        )
+        return
 
     # Create tracer span for this event loop cycle
     tracer = get_tracer()
@@ -307,6 +341,23 @@ async def _handle_model_execution(
     # Retry loop - actual retry logic is handled by retry_strategy hook
     # Hooks control when to stop retrying via the event.retry flag
     while True:
+        # CHECKPOINT 2: Check for cancellation before model call
+        # This prevents unnecessary model invocations when cancellation is requested
+        if _should_cancel(invocation_state):
+            logger.debug(
+                "model_id=<%s> | cancellation detected before model call",
+                agent.model.config.get("model_id") if hasattr(agent.model, "config") else None,
+            )
+            # Return cancelled stop reason with empty message and zero usage/metrics
+            # since no model execution occurred
+            yield ModelStopReason(
+                stop_reason="cancelled",
+                message={"role": "assistant", "content": []},
+                usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
+                metrics=Metrics(latencyMs=0),
+            )
+            return
+
         model_id = agent.model.config.get("model_id") if hasattr(agent.model, "config") else None
         model_invoke_span = tracer.start_model_invoke_span(
             messages=agent.messages,
@@ -465,6 +516,22 @@ async def _handle_tool_execution(
         tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
 
     interrupts = []
+
+    # CHECKPOINT 4: Check for cancellation before tool execution
+    # This prevents tool execution when cancellation is requested
+    if _should_cancel(invocation_state):
+        logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
+        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+        yield EventLoopStopEvent(
+            "cancelled",
+            message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+        )
+        if cycle_span:
+            tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
+        return
+
     tool_events = agent.tool_executor._execute(
         agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
     )

@@ -22,8 +22,13 @@ class Plugin(ABC):
     """Base class for objects that extend agent functionality.
 
     Plugins provide a composable way to add behavior changes to agents.
+<<<<<<< HEAD
     They support automatic discovery and registration of methods decorated
     with @hook and @tool decorators.
+=======
+    They can register hooks, modify agent attributes, or perform other
+    setup tasks on an agent instance.
+>>>>>>> e40696f (feat: add CancellationToken for graceful agent execution cancellation)
 
     Attributes:
         name: A stable string identifier for the plugin (must be provided by subclass)

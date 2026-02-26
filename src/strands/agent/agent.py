@@ -29,6 +29,7 @@ from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
 from ..tools._tool_helpers import generate_missing_tool_result_content
+from ..types.cancellation import CancellationToken
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
@@ -135,6 +136,7 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
+        cancellation_token: CancellationToken | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -201,6 +203,12 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
+            cancellation_token: Optional token for cancelling agent execution.
+                When provided, the agent will check this token at strategic checkpoints during execution
+                (before model calls, during streaming, before tool execution) and stop gracefully if
+                cancellation is requested. The token can be cancelled from external contexts (other threads,
+                web requests, etc.) by calling token.cancel().
+                Defaults to None (no cancellation support).
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -239,6 +247,9 @@ class Agent(AgentBase):
 
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
+
+        # Store cancellation token for graceful termination
+        self.cancellation_token = cancellation_token
 
         self.tool_registry = ToolRegistry()
 
@@ -723,6 +734,10 @@ class Agent(AgentBase):
             else:
                 if invocation_state is not None:
                     merged_state = invocation_state
+
+            # Add cancellation token to invocation state if provided
+            if self.cancellation_token is not None:
+                merged_state["cancellation_token"] = self.cancellation_token
 
             callback_handler = self.callback_handler
             if kwargs:
