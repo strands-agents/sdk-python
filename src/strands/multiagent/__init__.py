@@ -8,11 +8,12 @@ Submodules:
          standardized communication between agents.
 """
 
-from .base import MultiAgentBase, MultiAgentResult, Status
+from .base import EdgeExecutionMode, MultiAgentBase, MultiAgentResult, Status
 from .graph import GraphBuilder, GraphResult
 from .swarm import Swarm, SwarmResult
 
 __all__ = [
+    "EdgeExecutionMode",
     "GraphBuilder",
     "GraphResult",
     "MultiAgentBase",

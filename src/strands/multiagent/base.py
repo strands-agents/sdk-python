@@ -39,6 +39,24 @@ class Status(Enum):
     INTERRUPTED = "interrupted"
 
 
+class EdgeExecutionMode(Enum):
+    """Edge execution mode for graph traversal.
+
+    Controls how the graph determines when a node is ready to execute
+    based on its incoming edges.
+
+    Attributes:
+        OR: Node executes when ANY incoming edge's source node completes (default).
+            This is the current behavior - a node becomes ready as soon as any
+            of its predecessors finish.
+        AND: Node executes when ALL incoming edges' source nodes complete.
+            The node waits for every predecessor to finish before executing.
+    """
+
+    OR = "or"
+    AND = "and"
+
+
 @dataclass
 class NodeResult:
     """Unified result from node execution - handles both Agent and nested MultiAgentBase results."""
