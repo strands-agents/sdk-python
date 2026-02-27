@@ -18,7 +18,7 @@ from typing_extensions import Required, Unpack, override
 from ..types.content import ContentBlock, ContentBlockStartToolUse, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolChoice, ToolSpec
+from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from ._validation import _has_location_source, validate_config_keys
 from .model import Model
 
@@ -280,11 +280,46 @@ class GeminiModel(Model):
             tools.extend(self.config["gemini_tools"])
         return tools
 
+    def _map_tool_choice(self, tool_choice: ToolChoice | None) -> genai.types.ToolConfig | None:
+        """Map Strands ToolChoice to Gemini ToolConfig.
+
+        Args:
+            tool_choice: Strands tool choice configuration.
+
+        Returns:
+            Gemini ToolConfig or None for default behavior.
+        """
+        if tool_choice is None:
+            return None
+
+        if "auto" in tool_choice:
+            return genai.types.ToolConfig(
+                function_calling_config=genai.types.FunctionCallingConfig(
+                    mode=genai.types.FunctionCallingConfigMode.AUTO
+                )
+            )
+        elif "any" in tool_choice:
+            return genai.types.ToolConfig(
+                function_calling_config=genai.types.FunctionCallingConfig(
+                    mode=genai.types.FunctionCallingConfigMode.ANY
+                )
+            )
+        elif "tool" in tool_choice:
+            return genai.types.ToolConfig(
+                function_calling_config=genai.types.FunctionCallingConfig(
+                    mode=genai.types.FunctionCallingConfigMode.ANY,
+                    allowed_function_names=[cast(ToolChoiceToolDict, tool_choice)["tool"]["name"]],
+                )
+            )
+
+        return None
+
     def _format_request_config(
         self,
         tool_specs: list[ToolSpec] | None,
         system_prompt: str | None,
         params: dict[str, Any] | None,
+        tool_choice: ToolChoice | None = None,
     ) -> genai.types.GenerateContentConfig:
         """Format Gemini request config.
 
@@ -294,13 +329,18 @@ class GeminiModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             params: Additional model parameters (e.g., temperature).
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             Gemini request config.
         """
+        # Only map tool_choice if tools are provided
+        tool_config = self._map_tool_choice(tool_choice) if tool_specs else None
+
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
             tools=self._format_request_tools(tool_specs),
+            tool_config=tool_config,
             **(params or {}),
         )
 
@@ -310,6 +350,7 @@ class GeminiModel(Model):
         tool_specs: list[ToolSpec] | None,
         system_prompt: str | None,
         params: dict[str, Any] | None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format a Gemini streaming request.
 
@@ -320,12 +361,13 @@ class GeminiModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             params: Additional model parameters (e.g., temperature).
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             A Gemini streaming request.
         """
         return {
-            "config": self._format_request_config(tool_specs, system_prompt, params).to_json_dict(),
+            "config": self._format_request_config(tool_specs, system_prompt, params, tool_choice).to_json_dict(),
             "contents": [content.to_json_dict() for content in self._format_request_content(messages)],
             "model": self.config["model_id"],
         }
@@ -449,7 +491,6 @@ class GeminiModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
-                Note: Currently unused.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -458,7 +499,7 @@ class GeminiModel(Model):
         Raises:
             ModelThrottledException: If the request is throttled by Gemini.
         """
-        request = self._format_request(messages, tool_specs, system_prompt, self.config.get("params"))
+        request = self._format_request(messages, tool_specs, system_prompt, self.config.get("params"), tool_choice)
 
         client = self._get_client().aio
 
