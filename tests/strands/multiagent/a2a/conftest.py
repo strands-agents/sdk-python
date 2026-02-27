@@ -28,7 +28,7 @@ def mock_strands_agent():
 
     # Setup mock tool registry
     mock_tool_registry = MagicMock()
-    mock_tool_registry.get_all_tools_config.return_value = {}
+    mock_tool_registry.get_all_tools.return_value = {}
     agent.tool_registry = mock_tool_registry
 
     return agent

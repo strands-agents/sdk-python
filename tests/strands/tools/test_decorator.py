@@ -1978,3 +1978,19 @@ def test_tool_nullable_optional_field_simplifies_anyof():
     # Since tag is not required, anyOf should be simplified away
     assert "anyOf" not in schema["properties"]["tag"]
     assert schema["properties"]["tag"]["type"] == "string"
+
+
+def test_tool_decorator_with_tags():
+    """Test that @tool decorator properly handles tags parameter."""
+
+    @strands.tool(tags=["test", "example"])
+    def tagged_tool(input: str) -> str:
+        """A tool with tags.
+
+        Args:
+            input: Input string
+        """
+        return f"Result: {input}"
+
+    assert tagged_tool.tags == ["test", "example"]
+    assert "tags" not in tagged_tool.tool_spec

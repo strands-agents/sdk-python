@@ -217,10 +217,12 @@ class AgentTool(ABC):
     """
 
     _is_dynamic: bool
+    _tags: list[str]
 
     def __init__(self) -> None:
         """Initialize the base agent tool with default dynamic state."""
         self._is_dynamic = False
+        self._tags = []
 
     @property
     @abstractmethod
@@ -285,6 +287,24 @@ class AgentTool(ABC):
     def mark_dynamic(self) -> None:
         """Mark this tool as dynamically loaded."""
         self._is_dynamic = True
+
+    @property
+    def tags(self) -> list[str]:
+        """Tags for categorizing this tool (e.g., for A2A skill metadata).
+
+        Returns:
+            List of tag strings. Empty list by default.
+        """
+        return self._tags
+
+    @tags.setter
+    def tags(self, value: list[str]) -> None:
+        """Set tags for this tool.
+
+        Args:
+            value: List of tag strings.
+        """
+        self._tags = value
 
     def get_display_properties(self) -> dict[str, str]:
         """Get properties to display in UI representations of this tool.
