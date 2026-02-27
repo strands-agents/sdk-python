@@ -404,6 +404,11 @@ async def process_stream(
             state["message"] = handle_message_start(chunk["messageStart"], state["message"])
         elif "contentBlockStart" in chunk:
             state["current_tool_use"] = handle_content_block_start(chunk["contentBlockStart"])
+            if state["current_tool_use"]:
+                yield ToolUseStreamEvent(
+                    delta={"toolUse": {"input": ""}},
+                    current_tool_use=state["current_tool_use"],
+                )
         elif "contentBlockDelta" in chunk:
             state, typed_event = handle_content_block_delta(chunk["contentBlockDelta"], state)
             yield typed_event
