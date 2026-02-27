@@ -14,7 +14,7 @@ import pytest
 from pydantic import BaseModel
 
 import strands
-from strands import Agent, ToolContext
+from strands import Agent, Plugin, ToolContext
 from strands.agent import AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
@@ -2625,6 +2625,8 @@ def test_agent_plugins_sync_initialization():
     """Test that plugins with sync init_agent are initialized correctly."""
     plugin_mock = unittest.mock.Mock()
     plugin_mock.name = "test-plugin"
+    plugin_mock.hooks = []
+    plugin_mock.tools = []
     plugin_mock.init_agent = unittest.mock.Mock()
 
     agent = Agent(
@@ -2639,6 +2641,8 @@ def test_agent_plugins_async_initialization():
     """Test that plugins with async init_agent are initialized correctly."""
     plugin_mock = unittest.mock.Mock()
     plugin_mock.name = "async-plugin"
+    plugin_mock.hooks = []
+    plugin_mock.tools = []
     plugin_mock.init_agent = unittest.mock.AsyncMock()
 
     agent = Agent(
@@ -2655,10 +2659,14 @@ def test_agent_plugins_multiple_in_order():
 
     plugin1 = unittest.mock.Mock()
     plugin1.name = "plugin1"
+    plugin1.hooks = []
+    plugin1.tools = []
     plugin1.init_agent = unittest.mock.Mock(side_effect=lambda agent: call_order.append("plugin1"))
 
     plugin2 = unittest.mock.Mock()
     plugin2.name = "plugin2"
+    plugin2.hooks = []
+    plugin2.tools = []
     plugin2.init_agent = unittest.mock.Mock(side_effect=lambda agent: call_order.append("plugin2"))
 
     Agent(
@@ -2673,7 +2681,7 @@ def test_agent_plugins_can_register_hooks():
     """Test that plugins can register hooks during initialization."""
     hook_called = []
 
-    class TestPlugin:
+    class TestPlugin(Plugin):
         name = "hook-plugin"
 
         def init_agent(self, agent):

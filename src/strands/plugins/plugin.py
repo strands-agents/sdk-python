@@ -9,8 +9,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable
 from typing import TYPE_CHECKING
 
+from ..hooks.registry import HookCallback
 from ..tools.decorator import DecoratedFunctionTool
-from .decorator import _WrappedHookCallable
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -27,8 +27,8 @@ class Plugin(ABC):
 
     Attributes:
         name: A stable string identifier for the plugin (must be provided by subclass)
-        hooks: List of hooks the plugin provides, auto-discovered from @hook decorated methods
-        tools: List of tools the plugin provides, auto-discovered from @tool decorated methods
+        hooks: Hooks attached to the agent, auto-discovered from @hook decorated methods during __init__
+        tools: Tools attached to the agent, auto-discovered from @tool decorated methods during __init__
 
     Example using decorators (recommended):
         ```python
@@ -49,6 +49,10 @@ class Plugin(ABC):
                 return f"Result: {param}"
         ```
 
+        Note: Decorated methods are registered in declaration order, with parent
+        class methods registered before child class methods. If a child overrides
+        a parent's decorated method, only the child's version is registered.
+
     Example with custom initialization:
         ```python
         class MyPlugin(Plugin):
@@ -57,7 +61,7 @@ class Plugin(ABC):
             def init_agent(self, agent: Agent) -> None:
                 # Custom initialization logic - no super() needed
                 # Decorated hooks/tools are auto-registered by the plugin registry
-                agent.hooks.add_callback(BeforeModelCallEvent, self.custom_hook)
+                agent.add_hook(self.custom_hook)
 
             def custom_hook(self, event: BeforeModelCallEvent):
                 print(event)
@@ -76,12 +80,12 @@ class Plugin(ABC):
         Scans the class for methods decorated with @hook and @tool and stores
         references for later registration when the plugin is attached to an agent.
         """
-        self._hooks: list[_WrappedHookCallable] = []
+        self._hooks: list[HookCallback] = []
         self._tools: list[DecoratedFunctionTool] = []
         self._discover_decorated_methods()
 
     @property
-    def hooks(self) -> list[_WrappedHookCallable]:
+    def hooks(self) -> list[HookCallback]:
         """List of hooks the plugin provides, auto-discovered from @hook decorated methods."""
         return self._hooks
 
@@ -120,8 +124,7 @@ class Plugin(ABC):
         """Initialize the agent instance.
 
         Override this method to add custom initialization logic. Decorated
-        hooks and tools are automatically registered by the plugin registry,
-        so there's no need to call super().init_agent(agent).
+        hooks and tools are automatically registered by the plugin registry.
 
         Args:
             agent: The agent instance to initialize.

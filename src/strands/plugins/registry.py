@@ -97,6 +97,10 @@ class _PluginRegistry:
     def _register_hooks(self, plugin: Plugin) -> None:
         """Register all discovered hooks from the plugin with the agent.
 
+        Warns if a hook callback is already registered for an event type,
+        which can happen when init_agent() manually registers a hook that
+        is also decorated with @hook.
+
         Args:
             plugin: The plugin whose hooks should be registered.
         """
