@@ -12,6 +12,7 @@ from strands.hooks import (
     AgentInitializedEvent,
     BeforeInvocationEvent,
     BeforeModelCallEvent,
+    BeforeStreamChunkEvent,
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
@@ -694,3 +695,177 @@ async def test_before_invocation_event_messages_none_in_structured_output(agener
 
     # structured_output_async uses deprecated path that doesn't pass messages
     assert received_messages is None
+
+
+def test_before_stream_chunk_event_fires_for_each_chunk():
+    """Test that BeforeStreamChunkEvent fires for each stream chunk."""
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"text": "Hello world"}],
+            },
+        ]
+    )
+
+    chunk_events = []
+
+    async def capture_stream_chunks(event: BeforeStreamChunkEvent):
+        chunk_events.append(event.chunk)
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeStreamChunkEvent, capture_stream_chunks)
+
+    agent("Test message")
+
+    # Should have received multiple chunk events (messageStart, contentBlockStart, delta, stop, etc.)
+    assert len(chunk_events) > 0
+    # Should include content block delta with text
+    text_deltas = [c for c in chunk_events if "contentBlockDelta" in c]
+    assert len(text_deltas) == 1
+    assert text_deltas[0]["contentBlockDelta"]["delta"]["text"] == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_before_stream_chunk_event_can_skip_chunks():
+    """Test that setting skip=True prevents chunks from being processed entirely.
+
+    When skip=True, the chunk is not processed at all:
+    - No ModelStreamChunkEvent is yielded
+    - No TextStreamEvent is yielded
+    - The chunk does not contribute to the final message
+    """
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"text": "Hello world"}],
+            },
+        ]
+    )
+
+    async def skip_text_chunks(event: BeforeStreamChunkEvent):
+        # Skip only contentBlockDelta chunks (text content)
+        if "contentBlockDelta" in event.chunk:
+            event.skip = True
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeStreamChunkEvent, skip_text_chunks)
+
+    # Collect all yielded events
+    text_events = []
+    result = None
+    async for event in agent.stream_async("Test message"):
+        if "data" in event:  # TextStreamEvent
+            text_events.append(event["data"])
+        if "result" in event:
+            result = event["result"]
+
+    # Verify no text events were yielded (because we skipped content deltas)
+    assert len(text_events) == 0
+
+    # Verify final message has no text content (skipped chunks don't contribute)
+    # The message will have empty content since we skipped the text blocks
+    assert result.message["content"] == []
+
+
+@pytest.mark.asyncio
+async def test_before_stream_chunk_event_can_modify_chunks():
+    """Test that chunk modifications affect both stream events and final message.
+
+    The BeforeStreamChunkEvent hook intercepts chunks BEFORE processing, so
+    modifications affect:
+    - The yielded ModelStreamChunkEvent (raw chunk)
+    - The yielded TextStreamEvent (processed text)
+    - The final message content
+    """
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"text": "secret"}],
+            },
+        ]
+    )
+
+    async def redact_text_chunks(event: BeforeStreamChunkEvent):
+        # Modify text delta chunks
+        if "contentBlockDelta" in event.chunk:
+            delta = event.chunk["contentBlockDelta"]["delta"]
+            if "text" in delta:
+                # Create modified chunk with redacted text
+                event.chunk = {"contentBlockDelta": {"delta": {"text": "[REDACTED]"}}}
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeStreamChunkEvent, redact_text_chunks)
+
+    # Collect yielded events
+    text_events = []
+    result = None
+    async for event in agent.stream_async("Test message"):
+        if "data" in event:  # TextStreamEvent
+            text_events.append(event["data"])
+        if "result" in event:
+            result = event["result"]
+
+    # Verify TextStreamEvent contains modified text
+    assert len(text_events) == 1
+    assert text_events[0] == "[REDACTED]"
+
+    # Verify final message contains modified text
+    assert result.message["content"][0]["text"] == "[REDACTED]"
+
+
+@pytest.mark.asyncio
+async def test_before_stream_chunk_event_with_stream_async():
+    """Test that BeforeStreamChunkEvent works with stream_async."""
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"text": "Hello"}],
+            },
+        ]
+    )
+
+    chunk_events = []
+
+    async def capture_stream_chunks(event: BeforeStreamChunkEvent):
+        chunk_events.append(event.chunk)
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeStreamChunkEvent, capture_stream_chunks)
+
+    async for _ in agent.stream_async("Test message"):
+        pass
+
+    # Should have received chunk events
+    assert len(chunk_events) > 0
+
+
+def test_before_stream_chunk_event_has_invocation_state():
+    """Test that BeforeStreamChunkEvent includes invocation_state."""
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [{"text": "Hello"}],
+            },
+        ]
+    )
+
+    received_states = []
+
+    async def capture_invocation_state(event: BeforeStreamChunkEvent):
+        received_states.append(event.invocation_state.copy())
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeStreamChunkEvent, capture_invocation_state)
+
+    agent("Test message", invocation_state={"custom_key": "custom_value"})
+
+    # All captured states should have the custom key
+    assert len(received_states) > 0
+    for state in received_states:
+        assert "custom_key" in state
+        assert state["custom_key"] == "custom_value"
