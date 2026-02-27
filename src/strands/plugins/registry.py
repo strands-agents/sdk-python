@@ -24,6 +24,11 @@ class _PluginRegistry:
     The _PluginRegistry tracks plugins that have been initialized with an agent,
     providing methods to add plugins and invoke their initialization.
 
+    The registry handles:
+    1. Calling the plugin's init_agent() method for custom initialization
+    2. Auto-registering discovered @hook decorated methods with the agent
+    3. Auto-registering discovered @tool decorated methods with the agent
+
     Example:
         ```python
         registry = _PluginRegistry(agent)
@@ -31,7 +36,12 @@ class _PluginRegistry:
         class MyPlugin(Plugin):
             name = "my-plugin"
 
+            @hook
+            def on_event(self, event: BeforeModelCallEvent):
+                pass  # Auto-registered by registry
+
             def init_agent(self, agent: Agent) -> None:
+                # Custom logic only - no super() needed
                 pass
 
         plugin = MyPlugin()
@@ -51,7 +61,12 @@ class _PluginRegistry:
     def add_and_init(self, plugin: Plugin) -> None:
         """Add and initialize a plugin with the agent.
 
-        This method registers the plugin and calls its init_agent method.
+        This method:
+        1. Registers the plugin in the registry
+        2. Calls the plugin's init_agent method for custom initialization
+        3. Auto-registers all discovered @hook methods with the agent's hook registry
+        4. Auto-registers all discovered @tool methods with the agent's tool registry
+
         Handles both sync and async init_agent implementations automatically.
 
         Args:
@@ -66,8 +81,51 @@ class _PluginRegistry:
         logger.debug("plugin_name=<%s> | registering and initializing plugin", plugin.name)
         self._plugins[plugin.name] = plugin
 
+        # Call user's init_agent for custom initialization
         if inspect.iscoroutinefunction(plugin.init_agent):
             async_plugin_init = cast(Callable[..., Awaitable[None]], plugin.init_agent)
             run_async(lambda: async_plugin_init(self._agent))
         else:
             plugin.init_agent(self._agent)
+
+        # Auto-register discovered hooks with the agent's hook registry
+        self._register_hooks(plugin)
+
+        # Auto-register discovered tools with the agent's tool registry
+        self._register_tools(plugin)
+
+    def _register_hooks(self, plugin: Plugin) -> None:
+        """Register all discovered hooks from the plugin with the agent.
+
+        Warns if a hook callback is already registered for an event type,
+        which can happen when init_agent() manually registers a hook that
+        is also decorated with @hook.
+
+        Args:
+            plugin: The plugin whose hooks should be registered.
+        """
+        for hook_callback in plugin.hooks:
+            event_types = getattr(hook_callback, "_hook_event_types", [])
+            for event_type in event_types:
+                self._agent.add_hook(hook_callback, event_type)
+                logger.debug(
+                    "plugin=<%s>, hook=<%s>, event_type=<%s> | registered hook",
+                    plugin.name,
+                    getattr(hook_callback, "__name__", repr(hook_callback)),
+                    event_type.__name__,
+                )
+
+    def _register_tools(self, plugin: Plugin) -> None:
+        """Register all discovered tools from the plugin with the agent.
+
+        Args:
+            plugin: The plugin whose tools should be registered.
+        """
+        if plugin.tools:
+            self._agent.tool_registry.process_tools(list(plugin.tools))
+            for tool in plugin.tools:
+                logger.debug(
+                    "plugin=<%s>, tool=<%s> | registered tool",
+                    plugin.name,
+                    tool.tool_name,
+                )

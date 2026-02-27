@@ -124,10 +124,12 @@ strands-agents/
 │   │
 │   ├── hooks/                            # Event hooks system
 │   │   ├── events.py                     # Hook event definitions
-│   │   └── registry.py                   # Hook registration
+│   │   ├── registry.py                   # Hook registration
+│   │   └── _type_inference.py            # Event type inference from type hints
 │   │
 │   ├── plugins/                          # Plugin system
-│   │   ├── plugin.py                     # Plugin definition
+│   │   ├── plugin.py                     # Plugin base class
+│   │   ├── decorator.py                  # @hook decorator
 │   │   └── registry.py                   # PluginRegistry for tracking plugins
 │   │
 │   ├── handlers/                         # Event handlers

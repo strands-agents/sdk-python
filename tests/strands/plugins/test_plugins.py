@@ -4,38 +4,39 @@ import unittest.mock
 
 import pytest
 
+from strands.hooks import HookRegistry
 from strands.plugins import Plugin
 from strands.plugins.registry import _PluginRegistry
 
-# Plugin Tests
+# Plugin Base Class Tests
 
 
-def test_plugin_class_requires_inheritance():
-    """Test that Plugin class requires inheritance."""
+def test_plugin_base_class_isinstance_check():
+    """Test that Plugin subclass passes isinstance check."""
 
     class MyPlugin(Plugin):
         name = "my-plugin"
-
-        def init_agent(self, agent):
-            pass
 
     plugin = MyPlugin()
     assert isinstance(plugin, Plugin)
 
 
-def test_plugin_class_sync_implementation():
-    """Test Plugin class works with synchronous init_agent."""
+def test_plugin_base_class_sync_implementation():
+    """Test Plugin base class works with synchronous init_agent."""
 
     class SyncPlugin(Plugin):
         name = "sync-plugin"
 
         def init_agent(self, agent):
+            # No super() needed - registry handles auto-registration
             agent.custom_attribute = "initialized by plugin"
 
     plugin = SyncPlugin()
     mock_agent = unittest.mock.Mock()
+    mock_agent.hooks = HookRegistry()
+    mock_agent.tool_registry = unittest.mock.MagicMock()
 
-    # Verify the plugin is an instance of Plugin
+    # Verify the plugin is an instance
     assert isinstance(plugin, Plugin)
     assert plugin.name == "sync-plugin"
 
@@ -45,19 +46,22 @@ def test_plugin_class_sync_implementation():
 
 
 @pytest.mark.asyncio
-async def test_plugin_class_async_implementation():
-    """Test Plugin class works with asynchronous init_agent."""
+async def test_plugin_base_class_async_implementation():
+    """Test Plugin base class works with asynchronous init_agent."""
 
     class AsyncPlugin(Plugin):
         name = "async-plugin"
 
         async def init_agent(self, agent):
+            # No super() needed - registry handles auto-registration
             agent.custom_attribute = "initialized by async plugin"
 
     plugin = AsyncPlugin()
     mock_agent = unittest.mock.Mock()
+    mock_agent.hooks = HookRegistry()
+    mock_agent.tool_registry = unittest.mock.MagicMock()
 
-    # Verify the plugin is an instance of Plugin
+    # Verify the plugin is an instance
     assert isinstance(plugin, Plugin)
     assert plugin.name == "async-plugin"
 
@@ -78,41 +82,36 @@ def test_plugin_class_requires_name():
         PluginWithoutName()
 
 
-def test_plugin_class_requires_init_agent_method():
-    """Test that Plugin class requires an init_agent method."""
+def test_plugin_base_class_requires_init_agent_method():
+    """Test that Plugin base class provides default init_agent."""
 
-    with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+    class PluginWithoutOverride(Plugin):
+        name = "no-override-plugin"
 
-        class PluginWithoutInitPlugin(Plugin):
-            name = "incomplete-plugin"
+    plugin = PluginWithoutOverride()
+    # Plugin base class provides default init_agent
+    assert hasattr(plugin, "init_agent")
+    assert callable(plugin.init_agent)
 
-        PluginWithoutInitPlugin()
 
-
-def test_plugin_class_with_class_attribute_name():
-    """Test Plugin class works when name is a class attribute."""
+def test_plugin_base_class_with_class_attribute_name():
+    """Test Plugin base class works when name is a class attribute."""
 
     class PluginWithClassAttribute(Plugin):
         name: str = "class-attr-plugin"
-
-        def init_agent(self, agent):
-            pass
 
     plugin = PluginWithClassAttribute()
     assert isinstance(plugin, Plugin)
     assert plugin.name == "class-attr-plugin"
 
 
-def test_plugin_class_with_property_name():
-    """Test Plugin class works when name is a property."""
+def test_plugin_base_class_with_property_name():
+    """Test Plugin base class works when name is a property."""
 
     class PluginWithProperty(Plugin):
         @property
-        def name(self):
+        def name(self) -> str:
             return "property-plugin"
-
-        def init_agent(self, agent):
-            pass
 
     plugin = PluginWithProperty()
     assert isinstance(plugin, Plugin)
@@ -125,7 +124,11 @@ def test_plugin_class_with_property_name():
 @pytest.fixture
 def mock_agent():
     """Create a mock agent for testing."""
-    return unittest.mock.Mock()
+    agent = unittest.mock.Mock()
+    agent.hooks = HookRegistry()
+    agent.tool_registry = unittest.mock.MagicMock()
+    agent.add_hook = unittest.mock.Mock()
+    return agent
 
 
 @pytest.fixture
@@ -141,9 +144,11 @@ def test_plugin_registry_add_and_init_calls_init_agent(registry, mock_agent):
         name = "test-plugin"
 
         def __init__(self):
+            super().__init__()
             self.initialized = False
 
         def init_agent(self, agent):
+            # No super() needed - registry handles auto-registration
             self.initialized = True
             agent.plugin_initialized = True
 
@@ -159,9 +164,6 @@ def test_plugin_registry_add_duplicate_raises_error(registry, mock_agent):
 
     class TestPlugin(Plugin):
         name = "test-plugin"
-
-        def init_agent(self, agent):
-            pass
 
     plugin1 = TestPlugin()
     plugin2 = TestPlugin()
@@ -179,9 +181,11 @@ def test_plugin_registry_add_and_init_with_async_plugin(registry, mock_agent):
         name = "async-plugin"
 
         def __init__(self):
+            super().__init__()
             self.initialized = False
 
         async def init_agent(self, agent):
+            # No super() needed - registry handles auto-registration
             self.initialized = True
             agent.async_plugin_initialized = True
 
