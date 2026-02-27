@@ -498,41 +498,6 @@ def test_truncation_does_not_change_status_to_error():
     assert messages[0]["content"][0]["toolResult"]["status"] == "success"
 
 
-def test_image_blocks_in_message_content_replaced_with_placeholder():
-    """Top-level image blocks in a message are replaced with a text placeholder."""
-    manager = SlidingWindowConversationManager(window_size=10)
-    image_data = b"abc123"
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {
-                    "toolResult": {
-                        "toolUseId": "1",
-                        "content": [{"text": "result"}],
-                        "status": "success",
-                    }
-                },
-                {
-                    "image": {
-                        "format": "png",
-                        "source": {"bytes": image_data},
-                    }
-                },
-            ],
-        }
-    ]
-
-    changed = manager._truncate_tool_results(messages, 0)
-
-    assert changed
-    # The image block should be replaced
-    content = messages[0]["content"]
-    assert any(isinstance(c, dict) and c.get("text") == f"[image: png, {len(image_data)} bytes]" for c in content)
-    # No raw image blocks should remain
-    assert not any(isinstance(c, dict) and "image" in c for c in content)
-
-
 def test_image_blocks_inside_tool_result_replaced_with_placeholder():
     """Image blocks nested inside toolResult content are replaced with a text placeholder."""
     manager = SlidingWindowConversationManager(window_size=10)

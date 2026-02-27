@@ -23,10 +23,10 @@ class SlidingWindowConversationManager(ConversationManager):
     This class handles the logic of maintaining a conversation window that preserves tool usage pairs and avoids
     invalid window states.
 
-    When truncation is enabled (the default), large tool results are partially truncated rather than completely
-    replaced — preserving the first and last 200 characters — and image blocks are replaced with descriptive
-    text placeholders. Truncation targets the oldest tool results first so the most relevant recent context
-    is preserved as long as possible.
+    When truncation is enabled (the default), large tool results are partially truncated, preserving the first
+    and last 200 characters, and image blocks inside tool results are replaced with descriptive text placeholders.
+    Truncation targets the oldest tool results first so the most relevant recent context is preserved as long
+    as possible.
 
     Supports proactive management during agent loop execution via the per_turn parameter.
     """
@@ -221,8 +221,7 @@ class SlidingWindowConversationManager(ConversationManager):
         and the removed middle is replaced with a notice indicating how many characters were
         removed. The tool result status is not changed.
 
-        Image blocks (both at the top level of the message content and nested inside tool
-        result content) are replaced with a short descriptive placeholder.
+        Image blocks nested inside tool result content are replaced with a short descriptive placeholder.
 
         Args:
             messages: The conversation message history.
@@ -234,22 +233,17 @@ class SlidingWindowConversationManager(ConversationManager):
         if msg_idx >= len(messages) or msg_idx < 0:
             return False
 
+        def _image_placeholder(image_block: Any) -> str:
+            source: Any = image_block.get("source", {})
+            media_type = image_block.get("format", "unknown")
+            data = source.get("bytes", b"")
+            return f"[image: {media_type}, {len(data) if data else 0} bytes]"
+
         message = messages[msg_idx]
         changes_made = False
         new_content: list[ContentBlock] = []
 
         for content in message.get("content", []):
-            # Replace top-level image blocks with a descriptive placeholder
-            if "image" in content:
-                image: Any = content["image"]
-                media_type = image.get("format", "unknown")
-                source: Any = image.get("source", {})
-                data = source.get("bytes", b"")
-                size = len(data) if data else 0
-                new_content.append({"text": f"[image: {media_type}, {size} bytes]"})
-                changes_made = True
-                continue
-
             if "toolResult" in content:
                 tool_result: Any = content["toolResult"]
                 tool_result_items = tool_result.get("content", [])
@@ -259,12 +253,7 @@ class SlidingWindowConversationManager(ConversationManager):
                 for item in tool_result_items:
                     # Replace image items nested inside toolResult content
                     if "image" in item:
-                        image = item["image"]
-                        media_type = image.get("format", "unknown")
-                        source = image.get("source", {})
-                        data = source.get("bytes", b"")
-                        size = len(data) if data else 0
-                        new_items.append({"text": f"[image: {media_type}, {size} bytes]"})
+                        new_items.append({"text": _image_placeholder(item["image"])})
                         item_changed = True
                         continue
 
