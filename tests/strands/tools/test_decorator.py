@@ -136,7 +136,7 @@ async def test_stream_with_agent(alist):
 
     tru_events = await alist(stream)
     exp_events = [
-        ToolResultEvent({"toolUseId": "unknown", "status": "success", "content": [{"text": "(2, {'state': 1})"}]})
+        ToolResultEvent({"toolUseId": "unknown", "status": "success", "content": [{"text": '[2, {"state": 1}]'}]})
     ]
     assert tru_events == exp_events
 
@@ -595,12 +595,12 @@ async def test_tool_decorator_with_different_return_values(alist):
     assert result["tool_result"]["status"] == "success"
     assert result["tool_result"]["content"][0]["text"] == "Result: test"
 
-    # Test None return - should still create valid ToolResult with "None" text
+    # Test None return - should still create valid ToolResult with "null"
     stream = none_return_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
     assert result["tool_result"]["status"] == "success"
-    assert result["tool_result"]["content"][0]["text"] == "None"
+    assert result["tool_result"]["content"][0]["text"] == "null"
 
 
 @pytest.mark.asyncio
@@ -861,7 +861,7 @@ async def test_return_type_validation(alist):
 
     result = (await alist(stream))[-1]
     assert result["tool_result"]["status"] == "success"
-    assert result["tool_result"]["content"][0]["text"] == "None"
+    assert result["tool_result"]["content"][0]["text"] == "null"
 
     # Define tool with Union return type
     @strands.tool
@@ -884,10 +884,7 @@ async def test_return_type_validation(alist):
 
     result = (await alist(stream))[-1]
     assert result["tool_result"]["status"] == "success"
-    assert (
-        "{'key': 'value'}" in result["tool_result"]["content"][0]["text"]
-        or '{"key": "value"}' in result["tool_result"]["content"][0]["text"]
-    )
+    assert result["tool_result"]["content"][0]["text"] == '{"key": "value"}'
 
     tool_use = {"toolUseId": "test-id", "input": {"param": "str"}}
     stream = union_return_tool.stream(tool_use, {})
@@ -901,7 +898,7 @@ async def test_return_type_validation(alist):
 
     result = (await alist(stream))[-1]
     assert result["tool_result"]["status"] == "success"
-    assert result["tool_result"]["content"][0]["text"] == "None"
+    assert result["tool_result"]["content"][0]["text"] == "null"
 
 
 @pytest.mark.asyncio
@@ -990,6 +987,132 @@ async def test_custom_tool_result_handling(alist):
     assert result["tool_result"]["content"][0]["text"] == "First line: test"
     assert result["tool_result"]["content"][1]["text"] == "Second line"
     assert result["tool_result"]["content"][1]["type"] == "markdown"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_json_serialization_dict(alist):
+    """Test that dict results are serialized as JSON."""
+
+    @strands.tool
+    def dict_tool() -> dict:
+        """Returns a dict."""
+        return {"key": "value", "number": 42}
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = dict_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == '{"key": "value", "number": 42}'
+
+
+@pytest.mark.asyncio
+async def test_tool_result_json_serialization_list(alist):
+    """Test that list results are serialized as JSON."""
+
+    @strands.tool
+    def list_tool() -> list:
+        """Returns a list."""
+        return [1, "two", {"three": 3}]
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = list_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == '[1, "two", {"three": 3}]'
+
+
+@pytest.mark.asyncio
+async def test_tool_result_json_serialization_pydantic(alist):
+    """Test that Pydantic model results are serialized as JSON."""
+    from pydantic import BaseModel
+
+    class MyModel(BaseModel):
+        name: str
+        count: int
+
+    @strands.tool
+    def pydantic_tool() -> MyModel:
+        """Returns a Pydantic model."""
+        return MyModel(name="test", count=5)
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = pydantic_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == '{"name":"test","count":5}'
+
+
+@pytest.mark.asyncio
+async def test_tool_result_json_serialization_pydantic_non_serializable(alist):
+    """Test that Pydantic models with non-serializable fields fall back to str()."""
+    from pydantic import BaseModel
+
+    class NonSerializable:
+        def __repr__(self):
+            return "NonSerializable()"
+
+    class MyModel(BaseModel):
+        model_config = {"arbitrary_types_allowed": True}
+        data: NonSerializable
+
+    @strands.tool
+    def pydantic_tool() -> MyModel:
+        """Returns a Pydantic model with non-serializable field."""
+        return MyModel(data=NonSerializable())
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = pydantic_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == "data=NonSerializable()"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_json_serialization_non_serializable(alist):
+    """Test that non-JSON-serializable results fall back to str()."""
+
+    class CustomClass:
+        def __str__(self):
+            return "custom_str_repr"
+
+    @strands.tool
+    def custom_tool() -> Any:
+        """Returns a non-serializable object."""
+        return CustomClass()
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = custom_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == "custom_str_repr"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_string_not_json_encoded(alist):
+    """Test that string results are NOT JSON-encoded (no extra quotes)."""
+
+    @strands.tool
+    def string_tool() -> str:
+        """Returns a string."""
+        return "hello world"
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = string_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == "hello world"
 
 
 def test_docstring_parsing():
