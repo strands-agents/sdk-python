@@ -83,8 +83,10 @@ jobs:
           # Windows typically has audio libraries available by default
           echo "Windows audio dependencies handled by PyAudio wheels"
       - name: Install dependencies
+        # Pin virtualenv until hatch is fixed.
+        # See https://github.com/pypa/hatch/issues/2193
         run: |
-          pip install --no-cache-dir hatch
+          pip install --no-cache-dir hatch 'virtualenv<21'
       - name: Run Unit tests
         id: tests
         run: hatch test tests --cover
@@ -118,8 +120,10 @@ jobs:
           sudo apt-get install -y portaudio19-dev libasound2-dev
 
       - name: Install dependencies
+        # Pin virtualenv until hatch is fixed.
+        # See https://github.com/pypa/hatch/issues/2193
         run: |
-          pip install --no-cache-dir hatch
+          pip install --no-cache-dir hatch 'virtualenv<21'
 
       - name: Run lint
         id: lint
