@@ -769,3 +769,160 @@ def test_summarizing_conversation_manager_generate_summary_with_tools_agent_path
     manager._generate_summary(messages, parent_agent)
 
     mock_registry.register_tool.assert_not_called()
+
+
+def test_generate_summary_filters_tool_use_from_structured_output():
+    """Test that toolUse blocks from structured_output_model are filtered from summary message.
+
+    When an agent uses structured_output_model, the response contains toolUse blocks.
+    Since the summary is converted to a user message, we must filter out toolUse blocks
+    because user messages cannot contain them (Bedrock API constraint).
+
+    This addresses issue #1160: ValidationException when using structured_output_model
+    with SummarizingConversationManager.
+    """
+
+    # Create a mock agent that returns a response with both text and toolUse (simulating structured_output)
+    class StructuredOutputMockAgent:
+        def __init__(self):
+            self.system_prompt = None
+            self.messages = []
+            self.model = Mock()
+            self.tool_registry = Mock()
+            self.tool_names = []
+
+        def __call__(self, prompt):
+            result = Mock()
+            # Simulate a structured_output response with toolUse block
+            result.message = {
+                "role": "assistant",
+                "content": [
+                    {"text": "Here is the summary of the conversation."},
+                    {
+                        "toolUse": {
+                            "toolUseId": "structured_output_123",
+                            "name": "structured_output_tool",
+                            "input": {"field": "value"},
+                        }
+                    },
+                ],
+            }
+            return result
+
+    mock_agent = cast("Agent", StructuredOutputMockAgent())
+    manager = SummarizingConversationManager()
+
+    messages: Messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there"}]},
+    ]
+
+    summary = manager._generate_summary(messages, mock_agent)
+
+    # Summary should be a user message
+    assert summary["role"] == "user"
+
+    # Summary should NOT contain toolUse blocks
+    for content_block in summary["content"]:
+        assert "toolUse" not in content_block, "User message should not contain toolUse blocks"
+
+    # Summary should contain the text content
+    assert any("text" in content_block for content_block in summary["content"])
+    text_content = next(cb for cb in summary["content"] if "text" in cb)
+    assert text_content["text"] == "Here is the summary of the conversation."
+
+
+def test_generate_summary_filters_reasoning_content():
+    """Test that reasoningContent blocks are also filtered from summary message.
+
+    Reasoning content is another assistant-only content type that should be filtered.
+    """
+
+    class ReasoningMockAgent:
+        def __init__(self):
+            self.system_prompt = None
+            self.messages = []
+            self.model = Mock()
+            self.tool_registry = Mock()
+            self.tool_names = []
+
+        def __call__(self, prompt):
+            result = Mock()
+            result.message = {
+                "role": "assistant",
+                "content": [
+                    {"text": "Summary text."},
+                    {"reasoningContent": {"reasoningText": {"text": "Internal reasoning..."}}},
+                ],
+            }
+            return result
+
+    mock_agent = cast("Agent", ReasoningMockAgent())
+    manager = SummarizingConversationManager()
+
+    messages: Messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+    ]
+
+    summary = manager._generate_summary(messages, mock_agent)
+
+    # Summary should NOT contain reasoningContent blocks
+    for content_block in summary["content"]:
+        assert "reasoningContent" not in content_block, "User message should not contain reasoningContent"
+
+    # Should still have text content
+    assert any("text" in cb for cb in summary["content"])
+
+
+def test_generate_summary_fallback_when_only_tool_use():
+    """Test fallback behavior when response contains ONLY toolUse (no text).
+
+    In edge cases where structured_output produces only toolUse without text,
+    we should create a fallback text representation.
+    """
+
+    class OnlyToolUseMockAgent:
+        def __init__(self):
+            self.system_prompt = None
+            self.messages = []
+            self.model = Mock()
+            self.tool_registry = Mock()
+            self.tool_names = []
+
+        def __call__(self, prompt):
+            result = Mock()
+            result.message = {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "only_tool_123",
+                            "name": "structured_output_tool",
+                            "input": {"data": "test"},
+                        }
+                    },
+                ],
+            }
+            # Provide a string representation for fallback
+            result.__str__ = lambda self: "Structured output summary"
+            return result
+
+    mock_agent = cast("Agent", OnlyToolUseMockAgent())
+    manager = SummarizingConversationManager()
+
+    messages: Messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+    ]
+
+    summary = manager._generate_summary(messages, mock_agent)
+
+    # Summary should be a user message with fallback text content
+    assert summary["role"] == "user"
+    assert len(summary["content"]) > 0
+
+    # Should have text content (the fallback)
+    assert any("text" in cb for cb in summary["content"])
+
+    # Should NOT have toolUse
+    for content_block in summary["content"]:
+        assert "toolUse" not in content_block
