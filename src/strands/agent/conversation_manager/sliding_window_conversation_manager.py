@@ -23,6 +23,11 @@ class SlidingWindowConversationManager(ConversationManager):
     This class handles the logic of maintaining a conversation window that preserves tool usage pairs and avoids
     invalid window states.
 
+    When truncation is enabled (the default), large tool results are partially truncated rather than completely
+    replaced — preserving the first and last 200 characters — and image blocks are replaced with descriptive
+    text placeholders. Truncation targets the oldest tool results first so the most relevant recent context
+    is preserved as long as possible.
+
     Supports proactive management during agent loop execution via the per_turn parameter.
     """
 
