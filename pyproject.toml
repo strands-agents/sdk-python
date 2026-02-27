@@ -176,6 +176,10 @@ dependencies = [
     "pre-commit>=3.2.0,<4.6.0",
 ]
 
+[tool.hatch.env]
+requires = [
+    "virtualenv==20.26.6",
+]
 
 [tool.hatch.envs.default.scripts]
 list = "echo 'Scripts commands available for default env:'; hatch env show --json | jq --raw-output '.default.scripts | keys[]'"
