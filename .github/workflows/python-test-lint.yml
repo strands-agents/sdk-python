@@ -118,7 +118,7 @@ jobs:
           echo "Windows audio dependencies handled by PyAudio wheels"
       - name: Install dependencies
         run: |
-          pip install --no-cache-dir hatch 'virtualenv<21'
+          pip install --no-cache-dir hatch
       - name: Run Unit tests
         id: tests
         run: hatch test tests --cover
@@ -173,7 +173,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install --no-cache-dir hatch 'virtualenv<21'
+          pip install --no-cache-dir hatch
 
       - name: Run lint
         id: lint
