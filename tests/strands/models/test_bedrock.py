@@ -2496,9 +2496,15 @@ async def test_format_request_with_guardrail_multiple_sequential_tool_calls(mode
     messages = [
         {"role": "user", "content": [{"text": "First question"}]},
         {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "tool1", "input": {}}}]},
-        {"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "Result 1"}], "status": "success"}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "Result 1"}], "status": "success"}}],
+        },
         {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t2", "name": "tool2", "input": {}}}]},
-        {"role": "user", "content": [{"toolResult": {"toolUseId": "t2", "content": [{"text": "Result 2"}], "status": "success"}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "t2", "content": [{"text": "Result 2"}], "status": "success"}}],
+        },
     ]
 
     request = model._format_request(messages)
@@ -2527,7 +2533,10 @@ async def test_format_request_with_guardrail_image_before_tool_result(model):
     messages = [
         {"role": "user", "content": [{"image": {"format": "png", "source": {"bytes": b"fake"}}}]},
         {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "vision", "input": {}}}]},
-        {"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "I see a cat"}], "status": "success"}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "I see a cat"}], "status": "success"}}],
+        },
     ]
 
     request = model._format_request(messages)
@@ -2549,14 +2558,20 @@ async def test_format_request_with_guardrail_multiple_tool_results_same_message(
 
     messages = [
         {"role": "user", "content": [{"text": "Question requiring multiple tools"}]},
-        {"role": "assistant", "content": [
-            {"toolUse": {"toolUseId": "t1", "name": "tool1", "input": {}}},
-            {"toolUse": {"toolUseId": "t2", "name": "tool2", "input": {}}},
-        ]},
-        {"role": "user", "content": [
-            {"toolResult": {"toolUseId": "t1", "content": [{"text": "Result 1"}], "status": "success"}},
-            {"toolResult": {"toolUseId": "t2", "content": [{"text": "Result 2"}], "status": "success"}},
-        ]},
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "t1", "name": "tool1", "input": {}}},
+                {"toolUse": {"toolUseId": "t2", "name": "tool2", "input": {}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "t1", "content": [{"text": "Result 1"}], "status": "success"}},
+                {"toolResult": {"toolUseId": "t2", "content": [{"text": "Result 2"}], "status": "success"}},
+            ],
+        },
     ]
 
     request = model._format_request(messages)
@@ -2676,3 +2691,93 @@ def test_inject_cache_point_strips_existing_cache_points(bedrock_client):
     # New cache point should be at end of last assistant message
     assert len(cleaned_messages[3]["content"]) == 2
     assert "cachePoint" in cleaned_messages[3]["content"][-1]
+
+
+def test_find_last_user_text_message_index_no_user_messages(bedrock_client):
+    """Test _find_last_user_text_message_index returns None when no user text messages exist."""
+    model = BedrockModel(model_id="test-model")
+
+    messages = [
+        {"role": "assistant", "content": [{"text": "hello"}]},
+    ]
+
+    assert model._find_last_user_text_message_index(messages) is None
+
+
+def test_find_last_user_text_message_index_only_tool_results(bedrock_client):
+    """Test _find_last_user_text_message_index returns None when user messages only have toolResult."""
+    model = BedrockModel(model_id="test-model")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "result"}]}}],
+        },
+    ]
+
+    assert model._find_last_user_text_message_index(messages) is None
+
+
+def test_find_last_user_text_message_index_returns_last_text_message(bedrock_client):
+    """Test _find_last_user_text_message_index returns the index of the last user message with text."""
+    model = BedrockModel(model_id="test-model")
+
+    messages = [
+        {"role": "user", "content": [{"text": "First question"}]},
+        {"role": "assistant", "content": [{"text": "Response"}]},
+        {"role": "user", "content": [{"text": "Second question"}]},
+    ]
+
+    assert model._find_last_user_text_message_index(messages) == 2
+
+
+def test_find_last_user_text_message_index_skips_tool_result_messages(bedrock_client):
+    """Test _find_last_user_text_message_index skips toolResult-only user messages."""
+    model = BedrockModel(model_id="test-model")
+
+    messages = [
+        {"role": "user", "content": [{"text": "Question"}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "tool", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "Result"}]}}],
+        },
+    ]
+
+    assert model._find_last_user_text_message_index(messages) == 0
+
+
+def test_find_last_user_text_message_index_finds_image_message(bedrock_client):
+    """Test _find_last_user_text_message_index finds user messages with image content."""
+    model = BedrockModel(model_id="test-model")
+
+    messages = [
+        {"role": "user", "content": [{"image": {"format": "png", "source": {"bytes": b"fake"}}}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "vision", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "Result"}]}}],
+        },
+    ]
+
+    assert model._find_last_user_text_message_index(messages) == 0
+
+
+def test_find_last_user_text_message_index_empty_messages(bedrock_client):
+    """Test _find_last_user_text_message_index returns None for empty message list."""
+    model = BedrockModel(model_id="test-model")
+
+    assert model._find_last_user_text_message_index([]) is None
+
+
+def test_guardrail_latest_message_disabled_does_not_wrap(model):
+    """Test that guardContent wrapping is skipped when guardrail_latest_message is not set."""
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+    ]
+
+    request = model._format_request(messages)
+    formatted = request["messages"][0]["content"][0]
+
+    assert "text" in formatted
+    assert "guardContent" not in formatted
