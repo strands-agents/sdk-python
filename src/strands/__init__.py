@@ -6,12 +6,14 @@ from .agent.base import AgentBase
 from .event_loop._retry import ModelRetryStrategy
 from .plugins import Plugin
 from .tools.decorator import tool
+from .types.cancellation import CancellationToken
 from .types.tools import ToolContext
 
 __all__ = [
     "Agent",
     "AgentBase",
     "agent",
+    "CancellationToken",
     "models",
     "ModelRetryStrategy",
     "Plugin",

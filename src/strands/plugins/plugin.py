@@ -16,7 +16,7 @@ class Plugin(ABC):
     """Base class for objects that extend agent functionality.
 
     Plugins provide a composable way to add behavior changes to agents.
-    They can register hooks, modify agent attributes, or perform other 
+    They can register hooks, modify agent attributes, or perform other
     setup tasks on an agent instance.
 
     Attributes:
