@@ -739,6 +739,42 @@ async def test_stream(anthropic_client, model, agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_message_stop_no_model_dump(anthropic_client, model, agenerator, alist):
+    """Verify message_stop events don't call model_dump() on the event object.
+
+    Anthropic's MessageStopEvent.message may contain ParsedTextBlock subclasses
+    in its content list. Calling model_dump() on such events triggers Pydantic
+    serialization warnings because ParsedTextBlock doesn't match the expected
+    union types. The stream method should extract stop_reason directly instead.
+    See: https://github.com/strands-agents/sdk-python/issues/1746
+    """
+    mock_message_start = unittest.mock.Mock(
+        type="message_start",
+        model_dump=lambda: {"type": "message_start"},
+    )
+
+    # Simulate a MessageStopEvent whose model_dump() would trigger warnings
+    mock_message_stop = unittest.mock.Mock(type="message_stop")
+    mock_message_stop.message.stop_reason = "end_turn"
+    mock_message_stop.message.usage.model_dump.return_value = {"input_tokens": 5, "output_tokens": 10}
+
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = agenerator([mock_message_start, mock_message_stop])
+    anthropic_client.messages.stream.return_value = mock_context
+
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+    response = model.stream(messages, None, None)
+
+    tru_events = await alist(response)
+
+    # model_dump() should NOT have been called on the message_stop event
+    mock_message_stop.model_dump.assert_not_called()
+
+    # Verify the message_stop event was still correctly formatted
+    assert {"messageStop": {"stopReason": "end_turn"}} in tru_events
+
+
+@pytest.mark.asyncio
 async def test_stream_rate_limit_error(anthropic_client, model, alist):
     anthropic_client.messages.stream.side_effect = anthropic.RateLimitError(
         "rate limit", response=unittest.mock.Mock(), body=None
@@ -811,9 +847,7 @@ async def test_structured_output(anthropic_client, model, test_output_model_cls,
         ),
         unittest.mock.Mock(
             type="message_stop",
-            model_dump=unittest.mock.Mock(
-                return_value={"type": "message_stop", "message": {"stop_reason": "tool_use"}}
-            ),
+            message=unittest.mock.Mock(stop_reason="tool_use"),
         ),
         unittest.mock.Mock(
             message=unittest.mock.Mock(

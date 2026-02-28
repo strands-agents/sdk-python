@@ -407,7 +407,18 @@ class AnthropicModel(Model):
                 logger.debug("got response from model")
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield self.format_chunk(event.model_dump())
+                        if event.type == "message_stop":
+                            # Extract only stop_reason to avoid serializing Message.content,
+                            # which may contain ParsedTextBlock subclasses that trigger
+                            # Pydantic serialization warnings (see strands-agents/sdk-python#1746)
+                            yield self.format_chunk(
+                                {
+                                    "type": "message_stop",
+                                    "message": {"stop_reason": event.message.stop_reason},
+                                }
+                            )
+                        else:
+                            yield self.format_chunk(event.model_dump())
 
                 usage = event.message.usage  # type: ignore
                 yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
