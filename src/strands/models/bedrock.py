@@ -145,7 +145,9 @@ class BedrockModel(Model):
             raise ValueError("Cannot specify both `region_name` and `boto_session`.")
 
         session = boto_session or boto3.Session()
+        self._boto_session = session
         resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
+        self._resolved_region = resolved_region
         self.config = BedrockModel.BedrockConfig(
             model_id=BedrockModel._get_default_model_with_warning(resolved_region, model_config),
             include_tool_result_status="auto",
@@ -177,14 +179,58 @@ class BedrockModel(Model):
 
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
+        self._caching_supported: bool | None = None
+
     @property
     def _supports_caching(self) -> bool:
         """Whether this model supports prompt caching.
 
-        Returns True for Claude models on Bedrock.
+        Returns True for Claude/Anthropic models on Bedrock, including when the model_id
+        is an application inference profile ARN derived from such a model.
         """
+        if self._caching_supported is not None:
+            return self._caching_supported
+
         model_id = self.config.get("model_id", "").lower()
-        return "claude" in model_id or "anthropic" in model_id
+
+        if "claude" in model_id or "anthropic" in model_id:
+            self._caching_supported = True
+            return True
+
+        if model_id.startswith("arn:") and "application-inference-profile" in model_id:
+            original_model_id = self.config.get("model_id", "")
+            self._caching_supported = self._resolve_arn_supports_caching(original_model_id)
+            return self._caching_supported
+
+        self._caching_supported = False
+        return False
+
+    def _resolve_arn_supports_caching(self, arn: str) -> bool:
+        """Resolve whether an application inference profile ARN supports caching.
+
+        Calls the Bedrock control-plane API to retrieve the underlying model
+        and checks if it is a Claude/Anthropic model.
+        """
+        try:
+            bedrock_client = self._boto_session.client(
+                service_name="bedrock",
+                region_name=self._resolved_region,
+            )
+            response = bedrock_client.get_inference_profile(inferenceProfileIdentifier=arn)
+        except Exception:
+            logger.debug("model_id=<%s> | failed to resolve inference profile ARN", arn, exc_info=True)
+            return False
+
+        for model in response.get("models", []):
+            underlying = model.get("modelArn", "")
+            if not isinstance(underlying, str):
+                continue
+            underlying = underlying.lower()
+            if "claude" in underlying or "anthropic" in underlying:
+                logger.debug("model_id=<%s> | resolved ARN to caching-capable model", arn)
+                return True
+
+        return False
 
     @override
     def update_config(self, **model_config: Unpack[BedrockConfig]) -> None:  # type: ignore
@@ -194,6 +240,8 @@ class BedrockModel(Model):
             **model_config: Configuration overrides.
         """
         validate_config_keys(model_config, self.BedrockConfig)
+        if "model_id" in model_config:
+            self._caching_supported = None
         self.config.update(model_config)
 
     @override
