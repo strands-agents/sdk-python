@@ -353,7 +353,12 @@ class MCPClient(ToolProvider):
                 asyncio.run_coroutine_threadsafe(coro=_set_close_event(), loop=self._background_thread_event_loop)
 
             self._log_debug_with_thread("waiting for background thread to join")
-            self._background_thread.join()
+            self._background_thread.join(timeout=self._startup_timeout)
+            if self._background_thread.is_alive():
+                logger.warning(
+                    "background thread did not exit within %d seconds, continuing cleanup",
+                    self._startup_timeout,
+                )
 
         if self._background_thread_event_loop is not None:
             self._background_thread_event_loop.close()
