@@ -410,6 +410,18 @@ class LiteLLMModel(OpenAIModel):
             )
             yield data_type, chunk
 
+        # Process reasoning signature from LiteLLM's thinking attribute
+        thinking = getattr(content_source, "thinking", None)
+        if thinking is not None:
+            sig = getattr(thinking, "signature", None)
+            if isinstance(sig, str) and sig:
+                chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
+                for chunk in chunks:
+                    yield data_type, chunk
+                yield data_type, {
+                    "contentBlockDelta": {"delta": {"reasoningContent": {"signature": sig}}}
+                }
+
         # Process text content
         if hasattr(content_source, "content") and content_source.content:
             chunks, data_type = self._stream_switch_content("text", data_type)
