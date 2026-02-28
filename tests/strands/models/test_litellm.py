@@ -848,3 +848,61 @@ def test_format_request_messages_with_tool_calls_no_content():
         },
     ]
     assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+async def test_stream_preserves_thinking_signature(litellm_acompletion, api_key, model_id, model, agenerator, alist):
+    """Test that reasoning content signatures from LiteLLM thinking attribute are preserved.
+
+    Gemini thinking models send thought_signature that must be preserved in the conversation
+    history for subsequent requests to succeed. LiteLLM provides signatures via the `thinking`
+    attribute on streaming deltas.
+    """
+
+    class MockStreamChunk:
+        def __init__(self, choices=None):
+            self.choices = choices or []
+
+    # First chunk: reasoning text (no signature yet)
+    mock_thinking_no_sig = unittest.mock.Mock()
+    mock_thinking_no_sig.signature = None
+    mock_delta_1 = unittest.mock.Mock(
+        content=None, tool_calls=None, reasoning_content="Let me think...", thinking=mock_thinking_no_sig
+    )
+
+    # Second chunk: signature arrives via thinking attribute
+    mock_thinking_with_sig = unittest.mock.Mock()
+    mock_thinking_with_sig.signature = "base64encodedSignature=="
+    mock_delta_2 = unittest.mock.Mock(
+        content=None, tool_calls=None, reasoning_content=None, thinking=mock_thinking_with_sig
+    )
+
+    # Third chunk: text response
+    mock_delta_3 = unittest.mock.Mock(content="The answer is 42.", tool_calls=None, reasoning_content=None)
+    mock_delta_3.thinking = None
+
+    mock_event_1 = MockStreamChunk(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
+    mock_event_2 = MockStreamChunk(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_2)])
+    mock_event_3 = MockStreamChunk(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta_3)])
+    mock_event_4 = MockStreamChunk(choices=[])
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
+    )
+
+    messages = [{"role": "user", "content": [{"type": "text", "text": "Think about 42"}]}]
+    response = model.stream(messages)
+    events = await alist(response)
+
+    # Verify reasoning content signature is emitted
+    signature_deltas = [
+        e
+        for e in events
+        if "contentBlockDelta" in e
+        and "reasoningContent" in e["contentBlockDelta"]["delta"]
+        and "signature" in e["contentBlockDelta"]["delta"]["reasoningContent"]
+    ]
+    assert len(signature_deltas) == 1
+    assert signature_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"]["signature"] == (
+        "base64encodedSignature=="
+    )
