@@ -2597,6 +2597,130 @@ def test_supports_caching_false_for_non_claude(bedrock_client):
     assert model._supports_caching is False
 
 
+def test_supports_caching_true_for_application_inference_profile_arn(session_cls):
+    """Test that _supports_caching resolves application inference profile ARNs to the underlying model."""
+    mock_runtime_client = session_cls.return_value.client.return_value
+    mock_runtime_client.meta = unittest.mock.MagicMock()
+    mock_runtime_client.meta.region_name = "us-east-1"
+
+    # The bedrock control-plane client (same mock due to session_cls fixture)
+    mock_bedrock_client = mock_runtime_client
+    mock_bedrock_client.get_inference_profile.return_value = {
+        "models": [
+            {"modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"}
+        ]
+    }
+
+    arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123"
+    model = BedrockModel(model_id=arn)
+    assert model._supports_caching is True
+
+
+def test_supports_caching_false_for_non_claude_application_inference_profile_arn(session_cls):
+    """Test that _supports_caching returns False for ARNs that resolve to non-Claude models."""
+    mock_runtime_client = session_cls.return_value.client.return_value
+    mock_runtime_client.meta = unittest.mock.MagicMock()
+    mock_runtime_client.meta.region_name = "us-east-1"
+
+    mock_bedrock_client = mock_runtime_client
+    mock_bedrock_client.get_inference_profile.return_value = {
+        "models": [{"modelArn": "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-pro-v1:0"}]
+    }
+
+    arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/def456"
+    model = BedrockModel(model_id=arn)
+    assert model._supports_caching is False
+
+
+def test_supports_caching_false_when_arn_resolution_fails(session_cls):
+    """Test that _supports_caching returns False when the inference profile API call fails."""
+    mock_runtime_client = session_cls.return_value.client.return_value
+    mock_runtime_client.meta = unittest.mock.MagicMock()
+    mock_runtime_client.meta.region_name = "us-east-1"
+
+    mock_bedrock_client = mock_runtime_client
+    mock_bedrock_client.get_inference_profile.side_effect = ClientError(
+        {"Error": {"Code": "ResourceNotFoundException", "Message": "Not found"}},
+        "GetInferenceProfile",
+    )
+
+    arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/missing"
+    model = BedrockModel(model_id=arn)
+    assert model._supports_caching is False
+
+
+def test_supports_caching_result_is_cached(session_cls):
+    """Test that the caching support result is cached after first resolution."""
+    mock_runtime_client = session_cls.return_value.client.return_value
+    mock_runtime_client.meta = unittest.mock.MagicMock()
+    mock_runtime_client.meta.region_name = "us-east-1"
+
+    mock_bedrock_client = mock_runtime_client
+    mock_bedrock_client.get_inference_profile.return_value = {
+        "models": [
+            {"modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"}
+        ]
+    }
+
+    arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/cached"
+    model = BedrockModel(model_id=arn)
+
+    # First call resolves via API
+    assert model._supports_caching is True
+    # Second call should use cached value — reset mock to verify no extra calls
+    mock_bedrock_client.get_inference_profile.reset_mock()
+    assert model._supports_caching is True
+    mock_bedrock_client.get_inference_profile.assert_not_called()
+
+
+def test_supports_caching_cache_invalidated_on_model_id_change(session_cls):
+    """Test that _caching_supported cache is invalidated when model_id changes via update_config."""
+    mock_runtime_client = session_cls.return_value.client.return_value
+    mock_runtime_client.meta = unittest.mock.MagicMock()
+    mock_runtime_client.meta.region_name = "us-east-1"
+
+    model = BedrockModel(model_id="amazon.nova-pro-v1:0")
+    assert model._supports_caching is False
+
+    model.update_config(model_id="anthropic.claude-3-5-sonnet-20241022-v2:0")
+    assert model._supports_caching is True
+
+
+def test_supports_caching_arn_uses_original_case(session_cls):
+    """Test that the original ARN casing is preserved when calling the API."""
+    mock_runtime_client = session_cls.return_value.client.return_value
+    mock_runtime_client.meta = unittest.mock.MagicMock()
+    mock_runtime_client.meta.region_name = "us-east-1"
+
+    mock_bedrock_client = mock_runtime_client
+    mock_bedrock_client.get_inference_profile.return_value = {
+        "models": [
+            {"modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"}
+        ]
+    }
+
+    # ARN with mixed case in the profile ID
+    arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/AbCdEf123"
+    model = BedrockModel(model_id=arn)
+    assert model._supports_caching is True
+    # Verify the original ARN (not lowercased) was passed to the API
+    mock_bedrock_client.get_inference_profile.assert_called_once_with(inferenceProfileIdentifier=arn)
+
+
+def test_supports_caching_empty_models_list(session_cls):
+    """Test that _supports_caching returns False when the API returns an empty models list."""
+    mock_runtime_client = session_cls.return_value.client.return_value
+    mock_runtime_client.meta = unittest.mock.MagicMock()
+    mock_runtime_client.meta.region_name = "us-east-1"
+
+    mock_bedrock_client = mock_runtime_client
+    mock_bedrock_client.get_inference_profile.return_value = {"models": []}
+
+    arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/empty"
+    model = BedrockModel(model_id=arn)
+    assert model._supports_caching is False
+
+
 def test_inject_cache_point_adds_to_last_assistant(bedrock_client):
     """Test that _inject_cache_point adds cache point to last assistant message."""
     model = BedrockModel(
