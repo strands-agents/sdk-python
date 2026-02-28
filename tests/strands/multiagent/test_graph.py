@@ -793,6 +793,44 @@ async def test_node_reset_executor_state():
     assert multi_agent_node.result is None
 
 
+def test_reset_executor_state_preserves_multiagent_graph_state():
+    """Test that reset_executor_state does not corrupt MultiAgentBase executor state.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1775.
+    When a GraphNode wraps a MultiAgentBase executor (e.g. a nested Graph),
+    reset_executor_state must NOT overwrite the executor's GraphState with an AgentState.
+    """
+    # Create a mock MultiAgentBase that has a GraphState (like a real nested Graph)
+    nested_graph = Mock(spec=MultiAgentBase)
+    nested_graph.name = "nested_graph"
+    nested_graph.id = "nested_graph_id"
+    nested_graph.state = GraphState()
+
+    node = GraphNode("nested_node", nested_graph)
+
+    # Verify GraphState is preserved after initialization
+    assert isinstance(nested_graph.state, GraphState)
+
+    # Simulate execution
+    node.execution_status = Status.COMPLETED
+    node.result = NodeResult(
+        result="nested result",
+        execution_time=100,
+        status=Status.COMPLETED,
+        accumulated_usage={},
+        accumulated_metrics={},
+        execution_count=1,
+    )
+
+    # Reset should NOT corrupt the executor state
+    node.reset_executor_state()
+
+    # The executor's state must still be a GraphState, not an AgentState
+    assert isinstance(nested_graph.state, GraphState)
+    assert node.execution_status == Status.PENDING
+    assert node.result is None
+
+
 def test_graph_dataclasses_and_enums():
     """Test dataclass initialization, properties, and enum behavior."""
     # Test Status enum
