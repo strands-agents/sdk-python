@@ -554,9 +554,10 @@ def test_stop_does_not_hang_when_join_times_out():
 
     # join should have been called with timeout
     mock_thread.join.assert_called_once_with(timeout=client._startup_timeout)
-    # Cleanup should still proceed even though thread is alive
-    assert client._background_thread is None
-    assert client._background_thread_event_loop is None
+    # When thread is still alive, stop() returns early without closing loop or resetting state
+    mock_event_loop.close.assert_not_called()
+    assert client._background_thread is mock_thread
+    assert client._background_thread_event_loop is mock_event_loop
 
 
 def test_mcp_client_state_reset_after_timeout():
