@@ -258,6 +258,60 @@ async def test_stream_request_with_tool_spec(gemini_client, model, model_id, too
     gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
 
 
+@pytest.mark.parametrize(
+    ("tool_choice", "expected_tool_config"),
+    [
+        (None, None),
+        ({"auto": {}}, {"function_calling_config": {"mode": "AUTO"}}),
+        ({"any": {}}, {"function_calling_config": {"mode": "ANY"}}),
+        (
+            {"tool": {"name": "my_tool"}},
+            {"function_calling_config": {"mode": "ANY", "allowed_function_names": ["my_tool"]}},
+        ),
+    ],
+)
+def test_map_tool_choice(model, tool_choice, expected_tool_config):
+    """Test _map_tool_choice returns correct Gemini ToolConfig."""
+    result = model._map_tool_choice(tool_choice)
+    if expected_tool_config is None:
+        assert result is None
+    else:
+        assert result.to_json_dict() == expected_tool_config
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_choice(gemini_client, model, model_id, tool_spec):
+    """Test that tool_choice is passed through to the request."""
+    tool_choice = {"any": {}}
+    await anext(model.stream([], tool_specs=[tool_spec], tool_choice=tool_choice))
+
+    call_kwargs = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    assert call_kwargs["config"]["tool_config"] == {"function_calling_config": {"mode": "ANY"}}
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_choice_specific_tool(gemini_client, model, model_id, tool_spec):
+    """Test that tool_choice with specific tool name is passed through."""
+    tool_choice = {"tool": {"name": "my_tool"}}
+    await anext(model.stream([], tool_specs=[tool_spec], tool_choice=tool_choice))
+
+    call_kwargs = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    assert call_kwargs["config"]["tool_config"] == {
+        "function_calling_config": {"mode": "ANY", "allowed_function_names": ["my_tool"]}
+    }
+
+
+@pytest.mark.asyncio
+async def test_stream_request_tool_choice_ignored_without_tools(gemini_client, model, messages, model_id):
+    """Test that tool_choice is ignored when no tools are provided."""
+    tool_choice = {"any": {}}
+    await anext(model.stream(messages, tool_choice=tool_choice))
+
+    call_kwargs = gemini_client.aio.models.generate_content_stream.call_args.kwargs
+    # tool_config should not be present when no tools are provided
+    assert call_kwargs["config"].get("tool_config") is None
+
+
 @pytest.mark.asyncio
 async def test_stream_request_with_tool_use(gemini_client, model, model_id):
     """Test toolUse with reasoningSignature is sent as function_call with thought_signature."""
