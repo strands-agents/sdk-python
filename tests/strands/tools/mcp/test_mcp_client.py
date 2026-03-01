@@ -495,14 +495,15 @@ def test_stop_with_background_thread_but_no_event_loop():
     # Mock a background thread without event loop
     mock_thread = MagicMock()
     mock_thread.join = MagicMock()
+    mock_thread.is_alive = MagicMock(return_value=False)
     client._background_thread = mock_thread
     client._background_thread_event_loop = None
 
     # Should not raise any exceptions and should join the thread
     client.stop(None, None, None)
 
-    # Verify thread was joined
-    mock_thread.join.assert_called_once()
+    # Verify thread was joined with timeout
+    mock_thread.join.assert_called_once_with(timeout=client._startup_timeout)
 
     # Verify cleanup occurred
     assert client._background_thread is None
@@ -515,6 +516,7 @@ def test_stop_closes_event_loop():
     # Mock a background thread with event loop
     mock_thread = MagicMock()
     mock_thread.join = MagicMock()
+    mock_thread.is_alive = MagicMock(return_value=False)
     mock_event_loop = MagicMock()
     mock_event_loop.close = MagicMock()
 
@@ -524,8 +526,8 @@ def test_stop_closes_event_loop():
     # Should close the event loop and join the thread
     client.stop(None, None, None)
 
-    # Verify thread was joined
-    mock_thread.join.assert_called_once()
+    # Verify thread was joined with timeout
+    mock_thread.join.assert_called_once_with(timeout=client._startup_timeout)
 
     # Verify event loop was closed
     mock_event_loop.close.assert_called_once()
@@ -533,6 +535,33 @@ def test_stop_closes_event_loop():
     # Verify cleanup occurred
     assert client._background_thread is None
     assert client._background_thread_event_loop is None
+
+
+def test_stop_does_not_hang_when_join_times_out():
+    """Test that stop() returns early when the background thread doesn't exit within the timeout.
+
+    When join() times out (is_alive() returns True), stop() must skip event loop
+    close and state reset to avoid interacting with the still-running thread.
+    """
+    client = MCPClient(MagicMock())
+
+    mock_thread = MagicMock()
+    # Simulate thread still alive after join (timed out)
+    mock_thread.is_alive = MagicMock(return_value=True)
+    mock_event_loop = MagicMock()
+    mock_event_loop.close = MagicMock()
+
+    client._background_thread = mock_thread
+    client._background_thread_event_loop = mock_event_loop
+
+    client.stop(None, None, None)
+
+    # join should have been called with timeout
+    mock_thread.join.assert_called_once_with(timeout=client._startup_timeout)
+    # When thread is still alive, stop() returns early without closing loop or resetting state
+    mock_event_loop.close.assert_not_called()
+    assert client._background_thread is mock_thread
+    assert client._background_thread_event_loop is mock_event_loop
 
 
 def test_mcp_client_state_reset_after_timeout():
