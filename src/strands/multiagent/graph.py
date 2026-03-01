@@ -184,11 +184,15 @@ class GraphNode:
 
         This is useful when nodes are executed multiple times and need to start
         fresh on each execution, providing stateless behavior.
+
+        For MultiAgentBase executors (e.g. nested Graph or Swarm), the state is a
+        GraphState/SwarmState dataclass — not an AgentState dict — so we skip the
+        state reset to avoid corrupting it with an incompatible type.
         """
         if hasattr(self.executor, "messages"):
             self.executor.messages = copy.deepcopy(self._initial_messages)
 
-        if hasattr(self.executor, "state"):
+        if hasattr(self.executor, "state") and not isinstance(self.executor, MultiAgentBase):
             self.executor.state = AgentState(self._initial_state.get())
 
         # Reset execution status
