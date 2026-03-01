@@ -810,7 +810,12 @@ def test_reset_executor_state_preserves_multiagent_state_type():
     # Modify execution status as if the node had run
     node.execution_status = Status.COMPLETED
     node.result = NodeResult(
-        result="test",
+        result=AgentResult(
+            message={"role": "assistant", "content": [{"text": "test"}]},
+            stop_reason="end_turn",
+            state={},
+            metrics=Mock(accumulated_usage={}, accumulated_metrics={}),
+        ),
         execution_time=100,
         status=Status.COMPLETED,
         accumulated_usage={},
