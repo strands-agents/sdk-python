@@ -538,7 +538,11 @@ def test_stop_closes_event_loop():
 
 
 def test_stop_does_not_hang_when_join_times_out():
-    """Test that stop() completes even if the background thread doesn't exit in time."""
+    """Test that stop() returns early when the background thread doesn't exit within the timeout.
+
+    When join() times out (is_alive() returns True), stop() must skip event loop
+    close and state reset to avoid interacting with the still-running thread.
+    """
     client = MCPClient(MagicMock())
 
     mock_thread = MagicMock()
