@@ -92,6 +92,17 @@ class TestHookDecoratorEventTypeInference:
         assert AfterModelCallEvent in handler2._hook_event_types
         assert AfterInvocationEvent in handler3._hook_event_types
 
+    def test_hook_skips_cls_parameter(self):
+        """Test that @hook skips 'cls' parameter for classmethods."""
+
+        class MyClass:
+            @classmethod
+            @hook
+            def handler(cls, event: BeforeModelCallEvent):
+                pass
+
+        assert BeforeModelCallEvent in MyClass.handler._hook_event_types
+
 
 class TestHookDecoratorUnionTypes:
     """Tests for union type support in @hook decorator."""
