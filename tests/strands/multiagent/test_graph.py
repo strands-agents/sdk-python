@@ -738,8 +738,14 @@ async def test_node_reset_executor_state():
 
     # Also modify execution status and result
     node.execution_status = Status.COMPLETED
+    agent_result = AgentResult(
+        message={"role": "assistant", "content": [{"text": "test"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics=None,
+    )
     node.result = NodeResult(
-        result="test result",
+        result=agent_result,
         execution_time=100,
         status=Status.COMPLETED,
         accumulated_usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
@@ -817,11 +823,6 @@ def test_reset_executor_state_preserves_multiagent_state_type():
     )
     node.result = NodeResult(
         result=agent_result,
-            message={"role": "assistant", "content": [{"text": "test"}]},
-            stop_reason="end_turn",
-            state={},
-            metrics=Mock(accumulated_usage={}, accumulated_metrics={}),
-        ),
         execution_time=100,
         status=Status.COMPLETED,
         accumulated_usage={},
