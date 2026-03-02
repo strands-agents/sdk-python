@@ -16,6 +16,17 @@ if TYPE_CHECKING:  # pragma: no cover
     from ..structured_output._structured_output_context import StructuredOutputContext
 
 
+class _TaskError:
+    """Wrapper for exceptions raised within concurrent tasks.
+
+    Enqueued alongside normal events so _execute() can detect task failures
+    immediately rather than waiting for all tasks to finish.
+    """
+
+    def __init__(self, exception: BaseException):
+        self.exception = exception
+
+
 class ConcurrentToolExecutor(ToolExecutor):
     """Concurrent tool executor."""
 
@@ -68,14 +79,22 @@ class ConcurrentToolExecutor(ToolExecutor):
         ]
 
         task_count = len(tasks)
-        while task_count:
-            task_id, event = await task_queue.get()
-            if event is stop_event:
-                task_count -= 1
-                continue
+        try:
+            while task_count:
+                task_id, event = await task_queue.get()
+                if event is stop_event:
+                    task_count -= 1
+                    continue
 
-            yield event
-            task_events[task_id].set()
+                if isinstance(event, _TaskError):
+                    raise event.exception
+
+                yield event
+                task_events[task_id].set()
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _task(
         self,
@@ -115,5 +134,9 @@ class ConcurrentToolExecutor(ToolExecutor):
                 await task_event.wait()
                 task_event.clear()
 
+        except BaseException as exc:
+            if not isinstance(exc, asyncio.CancelledError):
+                task_queue.put_nowait((task_id, _TaskError(exc)))
+            raise
         finally:
             task_queue.put_nowait((task_id, stop_event))
