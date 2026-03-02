@@ -17,12 +17,12 @@ pytestmark = providers.openai.mark
 
 @pytest.fixture(
     params=[
-        ("openai", OpenAIModel, "gpt-4o"),
-        ("openai_responses", OpenAIResponsesModel, "gpt-4o"),
+        (OpenAIModel, "gpt-4o"),
+        (OpenAIResponsesModel, "gpt-4o"),
     ]
 )
 def model(request):
-    model_name, model_class, model_id = request.param
+    model_class, model_id = request.param
     return model_class(
         model_id=model_id,
         client_args={

@@ -55,6 +55,10 @@ def __getattr__(name: str) -> Any:
         from .openai import OpenAIModel
 
         return OpenAIModel
+    if name == "OpenAIResponsesModel":
+        from .openai_responses import OpenAIResponsesModel
+
+        return OpenAIResponsesModel
     if name == "SageMakerAIModel":
         from .sagemaker import SageMakerAIModel
 

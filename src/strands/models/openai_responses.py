@@ -198,17 +198,17 @@ class OpenAIResponsesModel(Model):
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
-        logger.debug("Step 1: formatting request for OpenAI Responses API")
+        logger.debug("formatting request for OpenAI Responses API")
         request = self._format_request(messages, tool_specs, system_prompt, tool_choice)
-        logger.debug("Step 1: formatted request=<%s>", request)
+        logger.debug("formatted request=<%s>", request)
 
-        logger.debug("Step 2: invoking OpenAI Responses API model")
+        logger.debug("invoking OpenAI Responses API model")
 
         async with openai.AsyncOpenAI(**self.client_args) as client:
             try:
                 response = await client.responses.create(**request)
 
-                logger.debug("Step 3: streaming response from OpenAI Responses API model")
+                logger.debug("streaming response from OpenAI Responses API model")
 
                 yield self._format_chunk({"chunk_type": "message_start"})
 
@@ -335,7 +335,7 @@ class OpenAIResponsesModel(Model):
             if final_usage:
                 yield self._format_chunk({"chunk_type": "metadata", "data": final_usage})
 
-        logger.debug("Step 4: finished streaming response from OpenAI Responses API model")
+        logger.debug("finished streaming response from OpenAI Responses API model")
 
     @override
     async def structured_output(
