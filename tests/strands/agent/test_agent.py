@@ -715,7 +715,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
 
     agent("test")
     assert callback_handler.call_args_list == [
-        unittest.mock.call(init_event_loop=True),
+        unittest.mock.call(init_event_loop=True, stop_signal=agent._stop_signal),
         unittest.mock.call(start=True),
         unittest.mock.call(start_event_loop=True),
         unittest.mock.call(event={"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}}),
@@ -729,6 +729,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             event_loop_cycle_span=unittest.mock.ANY,
             event_loop_cycle_trace=unittest.mock.ANY,
             request_state={},
+            stop_signal=agent._stop_signal,
         ),
         unittest.mock.call(event={"contentBlockStop": {}}),
         unittest.mock.call(event={"contentBlockStart": {"start": {}}}),
@@ -742,6 +743,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             reasoning=True,
             reasoningText="value",
             request_state={},
+            stop_signal=agent._stop_signal,
         ),
         unittest.mock.call(event={"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "value"}}}}),
         unittest.mock.call(
@@ -753,6 +755,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             reasoning=True,
             reasoning_signature="value",
             request_state={},
+            stop_signal=agent._stop_signal,
         ),
         unittest.mock.call(event={"contentBlockStop": {}}),
         unittest.mock.call(event={"contentBlockStart": {"start": {}}}),
@@ -765,6 +768,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             event_loop_cycle_span=unittest.mock.ANY,
             event_loop_cycle_trace=unittest.mock.ANY,
             request_state={},
+            stop_signal=agent._stop_signal,
         ),
         unittest.mock.call(event={"contentBlockStop": {}}),
         unittest.mock.call(
@@ -1075,7 +1079,7 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle, alist):
 
     tru_events = await alist(stream)
     exp_events = [
-        {"init_event_loop": True, "callback_handler": mock_callback},
+        {"init_event_loop": True, "callback_handler": mock_callback, "stop_signal": agent._stop_signal},
         {"data": "First chunk"},
         {"data": "Second chunk"},
         {"complete": True, "data": "Final chunk"},
@@ -1190,7 +1194,7 @@ async def test_stream_async_passes_invocation_state(agent, mock_model, mock_even
 
     tru_events = await alist(stream)
     exp_events = [
-        {"init_event_loop": True, "some_value": "a_value"},
+        {"init_event_loop": True, "some_value": "a_value", "stop_signal": agent._stop_signal},
         {
             "result": AgentResult(
                 stop_reason="stop",

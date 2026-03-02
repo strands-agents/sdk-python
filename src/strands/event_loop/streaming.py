@@ -22,9 +22,9 @@ from ..types._events import (
     ToolUseStreamEvent,
     TypedEvent,
 )
-from ..types.cancellation import CancellationToken
 from ..types.citations import CitationsContentBlock
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
+from ..types.stop_signal import StopSignal
 from ..types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStart,
@@ -371,14 +371,14 @@ def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | Non
 async def process_stream(
     chunks: AsyncIterable[StreamEvent],
     start_time: float | None = None,
-    cancellation_token: CancellationToken | None = None,
+    stop_signal: StopSignal | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
     Args:
         chunks: The chunks of the response stream from the model.
         start_time: Time when the model request is initiated
-        cancellation_token: Optional token to check for cancellation during streaming.
+        stop_signal: Optional signal to check for cancellation during streaming.
 
     Yields:
         The reason for stopping, the constructed message, and the usage metrics.
@@ -401,7 +401,7 @@ async def process_stream(
     async for chunk in chunks:
         # CHECKPOINT 3: Check for cancellation before processing stream chunks
         # This allows cancellation during model response streaming
-        if cancellation_token and cancellation_token.is_cancelled():
+        if stop_signal and stop_signal.is_cancelled():
             logger.debug("cancellation detected during stream processing")
             # Return cancelled stop reason with current state
             yield ModelStopReason(stop_reason="cancelled", message=state["message"], usage=usage, metrics=metrics)
@@ -475,6 +475,6 @@ async def stream_messages(
         invocation_state=invocation_state,
     )
 
-    cancellation_token = invocation_state.get("cancellation_token") if invocation_state else None
-    async for event in process_stream(chunks, start_time, cancellation_token):
+    stop_signal = invocation_state.get("stop_signal") if invocation_state else None
+    async for event in process_stream(chunks, start_time, stop_signal):
         yield event

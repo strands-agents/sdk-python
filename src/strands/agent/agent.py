@@ -29,7 +29,7 @@ from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
 from ..tools._tool_helpers import generate_missing_tool_result_content
-from ..types.cancellation import CancellationToken
+from ..types.stop_signal import StopSignal
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
@@ -136,7 +136,6 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
-        cancellation_token: CancellationToken | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -203,12 +202,6 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
-            cancellation_token: Optional token for cancelling agent execution.
-                When provided, the agent will check this token at strategic checkpoints during execution
-                (before model calls, during streaming, before tool execution) and stop gracefully if
-                cancellation is requested. The token can be cancelled from external contexts (other threads,
-                web requests, etc.) by calling token.cancel().
-                Defaults to None (no cancellation support).
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -248,8 +241,8 @@ class Agent(AgentBase):
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
 
-        # Store cancellation token for graceful termination
-        self.cancellation_token = cancellation_token
+        # Create internal stop signal for graceful cancellation
+        self._stop_signal = StopSignal()
 
         self.tool_registry = ToolRegistry()
 
@@ -337,6 +330,47 @@ class Agent(AgentBase):
                 self._plugin_registry.add_and_init(plugin)
 
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+
+    def cancel(self) -> None:
+        """Cancel the currently running agent invocation.
+
+        This method is thread-safe and can be called from any context
+        (e.g., another thread, web request handler, background task).
+
+        The agent will stop gracefully at the next checkpoint:
+        - Start of event loop cycle
+        - Before model execution
+        - During model response streaming
+        - Before tool execution
+
+        The agent will return a result with stop_reason="cancelled".
+
+        Example:
+            ```python
+            agent = Agent(model=model)
+
+            # Start agent in background
+            task = asyncio.create_task(agent.invoke_async("Hello"))
+
+            # Cancel from another context
+            agent.cancel()
+
+            result = await task
+            assert result.stop_reason == "cancelled"
+            ```
+
+        Note:
+            Multiple calls to cancel() are safe and idempotent.
+        """
+        self._stop_signal.cancel()
+
+    def is_cancelled(self) -> bool:
+        """Check if this agent has been cancelled.
+
+        Returns:
+            True if cancel() has been called, False otherwise.
+        """
+        return self._stop_signal.is_cancelled()
 
     @property
     def system_prompt(self) -> str | None:
@@ -735,9 +769,8 @@ class Agent(AgentBase):
                 if invocation_state is not None:
                     merged_state = invocation_state
 
-            # Add cancellation token to invocation state if provided
-            if self.cancellation_token is not None:
-                merged_state["cancellation_token"] = self.cancellation_token
+            # Add internal stop signal to invocation state for event loop access
+            merged_state["stop_signal"] = self._stop_signal
 
             callback_handler = self.callback_handler
             if kwargs:

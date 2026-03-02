@@ -69,8 +69,8 @@ def _should_cancel(invocation_state: dict[str, Any]) -> bool:
     Returns:
         True if cancellation has been requested, False otherwise.
     """
-    token = invocation_state.get("cancellation_token")
-    return token.is_cancelled() if token else False
+    signal = invocation_state.get("stop_signal")
+    return signal.is_cancelled() if signal else False
 
 
 def _has_tool_use_in_latest_message(messages: "Messages") -> bool:

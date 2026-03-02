@@ -1,11 +1,12 @@
-"""Tests for agent cancellation functionality."""
+"""Tests for agent cancellation functionality using agent.cancel() API."""
 
 import asyncio
+import threading
 import time
 
 import pytest
 
-from strands import Agent, CancellationToken
+from strands import Agent
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 # Default agent response for simple tests
@@ -16,38 +17,30 @@ DEFAULT_RESPONSE = {
 
 
 @pytest.mark.asyncio
-async def test_agent_cancellation_before_model_call():
-    """Test cancellation before model call starts.
+async def test_agent_cancel_before_invocation():
+    """Test agent.cancel() before invocation starts.
 
-    This test verifies that when a cancellation token is cancelled before
-    the agent starts processing, the agent immediately stops with a
-    'cancelled' stop reason without making any model calls.
+    Verifies that calling cancel() before invoke_async() results in
+    immediate cancellation without any model calls.
     """
-    token = CancellationToken()
-    agent = Agent(
-        model=MockedModelProvider([DEFAULT_RESPONSE]),
-        cancellation_token=token,
-    )
+    agent = Agent(model=MockedModelProvider([DEFAULT_RESPONSE]))
 
-    # Cancel immediately before invocation
-    token.cancel()
+    # Cancel before invocation
+    agent.cancel()
 
     result = await agent.invoke_async("Hello")
 
     assert result.stop_reason == "cancelled"
-    # When cancelled, we return an empty assistant message structure
     assert result.message == {"role": "assistant", "content": []}
 
 
 @pytest.mark.asyncio
-async def test_agent_cancellation_during_execution():
-    """Test cancellation during agent execution.
+async def test_agent_cancel_during_execution():
+    """Test agent.cancel() during execution.
 
-    This test verifies that when a cancellation token is cancelled while
-    the agent is executing, the agent detects the cancellation at the next
-    checkpoint and stops gracefully with a 'cancelled' stop reason.
+    Verifies that calling cancel() while the agent is running
+    stops execution at the next checkpoint.
     """
-    token = CancellationToken()
 
     # Create a model provider that simulates a delay
     class DelayedModelProvider(MockedModelProvider):
@@ -57,15 +50,12 @@ async def test_agent_cancellation_during_execution():
             async for event in super().stream(*args, **kwargs):
                 yield event
 
-    agent = Agent(
-        model=DelayedModelProvider([DEFAULT_RESPONSE]),
-        cancellation_token=token,
-    )
+    agent = Agent(model=DelayedModelProvider([DEFAULT_RESPONSE]))
 
     # Cancel after a short delay (during execution)
     async def cancel_after_delay():
         await asyncio.sleep(0.05)
-        token.cancel()
+        agent.cancel()
 
     cancel_task = asyncio.create_task(cancel_after_delay())
     result = await agent.invoke_async("Hello")
@@ -75,12 +65,10 @@ async def test_agent_cancellation_during_execution():
 
 
 @pytest.mark.asyncio
-async def test_agent_cancellation_with_tools():
-    """Test cancellation during tool execution.
+async def test_agent_cancel_with_tools():
+    """Test agent.cancel() during tool execution.
 
-    This test verifies that when a cancellation token is cancelled while
-    tools are being executed, the agent stops gracefully and doesn't
-    execute remaining tools.
+    Verifies that cancellation works correctly when tools are being executed.
     """
     from strands import tool
 
@@ -92,8 +80,6 @@ async def test_agent_cancellation_with_tools():
         tool_executed.append(x)
         time.sleep(0.1)
         return x * 2
-
-    token = CancellationToken()
 
     # Create a response with tool use
     tool_use_response = {
@@ -112,13 +98,12 @@ async def test_agent_cancellation_with_tools():
     agent = Agent(
         model=MockedModelProvider([tool_use_response]),
         tools=[slow_tool],
-        cancellation_token=token,
     )
 
     # Cancel during tool execution
     async def cancel_after_delay():
         await asyncio.sleep(0.05)
-        token.cancel()
+        agent.cancel()
 
     cancel_task = asyncio.create_task(cancel_after_delay())
     result = await agent.invoke_async("Use the tool")
@@ -128,11 +113,11 @@ async def test_agent_cancellation_with_tools():
 
 
 @pytest.mark.asyncio
-async def test_agent_no_cancellation_token():
-    """Test that agent works normally without cancellation token.
+async def test_agent_without_cancellation():
+    """Test that agent works normally without cancellation.
 
-    This test verifies that when no cancellation token is provided,
-    the agent executes normally and completes successfully.
+    Verifies that when cancel() is not called, the agent executes
+    normally and completes successfully.
     """
     agent = Agent(model=MockedModelProvider([DEFAULT_RESPONSE]))
 
@@ -143,22 +128,18 @@ async def test_agent_no_cancellation_token():
 
 
 @pytest.mark.asyncio
-async def test_agent_cancellation_idempotent():
-    """Test that multiple cancellations are safe.
+async def test_agent_cancel_idempotent():
+    """Test that calling cancel() multiple times is safe.
 
-    This test verifies that calling cancel() multiple times on the same
-    token doesn't cause any issues and the agent still stops gracefully.
+    Verifies that multiple cancel() calls are idempotent and don't
+    cause any issues.
     """
-    token = CancellationToken()
-    agent = Agent(
-        model=MockedModelProvider([DEFAULT_RESPONSE]),
-        cancellation_token=token,
-    )
+    agent = Agent(model=MockedModelProvider([DEFAULT_RESPONSE]))
 
     # Cancel multiple times
-    token.cancel()
-    token.cancel()
-    token.cancel()
+    agent.cancel()
+    agent.cancel()
+    agent.cancel()
 
     result = await agent.invoke_async("Hello")
 
@@ -166,16 +147,12 @@ async def test_agent_cancellation_idempotent():
 
 
 @pytest.mark.asyncio
-async def test_agent_cancellation_from_different_thread():
-    """Test cancellation from a different thread.
+async def test_agent_cancel_from_thread():
+    """Test agent.cancel() from another thread.
 
-    This test verifies that the cancellation token can be cancelled from
-    a different thread (simulating a web request or external system) and
-    the agent will detect it and stop gracefully.
+    Verifies thread-safety of the cancel() method when called
+    from a background thread.
     """
-    import threading
-
-    token = CancellationToken()
 
     # Create a model provider with delay
     class DelayedModelProvider(MockedModelProvider):
@@ -184,63 +161,41 @@ async def test_agent_cancellation_from_different_thread():
             async for event in super().stream(*args, **kwargs):
                 yield event
 
-    agent = Agent(
-        model=DelayedModelProvider([DEFAULT_RESPONSE]),
-        cancellation_token=token,
-    )
+    agent = Agent(model=DelayedModelProvider([DEFAULT_RESPONSE]))
 
-    # Cancel from a different thread
+    # Cancel from another thread
     def cancel_from_thread():
         time.sleep(0.05)
-        token.cancel()
+        agent.cancel()
 
-    cancel_thread = threading.Thread(target=cancel_from_thread)
-    cancel_thread.start()
+    thread = threading.Thread(target=cancel_from_thread)
+    thread.start()
 
     result = await agent.invoke_async("Hello")
-
-    cancel_thread.join()
+    thread.join()
 
     assert result.stop_reason == "cancelled"
 
 
 @pytest.mark.asyncio
-async def test_agent_cancellation_shared_token():
-    """Test that multiple agents can share the same cancellation token.
+async def test_agent_is_cancelled():
+    """Test agent.is_cancelled() method."""
+    agent = Agent(model=MockedModelProvider([DEFAULT_RESPONSE]))
 
-    This test verifies that when multiple agents share the same cancellation
-    token, cancelling the token affects all agents using it.
-    """
-    token = CancellationToken()
+    assert not agent.is_cancelled()
 
-    agent1 = Agent(
-        model=MockedModelProvider([DEFAULT_RESPONSE]),
-        cancellation_token=token,
-    )
+    agent.cancel()
 
-    agent2 = Agent(
-        model=MockedModelProvider([DEFAULT_RESPONSE]),
-        cancellation_token=token,
-    )
-
-    # Cancel the shared token
-    token.cancel()
-
-    result1 = await agent1.invoke_async("Hello from agent 1")
-    result2 = await agent2.invoke_async("Hello from agent 2")
-
-    assert result1.stop_reason == "cancelled"
-    assert result2.stop_reason == "cancelled"
+    assert agent.is_cancelled()
 
 
 @pytest.mark.asyncio
-async def test_agent_cancellation_streaming():
+async def test_agent_cancel_streaming():
     """Test cancellation during streaming response.
 
-    This test verifies that cancellation works correctly when using
+    Verifies that cancellation works correctly when using
     the streaming API (stream_async).
     """
-    token = CancellationToken()
 
     # Create a model provider that streams slowly
     class SlowStreamingModelProvider(MockedModelProvider):
@@ -257,15 +212,12 @@ async def test_agent_cancellation_streaming():
             yield {"contentBlockStop": {}}
             yield {"messageStop": {"stopReason": "end_turn"}}
 
-    agent = Agent(
-        model=SlowStreamingModelProvider([DEFAULT_RESPONSE]),
-        cancellation_token=token,
-    )
+    agent = Agent(model=SlowStreamingModelProvider([DEFAULT_RESPONSE]))
 
     # Cancel after receiving a few chunks
     async def cancel_after_delay():
         await asyncio.sleep(0.15)  # Let a few chunks through
-        token.cancel()
+        agent.cancel()
 
     cancel_task = asyncio.create_task(cancel_after_delay())
 

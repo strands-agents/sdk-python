@@ -44,6 +44,7 @@ any_props = {
     "event_loop_cycle_span": ANY,
     "event_loop_cycle_trace": ANY,
     "request_state": {},
+    "stop_signal": ANY,
 }
 
 
@@ -116,7 +117,7 @@ async def test_stream_e2e_success(alist):
     tru_events = await alist(stream)
     exp_events = [
         # Cycle 1: Initialize and invoke normal_tool
-        {"arg1": 1013, "init_event_loop": True},
+        {"arg1": 1013, "init_event_loop": True, "stop_signal": ANY},
         {"start": True},
         {"start_event_loop": True},
         {"event": {"messageStart": {"role": "assistant"}}},
@@ -354,7 +355,7 @@ async def test_stream_e2e_throttle_and_redact(alist, mock_sleep):
 
     tru_events = await alist(stream)
     exp_events = [
-        {"arg1": 1013, "init_event_loop": True},
+        {"arg1": 1013, "init_event_loop": True, "stop_signal": ANY},
         {"start": True},
         {"start_event_loop": True},
         {"event_loop_throttled_delay": 4, **throttle_props},
@@ -413,7 +414,7 @@ async def test_stream_e2e_reasoning_redacted_content(alist):
 
     tru_events = await alist(stream)
     exp_events = [
-        {"init_event_loop": True},
+        {"init_event_loop": True, "stop_signal": ANY},
         {"start": True},
         {"start_event_loop": True},
         {"event": {"messageStart": {"role": "assistant"}}},
@@ -503,7 +504,7 @@ async def test_event_loop_cycle_text_response_throttling_early_end(
     }
 
     exp_events = [
-        {"init_event_loop": True, "arg1": 1013},
+        {"init_event_loop": True, "arg1": 1013, "stop_signal": ANY},
         {"start": True},
         {"start_event_loop": True},
         {"event_loop_throttled_delay": 4, **common_props},
