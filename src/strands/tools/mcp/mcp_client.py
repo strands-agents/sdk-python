@@ -364,8 +364,6 @@ class MCPClient(ToolProvider):
                     self._startup_timeout,
                 )
                 return
-                )
-                return
         # Reset fields to allow instance reuse
         self._init_future = futures.Future()
         self._background_thread = None
