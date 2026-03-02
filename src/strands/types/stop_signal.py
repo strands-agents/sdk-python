@@ -21,7 +21,7 @@ class StopSignal:
     Design principles:
     - Thread-safe: Can be cancelled from any thread
     - Lightweight: Minimal overhead for checking cancellation state
-    - Simple: Only two methods - cancel() and is_cancelled()
+    - Simple: Provides cancel() method and internal is_cancelled() check
 
     Note:
         This class is internal to the Agent implementation. Users should

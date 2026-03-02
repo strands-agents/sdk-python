@@ -178,18 +178,6 @@ async def test_agent_cancel_from_thread():
 
 
 @pytest.mark.asyncio
-async def test_agent_is_cancelled():
-    """Test agent.is_cancelled() method."""
-    agent = Agent(model=MockedModelProvider([DEFAULT_RESPONSE]))
-
-    assert not agent.is_cancelled()
-
-    agent.cancel()
-
-    assert agent.is_cancelled()
-
-
-@pytest.mark.asyncio
 async def test_agent_cancel_streaming():
     """Test cancellation during streaming response.
 

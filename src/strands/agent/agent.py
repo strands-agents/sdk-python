@@ -364,14 +364,6 @@ class Agent(AgentBase):
         """
         self._stop_signal.cancel()
 
-    def is_cancelled(self) -> bool:
-        """Check if this agent has been cancelled.
-
-        Returns:
-            True if cancel() has been called, False otherwise.
-        """
-        return self._stop_signal.is_cancelled()
-
     @property
     def system_prompt(self) -> str | None:
         """Get the system prompt as a string for backwards compatibility.
