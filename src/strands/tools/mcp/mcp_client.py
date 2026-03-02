@@ -362,11 +362,15 @@ class MCPClient(ToolProvider):
                 )
                 return
 
-        if self._background_thread_event_loop is not None:
-            self._background_thread_event_loop.close()
-
-        self._log_debug_with_thread("background thread is closed, MCPClient context exited")
-
+                # If the background thread is still alive after the timeout, avoid closing
+                # the event loop or resetting internal state here. Doing so while the loop
+                # is potentially still running in another thread can raise RuntimeError and
+                # make the client appear reusable while teardown is still in progress.
+                logger.warning(
+                    "background thread did not exit within %d seconds; skipping event loop close and state reset",
+                    self._startup_timeout,
+                )
+                return
         # Reset fields to allow instance reuse
         self._init_future = futures.Future()
         self._background_thread = None

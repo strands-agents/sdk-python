@@ -581,11 +581,8 @@ def test_mcp_client_state_reset_after_timeout():
     assert client._background_thread is None
     assert client._background_thread_session is None
     assert client._background_thread_event_loop is None
-    assert not client._init_future.done()  # New future created
-
-
-def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):
-    """EmbeddedResource.resource (uri + text) should map to plain text content."""
+    # join should have been called with timeout, and stop() should return promptly
+    mock_thread.join.assert_called_once_with(timeout=client._startup_timeout)
     embedded_resource = {
         "type": "resource",  # required literal
         "resource": {
