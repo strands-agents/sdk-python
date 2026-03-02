@@ -809,8 +809,14 @@ def test_reset_executor_state_preserves_multiagent_state_type():
 
     # Modify execution status as if the node had run
     node.execution_status = Status.COMPLETED
+    agent_result = AgentResult(
+        message={"role": "assistant", "content": [{"text": "test"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics=None,
+    )
     node.result = NodeResult(
-        result=AgentResult(
+        result=agent_result,
             message={"role": "assistant", "content": [{"text": "test"}]},
             stop_reason="end_turn",
             state={},
