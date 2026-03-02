@@ -37,12 +37,12 @@ def test_steering_handler_is_plugin():
     assert isinstance(handler, Plugin)
 
 
-def test_init_plugin():
-    """Test init_plugin registers hooks on agent."""
+def test_init_agent():
+    """Test init_agent registers hooks on agent."""
     handler = TestSteeringHandler()
     agent = Mock()
 
-    handler.init_plugin(agent)
+    handler.init_agent(agent)
 
     # Verify hooks were registered (tool and model steering hooks)
     assert agent.add_hook.call_count >= 2
@@ -168,21 +168,21 @@ async def test_unknown_action_flow():
         await handler._provide_tool_steering_guidance(event)
 
 
-def test_init_plugin_override():
-    """Test that init_plugin can be overridden."""
+def test_init_agent_override():
+    """Test that init_agent can be overridden."""
 
     class CustomHandler(SteeringHandler):
         async def steer_before_tool(self, *, agent, tool_use, **kwargs):
             return Proceed(reason="Custom")
 
-        def init_plugin(self, agent):
+        def init_agent(self, agent):
             # Custom hook registration - don't call parent
             pass
 
     handler = CustomHandler()
     agent = Mock()
 
-    handler.init_plugin(agent)
+    handler.init_agent(agent)
 
     # Should not register any hooks
     assert agent.add_hook.call_count == 0
@@ -223,7 +223,7 @@ def test_handler_registers_context_provider_hooks():
     handler = TestSteeringHandlerWithProvider(context_callbacks=[mock_callback])
     agent = Mock()
 
-    handler.init_plugin(agent)
+    handler.init_agent(agent)
 
     # Should register hooks for context callback and steering guidance
     assert agent.add_hook.call_count >= 2
@@ -241,7 +241,7 @@ def test_context_callbacks_receive_steering_context():
     handler = TestSteeringHandlerWithProvider(context_callbacks=[mock_callback])
     agent = Mock()
 
-    handler.init_plugin(agent)
+    handler.init_agent(agent)
 
     # Get the registered callback for BeforeToolCallEvent
     before_callback = None
@@ -271,7 +271,7 @@ def test_multiple_context_callbacks_registered():
     handler = TestSteeringHandlerWithProvider(context_callbacks=[callback1, callback2])
     agent = Mock()
 
-    handler.init_plugin(agent)
+    handler.init_agent(agent)
 
     # Should register one callback for each context provider plus tool and model steering guidance
     expected_calls = 2 + 2  # 2 callbacks + 2 for steering guidance (tool and model)
@@ -485,12 +485,12 @@ async def test_default_steer_after_model_returns_proceed():
     assert "Default implementation" in result.reason
 
 
-def test_init_plugin_registers_model_steering():
-    """Test that init_plugin registers model steering callback."""
+def test_init_agent_registers_model_steering():
+    """Test that init_agent registers model steering callback."""
     handler = TestSteeringHandler()
     agent = Mock()
 
-    handler.init_plugin(agent)
+    handler.init_agent(agent)
 
     # Verify model steering hook was registered
     agent.add_hook.assert_any_call(handler._provide_model_steering_guidance, AfterModelCallEvent)
