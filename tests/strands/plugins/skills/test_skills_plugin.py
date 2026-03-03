@@ -214,6 +214,82 @@ class TestSkillsPluginProperties:
         assert plugin.active_skill is None
 
 
+class TestLoadSkills:
+    """Tests for the load_skills method."""
+
+    def test_appends_skill_instances(self):
+        """Test that load_skills appends Skill instances to existing skills."""
+        plugin = SkillsPlugin(skills=[_make_skill(name="existing", description="Existing")])
+
+        plugin.load_skills([_make_skill(name="new-skill", description="New")])
+
+        assert len(plugin.available_skills) == 2
+        names = {s.name for s in plugin.available_skills}
+        assert names == {"existing", "new-skill"}
+
+    def test_appends_from_filesystem(self, tmp_path):
+        """Test that load_skills appends skills resolved from filesystem paths."""
+        plugin = SkillsPlugin(skills=[_make_skill(name="existing", description="Existing")])
+        _make_skill_dir(tmp_path, "fs-skill")
+
+        plugin.load_skills([str(tmp_path / "fs-skill")])
+
+        assert len(plugin.available_skills) == 2
+        names = {s.name for s in plugin.available_skills}
+        assert names == {"existing", "fs-skill"}
+
+    def test_duplicates_overwrite(self):
+        """Test that loading a skill with the same name overwrites the existing one."""
+        original = _make_skill(name="dupe", description="Original")
+        plugin = SkillsPlugin(skills=[original])
+
+        replacement = _make_skill(name="dupe", description="Replacement")
+        plugin.load_skills([replacement])
+
+        assert len(plugin.available_skills) == 1
+        assert plugin.available_skills[0].description == "Replacement"
+
+    def test_mixed_sources(self, tmp_path):
+        """Test load_skills with a mix of Skill instances and filesystem paths."""
+        plugin = SkillsPlugin(skills=[])
+        _make_skill_dir(tmp_path, "fs-skill")
+        direct = _make_skill(name="direct", description="Direct")
+
+        plugin.load_skills([str(tmp_path / "fs-skill"), direct])
+
+        assert len(plugin.available_skills) == 2
+        names = {s.name for s in plugin.available_skills}
+        assert names == {"fs-skill", "direct"}
+
+    def test_skips_nonexistent_paths(self):
+        """Test that nonexistent paths are skipped without error."""
+        plugin = SkillsPlugin(skills=[_make_skill()])
+
+        plugin.load_skills(["/nonexistent/path"])
+
+        assert len(plugin.available_skills) == 1
+
+    def test_empty_sources(self):
+        """Test that loading empty sources is a no-op."""
+        plugin = SkillsPlugin(skills=[_make_skill()])
+
+        plugin.load_skills([])
+
+        assert len(plugin.available_skills) == 1
+
+    def test_parent_directory(self, tmp_path):
+        """Test load_skills with a parent directory containing multiple skills."""
+        plugin = SkillsPlugin(skills=[])
+        _make_skill_dir(tmp_path, "child-a")
+        _make_skill_dir(tmp_path, "child-b")
+
+        plugin.load_skills([tmp_path])
+
+        assert len(plugin.available_skills) == 2
+        names = {s.name for s in plugin.available_skills}
+        assert names == {"child-a", "child-b"}
+
+
 class TestSkillsTool:
     """Tests for the skills tool method."""
 
