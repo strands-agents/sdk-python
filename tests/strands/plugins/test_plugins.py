@@ -22,13 +22,13 @@ def test_plugin_base_class_isinstance_check():
 
 
 def test_plugin_base_class_sync_implementation():
-    """Test Plugin base class works with synchronous init_plugin."""
+    """Test Plugin base class works with synchronous init_agent."""
 
     class SyncPlugin(Plugin):
         name = "sync-plugin"
 
-        def init_plugin(self, agent):
-            super().init_plugin(agent)
+        def init_agent(self, agent):
+            # No super() needed - registry handles auto-registration
             agent.custom_attribute = "initialized by plugin"
 
     plugin = SyncPlugin()
@@ -40,20 +40,20 @@ def test_plugin_base_class_sync_implementation():
     assert isinstance(plugin, Plugin)
     assert plugin.name == "sync-plugin"
 
-    # Execute init_plugin synchronously
-    plugin.init_plugin(mock_agent)
+    # Execute init_agent synchronously
+    plugin.init_agent(mock_agent)
     assert mock_agent.custom_attribute == "initialized by plugin"
 
 
 @pytest.mark.asyncio
 async def test_plugin_base_class_async_implementation():
-    """Test Plugin base class works with asynchronous init_plugin."""
+    """Test Plugin base class works with asynchronous init_agent."""
 
     class AsyncPlugin(Plugin):
         name = "async-plugin"
 
-        async def init_plugin(self, agent):
-            super().init_plugin(agent)
+        async def init_agent(self, agent):
+            # No super() needed - registry handles auto-registration
             agent.custom_attribute = "initialized by async plugin"
 
     plugin = AsyncPlugin()
@@ -65,8 +65,8 @@ async def test_plugin_base_class_async_implementation():
     assert isinstance(plugin, Plugin)
     assert plugin.name == "async-plugin"
 
-    # Execute init_plugin asynchronously
-    await plugin.init_plugin(mock_agent)
+    # Execute init_agent asynchronously
+    await plugin.init_agent(mock_agent)
     assert mock_agent.custom_attribute == "initialized by async plugin"
 
 
@@ -76,22 +76,22 @@ def test_plugin_class_requires_name():
     with pytest.raises(TypeError, match="Can't instantiate abstract class"):
 
         class PluginWithoutName(Plugin):
-            def init_plugin(self, agent):
+            def init_agent(self, agent):
                 pass
 
         PluginWithoutName()
 
 
-def test_plugin_base_class_requires_init_plugin_method():
-    """Test that Plugin base class provides default init_plugin."""
+def test_plugin_base_class_requires_init_agent_method():
+    """Test that Plugin base class provides default init_agent."""
 
     class PluginWithoutOverride(Plugin):
         name = "no-override-plugin"
 
     plugin = PluginWithoutOverride()
-    # Plugin base class provides default init_plugin
-    assert hasattr(plugin, "init_plugin")
-    assert callable(plugin.init_plugin)
+    # Plugin base class provides default init_agent
+    assert hasattr(plugin, "init_agent")
+    assert callable(plugin.init_agent)
 
 
 def test_plugin_base_class_with_class_attribute_name():
@@ -127,6 +127,7 @@ def mock_agent():
     agent = unittest.mock.Mock()
     agent.hooks = HookRegistry()
     agent.tool_registry = unittest.mock.MagicMock()
+    agent.add_hook = unittest.mock.Mock()
     return agent
 
 
@@ -136,8 +137,8 @@ def registry(mock_agent):
     return _PluginRegistry(mock_agent)
 
 
-def test_plugin_registry_add_and_init_calls_init_plugin(registry, mock_agent):
-    """Test adding a plugin calls its init_plugin method."""
+def test_plugin_registry_add_and_init_calls_init_agent(registry, mock_agent):
+    """Test adding a plugin calls its init_agent method."""
 
     class TestPlugin(Plugin):
         name = "test-plugin"
@@ -146,8 +147,8 @@ def test_plugin_registry_add_and_init_calls_init_plugin(registry, mock_agent):
             super().__init__()
             self.initialized = False
 
-        def init_plugin(self, agent):
-            super().init_plugin(agent)
+        def init_agent(self, agent):
+            # No super() needed - registry handles auto-registration
             self.initialized = True
             agent.plugin_initialized = True
 
@@ -183,8 +184,8 @@ def test_plugin_registry_add_and_init_with_async_plugin(registry, mock_agent):
             super().__init__()
             self.initialized = False
 
-        async def init_plugin(self, agent):
-            super().init_plugin(agent)
+        async def init_agent(self, agent):
+            # No super() needed - registry handles auto-registration
             self.initialized = True
             agent.async_plugin_initialized = True
 

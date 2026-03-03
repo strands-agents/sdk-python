@@ -44,9 +44,9 @@ def infer_event_types(callback: "HookCallback[TEvent]") -> "list[type[TEvent]]":
     if not params:
         raise ValueError("callback has no parameters | cannot infer event type, please provide event_type explicitly")
 
-    # Skip 'self' parameter for methods
+    # Skip 'self' and 'cls' parameters for methods
     first_param = params[0]
-    if first_param.name == "self" and len(params) > 1:
+    if first_param.name in ("self", "cls") and len(params) > 1:
         first_param = params[1]
 
     type_hint = hints.get(first_param.name)

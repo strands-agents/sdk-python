@@ -75,17 +75,16 @@ class SkillsPlugin(Plugin):
         self._agent: Agent | None = None
         super().__init__()
 
-    def init_plugin(self, agent: Agent) -> None:
+    def init_agent(self, agent: Agent) -> None:
         """Initialize the plugin with an agent instance.
 
-        Registers the skills tool and hooks with the agent, then restores
-        any persisted state from a previous session.
+        Restores any persisted state from a previous session.
+        Decorated hooks and tools are auto-registered by the plugin registry.
 
         Args:
             agent: The agent instance to extend with skills support.
         """
         self._agent = agent
-        super().init_plugin(agent)
         self._restore_state()
         logger.debug("skill_count=<%d> | skills plugin initialized", len(self._skills))
 

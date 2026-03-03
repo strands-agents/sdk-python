@@ -76,16 +76,15 @@ class SteeringHandler(Plugin):
 
         logger.debug("handler_class=<%s> | initialized", self.__class__.__name__)
 
-    def init_plugin(self, agent: "Agent") -> None:
+    def init_agent(self, agent: "Agent") -> None:
         """Initialize the steering handler with an agent.
 
-        Registers hook callbacks for steering guidance and context updates.
+        Registers context update callbacks. Decorated hooks and tools
+        are auto-registered by the plugin registry.
 
         Args:
             agent: The agent instance to attach steering to.
         """
-        super().init_plugin(agent)
-
         # Register context update callbacks
         for callback in self._context_callbacks:
             agent.add_hook(lambda event, callback=callback: callback(event, self.steering_context), callback.event_type)

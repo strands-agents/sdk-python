@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 from strands.hooks.events import BeforeInvocationEvent
 from strands.hooks.registry import HookRegistry
+from strands.plugins.registry import _PluginRegistry
 from strands.plugins.skills.skill import Skill
 from strands.plugins.skills.skills_plugin import SkillsPlugin
 
@@ -115,44 +116,46 @@ class TestSkillsPluginInit:
         assert plugin.name == "skills"
 
 
-class TestSkillsPluginInitPlugin:
-    """Tests for the init_plugin method."""
+class TestSkillsPluginInitAgent:
+    """Tests for the init_agent method and plugin registry integration."""
 
     def test_registers_tool(self):
-        """Test that init_plugin registers the skills tool."""
+        """Test that the plugin registry registers the skills tool."""
         plugin = SkillsPlugin(skills=[_make_skill()])
         agent = _mock_agent()
 
-        plugin.init_plugin(agent)
+        registry = _PluginRegistry(agent)
+        registry.add_and_init(plugin)
 
         agent.tool_registry.process_tools.assert_called_once()
 
     def test_registers_hooks(self):
-        """Test that init_plugin registers hook callbacks."""
+        """Test that the plugin registry registers hook callbacks."""
         plugin = SkillsPlugin(skills=[_make_skill()])
         agent = _mock_agent()
 
-        plugin.init_plugin(agent)
+        registry = _PluginRegistry(agent)
+        registry.add_and_init(plugin)
 
         assert agent.hooks.has_callbacks()
 
     def test_stores_agent_reference(self):
-        """Test that init_plugin stores the agent reference."""
+        """Test that init_agent stores the agent reference."""
         plugin = SkillsPlugin(skills=[_make_skill()])
         agent = _mock_agent()
 
-        plugin.init_plugin(agent)
+        plugin.init_agent(agent)
 
         assert plugin._agent is agent
 
     def test_restores_state(self):
-        """Test that init_plugin restores active skill from state."""
+        """Test that init_agent restores active skill from state."""
         skill = _make_skill()
         plugin = SkillsPlugin(skills=[skill])
         agent = _mock_agent()
         agent.state.set("skills_plugin", {"active_skill_name": "test-skill"})
 
-        plugin.init_plugin(agent)
+        plugin.init_agent(agent)
 
         assert plugin.active_skill is not None
         assert plugin.active_skill.name == "test-skill"
