@@ -596,6 +596,10 @@ class OpenAIModel(Model):
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
+        # Extract extra_headers from kwargs so adapters (e.g. aws_rft_sdk.wrap_model) can inject
+        # per-request HTTP headers that get forwarded to the OpenAI-compatible endpoint.
+        extra_headers = kwargs.pop("extra_headers", None)
+
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
         logger.debug("formatted request=<%s>", request)
@@ -607,7 +611,10 @@ class OpenAIModel(Model):
         # https://github.com/encode/httpx/discussions/2959.
         async with self._get_client() as client:
             try:
-                response = await client.chat.completions.create(**request)
+                response = await client.chat.completions.create(
+                    **request,
+                    **({"extra_headers": extra_headers} if extra_headers else {}),
+                )
             except openai.BadRequestError as e:
                 # Check if this is a context length exceeded error
                 if hasattr(e, "code") and e.code == "context_length_exceeded":
