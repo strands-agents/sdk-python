@@ -15,6 +15,7 @@ class JSONSerializableDict:
     def __init__(self, initial_state: dict[str, Any] | None = None):
         """Initialize JSONSerializableDict."""
         self._data: dict[str, Any]
+        self._dirty: bool = False
         if initial_state:
             self._validate_json_serializable(initial_state)
             self._data = copy.deepcopy(initial_state)
@@ -34,6 +35,7 @@ class JSONSerializableDict:
         self._validate_key(key)
         self._validate_json_serializable(value)
         self._data[key] = copy.deepcopy(value)
+        self._dirty = True
 
     def get(self, key: str | None = None) -> Any:
         """Get a value or entire data.
@@ -57,6 +59,23 @@ class JSONSerializableDict:
         """
         self._validate_key(key)
         self._data.pop(key, None)
+        self._dirty = True
+
+    def _is_dirty(self) -> bool:
+        """Check if the store has been modified since initialization or last clear.
+
+        Returns:
+            True if set() or delete() has been called since initialization or
+            the last call to _clear_dirty(), False otherwise.
+        """
+        return self._dirty
+
+    def _clear_dirty(self) -> None:
+        """Reset the dirty flag to False.
+
+        Called after successful persistence to mark the state as clean.
+        """
+        self._dirty = False
 
     def _validate_key(self, key: str) -> None:
         """Validate that a key is valid.

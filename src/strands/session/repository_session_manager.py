@@ -1,5 +1,6 @@
 """Repository session manager implementation."""
 
+import copy
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -59,6 +60,9 @@ class RepositorySessionManager(SessionManager):
         # Keep track of the latest message of each agent in case we need to redact it.
         self._latest_agent_message: dict[str, SessionMessage | None] = {}
 
+        # Track the previously synced internal state for each agent to detect changes.
+        self._last_synced_internal_state: dict[str, dict[str, Any]] = {}
+
     def append_message(self, message: Message, agent: "Agent", **kwargs: Any) -> None:
         """Append a message to the agent's session.
 
@@ -95,14 +99,63 @@ class RepositorySessionManager(SessionManager):
     def sync_agent(self, agent: "Agent", **kwargs: Any) -> None:
         """Serialize and update the agent into the session repository.
 
+        Only updates the agent if state has been modified or internal state has changed.
+        This optimization reduces unnecessary I/O operations when the agent processes
+        messages without modifying its state.
+
         Args:
             agent: Agent to sync to the session.
             **kwargs: Additional keyword arguments for future extensibility.
         """
+        # Get current internal state and conversation manager state for comparison
+        current_internal_state = {"interrupt_state": agent._interrupt_state.to_dict()}
+        current_conversation_manager_state = agent.conversation_manager.get_state()
+
+        # Check if we have a previous state to compare against
+        last_synced = self._last_synced_internal_state.get(agent.agent_id)
+
+        # Determine if we need to update
+        state_dirty = agent.state._is_dirty()
+        if last_synced is None:
+            # First sync for this agent - always update
+            internal_state_changed = True
+            conversation_manager_state_changed = True
+        else:
+            internal_state_changed = current_internal_state != last_synced.get("internal_state")
+            conversation_manager_state_changed = (
+                current_conversation_manager_state != last_synced.get("conversation_manager_state")
+            )
+
+        if not state_dirty and not internal_state_changed and not conversation_manager_state_changed:
+            logger.debug(
+                "agent_id=<%s> | session_id=<%s> | skipping sync, no changes detected",
+                agent.agent_id,
+                self.session_id,
+            )
+            return
+
+        logger.debug(
+            "agent_id=<%s> | session_id=<%s> | state_dirty=<%s>, internal_state_changed=<%s>, "
+            "conversation_manager_state_changed=<%s> | syncing agent",
+            agent.agent_id,
+            self.session_id,
+            state_dirty,
+            internal_state_changed,
+            conversation_manager_state_changed,
+        )
+
+        # Perform the update
         self.session_repository.update_agent(
             self.session_id,
             SessionAgent.from_agent(agent),
         )
+
+        # Clear dirty flag and update tracked state only after successful sync
+        agent.state._clear_dirty()
+        self._last_synced_internal_state[agent.agent_id] = {
+            "internal_state": copy.deepcopy(current_internal_state),
+            "conversation_manager_state": copy.deepcopy(current_conversation_manager_state),
+        }
 
     def initialize(self, agent: "Agent", **kwargs: Any) -> None:
         """Initialize an agent with a session.

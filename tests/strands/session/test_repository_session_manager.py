@@ -595,3 +595,164 @@ def test_fix_broken_tool_use_does_not_affect_normal_conversations(session_manage
 
     # Should remain unchanged
     assert fixed_messages == messages
+
+
+# ============================================================================
+# Conditional Sync Tests
+# ============================================================================
+
+
+def test_sync_agent_skips_update_when_state_not_dirty_and_internal_state_unchanged(mock_repository):
+    """Test that sync_agent() skips update_agent() when state is not dirty and internal state unchanged."""
+    session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+
+    # Create and initialize agent
+    agent = Agent(agent_id="test-agent", session_manager=session_manager)
+
+    # Track update_agent calls
+    update_agent_calls = []
+    original_update_agent = mock_repository.update_agent
+
+    def tracking_update_agent(session_id, session_agent):
+        update_agent_calls.append((session_id, session_agent))
+        return original_update_agent(session_id, session_agent)
+
+    mock_repository.update_agent = tracking_update_agent
+
+    # First sync should update (to establish baseline)
+    session_manager.sync_agent(agent)
+    assert len(update_agent_calls) == 1
+
+    # Clear tracking
+    update_agent_calls.clear()
+
+    # Second sync without changes should skip update
+    session_manager.sync_agent(agent)
+    assert len(update_agent_calls) == 0
+
+
+def test_sync_agent_calls_update_when_state_is_dirty(mock_repository):
+    """Test that sync_agent() calls update_agent() when agent.state is dirty."""
+    session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+
+    # Create and initialize agent
+    agent = Agent(agent_id="test-agent", session_manager=session_manager)
+
+    # Track update_agent calls
+    update_agent_calls = []
+    original_update_agent = mock_repository.update_agent
+
+    def tracking_update_agent(session_id, session_agent):
+        update_agent_calls.append((session_id, session_agent))
+        return original_update_agent(session_id, session_agent)
+
+    mock_repository.update_agent = tracking_update_agent
+
+    # First sync to establish baseline
+    session_manager.sync_agent(agent)
+    update_agent_calls.clear()
+
+    # Modify state (makes it dirty)
+    agent.state.set("key", "value")
+
+    # Sync should call update_agent because state is dirty
+    session_manager.sync_agent(agent)
+    assert len(update_agent_calls) == 1
+
+
+def test_sync_agent_calls_update_when_internal_state_changed(mock_repository):
+    """Test that sync_agent() calls update_agent() when internal state has changed."""
+    session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+
+    # Create and initialize agent
+    agent = Agent(agent_id="test-agent", session_manager=session_manager)
+
+    # Track update_agent calls
+    update_agent_calls = []
+    original_update_agent = mock_repository.update_agent
+
+    def tracking_update_agent(session_id, session_agent):
+        update_agent_calls.append((session_id, session_agent))
+        return original_update_agent(session_id, session_agent)
+
+    mock_repository.update_agent = tracking_update_agent
+
+    # First sync to establish baseline
+    session_manager.sync_agent(agent)
+    update_agent_calls.clear()
+
+    # Modify internal state (interrupt state context)
+    agent._interrupt_state.context["changed"] = "value"
+
+    # Sync should call update_agent because internal state changed
+    session_manager.sync_agent(agent)
+    assert len(update_agent_calls) == 1
+
+
+def test_sync_agent_clears_dirty_flag_after_successful_sync(mock_repository):
+    """Test that sync_agent() clears the dirty flag after successful sync."""
+    session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+
+    # Create and initialize agent
+    agent = Agent(agent_id="test-agent", session_manager=session_manager)
+
+    # First sync to establish baseline
+    session_manager.sync_agent(agent)
+
+    # Modify state (makes it dirty)
+    agent.state.set("key", "value")
+    assert agent.state._is_dirty() is True
+
+    # Sync should clear dirty flag
+    session_manager.sync_agent(agent)
+    assert agent.state._is_dirty() is False
+
+
+def test_sync_agent_keeps_dirty_flag_on_failure(mock_repository):
+    """Test that sync_agent() keeps dirty flag set if update_agent() fails."""
+    session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+
+    # Create and initialize agent
+    agent = Agent(agent_id="test-agent", session_manager=session_manager)
+
+    # First sync to establish baseline
+    session_manager.sync_agent(agent)
+
+    # Modify state (makes it dirty)
+    agent.state.set("key", "value")
+    assert agent.state._is_dirty() is True
+
+    # Make update_agent fail
+    def failing_update_agent(session_id, session_agent):
+        raise SessionException("Update failed")
+
+    mock_repository.update_agent = failing_update_agent
+
+    # Sync should fail and keep dirty flag set
+    with pytest.raises(SessionException, match="Update failed"):
+        session_manager.sync_agent(agent)
+
+    # Dirty flag should remain True for retry
+    assert agent.state._is_dirty() is True
+
+
+def test_sync_agent_first_sync_always_updates(mock_repository):
+    """Test that the first sync_agent() call always updates (no previous state to compare)."""
+    session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+
+    # Create and initialize agent
+    agent = Agent(agent_id="test-agent", session_manager=session_manager)
+
+    # Track update_agent calls
+    update_agent_calls = []
+    original_update_agent = mock_repository.update_agent
+
+    def tracking_update_agent(session_id, session_agent):
+        update_agent_calls.append((session_id, session_agent))
+        return original_update_agent(session_id, session_agent)
+
+    mock_repository.update_agent = tracking_update_agent
+
+    # First sync should always update (no previous state)
+    session_manager.sync_agent(agent)
+    assert len(update_agent_calls) == 1
