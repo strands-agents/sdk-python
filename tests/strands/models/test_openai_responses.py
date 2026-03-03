@@ -725,6 +725,50 @@ async def test_structured_output_rate_limit_as_throttle(openai_client, model, me
     assert exc_info.value.__cause__ == mock_error
 
 
+@pytest.mark.asyncio
+async def test_structured_output_bad_request_non_context_overflow(
+    openai_client, model, messages, test_output_model_cls
+):
+    """Test that structured output re-raises non-context-overflow BadRequestErrors."""
+    mock_error = openai.BadRequestError(
+        message="Invalid request format",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "invalid_request"}},
+    )
+    mock_error.code = "invalid_request"
+
+    openai_client.responses.parse.side_effect = mock_error
+
+    with pytest.raises(openai.BadRequestError) as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    assert exc_info.value == mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_no_parsed_output(openai_client, model, messages, test_output_model_cls, alist):
+    """Test that structured output raises ValueError when output_parsed is None."""
+    mock_response = unittest.mock.Mock(output_parsed=None)
+    openai_client.responses.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    with pytest.raises(ValueError, match="No valid parsed output"):
+        await alist(model.structured_output(test_output_model_cls, messages))
+
+
+@pytest.mark.asyncio
+async def test_stream_with_empty_tool_result_content(model):
+    """Test formatting tool result with empty content list."""
+    tool_result = {
+        "content": [],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    result = OpenAIResponsesModel._format_request_tool_message(tool_result)
+    assert result["output"] == ""
+
+
 def test_config_validation_warns_on_unknown_keys(openai_client, captured_warnings):
     """Test that unknown config keys emit a warning."""
     OpenAIResponsesModel({"api_key": "test"}, model_id="test-model", invalid_param="test")
