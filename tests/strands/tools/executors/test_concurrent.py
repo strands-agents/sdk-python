@@ -101,3 +101,5 @@ async def test_concurrent_executor_reraises_exceptions(
 
     with pytest.raises(RuntimeError, match="Tool error"):
         await alist(stream)
+
+    assert tool_results == []
