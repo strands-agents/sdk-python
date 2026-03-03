@@ -364,6 +364,12 @@ class MCPClient(ToolProvider):
                     self._startup_timeout,
                 )
                 return
+
+        if self._background_thread_event_loop is not None:
+            self._background_thread_event_loop.close()
+
+        self._log_debug_with_thread("background thread is closed, MCPClient context exited")
+
         # Reset fields to allow instance reuse
         self._init_future = futures.Future()
         self._background_thread = None
