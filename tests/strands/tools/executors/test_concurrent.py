@@ -79,44 +79,20 @@ async def test_concurrent_executor_interrupt(
 
 
 @pytest.mark.asyncio
-async def test_concurrent_executor_propagates_hook_exception(
+async def test_concurrent_executor_reraises_exceptions(
     executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context, alist
 ):
-    """Exception re-raised by an after-tool-call hook propagates out of _execute()."""
+    """Test that hook re-raised exceptions propagate and cancel remaining tasks."""
 
-    def reraise_on_exception(event):
+    def reraise_callback(event):
         if event.exception is not None:
             raise event.exception
 
-    agent.hooks.add_callback(AfterToolCallEvent, reraise_on_exception)
+    agent.hooks.add_callback(AfterToolCallEvent, reraise_callback)
 
     tool_uses = [
         {"name": "exception_tool", "toolUseId": "1", "input": {}},
-    ]
-
-    stream = executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
-    )
-
-    with pytest.raises(RuntimeError, match="Tool error"):
-        await alist(stream)
-
-
-@pytest.mark.asyncio
-async def test_concurrent_executor_propagates_exception_with_concurrent_tools(
-    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context, alist
-):
-    """Exception from one task propagates even when other concurrent tasks succeed."""
-
-    def reraise_on_exception(event):
-        if event.exception is not None:
-            raise event.exception
-
-    agent.hooks.add_callback(AfterToolCallEvent, reraise_on_exception)
-
-    tool_uses = [
-        {"name": "weather_tool", "toolUseId": "1", "input": {}},
-        {"name": "exception_tool", "toolUseId": "2", "input": {}},
+        {"name": "slow_tool", "toolUseId": "2", "input": {}},
     ]
 
     stream = executor._execute(
