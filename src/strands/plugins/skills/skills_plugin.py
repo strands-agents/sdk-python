@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from xml.sax.saxutils import escape
 
 from ...hooks.events import BeforeInvocationEvent
 from ...plugins import Plugin, hook
@@ -99,7 +100,8 @@ class SkillsPlugin(Plugin):
             skill_name: Name of the skill to activate.
         """
         if not skill_name:
-            return "Error: skill_name is required."
+            available = ", ".join(self._skills)
+            return f"Error: skill_name is required. Available skills: {available}"
 
         found = self._skills.get(skill_name)
         if found is None:
@@ -158,17 +160,31 @@ class SkillsPlugin(Plugin):
         return list(self._skills.values())
 
     @available_skills.setter
-    def available_skills(self, value: list[str | Path | Skill]) -> None:
-        """Set the available skills, resolving paths as needed.
+    def available_skills(self, value: list[Skill]) -> None:
+        """Set the available skills directly.
 
-        Deactivates any currently active skill when skills are changed.
+        If the currently active skill is no longer in the new list, it is deactivated.
 
         Args:
-            value: List of skill sources to resolve.
+            value: List of Skill instances.
         """
-        self._skills = self._resolve_skills(value)
-        self._active_skill = None
+        self._skills = {s.name: s for s in value}
+        if self._active_skill and self._active_skill.name not in self._skills:
+            self._active_skill = None
         self._persist_state()
+
+    def load_skills(self, sources: list[str | Path | Skill]) -> None:
+        """Resolve and append skills from mixed sources.
+
+        Each source can be a ``Skill`` instance, a path to a skill directory,
+        or a path to a parent directory containing multiple skills. Resolved
+        skills are merged into the current set (duplicates overwrite).
+
+        Args:
+            sources: List of skill sources to resolve and add.
+        """
+        resolved = self._resolve_skills(sources)
+        self._skills.update(resolved)
 
     @property
     def active_skill(self) -> Skill | None:
@@ -258,8 +274,8 @@ class SkillsPlugin(Plugin):
 
         for skill in self._skills.values():
             lines.append("<skill>")
-            lines.append(f"<name>{skill.name}</name>")
-            lines.append(f"<description>{skill.description}</description>")
+            lines.append(f"<name>{escape(skill.name)}</name>")
+            lines.append(f"<description>{escape(skill.description)}</description>")
             if skill.path is not None:
                 lines.append(f"<location>{skill.path / 'SKILL.md'}</location>")
             lines.append("</skill>")

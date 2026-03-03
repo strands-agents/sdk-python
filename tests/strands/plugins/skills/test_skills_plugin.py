@@ -185,8 +185,8 @@ class TestSkillsPluginProperties:
         assert len(plugin.available_skills) == 1
         assert plugin.available_skills[0].name == "new-skill"
 
-    def test_available_skills_setter_deactivates_current(self):
-        """Test that setting skills deactivates the current active skill."""
+    def test_available_skills_setter_deactivates_when_removed(self):
+        """Test that setting skills deactivates the active skill when it's no longer in the list."""
         plugin = SkillsPlugin(skills=[_make_skill()])
         plugin._agent = _mock_agent()
         plugin._active_skill = _make_skill()
@@ -194,6 +194,19 @@ class TestSkillsPluginProperties:
         plugin.available_skills = [_make_skill(name="new-skill", description="New")]
 
         assert plugin.active_skill is None
+
+    def test_available_skills_setter_preserves_active_when_present(self):
+        """Test that setting skills keeps the active skill when it's still in the list."""
+        skill = _make_skill()
+        plugin = SkillsPlugin(skills=[skill])
+        plugin._agent = _mock_agent()
+        plugin._active_skill = skill
+
+        new_skill = _make_skill(name="new-skill", description="New")
+        plugin.available_skills = [skill, new_skill]
+
+        assert plugin.active_skill is not None
+        assert plugin.active_skill.name == "test-skill"
 
     def test_active_skill_initially_none(self):
         """Test that active_skill is None initially."""
@@ -432,6 +445,15 @@ class TestSkillsXmlGeneration:
         xml = plugin._generate_skills_xml()
 
         assert "<location>" not in xml
+
+    def test_escapes_xml_special_characters(self):
+        """Test that XML special characters in names and descriptions are escaped."""
+        skill = _make_skill(name="a<b>&c", description="Use <tools> & more")
+        plugin = SkillsPlugin(skills=[skill])
+        xml = plugin._generate_skills_xml()
+
+        assert "<name>a&lt;b&gt;&amp;c</name>" in xml
+        assert "<description>Use &lt;tools&gt; &amp; more</description>" in xml
 
 
 class TestSkillResponseFormat:

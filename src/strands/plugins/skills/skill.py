@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -35,6 +36,6 @@ class Skill:
     instructions: str = ""
     path: Path | None = None
     allowed_tools: list[str] | None = None
-    metadata: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     license: str | None = None
     compatibility: str | None = None

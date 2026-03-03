@@ -173,9 +173,9 @@ def load_skill(skill_path: str | Path) -> Skill:
 
     # Parse metadata (nested mapping)
     metadata_raw = frontmatter.get("metadata", {})
-    metadata: dict[str, str] = {}
+    metadata: dict[str, Any] = {}
     if isinstance(metadata_raw, dict):
-        metadata = {str(k): str(v) for k, v in metadata_raw.items()}
+        metadata = {str(k): v for k, v in metadata_raw.items()}
 
     skill_license = frontmatter.get("license")
     compatibility = frontmatter.get("compatibility")
