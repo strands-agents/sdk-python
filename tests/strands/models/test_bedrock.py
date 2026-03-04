@@ -2582,19 +2582,19 @@ async def test_format_request_with_guardrail_multiple_tool_results_same_message(
     assert formatted_messages[0]["content"][0]["guardContent"]["text"]["text"] == "Question requiring multiple tools"
 
 
-def test_resolve_cache_strategy_anthropic_for_claude(bedrock_client):
-    """Test that _resolve_cache_strategy returns 'anthropic' for Claude models."""
+def test_cache_strategy_anthropic_for_claude(bedrock_client):
+    """Test that _cache_strategy returns 'anthropic' for Claude models."""
     model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
-    assert model._resolve_cache_strategy == "anthropic"
+    assert model._cache_strategy == "anthropic"
 
     model2 = BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0")
-    assert model2._resolve_cache_strategy == "anthropic"
+    assert model2._cache_strategy == "anthropic"
 
 
-def test_resolve_cache_strategy_none_for_non_claude(bedrock_client):
-    """Test that _resolve_cache_strategy returns None for unsupported models."""
+def test_cache_strategy_none_for_non_claude(bedrock_client):
+    """Test that _cache_strategy returns None for unsupported models."""
     model = BedrockModel(model_id="amazon.nova-pro-v1:0")
-    assert model._resolve_cache_strategy is None
+    assert model._cache_strategy is None
 
 
 def test_inject_cache_point_adds_to_last_assistant(bedrock_client):
@@ -2695,7 +2695,10 @@ def test_inject_cache_point_strips_existing_cache_points(bedrock_client):
 
 def test_inject_cache_point_anthropic_strategy_skips_model_check(bedrock_client):
     """Test that anthropic strategy injects cache point without model support check."""
-    model = BedrockModel(model_id="arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/a1b2c3d4e5f6", cache_config=CacheConfig(strategy="anthropic"))
+    model = BedrockModel(
+        model_id="arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/a1b2c3d4e5f6",
+        cache_config=CacheConfig(strategy="anthropic"),
+    )
 
     messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
