@@ -443,16 +443,18 @@ def test_dedicated_summarization_agent_with_structured_output(model, summarizati
     )
 
     # Build conversation history
-    agent.messages.extend([
-        {"role": "user", "content": [{"text": "Tell me about Python programming."}]},
-        {"role": "assistant", "content": [{"text": "Python is a high-level programming language."}]},
-        {"role": "user", "content": [{"text": "What about its type system?"}]},
-        {"role": "assistant", "content": [{"text": "Python uses dynamic typing with optional type hints."}]},
-        {"role": "user", "content": [{"text": "How does async work in Python?"}]},
-        {"role": "assistant", "content": [{"text": "Python uses asyncio with async/await syntax."}]},
-        {"role": "user", "content": [{"text": "What about decorators?"}]},
-        {"role": "assistant", "content": [{"text": "Decorators are functions that modify other functions."}]},
-    ])
+    agent.messages.extend(
+        [
+            {"role": "user", "content": [{"text": "Tell me about Python programming."}]},
+            {"role": "assistant", "content": [{"text": "Python is a high-level programming language."}]},
+            {"role": "user", "content": [{"text": "What about its type system?"}]},
+            {"role": "assistant", "content": [{"text": "Python uses dynamic typing with optional type hints."}]},
+            {"role": "user", "content": [{"text": "How does async work in Python?"}]},
+            {"role": "assistant", "content": [{"text": "Python uses asyncio with async/await syntax."}]},
+            {"role": "user", "content": [{"text": "What about decorators?"}]},
+            {"role": "assistant", "content": [{"text": "Decorators are functions that modify other functions."}]},
+        ]
+    )
 
     original_length = len(agent.messages)
     agent.conversation_manager.reduce_context(agent)
