@@ -177,15 +177,6 @@ class BedrockModel(Model):
 
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
-    @property
-    def _supports_caching(self) -> bool:
-        """Whether this model supports prompt caching.
-
-        Returns True for Claude models on Bedrock.
-        """
-        model_id = self.config.get("model_id", "").lower()
-        return "claude" in model_id or "anthropic" in model_id
-
     @override
     def update_config(self, **model_config: Unpack[BedrockConfig]) -> None:  # type: ignore
         """Update the Bedrock Model configuration with the provided arguments.
@@ -460,13 +451,7 @@ class BedrockModel(Model):
         # Inject cache point into cleaned_messages (not original messages) if cache_config is set
         cache_config = self.config.get("cache_config")
         if cache_config and cache_config.strategy == "auto":
-            if self._supports_caching:
-                self._inject_cache_point(cleaned_messages)
-            else:
-                logger.warning(
-                    "model_id=<%s> | cache_config is enabled but this model does not support caching",
-                    self.config.get("model_id"),
-                )
+            self._inject_cache_point(cleaned_messages)
 
         return cleaned_messages
 
