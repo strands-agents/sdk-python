@@ -361,21 +361,33 @@ class LiteLLMModel(OpenAIModel):
 
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
-        if not response.choices or response.choices[0].finish_reason != "tool_calls":
-            raise ValueError("No tool_calls found in response")
+        if not response.choices:
+            raise ValueError("No choices found in response")
 
         choice = response.choices[0]
-        try:
-            # Parse the tool call content as JSON
-            tool_call = choice.message.tool_calls[0]
-            tool_call_data = json.loads(tool_call.function.arguments)
-            # Instantiate the output model with the parsed data
-            return output_model(**tool_call_data)
-        except ContextWindowExceededError as e:
-            logger.warning("litellm client raised context window overflow in structured_output")
-            raise ContextWindowOverflowException(e) from e
-        except (json.JSONDecodeError, TypeError, ValueError) as e:
-            raise ValueError(f"Failed to parse or load content into model: {e}") from e
+
+        if choice.finish_reason == "tool_calls" and choice.message.tool_calls:
+            try:
+                tool_call = choice.message.tool_calls[0]
+                tool_call_data = json.loads(tool_call.function.arguments)
+                return output_model(**tool_call_data)
+            except ContextWindowExceededError as e:
+                logger.warning("litellm client raised context window overflow in structured_output")
+                raise ContextWindowOverflowException(e) from e
+            except (json.JSONDecodeError, TypeError, ValueError) as e:
+                raise ValueError(f"Failed to parse or load content into model: {e}") from e
+
+        # Some providers return structured JSON in content with finish_reason='stop'
+        content = getattr(choice.message, "content", None)
+        if content:
+            try:
+                tool_call_data = json.loads(content)
+                return output_model(**tool_call_data)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                pass
+
+        finish_reasons = [getattr(c, "finish_reason", None) for c in response.choices]
+        raise ValueError(f"No tool_calls found in response (finish_reasons={finish_reasons})")
 
     async def _process_choice_content(
         self, choice: Any, data_type: str | None, tool_calls: dict[int, list[Any]], is_streaming: bool = True
