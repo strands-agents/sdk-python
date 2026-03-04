@@ -52,10 +52,12 @@ class _InterruptState:
     interrupts: dict[str, Interrupt] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
     activated: bool = False
+    _dirty: bool = field(default=False, compare=False, repr=False)
 
     def activate(self) -> None:
         """Activate the interrupt state."""
         self.activated = True
+        self._dirty = True
 
     def deactivate(self) -> None:
         """Deacitvate the interrupt state.
@@ -65,6 +67,7 @@ class _InterruptState:
         self.interrupts = {}
         self.context = {}
         self.activated = False
+        self._dirty = True
 
     def resume(self, prompt: "AgentInput") -> None:
         """Configure the interrupt state if resuming from an interrupt event.
@@ -100,10 +103,31 @@ class _InterruptState:
             self.interrupts[interrupt_id].response = interrupt_response
 
         self.context["responses"] = contents
+        self._dirty = True
+
+    def _is_dirty(self) -> bool:
+        """Check if the interrupt state has been modified since initialization or last clear.
+
+        Returns:
+            True if state-modifying methods have been called since initialization or
+            the last call to _clear_dirty(), False otherwise.
+        """
+        return self._dirty
+
+    def _clear_dirty(self) -> None:
+        """Reset the dirty flag to False.
+
+        Called after successful persistence to mark the state as clean.
+        """
+        self._dirty = False
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for session management."""
-        return asdict(self)
+        return {
+            "interrupts": {k: v.to_dict() for k, v in self.interrupts.items()},
+            "context": self.context,
+            "activated": self.activated,
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "_InterruptState":

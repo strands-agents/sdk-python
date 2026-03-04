@@ -661,7 +661,7 @@ def test_sync_agent_calls_update_when_state_is_dirty(mock_repository):
 
 
 def test_sync_agent_calls_update_when_internal_state_changed(mock_repository):
-    """Test that sync_agent() calls update_agent() when internal state has changed."""
+    """Test that sync_agent() calls update_agent() when internal state (interrupt_state) is dirty."""
     session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
 
     # Create and initialize agent
@@ -681,10 +681,10 @@ def test_sync_agent_calls_update_when_internal_state_changed(mock_repository):
     session_manager.sync_agent(agent)
     update_agent_calls.clear()
 
-    # Modify internal state (interrupt state context)
-    agent._interrupt_state.context["changed"] = "value"
+    # Modify internal state (activate interrupt state which sets dirty flag)
+    agent._interrupt_state.activate()
 
-    # Sync should call update_agent because internal state changed
+    # Sync should call update_agent because internal state is dirty
     session_manager.sync_agent(agent)
     assert len(update_agent_calls) == 1
 

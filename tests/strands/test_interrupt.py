@@ -127,3 +127,59 @@ def test_interrupt_resume_invalid_id():
     exp_message = r"interrupt_id=<invalid> \| no interrupt found"
     with pytest.raises(KeyError, match=exp_message):
         interrupt_state.resume([{"interruptResponse": {"interruptId": "invalid", "response": None}}])
+
+
+# ============================================================================
+# Dirty Flag Tests
+# ============================================================================
+
+
+def test_interrupt_state_is_dirty_returns_false_after_initialization():
+    """Test that _is_dirty() returns False after initialization."""
+    interrupt_state = _InterruptState()
+    assert interrupt_state._is_dirty() is False
+
+
+def test_interrupt_state_is_dirty_returns_true_after_activate():
+    """Test that _is_dirty() returns True after activate() is called."""
+    interrupt_state = _InterruptState()
+    interrupt_state.activate()
+    assert interrupt_state._is_dirty() is True
+
+
+def test_interrupt_state_is_dirty_returns_true_after_deactivate():
+    """Test that _is_dirty() returns True after deactivate() is called."""
+    interrupt_state = _InterruptState(activated=True)
+    interrupt_state.deactivate()
+    assert interrupt_state._is_dirty() is True
+
+
+def test_interrupt_state_is_dirty_returns_true_after_resume():
+    """Test that _is_dirty() returns True after resume() is called."""
+    interrupt_state = _InterruptState(
+        interrupts={"test_id": Interrupt(id="test_id", name="test_name", reason="test reason")},
+        activated=True,
+    )
+    prompt = [{"interruptResponse": {"interruptId": "test_id", "response": "test response"}}]
+    interrupt_state.resume(prompt)
+    assert interrupt_state._is_dirty() is True
+
+
+def test_interrupt_state_clear_dirty_resets_flag_to_false():
+    """Test that _clear_dirty() resets dirty flag to False."""
+    interrupt_state = _InterruptState()
+    interrupt_state.activate()
+    assert interrupt_state._is_dirty() is True
+
+    interrupt_state._clear_dirty()
+    assert interrupt_state._is_dirty() is False
+
+
+def test_interrupt_state_dirty_flag_not_in_to_dict():
+    """Test that _dirty flag is not included in to_dict() output."""
+    interrupt_state = _InterruptState()
+    interrupt_state.activate()
+
+    data = interrupt_state.to_dict()
+    assert "_dirty" not in data
+    assert "dirty" not in data
