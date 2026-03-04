@@ -44,19 +44,6 @@ def _find_skill_md(skill_dir: Path) -> Path:
     raise FileNotFoundError(f"path=<{skill_dir}> | no SKILL.md found in skill directory")
 
 
-def _parse_yaml(yaml_text: str) -> dict[str, Any]:
-    """Parse YAML text into a dictionary.
-
-    Args:
-        yaml_text: YAML-formatted text to parse.
-
-    Returns:
-        Dictionary of parsed key-value pairs.
-    """
-    result = yaml.safe_load(yaml_text)
-    return result if isinstance(result, dict) else {}
-
-
 def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     """Parse YAML frontmatter and body from SKILL.md content.
 
@@ -84,7 +71,8 @@ def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     frontmatter_str = stripped[3 : match.start()].strip()
     body = stripped[match.end() :].strip()
 
-    frontmatter = _parse_yaml(frontmatter_str)
+    result = yaml.safe_load(frontmatter_str)
+    frontmatter: dict[str, Any] = result if isinstance(result, dict) else {}
     return frontmatter, body
 
 

@@ -25,7 +25,7 @@ class Skill:
         description: Human-readable description of what the skill does.
         instructions: Full markdown instructions from the SKILL.md body.
         path: Filesystem path to the skill directory, if loaded from disk.
-        allowed_tools: List of tool names the skill is allowed to use.
+        allowed_tools: List of tool names the skill is allowed to use. (Experimental: not yet enforced)
         metadata: Additional key-value metadata from the SKILL.md frontmatter.
         license: License identifier (e.g., "Apache-2.0").
         compatibility: Compatibility information string.

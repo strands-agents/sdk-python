@@ -46,8 +46,8 @@ def test_agent_activates_skill_and_injects_metadata(agent, skills_plugin):
     assert "<name>translation</name>" in agent.system_prompt
 
     # Model activated the skill and relayed the codeword from instructions
-    assert skills_plugin.active_skill is not None
-    assert skills_plugin.active_skill.name == "summarization"
+    assert skills_plugin.get_active_skill(agent) is not None
+    assert skills_plugin.get_active_skill(agent).name == "summarization"
     assert "pineapple" in str(result).lower()
 
 
@@ -61,8 +61,8 @@ def test_direct_tool_invocation_and_state_persistence(agent, skills_plugin):
     assert "translation expert" in response_text
 
     # Plugin tracks the active skill
-    assert skills_plugin.active_skill is not None
-    assert skills_plugin.active_skill.name == "translation"
+    assert skills_plugin.get_active_skill(agent) is not None
+    assert skills_plugin.get_active_skill(agent).name == "translation"
 
     # State was persisted to agent state
     state = agent.state.get("skills_plugin")

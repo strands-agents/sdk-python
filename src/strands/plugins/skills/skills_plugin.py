@@ -15,6 +15,7 @@ from xml.sax.saxutils import escape
 from ...hooks.events import BeforeInvocationEvent
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
+from ...types.tools import ToolContext
 from .loader import load_skill, load_skills
 from .skill import Skill
 
@@ -23,9 +24,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_STATE_KEY = "skills_plugin"
+_DEFAULT_STATE_KEY = "skills_plugin"
 _RESOURCE_DIRS = ("scripts", "references", "assets")
-_MAX_RESOURCE_FILES = 20
+_DEFAULT_MAX_RESOURCE_FILES = 20
 
 
 class SkillsPlugin(Plugin):
@@ -61,7 +62,12 @@ class SkillsPlugin(Plugin):
         """A stable string identifier for the plugin."""
         return "skills"
 
-    def __init__(self, skills: list[str | Path | Skill]) -> None:
+    def __init__(
+        self,
+        skills: list[str | Path | Skill],
+        state_key: str = _DEFAULT_STATE_KEY,
+        max_resource_files: int = _DEFAULT_MAX_RESOURCE_FILES,
+    ) -> None:
         """Initialize the SkillsPlugin.
 
         Args:
@@ -70,10 +76,12 @@ class SkillsPlugin(Plugin):
                 - A ``str`` or ``Path`` to a skill directory (containing SKILL.md)
                 - A ``str`` or ``Path`` to a parent directory (containing skill subdirectories)
                 - A ``Skill`` dataclass instance
+            state_key: Key used to store plugin state in ``agent.state``.
+            max_resource_files: Maximum number of resource files to list in skill responses.
         """
         self._skills: dict[str, Skill] = self._resolve_skills(skills)
-        self._active_skill: Skill | None = None
-        self._agent: Agent | None = None
+        self._state_key = state_key
+        self._max_resource_files = max_resource_files
         super().__init__()
 
     def init_agent(self, agent: Agent) -> None:
@@ -85,12 +93,11 @@ class SkillsPlugin(Plugin):
         Args:
             agent: The agent instance to extend with skills support.
         """
-        self._agent = agent
-        self._restore_state()
+        self._restore_state(agent)
         logger.debug("skill_count=<%d> | skills plugin initialized", len(self._skills))
 
-    @tool
-    def skills(self, skill_name: str) -> str:
+    @tool(context=True)
+    def skills(self, skill_name: str, tool_context: ToolContext) -> str:  # noqa: D417
         """Activate a skill to load its full instructions.
 
         Use this tool to load the complete instructions for a skill listed in
@@ -99,6 +106,8 @@ class SkillsPlugin(Plugin):
         Args:
             skill_name: Name of the skill to activate.
         """
+        agent = tool_context.agent
+
         if not skill_name:
             available = ", ".join(self._skills)
             return f"Error: skill_name is required. Available skills: {available}"
@@ -108,9 +117,7 @@ class SkillsPlugin(Plugin):
             available = ", ".join(self._skills)
             return f"Skill '{skill_name}' not found. Available skills: {available}"
 
-        self._active_skill = found
-        self._persist_state()
-
+        self._set_state_field(agent, "active_skill_name", found.name)
         logger.debug("skill_name=<%s> | skill activated", skill_name)
         return self._format_skill_response(found)
 
@@ -134,7 +141,7 @@ class SkillsPlugin(Plugin):
         current_prompt = agent.system_prompt or ""
 
         # Remove the previously injected XML block by exact match
-        state_data = agent.state.get(_STATE_KEY)
+        state_data = agent.state.get(self._state_key)
         last_injected_xml = state_data.get("last_injected_xml") if isinstance(state_data, dict) else None
         if last_injected_xml is not None:
             if last_injected_xml in current_prompt:
@@ -163,15 +170,14 @@ class SkillsPlugin(Plugin):
     def available_skills(self, value: list[Skill]) -> None:
         """Set the available skills directly.
 
-        If the currently active skill is no longer in the new list, it is deactivated.
+        Note: this does not persist state or deactivate skills on any agent.
+        Active skill state is managed per-agent and will be reconciled on the
+        next tool call or invocation.
 
         Args:
             value: List of Skill instances.
         """
         self._skills = {s.name: s for s in value}
-        if self._active_skill and self._active_skill.name not in self._skills:
-            self._active_skill = None
-        self._persist_state()
 
     def load_skills(self, sources: list[str | Path | Skill]) -> None:
         """Resolve and append skills from mixed sources.
@@ -186,14 +192,23 @@ class SkillsPlugin(Plugin):
         resolved = self._resolve_skills(sources)
         self._skills.update(resolved)
 
-    @property
-    def active_skill(self) -> Skill | None:
-        """Get the currently active skill.
+    def get_active_skill(self, agent: Agent) -> Skill | None:
+        """Get the currently active skill for a given agent.
+
+        Args:
+            agent: The agent to check active skill for.
 
         Returns:
             The active Skill instance, or None if no skill is active.
         """
-        return self._active_skill
+        state_data = agent.state.get(self._state_key)
+        if not isinstance(state_data, dict):
+            return None
+
+        active_name = state_data.get("active_skill_name")
+        if isinstance(active_name, str):
+            return self._skills.get(active_name)
+        return None
 
     def _format_skill_response(self, skill: Skill) -> str:
         """Format the tool response when a skill is activated.
@@ -236,7 +251,7 @@ class SkillsPlugin(Plugin):
 
         Scans the ``scripts/``, ``references/``, and ``assets/`` subdirectories
         for files, returning relative paths. Results are capped at
-        ``_MAX_RESOURCE_FILES`` to avoid context bloat.
+        ``max_resource_files`` to avoid context bloat.
 
         Args:
             skill_path: Path to the skill directory.
@@ -255,8 +270,8 @@ class SkillsPlugin(Plugin):
                 if not file_path.is_file():
                     continue
                 files.append(file_path.relative_to(skill_path).as_posix())
-                if len(files) >= _MAX_RESOURCE_FILES:
-                    files.append(f"... (truncated at {_MAX_RESOURCE_FILES} files)")
+                if len(files) >= self._max_resource_files:
+                    files.append(f"... (truncated at {self._max_resource_files} files)")
                     return files
 
         return files
@@ -277,7 +292,7 @@ class SkillsPlugin(Plugin):
             lines.append(f"<name>{escape(skill.name)}</name>")
             lines.append(f"<description>{escape(skill.description)}</description>")
             if skill.path is not None:
-                lines.append(f"<location>{skill.path / 'SKILL.md'}</location>")
+                lines.append(f"<location>{escape(str(skill.path / 'SKILL.md'))}</location>")
             lines.append("</skill>")
 
         lines.append("</available_skills>")
@@ -342,13 +357,6 @@ class SkillsPlugin(Plugin):
         logger.debug("source_count=<%d>, resolved_count=<%d> | skills resolved", len(sources), len(resolved))
         return resolved
 
-    def _persist_state(self) -> None:
-        """Persist the active skill name to agent state for session recovery."""
-        if self._agent is None:
-            return
-
-        self._set_state_field(self._agent, "active_skill_name", self._active_skill.name if self._active_skill else None)
-
     def _set_state_field(self, agent: Agent, key: str, value: Any) -> None:
         """Set a single field in the plugin's agent state dict.
 
@@ -357,23 +365,22 @@ class SkillsPlugin(Plugin):
             key: The state field key.
             value: The value to set.
         """
-        state_data = agent.state.get(_STATE_KEY)
+        state_data = agent.state.get(self._state_key)
         if not isinstance(state_data, dict):
             state_data = {}
         state_data[key] = value
-        agent.state.set(_STATE_KEY, state_data)
+        agent.state.set(self._state_key, state_data)
 
-    def _restore_state(self) -> None:
-        """Restore the active skill from agent state if available."""
-        if self._agent is None:
-            return
+    def _restore_state(self, agent: Agent) -> None:
+        """Restore the active skill from agent state if available.
 
-        state_data = self._agent.state.get(_STATE_KEY)
+        Args:
+            agent: The agent whose state to restore from.
+        """
+        state_data = agent.state.get(self._state_key)
         if not isinstance(state_data, dict):
             return
 
         active_name = state_data.get("active_skill_name")
-        if isinstance(active_name, str):
-            self._active_skill = self._skills.get(active_name)
-            if self._active_skill:
-                logger.debug("skill_name=<%s> | restored active skill from state", active_name)
+        if isinstance(active_name, str) and active_name in self._skills:
+            logger.debug("skill_name=<%s> | restored active skill from state", active_name)
