@@ -689,6 +689,35 @@ def test_sync_agent_calls_update_when_internal_state_changed(mock_repository):
     assert len(update_agent_calls) == 1
 
 
+def test_sync_agent_calls_update_when_conversation_manager_state_changed(mock_repository):
+    """Test that sync_agent() calls update_agent() when conversation manager state changed."""
+    session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+
+    # Create and initialize agent
+    agent = Agent(agent_id="test-agent", session_manager=session_manager)
+
+    # Track update_agent calls
+    update_agent_calls = []
+    original_update_agent = mock_repository.update_agent
+
+    def tracking_update_agent(session_id, session_agent):
+        update_agent_calls.append((session_id, session_agent))
+        return original_update_agent(session_id, session_agent)
+
+    mock_repository.update_agent = tracking_update_agent
+
+    # First sync to establish baseline
+    session_manager.sync_agent(agent)
+    update_agent_calls.clear()
+
+    # Modify conversation manager state
+    agent.conversation_manager.removed_message_count = 5
+
+    # Sync should call update_agent because conversation manager state changed
+    session_manager.sync_agent(agent)
+    assert len(update_agent_calls) == 1
+
+
 def test_sync_agent_clears_dirty_flag_after_successful_sync(mock_repository):
     """Test that sync_agent() clears the dirty flag after successful sync."""
     session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
