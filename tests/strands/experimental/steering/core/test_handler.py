@@ -1,5 +1,6 @@
 """Unit tests for steering handler base class."""
 
+import inspect
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -8,6 +9,7 @@ from strands.experimental.steering.core.action import Guide, Interrupt, Proceed
 from strands.experimental.steering.core.context import SteeringContext, SteeringContextCallback, SteeringContextProvider
 from strands.experimental.steering.core.handler import SteeringHandler
 from strands.hooks.events import AfterModelCallEvent, BeforeToolCallEvent
+from strands.hooks.registry import HookRegistry
 from strands.plugins import Plugin
 
 
@@ -38,15 +40,24 @@ def test_steering_handler_is_plugin():
 
 
 def test_init_agent():
-    """Test init_agent registers hooks on agent."""
+    """Test init_agent with plugin registry registers hooks on agent."""
+    from strands.plugins.registry import _PluginRegistry
+
     handler = TestSteeringHandler()
     agent = Mock()
+    agent.hooks = HookRegistry()
+    agent.tool_registry = Mock()
+    agent.add_hook = Mock(side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback))
 
-    handler.init_agent(agent)
+    # Use the registry to properly initialize the plugin
+    registry = _PluginRegistry(agent)
+    registry.add_and_init(handler)
 
-    # Verify hooks were registered (tool and model steering hooks)
+    # Verify hooks were registered (tool and model steering hooks via @hook decorator)
     assert agent.add_hook.call_count >= 2
-    agent.add_hook.assert_any_call(handler._provide_tool_steering_guidance, BeforeToolCallEvent)
+    # Check that the decorated hook methods were registered
+    assert BeforeToolCallEvent in agent.hooks._registered_callbacks
+    assert AfterModelCallEvent in agent.hooks._registered_callbacks
 
 
 def test_steering_context_initialization():
@@ -86,7 +97,7 @@ async def test_proceed_action_flow():
     tool_use = {"name": "test_tool"}
     event = BeforeToolCallEvent(agent=agent, selected_tool=None, tool_use=tool_use, invocation_state={})
 
-    await handler._provide_tool_steering_guidance(event)
+    await handler.provide_tool_steering_guidance(event)
 
     # Should not modify event for Proceed
     assert not event.cancel_tool
@@ -105,7 +116,7 @@ async def test_guide_action_flow():
     tool_use = {"name": "test_tool"}
     event = BeforeToolCallEvent(agent=agent, selected_tool=None, tool_use=tool_use, invocation_state={})
 
-    await handler._provide_tool_steering_guidance(event)
+    await handler.provide_tool_steering_guidance(event)
 
     # Should set cancel_tool with guidance message
     expected_message = "Tool call cancelled. Test guidance You MUST follow this guidance immediately."
@@ -126,7 +137,7 @@ async def test_interrupt_action_approved_flow():
     event.tool_use = tool_use
     event.interrupt = Mock(return_value=True)  # Approved
 
-    await handler._provide_tool_steering_guidance(event)
+    await handler.provide_tool_steering_guidance(event)
 
     event.interrupt.assert_called_once()
 
@@ -145,7 +156,7 @@ async def test_interrupt_action_denied_flow():
     event.tool_use = tool_use
     event.interrupt = Mock(return_value=False)  # Denied
 
-    await handler._provide_tool_steering_guidance(event)
+    await handler.provide_tool_steering_guidance(event)
 
     event.interrupt.assert_called_once()
     assert event.cancel_tool.startswith("Manual approval denied:")
@@ -165,7 +176,7 @@ async def test_unknown_action_flow():
     event = BeforeToolCallEvent(agent=agent, selected_tool=None, tool_use=tool_use, invocation_state={})
 
     with pytest.raises(ValueError, match="Unknown steering action type"):
-        await handler._provide_tool_steering_guidance(event)
+        await handler.provide_tool_steering_guidance(event)
 
 
 def test_init_agent_override():
@@ -218,62 +229,86 @@ class TestSteeringHandlerWithProvider(SteeringHandler):
 
 
 def test_handler_registers_context_provider_hooks():
-    """Test that handler registers hooks from context callbacks."""
+    """Test that handler registers hooks from context callbacks via registry."""
+    from strands.plugins.registry import _PluginRegistry
+
     mock_callback = MockContextCallback()
     handler = TestSteeringHandlerWithProvider(context_callbacks=[mock_callback])
     agent = Mock()
+    agent.hooks = HookRegistry()
+    agent.tool_registry = Mock()
+    agent.add_hook = Mock(side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback))
 
-    handler.init_agent(agent)
+    # Use the registry to properly initialize the plugin
+    registry = _PluginRegistry(agent)
+    registry.add_and_init(handler)
 
-    # Should register hooks for context callback and steering guidance
+    # Should register hooks for context callback (via init_agent) and steering guidance (via @hook)
+    # init_agent registers context callbacks manually, @hook decorated methods are auto-registered
     assert agent.add_hook.call_count >= 2
 
-    # Check that BeforeToolCallEvent was registered
-    call_args = [call[0] for call in agent.add_hook.call_args_list]
-    event_types = [args[1] for args in call_args]
-
-    assert BeforeToolCallEvent in event_types
+    # Check that BeforeToolCallEvent was registered (both context callback and steering guidance)
+    assert BeforeToolCallEvent in agent.hooks._registered_callbacks
 
 
-def test_context_callbacks_receive_steering_context():
+@pytest.mark.asyncio
+async def test_context_callbacks_receive_steering_context():
     """Test that context callbacks receive the handler's steering context."""
+    from strands.plugins.registry import _PluginRegistry
+
     mock_callback = MockContextCallback()
     handler = TestSteeringHandlerWithProvider(context_callbacks=[mock_callback])
     agent = Mock()
+    agent.hooks = HookRegistry()
+    agent.tool_registry = Mock()
+    agent.add_hook = Mock(side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback))
 
-    handler.init_agent(agent)
+    # Use the registry to properly initialize the plugin
+    registry = _PluginRegistry(agent)
+    registry.add_and_init(handler)
 
-    # Get the registered callback for BeforeToolCallEvent
-    before_callback = None
-    for call in agent.add_hook.call_args_list:
-        if call[0][1] == BeforeToolCallEvent:
-            before_callback = call[0][0]
-            break
+    # Get the registered callbacks for BeforeToolCallEvent
+    callbacks = agent.hooks._registered_callbacks.get(BeforeToolCallEvent, [])
+    assert len(callbacks) > 0
 
-    assert before_callback is not None
-
-    # Create a mock event and call the callback
+    # The context callback is wrapped in a lambda, so we just call all callbacks
+    # and check if the steering context was updated
     event = Mock(spec=BeforeToolCallEvent)
     event.tool_use = {"name": "test_tool", "input": {}}
 
-    # The callback should execute without error and update the steering context
-    before_callback(event)
+    # Call all callbacks, handling both sync and async
+    for cb in callbacks:
+        try:
+            result = await cb(event)
+            if inspect.iscoroutine(result):
+                await result
+        except Exception:
+            pass  # Some callbacks might be async or have other requirements
 
-    # Verify the steering context was updated
+    # Verify the steering context was updated by at least one callback
     assert handler.steering_context.data.get("test_key") == "test_value"
 
 
 def test_multiple_context_callbacks_registered():
-    """Test that multiple context callbacks are registered."""
+    """Test that multiple context callbacks are registered via registry."""
+    from strands.plugins.registry import _PluginRegistry
+
     callback1 = MockContextCallback()
     callback2 = MockContextCallback()
 
     handler = TestSteeringHandlerWithProvider(context_callbacks=[callback1, callback2])
     agent = Mock()
+    agent.hooks = HookRegistry()
+    agent.tool_registry = Mock()
+    agent.add_hook = Mock(side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback))
 
-    handler.init_agent(agent)
+    # Use the registry to properly initialize the plugin
+    registry = _PluginRegistry(agent)
+    registry.add_and_init(handler)
 
-    # Should register one callback for each context provider plus tool and model steering guidance
+    # Should register:
+    # - 2 callbacks for context providers (via init_agent manual registration)
+    # - 2 for steering guidance (via @hook decorator auto-registration)
     expected_calls = 2 + 2  # 2 callbacks + 2 for steering guidance (tool and model)
     assert agent.add_hook.call_count >= expected_calls
 
@@ -310,7 +345,7 @@ async def test_model_steering_proceed_action_flow():
     event.stop_response = stop_response
     event.retry = False
 
-    await handler._provide_model_steering_guidance(event)
+    await handler.provide_model_steering_guidance(event)
 
     # Should not set retry for Proceed
     assert event.retry is False
@@ -334,7 +369,7 @@ async def test_model_steering_guide_action_flow():
     event.stop_response = stop_response
     event.retry = False
 
-    await handler._provide_model_steering_guidance(event)
+    await handler.provide_model_steering_guidance(event)
 
     # Should set retry flag
     assert event.retry is True
@@ -362,7 +397,7 @@ async def test_model_steering_skips_when_no_stop_response():
     event = Mock(spec=AfterModelCallEvent)
     event.stop_response = None
 
-    await handler._provide_model_steering_guidance(event)
+    await handler.provide_model_steering_guidance(event)
 
     # steer_after_model should not have been called
     assert handler.steer_called is False
@@ -386,7 +421,7 @@ async def test_model_steering_unknown_action_raises_error():
     event.stop_response = stop_response
 
     with pytest.raises(ValueError, match="Unknown steering action type for model response"):
-        await handler._provide_model_steering_guidance(event)
+        await handler.provide_model_steering_guidance(event)
 
 
 @pytest.mark.asyncio
@@ -407,7 +442,7 @@ async def test_model_steering_interrupt_raises_error():
     event.stop_response = stop_response
 
     with pytest.raises(ValueError, match="Unknown steering action type for model response"):
-        await handler._provide_model_steering_guidance(event)
+        await handler.provide_model_steering_guidance(event)
 
 
 @pytest.mark.asyncio
@@ -429,7 +464,7 @@ async def test_model_steering_exception_handling():
     event.retry = False
 
     # Should not raise, just return early
-    await handler._provide_model_steering_guidance(event)
+    await handler.provide_model_steering_guidance(event)
 
     # retry should not be set since exception occurred
     assert event.retry is False
@@ -449,7 +484,7 @@ async def test_tool_steering_exception_handling():
     event = BeforeToolCallEvent(agent=agent, selected_tool=None, tool_use=tool_use, invocation_state={})
 
     # Should not raise, just return early
-    await handler._provide_tool_steering_guidance(event)
+    await handler.provide_tool_steering_guidance(event)
 
     # cancel_tool should not be set since exception occurred
     assert not event.cancel_tool
@@ -486,11 +521,20 @@ async def test_default_steer_after_model_returns_proceed():
 
 
 def test_init_agent_registers_model_steering():
-    """Test that init_agent registers model steering callback."""
+    """Test that model steering hook is registered via plugin registry."""
+    from strands.plugins.registry import _PluginRegistry
+
     handler = TestSteeringHandler()
     agent = Mock()
+    agent.hooks = HookRegistry()
+    agent.tool_registry = Mock()
+    agent.add_hook = Mock(side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback))
 
-    handler.init_agent(agent)
+    # Use the registry to properly initialize the plugin
+    registry = _PluginRegistry(agent)
+    registry.add_and_init(handler)
 
-    # Verify model steering hook was registered
-    agent.add_hook.assert_any_call(handler._provide_model_steering_guidance, AfterModelCallEvent)
+    # Verify model steering hook was registered via @hook decorator
+    assert AfterModelCallEvent in agent.hooks._registered_callbacks
+    callbacks = agent.hooks._registered_callbacks[AfterModelCallEvent]
+    assert len(callbacks) == 1

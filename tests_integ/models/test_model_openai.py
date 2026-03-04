@@ -9,15 +9,27 @@ from strands.event_loop._retry import ModelRetryStrategy
 from strands.models.openai import OpenAIModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from tests_integ.models import providers
+from tests_integ.models.providers import _openai_responses_available
+
+if _openai_responses_available:
+    from strands.models.openai_responses import OpenAIResponsesModel
 
 # these tests only run if we have the openai api key
 pytestmark = providers.openai.mark
 
 
-@pytest.fixture
-def model():
-    return OpenAIModel(
-        model_id="gpt-4o",
+def _model_params():
+    params = [(OpenAIModel, "gpt-4o")]
+    if _openai_responses_available:
+        params.append((OpenAIResponsesModel, "gpt-4o"))
+    return params
+
+
+@pytest.fixture(params=_model_params())
+def model(request):
+    model_class, model_id = request.param
+    return model_class(
+        model_id=model_id,
         client_args={
             "api_key": os.getenv("OPENAI_API_KEY"),
         },
@@ -73,7 +85,7 @@ def test_image_path(request):
     return request.config.rootpath / "tests_integ" / "test_image.png"
 
 
-def test_agent_invoke(agent):
+def test_agent_invoke(agent, model):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
@@ -81,7 +93,7 @@ def test_agent_invoke(agent):
 
 
 @pytest.mark.asyncio
-async def test_agent_invoke_async(agent):
+async def test_agent_invoke_async(agent, model):
     result = await agent.invoke_async("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
@@ -89,7 +101,7 @@ async def test_agent_invoke_async(agent):
 
 
 @pytest.mark.asyncio
-async def test_agent_stream_async(agent):
+async def test_agent_stream_async(agent, model):
     stream = agent.stream_async("What is the time and weather in New York?")
     async for event in stream:
         _ = event
@@ -170,15 +182,23 @@ def test_tool_returning_images(model, yellow_img):
     agent("Run the the tool and analyze the image")
 
 
-def test_context_window_overflow_integration():
+def _mini_model_params():
+    params = [(OpenAIModel, "gpt-4o-mini-2024-07-18")]
+    if _openai_responses_available:
+        params.append((OpenAIResponsesModel, "gpt-4o-mini-2024-07-18"))
+    return params
+
+
+@pytest.mark.parametrize("model_class,model_id", _mini_model_params())
+def test_context_window_overflow_integration(model_class, model_id):
     """Integration test for context window overflow with OpenAI.
 
     This test verifies that when a request exceeds the model's context window,
     the OpenAI model properly raises a ContextWindowOverflowException.
     """
     # Use gpt-4o-mini which has a smaller context window to make this test more reliable
-    mini_model = OpenAIModel(
-        model_id="gpt-4o-mini-2024-07-18",
+    mini_model = model_class(
+        model_id=model_id,
         client_args={
             "api_key": os.getenv("OPENAI_API_KEY"),
         },
@@ -198,14 +218,27 @@ def test_context_window_overflow_integration():
         agent(long_text)
 
 
-def test_rate_limit_throttling_integration_no_retries(model):
+def _rate_limit_params():
+    params = [(OpenAIModel, "gpt-4o")]
+    if _openai_responses_available:
+        params.append((OpenAIResponsesModel, "gpt-4o"))
+    return params
+
+
+@pytest.mark.parametrize("model_class,model_id", _rate_limit_params())
+def test_rate_limit_throttling_integration_no_retries(model_class, model_id):
     """Integration test for rate limit handling with retries disabled.
 
     This test verifies that when a request exceeds OpenAI's rate limits,
     the model properly raises a ModelThrottledException. We disable retries
     to avoid waiting for the exponential backoff during testing.
     """
-    # Patch the event loop constants to disable retries for this test
+    model = model_class(
+        model_id=model_id,
+        client_args={
+            "api_key": os.getenv("OPENAI_API_KEY"),
+        },
+    )
     agent = Agent(model=model, retry_strategy=ModelRetryStrategy(max_attempts=1))
 
     # Create a message that's very long to trigger token-per-minute rate limits
