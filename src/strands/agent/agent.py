@@ -830,6 +830,10 @@ class Agent(AgentBase):
             # Convert resume input to messages for next iteration, or None to stop
             if after_invocation_event.resume is not None:
                 logger.debug("resume=<True> | hook requested agent resume with new input")
+                # If in interrupt state, process interrupt responses before continuing.
+                # This mirrors the _interrupt_state.resume() call in stream_async and will
+                # raise TypeError if the resume input is not valid interrupt responses.
+                self._interrupt_state.resume(after_invocation_event.resume)
                 current_messages = await self._convert_prompt_to_messages(after_invocation_event.resume)
             else:
                 current_messages = None
