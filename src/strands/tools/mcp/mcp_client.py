@@ -355,17 +355,14 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("waiting for background thread to join")
             self._background_thread.join(timeout=self._startup_timeout)
             if self._background_thread.is_alive():
-                # If the background thread is still alive after the timeout, avoid closing
-                # the event loop or resetting internal state here. Doing so while the loop
-                # is potentially still running in another thread can raise RuntimeError and
-                # make the client appear reusable while teardown is still in progress.
                 logger.warning(
-                    "background thread did not exit within %d seconds; skipping event loop close and state reset",
+                    "background thread did not exit within %d seconds; "
+                    "skipping event loop close to avoid interfering with running thread",
                     self._startup_timeout,
                 )
-                return
-
-        if self._background_thread_event_loop is not None:
+            elif self._background_thread_event_loop is not None:
+                self._background_thread_event_loop.close()
+        elif self._background_thread_event_loop is not None:
             self._background_thread_event_loop.close()
 
         self._log_debug_with_thread("background thread is closed, MCPClient context exited")

@@ -538,10 +538,11 @@ def test_stop_closes_event_loop():
 
 
 def test_stop_does_not_hang_when_join_times_out():
-    """Test that stop() returns early when the background thread doesn't exit within the timeout.
+    """Test that stop() skips event loop close when the background thread doesn't exit within timeout.
 
     When join() times out (is_alive() returns True), stop() must skip event loop
-    close and state reset to avoid interacting with the still-running thread.
+    close to avoid interfering with the still-running thread, but still reset
+    state so the client can be reused.
     """
     client = MCPClient(MagicMock())
 
@@ -558,10 +559,10 @@ def test_stop_does_not_hang_when_join_times_out():
 
     # join should have been called with timeout, and stop() should return promptly
     mock_thread.join.assert_called_once_with(timeout=client._startup_timeout)
-    # When thread is still alive, stop() returns early without closing loop or resetting state
+    # When thread is still alive, stop() skips event loop close but still resets state
     mock_event_loop.close.assert_not_called()
-    assert client._background_thread is mock_thread
-    assert client._background_thread_event_loop is mock_event_loop
+    assert client._background_thread is None
+    assert client._background_thread_event_loop is None
 
 
 def test_mcp_client_state_reset_after_timeout():
