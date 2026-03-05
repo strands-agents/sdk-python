@@ -48,7 +48,7 @@ StopReason = Literal[
 ]
 """Reason for the model ending its response generation.
 
-- "cancelled": Agent execution was cancelled via CancellationToken
+- "cancelled": Agent execution was cancelled via agent.cancel()
 - "content_filtered": Content was filtered due to policy violation
 - "end_turn": Normal completion of the response
 - "guardrail_intervened": Guardrail system intervened

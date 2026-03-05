@@ -59,18 +59,18 @@ MAX_DELAY = 240  # 4 minutes
 def _should_cancel(invocation_state: dict[str, Any]) -> bool:
     """Check if cancellation has been requested.
 
-    This helper function checks the cancellation token in the invocation state
+    This helper function checks the cancel signal in the invocation state
     and returns True if cancellation has been requested. It's called at strategic
     checkpoints throughout the event loop to enable graceful termination.
 
     Args:
-        invocation_state: Invocation state containing optional cancellation token.
+        invocation_state: Invocation state containing optional cancel signal.
 
     Returns:
         True if cancellation has been requested, False otherwise.
     """
-    signal = invocation_state.get("stop_signal")
-    return signal.is_cancelled() if signal else False
+    signal = invocation_state.get("cancel_signal")
+    return signal.is_set() if signal else False
 
 
 def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
@@ -157,7 +157,7 @@ async def event_loop_cycle(
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
         yield EventLoopStopEvent(
             "cancelled",
-            {"role": "assistant", "content": []},
+            {"role": "assistant", "content": [{"text": "Cancelled by user"}]},
             agent.event_loop_metrics,
             invocation_state["request_state"],
         )
@@ -348,11 +348,11 @@ async def _handle_model_execution(
                 "model_id=<%s> | cancellation detected before model call",
                 agent.model.config.get("model_id") if hasattr(agent.model, "config") else None,
             )
-            # Return cancelled stop reason with empty message and zero usage/metrics
+            # Return cancelled stop reason with cancellation message and zero usage/metrics
             # since no model execution occurred
             yield ModelStopReason(
                 stop_reason="cancelled",
-                message={"role": "assistant", "content": []},
+                message={"role": "assistant", "content": [{"text": "Cancelled by user"}]},
                 usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
                 metrics=Metrics(latencyMs=0),
             )
@@ -518,9 +518,31 @@ async def _handle_tool_execution(
     interrupts = []
 
     # CHECKPOINT 4: Check for cancellation before tool execution
-    # This prevents tool execution when cancellation is requested
+    # Add tool_result for each tool_use to maintain valid conversation state
     if _should_cancel(invocation_state):
         logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
+
+        # Create cancellation tool_result for each tool_use to avoid invalid message state
+        # (tool_use without tool_result would be rejected on next invocation)
+        for tool_use in tool_uses:
+            cancel_result: ToolResult = {
+                "toolUseId": str(tool_use.get("toolUseId")),
+                "status": "error",
+                "content": [{"text": "Tool execution cancelled"}],
+            }
+            tool_results.append(cancel_result)
+
+        # Add tool results message to conversation if any tools were cancelled
+        if tool_results:
+            cancelled_tool_result_message: Message = {
+                "role": "user",
+                "content": [{"toolResult": result} for result in tool_results],
+            }
+            agent.messages.append(cancelled_tool_result_message)
+            await agent.hooks.invoke_callbacks_async(
+                MessageAddedEvent(agent=agent, message=cancelled_tool_result_message)
+            )
+
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
         yield EventLoopStopEvent(
             "cancelled",

@@ -29,7 +29,6 @@ from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
 from ..tools._tool_helpers import generate_missing_tool_result_content
-from ..types.stop_signal import StopSignal
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
@@ -241,8 +240,8 @@ class Agent(AgentBase):
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
 
-        # Create internal stop signal for graceful cancellation
-        self._stop_signal = StopSignal()
+        # Create internal cancel signal for graceful cancellation using threading.Event
+        self._cancel_signal = threading.Event()
 
         self.tool_registry = ToolRegistry()
 
@@ -362,7 +361,7 @@ class Agent(AgentBase):
         Note:
             Multiple calls to cancel() are safe and idempotent.
         """
-        self._stop_signal.cancel()
+        self._cancel_signal.set()
 
     @property
     def system_prompt(self) -> str | None:
@@ -761,8 +760,8 @@ class Agent(AgentBase):
                 if invocation_state is not None:
                     merged_state = invocation_state
 
-            # Add internal stop signal to invocation state for event loop access
-            merged_state["stop_signal"] = self._stop_signal
+            # Add internal cancel signal to invocation state for event loop access
+            merged_state["cancel_signal"] = self._cancel_signal
 
             callback_handler = self.callback_handler
             if kwargs:
@@ -796,6 +795,9 @@ class Agent(AgentBase):
                     raise
 
         finally:
+            # Clear cancel signal to allow agent reuse after cancellation
+            self._cancel_signal.clear()
+
             if self._invocation_lock.locked():
                 self._invocation_lock.release()
 

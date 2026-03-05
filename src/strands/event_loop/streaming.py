@@ -24,7 +24,6 @@ from ..types._events import (
 )
 from ..types.citations import CitationsContentBlock
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
-from ..types.stop_signal import StopSignal
 from ..types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStart,
@@ -371,14 +370,14 @@ def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | Non
 async def process_stream(
     chunks: AsyncIterable[StreamEvent],
     start_time: float | None = None,
-    stop_signal: StopSignal | None = None,
+    cancel_signal: Any | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
     Args:
         chunks: The chunks of the response stream from the model.
         start_time: Time when the model request is initiated
-        stop_signal: Optional signal to check for cancellation during streaming.
+        cancel_signal: Optional threading.Event to check for cancellation during streaming.
 
     Yields:
         The reason for stopping, the constructed message, and the usage metrics.
@@ -399,12 +398,17 @@ async def process_stream(
     metrics: Metrics = Metrics(latencyMs=0, timeToFirstByteMs=0)
 
     async for chunk in chunks:
-        # CHECKPOINT 3: Check for cancellation before processing stream chunks
-        # This allows cancellation during model response streaming
-        if stop_signal and stop_signal.is_cancelled():
+        # CHECKPOINT 3: Check for cancellation during stream processing
+        if cancel_signal and cancel_signal.is_set():
             logger.debug("cancellation detected during stream processing")
-            # Return cancelled stop reason with current state
-            yield ModelStopReason(stop_reason="cancelled", message=state["message"], usage=usage, metrics=metrics)
+            # Return cancelled stop reason with cancellation message
+            # The incomplete message in state["message"] is discarded and never added to agent.messages
+            yield ModelStopReason(
+                stop_reason="cancelled",
+                message={"role": "assistant", "content": [{"text": "Cancelled by user"}]},
+                usage=usage,
+                metrics=metrics,
+            )
             return
 
         # Track first byte time when we get first content
@@ -475,6 +479,6 @@ async def stream_messages(
         invocation_state=invocation_state,
     )
 
-    stop_signal = invocation_state.get("stop_signal") if invocation_state else None
-    async for event in process_stream(chunks, start_time, stop_signal):
+    cancel_signal = invocation_state.get("cancel_signal") if invocation_state else None
+    async for event in process_stream(chunks, start_time, cancel_signal):
         yield event
