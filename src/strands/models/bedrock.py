@@ -52,6 +52,14 @@ _MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
 ]
 
+# Models that support prompt caching
+# Anthropic Claude and Amazon Nova models on Bedrock support prompt caching
+_MODELS_SUPPORTING_CACHING = [
+    "anthropic",
+    "claude",
+    "nova",
+]
+
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
@@ -78,6 +86,7 @@ class BedrockModel(Model):
             additional_response_field_paths: Additional response field paths to extract
             cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
             cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
+                Supports Anthropic Claude and Amazon Nova models.
             cache_tools: Cache point type for tools
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
@@ -184,7 +193,7 @@ class BedrockModel(Model):
         Returns the appropriate cache strategy name, or None if automatic caching is not supported for this model.
         """
         model_id = self.config.get("model_id", "").lower()
-        if "claude" in model_id or "anthropic" in model_id:
+        if any(pattern in model_id for pattern in _MODELS_SUPPORTING_CACHING):
             return "anthropic"
         return None
 
