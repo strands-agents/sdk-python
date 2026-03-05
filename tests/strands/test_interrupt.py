@@ -130,56 +130,64 @@ def test_interrupt_resume_invalid_id():
 
 
 # ============================================================================
-# Dirty Flag Tests
+# Version Tracking Tests
 # ============================================================================
 
 
-def test_interrupt_state_is_dirty_returns_false_after_initialization():
-    """Test that _is_dirty() returns False after initialization."""
+def test_interrupt_state_version_is_zero_after_initialization():
+    """Test that _get_version() returns 0 after initialization."""
     interrupt_state = _InterruptState()
-    assert interrupt_state._is_dirty() is False
+    assert interrupt_state._get_version() == 0
 
 
-def test_interrupt_state_is_dirty_returns_true_after_activate():
-    """Test that _is_dirty() returns True after activate() is called."""
+def test_interrupt_state_version_increments_after_activate():
+    """Test that _get_version() increments after activate() is called."""
     interrupt_state = _InterruptState()
+    assert interrupt_state._get_version() == 0
+
     interrupt_state.activate()
-    assert interrupt_state._is_dirty() is True
+    assert interrupt_state._get_version() == 1
 
 
-def test_interrupt_state_is_dirty_returns_true_after_deactivate():
-    """Test that _is_dirty() returns True after deactivate() is called."""
+def test_interrupt_state_version_increments_after_deactivate():
+    """Test that _get_version() increments after deactivate() is called."""
     interrupt_state = _InterruptState(activated=True)
+    initial_version = interrupt_state._get_version()
+
     interrupt_state.deactivate()
-    assert interrupt_state._is_dirty() is True
+    assert interrupt_state._get_version() == initial_version + 1
 
 
-def test_interrupt_state_is_dirty_returns_true_after_resume():
-    """Test that _is_dirty() returns True after resume() is called."""
+def test_interrupt_state_version_increments_after_resume():
+    """Test that _get_version() increments after resume() is called."""
     interrupt_state = _InterruptState(
         interrupts={"test_id": Interrupt(id="test_id", name="test_name", reason="test reason")},
         activated=True,
     )
+    initial_version = interrupt_state._get_version()
+
     prompt = [{"interruptResponse": {"interruptId": "test_id", "response": "test response"}}]
     interrupt_state.resume(prompt)
-    assert interrupt_state._is_dirty() is True
+    assert interrupt_state._get_version() == initial_version + 1
 
 
-def test_interrupt_state_clear_dirty_resets_flag_to_false():
-    """Test that _clear_dirty() resets dirty flag to False."""
+def test_interrupt_state_version_increments_independently():
+    """Test that version increments independently for each operation."""
     interrupt_state = _InterruptState()
+    assert interrupt_state._get_version() == 0
+
     interrupt_state.activate()
-    assert interrupt_state._is_dirty() is True
+    assert interrupt_state._get_version() == 1
 
-    interrupt_state._clear_dirty()
-    assert interrupt_state._is_dirty() is False
+    interrupt_state.deactivate()
+    assert interrupt_state._get_version() == 2
 
 
-def test_interrupt_state_dirty_flag_not_in_to_dict():
-    """Test that _dirty flag is not included in to_dict() output."""
+def test_interrupt_state_version_not_in_to_dict():
+    """Test that _version is not included in to_dict() output."""
     interrupt_state = _InterruptState()
     interrupt_state.activate()
 
     data = interrupt_state.to_dict()
-    assert "_dirty" not in data
-    assert "dirty" not in data
+    assert "_version" not in data
+    assert "version" not in data

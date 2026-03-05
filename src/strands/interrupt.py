@@ -52,12 +52,12 @@ class _InterruptState:
     interrupts: dict[str, Interrupt] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
     activated: bool = False
-    _dirty: bool = field(default=False, compare=False, repr=False)
+    _version: int = field(default=0, compare=False, repr=False)
 
     def activate(self) -> None:
         """Activate the interrupt state."""
         self.activated = True
-        self._dirty = True
+        self._version += 1
 
     def deactivate(self) -> None:
         """Deacitvate the interrupt state.
@@ -67,7 +67,7 @@ class _InterruptState:
         self.interrupts = {}
         self.context = {}
         self.activated = False
-        self._dirty = True
+        self._version += 1
 
     def resume(self, prompt: "AgentInput") -> None:
         """Configure the interrupt state if resuming from an interrupt event.
@@ -103,23 +103,19 @@ class _InterruptState:
             self.interrupts[interrupt_id].response = interrupt_response
 
         self.context["responses"] = contents
-        self._dirty = True
+        self._version += 1
 
-    def _is_dirty(self) -> bool:
-        """Check if the interrupt state has been modified since initialization or last clear.
+    def _get_version(self) -> int:
+        """Get the current version number of the interrupt state.
+
+        The version is incremented each time activate(), deactivate(), or resume() is called.
+        Consumers can compare versions to detect changes without requiring
+        explicit dirty flag clearing.
 
         Returns:
-            True if state-modifying methods have been called since initialization or
-            the last call to _clear_dirty(), False otherwise.
+            The current version number.
         """
-        return self._dirty
-
-    def _clear_dirty(self) -> None:
-        """Reset the dirty flag to False.
-
-        Called after successful persistence to mark the state as clean.
-        """
-        self._dirty = False
+        return self._version
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for session management."""

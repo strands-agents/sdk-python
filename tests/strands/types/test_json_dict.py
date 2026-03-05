@@ -112,67 +112,65 @@ def test_initial_state():
 
 
 # ============================================================================
-# Dirty Flag Tests
+# Version Tracking Tests
 # ============================================================================
 
 
-def test_is_dirty_returns_false_after_initialization():
-    """Test that _is_dirty() returns False after initialization."""
+def test_version_is_zero_after_initialization():
+    """Test that _get_version() returns 0 after initialization."""
     state = JSONSerializableDict()
-    assert state._is_dirty() is False
+    assert state._get_version() == 0
 
 
-def test_is_dirty_returns_false_after_initialization_with_initial_state():
-    """Test that _is_dirty() returns False when initialized with initial_state."""
+def test_version_is_zero_after_initialization_with_initial_state():
+    """Test that _get_version() returns 0 when initialized with initial_state."""
     state = JSONSerializableDict(initial_state={"key": "value"})
-    assert state._is_dirty() is False
+    assert state._get_version() == 0
 
 
-def test_is_dirty_returns_true_after_set():
-    """Test that _is_dirty() returns True after set() is called."""
+def test_version_increments_after_set():
+    """Test that _get_version() increments after set() is called."""
     state = JSONSerializableDict()
+    assert state._get_version() == 0
+
     state.set("key", "value")
-    assert state._is_dirty() is True
-
-
-def test_is_dirty_returns_true_after_delete():
-    """Test that _is_dirty() returns True after delete() is called."""
-    state = JSONSerializableDict(initial_state={"key": "value"})
-    state.delete("key")
-    assert state._is_dirty() is True
-
-
-def test_is_dirty_returns_true_after_delete_nonexistent_key():
-    """Test that _is_dirty() returns True after delete() on nonexistent key."""
-    state = JSONSerializableDict()
-    state.delete("nonexistent")
-    assert state._is_dirty() is True
-
-
-def test_clear_dirty_resets_flag_to_false():
-    """Test that _clear_dirty() resets dirty flag to False."""
-    state = JSONSerializableDict()
-    state.set("key", "value")
-    assert state._is_dirty() is True
-
-    state._clear_dirty()
-    assert state._is_dirty() is False
-
-
-def test_dirty_flag_set_after_clear():
-    """Test that dirty flag is set after clear and subsequent set()."""
-    state = JSONSerializableDict()
-    state.set("key", "value")
-    state._clear_dirty()
+    assert state._get_version() == 1
 
     state.set("key2", "value2")
-    assert state._is_dirty() is True
+    assert state._get_version() == 2
 
 
-def test_dirty_flag_set_after_clear_and_delete():
-    """Test that dirty flag is set after clear and subsequent delete()."""
+def test_version_increments_after_delete():
+    """Test that _get_version() increments after delete() is called."""
     state = JSONSerializableDict(initial_state={"key": "value"})
-    state._clear_dirty()
+    assert state._get_version() == 0
 
     state.delete("key")
-    assert state._is_dirty() is True
+    assert state._get_version() == 1
+
+
+def test_version_increments_after_delete_nonexistent_key():
+    """Test that _get_version() increments after delete() on nonexistent key."""
+    state = JSONSerializableDict()
+    assert state._get_version() == 0
+
+    state.delete("nonexistent")
+    assert state._get_version() == 1
+
+
+def test_version_increments_independently():
+    """Test that version increments independently for each operation."""
+    state = JSONSerializableDict()
+    initial_version = state._get_version()
+
+    state.set("key1", "value1")
+    version_after_first_set = state._get_version()
+    assert version_after_first_set == initial_version + 1
+
+    state.set("key2", "value2")
+    version_after_second_set = state._get_version()
+    assert version_after_second_set == version_after_first_set + 1
+
+    state.delete("key1")
+    version_after_delete = state._get_version()
+    assert version_after_delete == version_after_second_set + 1

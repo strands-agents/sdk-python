@@ -107,24 +107,28 @@ class RepositorySessionManager(SessionManager):
             agent: Agent to sync to the session.
             **kwargs: Additional keyword arguments for future extensibility.
         """
-        # Get current conversation manager state for comparison
+        # Get current versions and conversation manager state
+        current_state_version = agent.state._get_version()
+        current_interrupt_state_version = agent._interrupt_state._get_version()
         current_conversation_manager_state = agent.conversation_manager.get_state()
 
         # Check if we have a previous state to compare against
         last_synced = self._last_synced_internal_state.get(agent.agent_id)
 
-        # Determine if we need to update using dirty flags and state comparison
-        state_dirty = agent.state._is_dirty()
-        internal_state_dirty = agent._interrupt_state._is_dirty()
+        # Determine if we need to update by comparing versions
         if last_synced is None:
             # First sync for this agent - always update
+            state_changed = True
+            internal_state_changed = True
             conversation_manager_state_changed = True
         else:
+            state_changed = current_state_version != last_synced.get("state_version")
+            internal_state_changed = current_interrupt_state_version != last_synced.get("interrupt_state_version")
             conversation_manager_state_changed = (
                 current_conversation_manager_state != last_synced.get("conversation_manager_state")
             )
 
-        if not state_dirty and not internal_state_dirty and not conversation_manager_state_changed:
+        if not state_changed and not internal_state_changed and not conversation_manager_state_changed:
             logger.debug(
                 "agent_id=<%s> | session_id=<%s> | skipping sync, no changes detected",
                 agent.agent_id,
@@ -133,12 +137,12 @@ class RepositorySessionManager(SessionManager):
             return
 
         logger.debug(
-            "agent_id=<%s> | session_id=<%s> | state_dirty=<%s>, internal_state_dirty=<%s>, "
+            "agent_id=<%s> | session_id=<%s> | state_changed=<%s>, internal_state_changed=<%s>, "
             "conversation_manager_state_changed=<%s> | syncing agent",
             agent.agent_id,
             self.session_id,
-            state_dirty,
-            internal_state_dirty,
+            state_changed,
+            internal_state_changed,
             conversation_manager_state_changed,
         )
 
@@ -148,10 +152,10 @@ class RepositorySessionManager(SessionManager):
             SessionAgent.from_agent(agent),
         )
 
-        # Clear dirty flags and update tracked state only after successful sync
-        agent.state._clear_dirty()
-        agent._interrupt_state._clear_dirty()
+        # Update tracked versions after successful sync
         self._last_synced_internal_state[agent.agent_id] = {
+            "state_version": current_state_version,
+            "interrupt_state_version": current_interrupt_state_version,
             "conversation_manager_state": copy.deepcopy(current_conversation_manager_state),
         }
 
