@@ -153,6 +153,7 @@ class MCPClient(ToolProvider):
         self._background_thread_event_loop: AbstractEventLoop | None = None
         self._loaded_tools: list[MCPAgentTool] | None = None
         self._tool_provider_started = False
+        self.server_instructions: str | None = None
         self._consumers: set[Any] = set()
 
         # Task support configuration and caching
@@ -732,9 +733,11 @@ class MCPClient(ToolProvider):
                     elicitation_callback=self._elicitation_callback,
                 ) as session:
                     self._log_debug_with_thread("initializing MCP session")
-                    await session.initialize()
+                    init_result = await session.initialize()
 
                     self._log_debug_with_thread("session initialized successfully")
+                    # Store server instructions from InitializeResult for Host applications
+                    self.server_instructions = init_result.instructions
                     # Store the session for use while we await the close event
                     self._background_thread_session = session
 

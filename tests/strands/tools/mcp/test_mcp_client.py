@@ -50,6 +50,20 @@ def test_mcp_client_context_manager(mock_transport, mock_session):
     assert client._background_thread is None
 
 
+def test_server_instructions_default(mock_transport, mock_session):
+    """Test that server_instructions defaults to None when server returns None."""
+    mock_session.initialize.return_value.instructions = None
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        assert client.server_instructions is None
+
+
+def test_server_instructions_from_server(mock_transport, mock_session):
+    """Test that server_instructions is populated from InitializeResult."""
+    mock_session.initialize.return_value.instructions = "Use tool A before tool B."
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        assert client.server_instructions == "Use tool A before tool B."
+
+
 def test_list_tools_sync(mock_transport, mock_session):
     """Test that list_tools_sync correctly retrieves and adapts tools."""
     mock_tool = MCPTool(name="test_tool", description="A test tool", inputSchema={"type": "object", "properties": {}})
