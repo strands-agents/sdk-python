@@ -835,6 +835,9 @@ class BedrockModel(Model):
                     if "contentBlockStart" in chunk and chunk["contentBlockStart"].get("start", {}).get("toolUse"):
                         has_tool_use = True
 
+                    if "contentBlockDelta" in chunk and chunk["contentBlockDelta"].get("delta", {}).get("toolUse"):
+                        has_tool_use = True
+
                     # Fix stopReason for streaming responses that contain tool use
                     if (
                         has_tool_use
