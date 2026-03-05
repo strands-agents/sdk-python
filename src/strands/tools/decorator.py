@@ -541,6 +541,18 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         """
         return self._tool_spec
 
+    @tool_spec.setter
+    def tool_spec(self, value: ToolSpec) -> None:
+        """Set the tool specification.
+
+        This allows runtime modification of the tool's schema, enabling dynamic
+        tool configurations based on feature flags or other runtime conditions.
+
+        Args:
+            value: The new tool specification.
+        """
+        self._tool_spec = value
+
     @property
     def tool_type(self) -> str:
         """Get the type of the tool.

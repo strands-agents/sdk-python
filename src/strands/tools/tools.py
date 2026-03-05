@@ -197,6 +197,18 @@ class PythonAgentTool(AgentTool):
         """
         return self._tool_spec
 
+    @tool_spec.setter
+    def tool_spec(self, value: ToolSpec) -> None:
+        """Set the tool specification.
+
+        This allows runtime modification of the tool's schema, enabling dynamic
+        tool configurations based on feature flags or other runtime conditions.
+
+        Args:
+            value: The new tool specification.
+        """
+        self._tool_spec = value
+
     @property
     def supports_hot_reload(self) -> bool:
         """Check if this tool supports automatic reloading when modified.
