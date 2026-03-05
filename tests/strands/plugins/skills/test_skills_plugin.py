@@ -164,18 +164,6 @@ class TestSkillsPluginInitAgent:
 
         assert not hasattr(plugin, "_agent")
 
-    def test_restores_state(self):
-        """Test that init_agent restores active skill from state."""
-        skill = _make_skill()
-        plugin = SkillsPlugin(skills=[skill])
-        agent = _mock_agent()
-        agent.state.set("skills_plugin", {"active_skill_name": "test-skill"})
-
-        plugin.init_agent(agent)
-
-        assert plugin.get_active_skill(agent) is not None
-        assert plugin.get_active_skill(agent).name == "test-skill"
-
 
 class TestSkillsPluginProperties:
     """Tests for SkillsPlugin properties."""
@@ -199,36 +187,6 @@ class TestSkillsPluginProperties:
 
         assert len(plugin.available_skills) == 1
         assert plugin.available_skills[0].name == "new-skill"
-
-    def test_get_active_skill_initially_none(self):
-        """Test that get_active_skill returns None initially."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
-        agent = _mock_agent()
-        assert plugin.get_active_skill(agent) is None
-
-    def test_get_active_skill_after_activation(self):
-        """Test that get_active_skill returns the activated skill."""
-        skill = _make_skill()
-        plugin = SkillsPlugin(skills=[skill])
-        agent = _mock_agent()
-        tool_context = _mock_tool_context(agent)
-
-        plugin.skills(skill_name="test-skill", tool_context=tool_context)
-
-        assert plugin.get_active_skill(agent) is not None
-        assert plugin.get_active_skill(agent).name == "test-skill"
-
-    def test_get_active_skill_returns_none_when_skill_removed(self):
-        """Test that get_active_skill returns None when the active skill is no longer available."""
-        skill = _make_skill()
-        plugin = SkillsPlugin(skills=[skill])
-        agent = _mock_agent()
-        tool_context = _mock_tool_context(agent)
-
-        plugin.skills(skill_name="test-skill", tool_context=tool_context)
-        plugin.available_skills = [_make_skill(name="other-skill", description="Other")]
-
-        assert plugin.get_active_skill(agent) is None
 
 
 class TestLoadSkills:
@@ -320,8 +278,6 @@ class TestSkillsTool:
         result = plugin.skills(skill_name="test-skill", tool_context=tool_context)
 
         assert "Full instructions here." in result
-        assert plugin.get_active_skill(agent) is not None
-        assert plugin.get_active_skill(agent).name == "test-skill"
 
     def test_activate_nonexistent_skill(self):
         """Test activating a nonexistent skill returns error message."""
@@ -343,11 +299,11 @@ class TestSkillsTool:
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
-        plugin.skills(skill_name="skill-a", tool_context=tool_context)
-        assert plugin.get_active_skill(agent).name == "skill-a"
+        result_a = plugin.skills(skill_name="skill-a", tool_context=tool_context)
+        assert "A instructions" in result_a
 
-        plugin.skills(skill_name="skill-b", tool_context=tool_context)
-        assert plugin.get_active_skill(agent).name == "skill-b"
+        result_b = plugin.skills(skill_name="skill-b", tool_context=tool_context)
+        assert "B instructions" in result_b
 
     def test_activate_without_name(self):
         """Test activating without a skill name returns error."""
@@ -358,33 +314,6 @@ class TestSkillsTool:
         result = plugin.skills(skill_name="", tool_context=tool_context)
 
         assert "required" in result.lower()
-
-    def test_activate_persists_state(self):
-        """Test that activating a skill persists state."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
-        agent = _mock_agent()
-        tool_context = _mock_tool_context(agent)
-
-        plugin.skills(skill_name="test-skill", tool_context=tool_context)
-
-        agent.state.set.assert_called()
-
-    def test_multi_agent_isolation(self):
-        """Test that skill activation is isolated per agent."""
-        skill_a = _make_skill(name="skill-a", description="A", instructions="A instructions")
-        skill_b = _make_skill(name="skill-b", description="B", instructions="B instructions")
-        plugin = SkillsPlugin(skills=[skill_a, skill_b])
-
-        agent1 = _mock_agent()
-        agent2 = _mock_agent()
-        ctx1 = _mock_tool_context(agent1)
-        ctx2 = _mock_tool_context(agent2)
-
-        plugin.skills(skill_name="skill-a", tool_context=ctx1)
-        plugin.skills(skill_name="skill-b", tool_context=ctx2)
-
-        assert plugin.get_active_skill(agent1).name == "skill-a"
-        assert plugin.get_active_skill(agent2).name == "skill-b"
 
 
 class TestSystemPromptInjection:
@@ -685,52 +614,6 @@ class TestSkillResponseFormat:
 
         assert "Available resources:" in result
         assert "truncated at 20 files" in result
-
-
-class TestSessionPersistence:
-    """Tests for session state persistence."""
-
-    def test_tool_persists_active_skill(self):
-        """Test that the tool persists the active skill name to agent state."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
-        agent = _mock_agent()
-        tool_context = _mock_tool_context(agent)
-
-        plugin.skills(skill_name="test-skill", tool_context=tool_context)
-
-        state = agent.state.get("skills_plugin")
-        assert state["active_skill_name"] == "test-skill"
-
-    def test_restore_state_activates_skill(self):
-        """Test restoring active skill from state."""
-        skill = _make_skill()
-        plugin = SkillsPlugin(skills=[skill])
-        agent = _mock_agent()
-        agent.state.set("skills_plugin", {"active_skill_name": "test-skill"})
-
-        plugin._restore_state(agent)
-
-        assert plugin.get_active_skill(agent) is not None
-        assert plugin.get_active_skill(agent).name == "test-skill"
-
-    def test_restore_state_no_data(self):
-        """Test restore when no state data exists."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
-        agent = _mock_agent()
-
-        plugin._restore_state(agent)
-
-        assert plugin.get_active_skill(agent) is None
-
-    def test_restore_state_skill_not_found(self):
-        """Test restore when saved skill is no longer available."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
-        agent = _mock_agent()
-        agent.state.set("skills_plugin", {"active_skill_name": "removed-skill"})
-
-        plugin._restore_state(agent)
-
-        assert plugin.get_active_skill(agent) is None
 
 
 class TestResolveSkills:

@@ -93,7 +93,6 @@ class SkillsPlugin(Plugin):
         Args:
             agent: The agent instance to extend with skills support.
         """
-        self._restore_state(agent)
         logger.debug("skill_count=<%d> | skills plugin initialized", len(self._skills))
 
     @tool(context=True)
@@ -117,7 +116,6 @@ class SkillsPlugin(Plugin):
             available = ", ".join(self._skills)
             return f"Skill '{skill_name}' not found. Available skills: {available}"
 
-        self._set_state_field(agent, "active_skill_name", found.name)
         logger.debug("skill_name=<%s> | skill activated", skill_name)
         return self._format_skill_response(found)
 
@@ -191,24 +189,6 @@ class SkillsPlugin(Plugin):
         """
         resolved = self._resolve_skills(sources)
         self._skills.update(resolved)
-
-    def get_active_skill(self, agent: Agent) -> Skill | None:
-        """Get the currently active skill for a given agent.
-
-        Args:
-            agent: The agent to check active skill for.
-
-        Returns:
-            The active Skill instance, or None if no skill is active.
-        """
-        state_data = agent.state.get(self._state_key)
-        if not isinstance(state_data, dict):
-            return None
-
-        active_name = state_data.get("active_skill_name")
-        if isinstance(active_name, str):
-            return self._skills.get(active_name)
-        return None
 
     def _format_skill_response(self, skill: Skill) -> str:
         """Format the tool response when a skill is activated.
@@ -371,16 +351,3 @@ class SkillsPlugin(Plugin):
         state_data[key] = value
         agent.state.set(self._state_key, state_data)
 
-    def _restore_state(self, agent: Agent) -> None:
-        """Restore the active skill from agent state if available.
-
-        Args:
-            agent: The agent whose state to restore from.
-        """
-        state_data = agent.state.get(self._state_key)
-        if not isinstance(state_data, dict):
-            return
-
-        active_name = state_data.get("active_skill_name")
-        if isinstance(active_name, str) and active_name in self._skills:
-            logger.debug("skill_name=<%s> | restored active skill from state", active_name)
