@@ -2597,8 +2597,8 @@ def test_cache_strategy_none_for_non_claude(bedrock_client):
     assert model._cache_strategy is None
 
 
-def test_inject_cache_point_adds_to_last_assistant(bedrock_client):
-    """Test that _inject_cache_point adds cache point to last assistant message."""
+def test_inject_cache_point_adds_to_last_user(bedrock_client):
+    """Test that _inject_cache_point adds cache point to last user message."""
     model = BedrockModel(
         model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
     )
@@ -2611,13 +2611,14 @@ def test_inject_cache_point_adds_to_last_assistant(bedrock_client):
 
     model._inject_cache_point(cleaned_messages)
 
-    assert len(cleaned_messages[1]["content"]) == 2
-    assert "cachePoint" in cleaned_messages[1]["content"][-1]
-    assert cleaned_messages[1]["content"][-1]["cachePoint"]["type"] == "default"
+    assert len(cleaned_messages[2]["content"]) == 2
+    assert "cachePoint" in cleaned_messages[2]["content"][-1]
+    assert cleaned_messages[2]["content"][-1]["cachePoint"]["type"] == "default"
+    assert len(cleaned_messages[1]["content"]) == 1
 
 
-def test_inject_cache_point_no_assistant_message(bedrock_client):
-    """Test that _inject_cache_point does nothing when no assistant message exists."""
+def test_inject_cache_point_single_user_message(bedrock_client):
+    """Test that _inject_cache_point adds cache point to single user message."""
     model = BedrockModel(
         model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
     )
@@ -2629,7 +2630,8 @@ def test_inject_cache_point_no_assistant_message(bedrock_client):
     model._inject_cache_point(cleaned_messages)
 
     assert len(cleaned_messages) == 1
-    assert len(cleaned_messages[0]["content"]) == 1
+    assert len(cleaned_messages[0]["content"]) == 2
+    assert "cachePoint" in cleaned_messages[0]["content"][-1]
 
 
 def test_inject_cache_point_skipped_for_non_claude(bedrock_client):
@@ -2643,6 +2645,8 @@ def test_inject_cache_point_skipped_for_non_claude(bedrock_client):
 
     formatted = model._format_bedrock_messages(messages)
 
+    assert len(formatted[0]["content"]) == 1
+    assert "cachePoint" not in formatted[0]["content"][0]
     assert len(formatted[1]["content"]) == 1
     assert "cachePoint" not in formatted[1]["content"][0]
 
@@ -2664,8 +2668,8 @@ def test_format_bedrock_messages_does_not_mutate_original(bedrock_client):
     formatted = model._format_bedrock_messages(original_messages)
 
     assert original_messages == messages_before
-    assert "cachePoint" not in original_messages[1]["content"][-1]
-    assert "cachePoint" in formatted[1]["content"][-1]
+    assert "cachePoint" not in original_messages[2]["content"][-1]
+    assert "cachePoint" in formatted[2]["content"][-1]
 
 
 def test_inject_cache_point_strips_existing_cache_points(bedrock_client):
@@ -2685,12 +2689,13 @@ def test_inject_cache_point_strips_existing_cache_points(bedrock_client):
     model._inject_cache_point(cleaned_messages)
 
     # All old cache points should be stripped
-    assert len(cleaned_messages[0]["content"]) == 1  # user: only text
+    assert len(cleaned_messages[0]["content"]) == 1  # first user: only text
     assert len(cleaned_messages[1]["content"]) == 1  # first assistant: only text
+    assert len(cleaned_messages[3]["content"]) == 1  # last assistant: only text
 
-    # New cache point should be at end of last assistant message
-    assert len(cleaned_messages[3]["content"]) == 2
-    assert "cachePoint" in cleaned_messages[3]["content"][-1]
+    # New cache point should be at end of last user message
+    assert len(cleaned_messages[2]["content"]) == 2
+    assert "cachePoint" in cleaned_messages[2]["content"][-1]
 
 
 def test_inject_cache_point_anthropic_strategy_skips_model_check(bedrock_client):
@@ -2707,9 +2712,10 @@ def test_inject_cache_point_anthropic_strategy_skips_model_check(bedrock_client)
 
     formatted = model._format_bedrock_messages(messages)
 
-    assert len(formatted[1]["content"]) == 2
-    assert "cachePoint" in formatted[1]["content"][-1]
-    assert formatted[1]["content"][-1]["cachePoint"]["type"] == "default"
+    assert len(formatted[0]["content"]) == 2
+    assert "cachePoint" in formatted[0]["content"][-1]
+    assert formatted[0]["content"][-1]["cachePoint"]["type"] == "default"
+    assert len(formatted[1]["content"]) == 1
 
 
 def test_inject_cache_point_auto_strategy_resolves_to_anthropic_for_claude(bedrock_client):
@@ -2725,8 +2731,9 @@ def test_inject_cache_point_auto_strategy_resolves_to_anthropic_for_claude(bedro
 
     formatted = model._format_bedrock_messages(messages)
 
-    assert len(formatted[1]["content"]) == 2
-    assert "cachePoint" in formatted[1]["content"][-1]
+    assert len(formatted[0]["content"]) == 2
+    assert "cachePoint" in formatted[0]["content"][-1]
+    assert len(formatted[1]["content"]) == 1
 
 
 def test_find_last_user_text_message_index_no_user_messages(bedrock_client):

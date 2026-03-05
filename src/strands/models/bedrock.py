@@ -339,7 +339,7 @@ class BedrockModel(Model):
         return {"additionalModelRequestFields": additional_fields}
 
     def _inject_cache_point(self, messages: list[dict[str, Any]]) -> None:
-        """Inject a cache point at the end of the last assistant message.
+        """Inject a cache point at the end of the last user message.
 
         Args:
             messages: List of messages to inject cache point into (modified in place).
@@ -347,7 +347,7 @@ class BedrockModel(Model):
         if not messages:
             return
 
-        last_assistant_idx: int | None = None
+        last_user_idx: int | None = None
         for msg_idx, msg in enumerate(messages):
             content = msg.get("content", [])
             for block_idx, block in reversed(list(enumerate(content))):
@@ -358,12 +358,12 @@ class BedrockModel(Model):
                         msg_idx,
                         block_idx,
                     )
-            if msg.get("role") == "assistant":
-                last_assistant_idx = msg_idx
+            if msg.get("role") == "user":
+                last_user_idx = msg_idx
 
-        if last_assistant_idx is not None and messages[last_assistant_idx].get("content"):
-            messages[last_assistant_idx]["content"].append({"cachePoint": {"type": "default"}})
-            logger.debug("msg_idx=<%s> | added cache point to last assistant message", last_assistant_idx)
+        if last_user_idx is not None and messages[last_user_idx].get("content"):
+            messages[last_user_idx]["content"].append({"cachePoint": {"type": "default"}})
+            logger.debug("msg_idx=<%s> | added cache point to last user message", last_user_idx)
 
     def _find_last_user_text_message_index(self, messages: Messages) -> int | None:
         """Find the index of the last user message containing text or image content.
