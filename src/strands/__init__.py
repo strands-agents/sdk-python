@@ -4,19 +4,19 @@ from . import agent, models, telemetry, types
 from .agent.agent import Agent
 from .agent.base import AgentBase
 from .event_loop._retry import ModelRetryStrategy
-from .plugins import Plugin, Skill, SkillsPlugin
+from .plugins import AgentSkills, Plugin, Skill
 from .tools.decorator import tool
 from .types.tools import ToolContext
 
 __all__ = [
     "Agent",
     "AgentBase",
+    "AgentSkills",
     "agent",
     "models",
     "ModelRetryStrategy",
     "Plugin",
     "Skill",
-    "SkillsPlugin",
     "tool",
     "ToolContext",
     "types",

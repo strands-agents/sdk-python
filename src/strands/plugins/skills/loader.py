@@ -71,15 +71,51 @@ def _parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     frontmatter_str = stripped[3 : match.start()].strip()
     body = stripped[match.end() :].strip()
 
-    result = yaml.safe_load(frontmatter_str)
+    try:
+        result = yaml.safe_load(frontmatter_str)
+    except yaml.YAMLError:
+        # AgentSkills spec recommends handling malformed YAML (e.g. unquoted colons in values)
+        # to improve cross-client compatibility. See: agentskills.io/client-implementation/adding-skills-support
+        logger.warning("YAML parse failed, retrying with colon-quoting fallback")
+        fixed = _fix_yaml_colons(frontmatter_str)
+        result = yaml.safe_load(fixed)
+
     frontmatter: dict[str, Any] = result if isinstance(result, dict) else {}
     return frontmatter, body
 
 
-def _validate_skill_name(name: str, dir_path: Path | None = None) -> None:
+def _fix_yaml_colons(yaml_str: str) -> str:
+    """Attempt to fix common YAML issues like unquoted colons in values.
+
+    Wraps values containing colons in double quotes to handle cases like:
+    ``description: Use this skill when: the user asks about PDFs``
+
+    Args:
+        yaml_str: The raw YAML string to fix.
+
+    Returns:
+        The fixed YAML string.
+    """
+    lines: list[str] = []
+    for line in yaml_str.splitlines():
+        # Match key: value where value contains another colon
+        match = re.match(r"^(\s*\w[\w-]*):\s+(.+)$", line)
+        if match:
+            key, value = match.group(1), match.group(2)
+            # If value contains a colon and isn't already quoted
+            if ":" in value and not (value.startswith('"') or value.startswith("'")):
+                line = f'{key}: "{value}"'
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _validate_skill_name(name: str, dir_path: Path | None = None, *, strict: bool = False) -> None:
     """Validate a skill name per the AgentSkills.io specification.
 
-    Rules:
+    In lenient mode (default), logs warnings for cosmetic issues but does not raise.
+    In strict mode, raises ValueError for any validation failure.
+
+    Rules checked:
     - 1-64 characters long
     - Lowercase alphanumeric characters and hyphens only
     - Cannot start or end with a hyphen
@@ -89,34 +125,48 @@ def _validate_skill_name(name: str, dir_path: Path | None = None) -> None:
     Args:
         name: The skill name to validate.
         dir_path: Optional path to the skill directory for name matching.
+        strict: If True, raise ValueError on any issue. If False (default), log warnings.
 
     Raises:
-        ValueError: If the skill name is invalid.
+        ValueError: If the skill name is empty, or if strict=True and any rule is violated.
     """
     if not name:
         raise ValueError("Skill name cannot be empty")
 
     if len(name) > _MAX_SKILL_NAME_LENGTH:
-        raise ValueError(f"name=<{name}> | skill name exceeds {_MAX_SKILL_NAME_LENGTH} character limit")
+        msg = "name=<%s> | skill name exceeds %d character limit"
+        if strict:
+            raise ValueError(msg % (name, _MAX_SKILL_NAME_LENGTH))
+        logger.warning(msg, name, _MAX_SKILL_NAME_LENGTH)
 
     if not _SKILL_NAME_PATTERN.match(name):
-        raise ValueError(
-            f"name=<{name}> | skill name must be 1-64 lowercase alphanumeric characters or hyphens, "
-            "cannot start/end with hyphen"
+        msg = (
+            "name=<%s> | skill name should be 1-64 lowercase alphanumeric characters or hyphens, "
+            "should not start/end with hyphen"
         )
+        if strict:
+            raise ValueError(msg % name)
+        logger.warning(msg, name)
 
     if "--" in name:
-        raise ValueError(f"name=<{name}> | skill name cannot contain consecutive hyphens")
+        msg = "name=<%s> | skill name contains consecutive hyphens"
+        if strict:
+            raise ValueError(msg % name)
+        logger.warning(msg, name)
 
     if dir_path is not None and dir_path.name != name:
-        raise ValueError(f"name=<{name}>, directory=<{dir_path.name}> | skill name must match parent directory name")
+        msg = "name=<%s>, directory=<%s> | skill name does not match parent directory name"
+        if strict:
+            raise ValueError(msg % (name, dir_path.name))
+        logger.warning(msg, name, dir_path.name)
 
 
-def load_skill(skill_path: str | Path) -> Skill:
+def load_skill(skill_path: str | Path, *, strict: bool = False) -> Skill:
     """Load a single skill from a directory containing SKILL.md.
 
     Args:
         skill_path: Path to the skill directory or the SKILL.md file itself.
+        strict: If True, raise on any validation issue. If False (default), warn and load anyway.
 
     Returns:
         A Skill instance populated from the SKILL.md file.
@@ -149,7 +199,7 @@ def load_skill(skill_path: str | Path) -> Skill:
     if not isinstance(description, str) or not description:
         raise ValueError(f"path=<{skill_md_path}> | SKILL.md must have a 'description' field in frontmatter")
 
-    _validate_skill_name(name, skill_dir)
+    _validate_skill_name(name, skill_dir, strict=strict)
 
     # Parse allowed-tools (space-delimited string or YAML list)
     allowed_tools_raw = frontmatter.get("allowed-tools") or frontmatter.get("allowed_tools")

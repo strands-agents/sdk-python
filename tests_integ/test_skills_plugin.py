@@ -1,4 +1,4 @@
-"""Integration tests for the SkillsPlugin.
+"""Integration tests for the AgentSkills plugin.
 
 Tests end-to-end behavior with a real model: skill metadata injection into
 the system prompt, agent-driven skill activation via the skills tool, and
@@ -8,7 +8,7 @@ session state persistence across invocations.
 import pytest
 
 from strands import Agent
-from strands.plugins.skills import Skill, SkillsPlugin
+from strands.plugins.skills import AgentSkills, Skill
 
 SUMMARIZATION_SKILL = Skill(
     name="summarization",
@@ -25,7 +25,7 @@ TRANSLATION_SKILL = Skill(
 
 @pytest.fixture
 def skills_plugin():
-    return SkillsPlugin(skills=[SUMMARIZATION_SKILL, TRANSLATION_SKILL])
+    return AgentSkills(skills=[SUMMARIZATION_SKILL, TRANSLATION_SKILL])
 
 
 @pytest.fixture

@@ -1,4 +1,4 @@
-"""Tests for the SkillsPlugin."""
+"""Tests for the AgentSkills plugin."""
 
 import logging
 from pathlib import Path
@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 from strands.hooks.events import BeforeInvocationEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins.registry import _PluginRegistry
+from strands.plugins.skills.agent_skills import AgentSkills
 from strands.plugins.skills.skill import Skill
-from strands.plugins.skills.skills_plugin import SkillsPlugin
 from strands.types.tools import ToolContext
 
 
@@ -70,12 +70,12 @@ def _set_system_prompt(agent: MagicMock, value: str | None) -> None:
 
 
 class TestSkillsPluginInit:
-    """Tests for SkillsPlugin initialization."""
+    """Tests for AgentSkills initialization."""
 
     def test_init_with_skill_instances(self):
         """Test initialization with Skill instances."""
         skill = _make_skill()
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
 
         assert len(plugin.available_skills) == 1
         assert plugin.available_skills[0].name == "test-skill"
@@ -83,7 +83,7 @@ class TestSkillsPluginInit:
     def test_init_with_filesystem_paths(self, tmp_path):
         """Test initialization with filesystem paths."""
         _make_skill_dir(tmp_path, "fs-skill")
-        plugin = SkillsPlugin(skills=[str(tmp_path / "fs-skill")])
+        plugin = AgentSkills(skills=[str(tmp_path / "fs-skill")])
 
         assert len(plugin.available_skills) == 1
         assert plugin.available_skills[0].name == "fs-skill"
@@ -92,7 +92,7 @@ class TestSkillsPluginInit:
         """Test initialization with a parent directory containing skills."""
         _make_skill_dir(tmp_path, "skill-a")
         _make_skill_dir(tmp_path, "skill-b")
-        plugin = SkillsPlugin(skills=[tmp_path])
+        plugin = AgentSkills(skills=[tmp_path])
 
         assert len(plugin.available_skills) == 2
 
@@ -100,7 +100,7 @@ class TestSkillsPluginInit:
         """Test initialization with mixed skill sources."""
         _make_skill_dir(tmp_path, "fs-skill")
         direct_skill = _make_skill(name="direct-skill", description="Direct")
-        plugin = SkillsPlugin(skills=[str(tmp_path / "fs-skill"), direct_skill])
+        plugin = AgentSkills(skills=[str(tmp_path / "fs-skill"), direct_skill])
 
         assert len(plugin.available_skills) == 2
         names = {s.name for s in plugin.available_skills}
@@ -108,27 +108,27 @@ class TestSkillsPluginInit:
 
     def test_init_skips_nonexistent_paths(self, tmp_path):
         """Test that nonexistent paths are skipped gracefully."""
-        plugin = SkillsPlugin(skills=[str(tmp_path / "nonexistent")])
+        plugin = AgentSkills(skills=[str(tmp_path / "nonexistent")])
         assert len(plugin.available_skills) == 0
 
     def test_init_empty_skills(self):
         """Test initialization with empty skills list."""
-        plugin = SkillsPlugin(skills=[])
+        plugin = AgentSkills(skills=[])
         assert plugin.available_skills == []
 
     def test_name_attribute(self):
         """Test that the plugin has the correct name."""
-        plugin = SkillsPlugin(skills=[])
+        plugin = AgentSkills(skills=[])
         assert plugin.name == "skills"
 
     def test_custom_state_key(self):
         """Test initialization with a custom state key."""
-        plugin = SkillsPlugin(skills=[], state_key="custom_key")
+        plugin = AgentSkills(skills=[], state_key="custom_key")
         assert plugin._state_key == "custom_key"
 
     def test_custom_max_resource_files(self):
         """Test initialization with a custom max resource files limit."""
-        plugin = SkillsPlugin(skills=[], max_resource_files=50)
+        plugin = AgentSkills(skills=[], max_resource_files=50)
         assert plugin._max_resource_files == 50
 
 
@@ -137,7 +137,7 @@ class TestSkillsPluginInitAgent:
 
     def test_registers_tool(self):
         """Test that the plugin registry registers the skills tool."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
 
         registry = _PluginRegistry(agent)
@@ -147,7 +147,7 @@ class TestSkillsPluginInitAgent:
 
     def test_registers_hooks(self):
         """Test that the plugin registry registers hook callbacks."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
 
         registry = _PluginRegistry(agent)
@@ -157,7 +157,7 @@ class TestSkillsPluginInitAgent:
 
     def test_does_not_store_agent_reference(self):
         """Test that init_agent does not store the agent on the plugin."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
 
         plugin.init_agent(agent)
@@ -166,12 +166,12 @@ class TestSkillsPluginInitAgent:
 
 
 class TestSkillsPluginProperties:
-    """Tests for SkillsPlugin properties."""
+    """Tests for AgentSkills properties."""
 
     def test_available_skills_getter_returns_copy(self):
         """Test that the available_skills getter returns a copy of the list."""
         skill = _make_skill()
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
 
         skills_list = plugin.available_skills
         skills_list.append(_make_skill(name="another-skill", description="Another"))
@@ -180,7 +180,7 @@ class TestSkillsPluginProperties:
 
     def test_available_skills_setter(self):
         """Test setting skills via the property setter."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
 
         new_skill = _make_skill(name="new-skill", description="New")
         plugin.available_skills = [new_skill]
@@ -194,7 +194,7 @@ class TestLoadSkills:
 
     def test_appends_skill_instances(self):
         """Test that load_skills appends Skill instances to existing skills."""
-        plugin = SkillsPlugin(skills=[_make_skill(name="existing", description="Existing")])
+        plugin = AgentSkills(skills=[_make_skill(name="existing", description="Existing")])
 
         plugin.load_skills([_make_skill(name="new-skill", description="New")])
 
@@ -204,7 +204,7 @@ class TestLoadSkills:
 
     def test_appends_from_filesystem(self, tmp_path):
         """Test that load_skills appends skills resolved from filesystem paths."""
-        plugin = SkillsPlugin(skills=[_make_skill(name="existing", description="Existing")])
+        plugin = AgentSkills(skills=[_make_skill(name="existing", description="Existing")])
         _make_skill_dir(tmp_path, "fs-skill")
 
         plugin.load_skills([str(tmp_path / "fs-skill")])
@@ -216,7 +216,7 @@ class TestLoadSkills:
     def test_duplicates_overwrite(self):
         """Test that loading a skill with the same name overwrites the existing one."""
         original = _make_skill(name="dupe", description="Original")
-        plugin = SkillsPlugin(skills=[original])
+        plugin = AgentSkills(skills=[original])
 
         replacement = _make_skill(name="dupe", description="Replacement")
         plugin.load_skills([replacement])
@@ -226,7 +226,7 @@ class TestLoadSkills:
 
     def test_mixed_sources(self, tmp_path):
         """Test load_skills with a mix of Skill instances and filesystem paths."""
-        plugin = SkillsPlugin(skills=[])
+        plugin = AgentSkills(skills=[])
         _make_skill_dir(tmp_path, "fs-skill")
         direct = _make_skill(name="direct", description="Direct")
 
@@ -238,7 +238,7 @@ class TestLoadSkills:
 
     def test_skips_nonexistent_paths(self):
         """Test that nonexistent paths are skipped without error."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
 
         plugin.load_skills(["/nonexistent/path"])
 
@@ -246,7 +246,7 @@ class TestLoadSkills:
 
     def test_empty_sources(self):
         """Test that loading empty sources is a no-op."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
 
         plugin.load_skills([])
 
@@ -254,7 +254,7 @@ class TestLoadSkills:
 
     def test_parent_directory(self, tmp_path):
         """Test load_skills with a parent directory containing multiple skills."""
-        plugin = SkillsPlugin(skills=[])
+        plugin = AgentSkills(skills=[])
         _make_skill_dir(tmp_path, "child-a")
         _make_skill_dir(tmp_path, "child-b")
 
@@ -271,7 +271,7 @@ class TestSkillsTool:
     def test_activate_skill(self):
         """Test activating a skill returns its instructions."""
         skill = _make_skill(instructions="Full instructions here.")
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
@@ -282,7 +282,7 @@ class TestSkillsTool:
     def test_activate_nonexistent_skill(self):
         """Test activating a nonexistent skill returns error message."""
         skill = _make_skill()
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
@@ -295,7 +295,7 @@ class TestSkillsTool:
         """Test that activating a new skill replaces the previous one."""
         skill1 = _make_skill(name="skill-a", description="A", instructions="A instructions")
         skill2 = _make_skill(name="skill-b", description="B", instructions="B instructions")
-        plugin = SkillsPlugin(skills=[skill1, skill2])
+        plugin = AgentSkills(skills=[skill1, skill2])
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
@@ -307,7 +307,7 @@ class TestSkillsTool:
 
     def test_activate_without_name(self):
         """Test activating without a skill name returns error."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
         tool_context = _mock_tool_context(agent)
 
@@ -322,7 +322,7 @@ class TestSystemPromptInjection:
     def test_before_invocation_appends_skills_xml(self):
         """Test that before_invocation appends skills XML to system prompt."""
         skill = _make_skill()
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         agent = _mock_agent()
 
         event = BeforeInvocationEvent(agent=agent)
@@ -334,7 +334,7 @@ class TestSystemPromptInjection:
 
     def test_before_invocation_preserves_existing_prompt(self):
         """Test that existing system prompt content is preserved."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
         agent._system_prompt = "Original prompt."
         agent._system_prompt_content = [{"text": "Original prompt."}]
@@ -347,7 +347,7 @@ class TestSystemPromptInjection:
 
     def test_repeated_invocations_do_not_accumulate(self):
         """Test that repeated invocations rebuild from current prompt without accumulation."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
         agent._system_prompt = "Original prompt."
         agent._system_prompt_content = [{"text": "Original prompt."}]
@@ -361,9 +361,9 @@ class TestSystemPromptInjection:
 
         assert first_prompt == second_prompt
 
-    def test_no_skills_skips_injection(self):
-        """Test that injection is skipped when no skills are available."""
-        plugin = SkillsPlugin(skills=[])
+    def test_no_skills_injects_empty_message(self):
+        """Test that a 'no skills available' message is injected when no skills are loaded."""
+        plugin = AgentSkills(skills=[])
         agent = _mock_agent()
         original_prompt = "Original prompt."
         agent._system_prompt = original_prompt
@@ -372,11 +372,12 @@ class TestSystemPromptInjection:
         event = BeforeInvocationEvent(agent=agent)
         plugin._on_before_invocation(event)
 
-        assert agent.system_prompt == original_prompt
+        assert "No skills are currently available" in agent.system_prompt
+        assert agent.system_prompt.startswith("Original prompt.")
 
     def test_none_system_prompt_handled(self):
         """Test handling when system prompt is None."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
         agent._system_prompt = None
         agent._system_prompt_content = None
@@ -388,7 +389,7 @@ class TestSystemPromptInjection:
 
     def test_preserves_other_plugin_modifications(self):
         """Test that modifications by other plugins/hooks are preserved."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
         agent._system_prompt = "Original prompt."
         agent._system_prompt_content = [{"text": "Original prompt."}]
@@ -406,7 +407,7 @@ class TestSystemPromptInjection:
 
     def test_uses_public_system_prompt_setter(self):
         """Test that the hook uses the public system_prompt setter."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
         agent._system_prompt = "Original."
         agent._system_prompt_content = [{"text": "Original."}]
@@ -420,7 +421,7 @@ class TestSystemPromptInjection:
 
     def test_warns_when_previous_xml_not_found(self, caplog):
         """Test that a warning is logged when the previously injected XML is missing from the prompt."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
         agent._system_prompt = "Original prompt."
         agent._system_prompt_content = [{"text": "Original prompt."}]
@@ -443,7 +444,7 @@ class TestSkillsXmlGeneration:
 
     def test_single_skill(self):
         """Test XML generation with a single skill."""
-        plugin = SkillsPlugin(skills=[_make_skill()])
+        plugin = AgentSkills(skills=[_make_skill()])
         xml = plugin._generate_skills_xml()
 
         assert "<available_skills>" in xml
@@ -457,25 +458,26 @@ class TestSkillsXmlGeneration:
             _make_skill(name="skill-a", description="Skill A"),
             _make_skill(name="skill-b", description="Skill B"),
         ]
-        plugin = SkillsPlugin(skills=skills)
+        plugin = AgentSkills(skills=skills)
         xml = plugin._generate_skills_xml()
 
         assert "<name>skill-a</name>" in xml
         assert "<name>skill-b</name>" in xml
 
     def test_empty_skills(self):
-        """Test XML generation with no skills."""
-        plugin = SkillsPlugin(skills=[])
+        """Test XML generation with no skills includes 'no skills available' message."""
+        plugin = AgentSkills(skills=[])
         xml = plugin._generate_skills_xml()
 
         assert "<available_skills>" in xml
+        assert "No skills are currently available" in xml
         assert "</available_skills>" in xml
 
     def test_location_included_when_path_set(self, tmp_path):
         """Test that location element is included when skill has a path."""
         skill = _make_skill()
         skill.path = tmp_path / "test-skill"
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         xml = plugin._generate_skills_xml()
 
         assert f"<location>{tmp_path / 'test-skill' / 'SKILL.md'}</location>" in xml
@@ -484,7 +486,7 @@ class TestSkillsXmlGeneration:
         """Test that location element is omitted for programmatic skills."""
         skill = _make_skill()
         assert skill.path is None
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         xml = plugin._generate_skills_xml()
 
         assert "<location>" not in xml
@@ -492,7 +494,7 @@ class TestSkillsXmlGeneration:
     def test_escapes_xml_special_characters(self):
         """Test that XML special characters in names and descriptions are escaped."""
         skill = _make_skill(name="a<b>&c", description="Use <tools> & more")
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         xml = plugin._generate_skills_xml()
 
         assert "<name>a&lt;b&gt;&amp;c</name>" in xml
@@ -505,7 +507,7 @@ class TestSkillResponseFormat:
     def test_instructions_only(self):
         """Test response with just instructions."""
         skill = _make_skill(instructions="Do the thing.")
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         result = plugin._format_skill_response(skill)
 
         assert result == "Do the thing."
@@ -513,7 +515,7 @@ class TestSkillResponseFormat:
     def test_no_instructions(self):
         """Test response when skill has no instructions."""
         skill = _make_skill(instructions="")
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         result = plugin._format_skill_response(skill)
 
         assert "no instructions available" in result.lower()
@@ -522,7 +524,7 @@ class TestSkillResponseFormat:
         """Test response includes allowed tools when set."""
         skill = _make_skill(instructions="Do the thing.")
         skill.allowed_tools = ["Bash", "Read"]
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         result = plugin._format_skill_response(skill)
 
         assert "Do the thing." in result
@@ -532,7 +534,7 @@ class TestSkillResponseFormat:
         """Test response includes compatibility when set."""
         skill = _make_skill(instructions="Do the thing.")
         skill.compatibility = "Requires docker"
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         result = plugin._format_skill_response(skill)
 
         assert "Compatibility: Requires docker" in result
@@ -541,7 +543,7 @@ class TestSkillResponseFormat:
         """Test response includes location when path is set."""
         skill = _make_skill(instructions="Do the thing.")
         skill.path = tmp_path / "test-skill"
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         result = plugin._format_skill_response(skill)
 
         assert f"Location: {tmp_path / 'test-skill' / 'SKILL.md'}" in result
@@ -552,7 +554,7 @@ class TestSkillResponseFormat:
         skill.allowed_tools = ["Bash"]
         skill.compatibility = "Requires git"
         skill.path = tmp_path / "test-skill"
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         result = plugin._format_skill_response(skill)
 
         assert "Do the thing." in result
@@ -572,7 +574,7 @@ class TestSkillResponseFormat:
 
         skill = _make_skill(instructions="Do the thing.")
         skill.path = skill_dir
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         result = plugin._format_skill_response(skill)
 
         assert "Available resources:" in result
@@ -582,7 +584,7 @@ class TestSkillResponseFormat:
     def test_no_resources_when_no_path(self):
         """Test that resources section is omitted for programmatic skills."""
         skill = _make_skill(instructions="Do the thing.")
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         result = plugin._format_skill_response(skill)
 
         assert "Available resources:" not in result
@@ -594,7 +596,7 @@ class TestSkillResponseFormat:
 
         skill = _make_skill(instructions="Do the thing.")
         skill.path = skill_dir
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         result = plugin._format_skill_response(skill)
 
         assert "Available resources:" not in result
@@ -609,7 +611,7 @@ class TestSkillResponseFormat:
 
         skill = _make_skill(instructions="Do the thing.")
         skill.path = skill_dir
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
         result = plugin._format_skill_response(skill)
 
         assert "Available resources:" in result
@@ -622,7 +624,7 @@ class TestResolveSkills:
     def test_resolve_skill_instances(self):
         """Test resolving Skill instances (pass-through)."""
         skill = _make_skill()
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
 
         assert len(plugin._skills) == 1
         assert plugin._skills["test-skill"] is skill
@@ -630,7 +632,7 @@ class TestResolveSkills:
     def test_resolve_skill_directory_path(self, tmp_path):
         """Test resolving a path to a skill directory."""
         _make_skill_dir(tmp_path, "path-skill")
-        plugin = SkillsPlugin(skills=[tmp_path / "path-skill"])
+        plugin = AgentSkills(skills=[tmp_path / "path-skill"])
 
         assert len(plugin._skills) == 1
         assert "path-skill" in plugin._skills
@@ -639,21 +641,21 @@ class TestResolveSkills:
         """Test resolving a path to a parent directory."""
         _make_skill_dir(tmp_path, "child-a")
         _make_skill_dir(tmp_path, "child-b")
-        plugin = SkillsPlugin(skills=[tmp_path])
+        plugin = AgentSkills(skills=[tmp_path])
 
         assert len(plugin._skills) == 2
 
     def test_resolve_skill_md_file_path(self, tmp_path):
         """Test resolving a path to a SKILL.md file."""
         skill_dir = _make_skill_dir(tmp_path, "file-skill")
-        plugin = SkillsPlugin(skills=[skill_dir / "SKILL.md"])
+        plugin = AgentSkills(skills=[skill_dir / "SKILL.md"])
 
         assert len(plugin._skills) == 1
         assert "file-skill" in plugin._skills
 
     def test_resolve_nonexistent_path(self, tmp_path):
         """Test that nonexistent paths are skipped."""
-        plugin = SkillsPlugin(skills=[str(tmp_path / "ghost")])
+        plugin = AgentSkills(skills=[str(tmp_path / "ghost")])
         assert len(plugin._skills) == 0
 
 
@@ -661,10 +663,10 @@ class TestImports:
     """Tests for module imports."""
 
     def test_import_from_plugins(self):
-        """Test importing SkillsPlugin from strands.plugins."""
-        from strands.plugins import SkillsPlugin as SP
+        """Test importing AgentSkills from strands.plugins."""
+        from strands.plugins import AgentSkills as SP
 
-        assert SP is SkillsPlugin
+        assert SP is AgentSkills
 
     def test_import_skill_from_strands(self):
         """Test importing Skill from top-level strands package."""
@@ -674,22 +676,22 @@ class TestImports:
 
     def test_import_from_skills_package(self):
         """Test importing from strands.plugins.skills package."""
-        from strands.plugins.skills import Skill, SkillsPlugin, load_skill, load_skills
+        from strands.plugins.skills import AgentSkills, Skill, load_skill, load_skills
 
         assert Skill is not None
-        assert SkillsPlugin is not None
+        assert AgentSkills is not None
         assert load_skill is not None
         assert load_skills is not None
 
     def test_skills_plugin_is_plugin_subclass(self):
-        """Test that SkillsPlugin is a subclass of the Plugin ABC."""
+        """Test that AgentSkills is a subclass of the Plugin ABC."""
         from strands.plugins import Plugin
 
-        assert issubclass(SkillsPlugin, Plugin)
+        assert issubclass(AgentSkills, Plugin)
 
     def test_skills_plugin_isinstance_check(self):
-        """Test that SkillsPlugin instances pass isinstance check against Plugin."""
+        """Test that AgentSkills instances pass isinstance check against Plugin."""
         from strands.plugins import Plugin
 
-        plugin = SkillsPlugin(skills=[])
+        plugin = AgentSkills(skills=[])
         assert isinstance(plugin, Plugin)

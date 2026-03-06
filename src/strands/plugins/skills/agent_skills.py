@@ -1,6 +1,6 @@
-"""SkillsPlugin for integrating Agent Skills into Strands agents.
+"""AgentSkills plugin for integrating Agent Skills into Strands agents.
 
-This module provides the SkillsPlugin class that extends the Plugin base class
+This module provides the AgentSkills class that extends the Plugin base class
 to add Agent Skills support. The plugin registers a tool for activating
 skills, and injects skill metadata into the system prompt.
 """
@@ -29,10 +29,10 @@ _RESOURCE_DIRS = ("scripts", "references", "assets")
 _DEFAULT_MAX_RESOURCE_FILES = 20
 
 
-class SkillsPlugin(Plugin):
+class AgentSkills(Plugin):
     """Plugin that integrates Agent Skills into a Strands agent.
 
-    The SkillsPlugin extends the Plugin base class and provides:
+    The AgentSkills plugin extends the Plugin base class and provides:
 
     1. A ``skills`` tool that allows the agent to activate skills on demand
     2. System prompt injection of available skill metadata before each invocation
@@ -44,14 +44,14 @@ class SkillsPlugin(Plugin):
     Example:
         ```python
         from strands import Agent
-        from strands.plugins.skills import Skill, SkillsPlugin
+        from strands.plugins.skills import Skill, AgentSkills
 
         # Load from filesystem
-        plugin = SkillsPlugin(skills=["./skills/pdf-processing", "./skills/"])
+        plugin = AgentSkills(skills=["./skills/pdf-processing", "./skills/"])
 
         # Or provide Skill instances directly
         skill = Skill(name="my-skill", description="A custom skill", instructions="Do the thing")
-        plugin = SkillsPlugin(skills=[skill])
+        plugin = AgentSkills(skills=[skill])
 
         agent = Agent(plugins=[plugin])
         ```
@@ -67,8 +67,9 @@ class SkillsPlugin(Plugin):
         skills: list[str | Path | Skill],
         state_key: str = _DEFAULT_STATE_KEY,
         max_resource_files: int = _DEFAULT_MAX_RESOURCE_FILES,
+        strict: bool = False,
     ) -> None:
-        """Initialize the SkillsPlugin.
+        """Initialize the AgentSkills plugin.
 
         Args:
             skills: List of skill sources. Each element can be:
@@ -78,7 +79,9 @@ class SkillsPlugin(Plugin):
                 - A ``Skill`` dataclass instance
             state_key: Key used to store plugin state in ``agent.state``.
             max_resource_files: Maximum number of resource files to list in skill responses.
+            strict: If True, raise on skill validation issues. If False (default), warn and load anyway.
         """
+        self._strict = strict
         self._skills: dict[str, Skill] = self._resolve_skills(skills)
         self._state_key = state_key
         self._max_resource_files = max_resource_files
@@ -87,12 +90,13 @@ class SkillsPlugin(Plugin):
     def init_agent(self, agent: Agent) -> None:
         """Initialize the plugin with an agent instance.
 
-        Restores any persisted state from a previous session.
         Decorated hooks and tools are auto-registered by the plugin registry.
 
         Args:
             agent: The agent instance to extend with skills support.
         """
+        if not self._skills:
+            logger.warning("no skills were loaded, the agent will have no skills available")
         logger.debug("skill_count=<%d> | skills plugin initialized", len(self._skills))
 
     @tool(context=True)
@@ -105,8 +109,6 @@ class SkillsPlugin(Plugin):
         Args:
             skill_name: Name of the skill to activate.
         """
-        agent = tool_context.agent
-
         if not skill_name:
             available = ", ".join(self._skills)
             return f"Error: skill_name is required. Available skills: {available}"
@@ -132,9 +134,6 @@ class SkillsPlugin(Plugin):
             event: The before-invocation event containing the agent reference.
         """
         agent = event.agent
-
-        if not self._skills:
-            return
 
         current_prompt = agent.system_prompt or ""
 
@@ -259,12 +258,16 @@ class SkillsPlugin(Plugin):
     def _generate_skills_xml(self) -> str:
         """Generate the XML block listing available skills for the system prompt.
 
-        Includes a ``<location>`` element for skills loaded from the filesystem,
+        When no skills are loaded, returns a block indicating no skills are available.
+        Otherwise includes a ``<location>`` element for skills loaded from the filesystem,
         following the AgentSkills.io integration spec.
 
         Returns:
             XML-formatted string with skill metadata.
         """
+        if not self._skills:
+            return "<available_skills>\nNo skills are currently available.\n</available_skills>"
+
         lines: list[str] = ["<available_skills>"]
 
         for skill in self._skills.values():
@@ -350,4 +353,3 @@ class SkillsPlugin(Plugin):
             state_data = {}
         state_data[key] = value
         agent.state.set(self._state_key, state_data)
-

@@ -135,7 +135,7 @@ strands-agents/
 │   │       ├── __init__.py               # Skills package exports
 │   │       ├── loader.py                 # Skill loading and parsing
 │   │       ├── skill.py                  # Skill dataclass
-│   │       └── skills_plugin.py          # SkillsPlugin implementation
+│   │       └── agent_skills.py            # AgentSkills plugin implementation
 │   │
 │   ├── handlers/                         # Event handlers
 │   │   └── callback_handler.py           # Callback handling

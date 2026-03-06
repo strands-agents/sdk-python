@@ -1,11 +1,13 @@
 """Tests for the skill loader module."""
 
+import logging
 from pathlib import Path
 
 import pytest
 
 from strands.plugins.skills.loader import (
     _find_skill_md,
+    _fix_yaml_colons,
     _parse_frontmatter,
     _validate_skill_name,
     load_skill,
@@ -89,10 +91,10 @@ class TestParseFrontmatter:
 
 
 class TestValidateSkillName:
-    """Tests for _validate_skill_name."""
+    """Tests for _validate_skill_name (lenient validation)."""
 
     def test_valid_names(self):
-        """Test that valid names pass validation."""
+        """Test that valid names pass validation without warnings."""
         valid_names = ["a", "test", "my-skill", "skill-123", "a1b2c3"]
         for name in valid_names:
             _validate_skill_name(name)  # Should not raise
@@ -102,48 +104,55 @@ class TestValidateSkillName:
         with pytest.raises(ValueError, match="cannot be empty"):
             _validate_skill_name("")
 
-    def test_too_long_name(self):
-        """Test that names exceeding 64 chars raise ValueError."""
-        with pytest.raises(ValueError, match="exceeds 64 character limit"):
+    def test_too_long_name_warns(self, caplog):
+        """Test that names exceeding 64 chars warn but do not raise."""
+        with caplog.at_level(logging.WARNING):
             _validate_skill_name("a" * 65)
+        assert "exceeds" in caplog.text
 
-    def test_uppercase_rejected(self):
-        """Test that uppercase characters are rejected."""
-        with pytest.raises(ValueError, match="lowercase alphanumeric"):
+    def test_uppercase_warns(self, caplog):
+        """Test that uppercase characters warn but do not raise."""
+        with caplog.at_level(logging.WARNING):
             _validate_skill_name("MySkill")
+        assert "lowercase alphanumeric" in caplog.text
 
-    def test_starts_with_hyphen(self):
-        """Test that names starting with hyphen are rejected."""
-        with pytest.raises(ValueError, match="lowercase alphanumeric"):
+    def test_starts_with_hyphen_warns(self, caplog):
+        """Test that names starting with hyphen warn but do not raise."""
+        with caplog.at_level(logging.WARNING):
             _validate_skill_name("-skill")
+        assert "lowercase alphanumeric" in caplog.text
 
-    def test_ends_with_hyphen(self):
-        """Test that names ending with hyphen are rejected."""
-        with pytest.raises(ValueError, match="lowercase alphanumeric"):
+    def test_ends_with_hyphen_warns(self, caplog):
+        """Test that names ending with hyphen warn but do not raise."""
+        with caplog.at_level(logging.WARNING):
             _validate_skill_name("skill-")
+        assert "lowercase alphanumeric" in caplog.text
 
-    def test_consecutive_hyphens(self):
-        """Test that consecutive hyphens are rejected."""
-        with pytest.raises(ValueError, match="consecutive hyphens"):
+    def test_consecutive_hyphens_warns(self, caplog):
+        """Test that consecutive hyphens warn but do not raise."""
+        with caplog.at_level(logging.WARNING):
             _validate_skill_name("my--skill")
+        assert "consecutive hyphens" in caplog.text
 
-    def test_special_characters(self):
-        """Test that special characters are rejected."""
-        with pytest.raises(ValueError, match="lowercase alphanumeric"):
+    def test_special_characters_warns(self, caplog):
+        """Test that special characters warn but do not raise."""
+        with caplog.at_level(logging.WARNING):
             _validate_skill_name("my_skill")
+        assert "lowercase alphanumeric" in caplog.text
 
-    def test_directory_name_mismatch(self, tmp_path):
-        """Test that skill name must match directory name."""
+    def test_directory_name_mismatch_warns(self, tmp_path, caplog):
+        """Test that skill name not matching directory name warns but does not raise."""
         skill_dir = tmp_path / "wrong-name"
         skill_dir.mkdir()
-        with pytest.raises(ValueError, match="must match parent directory name"):
+        with caplog.at_level(logging.WARNING):
             _validate_skill_name("my-skill", skill_dir)
+        assert "does not match parent directory name" in caplog.text
 
     def test_directory_name_match(self, tmp_path):
         """Test that matching directory name passes."""
         skill_dir = tmp_path / "my-skill"
         skill_dir.mkdir()
-        _validate_skill_name("my-skill", skill_dir)  # Should not raise
+        _validate_skill_name("my-skill", skill_dir)  # Should not raise or warn
 
 
 def _make_skill_dir(parent: Path, name: str, description: str = "A test skill", body: str = "Instructions.") -> Path:
@@ -240,14 +249,17 @@ class TestLoadSkill:
         with pytest.raises(FileNotFoundError):
             load_skill(tmp_path / "nonexistent")
 
-    def test_load_name_directory_mismatch(self, tmp_path):
-        """Test error when skill name doesn't match directory name."""
+    def test_load_name_directory_mismatch_warns(self, tmp_path, caplog):
+        """Test that skill name not matching directory name warns but still loads."""
         skill_dir = tmp_path / "wrong-dir"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text("---\nname: right-name\ndescription: test\n---\nBody.")
 
-        with pytest.raises(ValueError, match="must match parent directory name"):
-            load_skill(skill_dir)
+        with caplog.at_level(logging.WARNING):
+            skill = load_skill(skill_dir)
+
+        assert skill.name == "right-name"
+        assert "does not match parent directory name" in caplog.text
 
 
 class TestLoadSkills:
@@ -293,16 +305,137 @@ class TestLoadSkills:
         with pytest.raises(FileNotFoundError):
             load_skills(tmp_path / "nonexistent")
 
-    def test_skips_invalid_skills(self, tmp_path):
-        """Test that invalid skills are skipped with a warning."""
+    def test_loads_mismatched_name_with_warning(self, tmp_path, caplog):
+        """Test that skills with name/directory mismatch are loaded with a warning."""
         _make_skill_dir(tmp_path, "good-skill")
 
-        # Create an invalid skill (name mismatch)
+        # Create a skill with name mismatch (lenient validation loads it anyway)
         bad_dir = tmp_path / "bad-dir"
         bad_dir.mkdir()
         (bad_dir / "SKILL.md").write_text("---\nname: wrong-name\ndescription: test\n---\nBody.")
 
-        skills = load_skills(tmp_path)
+        with caplog.at_level(logging.WARNING):
+            skills = load_skills(tmp_path)
 
-        assert len(skills) == 1
-        assert skills[0].name == "good-skill"
+        assert len(skills) == 2
+        names = {s.name for s in skills}
+        assert names == {"good-skill", "wrong-name"}
+        assert "does not match parent directory name" in caplog.text
+
+
+class TestFixYamlColons:
+    """Tests for _fix_yaml_colons."""
+
+    def test_fixes_unquoted_colon_in_value(self):
+        """Test that an unquoted colon in a value gets quoted."""
+        raw = "description: Use this skill when: the user asks about PDFs"
+        fixed = _fix_yaml_colons(raw)
+        assert fixed == 'description: "Use this skill when: the user asks about PDFs"'
+
+    def test_leaves_already_double_quoted_value(self):
+        """Test that already double-quoted values are not re-quoted."""
+        raw = 'description: "already: quoted"'
+        assert _fix_yaml_colons(raw) == raw
+
+    def test_leaves_already_single_quoted_value(self):
+        """Test that already single-quoted values are not re-quoted."""
+        raw = "description: 'already: quoted'"
+        assert _fix_yaml_colons(raw) == raw
+
+    def test_leaves_value_without_colon(self):
+        """Test that values without colons are unchanged."""
+        raw = "name: my-skill"
+        assert _fix_yaml_colons(raw) == raw
+
+    def test_multiline_mixed(self):
+        """Test fixing only the lines that need it in a multi-line string."""
+        raw = "name: my-skill\ndescription: Use when: needed\nversion: 1.0"
+        fixed = _fix_yaml_colons(raw)
+        assert fixed == 'name: my-skill\ndescription: "Use when: needed"\nversion: 1.0'
+
+    def test_empty_string(self):
+        """Test that an empty string is returned unchanged."""
+        assert _fix_yaml_colons("") == ""
+
+    def test_preserves_indented_lines_without_colons(self):
+        """Test that indented lines without key-value patterns are preserved."""
+        raw = "  - item one\n  - item two"
+        assert _fix_yaml_colons(raw) == raw
+
+
+class TestValidateSkillNameStrict:
+    """Tests for _validate_skill_name with strict=True."""
+
+    def test_strict_valid_name(self):
+        """Test that valid names pass strict validation."""
+        _validate_skill_name("my-skill", strict=True)  # Should not raise
+
+    def test_strict_empty_name(self):
+        """Test that empty name raises in strict mode."""
+        with pytest.raises(ValueError, match="cannot be empty"):
+            _validate_skill_name("", strict=True)
+
+    def test_strict_too_long_name(self):
+        """Test that names exceeding 64 chars raise in strict mode."""
+        with pytest.raises(ValueError, match="exceeds 64 character limit"):
+            _validate_skill_name("a" * 65, strict=True)
+
+    def test_strict_uppercase_rejected(self):
+        """Test that uppercase characters raise in strict mode."""
+        with pytest.raises(ValueError, match="lowercase alphanumeric"):
+            _validate_skill_name("MySkill", strict=True)
+
+    def test_strict_starts_with_hyphen(self):
+        """Test that names starting with hyphen raise in strict mode."""
+        with pytest.raises(ValueError, match="lowercase alphanumeric"):
+            _validate_skill_name("-skill", strict=True)
+
+    def test_strict_consecutive_hyphens(self):
+        """Test that consecutive hyphens raise in strict mode."""
+        with pytest.raises(ValueError, match="consecutive hyphens"):
+            _validate_skill_name("my--skill", strict=True)
+
+    def test_strict_directory_mismatch(self, tmp_path):
+        """Test that directory name mismatch raises in strict mode."""
+        skill_dir = tmp_path / "wrong-name"
+        skill_dir.mkdir()
+        with pytest.raises(ValueError, match="does not match parent directory name"):
+            _validate_skill_name("my-skill", skill_dir, strict=True)
+
+
+class TestLoadSkillStrict:
+    """Tests for load_skill with strict=True."""
+
+    def test_strict_rejects_name_mismatch(self, tmp_path):
+        """Test that strict mode raises on name/directory mismatch."""
+        skill_dir = tmp_path / "wrong-dir"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: right-name\ndescription: test\n---\nBody.")
+
+        with pytest.raises(ValueError, match="does not match parent directory name"):
+            load_skill(skill_dir, strict=True)
+
+    def test_strict_accepts_valid_skill(self, tmp_path):
+        """Test that strict mode loads a valid skill without error."""
+        _make_skill_dir(tmp_path, "valid-skill")
+        skill = load_skill(tmp_path / "valid-skill", strict=True)
+        assert skill.name == "valid-skill"
+
+
+class TestParseFrontmatterYamlFallback:
+    """Tests for YAML colon-quoting fallback in _parse_frontmatter."""
+
+    def test_fallback_on_unquoted_colon(self):
+        """Test that frontmatter with unquoted colons in values is parsed via fallback."""
+        content = "---\nname: my-skill\ndescription: Use when: the user asks\n---\nBody."
+        frontmatter, body = _parse_frontmatter(content)
+        assert frontmatter["name"] == "my-skill"
+        assert "Use when" in frontmatter["description"]
+        assert body == "Body."
+
+    def test_fallback_preserves_valid_yaml(self):
+        """Test that valid YAML is parsed normally without triggering fallback."""
+        content = "---\nname: my-skill\ndescription: A simple description\n---\nBody."
+        frontmatter, body = _parse_frontmatter(content)
+        assert frontmatter["name"] == "my-skill"
+        assert frontmatter["description"] == "A simple description"
