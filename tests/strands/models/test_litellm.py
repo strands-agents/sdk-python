@@ -955,8 +955,14 @@ async def test_stream_signature_arrives_with_unset_data_type(
     # Verify the signature content block appears before text:
     # event order should be: messageStart, contentBlockStart, signature delta, contentBlockStop,
     #                         contentBlockStart, text delta, contentBlockStop, messageStop
-    sig_index = next(i for i, e in enumerate(events) if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"])
-    text_index = next(i for i, e in enumerate(events) if "contentBlockDelta" in e and "text" in e.get("contentBlockDelta", {}).get("delta", {}))
+    sig_index = next(
+        i for i, e in enumerate(events)
+        if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"]
+    )
+    text_index = next(
+        i for i, e in enumerate(events)
+        if "contentBlockDelta" in e and "text" in e.get("contentBlockDelta", {}).get("delta", {})
+    )
     assert sig_index < text_index
 
     # Verify signature delta is emitted
