@@ -1,5 +1,7 @@
 """Tests for tool_spec setter on DecoratedFunctionTool and PythonAgentTool."""
 
+import pytest
+
 from strands.tools.decorator import tool
 from strands.tools.tools import PythonAgentTool
 from strands.types.tools import ToolSpec
@@ -70,6 +72,80 @@ class TestDecoratedFunctionToolSpecSetter:
         dynamic_tool.tool_spec = spec
         assert "extra" in dynamic_tool.tool_spec["inputSchema"]["json"]["properties"]
 
+    def test_set_tool_spec_rejects_name_change(self):
+        @tool
+        def my_tool(query: str) -> str:
+            """A test tool."""
+            return query
+
+        bad_spec: ToolSpec = {
+            "name": "wrong_name",
+            "description": "Updated tool",
+            "inputSchema": {"json": {"type": "object", "properties": {}, "required": []}},
+        }
+        with pytest.raises(ValueError, match="cannot change tool name via tool_spec"):
+            my_tool.tool_spec = bad_spec
+
+    def test_set_tool_spec_rejects_missing_description(self):
+        @tool
+        def my_tool(query: str) -> str:
+            """A test tool."""
+            return query
+
+        bad_spec: ToolSpec = {
+            "name": "my_tool",
+            "inputSchema": {"json": {"type": "object", "properties": {}, "required": []}},
+        }
+        with pytest.raises(ValueError, match="tool_spec must contain a 'description' field"):
+            my_tool.tool_spec = bad_spec
+
+    def test_set_tool_spec_rejects_missing_input_schema(self):
+        @tool
+        def my_tool(query: str) -> str:
+            """A test tool."""
+            return query
+
+        bad_spec: ToolSpec = {
+            "name": "my_tool",
+            "description": "Updated tool",
+        }
+        with pytest.raises(ValueError, match="tool_spec must contain an 'inputSchema' field"):
+            my_tool.tool_spec = bad_spec
+
+    def test_set_tool_spec_rejects_missing_json_key(self):
+        @tool
+        def my_tool(query: str) -> str:
+            """A test tool."""
+            return query
+
+        bad_spec: ToolSpec = {
+            "name": "my_tool",
+            "description": "Updated tool",
+            "inputSchema": {"not_json": {}},
+        }
+        with pytest.raises(ValueError, match="tool_spec 'inputSchema' must contain a 'json' key"):
+            my_tool.tool_spec = bad_spec
+
+    def test_set_tool_spec_accepts_valid_spec(self):
+        @tool
+        def my_tool(query: str) -> str:
+            """A test tool."""
+            return query
+
+        valid_spec: ToolSpec = {
+            "name": "my_tool",
+            "description": "A valid updated spec",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string"}},
+                    "required": ["query"],
+                }
+            },
+        }
+        my_tool.tool_spec = valid_spec
+        assert my_tool.tool_spec is valid_spec
+
 
 class TestPythonAgentToolSpecSetter:
     """Tests for PythonAgentTool.tool_spec setter."""
@@ -121,3 +197,57 @@ class TestPythonAgentToolSpecSetter:
         t.tool_spec = new_spec
         assert t.tool_spec["description"] == "Persisted"
         assert t.tool_spec["description"] == "Persisted"
+
+    def test_set_tool_spec_rejects_name_change(self):
+        t = self._make_tool()
+        bad_spec: ToolSpec = {
+            "name": "wrong_name",
+            "description": "Updated",
+            "inputSchema": {"json": {"type": "object", "properties": {}, "required": []}},
+        }
+        with pytest.raises(ValueError, match="cannot change tool name via tool_spec"):
+            t.tool_spec = bad_spec
+
+    def test_set_tool_spec_rejects_missing_description(self):
+        t = self._make_tool()
+        bad_spec: ToolSpec = {
+            "name": "test_tool",
+            "inputSchema": {"json": {"type": "object", "properties": {}, "required": []}},
+        }
+        with pytest.raises(ValueError, match="tool_spec must contain a 'description' field"):
+            t.tool_spec = bad_spec
+
+    def test_set_tool_spec_rejects_missing_input_schema(self):
+        t = self._make_tool()
+        bad_spec: ToolSpec = {
+            "name": "test_tool",
+            "description": "Updated",
+        }
+        with pytest.raises(ValueError, match="tool_spec must contain an 'inputSchema' field"):
+            t.tool_spec = bad_spec
+
+    def test_set_tool_spec_rejects_missing_json_key(self):
+        t = self._make_tool()
+        bad_spec: ToolSpec = {
+            "name": "test_tool",
+            "description": "Updated",
+            "inputSchema": {"not_json": {}},
+        }
+        with pytest.raises(ValueError, match="tool_spec 'inputSchema' must contain a 'json' key"):
+            t.tool_spec = bad_spec
+
+    def test_set_tool_spec_accepts_valid_spec(self):
+        t = self._make_tool()
+        valid_spec: ToolSpec = {
+            "name": "test_tool",
+            "description": "A valid updated spec",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {"input": {"type": "string"}},
+                    "required": ["input"],
+                }
+            },
+        }
+        t.tool_spec = valid_spec
+        assert t.tool_spec is valid_spec

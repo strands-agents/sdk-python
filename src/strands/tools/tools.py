@@ -206,7 +206,22 @@ class PythonAgentTool(AgentTool):
 
         Args:
             value: The new tool specification.
+
+        Raises:
+            ValueError: If the spec fails structural validation (wrong name,
+                missing description, missing inputSchema, or missing json key).
         """
+        if value.get("name") != self._tool_name:
+            raise ValueError(
+                f"cannot change tool name via tool_spec (expected '{self._tool_name}', got '{value.get('name')}')"
+            )
+        if "description" not in value:
+            raise ValueError("tool_spec must contain a 'description' field")
+        if "inputSchema" not in value:
+            raise ValueError("tool_spec must contain an 'inputSchema' field")
+        if "json" not in value["inputSchema"]:
+            raise ValueError("tool_spec 'inputSchema' must contain a 'json' key")
+
         self._tool_spec = value
 
     @property
