@@ -2405,3 +2405,107 @@ async def test_graph_with_agentbase_implementation(mock_strands_tracer, mock_use
     assert result.completed_nodes == 2
     assert "custom_node" in result.results
     assert "regular_node" in result.results
+
+
+@pytest.mark.asyncio
+async def test_before_node_call_event_exposes_node_input(mock_strands_tracer, mock_use_span):
+    """Test that BeforeNodeCallEvent exposes node_input for inspection."""
+    agent = create_mock_agent("test_agent", "Response")
+
+    captured_inputs = []
+
+    class InputCaptureHook(HookProvider):
+        def register_hooks(self, registry):
+            registry.add_callback(BeforeNodeCallEvent, self.capture_input)
+
+        def capture_input(self, event):
+            # node_input should be available on the event
+            captured_inputs.append(event.node_input)
+
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_node")
+    builder.set_hook_providers([InputCaptureHook()])
+    graph = builder.build()
+
+    await graph.invoke_async("Test task input")
+
+    # Verify that node_input was captured
+    assert len(captured_inputs) == 1
+    # The input should be a list of ContentBlock
+    assert captured_inputs[0] is not None
+    assert len(captured_inputs[0]) > 0
+    # For entry node with string task, input should contain the task text
+    assert any("Test task input" in str(block) for block in captured_inputs[0])
+
+
+@pytest.mark.asyncio
+async def test_before_node_call_event_allows_modifying_node_input(mock_strands_tracer, mock_use_span):
+    """Test that BeforeNodeCallEvent allows modifying node_input."""
+    agent = create_mock_agent("test_agent", "Response")
+
+    # Track what input was passed to the agent
+    received_inputs = []
+
+    async def tracking_stream(*args, **kwargs):
+        received_inputs.append(args[0] if args else kwargs.get("input"))
+        yield {"agent_start": True}
+        yield {"result": agent.return_value}
+
+    agent.stream_async = Mock(side_effect=tracking_stream)
+
+    class InputModifierHook(HookProvider):
+        def register_hooks(self, registry):
+            registry.add_callback(BeforeNodeCallEvent, self.modify_input)
+
+        def modify_input(self, event):
+            # Modify the node_input by replacing it with custom content
+            from strands.types.content import ContentBlock
+
+            event.node_input = [ContentBlock(text="Modified input from hook")]
+
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_node")
+    builder.set_hook_providers([InputModifierHook()])
+    graph = builder.build()
+
+    await graph.invoke_async("Original task")
+
+    # Verify agent received the modified input
+    assert len(received_inputs) == 1
+    modified_input = received_inputs[0]
+    assert len(modified_input) == 1
+    assert modified_input[0]["text"] == "Modified input from hook"
+
+
+@pytest.mark.asyncio
+async def test_before_node_call_event_node_input_from_dependencies(mock_strands_tracer, mock_use_span):
+    """Test that node_input includes outputs from dependencies."""
+    agent_a = create_mock_agent("agent_a", "Output from A")
+    agent_b = create_mock_agent("agent_b", "Output from B")
+
+    captured_b_input = []
+
+    class InputCaptureHook(HookProvider):
+        def register_hooks(self, registry):
+            registry.add_callback(BeforeNodeCallEvent, self.capture_input)
+
+        def capture_input(self, event):
+            if event.node_id == "node_b":
+                captured_b_input.append(event.node_input)
+
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "node_a")
+    builder.add_node(agent_b, "node_b")
+    builder.add_edge("node_a", "node_b")
+    builder.set_entry_point("node_a")
+    builder.set_hook_providers([InputCaptureHook()])
+    graph = builder.build()
+
+    await graph.invoke_async("Original task")
+
+    # Verify that node_b received input from node_a
+    assert len(captured_b_input) == 1
+    input_text = " ".join(str(block) for block in captured_b_input[0])
+    # Should contain the original task and output from node_a
+    assert "Original task" in input_text
+    assert "node_a" in input_text  # Reference to the dependency
