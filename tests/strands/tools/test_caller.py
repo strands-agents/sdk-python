@@ -395,8 +395,7 @@ def test_agent_with_tool_provider_cleaned_up_when_function_returns():
             gc.collect()
 
         assert provider.cleanup_called, (
-            "Tool provider was not cleaned up when the function returned; "
-            "Agent likely leaked due to a reference cycle"
+            "Tool provider was not cleaned up when the function returned; Agent likely leaked due to a reference cycle"
         )
     finally:
         gc.enable()
@@ -416,3 +415,16 @@ def test_agent_with_tool_provider_cleaned_up_on_del():
 
     del agent
     assert provider.cleanup_called, "Tool provider was not cleaned up after del agent"
+
+
+def test_tool_caller_raises_reference_error_after_agent_collected():
+    """Verify _ToolCaller raises ReferenceError when the Agent has been garbage collected."""
+    agent = Agent()
+    caller = agent.tool_caller
+    # Clear the weak reference by replacing it directly
+    caller._agent_ref = weakref.ref(agent)
+    del agent
+    gc.collect()
+
+    with pytest.raises(ReferenceError, match="Agent has been garbage collected"):
+        _ = caller._agent
