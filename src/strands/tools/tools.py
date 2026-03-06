@@ -215,10 +215,11 @@ class PythonAgentTool(AgentTool):
             raise ValueError(
                 f"cannot change tool name via tool_spec (expected '{self._tool_name}', got '{value.get('name')}')"
             )
-        if "description" not in value:
-            raise ValueError("tool_spec must contain a 'description' field")
-        if "inputSchema" not in value:
-            raise ValueError("tool_spec must contain an 'inputSchema' field")
+
+        for field in ("description", "inputSchema"):
+            if field not in value:
+                raise ValueError(f"tool_spec must contain '{field}'")
+
         if "json" not in value["inputSchema"]:
             raise ValueError("tool_spec 'inputSchema' must contain a 'json' key")
 

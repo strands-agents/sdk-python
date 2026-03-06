@@ -96,7 +96,7 @@ class TestDecoratedFunctionToolSpecSetter:
             "name": "my_tool",
             "inputSchema": {"json": {"type": "object", "properties": {}, "required": []}},
         }
-        with pytest.raises(ValueError, match="tool_spec must contain a 'description' field"):
+        with pytest.raises(ValueError, match="tool_spec must contain 'description'"):
             my_tool.tool_spec = bad_spec
 
     def test_set_tool_spec_rejects_missing_input_schema(self):
@@ -109,7 +109,7 @@ class TestDecoratedFunctionToolSpecSetter:
             "name": "my_tool",
             "description": "Updated tool",
         }
-        with pytest.raises(ValueError, match="tool_spec must contain an 'inputSchema' field"):
+        with pytest.raises(ValueError, match="tool_spec must contain 'inputSchema'"):
             my_tool.tool_spec = bad_spec
 
     def test_set_tool_spec_rejects_missing_json_key(self):
@@ -214,7 +214,7 @@ class TestPythonAgentToolSpecSetter:
             "name": "test_tool",
             "inputSchema": {"json": {"type": "object", "properties": {}, "required": []}},
         }
-        with pytest.raises(ValueError, match="tool_spec must contain a 'description' field"):
+        with pytest.raises(ValueError, match="tool_spec must contain 'description'"):
             t.tool_spec = bad_spec
 
     def test_set_tool_spec_rejects_missing_input_schema(self):
@@ -223,7 +223,7 @@ class TestPythonAgentToolSpecSetter:
             "name": "test_tool",
             "description": "Updated",
         }
-        with pytest.raises(ValueError, match="tool_spec must contain an 'inputSchema' field"):
+        with pytest.raises(ValueError, match="tool_spec must contain 'inputSchema'"):
             t.tool_spec = bad_spec
 
     def test_set_tool_spec_rejects_missing_json_key(self):
