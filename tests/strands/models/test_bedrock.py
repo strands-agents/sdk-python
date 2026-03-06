@@ -2634,6 +2634,38 @@ def test_inject_cache_point_single_user_message(bedrock_client):
     assert "cachePoint" in cleaned_messages[0]["content"][-1]
 
 
+def test_inject_cache_point_empty_messages(bedrock_client):
+    """Test that _inject_cache_point handles empty messages list."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = []
+    model._inject_cache_point(cleaned_messages)
+
+    assert cleaned_messages == []
+
+
+def test_inject_cache_point_with_tool_result_last_user(bedrock_client):
+    """Test that cache point is added to last user message even when it contains toolResult."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Use the tool"}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "test_tool", "input": {}}}]},
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "Result"}]}}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    assert len(cleaned_messages[2]["content"]) == 2
+    assert "cachePoint" in cleaned_messages[2]["content"][-1]
+    assert cleaned_messages[2]["content"][-1]["cachePoint"]["type"] == "default"
+    assert len(cleaned_messages[0]["content"]) == 1
+
+
 def test_inject_cache_point_skipped_for_non_claude(bedrock_client):
     """Test that cache point injection is skipped for non-Claude models."""
     model = BedrockModel(model_id="amazon.nova-pro-v1:0", cache_config=CacheConfig(strategy="auto"))
