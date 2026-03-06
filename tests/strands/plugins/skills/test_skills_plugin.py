@@ -119,7 +119,7 @@ class TestSkillsPluginInit:
     def test_name_attribute(self):
         """Test that the plugin has the correct name."""
         plugin = AgentSkills(skills=[])
-        assert plugin.name == "skills"
+        assert plugin.name == "agent_skills"
 
     def test_custom_state_key(self):
         """Test initialization with a custom state key."""

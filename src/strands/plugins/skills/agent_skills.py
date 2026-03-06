@@ -57,10 +57,7 @@ class AgentSkills(Plugin):
         ```
     """
 
-    @property
-    def name(self) -> str:
-        """A stable string identifier for the plugin."""
-        return "skills"
+    name = "agent_skills"
 
     def __init__(
         self,
