@@ -52,8 +52,11 @@ class RepositorySessionManager(SessionManager):
         # Create a session if it does not exist yet
         if session is None:
             logger.debug("session_id=<%s> | session not found, creating new session", self.session_id)
+            self._is_new_session = True
             session = Session(session_id=session_id, session_type=SessionType.AGENT)
             session_repository.create_session(session)
+        else:
+            self._is_new_session = False
 
         self.session = session
 
@@ -124,8 +127,8 @@ class RepositorySessionManager(SessionManager):
         else:
             state_changed = current_state_version != last_synced.get("state_version")
             internal_state_changed = current_interrupt_state_version != last_synced.get("interrupt_state_version")
-            conversation_manager_state_changed = (
-                current_conversation_manager_state != last_synced.get("conversation_manager_state")
+            conversation_manager_state_changed = current_conversation_manager_state != last_synced.get(
+                "conversation_manager_state"
             )
 
         if not state_changed and not internal_state_changed and not conversation_manager_state_changed:
@@ -170,7 +173,11 @@ class RepositorySessionManager(SessionManager):
             raise SessionException("The `agent_id` of an agent must be unique in a session.")
         self._latest_agent_message[agent.agent_id] = None
 
-        session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
+        # Skip read_agent call for new sessions since no agents can exist yet
+        if self._is_new_session:
+            session_agent = None
+        else:
+            session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
 
         if session_agent is None:
             logger.debug(
@@ -299,7 +306,12 @@ class RepositorySessionManager(SessionManager):
             source: Multi-agent source object to restore state into
             **kwargs: Additional keyword arguments for future extensibility.
         """
-        state = self.session_repository.read_multi_agent(self.session_id, source.id, **kwargs)
+        # Skip read_multi_agent call for new sessions since no multi-agents can exist yet
+        if self._is_new_session:
+            state = None
+        else:
+            state = self.session_repository.read_multi_agent(self.session_id, source.id, **kwargs)
+
         if state is None:
             self.session_repository.create_multi_agent(self.session_id, source, **kwargs)
         else:
@@ -317,7 +329,11 @@ class RepositorySessionManager(SessionManager):
             raise SessionException("The `agent_id` of an agent must be unique in a session.")
         self._latest_agent_message[agent.agent_id] = None
 
-        session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
+        # Skip read_agent call for new sessions since no agents can exist yet
+        if self._is_new_session:
+            session_agent = None
+        else:
+            session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
 
         if session_agent is None:
             logger.debug(
