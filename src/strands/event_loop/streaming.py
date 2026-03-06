@@ -2,6 +2,7 @@
 
 import json
 import logging
+import threading
 import time
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterable
@@ -370,7 +371,7 @@ def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | Non
 async def process_stream(
     chunks: AsyncIterable[StreamEvent],
     start_time: float | None = None,
-    cancel_signal: Any | None = None,
+    cancel_signal: threading.Event | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
@@ -398,7 +399,7 @@ async def process_stream(
     metrics: Metrics = Metrics(latencyMs=0, timeToFirstByteMs=0)
 
     async for chunk in chunks:
-        # CHECKPOINT 3: Check for cancellation during stream processing
+        # Check for cancellation during stream processing
         if cancel_signal and cancel_signal.is_set():
             logger.debug("cancellation detected during stream processing")
             # Return cancelled stop reason with cancellation message

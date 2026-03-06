@@ -337,8 +337,6 @@ class Agent(AgentBase):
         (e.g., another thread, web request handler, background task).
 
         The agent will stop gracefully at the next checkpoint:
-        - Start of event loop cycle
-        - Before model execution
         - During model response streaming
         - Before tool execution
 
@@ -760,7 +758,7 @@ class Agent(AgentBase):
                 if invocation_state is not None:
                     merged_state = invocation_state
 
-            # Add internal cancel signal to invocation state for event loop access
+            # Add cancel signal to invocation state for streaming access
             merged_state["cancel_signal"] = self._cancel_signal
 
             callback_handler = self.callback_handler

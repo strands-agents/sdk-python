@@ -124,8 +124,8 @@ class RepositorySessionManager(SessionManager):
         else:
             state_changed = current_state_version != last_synced.get("state_version")
             internal_state_changed = current_interrupt_state_version != last_synced.get("interrupt_state_version")
-            conversation_manager_state_changed = (
-                current_conversation_manager_state != last_synced.get("conversation_manager_state")
+            conversation_manager_state_changed = current_conversation_manager_state != last_synced.get(
+                "conversation_manager_state"
             )
 
         if not state_changed and not internal_state_changed and not conversation_manager_state_changed:

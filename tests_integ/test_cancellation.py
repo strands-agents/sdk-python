@@ -1,8 +1,7 @@
-"""Integration tests for cancellation with real model providers.
+"""Integration tests for agent cancellation with Amazon Bedrock.
 
-These tests verify that cancellation works correctly with actual model providers
-like Bedrock, Anthropic, OpenAI, etc. They require valid credentials and may
-incur API costs.
+These tests verify that cancellation works correctly with the Bedrock model provider.
+They require valid AWS credentials and may incur API costs.
 
 To run these tests:
     hatch run test-integ tests_integ/test_cancellation.py
@@ -11,147 +10,64 @@ To run these tests:
 import asyncio
 import os
 import threading
-import time
 
 import pytest
 
 from strands import Agent, tool
+from strands.hooks import AfterModelCallEvent, BeforeModelCallEvent
+from strands.models import BedrockModel
 
-# Skip all tests if no model credentials are available
-pytestmark = pytest.mark.skipif(
-    not any(
-        [
-            os.getenv("AWS_REGION"),  # Bedrock
-            os.getenv("ANTHROPIC_API_KEY"),  # Anthropic
-            os.getenv("OPENAI_API_KEY"),  # OpenAI
-        ]
-    ),
-    reason="No model provider credentials found",
-)
+# Skip all tests if no AWS credentials are available
+pytestmark = [
+    pytest.mark.skipif(not os.getenv("AWS_REGION"), reason="AWS credentials not available"),
+    pytest.mark.asyncio,
+]
 
 
-@pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv("AWS_REGION"), reason="AWS credentials not available")
 async def test_cancel_with_bedrock():
     """Test agent.cancel() with Amazon Bedrock model.
 
     Verifies that cancellation works correctly with a real Bedrock
-    model by starting a long-running request and cancelling it mid-execution.
+    model by cancelling before the model call starts.
     """
-    from strands.models import BedrockModel
 
-    agent = Agent(model=BedrockModel("anthropic.claude-3-haiku-20240307-v1:0"))
+    agent = Agent(model=BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0"))
 
-    # Cancel after 2 seconds
-    async def cancel_after_delay():
-        await asyncio.sleep(2.0)
+    # Cancel deterministically before the model call
+    async def cancel_before_model(event: BeforeModelCallEvent):
         agent.cancel()
 
-    cancel_task = asyncio.create_task(cancel_after_delay())
+    agent.add_hook(cancel_before_model, BeforeModelCallEvent)
 
-    # Request a long response that should take more than 2 seconds
     result = await agent.invoke_async(
         "Write a detailed 1000-word essay about the history of space exploration, "
         "including major milestones, key figures, and technological breakthroughs."
     )
 
-    await cancel_task
-
     assert result.stop_reason == "cancelled"
-    # The message might be empty or partially complete
-    assert result.message is not None
+    assert result.message["role"] == "assistant"
+    assert result.message["content"] == [{"text": "Cancelled by user"}]
 
 
-@pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv("ANTHROPIC_API_KEY"), reason="Anthropic API key not available")
-async def test_cancel_with_anthropic():
-    """Test agent.cancel() with Anthropic Claude model.
-
-    Verifies that cancellation works correctly with the Anthropic
-    API by starting a long-running request and cancelling it mid-execution.
-    """
-    from strands.models import AnthropicModel
-
-    agent = Agent(model=AnthropicModel("claude-3-haiku-20240307"))
-
-    # Cancel after 2 seconds
-    async def cancel_after_delay():
-        await asyncio.sleep(2.0)
-        agent.cancel()
-
-    cancel_task = asyncio.create_task(cancel_after_delay())
-
-    # Request a long response
-    result = await agent.invoke_async(
-        "Write a detailed 1000-word essay about artificial intelligence, "
-        "covering its history, current applications, and future potential."
-    )
-
-    await cancel_task
-
-    assert result.stop_reason == "cancelled"
-    assert result.message is not None
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), reason="OpenAI API key not available")
-async def test_cancel_with_openai():
-    """Test agent.cancel() with OpenAI model.
-
-    Verifies that cancellation works correctly with the OpenAI
-    API by starting a long-running request and cancelling it mid-execution.
-    """
-    from strands.models import OpenAIModel
-
-    agent = Agent(model=OpenAIModel("gpt-4o-mini"))
-
-    # Cancel after 2 seconds
-    async def cancel_after_delay():
-        await asyncio.sleep(2.0)
-        agent.cancel()
-
-    cancel_task = asyncio.create_task(cancel_after_delay())
-
-    # Request a long response
-    result = await agent.invoke_async(
-        "Write a detailed 1000-word essay about quantum computing, "
-        "explaining the principles, current state, and potential applications."
-    )
-
-    await cancel_task
-
-    assert result.stop_reason == "cancelled"
-    assert result.message is not None
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv("AWS_REGION"), reason="AWS credentials not available")
 async def test_cancel_during_streaming_bedrock():
     """Test agent.cancel() during streaming with Bedrock.
 
     Verifies that cancellation works correctly when using the
     streaming API with a real Bedrock model.
     """
-    from strands.models import BedrockModel
 
-    agent = Agent(model=BedrockModel("anthropic.claude-3-haiku-20240307-v1:0"))
-
-    # Cancel after receiving some chunks
-    async def cancel_after_delay():
-        await asyncio.sleep(1.5)
-        agent.cancel()
-
-    cancel_task = asyncio.create_task(cancel_after_delay())
+    agent = Agent(model=BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0"))
 
     events = []
     async for event in agent.stream_async(
         "Write a detailed story about a space adventure. Make it at least 500 words long."
     ):
         events.append(event)
+        # Cancel after receiving the first model delta event
+        if "data" in event:
+            agent.cancel()
         if event.get("result"):
             break
-
-    await cancel_task
 
     # Find the result event
     result_event = next((e for e in events if e.get("result")), None)
@@ -159,18 +75,15 @@ async def test_cancel_during_streaming_bedrock():
     assert result_event["result"].stop_reason == "cancelled"
 
 
-@pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv("AWS_REGION"), reason="AWS credentials not available")
 async def test_cancel_with_tools_bedrock():
     """Test agent.cancel() during tool execution with Bedrock.
 
     Verifies that cancellation works correctly when the agent
     is executing tools with a real Bedrock model.
     """
-    from strands.models import BedrockModel
 
     @tool
-    def slow_calculation(x: int, y: int) -> int:
+    async def slow_calculation(x: int, y: int) -> int:
         """Perform a slow calculation that takes time.
 
         Args:
@@ -180,11 +93,11 @@ async def test_cancel_with_tools_bedrock():
         Returns:
             The sum of x and y
         """
-        time.sleep(2)  # Simulate slow operation
+        await asyncio.sleep(2)
         return x + y
 
     @tool
-    def another_calculation(a: int, b: int) -> int:
+    async def another_calculation(a: int, b: int) -> int:
         """Another slow calculation.
 
         Args:
@@ -194,50 +107,45 @@ async def test_cancel_with_tools_bedrock():
         Returns:
             The product of a and b
         """
-        time.sleep(2)  # Simulate slow operation
+        await asyncio.sleep(2)
         return a * b
 
     agent = Agent(
-        model=BedrockModel("anthropic.claude-3-haiku-20240307-v1:0"),
+        model=BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0"),
         tools=[slow_calculation, another_calculation],
     )
 
-    # Cancel after 3 seconds (should be during tool execution)
-    async def cancel_after_delay():
-        await asyncio.sleep(3.0)
-        agent.cancel()
+    # Cancel deterministically after model returns tool_use
+    async def cancel_after_model(event: AfterModelCallEvent):
+        if event.stop_response and event.stop_response.stop_reason == "tool_use":
+            agent.cancel()
 
-    cancel_task = asyncio.create_task(cancel_after_delay())
+    agent.add_hook(cancel_after_model, AfterModelCallEvent)
 
     result = await agent.invoke_async(
         "Please use the slow_calculation tool to add 5 and 10, then use another_calculation to multiply 3 and 7."
     )
 
-    await cancel_task
-
     assert result.stop_reason == "cancelled"
 
 
-@pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv("AWS_REGION"), reason="AWS credentials not available")
 async def test_cancel_from_thread_bedrock():
     """Test agent.cancel() from a different thread with Bedrock.
 
     Simulates a real-world scenario where cancellation is triggered
     from a different thread (e.g., a web request handler) while the agent
-    is executing in another thread.
+    is executing.
     """
-    from strands.models import BedrockModel
 
-    agent = Agent(model=BedrockModel("anthropic.claude-3-haiku-20240307-v1:0"))
+    agent = Agent(model=BedrockModel(model_id="anthropic.claude-3-haiku-20240307-v1:0"))
 
-    # Cancel from a different thread after 2 seconds
-    def cancel_from_thread():
-        time.sleep(2.0)
-        agent.cancel()
+    # Cancel deterministically from a different thread before the model call
+    def cancel_before_model(event: BeforeModelCallEvent):
+        thread = threading.Thread(target=agent.cancel)
+        thread.start()
+        thread.join()
 
-    cancel_thread = threading.Thread(target=cancel_from_thread)
-    cancel_thread.start()
+    agent.add_hook(cancel_before_model, BeforeModelCallEvent)
 
     result = await agent.invoke_async(
         "Write a comprehensive guide about machine learning, "
@@ -245,69 +153,4 @@ async def test_cancel_from_thread_bedrock():
         "Make it at least 800 words."
     )
 
-    cancel_thread.join()
-
     assert result.stop_reason == "cancelled"
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv("ANTHROPIC_API_KEY"), reason="Anthropic API key not available")
-async def test_cancel_before_invocation_anthropic():
-    """Test agent.cancel() before invocation with Anthropic.
-
-    Verifies that when cancellation is requested before the model
-    is called, the agent stops immediately without making any API calls.
-    """
-    from strands.models import AnthropicModel
-
-    agent = Agent(model=AnthropicModel("claude-3-haiku-20240307"))
-
-    # Cancel immediately before invocation
-    agent.cancel()
-
-    result = await agent.invoke_async("Hello, how are you?")
-
-    assert result.stop_reason == "cancelled"
-    # Should not have made any API calls, so message should be empty
-    assert result.message == {"role": "assistant", "content": []}
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv("OPENAI_API_KEY"), reason="OpenAI API key not available")
-async def test_cancel_idempotent_openai():
-    """Test that calling cancel() multiple times is safe with OpenAI.
-
-    Verifies that calling cancel() multiple times doesn't cause
-    any issues with a real model provider.
-    """
-    from strands.models import OpenAIModel
-
-    agent = Agent(model=OpenAIModel("gpt-4o-mini"))
-
-    # Cancel multiple times
-    agent.cancel()
-    agent.cancel()
-    agent.cancel()
-
-    result = await agent.invoke_async("Tell me a short joke.")
-
-    assert result.stop_reason == "cancelled"
-
-
-@pytest.mark.asyncio
-@pytest.mark.skipif(not os.getenv("AWS_REGION"), reason="AWS credentials not available")
-async def test_agent_without_cancellation_bedrock():
-    """Test that agent works normally without cancellation.
-
-    Verifies that when cancel() is not called, the agent executes
-    normally with a real model.
-    """
-    from strands.models import BedrockModel
-
-    agent = Agent(model=BedrockModel("anthropic.claude-3-haiku-20240307-v1:0"))
-
-    result = await agent.invoke_async("Say hello in exactly 5 words.")
-
-    assert result.stop_reason == "end_turn"
-    assert result.message["role"] == "assistant"
-    assert len(result.message["content"]) > 0

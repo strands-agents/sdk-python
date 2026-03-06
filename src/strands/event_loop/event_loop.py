@@ -33,7 +33,6 @@ from ..types._events import (
     TypedEvent,
 )
 from ..types.content import Message, Messages
-from ..types.event_loop import Metrics, Usage
 from ..types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
@@ -54,23 +53,6 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 6
 INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
-
-
-def _should_cancel(invocation_state: dict[str, Any]) -> bool:
-    """Check if cancellation has been requested.
-
-    This helper function checks the cancel signal in the invocation state
-    and returns True if cancellation has been requested. It's called at strategic
-    checkpoints throughout the event loop to enable graceful termination.
-
-    Args:
-        invocation_state: Invocation state containing optional cancel signal.
-
-    Returns:
-        True if cancellation has been requested, False otherwise.
-    """
-    signal = invocation_state.get("cancel_signal")
-    return signal.is_set() if signal else False
 
 
 def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
@@ -146,22 +128,6 @@ async def event_loop_cycle(
 
     yield StartEvent()
     yield StartEventLoopEvent()
-
-    # CHECKPOINT 1: Check for cancellation at start of event loop cycle
-    # This allows cancellation before any model or tool execution begins
-    if _should_cancel(invocation_state):
-        logger.debug(
-            "event_loop_cycle_id=<%s> | cancellation detected at cycle start",
-            invocation_state.get("event_loop_cycle_id"),
-        )
-        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
-        yield EventLoopStopEvent(
-            "cancelled",
-            {"role": "assistant", "content": [{"text": "Cancelled by user"}]},
-            agent.event_loop_metrics,
-            invocation_state["request_state"],
-        )
-        return
 
     # Create tracer span for this event loop cycle
     tracer = get_tracer()
@@ -341,23 +307,6 @@ async def _handle_model_execution(
     # Retry loop - actual retry logic is handled by retry_strategy hook
     # Hooks control when to stop retrying via the event.retry flag
     while True:
-        # CHECKPOINT 2: Check for cancellation before model call
-        # This prevents unnecessary model invocations when cancellation is requested
-        if _should_cancel(invocation_state):
-            logger.debug(
-                "model_id=<%s> | cancellation detected before model call",
-                agent.model.config.get("model_id") if hasattr(agent.model, "config") else None,
-            )
-            # Return cancelled stop reason with cancellation message and zero usage/metrics
-            # since no model execution occurred
-            yield ModelStopReason(
-                stop_reason="cancelled",
-                message={"role": "assistant", "content": [{"text": "Cancelled by user"}]},
-                usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
-                metrics=Metrics(latencyMs=0),
-            )
-            return
-
         model_id = agent.model.config.get("model_id") if hasattr(agent.model, "config") else None
         model_invoke_span = tracer.start_model_invoke_span(
             messages=agent.messages,
@@ -517,9 +466,9 @@ async def _handle_tool_execution(
 
     interrupts = []
 
-    # CHECKPOINT 4: Check for cancellation before tool execution
+    # Check for cancellation before tool execution
     # Add tool_result for each tool_use to maintain valid conversation state
-    if _should_cancel(invocation_state):
+    if agent._cancel_signal.is_set():
         logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
 
         # Create cancellation tool_result for each tool_use to avoid invalid message state
@@ -533,15 +482,16 @@ async def _handle_tool_execution(
             tool_results.append(cancel_result)
 
         # Add tool results message to conversation if any tools were cancelled
+        cancelled_tool_result_message: Message | None = None
         if tool_results:
-            cancelled_tool_result_message: Message = {
+            _cancelled_msg: Message = {
                 "role": "user",
                 "content": [{"toolResult": result} for result in tool_results],
             }
-            agent.messages.append(cancelled_tool_result_message)
-            await agent.hooks.invoke_callbacks_async(
-                MessageAddedEvent(agent=agent, message=cancelled_tool_result_message)
-            )
+            cancelled_tool_result_message = _cancelled_msg
+            agent.messages.append(_cancelled_msg)
+            await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=_cancelled_msg))
+            yield ToolResultMessageEvent(message=_cancelled_msg)
 
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
         yield EventLoopStopEvent(
@@ -551,7 +501,9 @@ async def _handle_tool_execution(
             invocation_state["request_state"],
         )
         if cycle_span:
-            tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
+            tracer.end_event_loop_cycle_span(
+                span=cycle_span, message=message, tool_result_message=cancelled_tool_result_message
+            )
         return
 
     tool_events = agent.tool_executor._execute(
