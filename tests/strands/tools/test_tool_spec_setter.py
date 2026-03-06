@@ -112,19 +112,19 @@ class TestDecoratedFunctionToolSpecSetter:
         with pytest.raises(ValueError, match="tool_spec must contain 'inputSchema'"):
             my_tool.tool_spec = bad_spec
 
-    def test_set_tool_spec_rejects_missing_json_key(self):
+    def test_set_tool_spec_accepts_bare_input_schema(self):
         @tool
         def my_tool(query: str) -> str:
             """A test tool."""
             return query
 
-        bad_spec: ToolSpec = {
+        bare_spec: ToolSpec = {
             "name": "my_tool",
-            "description": "Updated tool",
-            "inputSchema": {"not_json": {}},
+            "description": "Bare schema",
+            "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]},
         }
-        with pytest.raises(ValueError, match="tool_spec 'inputSchema' must contain a 'json' key"):
-            my_tool.tool_spec = bad_spec
+        my_tool.tool_spec = bare_spec
+        assert my_tool.tool_spec is bare_spec
 
     def test_set_tool_spec_accepts_valid_spec(self):
         @tool
@@ -226,15 +226,15 @@ class TestPythonAgentToolSpecSetter:
         with pytest.raises(ValueError, match="tool_spec must contain 'inputSchema'"):
             t.tool_spec = bad_spec
 
-    def test_set_tool_spec_rejects_missing_json_key(self):
+    def test_set_tool_spec_accepts_bare_input_schema(self):
         t = self._make_tool()
-        bad_spec: ToolSpec = {
+        bare_spec: ToolSpec = {
             "name": "test_tool",
-            "description": "Updated",
-            "inputSchema": {"not_json": {}},
+            "description": "Bare schema",
+            "inputSchema": {"type": "object", "properties": {"input": {"type": "string"}}, "required": ["input"]},
         }
-        with pytest.raises(ValueError, match="tool_spec 'inputSchema' must contain a 'json' key"):
-            t.tool_spec = bad_spec
+        t.tool_spec = bare_spec
+        assert t.tool_spec is bare_spec
 
     def test_set_tool_spec_accepts_valid_spec(self):
         t = self._make_tool()

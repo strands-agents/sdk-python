@@ -552,8 +552,8 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             value: The new tool specification.
 
         Raises:
-            ValueError: If the spec fails structural validation (wrong name,
-                missing description, missing inputSchema, or missing json key).
+            ValueError: If the spec fails structural validation (wrong name or
+                missing required field).
         """
         if value.get("name") != self._tool_name:
             raise ValueError(
@@ -563,9 +563,6 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         for field in ("description", "inputSchema"):
             if field not in value:
                 raise ValueError(f"tool_spec must contain '{field}'")
-
-        if "json" not in value["inputSchema"]:
-            raise ValueError("tool_spec 'inputSchema' must contain a 'json' key")
 
         self._tool_spec = value
 
