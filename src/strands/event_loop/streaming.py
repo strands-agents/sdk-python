@@ -436,6 +436,17 @@ async def process_stream(
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], state)
 
+    # Override stop_reason when the model returns "end_turn" but the response
+    # contains toolUse blocks. Some models (e.g., Sonnet 4.x) can return
+    # end_turn as stop_reason even when tool calls are present, which prevents
+    # the event loop from processing those tool calls.
+    # See: https://github.com/strands-agents/sdk-python/issues/1810
+    if stop_reason == "end_turn":
+        content = state["message"].get("content", [])
+        if any("toolUse" in item for item in content):
+            logger.debug("stop_reason override: end_turn -> tool_use (response contains toolUse blocks)")
+            stop_reason = "tool_use"
+
     yield ModelStopReason(stop_reason=stop_reason, message=state["message"], usage=usage, metrics=metrics)
 
 
