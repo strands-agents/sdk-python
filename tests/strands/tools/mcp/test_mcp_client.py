@@ -488,6 +488,25 @@ def test_stop_with_no_background_thread():
     assert client._background_thread is None
 
 
+def test_stop_closes_event_loop_when_no_background_thread():
+    """Test that stop() closes the event loop even when background thread is None.
+
+    This covers the edge case where the event loop was created but the
+    background thread was already cleaned up or never assigned.
+    """
+    client = MCPClient(MagicMock())
+
+    mock_event_loop = MagicMock()
+    client._background_thread = None
+    client._background_thread_event_loop = mock_event_loop
+
+    client.stop(None, None, None)
+
+    # Event loop should still be closed
+    mock_event_loop.close.assert_called_once()
+    assert client._background_thread_event_loop is None
+
+
 def test_stop_with_background_thread_but_no_event_loop():
     """Test that stop() handles the case when background thread exists but event loop is None."""
     client = MCPClient(MagicMock())
