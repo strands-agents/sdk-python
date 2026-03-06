@@ -155,6 +155,47 @@ def test_agent_invoke_reasoning(agent, model):
 
 
 @pytest.mark.parametrize("model_fixture", ["streaming_model", "non_streaming_model"])
+def test_agent_reasoning_with_signature(model_fixture, tools, request):
+    """Test that reasoning content and signatures are preserved in responses.
+
+    Verifies the full reasoning pipeline: reasoning text is returned with
+    a non-empty signature, ensuring that the model provider's thought
+    signatures are correctly propagated through the LiteLLM adapter.
+    """
+    model = request.getfixturevalue(model_fixture)
+    model.update_config(
+        params={
+            "thinking": {
+                "budget_tokens": 1024,
+                "type": "enabled",
+            },
+        },
+    )
+
+    agent = Agent(model=model, tools=tools)
+    result = agent("What is the time and weather? Think step by step.")
+
+    # Find the reasoning content block in the response
+    reasoning_blocks = [
+        block
+        for block in result.message["content"]
+        if "reasoningContent" in block
+    ]
+    assert reasoning_blocks, "Expected at least one reasoningContent block"
+
+    reasoning_block = reasoning_blocks[0]
+    reasoning_text = reasoning_block["reasoningContent"]["reasoningText"]
+
+    # Verify reasoning text is present and non-empty
+    assert reasoning_text.get("text"), "Reasoning text should be non-empty"
+
+    # Verify signature is present and non-empty
+    assert reasoning_text.get("signature"), (
+        "Reasoning signature should be present and non-empty"
+    )
+
+
+@pytest.mark.parametrize("model_fixture", ["streaming_model", "non_streaming_model"])
 def test_structured_output(model_fixture, weather, request):
     model = request.getfixturevalue(model_fixture)
     agent = Agent(model=model)
