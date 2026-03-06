@@ -315,6 +315,62 @@ class TestSkillsTool:
 
         assert "required" in result.lower()
 
+    def test_activate_tracks_in_agent_state(self):
+        """Test that activating a skill records it in agent state."""
+        plugin = AgentSkills(skills=[_make_skill()])
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        plugin.skills(skill_name="test-skill", tool_context=tool_context)
+
+        assert plugin.get_activated_skills(agent) == ["test-skill"]
+
+    def test_activate_multiple_tracks_order(self):
+        """Test that multiple activations are tracked in order."""
+        skill_a = _make_skill(name="skill-a", description="A", instructions="A")
+        skill_b = _make_skill(name="skill-b", description="B", instructions="B")
+        plugin = AgentSkills(skills=[skill_a, skill_b])
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        plugin.skills(skill_name="skill-a", tool_context=tool_context)
+        plugin.skills(skill_name="skill-b", tool_context=tool_context)
+
+        assert plugin.get_activated_skills(agent) == ["skill-a", "skill-b"]
+
+    def test_activate_same_skill_twice_deduplicates(self):
+        """Test that re-activating a skill moves it to the end without duplicates."""
+        skill_a = _make_skill(name="skill-a", description="A", instructions="A")
+        skill_b = _make_skill(name="skill-b", description="B", instructions="B")
+        plugin = AgentSkills(skills=[skill_a, skill_b])
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        plugin.skills(skill_name="skill-a", tool_context=tool_context)
+        plugin.skills(skill_name="skill-b", tool_context=tool_context)
+        plugin.skills(skill_name="skill-a", tool_context=tool_context)
+
+        assert plugin.get_activated_skills(agent) == ["skill-b", "skill-a"]
+
+    def test_get_activated_skills_empty_by_default(self):
+        """Test that get_activated_skills returns empty list when nothing activated."""
+        plugin = AgentSkills(skills=[_make_skill()])
+        agent = _mock_agent()
+
+        assert plugin.get_activated_skills(agent) == []
+
+    def test_get_activated_skills_returns_copy(self):
+        """Test that get_activated_skills returns a copy, not a reference."""
+        plugin = AgentSkills(skills=[_make_skill()])
+        agent = _mock_agent()
+        tool_context = _mock_tool_context(agent)
+
+        plugin.skills(skill_name="test-skill", tool_context=tool_context)
+        result = plugin.get_activated_skills(agent)
+        result.append("injected")
+
+        assert plugin.get_activated_skills(agent) == ["test-skill"]
+
 
 class TestSystemPromptInjection:
     """Tests for system prompt injection via hooks."""

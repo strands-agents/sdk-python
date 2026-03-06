@@ -116,6 +116,7 @@ class AgentSkills(Plugin):
             return f"Skill '{skill_name}' not found. Available skills: {available}"
 
         logger.debug("skill_name=<%s> | skill activated", skill_name)
+        self._track_activated_skill(tool_context.agent, skill_name)
         return self._format_skill_response(found)
 
     @hook
@@ -350,3 +351,37 @@ class AgentSkills(Plugin):
             state_data = {}
         state_data[key] = value
         agent.state.set(self._state_key, state_data)
+
+    def _track_activated_skill(self, agent: Agent, skill_name: str) -> None:
+        """Record a skill activation in agent state.
+
+        Maintains an ordered list of activated skill names (most recent last),
+        without duplicates.
+
+        Args:
+            agent: The agent whose state to update.
+            skill_name: Name of the activated skill.
+        """
+        state_data = agent.state.get(self._state_key)
+        activated: list[str] = state_data.get("activated_skills", []) if isinstance(state_data, dict) else []
+        if skill_name in activated:
+            activated.remove(skill_name)
+        activated.append(skill_name)
+        self._set_state_field(agent, "activated_skills", activated)
+
+    def get_activated_skills(self, agent: Agent) -> list[str]:
+        """Get the list of skills activated by this agent.
+
+        Returns skill names in activation order (most recent last).
+
+        Args:
+            agent: The agent to query.
+
+        Returns:
+            List of activated skill names.
+        """
+        state_data = agent.state.get(self._state_key)
+        if isinstance(state_data, dict):
+            return list(state_data.get("activated_skills", []))
+        return []
+
