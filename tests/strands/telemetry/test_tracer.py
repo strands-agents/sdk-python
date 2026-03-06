@@ -1604,3 +1604,50 @@ def test_end_model_invoke_span_non_langfuse_no_extra_attributes(mock_span, monke
         "gen_ai.client.inference.operation.details",
         attributes={"gen_ai.output.messages": expected_output},
     )
+
+
+class TestIsLangfuse:
+    """Tests for the is_langfuse property."""
+
+    def test_is_langfuse_with_otel_exporter_otlp_endpoint(self, monkeypatch):
+        """Test is_langfuse returns True when OTEL_EXPORTER_OTLP_ENDPOINT contains langfuse."""
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://us.cloud.langfuse.com")
+        tracer = Tracer()
+        assert tracer.is_langfuse is True
+
+    def test_is_langfuse_with_otel_exporter_otlp_traces_endpoint(self, monkeypatch):
+        """Test is_langfuse returns True when OTEL_EXPORTER_OTLP_TRACES_ENDPOINT contains langfuse."""
+        monkeypatch.setenv(
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "https://us.cloud.langfuse.com/api/public/otel/v1/traces"
+        )
+        tracer = Tracer()
+        assert tracer.is_langfuse is True
+
+    def test_is_langfuse_with_langfuse_base_url(self, monkeypatch):
+        """Test is_langfuse returns True when LANGFUSE_BASE_URL contains langfuse."""
+        monkeypatch.setenv("LANGFUSE_BASE_URL", "https://us.cloud.langfuse.com")
+        tracer = Tracer()
+        assert tracer.is_langfuse is True
+
+    def test_is_langfuse_false_when_no_langfuse_env_vars(self, monkeypatch):
+        """Test is_langfuse returns False when no Langfuse-related env vars are set."""
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+        monkeypatch.delenv("LANGFUSE_BASE_URL", raising=False)
+        tracer = Tracer()
+        assert tracer.is_langfuse is False
+
+    def test_is_langfuse_false_with_non_langfuse_endpoint(self, monkeypatch):
+        """Test is_langfuse returns False when endpoint is not Langfuse."""
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.honeycomb.io")
+        monkeypatch.delenv("LANGFUSE_BASE_URL", raising=False)
+        tracer = Tracer()
+        assert tracer.is_langfuse is False
+
+    def test_is_langfuse_false_with_non_langfuse_base_url(self, monkeypatch):
+        """Test is_langfuse returns False when LANGFUSE_BASE_URL doesn't contain langfuse."""
+        monkeypatch.setenv("LANGFUSE_BASE_URL", "https://some-other-service.com")
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+        tracer = Tracer()
+        assert tracer.is_langfuse is False
