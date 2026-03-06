@@ -906,3 +906,75 @@ async def test_stream_preserves_thinking_signature(litellm_acompletion, api_key,
     assert signature_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"]["signature"] == (
         "base64encodedSignature=="
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_signature_arrives_with_unset_data_type(
+    litellm_acompletion, api_key, model_id, model, agenerator, alist
+):
+    """Test that a reasoning signature arriving before any reasoning text triggers content switching.
+
+    When the signature is the first chunk (data_type is None), _stream_switch_content should emit
+    content_start/content_stop events for the reasoning_content block.
+    """
+
+    class MockStreamChunk:
+        def __init__(self, choices=None):
+            self.choices = choices or []
+
+    # First chunk: signature arrives immediately (no prior reasoning text)
+    mock_thinking_with_sig = unittest.mock.Mock()
+    mock_thinking_with_sig.signature = "earlySignature=="
+    mock_delta_1 = unittest.mock.Mock(
+        content=None, tool_calls=None, reasoning_content=None, thinking=mock_thinking_with_sig
+    )
+
+    # Second chunk: text response
+    mock_delta_2 = unittest.mock.Mock(content="The answer is 42.", tool_calls=None, reasoning_content=None)
+    mock_delta_2.thinking = None
+
+    mock_event_1 = MockStreamChunk(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
+    mock_event_2 = MockStreamChunk(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta_2)])
+    mock_event_3 = MockStreamChunk(choices=[])
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3])
+    )
+
+    messages = [{"role": "user", "content": [{"type": "text", "text": "Think about 42"}]}]
+    response = model.stream(messages)
+    events = await alist(response)
+
+    # Verify content_start was emitted before the signature (content type switch from None)
+    # When signature arrives first (data_type=None), _stream_switch_content emits content_start
+    content_starts = [e for e in events if "contentBlockStart" in e]
+    content_stops = [e for e in events if "contentBlockStop" in e]
+    assert len(content_starts) == 2  # one for reasoning_content, one for text
+    assert len(content_stops) == 2  # one for reasoning_content, one for text
+
+    # Verify the signature content block appears before text:
+    # event order should be: messageStart, contentBlockStart, signature delta, contentBlockStop,
+    #                         contentBlockStart, text delta, contentBlockStop, messageStop
+    sig_index = next(i for i, e in enumerate(events) if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"])
+    text_index = next(i for i, e in enumerate(events) if "contentBlockDelta" in e and "text" in e.get("contentBlockDelta", {}).get("delta", {}))
+    assert sig_index < text_index
+
+    # Verify signature delta is emitted
+    signature_deltas = [
+        e
+        for e in events
+        if "contentBlockDelta" in e
+        and "reasoningContent" in e["contentBlockDelta"]["delta"]
+        and "signature" in e["contentBlockDelta"]["delta"]["reasoningContent"]
+    ]
+    assert len(signature_deltas) == 1
+    assert signature_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"]["signature"] == "earlySignature=="
+
+    # Verify text content follows after reasoning
+    text_deltas = [
+        e
+        for e in events
+        if "contentBlockDelta" in e and "text" in e.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    assert len(text_deltas) == 1
+    assert text_deltas[0]["contentBlockDelta"]["delta"]["text"] == "The answer is 42."
