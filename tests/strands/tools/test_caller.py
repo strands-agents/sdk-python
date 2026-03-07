@@ -414,6 +414,12 @@ def test_agent_with_tool_provider_cleaned_up_on_del():
     assert not provider.cleanup_called
 
     del agent
+
+    if not provider.cleanup_called:
+        # Deferred refcounting (Python 3.14+) may not collect immediately on del;
+        # a single gc.collect() should still reclaim it since there are no cycles.
+        gc.collect()
+
     assert provider.cleanup_called, "Tool provider was not cleaned up after del agent"
 
 
