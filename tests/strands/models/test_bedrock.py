@@ -2693,6 +2693,33 @@ def test_inject_cache_point_strips_existing_cache_points(bedrock_client):
     assert "cachePoint" in cleaned_messages[3]["content"][-1]
 
 
+def test_inject_cache_point_before_reasoning_content(bedrock_client):
+    """Test that cache point is inserted before trailing reasoningContent blocks."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Here is my answer."},
+                {"reasoningContent": {"reasoningText": {"text": "Let me think..."}}},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    content = cleaned_messages[1]["content"]
+    # Cache point should be before the reasoning block, not after
+    assert len(content) == 3
+    assert content[0] == {"text": "Here is my answer."}
+    assert "cachePoint" in content[1]
+    assert "reasoningContent" in content[2]
+
+
 def test_find_last_user_text_message_index_no_user_messages(bedrock_client):
     """Test _find_last_user_text_message_index returns None when no user text messages exist."""
     model = BedrockModel(model_id="test-model")

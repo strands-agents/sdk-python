@@ -360,7 +360,13 @@ class BedrockModel(Model):
                 last_assistant_idx = msg_idx
 
         if last_assistant_idx is not None and messages[last_assistant_idx].get("content"):
-            messages[last_assistant_idx]["content"].append({"cachePoint": {"type": "default"}})
+            content = messages[last_assistant_idx]["content"]
+            # Insert cache point before any trailing reasoning blocks, since Bedrock's API
+            # does not allow cache points after reasoningContent blocks.
+            insert_pos = len(content)
+            while insert_pos > 0 and "reasoningContent" in content[insert_pos - 1]:
+                insert_pos -= 1
+            content.insert(insert_pos, {"cachePoint": {"type": "default"}})
             logger.debug("msg_idx=<%s> | added cache point to last assistant message", last_assistant_idx)
 
     def _find_last_user_text_message_index(self, messages: Messages) -> int | None:
