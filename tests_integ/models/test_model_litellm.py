@@ -155,12 +155,16 @@ def test_agent_invoke_reasoning(agent, model):
 
 
 @pytest.mark.parametrize("model_fixture", ["streaming_model", "non_streaming_model"])
-def test_agent_reasoning_with_signature(model_fixture, tools, request):
+def test_agent_reasoning_with_signature(model_fixture, request):
     """Test that reasoning content and signatures are preserved in responses.
 
     Verifies the full reasoning pipeline: reasoning text is returned with
     a non-empty signature, ensuring that the model provider's thought
     signatures are correctly propagated through the LiteLLM adapter.
+
+    Note: tools are intentionally excluded to avoid the Bedrock constraint
+    that multi-turn thinking+tools requires thinking blocks in assistant
+    messages on subsequent turns.
     """
     model = request.getfixturevalue(model_fixture)
     model.update_config(
@@ -172,15 +176,11 @@ def test_agent_reasoning_with_signature(model_fixture, tools, request):
         },
     )
 
-    agent = Agent(model=model, tools=tools)
-    result = agent("What is the time and weather? Think step by step.")
+    agent = Agent(model=model)
+    result = agent("What is 2 + 2? Think step by step.")
 
     # Find the reasoning content block in the response
-    reasoning_blocks = [
-        block
-        for block in result.message["content"]
-        if "reasoningContent" in block
-    ]
+    reasoning_blocks = [block for block in result.message["content"] if "reasoningContent" in block]
     assert reasoning_blocks, "Expected at least one reasoningContent block"
 
     reasoning_block = reasoning_blocks[0]
@@ -190,9 +190,7 @@ def test_agent_reasoning_with_signature(model_fixture, tools, request):
     assert reasoning_text.get("text"), "Reasoning text should be non-empty"
 
     # Verify signature is present and non-empty
-    assert reasoning_text.get("signature"), (
-        "Reasoning signature should be present and non-empty"
-    )
+    assert reasoning_text.get("signature"), "Reasoning signature should be present and non-empty"
 
 
 @pytest.mark.parametrize("model_fixture", ["streaming_model", "non_streaming_model"])
