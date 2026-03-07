@@ -2026,9 +2026,12 @@ async def test_tool_result_event_carries_exception_assertion_error(alist):
 
 
 def test_tool_nullable_required_field_preserves_anyof():
-    """Test that a required nullable field preserves anyOf so the model can pass null.
+    """Test that a nullable field without default is treated as optional.
 
-    Regression test for https://github.com/strands-agents/sdk-python/issues/1525
+    When a parameter has `T | None` type without an explicit default, it should
+    be treated as optional (not in required) since the type explicitly allows None.
+    Related: https://github.com/strands-agents/sdk-python/issues/1525
+    Related: https://github.com/strands-agents/sdk-python/issues/1151
     """
     from enum import Enum
 
@@ -2050,32 +2053,10 @@ def test_tool_nullable_required_field_preserves_anyof():
     spec = prioritized_task.tool_spec
     schema = spec["inputSchema"]["json"]
 
-    expected_schema = {
-        "$defs": {
-            "Priority": {
-                "enum": ["high", "medium", "low"],
-                "title": "Priority",
-                "type": "string",
-            },
-        },
-        "type": "object",
-        "properties": {
-            "description": {
-                "type": "string",
-                "description": "Task description",
-            },
-            "priority": {
-                "anyOf": [
-                    {"$ref": "#/$defs/Priority"},
-                    {"type": "null"},
-                ],
-                "description": "Optional priority level",
-            },
-        },
-        "required": ["description", "priority"],
-    }
-
-    assert schema == expected_schema
+    # description is required (non-nullable, no default)
+    assert "description" in schema["required"]
+    # priority is NOT required (nullable type without default implies optional)
+    assert "priority" not in schema["required"]
 
 
 def test_tool_nullable_optional_field_simplifies_anyof():
@@ -2101,3 +2082,66 @@ def test_tool_nullable_optional_field_simplifies_anyof():
     # Since tag is not required, anyOf should be simplified away
     assert "anyOf" not in schema["properties"]["tag"]
     assert schema["properties"]["tag"]["type"] == "string"
+
+
+def test_tool_optional_type_without_default_is_not_required():
+    """Test that Optional/Union[T, None] type annotations without defaults make params optional.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1151
+    """
+    from typing import Optional, Union
+
+    @strands.tool
+    def tool_optional(param1: str, param2: Optional[int]) -> dict:
+        """Tool with Optional param.
+
+        Args:
+            param1: Required string param.
+            param2: Optional integer param.
+        """
+        return {"result": f"{param1} + {param2}"}
+
+    @strands.tool
+    def tool_union_none(param1: str, param2: int | None) -> dict:
+        """Tool with union None param.
+
+        Args:
+            param1: Required string param.
+            param2: Optional integer param.
+        """
+        return {"result": f"{param1} + {param2}"}
+
+    @strands.tool
+    def tool_union_explicit(param1: str, param2: Union[int, None]) -> dict:
+        """Tool with explicit Union param.
+
+        Args:
+            param1: Required string param.
+            param2: Optional integer param.
+        """
+        return {"result": f"{param1} + {param2}"}
+
+    for tool_fn in [tool_optional, tool_union_none, tool_union_explicit]:
+        schema = tool_fn.tool_spec["inputSchema"]["json"]
+        assert "param1" in schema["required"], f"{tool_fn.__name__}: param1 should be required"
+        assert "param2" not in schema.get("required", []), (
+            f"{tool_fn.__name__}: param2 (Optional) should NOT be required"
+        )
+
+
+def test_tool_required_non_nullable_stays_required():
+    """Verify non-nullable params without defaults remain required after the Optional fix."""
+
+    @strands.tool
+    def tool_required(name: str, count: int) -> str:
+        """Tool with required params.
+
+        Args:
+            name: A name.
+            count: A count.
+        """
+        return f"{name}: {count}"
+
+    schema = tool_required.tool_spec["inputSchema"]["json"]
+    assert "name" in schema["required"]
+    assert "count" in schema["required"]

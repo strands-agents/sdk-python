@@ -45,6 +45,7 @@ import functools
 import inspect
 import json
 import logging
+import types
 from collections.abc import Callable
 from typing import (
     Annotated,
@@ -52,6 +53,7 @@ from typing import (
     Generic,
     ParamSpec,
     TypeVar,
+    Union,
     cast,
     get_args,
     get_origin,
@@ -114,6 +116,14 @@ class FunctionToolMetadata:
 
         # Create a Pydantic model for validation
         self.input_model = self._create_input_model()
+
+    @staticmethod
+    def _is_type_optional(annotation: Any) -> bool:
+        """Check if a type annotation allows None (e.g. Optional[T], Union[T, None], T | None)."""
+        origin = get_origin(annotation)
+        if origin is Union or isinstance(annotation, types.UnionType):
+            return type(None) in get_args(annotation)
+        return False
 
     def _extract_annotated_metadata(
         self, annotation: Any, param_name: str, param_default: Any
@@ -213,7 +223,11 @@ class FunctionToolMetadata:
                 param_type = param.annotation
             if param_type is inspect.Parameter.empty:
                 param_type = Any
-            default = ... if param.default is inspect.Parameter.empty else param.default
+            if param.default is inspect.Parameter.empty:
+                # No explicit default: check if the type annotation allows None
+                default = None if self._is_type_optional(param_type) else ...
+            else:
+                default = param.default
 
             actual_type, field_info = self._extract_annotated_metadata(param_type, name, default)
             field_definitions[name] = (actual_type, field_info)
