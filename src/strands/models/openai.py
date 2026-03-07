@@ -562,6 +562,12 @@ class OpenAIModel(Model):
         if self._custom_client is not None:
             # Use the injected client (caller manages lifecycle)
             yield self._custom_client
+        elif "http_client" in self.client_args:
+            # User provided a custom httpx client via client_args.
+            # Do NOT use `async with` because that closes the underlying httpx client,
+            # which breaks subsequent requests when the same http_client is reused.
+            client = openai.AsyncOpenAI(**self.client_args)
+            yield client
         else:
             # Create a new client from client_args
             # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying

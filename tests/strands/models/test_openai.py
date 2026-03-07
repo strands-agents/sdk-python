@@ -1533,3 +1533,42 @@ def test_format_request_messages_multiple_tool_calls_with_images():
         },
     ]
     assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+async def test_get_client_does_not_close_user_http_client():
+    """Verify that a user-provided http_client is not closed between requests.
+
+    When client_args includes http_client, the model should not use `async with`
+    on the AsyncOpenAI instance, because that closes the underlying httpx client,
+    breaking subsequent requests.
+
+    See: https://github.com/strands-agents/sdk-python/issues/906
+    """
+    import httpx
+
+    http_client = httpx.AsyncClient()
+    original_aclose = http_client.aclose
+    close_called = []
+    http_client.aclose = lambda: close_called.append(True) or original_aclose()
+
+    model = OpenAIModel(
+        client_args={"api_key": "test-key", "http_client": http_client},
+        model_id="test-model",
+    )
+
+    # First request
+    async with model._get_client() as client1:
+        assert client1 is not None
+
+    # http_client should NOT have been closed
+    assert len(close_called) == 0
+
+    # Second request should work without error
+    async with model._get_client() as client2:
+        assert client2 is not None
+
+    assert len(close_called) == 0
+
+    # Cleanup
+    await original_aclose()
