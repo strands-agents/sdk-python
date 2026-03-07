@@ -173,7 +173,7 @@ def test_format_request_tool_message():
 
     tru_result = OpenAIModel.format_request_tool_message(tool_result)
     exp_result = {
-        "content": [{"text": "4", "type": "text"}, {"text": '["4"]', "type": "text"}],
+        "content": '4\n["4"]',
         "role": "tool",
         "tool_call_id": "c1",
     }
@@ -197,7 +197,24 @@ def test_format_request_tool_message_single_text_returns_string():
     assert tru_result == exp_result
 
 
-def test_split_tool_message_images_with_image():
+def test_format_request_tool_message_mixed_content_keeps_array():
+    """Test that mixed text+image tool content keeps array format."""
+    tool_result = {
+        "content": [
+            {"text": "Result text"},
+            {"image": {"format": "png", "source": {"bytes": b"\x89PNG"}}},
+        ],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    result = OpenAIModel.format_request_tool_message(tool_result)
+    # Mixed content should remain as array since image can't be stringified
+    assert isinstance(result["content"], list)
+    assert len(result["content"]) == 2
+
+
+
     """Test that images are extracted from tool messages."""
     tool_message = {
         "role": "tool",

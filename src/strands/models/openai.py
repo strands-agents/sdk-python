@@ -206,9 +206,11 @@ class OpenAIModel(Model):
 
         formatted_contents = [cls.format_request_message_content(content) for content in contents]
 
-        # If single text content, use string format for better model compatibility
-        if len(formatted_contents) == 1 and formatted_contents[0].get("type") == "text":
-            content: str | list[dict[str, Any]] = formatted_contents[0]["text"]
+        # Use string format when all content blocks are text for broader model compatibility.
+        # Many OpenAI-compatible endpoints (e.g. Kimi K2.5) only accept string content
+        # for tool messages, not the array-of-dicts format.
+        if formatted_contents and all(fc.get("type") == "text" for fc in formatted_contents):
+            content: str | list[dict[str, Any]] = "\n".join(fc["text"] for fc in formatted_contents)
         else:
             content = formatted_contents
 
