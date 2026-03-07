@@ -448,6 +448,15 @@ class BedrockModel(Model):
 
             # Create new message with cleaned content (skip if empty)
             if cleaned_content:
+                # Bedrock requires reasoningContent blocks to come first in assistant messages
+                # when thinking is enabled. Session managers or message reconstruction may
+                # produce blocks in wrong order, so we defensively reorder here.
+                if message["role"] == "assistant":
+                    reasoning = [b for b in cleaned_content if "reasoningContent" in b]
+                    other = [b for b in cleaned_content if "reasoningContent" not in b]
+                    if reasoning and other and cleaned_content[0] != reasoning[0]:
+                        cleaned_content = reasoning + other
+
                 cleaned_messages.append({"content": cleaned_content, "role": message["role"]})
 
         if filtered_unknown_members:
