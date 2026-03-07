@@ -357,9 +357,10 @@ class MCPClient(ToolProvider):
             if self._background_thread.is_alive():
                 logger.warning(
                     "background thread did not exit within %d seconds; "
-                    "skipping event loop close to avoid interfering with running thread",
+                    "skipping event loop close and state reset to avoid interfering with running thread",
                     self._startup_timeout,
                 )
+                return
             elif self._background_thread_event_loop is not None:
                 self._background_thread_event_loop.close()
         elif self._background_thread_event_loop is not None:
