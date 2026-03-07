@@ -1589,6 +1589,35 @@ async def test_stream_stop_reason_override_streaming(bedrock_client, model, mess
 
 
 @pytest.mark.asyncio
+async def test_stream_stop_reason_override_via_delta_only(bedrock_client, model, messages, alist):
+    """Test stopReason override when toolUse is only signalled via contentBlockDelta, not contentBlockStart.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1810:
+    Some Bedrock streaming responses only include toolUse in contentBlockDelta events
+    without a corresponding contentBlockStart toolUse entry. The has_tool_use flag must
+    still be set so the end_turn → tool_use override fires.
+    """
+    bedrock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "Let me call a tool."}}},
+            {"contentBlockStop": {}},
+            {"contentBlockStart": {"start": {}}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"param": "value"}'}}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    }
+
+    response = model.stream(messages)
+    events = await alist(response)
+
+    message_stop_event = next(event for event in events if "messageStop" in event)
+    assert message_stop_event["messageStop"]["stopReason"] == "tool_use"
+
+
+@pytest.mark.asyncio
 async def test_stream_stop_reason_override_non_streaming(bedrock_client, alist, messages):
     """Test that stopReason is overridden from end_turn to tool_use in non-streaming mode when tool use is detected."""
     bedrock_client.converse.return_value = {

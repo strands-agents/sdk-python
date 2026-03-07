@@ -836,8 +836,10 @@ class BedrockModel(Model):
                             for event in self._generate_redaction_events():
                                 callback(event)
 
-                    # Track if we see tool use events
+                    # Track if we see tool use events (check both start and delta as fallback)
                     if "contentBlockStart" in chunk and chunk["contentBlockStart"].get("start", {}).get("toolUse"):
+                        has_tool_use = True
+                    if "contentBlockDelta" in chunk and chunk["contentBlockDelta"].get("delta", {}).get("toolUse"):
                         has_tool_use = True
 
                     # Fix stopReason for streaming responses that contain tool use
