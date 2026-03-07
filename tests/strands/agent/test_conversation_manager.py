@@ -591,3 +591,51 @@ def test_boundary_text_in_tool_result_not_truncated():
 
     assert not changed
     assert messages[0]["content"][0]["toolResult"]["content"][0]["text"] == boundary_text
+
+
+def test_apply_management_does_not_falsely_truncate_tool_results_in_window():
+    """apply_management should slide the window, not truncate tool results that would be kept.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/702:
+    With window_size=5 and 8 messages, apply_management should remove the 3 oldest
+    messages via sliding window, NOT truncate tool results that fall inside the
+    kept window.
+    """
+    manager = SlidingWindowConversationManager(window_size=5)
+    messages = [
+        {"role": "user", "content": [{"text": "Hello, my name is Strands!"}]},
+        {"role": "assistant", "content": [{"text": "Hi there!"}]},
+        {"role": "user", "content": [{"text": "What's my name?"}]},
+        {"role": "assistant", "content": [{"text": "Your name is Strands!"}]},
+        {"role": "user", "content": [{"text": "direct tool call"}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "calc1", "name": "calculator", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "calc1", "content": [{"text": "Result: 56088"}], "status": "success"}}
+            ],
+        },
+        {"role": "assistant", "content": [{"text": "calculator was called."}]},
+    ]
+    test_agent = Agent(messages=messages)
+
+    manager.apply_management(test_agent)
+
+    # Should have trimmed to window_size (5 messages kept)
+    assert len(test_agent.messages) <= 5
+
+    # The tool result inside the window must NOT be truncated or marked as error
+    tool_result_msgs = [
+        m for m in test_agent.messages
+        if any("toolResult" in c for c in m.get("content", []))
+    ]
+    for msg in tool_result_msgs:
+        for content in msg["content"]:
+            if "toolResult" in content:
+                assert content["toolResult"]["status"] == "success", (
+                    "Tool result status should remain 'success', not changed to 'error'"
+                )
+                result_text = content["toolResult"]["content"][0]["text"]
+                assert "truncated" not in result_text.lower(), (
+                    "Tool result should not be truncated when it falls inside the window"
+                )
