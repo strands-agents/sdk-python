@@ -1866,7 +1866,38 @@ def test_agent__call__resume_interrupt_invalid_id():
         agent([{"interruptResponse": {"interruptId": "invalid", "response": None}}])
 
 
-def test_agent_structured_output_interrupt(user):
+def test_agent__call__interrupt_response_without_activated_state(mock_model, agenerator):
+    """Regression: interrupt response payload should not raise ValueError.
+
+    When an agent receives an interruptResponse payload but _interrupt_state
+    is not activated (e.g., state lost between server calls), _convert_prompt_to_messages
+    should recognize the payload and return [] instead of raising ValueError.
+
+    See: https://github.com/strands-agents/sdk-python/issues/1644
+    """
+    agent = Agent(model=mock_model)
+    # interrupt_state is NOT activated (simulating state loss between calls)
+    assert not agent._interrupt_state.activated
+
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "ok"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+
+    # This should NOT raise ValueError
+    prompt = [
+        {
+            "interruptResponse": {
+                "interruptId": "some-id",
+                "response": "yes",
+            }
+        }
+    ]
+    result = agent(prompt)
+    assert result.stop_reason == "end_turn"
     agent = Agent()
     agent._interrupt_state.activated = True
 

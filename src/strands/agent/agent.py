@@ -903,6 +903,11 @@ class Agent(AgentBase):
                         # Messages input - add all messages to conversation
                         messages = cast(Messages, prompt)
 
+                    # Check if all items are interrupt responses
+                    elif all("interruptResponse" in item for item in prompt):
+                        # Interrupt response payload — resume() already processed these
+                        messages = []
+
                     # Check if all items are content blocks
                     elif all(any(key in ContentBlock.__annotations__.keys() for key in item) for item in prompt):
                         # Treat as List[ContentBlock] input - convert to user message
