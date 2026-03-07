@@ -782,8 +782,11 @@ async def test_node_reset_executor_state():
     # Since MultiAgentBase doesn't have messages or state attributes,
     # reset_executor_state should not fail
     multi_agent_node.execution_status = Status.COMPLETED
+    multi_agent_result = MultiAgentResult(
+        status=Status.COMPLETED,
+    )
     multi_agent_node.result = NodeResult(
-        result="test result",
+        result=multi_agent_result,
         execution_time=100,
         status=Status.COMPLETED,
         accumulated_usage={},
