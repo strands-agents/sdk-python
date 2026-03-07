@@ -226,6 +226,7 @@ def test_tool_metrics_add_call(success, tool, tool_metrics, mock_get_meter_provi
         "success_count": success,
         "error_count": not success,
         "total_time": duration,
+        "calls": [tool],
     }
 
     mock_get_meter_provider.return_value.get_meter.assert_called()
@@ -313,6 +314,7 @@ def test_event_loop_metrics_add_tool_usage(mock_time, trace, tool, event_loop_me
                 success_count=1,
                 error_count=0,
                 total_time=duration,
+                calls=[tool],
             ),
         }
     }
@@ -566,3 +568,35 @@ def test_reset_usage_metrics(usage, event_loop_metrics, mock_get_meter_provider)
 
     # Verify accumulated_usage is NOT cleared
     assert event_loop_metrics.accumulated_usage["inputTokens"] == 11
+
+
+@unittest.mock.patch("opentelemetry.metrics.get_meter_provider")
+def test_tool_metrics_calls_preserves_all_invocations(mock_get_meter_provider):
+    """Regression: tool_metrics.calls should track all invocations, not just the latest.
+
+    Previously, ToolMetrics.tool was overwritten on each add_call(), losing
+    the inputs from earlier invocations of the same tool.
+
+    See: https://github.com/strands-agents/sdk-python/issues/301
+    """
+    tool1 = {"toolUseId": "id1", "name": "weather", "input": {"city": "Berlin"}}
+    tool2 = {"toolUseId": "id2", "name": "weather", "input": {"city": "Paris"}}
+    tool3 = {"toolUseId": "id3", "name": "weather", "input": {"city": "Rome"}}
+
+    metrics = strands.telemetry.metrics.ToolMetrics(tool=tool1)
+    metrics_client = MetricsClient()
+
+    metrics.add_call(tool1, 0.1, True, metrics_client)
+    metrics.add_call(tool2, 0.2, True, metrics_client)
+    metrics.add_call(tool3, 0.3, True, metrics_client)
+
+    assert metrics.call_count == 3
+    assert len(metrics.calls) == 3
+
+    # All inputs are preserved in order
+    assert metrics.calls[0]["input"]["city"] == "Berlin"
+    assert metrics.calls[1]["input"]["city"] == "Paris"
+    assert metrics.calls[2]["input"]["city"] == "Rome"
+
+    # .tool still points to the latest (backward compatible)
+    assert metrics.tool["input"]["city"] == "Rome"
