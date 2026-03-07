@@ -434,7 +434,6 @@ def test_agent__call__passes_invocation_state(mock_model, agent, tool, mock_even
     async def check_invocation_state(**kwargs):
         invocation_state = kwargs["invocation_state"]
         assert invocation_state["some_value"] == "a_value"
-        assert invocation_state["system_prompt"] == override_system_prompt
         assert invocation_state["model"] == override_model
         assert invocation_state["event_loop_metrics"] == override_event_loop_metrics
         assert invocation_state["callback_handler"] == override_callback_handler
@@ -442,6 +441,9 @@ def test_agent__call__passes_invocation_state(mock_model, agent, tool, mock_even
         assert invocation_state["messages"] == override_messages
         assert invocation_state["tool_config"] == override_tool_config
         assert invocation_state["agent"] == agent
+
+        # system_prompt is now a proper parameter (temporary override), not part of invocation_state
+        assert kwargs["agent"].system_prompt == override_system_prompt
 
         # Return expected values from event_loop_cycle
         yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
@@ -461,6 +463,29 @@ def test_agent__call__passes_invocation_state(mock_model, agent, tool, mock_even
     )
 
     mock_event_loop_cycle.assert_called_once()
+    # Verify original system prompt is restored after invocation
+    assert agent.system_prompt != override_system_prompt
+
+
+def test_agent__call__temporary_system_prompt_override(mock_model, agent, mock_event_loop_cycle, agenerator):
+    """Verify system_prompt parameter provides temporary override restored after call.
+
+    See: https://github.com/strands-agents/sdk-python/issues/344
+    """
+    original_prompt = agent.system_prompt
+    temp_prompt = "Temporary instructions for this call only"
+
+    async def capture_system_prompt(**kwargs):
+        # During the call, the agent's system_prompt should be the override
+        assert kwargs["agent"].system_prompt == temp_prompt
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "ok"}]}, {}, {})
+
+    mock_event_loop_cycle.side_effect = capture_system_prompt
+
+    agent("test", system_prompt=temp_prompt)
+
+    # After the call, the original system prompt must be restored
+    assert agent.system_prompt == original_prompt
 
 
 def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agenerator):

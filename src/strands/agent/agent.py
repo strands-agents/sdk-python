@@ -83,6 +83,10 @@ class _DefaultCallbackHandlerSentinel:
     pass
 
 
+# Sentinel to distinguish "not provided" from explicit None for system_prompt override
+_UNSET: Any = object()
+
+
 class _DefaultRetryStrategySentinel:
     """Sentinel class to distinguish between explicit None and default parameter value for retry_strategy."""
 
@@ -385,6 +389,7 @@ class Agent(AgentBase):
         self,
         prompt: AgentInput = None,
         *,
+        system_prompt: str | list[SystemContentBlock] | None = _UNSET,
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
@@ -404,6 +409,8 @@ class Agent(AgentBase):
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
+            system_prompt: Temporary system prompt override for this invocation only.
+                The agent's original system prompt is restored after the call completes.
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
@@ -421,6 +428,7 @@ class Agent(AgentBase):
         return run_async(
             lambda: self.invoke_async(
                 prompt,
+                system_prompt=system_prompt,
                 invocation_state=invocation_state,
                 structured_output_model=structured_output_model,
                 structured_output_prompt=structured_output_prompt,
@@ -432,6 +440,7 @@ class Agent(AgentBase):
         self,
         prompt: AgentInput = None,
         *,
+        system_prompt: str | list[SystemContentBlock] | None = _UNSET,
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
@@ -451,6 +460,8 @@ class Agent(AgentBase):
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
+            system_prompt: Temporary system prompt override for this invocation only.
+                The agent's original system prompt is restored after the call completes.
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
@@ -466,6 +477,7 @@ class Agent(AgentBase):
         """
         events = self.stream_async(
             prompt,
+            system_prompt=system_prompt,
             invocation_state=invocation_state,
             structured_output_model=structured_output_model,
             structured_output_prompt=structured_output_prompt,
@@ -655,6 +667,7 @@ class Agent(AgentBase):
         self,
         prompt: AgentInput = None,
         *,
+        system_prompt: str | list[SystemContentBlock] | None = _UNSET,
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
@@ -674,6 +687,8 @@ class Agent(AgentBase):
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
+            system_prompt: Temporary system prompt override for this invocation only.
+                The agent's original system prompt is restored after the call completes.
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
@@ -710,6 +725,13 @@ class Agent(AgentBase):
                 )
 
         try:
+            # Apply temporary system prompt override if provided
+            original_system_prompt: str | list[SystemContentBlock] | None = _UNSET
+            if system_prompt is not _UNSET:
+                original_system_prompt = self._system_prompt
+                original_system_prompt_content = self._system_prompt_content
+                self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(system_prompt)
+
             self._interrupt_state.resume(prompt)
 
             self.event_loop_metrics.reset_usage_metrics()
@@ -756,6 +778,11 @@ class Agent(AgentBase):
                     raise
 
         finally:
+            # Restore original system prompt if it was temporarily overridden
+            if original_system_prompt is not _UNSET:
+                self._system_prompt = original_system_prompt
+                self._system_prompt_content = original_system_prompt_content
+
             if self._invocation_lock.locked():
                 self._invocation_lock.release()
 
