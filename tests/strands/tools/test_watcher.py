@@ -96,3 +96,42 @@ def test_on_modified_error_handling(mock_reload_tool):
 
     # Verify that reload_tool was called
     mock_reload_tool.assert_called_once_with("test_tool")
+
+
+@patch.object(ToolRegistry, "reload_tool")
+def test_on_created_reloads_new_tool(mock_reload_tool):
+    """Regression: on_created must trigger tool reload for newly added files.
+
+    Previously, only on_modified was handled, so the first tool file added
+    to an empty directory was never detected by the watcher.
+
+    See: https://github.com/strands-agents/sdk-python/issues/264
+    """
+    tool_registry = ToolRegistry()
+    watcher = ToolWatcher(tool_registry)
+
+    event = MagicMock()
+    event.src_path = "/path/to/tools/my_new_tool.py"
+
+    watcher.tool_change_handler.on_created(event)
+
+    mock_reload_tool.assert_called_once_with("my_new_tool")
+
+
+@patch.object(ToolRegistry, "reload_tool")
+def test_master_handler_delegates_on_created(mock_reload_tool):
+    """Verify MasterChangeHandler delegates on_created events."""
+    tool_registry = ToolRegistry()
+    watcher = ToolWatcher(tool_registry)
+
+    dir_path = "/path/to/tools"
+    master = ToolWatcher.MasterChangeHandler(dir_path)
+
+    ToolWatcher._registry_handlers[dir_path] = {id(tool_registry): watcher.tool_change_handler}
+
+    event = MagicMock()
+    event.src_path = "/path/to/tools/new_tool.py"
+
+    master.on_created(event)
+
+    mock_reload_tool.assert_called_once_with("new_tool")
