@@ -188,6 +188,9 @@ class AfterToolCallEvent(HookEvent):
         retry: Whether to retry the tool invocation. Can be set by hook callbacks
             to trigger a retry. When True, the current result is discarded and the
             tool is called again. Defaults to False.
+        stop_loop: Whether to end the event-loop. Hooks can use this flag to terminate
+            the event-loop immediately. Setting to True would close the event loop and
+            perform proper closure of async loop. Defaults to False
     """
 
     selected_tool: AgentTool | None
@@ -278,9 +281,13 @@ class AfterModelCallEvent(HookEvent):
     stop_response: ModelStopResponse | None = None
     exception: Exception | None = None
     retry: bool = False
+    stop_loop: bool = False
 
     def _can_write(self, name: str) -> bool:
-        return name == "retry"
+        return name in (
+            "retry",
+            "stop_loop",
+        )
 
     @property
     def should_reverse_callbacks(self) -> bool:
