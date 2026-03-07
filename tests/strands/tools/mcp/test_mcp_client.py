@@ -516,7 +516,7 @@ def test_stop_with_background_thread_but_no_event_loop():
     client.stop(None, None, None)
 
     # Verify thread was joined
-    mock_thread.join.assert_called_once()
+    mock_thread.join.assert_called_once_with(timeout=client._cleanup_timeout)
 
     # Verify cleanup occurred
     assert client._background_thread is None
@@ -539,7 +539,7 @@ def test_stop_closes_event_loop():
     client.stop(None, None, None)
 
     # Verify thread was joined
-    mock_thread.join.assert_called_once()
+    mock_thread.join.assert_called_once_with(timeout=client._cleanup_timeout)
 
     # Verify event loop was closed
     mock_event_loop.close.assert_called_once()
@@ -549,7 +549,44 @@ def test_stop_closes_event_loop():
     assert client._background_thread_event_loop is None
 
 
-def test_mcp_client_state_reset_after_timeout():
+def test_stop_does_not_hang_when_background_thread_unresponsive():
+    """Test that stop() does not hang indefinitely when the background thread fails to stop.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1732.
+    """
+    client = MCPClient(MagicMock(), cleanup_timeout=0.1)
+
+    mock_thread = MagicMock()
+    # Simulate a thread that never stops
+    mock_thread.is_alive.return_value = True
+    client._background_thread = mock_thread
+    client._background_thread_event_loop = None
+
+    client.stop(None, None, None)
+
+    mock_thread.join.assert_called_once_with(timeout=0.1)
+    # Verify cleanup still occurred despite thread being alive
+    assert client._background_thread is None
+
+
+def test_stop_handles_closed_event_loop():
+    """Test that stop() handles RuntimeError from a closed event loop gracefully."""
+    client = MCPClient(MagicMock())
+
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = False
+    mock_event_loop = MagicMock()
+    mock_event_loop.close = MagicMock()
+
+    client._background_thread = mock_thread
+    client._background_thread_event_loop = mock_event_loop
+
+    with patch("asyncio.run_coroutine_threadsafe", side_effect=RuntimeError("Event loop is closed")):
+        # Should not raise — RuntimeError is caught
+        client.stop(None, None, None)
+
+    mock_thread.join.assert_called_once_with(timeout=client._cleanup_timeout)
+    assert client._background_thread is None
     """Test that all client state is properly reset after timeout."""
 
     def slow_transport():

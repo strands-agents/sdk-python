@@ -114,6 +114,7 @@ class MCPClient(ToolProvider):
         transport_callable: Callable[[], MCPTransport],
         *,
         startup_timeout: int = 30,
+        cleanup_timeout: float = 5.0,
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
         elicitation_callback: ElicitationFnT | None = None,
@@ -125,6 +126,8 @@ class MCPClient(ToolProvider):
             transport_callable: A callable that returns an MCPTransport (read_stream, write_stream) tuple.
             startup_timeout: Timeout after which MCP server initialization should be cancelled.
                 Defaults to 30.
+            cleanup_timeout: Maximum seconds to wait for the background thread to stop during cleanup.
+                Prevents hangs when the MCP server process is unresponsive. Defaults to 5.0.
             tool_filters: Optional filters to apply to tools.
             prefix: Optional prefix for tool names.
             elicitation_callback: Optional callback function to handle elicitation requests from the MCP server.
@@ -133,6 +136,7 @@ class MCPClient(ToolProvider):
                 See TasksConfig for details. This feature is experimental and subject to change.
         """
         self._startup_timeout = startup_timeout
+        self._cleanup_timeout = cleanup_timeout
         self._tool_filters = tool_filters
         self._prefix = prefix
         self._elicitation_callback = elicitation_callback
@@ -349,12 +353,22 @@ class MCPClient(ToolProvider):
                     if self._close_future and not self._close_future.done():
                         self._close_future.set_result(None)
 
-                # Not calling _invoke_on_background_thread since the session does not need to exist
-                # we only need the thread and event loop to exist.
-                asyncio.run_coroutine_threadsafe(coro=_set_close_event(), loop=self._background_thread_event_loop)
+                try:
+                    # Not calling _invoke_on_background_thread since the session does not need to exist
+                    # we only need the thread and event loop to exist.
+                    asyncio.run_coroutine_threadsafe(coro=_set_close_event(), loop=self._background_thread_event_loop)
+                except RuntimeError:
+                    # Event loop may already be closed (e.g., during interpreter shutdown)
+                    logger.debug("event loop already closed, cannot signal background thread")
 
             self._log_debug_with_thread("waiting for background thread to join")
-            self._background_thread.join()
+            self._background_thread.join(timeout=self._cleanup_timeout)
+            if self._background_thread.is_alive():
+                logger.warning(
+                    "background thread did not stop within %.1f seconds; "
+                    "proceeding without waiting to avoid hanging the process",
+                    self._cleanup_timeout,
+                )
 
         if self._background_thread_event_loop is not None:
             self._background_thread_event_loop.close()
