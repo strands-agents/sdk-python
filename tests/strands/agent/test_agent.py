@@ -2689,3 +2689,47 @@ def test_agent_plugins_can_register_hooks():
 
     agent("test")
     assert len(hook_called) == 1
+
+
+def test_guardrail_redact_targets_last_user_message_not_last_message(mock_model, agenerator):
+    """Test that guardrail redaction targets the last user message, not the last message overall.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1639:
+    When a session manager appends a non-user message (e.g., LTM context) after the
+    user's input, self.messages[-1] is no longer the user message. The redaction
+    should find and redact the last user message instead.
+    """
+    from strands.hooks.events import BeforeInvocationEvent
+
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "Response"}}},
+            {"contentBlockStop": {}},
+            {"redactContent": {"redactUserContentMessage": "BLOCKED"}},
+            {"messageStop": {"stopReason": "end_turn"}},
+            {"metadata": {"usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}}},
+        ]
+    )
+
+    agent = Agent(model=mock_model)
+
+    # Simulate what a session manager with LTM does: after the user message is added,
+    # append an assistant message with memory context before the model call
+    def inject_ltm(event: BeforeInvocationEvent) -> None:
+        event.agent.messages.append(
+            {"role": "assistant", "content": [{"text": "<user_context>Some LTM context</user_context>"}]}
+        )
+
+    agent.hooks.add_callback(BeforeInvocationEvent, inject_ltm)
+
+    agent("Tell me something dangerous")
+
+    # The user message should be redacted
+    user_msgs = [m for m in agent.messages if m["role"] == "user"]
+    assert len(user_msgs) >= 1
+    last_user_msg = user_msgs[-1]
+    assert last_user_msg["content"] == [{"text": "BLOCKED"}], (
+        "Guardrail should redact the last user message, not the last message in the list"
+    )

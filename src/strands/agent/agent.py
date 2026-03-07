@@ -804,11 +804,21 @@ class Agent(AgentBase):
                     and event.chunk.get("redactContent")
                     and event.chunk["redactContent"].get("redactUserContentMessage")
                 ):
-                    self.messages[-1]["content"] = self._redact_user_content(
-                        self.messages[-1]["content"], str(event.chunk["redactContent"]["redactUserContentMessage"])
-                    )
-                    if self._session_manager:
-                        self._session_manager.redact_latest_message(self.messages[-1], self)
+                    # Find the last user message for redaction (not just messages[-1],
+                    # which may be a non-user message appended by session managers)
+                    last_user_msg = None
+                    for msg in reversed(self.messages):
+                        if msg.get("role") == "user":
+                            last_user_msg = msg
+                            break
+
+                    if last_user_msg is not None:
+                        last_user_msg["content"] = self._redact_user_content(
+                            last_user_msg["content"],
+                            str(event.chunk["redactContent"]["redactUserContentMessage"]),
+                        )
+                        if self._session_manager:
+                            self._session_manager.redact_latest_message(last_user_msg, self)
                 yield event
 
             # Capture the result from the final event if available
