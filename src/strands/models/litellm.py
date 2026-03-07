@@ -5,6 +5,7 @@
 
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, TypedDict, TypeVar, cast
 
@@ -445,7 +446,13 @@ class LiteLLMModel(OpenAIModel):
             Formatted tool call chunks.
         """
         for tool_deltas in tool_calls.values():
-            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
+            # Some LiteLLM proxy backends return null tool_call IDs.
+            # Ensure the first delta (used for content_start) has a valid ID.
+            first = tool_deltas[0]
+            if getattr(first, "id", None) is None:
+                first.id = f"tooluse_{uuid.uuid4().hex[:24]}"
+
+            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": first})
 
             for tool_delta in tool_deltas:
                 yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})
