@@ -313,15 +313,18 @@ class BeforeNodeCallEvent(BaseHookEvent, _Interruptible):
         cancel_node: A user defined message that when set, will cancel the node execution with status FAILED.
             The message will be emitted under a MultiAgentNodeCancel event. If set to `True`, Strands will cancel the
             node using a default cancel message.
+        node_input: The input that will be passed to the node. Can be modified by hooks to customize the input
+            before it is sent to the agent. This is a list of ContentBlock dictionaries.
     """
 
     source: "MultiAgentBase"
     node_id: str
     invocation_state: dict[str, Any] | None = None
     cancel_node: bool | str = False
+    node_input: list[Any] = field(default_factory=list)
 
     def _can_write(self, name: str) -> bool:
-        return name in ["cancel_node"]
+        return name in ["cancel_node", "node_input"]
 
     @override
     def _interrupt_id(self, name: str) -> str:

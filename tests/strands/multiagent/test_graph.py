@@ -2059,6 +2059,150 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     assert "test_node" in final_state["node_results"]
 
 
+@pytest.mark.asyncio
+async def test_before_node_call_event_receives_node_input():
+    """Test that BeforeNodeCallEvent receives the computed node_input."""
+    received_node_inputs = []
+
+    def capture_input_callback(event):
+        received_node_inputs.append(event.node_input)
+        return event
+
+    agent = create_mock_agent("test_agent", "Test response")
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_agent")
+    builder.set_entry_point("test_agent")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, capture_input_callback)
+
+    result = await graph.invoke_async("test task")
+
+    assert result.status == Status.COMPLETED
+    assert len(received_node_inputs) == 1
+    # Entry point node should receive the original task as ContentBlocks
+    node_input = received_node_inputs[0]
+    assert len(node_input) == 1
+    assert node_input[0]["text"] == "test task"
+
+
+@pytest.mark.asyncio
+async def test_before_node_call_event_modify_node_input():
+    """Test that modifying node_input in hook changes what agent receives."""
+    received_inputs = []
+
+    def modify_input_callback(event):
+        # Modify the node_input to inject custom content
+        event.node_input = [{"text": "Modified: " + event.node_input[0]["text"]}]
+        return event
+
+    agent = create_mock_agent("test_agent", "Test response")
+
+    # Track what input the agent actually receives
+    original_stream = agent.stream_async
+
+    async def capturing_stream(input_data, *args, **kwargs):
+        received_inputs.append(input_data)
+        async for event in original_stream(input_data, *args, **kwargs):
+            yield event
+
+    agent.stream_async = Mock(side_effect=capturing_stream)
+
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_agent")
+    builder.set_entry_point("test_agent")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, modify_input_callback)
+
+    result = await graph.invoke_async("original task")
+
+    assert result.status == Status.COMPLETED
+    assert len(received_inputs) == 1
+    # Agent should receive the modified input
+    assert received_inputs[0][0]["text"] == "Modified: original task"
+
+
+@pytest.mark.asyncio
+async def test_before_node_call_event_modify_node_input_chain():
+    """Test that modifying node_input works in a graph chain."""
+    received_inputs = {}
+
+    def modify_input_callback(event):
+        # Prepend node_id to the input
+        if event.node_input:
+            first_text = event.node_input[0].get("text", "")
+            event.node_input = [{"text": f"[{event.node_id}] {first_text}"}]
+        return event
+
+    agent1 = create_mock_agent("agent1", "Response from agent1")
+    agent2 = create_mock_agent("agent2", "Response from agent2")
+
+    # Track what input each agent receives
+    async def create_capturing_stream(agent_name, original_stream):
+        async def capturing_stream(input_data, *args, **kwargs):
+            received_inputs[agent_name] = input_data
+            async for event in original_stream(input_data, *args, **kwargs):
+                yield event
+
+        return capturing_stream
+
+    original_stream1 = agent1.stream_async
+    original_stream2 = agent2.stream_async
+
+    async def capturing_stream1(input_data, *args, **kwargs):
+        received_inputs["agent1"] = input_data
+        async for event in original_stream1(input_data, *args, **kwargs):
+            yield event
+
+    async def capturing_stream2(input_data, *args, **kwargs):
+        received_inputs["agent2"] = input_data
+        async for event in original_stream2(input_data, *args, **kwargs):
+            yield event
+
+    agent1.stream_async = Mock(side_effect=capturing_stream1)
+    agent2.stream_async = Mock(side_effect=capturing_stream2)
+
+    builder = GraphBuilder()
+    builder.add_node(agent1, "agent1")
+    builder.add_node(agent2, "agent2")
+    builder.add_edge("agent1", "agent2")
+    builder.set_entry_point("agent1")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, modify_input_callback)
+
+    result = await graph.invoke_async("initial task")
+
+    assert result.status == Status.COMPLETED
+    # Agent1 should receive modified input with [agent1] prefix
+    assert "[agent1]" in received_inputs["agent1"][0]["text"]
+    # Agent2 should also have modified input with [agent2] prefix
+    assert "[agent2]" in received_inputs["agent2"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_before_node_call_event_node_input_backward_compatibility():
+    """Test that hooks not modifying node_input still work correctly."""
+    callback_called = []
+
+    def passthrough_callback(event):
+        # Just observe, don't modify
+        callback_called.append(event.node_id)
+        return event
+
+    agent = create_mock_agent("test_agent", "Test response")
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_agent")
+    builder.set_entry_point("test_agent")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, passthrough_callback)
+
+    result = await graph.invoke_async("test task")
+
+    assert result.status == Status.COMPLETED
+    assert callback_called == ["test_agent"]
+    # Agent should still receive the original task
+    agent.stream_async.assert_called_once()
+
+
 @pytest.mark.parametrize(
     ("cancel_node", "cancel_message"),
     [(True, "node cancelled by user"), ("custom cancel message", "custom cancel message")],

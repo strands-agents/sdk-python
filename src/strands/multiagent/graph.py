@@ -869,9 +869,15 @@ class Graph(MultiAgentBase):
         start_event = MultiAgentNodeStartEvent(node_id=node.node_id, node_type=node_type)
         yield start_event
 
+        # Build node input BEFORE invoking hook so hooks can modify it
+        node_input = self._build_node_input(node)
+
         before_event, interrupts = await self.hooks.invoke_callbacks_async(
-            BeforeNodeCallEvent(self, node.node_id, invocation_state)
+            BeforeNodeCallEvent(self, node.node_id, invocation_state, node_input=node_input)
         )
+
+        # Use potentially modified node_input from the event
+        node_input = before_event.node_input
 
         start_time = time.time()
         try:
@@ -886,9 +892,6 @@ class Graph(MultiAgentBase):
                 logger.debug("reason=<%s> | cancelling execution", cancel_message)
                 yield MultiAgentNodeCancelEvent(node.node_id, cancel_message)
                 raise RuntimeError(cancel_message)
-
-            # Build node input from satisfied dependencies
-            node_input = self._build_node_input(node)
 
             # Execute and stream events (timeout handled at task level)
             if isinstance(node.executor, MultiAgentBase):
