@@ -248,7 +248,7 @@ def test_format_request_messages(system_prompt):
         },
         {
             "role": "assistant",
-            "content": [{"type": "input_text", "text": "call tool"}],
+            "content": [{"type": "output_text", "text": "call tool"}],
         },
         {
             "type": "function_call",
@@ -263,6 +263,58 @@ def test_format_request_messages(system_prompt):
         },
     ]
     assert tru_result == exp_result
+
+
+def test_format_request_messages_assistant_text_uses_output_text():
+    """Assistant text content must use output_text, not input_text.
+
+    Regression test for multi-turn conversations failing because the OpenAI
+    Responses API rejects input_text in assistant messages.
+    See: https://github.com/strands-agents/sdk-python/issues/1850
+    """
+    messages = [
+        {
+            "content": [{"text": "Say hello"}],
+            "role": "user",
+        },
+        {
+            "content": [{"text": "Hello!"}],
+            "role": "assistant",
+        },
+        {
+            "content": [{"text": "Say goodbye"}],
+            "role": "user",
+        },
+    ]
+
+    result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result[0] == {
+        "role": "user",
+        "content": [{"type": "input_text", "text": "Say hello"}],
+    }
+    assert result[1] == {
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "Hello!"}],
+    }
+    assert result[2] == {
+        "role": "user",
+        "content": [{"type": "input_text", "text": "Say goodbye"}],
+    }
+
+
+def test_format_request_message_content_role_assistant():
+    """_format_request_message_content uses output_text for assistant role."""
+    content = {"text": "response text"}
+    result = OpenAIResponsesModel._format_request_message_content(content, role="assistant")
+    assert result == {"type": "output_text", "text": "response text"}
+
+
+def test_format_request_message_content_role_user():
+    """_format_request_message_content uses input_text for user role (default)."""
+    content = {"text": "question"}
+    result = OpenAIResponsesModel._format_request_message_content(content, role="user")
+    assert result == {"type": "input_text", "text": "question"}
 
 
 def test_format_request(model, messages, tool_specs, system_prompt):
