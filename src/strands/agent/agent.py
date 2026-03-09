@@ -758,9 +758,6 @@ class Agent(AgentBase):
                 if invocation_state is not None:
                     merged_state = invocation_state
 
-            # Add cancel signal to invocation state for streaming access
-            merged_state["cancel_signal"] = self._cancel_signal
-
             callback_handler = self.callback_handler
             if kwargs:
                 callback_handler = kwargs.get("callback_handler", self.callback_handler)
