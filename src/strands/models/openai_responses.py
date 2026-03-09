@@ -50,7 +50,7 @@ except Exception as e:
 
 import openai  # noqa: E402 - must import after version check
 
-from ..types.content import ContentBlock, Messages  # noqa: E402
+from ..types.content import ContentBlock, Messages, Role  # noqa: E402
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
 from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
@@ -503,7 +503,7 @@ class OpenAIResponsesModel(Model):
 
     @classmethod
     def _format_request_message_content(
-        cls, content: ContentBlock, *, role: str = "user"
+        cls, content: ContentBlock, *, role: Role = "user"
     ) -> dict[str, Any]:
         """Format an OpenAI compatible content block.
 
