@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 from xml.sax.saxutils import escape
 
 from ...hooks.events import BeforeInvocationEvent
@@ -27,10 +27,10 @@ _DEFAULT_STATE_KEY = "agent_skills"
 _RESOURCE_DIRS = ("scripts", "references", "assets")
 _DEFAULT_MAX_RESOURCE_FILES = 20
 
-SkillSource = str | Path | Skill
+SkillSource: TypeAlias = str | Path | Skill
 """A single skill source: path string, Path object, or Skill instance."""
 
-SkillSources = SkillSource | list[SkillSource]
+SkillSources: TypeAlias = SkillSource | list[SkillSource]
 """One or more skill sources."""
 
 
