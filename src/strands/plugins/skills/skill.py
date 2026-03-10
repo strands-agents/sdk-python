@@ -164,15 +164,12 @@ def _validate_skill_name(name: str, dir_path: Path | None = None, *, strict: boo
 def _build_skill_from_frontmatter(
     frontmatter: dict[str, Any],
     body: str,
-    *,
-    skill_dir: Path | None = None,
 ) -> Skill:
     """Build a Skill instance from parsed frontmatter and body.
 
     Args:
         frontmatter: Parsed YAML frontmatter dict.
         body: Markdown body content.
-        skill_dir: Optional path to the skill directory on disk.
 
     Returns:
         A populated Skill instance.
@@ -198,7 +195,6 @@ def _build_skill_from_frontmatter(
         name=frontmatter["name"],
         description=frontmatter["description"],
         instructions=body,
-        path=skill_dir,
         allowed_tools=allowed_tools,
         metadata=metadata,
         license=str(skill_license) if skill_license else None,
@@ -250,6 +246,10 @@ class Skill:
     def from_file(cls, skill_path: str | Path, *, strict: bool = False) -> Skill:
         """Load a single skill from a directory containing SKILL.md.
 
+        Resolves the filesystem path, reads the file content, and delegates
+        to ``from_content`` for parsing. After loading, sets the skill's
+        ``path`` and validates the skill name against the parent directory.
+
         Args:
             skill_path: Path to the skill directory or the SKILL.md file itself.
             strict: If True, raise on any validation issue. If False (default), warn and load anyway.
@@ -277,19 +277,16 @@ class Skill:
         logger.debug("path=<%s> | loading skill", skill_md_path)
 
         content = skill_md_path.read_text(encoding="utf-8")
-        frontmatter, body = _parse_frontmatter(content)
+        skill = cls.from_content(content, strict=strict)
 
-        name = frontmatter.get("name")
-        if not isinstance(name, str) or not name:
-            raise ValueError(f"path=<{skill_md_path}> | SKILL.md must have a 'name' field in frontmatter")
+        # Set path and check directory name match (from_content already validated the name format)
+        skill.path = skill_dir
+        if skill_dir.name != skill.name:
+            msg = "name=<%s>, directory=<%s> | skill name does not match parent directory name"
+            if strict:
+                raise ValueError(msg % (skill.name, skill_dir.name))
+            logger.warning(msg, skill.name, skill_dir.name)
 
-        description = frontmatter.get("description")
-        if not isinstance(description, str) or not description:
-            raise ValueError(f"path=<{skill_md_path}> | SKILL.md must have a 'description' field in frontmatter")
-
-        _validate_skill_name(name, skill_dir, strict=strict)
-
-        skill = _build_skill_from_frontmatter(frontmatter, body, skill_dir=skill_dir)
         logger.debug("name=<%s>, path=<%s> | skill loaded successfully", skill.name, skill.path)
         return skill
 
@@ -337,7 +334,7 @@ class Skill:
         return _build_skill_from_frontmatter(frontmatter, body)
 
     @classmethod
-    def from_directory(cls, skills_dir: str | Path) -> list[Skill]:
+    def from_directory(cls, skills_dir: str | Path, *, strict: bool = False) -> list[Skill]:
         """Load all skills from a parent directory containing skill subdirectories.
 
         Each subdirectory containing a SKILL.md file is treated as a skill.
@@ -345,6 +342,7 @@ class Skill:
 
         Args:
             skills_dir: Path to the parent directory containing skill subdirectories.
+            strict: If True, raise on any validation issue. If False (default), warn and load anyway.
 
         Returns:
             List of Skill instances loaded from the directory.
@@ -370,7 +368,7 @@ class Skill:
                 continue
 
             try:
-                skill = cls.from_file(child)
+                skill = cls.from_file(child, strict=strict)
                 skills.append(skill)
             except (ValueError, FileNotFoundError) as e:
                 logger.warning("path=<%s> | skipping skill due to error: %s", child, e)

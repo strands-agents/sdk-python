@@ -311,7 +311,7 @@ class AgentSkills(Plugin):
 
                     if has_skill_md:
                         try:
-                            skill = Skill.from_file(path)
+                            skill = Skill.from_file(path, strict=self._strict)
                             if skill.name in resolved:
                                 logger.warning(
                                     "name=<%s> | duplicate skill name, overwriting previous skill", skill.name
@@ -321,7 +321,7 @@ class AgentSkills(Plugin):
                             logger.warning("path=<%s> | failed to load skill: %s", path, e)
                     else:
                         # Treat as parent directory containing skill subdirectories
-                        for skill in Skill.from_directory(path):
+                        for skill in Skill.from_directory(path, strict=self._strict):
                             if skill.name in resolved:
                                 logger.warning(
                                     "name=<%s> | duplicate skill name, overwriting previous skill", skill.name
@@ -329,7 +329,7 @@ class AgentSkills(Plugin):
                             resolved[skill.name] = skill
                 elif path.is_file() and path.name.lower() == "skill.md":
                     try:
-                        skill = Skill.from_file(path)
+                        skill = Skill.from_file(path, strict=self._strict)
                         if skill.name in resolved:
                             logger.warning("name=<%s> | duplicate skill name, overwriting previous skill", skill.name)
                         resolved[skill.name] = skill
