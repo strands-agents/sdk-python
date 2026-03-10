@@ -27,6 +27,19 @@ _DEFAULT_STATE_KEY = "agent_skills"
 _RESOURCE_DIRS = ("scripts", "references", "assets")
 _DEFAULT_MAX_RESOURCE_FILES = 20
 
+SkillSource = str | Path | Skill
+"""A single skill source: path string, Path object, or Skill instance."""
+
+SkillSources = SkillSource | list[SkillSource]
+"""One or more skill sources."""
+
+
+def _normalize_sources(sources: SkillSources) -> list[SkillSource]:
+    """Normalize a single source or list of sources into a list."""
+    if isinstance(sources, list):
+        return sources
+    return [sources]
+
 
 class AgentSkills(Plugin):
     """Plugin that integrates Agent Skills into a Strands agent.
@@ -60,7 +73,7 @@ class AgentSkills(Plugin):
 
     def __init__(
         self,
-        skills: list[str | Path | Skill],
+        skills: SkillSources,
         state_key: str = _DEFAULT_STATE_KEY,
         max_resource_files: int = _DEFAULT_MAX_RESOURCE_FILES,
         strict: bool = False,
@@ -68,7 +81,7 @@ class AgentSkills(Plugin):
         """Initialize the AgentSkills plugin.
 
         Args:
-            skills: List of skill sources. Each element can be:
+            skills: One or more skill sources. Can be a single value or a list. Each element can be:
 
                 - A ``str`` or ``Path`` to a skill directory (containing SKILL.md)
                 - A ``str`` or ``Path`` to a parent directory (containing skill subdirectories)
@@ -78,7 +91,7 @@ class AgentSkills(Plugin):
             strict: If True, raise on skill validation issues. If False (default), warn and load anyway.
         """
         self._strict = strict
-        self._skills: dict[str, Skill] = self._resolve_skills(skills)
+        self._skills: dict[str, Skill] = self._resolve_skills(_normalize_sources(skills))
         self._state_key = state_key
         self._max_resource_files = max_resource_files
         super().__init__()
@@ -159,7 +172,7 @@ class AgentSkills(Plugin):
         """
         return list(self._skills.values())
 
-    def set_available_skills(self, skills: list[str | Path | Skill]) -> None:
+    def set_available_skills(self, skills: SkillSources) -> None:
         """Set the available skills, replacing any existing ones.
 
         Each element can be a ``Skill`` instance, a ``str`` or ``Path`` to a
@@ -171,22 +184,10 @@ class AgentSkills(Plugin):
         next tool call or invocation.
 
         Args:
-            skills: List of skill sources to resolve and set.
+            skills: One or more skill sources to resolve and set.
         """
-        self._skills = self._resolve_skills(skills)
+        self._skills = self._resolve_skills(_normalize_sources(skills))
 
-    def load_skills(self, sources: list[str | Path | Skill]) -> None:
-        """Resolve and append skills from mixed sources.
-
-        Each source can be a ``Skill`` instance, a path to a skill directory,
-        or a path to a parent directory containing multiple skills. Resolved
-        skills are merged into the current set (duplicates overwrite).
-
-        Args:
-            sources: List of skill sources to resolve and add.
-        """
-        resolved = self._resolve_skills(sources)
-        self._skills.update(resolved)
 
     def _format_skill_response(self, skill: Skill) -> str:
         """Format the tool response when a skill is activated.
@@ -280,7 +281,7 @@ class AgentSkills(Plugin):
         lines.append("</available_skills>")
         return "\n".join(lines)
 
-    def _resolve_skills(self, sources: list[str | Path | Skill]) -> dict[str, Skill]:
+    def _resolve_skills(self, sources: list[SkillSource]) -> dict[str, Skill]:
         """Resolve a list of skill sources into Skill instances.
 
         Each source can be a Skill instance, a path to a skill directory,

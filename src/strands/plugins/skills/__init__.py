@@ -20,10 +20,12 @@ Example Usage:
     ```
 """
 
-from .agent_skills import AgentSkills
+from .agent_skills import AgentSkills, SkillSource, SkillSources
 from .skill import Skill
 
 __all__ = [
     "AgentSkills",
     "Skill",
+    "SkillSource",
+    "SkillSources",
 ]
