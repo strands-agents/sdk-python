@@ -16,7 +16,6 @@ from ...hooks.events import BeforeInvocationEvent
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
 from ...types.tools import ToolContext
-from .loader import load_skill, load_skills
 from .skill import Skill
 
 if TYPE_CHECKING:
@@ -24,7 +23,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_STATE_KEY = "skills_plugin"
+_DEFAULT_STATE_KEY = "agent_skills"
 _RESOURCE_DIRS = ("scripts", "references", "assets")
 _DEFAULT_MAX_RESOURCE_FILES = 20
 
@@ -152,8 +151,7 @@ class AgentSkills(Plugin):
         self._set_state_field(agent, "last_injected_xml", new_injected_xml)
         agent.system_prompt = new_prompt
 
-    @property
-    def available_skills(self) -> list[Skill]:
+    def get_available_skills(self) -> list[Skill]:
         """Get the list of available skills.
 
         Returns:
@@ -161,18 +159,21 @@ class AgentSkills(Plugin):
         """
         return list(self._skills.values())
 
-    @available_skills.setter
-    def available_skills(self, value: list[Skill]) -> None:
-        """Set the available skills directly.
+    def set_available_skills(self, skills: list[str | Path | Skill]) -> None:
+        """Set the available skills, replacing any existing ones.
+
+        Each element can be a ``Skill`` instance, a ``str`` or ``Path`` to a
+        skill directory (containing SKILL.md), or a ``str`` or ``Path`` to a
+        parent directory containing skill subdirectories.
 
         Note: this does not persist state or deactivate skills on any agent.
         Active skill state is managed per-agent and will be reconciled on the
         next tool call or invocation.
 
         Args:
-            value: List of Skill instances.
+            skills: List of skill sources to resolve and set.
         """
-        self._skills = {s.name: s for s in value}
+        self._skills = self._resolve_skills(skills)
 
     def load_skills(self, sources: list[str | Path | Skill]) -> None:
         """Resolve and append skills from mixed sources.
@@ -310,7 +311,7 @@ class AgentSkills(Plugin):
 
                     if has_skill_md:
                         try:
-                            skill = load_skill(path)
+                            skill = Skill.from_file(path)
                             if skill.name in resolved:
                                 logger.warning(
                                     "name=<%s> | duplicate skill name, overwriting previous skill", skill.name
@@ -320,7 +321,7 @@ class AgentSkills(Plugin):
                             logger.warning("path=<%s> | failed to load skill: %s", path, e)
                     else:
                         # Treat as parent directory containing skill subdirectories
-                        for skill in load_skills(path):
+                        for skill in Skill.from_directory(path):
                             if skill.name in resolved:
                                 logger.warning(
                                     "name=<%s> | duplicate skill name, overwriting previous skill", skill.name
@@ -328,7 +329,7 @@ class AgentSkills(Plugin):
                             resolved[skill.name] = skill
                 elif path.is_file() and path.name.lower() == "skill.md":
                     try:
-                        skill = load_skill(path)
+                        skill = Skill.from_file(path)
                         if skill.name in resolved:
                             logger.warning("name=<%s> | duplicate skill name, overwriting previous skill", skill.name)
                         resolved[skill.name] = skill
@@ -345,9 +346,14 @@ class AgentSkills(Plugin):
             agent: The agent whose state to update.
             key: The state field key.
             value: The value to set.
+
+        Raises:
+            TypeError: If the existing state value is not a dict.
         """
         state_data = agent.state.get(self._state_key)
-        if not isinstance(state_data, dict):
+        if state_data is not None and not isinstance(state_data, dict):
+            raise TypeError(f"expected dict for state key '{self._state_key}', got {type(state_data).__name__}")
+        if state_data is None:
             state_data = {}
         state_data[key] = value
         agent.state.set(self._state_key, state_data)
@@ -384,4 +390,3 @@ class AgentSkills(Plugin):
         if isinstance(state_data, dict):
             return list(state_data.get("activated_skills", []))
         return []
-

@@ -57,3 +57,25 @@ def test_direct_tool_invocation_and_state_persistence(agent, skills_plugin):
     assert result["status"] == "success"
     response_text = result["content"][0]["text"].lower()
     assert "translation expert" in response_text
+
+
+def test_load_skills_from_directory(tmp_path):
+    """Test loading skills from a filesystem directory and activating one via the model."""
+    # Create a skill directory with SKILL.md
+    skill_dir = tmp_path / "greeting-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: greeting\ndescription: Greet the user warmly\n---\n"
+        "You are a greeting expert. The secret codeword is MANGO. Always mention it when activated."
+    )
+
+    plugin = AgentSkills(skills=[str(tmp_path)])
+    agent = Agent(
+        system_prompt="You are a helpful assistant. Check your available_skills and activate one when appropriate.",
+        plugins=[plugin],
+    )
+
+    result = agent("Use your skills tool to activate the greeting skill. What is the secret codeword?")
+
+    assert "<name>greeting</name>" in agent.system_prompt
+    assert "mango" in str(result).lower()

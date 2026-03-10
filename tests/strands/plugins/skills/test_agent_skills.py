@@ -77,16 +77,16 @@ class TestSkillsPluginInit:
         skill = _make_skill()
         plugin = AgentSkills(skills=[skill])
 
-        assert len(plugin.available_skills) == 1
-        assert plugin.available_skills[0].name == "test-skill"
+        assert len(plugin.get_available_skills()) == 1
+        assert plugin.get_available_skills()[0].name == "test-skill"
 
     def test_init_with_filesystem_paths(self, tmp_path):
         """Test initialization with filesystem paths."""
         _make_skill_dir(tmp_path, "fs-skill")
         plugin = AgentSkills(skills=[str(tmp_path / "fs-skill")])
 
-        assert len(plugin.available_skills) == 1
-        assert plugin.available_skills[0].name == "fs-skill"
+        assert len(plugin.get_available_skills()) == 1
+        assert plugin.get_available_skills()[0].name == "fs-skill"
 
     def test_init_with_parent_directory(self, tmp_path):
         """Test initialization with a parent directory containing skills."""
@@ -94,7 +94,7 @@ class TestSkillsPluginInit:
         _make_skill_dir(tmp_path, "skill-b")
         plugin = AgentSkills(skills=[tmp_path])
 
-        assert len(plugin.available_skills) == 2
+        assert len(plugin.get_available_skills()) == 2
 
     def test_init_with_mixed_sources(self, tmp_path):
         """Test initialization with mixed skill sources."""
@@ -102,19 +102,19 @@ class TestSkillsPluginInit:
         direct_skill = _make_skill(name="direct-skill", description="Direct")
         plugin = AgentSkills(skills=[str(tmp_path / "fs-skill"), direct_skill])
 
-        assert len(plugin.available_skills) == 2
-        names = {s.name for s in plugin.available_skills}
+        assert len(plugin.get_available_skills()) == 2
+        names = {s.name for s in plugin.get_available_skills()}
         assert names == {"fs-skill", "direct-skill"}
 
     def test_init_skips_nonexistent_paths(self, tmp_path):
         """Test that nonexistent paths are skipped gracefully."""
         plugin = AgentSkills(skills=[str(tmp_path / "nonexistent")])
-        assert len(plugin.available_skills) == 0
+        assert len(plugin.get_available_skills()) == 0
 
     def test_init_empty_skills(self):
         """Test initialization with empty skills list."""
         plugin = AgentSkills(skills=[])
-        assert plugin.available_skills == []
+        assert plugin.get_available_skills() == []
 
     def test_name_attribute(self):
         """Test that the plugin has the correct name."""
@@ -169,24 +169,46 @@ class TestSkillsPluginProperties:
     """Tests for AgentSkills properties."""
 
     def test_available_skills_getter_returns_copy(self):
-        """Test that the available_skills getter returns a copy of the list."""
+        """Test that get_available_skills returns a copy of the list."""
         skill = _make_skill()
         plugin = AgentSkills(skills=[skill])
 
-        skills_list = plugin.available_skills
+        skills_list = plugin.get_available_skills()
         skills_list.append(_make_skill(name="another-skill", description="Another"))
 
-        assert len(plugin.available_skills) == 1
+        assert len(plugin.get_available_skills()) == 1
 
     def test_available_skills_setter(self):
-        """Test setting skills via the property setter."""
+        """Test setting skills via set_available_skills."""
         plugin = AgentSkills(skills=[_make_skill()])
 
         new_skill = _make_skill(name="new-skill", description="New")
-        plugin.available_skills = [new_skill]
+        plugin.set_available_skills([new_skill])
 
-        assert len(plugin.available_skills) == 1
-        assert plugin.available_skills[0].name == "new-skill"
+        assert len(plugin.get_available_skills()) == 1
+        assert plugin.get_available_skills()[0].name == "new-skill"
+
+    def test_set_available_skills_with_paths(self, tmp_path):
+        """Test setting skills via set_available_skills with filesystem paths."""
+        plugin = AgentSkills(skills=[_make_skill()])
+        _make_skill_dir(tmp_path, "fs-skill")
+
+        plugin.set_available_skills([str(tmp_path / "fs-skill")])
+
+        assert len(plugin.get_available_skills()) == 1
+        assert plugin.get_available_skills()[0].name == "fs-skill"
+
+    def test_set_available_skills_with_mixed_sources(self, tmp_path):
+        """Test setting skills via set_available_skills with mixed sources."""
+        plugin = AgentSkills(skills=[])
+        _make_skill_dir(tmp_path, "fs-skill")
+        direct = _make_skill(name="direct", description="Direct")
+
+        plugin.set_available_skills([str(tmp_path / "fs-skill"), direct])
+
+        assert len(plugin.get_available_skills()) == 2
+        names = {s.name for s in plugin.get_available_skills()}
+        assert names == {"fs-skill", "direct"}
 
 
 class TestLoadSkills:
@@ -198,8 +220,8 @@ class TestLoadSkills:
 
         plugin.load_skills([_make_skill(name="new-skill", description="New")])
 
-        assert len(plugin.available_skills) == 2
-        names = {s.name for s in plugin.available_skills}
+        assert len(plugin.get_available_skills()) == 2
+        names = {s.name for s in plugin.get_available_skills()}
         assert names == {"existing", "new-skill"}
 
     def test_appends_from_filesystem(self, tmp_path):
@@ -209,8 +231,8 @@ class TestLoadSkills:
 
         plugin.load_skills([str(tmp_path / "fs-skill")])
 
-        assert len(plugin.available_skills) == 2
-        names = {s.name for s in plugin.available_skills}
+        assert len(plugin.get_available_skills()) == 2
+        names = {s.name for s in plugin.get_available_skills()}
         assert names == {"existing", "fs-skill"}
 
     def test_duplicates_overwrite(self):
@@ -221,8 +243,8 @@ class TestLoadSkills:
         replacement = _make_skill(name="dupe", description="Replacement")
         plugin.load_skills([replacement])
 
-        assert len(plugin.available_skills) == 1
-        assert plugin.available_skills[0].description == "Replacement"
+        assert len(plugin.get_available_skills()) == 1
+        assert plugin.get_available_skills()[0].description == "Replacement"
 
     def test_mixed_sources(self, tmp_path):
         """Test load_skills with a mix of Skill instances and filesystem paths."""
@@ -232,8 +254,8 @@ class TestLoadSkills:
 
         plugin.load_skills([str(tmp_path / "fs-skill"), direct])
 
-        assert len(plugin.available_skills) == 2
-        names = {s.name for s in plugin.available_skills}
+        assert len(plugin.get_available_skills()) == 2
+        names = {s.name for s in plugin.get_available_skills()}
         assert names == {"fs-skill", "direct"}
 
     def test_skips_nonexistent_paths(self):
@@ -242,7 +264,7 @@ class TestLoadSkills:
 
         plugin.load_skills(["/nonexistent/path"])
 
-        assert len(plugin.available_skills) == 1
+        assert len(plugin.get_available_skills()) == 1
 
     def test_empty_sources(self):
         """Test that loading empty sources is a no-op."""
@@ -250,7 +272,7 @@ class TestLoadSkills:
 
         plugin.load_skills([])
 
-        assert len(plugin.available_skills) == 1
+        assert len(plugin.get_available_skills()) == 1
 
     def test_parent_directory(self, tmp_path):
         """Test load_skills with a parent directory containing multiple skills."""
@@ -260,8 +282,8 @@ class TestLoadSkills:
 
         plugin.load_skills([tmp_path])
 
-        assert len(plugin.available_skills) == 2
-        names = {s.name for s in plugin.available_skills}
+        assert len(plugin.get_available_skills()) == 2
+        names = {s.name for s in plugin.get_available_skills()}
         assert names == {"child-a", "child-b"}
 
 
@@ -732,12 +754,10 @@ class TestImports:
 
     def test_import_from_skills_package(self):
         """Test importing from strands.plugins.skills package."""
-        from strands.plugins.skills import AgentSkills, Skill, load_skill, load_skills
+        from strands.plugins.skills import AgentSkills, Skill
 
         assert Skill is not None
         assert AgentSkills is not None
-        assert load_skill is not None
-        assert load_skills is not None
 
     def test_skills_plugin_is_plugin_subclass(self):
         """Test that AgentSkills is a subclass of the Plugin ABC."""
