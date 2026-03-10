@@ -136,10 +136,11 @@ strands-agents/
 │   │   └── callback_handler.py           # Callback handling
 │   │
 │   ├── vended_plugins/                   # Production plugin implementations
-│   │   └── steering/                     # Agent steering system
-│   │       ├── context_providers/        # Context data providers (e.g., ledger)
-│   │       ├── core/                     # Base classes, actions, context
-│   │       └── handlers/                 # Handler implementations (e.g., LLM)
+│   │   ├── steering/                     # Agent steering system
+│   │   │   ├── context_providers/        # Context data providers (e.g., ledger)
+│   │   │   ├── core/                     # Base classes, actions, context
+│   │   │   └── handlers/                 # Handler implementations (e.g., LLM)
+│   │   └── skills/                       # AgentSkills.io integration (Skill, AgentSkills)
 │   │
 │   ├── experimental/                     # Experimental features (API may change)
 │   │   ├── agent_config.py               # Experimental agent config
