@@ -133,7 +133,6 @@ strands-agents/
 │   │   ├── registry.py                   # PluginRegistry for tracking plugins
 │   │   └── skills/                       # Agent Skills integration
 │   │       ├── __init__.py               # Skills package exports
-│   │       ├── loader.py                 # Skill loading and parsing
 │   │       ├── skill.py                  # Skill dataclass
 │   │       └── agent_skills.py            # AgentSkills plugin implementation
 │   │
