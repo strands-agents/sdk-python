@@ -1,7 +1,7 @@
 """Unit tests for LLM steering prompt mappers."""
 
-from strands.experimental.steering.core.context import SteeringContext
-from strands.experimental.steering.handlers.llm.mappers import _STEERING_PROMPT_TEMPLATE, DefaultPromptMapper
+from strands.vended_plugins.steering.core.context import SteeringContext
+from strands.vended_plugins.steering.handlers.llm.mappers import _STEERING_PROMPT_TEMPLATE, DefaultPromptMapper
 
 
 def test_create_steering_prompt_with_tool_use():

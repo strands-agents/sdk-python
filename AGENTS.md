@@ -130,14 +130,16 @@ strands-agents/
 │   ├── plugins/                          # Plugin system
 │   │   ├── plugin.py                     # Plugin base class
 │   │   ├── decorator.py                  # @hook decorator
-│   │   ├── registry.py                   # PluginRegistry for tracking plugins
-│   │   └── skills/                       # Agent Skills integration
-│   │       ├── __init__.py               # Skills package exports
-│   │       ├── skill.py                  # Skill dataclass
-│   │       └── agent_skills.py            # AgentSkills plugin implementation
+│   │   └── registry.py                   # PluginRegistry for tracking plugins
 │   │
 │   ├── handlers/                         # Event handlers
 │   │   └── callback_handler.py           # Callback handling
+│   │
+│   ├── vended_plugins/                   # Production plugin implementations
+│   │   └── steering/                     # Agent steering system
+│   │       ├── context_providers/        # Context data providers (e.g., ledger)
+│   │       ├── core/                     # Base classes, actions, context
+│   │       └── handlers/                 # Handler implementations (e.g., LLM)
 │   │
 │   ├── experimental/                     # Experimental features (API may change)
 │   │   ├── agent_config.py               # Experimental agent config
@@ -151,11 +153,8 @@ strands-agents/
 │   │   ├── hooks/                        # Experimental hooks
 │   │   │   ├── events.py
 │   │   │   └── multiagent/
-│   │   ├── steering/                     # Agent steering
-│   │   │   ├── context_providers/
-│   │   │   ├── core/
-│   │   │   └── handlers/
-│   │   └── tools/                        # Experimental tools (deprecation shims)
+│   │   ├── steering/                     # Deprecated aliases for vended_plugins/steering
+│   │   └── tools/                        # Deprecated aliases for strands.tools
 │   │
 │   ├── __init__.py                       # Public API exports
 │   ├── interrupt.py                      # Interrupt handling

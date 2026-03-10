@@ -502,9 +502,7 @@ class OpenAIResponsesModel(Model):
         ]
 
     @classmethod
-    def _format_request_message_content(
-        cls, content: ContentBlock, *, role: Role = "user"
-    ) -> dict[str, Any]:
+    def _format_request_message_content(cls, content: ContentBlock, *, role: Role = "user") -> dict[str, Any]:
         """Format an OpenAI compatible content block.
 
         Args:

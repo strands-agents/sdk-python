@@ -2,13 +2,13 @@
 
 from unittest.mock import Mock, patch
 
-from strands.experimental.steering.context_providers.ledger_provider import (
+from strands.hooks.events import AfterToolCallEvent, BeforeToolCallEvent
+from strands.vended_plugins.steering.context_providers.ledger_provider import (
     LedgerAfterToolCall,
     LedgerBeforeToolCall,
     LedgerProvider,
 )
-from strands.experimental.steering.core.context import SteeringContext
-from strands.hooks.events import AfterToolCallEvent, BeforeToolCallEvent
+from strands.vended_plugins.steering.core.context import SteeringContext
 
 
 def test_context_providers_method():
@@ -22,7 +22,7 @@ def test_context_providers_method():
     assert isinstance(callbacks[1], LedgerAfterToolCall)
 
 
-@patch("strands.experimental.steering.context_providers.ledger_provider.datetime")
+@patch("strands.vended_plugins.steering.context_providers.ledger_provider.datetime")
 def test_ledger_before_tool_call_new_ledger(mock_datetime):
     """Test LedgerBeforeToolCall with new ledger."""
     mock_datetime.now.return_value.isoformat.return_value = "2024-01-01T12:00:00"
@@ -48,7 +48,7 @@ def test_ledger_before_tool_call_new_ledger(mock_datetime):
     assert tool_call["status"] == "pending"
 
 
-@patch("strands.experimental.steering.context_providers.ledger_provider.datetime")
+@patch("strands.vended_plugins.steering.context_providers.ledger_provider.datetime")
 def test_ledger_before_tool_call_existing_ledger(mock_datetime):
     """Test LedgerBeforeToolCall with existing ledger."""
     mock_datetime.now.return_value.isoformat.return_value = "2024-01-01T12:00:00"
@@ -77,7 +77,7 @@ def test_ledger_before_tool_call_existing_ledger(mock_datetime):
     assert ledger["tool_calls"][1]["tool_name"] == "new_tool"
 
 
-@patch("strands.experimental.steering.context_providers.ledger_provider.datetime")
+@patch("strands.vended_plugins.steering.context_providers.ledger_provider.datetime")
 def test_ledger_after_tool_call_success(mock_datetime):
     """Test LedgerAfterToolCall with successful completion."""
     mock_datetime.now.return_value.isoformat.return_value = "2024-01-01T12:05:00"
@@ -135,7 +135,7 @@ def test_ledger_after_tool_call_no_calls():
 
 def test_session_start_persistence():
     """Test that session_start is set during initialization and persists."""
-    with patch("strands.experimental.steering.context_providers.ledger_provider.datetime") as mock_datetime:
+    with patch("strands.vended_plugins.steering.context_providers.ledger_provider.datetime") as mock_datetime:
         mock_datetime.now.return_value.isoformat.return_value = "2024-01-01T10:00:00"
 
         callback = LedgerBeforeToolCall()
@@ -143,7 +143,7 @@ def test_session_start_persistence():
         assert callback.session_start == "2024-01-01T10:00:00"
 
 
-@patch("strands.experimental.steering.context_providers.ledger_provider.datetime")
+@patch("strands.vended_plugins.steering.context_providers.ledger_provider.datetime")
 def test_parallel_tool_calls_all_pending(mock_datetime):
     """Test multiple tool calls added as pending before any execute."""
     mock_datetime.now.return_value.isoformat.return_value = "2024-01-01T12:00:00"
@@ -163,7 +163,7 @@ def test_parallel_tool_calls_all_pending(mock_datetime):
     assert [call["tool_name"] for call in ledger["tool_calls"]] == ["tool_a", "tool_b", "tool_c"]
 
 
-@patch("strands.experimental.steering.context_providers.ledger_provider.datetime")
+@patch("strands.vended_plugins.steering.context_providers.ledger_provider.datetime")
 def test_parallel_tool_calls_complete_by_id(mock_datetime):
     """Test tool calls complete in any order by matching toolUseId."""
     # Need timestamps for: session_start + 3 tool calls + 1 completion
@@ -199,7 +199,7 @@ def test_parallel_tool_calls_complete_by_id(mock_datetime):
     assert ledger["tool_calls"][2]["status"] == "pending"
 
 
-@patch("strands.experimental.steering.context_providers.ledger_provider.datetime")
+@patch("strands.vended_plugins.steering.context_providers.ledger_provider.datetime")
 def test_parallel_tool_calls_complete_all_out_of_order(mock_datetime):
     """Test all parallel tool calls complete in reverse order."""
     # Need timestamps for: session_start + 3 tool calls + 3 completions
@@ -238,7 +238,7 @@ def test_parallel_tool_calls_complete_all_out_of_order(mock_datetime):
     assert ledger["tool_calls"][2]["result"] == ["result_2"]
 
 
-@patch("strands.experimental.steering.context_providers.ledger_provider.datetime")
+@patch("strands.vended_plugins.steering.context_providers.ledger_provider.datetime")
 def test_parallel_tool_calls_with_failure(mock_datetime):
     """Test parallel tool calls where one fails."""
     # Need timestamps for: session_start + 2 tool calls + 2 completions
@@ -281,7 +281,7 @@ def test_parallel_tool_calls_with_failure(mock_datetime):
     assert ledger["tool_calls"][1]["error"] == "test error"
 
 
-@patch("strands.experimental.steering.context_providers.ledger_provider.datetime")
+@patch("strands.vended_plugins.steering.context_providers.ledger_provider.datetime")
 def test_after_tool_call_no_matching_id(mock_datetime):
     """Test AfterToolCallEvent when tool_use_id doesn't match any pending call."""
     mock_datetime.now.return_value.isoformat.return_value = "2024-01-01T12:00:00"
@@ -308,7 +308,7 @@ def test_after_tool_call_no_matching_id(mock_datetime):
     assert "completion_timestamp" not in ledger["tool_calls"][0]
 
 
-@patch("strands.experimental.steering.context_providers.ledger_provider.datetime")
+@patch("strands.vended_plugins.steering.context_providers.ledger_provider.datetime")
 def test_tool_use_id_stored_in_ledger(mock_datetime):
     """Test that toolUseId is stored in ledger entries."""
     mock_datetime.now.return_value.isoformat.return_value = "2024-01-01T12:00:00"

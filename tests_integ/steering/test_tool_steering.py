@@ -3,10 +3,10 @@
 import pytest
 
 from strands import Agent, tool
-from strands.experimental.steering.context_providers.ledger_provider import LedgerProvider
-from strands.experimental.steering.core.action import Guide, Interrupt, Proceed
-from strands.experimental.steering.core.handler import SteeringHandler
-from strands.experimental.steering.handlers.llm.llm_handler import LLMSteeringHandler
+from strands.vended_plugins.steering.context_providers.ledger_provider import LedgerProvider
+from strands.vended_plugins.steering.core.action import Guide, Interrupt, Proceed
+from strands.vended_plugins.steering.core.handler import SteeringHandler
+from strands.vended_plugins.steering.handlers.llm.llm_handler import LLMSteeringHandler
 
 
 @tool

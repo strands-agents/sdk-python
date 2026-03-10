@@ -5,12 +5,16 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from strands.experimental.steering.core.action import Guide, Interrupt, Proceed
-from strands.experimental.steering.core.context import SteeringContext, SteeringContextCallback, SteeringContextProvider
-from strands.experimental.steering.core.handler import SteeringHandler
 from strands.hooks.events import AfterModelCallEvent, BeforeToolCallEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins import Plugin
+from strands.vended_plugins.steering.core.action import Guide, Interrupt, Proceed
+from strands.vended_plugins.steering.core.context import (
+    SteeringContext,
+    SteeringContextCallback,
+    SteeringContextProvider,
+)
+from strands.vended_plugins.steering.core.handler import SteeringHandler
 
 
 class TestSteeringHandler(SteeringHandler):
