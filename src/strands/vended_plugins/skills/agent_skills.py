@@ -56,7 +56,7 @@ class AgentSkills(Plugin):
     Example:
         ```python
         from strands import Agent
-        from strands.plugins.skills import Skill, AgentSkills
+        from strands.vended_plugins.skills import Skill, AgentSkills
 
         # Load from filesystem
         plugin = AgentSkills(skills=["./skills/pdf-processing", "./skills/"])
@@ -187,7 +187,6 @@ class AgentSkills(Plugin):
             skills: One or more skill sources to resolve and set.
         """
         self._skills = self._resolve_skills(_normalize_sources(skills))
-
 
     def _format_skill_response(self, skill: Skill) -> str:
         """Format the tool response when a skill is activated.

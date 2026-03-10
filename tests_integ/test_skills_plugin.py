@@ -8,7 +8,7 @@ session state persistence across invocations.
 import pytest
 
 from strands import Agent
-from strands.plugins.skills import AgentSkills, Skill
+from strands.vended_plugins.skills import AgentSkills, Skill
 
 SUMMARIZATION_SKILL = Skill(
     name="summarization",

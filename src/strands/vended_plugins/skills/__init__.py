@@ -8,7 +8,7 @@ are loaded on demand via a tool.
 Example Usage:
     ```python
     from strands import Agent
-    from strands.plugins.skills import Skill, AgentSkills
+    from strands.vended_plugins.skills import Skill, AgentSkills
 
     # Load from filesystem via classmethods
     skill = Skill.from_file("./skills/pdf-processing")

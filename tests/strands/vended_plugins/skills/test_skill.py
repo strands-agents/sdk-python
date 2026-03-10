@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from strands.plugins.skills.skill import (
+from strands.vended_plugins.skills.skill import (
     Skill,
     _find_skill_md,
     _fix_yaml_colons,

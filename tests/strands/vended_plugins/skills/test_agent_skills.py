@@ -7,9 +7,9 @@ from unittest.mock import MagicMock
 from strands.hooks.events import BeforeInvocationEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins.registry import _PluginRegistry
-from strands.plugins.skills.agent_skills import AgentSkills
-from strands.plugins.skills.skill import Skill
 from strands.types.tools import ToolContext
+from strands.vended_plugins.skills.agent_skills import AgentSkills
+from strands.vended_plugins.skills.skill import Skill
 
 
 def _make_skill(name: str = "test-skill", description: str = "A test skill", instructions: str = "Do the thing."):
@@ -209,8 +209,6 @@ class TestSkillsPluginProperties:
         assert len(plugin.get_available_skills()) == 2
         names = {s.name for s in plugin.get_available_skills()}
         assert names == {"fs-skill", "direct"}
-
-
 
 
 class TestSkillsTool:
@@ -666,12 +664,6 @@ class TestResolveSkills:
 class TestImports:
     """Tests for module imports."""
 
-    def test_import_from_plugins(self):
-        """Test importing AgentSkills from strands.plugins."""
-        from strands.plugins import AgentSkills as SP
-
-        assert SP is AgentSkills
-
     def test_import_skill_from_strands(self):
         """Test importing Skill from top-level strands package."""
         from strands import Skill as S
@@ -679,8 +671,8 @@ class TestImports:
         assert S is Skill
 
     def test_import_from_skills_package(self):
-        """Test importing from strands.plugins.skills package."""
-        from strands.plugins.skills import AgentSkills, Skill
+        """Test importing from strands.vended_plugins.skills package."""
+        from strands.vended_plugins.skills import AgentSkills, Skill
 
         assert Skill is not None
         assert AgentSkills is not None
