@@ -1,3 +1,4 @@
+import asyncio
 import threading
 import unittest.mock
 
@@ -90,13 +91,24 @@ def interrupt_tool():
 
 
 @pytest.fixture
-def tool_registry(weather_tool, temperature_tool, exception_tool, thread_tool, interrupt_tool):
+def slow_tool():
+    @strands.tool(name="slow_tool")
+    async def func():
+        """A tool that blocks until cancelled."""
+        await asyncio.sleep(3)
+
+    return func
+
+
+@pytest.fixture
+def tool_registry(weather_tool, temperature_tool, exception_tool, thread_tool, interrupt_tool, slow_tool):
     registry = ToolRegistry()
     registry.register_tool(weather_tool)
     registry.register_tool(temperature_tool)
     registry.register_tool(exception_tool)
     registry.register_tool(thread_tool)
     registry.register_tool(interrupt_tool)
+    registry.register_tool(slow_tool)
     return registry
 
 

@@ -50,6 +50,7 @@ class MockAgent:
         self.call_tracker = Mock()
         self.tool_registry = Mock()
         self.tool_names = []
+        self._default_structured_output_model = None
 
     def __call__(self, prompt):
         """Mock agent call that returns a summary."""
@@ -769,3 +770,35 @@ def test_summarizing_conversation_manager_generate_summary_with_tools_agent_path
     manager._generate_summary(messages, parent_agent)
 
     mock_registry.register_tool.assert_not_called()
+
+
+def test_generate_summary_disables_structured_output_on_summarization_agent():
+    """Test that structured output is disabled during summarization to avoid toolUse in user messages.
+
+    When a summarization agent has structured_output_model configured, the response contains toolUse blocks.
+    Since the summary is converted to a user message, toolUse blocks would violate the model API constraint
+    that user messages cannot contain tool uses. The fix disables structured output during summarization.
+    """
+    summary_agent = create_mock_agent()
+    structured_output_model = Mock()
+    summary_agent._default_structured_output_model = structured_output_model
+
+    original_call = summary_agent.__class__.__call__
+    observed_values = []
+
+    def tracking_call(self, prompt):
+        observed_values.append(self._default_structured_output_model)
+        return original_call(self, prompt)
+
+    messages: Messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there"}]},
+    ]
+
+    manager = SummarizingConversationManager(summarization_agent=summary_agent)
+
+    with patch.object(MockAgent, "__call__", tracking_call):
+        manager._generate_summary(messages, create_mock_agent())
+
+    assert observed_values == [None], "structured output should be disabled during summarization"
+    assert summary_agent._default_structured_output_model is structured_output_model, "should be restored after"

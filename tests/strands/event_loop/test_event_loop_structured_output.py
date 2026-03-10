@@ -1,5 +1,6 @@
 """Tests for structured output integration in the event loop."""
 
+import threading
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -52,6 +53,7 @@ def mock_agent():
     agent._interrupt_state = Mock()
     agent._interrupt_state.activated = False
     agent._interrupt_state.context = {}
+    agent._cancel_signal = threading.Event()
 
     return agent
 
