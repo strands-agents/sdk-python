@@ -90,6 +90,33 @@ def test_tool_spec(identity_tool):
     assert tru_spec == exp_spec
 
 
+def test_tool_spec_with_strict_true():
+    @strands.tool(strict=True)
+    def my_tool(param: str) -> str:
+        """A tool."""
+        return param
+
+    assert my_tool.tool_spec["strict"] is True
+
+
+def test_tool_spec_with_strict_false():
+    @strands.tool(strict=False)
+    def my_tool(param: str) -> str:
+        """A tool."""
+        return param
+
+    assert my_tool.tool_spec["strict"] is False
+
+
+def test_tool_spec_without_strict():
+    @strands.tool
+    def my_tool(param: str) -> str:
+        """A tool."""
+        return param
+
+    assert "strict" not in my_tool.tool_spec
+
+
 @pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
 def test_tool_type(identity_tool):
     tru_type = identity_tool.tool_type
