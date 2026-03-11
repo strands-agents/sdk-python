@@ -270,10 +270,10 @@ class BedrockModel(Model):
                                         "description": tool_spec["description"],
                                         "inputSchema": (
                                             {"json": ensure_strict_json_schema(tool_spec["inputSchema"]["json"])}
-                                            if self.config.get("strict_tools")
+                                            if self.config.get("strict_tools") or tool_spec.get("strict")
                                             else tool_spec["inputSchema"]
                                         ),
-                                        **({"strict": True} if self.config.get("strict_tools") else {}),
+                                        **({"strict": True} if self.config.get("strict_tools") or tool_spec.get("strict") else {}),
                                     }
                                 }
                                 for tool_spec in tool_specs

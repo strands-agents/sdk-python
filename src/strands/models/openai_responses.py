@@ -517,6 +517,7 @@ class OpenAIResponsesModel(Model):
                     "name": tool_spec["name"],
                     "description": tool_spec.get("description", ""),
                     "parameters": tool_spec["inputSchema"]["json"],
+                    **({"strict": tool_spec["strict"]} if "strict" in tool_spec else {}),
                 }
                 for tool_spec in tool_specs
             )
