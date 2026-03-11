@@ -46,8 +46,7 @@ def agent(model, tools, system_prompt):
 
 def test_agent(agent):
     result = agent("What is the time and weather in New York?")
-    # The Writer model may return empty content blocks (e.g. from tool calls) before the text block
-    text = next(c["text"] for c in result.message["content"] if "text" in c).lower()
+    text = result.message["content"][0]["text"].lower()
 
     assert all(string in text for string in ["12:00", "sunny"])
 
@@ -55,7 +54,7 @@ def test_agent(agent):
 @pytest.mark.asyncio
 async def test_agent_async(agent):
     result = await agent.invoke_async("What is the time and weather in New York?")
-    text = next(c["text"] for c in result.message["content"] if "text" in c).lower()
+    text = result.message["content"][0]["text"].lower()
 
     assert all(string in text for string in ["12:00", "sunny"])
 
@@ -67,7 +66,7 @@ async def test_agent_stream_async(agent):
         _ = event
 
     result = event["result"]
-    text = next(c["text"] for c in result.message["content"] if "text" in c).lower()
+    text = result.message["content"][0]["text"].lower()
 
     assert all(string in text for string in ["12:00", "sunny"])
 
