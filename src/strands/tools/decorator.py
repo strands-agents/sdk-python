@@ -764,7 +764,8 @@ def tool(  # type: ignore
         context: When provided, places an object in the designated parameter. If True, the param name
             defaults to 'tool_context', or if an override is needed, set context equal to a string to designate
             the param name.
-        strict: Optional Boolean that enforces a model only invokes tools with parameters that match the input schema
+        strict: Optional Boolean that ensures the model will only output tool calls containing parameters
+            that perfectly match the defined input schema.
 
     Returns:
         An AgentTool that also mimics the original function when invoked
