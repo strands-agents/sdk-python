@@ -226,6 +226,8 @@ class RepositorySessionManager(SessionManager):
             # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
             agent.messages = self._fix_broken_tool_use(agent.messages)
 
+        self._is_new_session = False
+
     def _fix_broken_tool_use(self, messages: list[Message]) -> list[Message]:
         """Fix broken tool use/result pairs in message history.
 
@@ -318,6 +320,8 @@ class RepositorySessionManager(SessionManager):
             logger.debug("session_id=<%s> | restoring multi-agent state", self.session_id)
             source.deserialize_state(state)
 
+        self._is_new_session = False
+
     def initialize_bidi_agent(self, agent: "BidiAgent", **kwargs: Any) -> None:
         """Initialize a bidirectional agent with a session.
 
@@ -374,6 +378,8 @@ class RepositorySessionManager(SessionManager):
 
             # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
             agent.messages = self._fix_broken_tool_use(agent.messages)
+
+        self._is_new_session = False
 
     def append_bidi_message(self, message: Message, agent: "BidiAgent", **kwargs: Any) -> None:
         """Append a message to the bidirectional agent's session.
