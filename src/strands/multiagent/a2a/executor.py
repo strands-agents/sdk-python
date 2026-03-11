@@ -128,8 +128,12 @@ class StrandsA2AExecutor(AgentExecutor):
             self._current_artifact_id = str(uuid.uuid4())
             self._is_first_chunk = True
 
+        # Pass the A2A RequestContext through invocation state so downstream
+        # tools and hooks can access request metadata, task info, configuration, etc.
+        invocation_state: dict[str, Any] = {"a2a_request_context": context}
+
         try:
-            async for event in self.agent.stream_async(content_blocks):
+            async for event in self.agent.stream_async(content_blocks, invocation_state=invocation_state):
                 await self._handle_streaming_event(event, updater)
         except Exception:
             logger.exception("Error in streaming execution")
