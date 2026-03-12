@@ -173,7 +173,7 @@ def test_format_request_tool_message():
 
     tru_result = OpenAIModel.format_request_tool_message(tool_result)
     exp_result = {
-        "content": [{"text": "4", "type": "text"}, {"text": '["4"]', "type": "text"}],
+        "content": '4\n["4"]',
         "role": "tool",
         "tool_call_id": "c1",
     }
@@ -197,7 +197,33 @@ def test_format_request_tool_message_single_text_returns_string():
     assert tru_result == exp_result
 
 
-def test_split_tool_message_images_with_image():
+def test_format_request_tool_message_multi_text_returns_joined_string():
+    """Test that multi-content text results are joined into a single string.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1696.
+    OpenAI-compatible endpoints (e.g., Kimi K2.5, vLLM, Ollama) only correctly
+    parse string content for tool messages; array format causes hallucinated results.
+    """
+    tool_result = {
+        "content": [
+            {"text": "Temperature: 72°F"},
+            {"json": {"humidity": 45, "unit": "%"}},
+            {"text": "Wind: 5 mph"},
+        ],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    exp_result = {
+        "content": 'Temperature: 72°F\n{"humidity": 45, "unit": "%"}\nWind: 5 mph',
+        "role": "tool",
+        "tool_call_id": "c1",
+    }
+    assert tru_result == exp_result
+
+
+
     """Test that images are extracted from tool messages."""
     tool_message = {
         "role": "tool",

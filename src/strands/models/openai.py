@@ -204,13 +204,28 @@ class OpenAIModel(Model):
             ],
         )
 
-        formatted_contents = [cls.format_request_message_content(content) for content in contents]
+        # Separate text and non-text (image/document) content blocks.
+        # Text is always joined into a single string for broad compatibility
+        # with OpenAI-compatible endpoints (e.g., Kimi K2.5, vLLM, Ollama).
+        text_parts: list[str] = []
+        non_text_parts: list[dict[str, Any]] = []
+        for content_block in contents:
+            if "text" in content_block:
+                text_parts.append(content_block["text"])
+            elif "image" in content_block or "document" in content_block:
+                non_text_parts.append(cls.format_request_message_content(content_block))
 
-        # If single text content, use string format for better model compatibility
-        if len(formatted_contents) == 1 and formatted_contents[0].get("type") == "text":
-            content: str | list[dict[str, Any]] = formatted_contents[0]["text"]
+        content: str | list[dict[str, Any]]
+        if non_text_parts:
+            # Keep array format when images/documents are present so that
+            # _split_tool_message_images can extract them into a user message.
+            formatted: list[dict[str, Any]] = []
+            if text_parts:
+                formatted.append({"type": "text", "text": "\n".join(text_parts)})
+            formatted.extend(non_text_parts)
+            content = formatted
         else:
-            content = formatted_contents
+            content = "\n".join(text_parts)
 
         return {
             "role": "tool",
