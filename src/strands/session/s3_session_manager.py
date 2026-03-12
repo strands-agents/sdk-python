@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError
 
 from .. import _identifier
 from ..types.exceptions import SessionException
-from ..types.session import Session, SessionAgent, SessionMessage
+from ..types.session import Session, SessionAgent, SessionMessage, decode_bytes_values, encode_bytes_values
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
@@ -132,11 +132,16 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         return f"{agent_path}messages/{MESSAGE_PREFIX}{message_id}.json"
 
     def _read_s3_object(self, key: str) -> dict[str, Any] | None:
-        """Read JSON object from S3."""
+        """Read JSON object from S3.
+
+        Automatically decodes any base64-encoded bytes values that were encoded
+        during write operations.
+        """
         try:
             response = self.client.get_object(Bucket=self.bucket, Key=key)
             content = response["Body"].read().decode("utf-8")
-            return cast(dict[str, Any], json.loads(content))
+            data = json.loads(content)
+            return cast(dict[str, Any], decode_bytes_values(data))
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 return None
@@ -146,9 +151,14 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             raise SessionException(f"Invalid JSON in S3 object {key}: {e}") from e
 
     def _write_s3_object(self, key: str, data: dict[str, Any]) -> None:
-        """Write JSON object to S3."""
+        """Write JSON object to S3.
+
+        Automatically encodes any bytes values to base64 before JSON serialization
+        to handle binary content like images and documents.
+        """
         try:
-            content = json.dumps(data, indent=2, ensure_ascii=False)
+            encoded_data = encode_bytes_values(data)
+            content = json.dumps(encoded_data, indent=2, ensure_ascii=False)
             self.client.put_object(
                 Bucket=self.bucket, Key=key, Body=content.encode("utf-8"), ContentType="application/json"
             )
