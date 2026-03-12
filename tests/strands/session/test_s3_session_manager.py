@@ -89,6 +89,21 @@ def test_init_s3_session_manager_with_existing_user_agent(mocked_aws, s3_bucket)
     assert "strands-agents" in session_manager.client.meta.config.user_agent_extra
 
 
+def test_get_session_path_empty_prefix(mocked_aws, s3_bucket):
+    """Test that empty prefix does not produce a leading slash in S3 keys."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, prefix="", region_name="us-west-2")
+    path = manager._get_session_path("my-session")
+    assert not path.startswith("/"), f"Path should not start with '/': {path}"
+    assert path == "session_my-session/"
+
+
+def test_get_session_path_with_prefix(mocked_aws, s3_bucket):
+    """Test that non-empty prefix is included in S3 keys."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, prefix="data", region_name="us-west-2")
+    path = manager._get_session_path("my-session")
+    assert path == "data/session_my-session/"
+
+
 def test_create_session(s3_manager, sample_session):
     """Test creating a session in S3."""
     result = s3_manager.create_session(sample_session)
