@@ -93,7 +93,6 @@ def test_init_s3_session_manager_with_put_object_kwargs(s3_bucket):
     """Test initializing S3SessionManager with put_object_kwargs."""
     put_object_kwargs = {
         "ServerSideEncryption": "aws:kms",
-        "SSEKMSKeyId": "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
     }
     session_manager = S3SessionManager(session_id="test", bucket=s3_bucket, put_object_kwargs=put_object_kwargs)
     assert session_manager.put_object_kwargs == put_object_kwargs
