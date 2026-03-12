@@ -64,9 +64,20 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             boto_client_config: Optional boto3 client configuration
             region_name: AWS region for S3 storage
             **kwargs: Additional keyword arguments for future extensibility.
+                put_object_kwargs: Optional dict of additional parameters to pass to S3 put_object calls
+                    (e.g., ServerSideEncryption, SSEKMSKeyId, etc.)
         """
         self.bucket = bucket
         self.prefix = prefix
+        put_object_kwargs = kwargs.pop("put_object_kwargs", None) or {}
+
+        # Validate that reserved parameters are not being overridden
+        reserved_params = {"Bucket", "Key", "Body", "ContentType"}
+        invalid_params = reserved_params.intersection(put_object_kwargs.keys())
+        if invalid_params:
+            raise ValueError(f"put_object_kwargs cannot contain reserved parameters: {invalid_params}")
+
+        self.put_object_kwargs: dict[str, Any] = put_object_kwargs
 
         session = boto_session or boto3.Session(region_name=region_name)
 
@@ -149,9 +160,14 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         """Write JSON object to S3."""
         try:
             content = json.dumps(data, indent=2, ensure_ascii=False)
-            self.client.put_object(
-                Bucket=self.bucket, Key=key, Body=content.encode("utf-8"), ContentType="application/json"
-            )
+            put_params = {
+                "Bucket": self.bucket,
+                "Key": key,
+                "Body": content.encode("utf-8"),
+                "ContentType": "application/json",
+                **self.put_object_kwargs,
+            }
+            self.client.put_object(**put_params)
         except ClientError as e:
             raise SessionException(f"Failed to write S3 object {key}: {e}") from e
 
