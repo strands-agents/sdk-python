@@ -2405,3 +2405,38 @@ async def test_graph_with_agentbase_implementation(mock_strands_tracer, mock_use
     assert result.completed_nodes == 2
     assert "custom_node" in result.results
     assert "regular_node" in result.results
+
+
+def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
+    """Verify _find_newly_ready_nodes only checks destinations of outbound edges from completed batch.
+
+    Previously, it iterated over ALL nodes, which could cause nodes to fire
+    before their actual dependencies completed.
+
+    See: https://github.com/strands-agents/sdk-python/issues/685
+    """
+    # Build a graph: A -> B -> C, D -> E (independent chain)
+    node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+    node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+    node_c = GraphNode(node_id="C", executor=create_mock_agent("C"))
+    node_d = GraphNode(node_id="D", executor=create_mock_agent("D"))
+    node_e = GraphNode(node_id="E", executor=create_mock_agent("E"))
+
+    graph = Graph.__new__(Graph)
+    graph.nodes = {"A": node_a, "B": node_b, "C": node_c, "D": node_d, "E": node_e}
+    graph.edges = [
+        GraphEdge(from_node=node_a, to_node=node_b),
+        GraphEdge(from_node=node_b, to_node=node_c),
+        GraphEdge(from_node=node_d, to_node=node_e),
+    ]
+    graph.state = GraphState()
+
+    # When A completes, only B should be ready (not E)
+    ready = graph._find_newly_ready_nodes([node_a])
+    ready_ids = {n.node_id for n in ready}
+    assert ready_ids == {"B"}, f"Expected only B, got {ready_ids}"
+
+    # When D completes, only E should be ready (not B or C)
+    ready = graph._find_newly_ready_nodes([node_d])
+    ready_ids = {n.node_id for n in ready}
+    assert ready_ids == {"E"}, f"Expected only E, got {ready_ids}"

@@ -827,9 +827,16 @@ class Graph(MultiAgentBase):
         return timeout_exception
 
     def _find_newly_ready_nodes(self, completed_batch: list["GraphNode"]) -> list["GraphNode"]:
-        """Find nodes that became ready after the last execution."""
+        """Find nodes that became ready after the last execution.
+
+        Only evaluates destination nodes of outbound edges from the completed batch,
+        instead of iterating over all nodes in the graph.
+        """
+        # Collect unique candidate nodes reachable from the completed batch
+        candidates = {edge.to_node for edge in self.edges if edge.from_node in completed_batch}
+
         newly_ready = []
-        for _node_id, node in self.nodes.items():
+        for node in candidates:
             if self._is_node_ready_with_conditions(node, completed_batch):
                 newly_ready.append(node)
         return newly_ready
