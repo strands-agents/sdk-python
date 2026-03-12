@@ -8,6 +8,7 @@ import json
 import logging
 import mimetypes
 from collections.abc import AsyncGenerator
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, TypedDict, TypeVar, cast
 
 import anthropic
@@ -76,6 +77,19 @@ class AnthropicModel(Model):
         logger.debug("config=<%s> | initializing", self.config)
 
         client_args = client_args or {}
+
+        # Add User-Agent header if not already set
+        if "default_headers" not in client_args:
+            client_args["default_headers"] = {}
+        else:
+            client_args["default_headers"] = {**client_args["default_headers"]}
+        if "User-Agent" not in client_args["default_headers"]:
+            try:
+                strands_version = version("strands-agents")
+            except PackageNotFoundError:
+                strands_version = "unknown"
+            client_args["default_headers"]["User-Agent"] = f"strands-agents/{strands_version}"
+
         self.client = anthropic.AsyncAnthropic(**client_args)
 
     @override

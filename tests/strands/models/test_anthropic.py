@@ -63,6 +63,38 @@ def test__init__model_configs(anthropic_client, model_id, max_tokens):
     assert tru_temperature == exp_temperature
 
 
+def test__init__sets_user_agent_header(anthropic_client, model_id, max_tokens):
+    _ = anthropic_client
+
+    AnthropicModel(model_id=model_id, max_tokens=max_tokens)
+
+    call_kwargs = strands.models.anthropic.anthropic.AsyncAnthropic.call_args[1]
+    assert "default_headers" in call_kwargs
+    assert "User-Agent" in call_kwargs["default_headers"]
+    assert call_kwargs["default_headers"]["User-Agent"].startswith("strands-agents/")
+
+
+def test__init__preserves_custom_user_agent_header(anthropic_client, model_id, max_tokens):
+    _ = anthropic_client
+
+    custom_headers = {"User-Agent": "my-custom-agent/1.0"}
+    AnthropicModel(model_id=model_id, max_tokens=max_tokens, client_args={"default_headers": custom_headers})
+
+    call_kwargs = strands.models.anthropic.anthropic.AsyncAnthropic.call_args[1]
+    assert call_kwargs["default_headers"]["User-Agent"] == "my-custom-agent/1.0"
+
+
+def test__init__does_not_mutate_caller_headers(anthropic_client, model_id, max_tokens):
+    _ = anthropic_client
+
+    original_headers = {"X-Custom": "value"}
+    client_args = {"default_headers": original_headers}
+    AnthropicModel(model_id=model_id, max_tokens=max_tokens, client_args=client_args)
+
+    assert "User-Agent" not in original_headers
+    assert original_headers == {"X-Custom": "value"}
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 
