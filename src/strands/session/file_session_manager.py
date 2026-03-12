@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from .. import _identifier
 from ..types.exceptions import SessionException
-from ..types.session import Session, SessionAgent, SessionMessage, decode_bytes_values, encode_bytes_values
+from ..types.session import Session, SessionAgent, SessionMessage
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
@@ -106,30 +106,20 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         return os.path.join(agent_path, "messages", f"{MESSAGE_PREFIX}{message_id}.json")
 
     def _read_file(self, path: str) -> dict[str, Any]:
-        """Read JSON file.
-
-        Automatically decodes any base64-encoded bytes values that were encoded
-        during write operations.
-        """
+        """Read JSON file."""
         try:
             with open(path, encoding="utf-8") as f:
-                data = json.load(f)
-                return cast(dict[str, Any], decode_bytes_values(data))
+                return cast(dict[str, Any], json.load(f))
         except json.JSONDecodeError as e:
             raise SessionException(f"Invalid JSON in file {path}: {str(e)}") from e
 
     def _write_file(self, path: str, data: dict[str, Any]) -> None:
-        """Write JSON file.
-
-        Automatically encodes any bytes values to base64 before JSON serialization
-        to handle binary content like images and documents.
-        """
+        """Write JSON file."""
         os.makedirs(os.path.dirname(path), exist_ok=True)
         # This automic write ensure the completeness of session files in both single agent/ multi agents
         tmp = f"{path}.tmp"
-        encoded_data = encode_bytes_values(data)
         with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(encoded_data, f, indent=2, ensure_ascii=False)
+            json.dump(data, f, indent=2, ensure_ascii=False)
         os.replace(tmp, path)
 
     def create_session(self, session: Session, **kwargs: Any) -> Session:
