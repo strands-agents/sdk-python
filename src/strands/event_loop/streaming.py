@@ -428,6 +428,16 @@ async def process_stream(
             state = handle_content_block_stop(state)
         elif "messageStop" in chunk:
             stop_reason = handle_message_stop(chunk["messageStop"])
+            # Some models return "end_turn" even when tool calls are present,
+            # which prevents the event loop from processing those tool calls.
+            # Override to "tool_use" so tool execution proceeds correctly.
+            if stop_reason == "end_turn":
+                content = state["message"].get("content", [])
+                if any("toolUse" in item for item in content):
+                    logger.warning(
+                        "stop_reason override: end_turn -> tool_use (response contains toolUse blocks)"
+                    )
+                    stop_reason = "tool_use"
         elif "metadata" in chunk:
             time_to_first_byte_ms = (
                 int(1000 * (first_byte_time - start_time)) if (start_time and first_byte_time) else None
