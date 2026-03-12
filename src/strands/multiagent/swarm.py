@@ -51,6 +51,7 @@ from ..types._events import (
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
+from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
@@ -965,7 +966,7 @@ class Swarm(MultiAgentBase):
             "node_history": [n.node_id for n in self.state.node_history],
             "node_results": {k: v.to_dict() for k, v in self.state.results.items()},
             "next_nodes_to_execute": next_nodes,
-            "current_task": self.state.task,
+            "current_task": encode_bytes_values(self.state.task),
             "context": {
                 "shared_context": getattr(self.state.shared_context, "context", {}) or {},
                 "handoff_node": self.state.handoff_node.node_id if self.state.handoff_node else None,
@@ -1028,7 +1029,7 @@ class Swarm(MultiAgentBase):
                 logger.exception("Failed to hydrate NodeResult for node_id=%s; skipping.", node_id)
                 raise
         self.state.results = results
-        self.state.task = payload.get("current_task", self.state.task)
+        self.state.task = decode_bytes_values(payload.get("current_task", self.state.task))
 
         next_node_ids = payload.get("next_nodes_to_execute") or []
         if next_node_ids:

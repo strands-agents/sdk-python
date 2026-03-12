@@ -1986,7 +1986,10 @@ async def test_graph_multiagent_no_result_event(mock_strands_tracer, mock_use_sp
 
 @pytest.mark.asyncio
 async def test_graph_persisted(mock_strands_tracer, mock_use_span):
-    """Test graph persistence functionality."""
+    """Test graph persistence functionality with multimodal input containing binary bytes."""
+    import base64
+    import json
+
     # Create mock session manager
     session_manager = Mock(spec=FileSessionManager)
     session_manager.read_multi_agent().return_value = None
@@ -2011,7 +2014,40 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     assert "completed_nodes" in state
     assert "node_results" in state
 
-    # Test apply_state_from_dict with persisted state
+    # Build a multimodal prompt with inline binary PDF bytes (the problematic case)
+    pdf_bytes = b"%PDF-1.4 binary content"
+    multimodal_task = [
+        {"text": "Analyze this PDF"},
+        {
+            "document": {
+                "format": "pdf",
+                "name": "document.pdf",
+                "source": {
+                    "bytes": pdf_bytes,
+                },
+            }
+        },
+    ]
+
+    # Simulate graph having executed with a multimodal task
+    graph.state.task = multimodal_task
+
+    # serialize_state must not raise TypeError for bytes
+    serialized = graph.serialize_state()
+    assert json.dumps(serialized)  # must be JSON-serializable
+
+    # The bytes should be encoded in the serialized form
+    encoded_bytes = serialized["current_task"][1]["document"]["source"]["bytes"]
+    assert encoded_bytes == {"__bytes_encoded__": True, "data": base64.b64encode(pdf_bytes).decode()}
+
+    # deserialize_state must restore bytes back to original
+    serialized["next_nodes_to_execute"] = ["test_node"]
+    serialized["status"] = "executing"
+    graph.deserialize_state(serialized)
+    restored_bytes = graph.state.task[1]["document"]["source"]["bytes"]
+    assert restored_bytes == pdf_bytes
+
+    # Test apply_state_from_dict with plain string persisted state (backward compat)
     persisted_state = {
         "status": "executing",
         "completed_nodes": [],
