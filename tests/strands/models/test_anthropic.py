@@ -933,3 +933,58 @@ def test_format_request_filters_location_source_document(model, model_id, max_to
     ]
     assert tru_request["messages"] == exp_messages
     assert "Location sources are not supported by Anthropic" in caplog.text
+
+
+def test_normalize_event_converts_parsed_text_block(model):
+    """Test that _normalize_event converts ParsedTextBlock to TextBlock.
+
+    When the Anthropic SDK returns ParsedTextBlock objects in content_block_start events,
+    calling model_dump() on the event triggers PydanticSerializationUnexpectedValue warnings
+    because ParsedTextBlock doesn't match the discriminated union. The _normalize_event method
+    should convert ParsedTextBlock to plain TextBlock to avoid these warnings.
+    """
+    from anthropic.types import TextBlock
+    from anthropic.types.parsed_message import ParsedTextBlock
+
+    parsed_block = ParsedTextBlock(text="Hello, world!", type="text", citations=None, parsed_output=None)
+
+    # Create a mock event that looks like a content_block_start event
+    mock_event = unittest.mock.MagicMock()
+    mock_event.type = "content_block_start"
+    mock_event.content_block = parsed_block
+
+    normalized = AnthropicModel._normalize_event(mock_event)
+
+    # content_block should now be a plain TextBlock, not ParsedTextBlock
+    assert type(normalized.content_block) is TextBlock
+    assert not isinstance(normalized.content_block, ParsedTextBlock)
+    assert normalized.content_block.text == "Hello, world!"
+    assert normalized.content_block.type == "text"
+    assert normalized.content_block.citations is None
+
+
+def test_normalize_event_preserves_non_parsed_blocks(model):
+    """Test that _normalize_event leaves non-ParsedTextBlock events unchanged."""
+    from anthropic.types import TextBlock
+
+    text_block = TextBlock(text="Normal text", type="text", citations=None)
+
+    mock_event = unittest.mock.MagicMock()
+    mock_event.type = "content_block_start"
+    mock_event.content_block = text_block
+
+    normalized = AnthropicModel._normalize_event(mock_event)
+
+    # Should be left untouched — same object
+    assert normalized.content_block is text_block
+
+
+def test_normalize_event_ignores_non_content_block_events(model):
+    """Test that _normalize_event ignores events that aren't content_block_start."""
+    mock_event = unittest.mock.MagicMock()
+    mock_event.type = "message_start"
+
+    normalized = AnthropicModel._normalize_event(mock_event)
+
+    # Should pass through unchanged
+    assert normalized is mock_event
