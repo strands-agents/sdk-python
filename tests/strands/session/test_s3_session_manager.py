@@ -82,11 +82,42 @@ def test_init_s3_session_manager_with_config(mocked_aws, s3_bucket):
     assert "strands-agents" in session_manager.client.meta.config.user_agent_extra
 
 
-def test_init_s3_session_manager_with_existing_user_agent(mocked_aws, s3_bucket):
+def test_init_s3_session_manager_with_existing_user_agent(s3_bucket):
     session_manager = S3SessionManager(
         session_id="test", bucket=s3_bucket, boto_client_config=BotocoreConfig(user_agent_extra="test")
     )
     assert "strands-agents" in session_manager.client.meta.config.user_agent_extra
+
+
+def test_init_s3_session_manager_with_put_object_kwargs(s3_bucket):
+    """Test initializing S3SessionManager with put_object_kwargs."""
+    put_object_kwargs = {
+        "ServerSideEncryption": "aws:kms",
+        "SSEKMSKeyId": "arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012",
+    }
+    session_manager = S3SessionManager(session_id="test", bucket=s3_bucket, put_object_kwargs=put_object_kwargs)
+    assert session_manager.put_object_kwargs == put_object_kwargs
+
+
+def test_init_s3_session_manager_without_put_object_kwargs(s3_bucket):
+    """Test initializing S3SessionManager without put_object_kwargs defaults to empty dict."""
+    session_manager = S3SessionManager(session_id="test", bucket=s3_bucket)
+    assert session_manager.put_object_kwargs == {}
+
+
+def test_init_s3_session_manager_with_reserved_params_in_put_object_kwargs(s3_bucket):
+    """Test that reserved parameters in put_object_kwargs raise ValueError."""
+    with pytest.raises(ValueError, match="put_object_kwargs cannot contain reserved parameters"):
+        S3SessionManager(session_id="test", bucket=s3_bucket, put_object_kwargs={"Bucket": "other-bucket"})
+
+    with pytest.raises(ValueError, match="put_object_kwargs cannot contain reserved parameters"):
+        S3SessionManager(session_id="test", bucket=s3_bucket, put_object_kwargs={"Key": "some-key"})
+
+    with pytest.raises(ValueError, match="put_object_kwargs cannot contain reserved parameters"):
+        S3SessionManager(session_id="test", bucket=s3_bucket, put_object_kwargs={"Body": "data"})
+
+    with pytest.raises(ValueError, match="put_object_kwargs cannot contain reserved parameters"):
+        S3SessionManager(session_id="test", bucket=s3_bucket, put_object_kwargs={"ContentType": "text/plain"})
 
 
 def test_create_session(s3_manager, sample_session):
@@ -102,6 +133,18 @@ def test_create_session(s3_manager, sample_session):
 
     assert data["session_id"] == sample_session.session_id
     assert data["session_type"] == sample_session.session_type
+
+
+def test_create_session_with_put_object_kwargs(s3_bucket, sample_session):
+    """Test creating a session with put_object_kwargs applies encryption."""
+    put_object_kwargs = {"ServerSideEncryption": "AES256"}
+    manager_with_encryption = S3SessionManager(session_id="test", bucket=s3_bucket, put_object_kwargs=put_object_kwargs)
+    manager_with_encryption.create_session(sample_session)
+
+    # Verify S3 object has encryption
+    key = f"{manager_with_encryption._get_session_path(sample_session.session_id)}session.json"
+    response = manager_with_encryption.client.head_object(Bucket=manager_with_encryption.bucket, Key=key)
+    assert response["ServerSideEncryption"] == "AES256"
 
 
 def test_create_session_already_exists(s3_manager, sample_session):
