@@ -962,6 +962,14 @@ class Agent(AgentBase):
                         # Treat as List[ContentBlock] input - convert to user message
                         # This allows invalid structures to be passed through to the model
                         messages = [{"role": "user", "content": cast(list[ContentBlock], prompt)}]
+
+                    # Check if all items are interrupt responses
+                    elif all("interruptResponse" in item for item in prompt):
+                        raise ValueError(
+                            "Received interrupt responses but agent is not in interrupt state. "
+                            "Ensure the agent instance is preserved between calls, or use session "
+                            "management to persist interrupt state across requests."
+                        )
         else:
             messages = []
         if messages is None:
