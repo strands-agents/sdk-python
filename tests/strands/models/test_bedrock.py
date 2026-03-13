@@ -2856,3 +2856,138 @@ def test_guardrail_latest_message_disabled_does_not_wrap(model):
 
     assert "text" in formatted
     assert "guardContent" not in formatted
+
+
+def test_nova_model_converts_json_to_text_in_tool_result(bedrock_client):
+    """Nova models should convert JSON content blocks to text in tool results."""
+    model = BedrockModel(model_id="us.amazon.nova-pro-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"json": {"key": "value", "number": 42}}],
+                        "toolUseId": "tool123",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert len(tool_result["content"]) == 1
+    assert "text" in tool_result["content"][0]
+    assert "json" not in tool_result["content"][0]
+    assert tool_result["content"][0]["text"] == '{"key": "value", "number": 42}'
+
+
+def test_nova_model_converts_mixed_json_and_text_in_tool_result(bedrock_client):
+    """Nova models should convert JSON blocks while preserving text blocks."""
+    model = BedrockModel(model_id="amazon.nova-lite-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [
+                            {"text": "Some text output"},
+                            {"json": {"status": "ok"}},
+                        ],
+                        "toolUseId": "tool456",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert len(tool_result["content"]) == 2
+    assert tool_result["content"][0] == {"text": "Some text output"}
+    assert tool_result["content"][1] == {"text": '{"status": "ok"}'}
+
+
+def test_claude_model_preserves_json_in_tool_result(bedrock_client):
+    """Claude models should preserve JSON content blocks as-is."""
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"json": {"key": "value"}}],
+                        "toolUseId": "tool789",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert len(tool_result["content"]) == 1
+    assert "json" in tool_result["content"][0]
+    assert tool_result["content"][0]["json"] == {"key": "value"}
+
+
+def test_nova_model_handles_nested_json_in_tool_result(bedrock_client):
+    """Nova models should handle deeply nested JSON structures."""
+    model = BedrockModel(model_id="us.amazon.nova-pro-v1:0")
+    nested_json = {
+        "results": [
+            {"id": 1, "data": {"nested": True}},
+            {"id": 2, "data": {"nested": False}},
+        ],
+        "metadata": {"total": 2},
+    }
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"json": nested_json}],
+                        "toolUseId": "tool_nested",
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+
+    assert "text" in tool_result["content"][0]
+    import json
+
+    parsed = json.loads(tool_result["content"][0]["text"])
+    assert parsed == nested_json
+
+
+def test_should_convert_json_to_text_nova_variants(bedrock_client):
+    """All Nova model ID variants should trigger JSON-to-text conversion."""
+    nova_ids = [
+        "amazon.nova-pro-v1:0",
+        "us.amazon.nova-pro-v1:0",
+        "amazon.nova-lite-v1:0",
+        "amazon.nova-micro-v1:0",
+    ]
+    for model_id in nova_ids:
+        model = BedrockModel(model_id=model_id)
+        assert model._should_convert_json_to_text(), f"{model_id} should convert JSON to text"
+
+    non_nova_ids = [
+        "us.anthropic.claude-sonnet-4-20250514-v1:0",
+        "amazon.titan-text-v1",
+        "us.meta.llama3-1-70b-instruct-v1:0",
+    ]
+    for model_id in non_nova_ids:
+        model = BedrockModel(model_id=model_id)
+        assert not model._should_convert_json_to_text(), f"{model_id} should NOT convert JSON to text"

@@ -52,6 +52,11 @@ _MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
 ]
 
+# Models that hallucinate when receiving JSON content blocks in tool results
+_MODELS_CONVERT_JSON_TO_TEXT = [
+    "amazon.nova",
+]
+
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
@@ -486,6 +491,15 @@ class BedrockModel(Model):
         else:  # "auto"
             return any(model in self.config["model_id"] for model in _MODELS_INCLUDE_STATUS)
 
+    def _should_convert_json_to_text(self) -> bool:
+        """Determine whether JSON content blocks in tool results should be converted to text.
+
+        Some models (e.g., Amazon Nova) hallucinate when tool results contain JSON content
+        blocks. Converting them to their text representation avoids this issue.
+        """
+        model_id = self.config.get("model_id", "").lower()
+        return any(model in model_id for model in _MODELS_CONVERT_JSON_TO_TEXT)
+
     def _handle_location(self, location: SourceLocation) -> dict[str, Any] | None:
         """Convert location content block to Bedrock format if its an S3Location."""
         if location["type"] == "s3":
@@ -598,8 +612,11 @@ class BedrockModel(Model):
             formatted_content: list[dict[str, Any]] = []
             for tool_result_content in tool_result["content"]:
                 if "json" in tool_result_content:
-                    # Handle json field since not in ContentBlock but valid in ToolResultContent
-                    formatted_content.append({"json": tool_result_content["json"]})
+                    if self._should_convert_json_to_text():
+                        formatted_content.append({"text": json.dumps(tool_result_content["json"])})
+                    else:
+                        # Handle json field since not in ContentBlock but valid in ToolResultContent
+                        formatted_content.append({"json": tool_result_content["json"]})
                 else:
                     formatted_message_content = self._format_request_message_content(
                         cast(ContentBlock, tool_result_content)
