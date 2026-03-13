@@ -2075,6 +2075,32 @@ def test_format_request_filters_cache_point_content_blocks(model, model_id):
     assert "extraField" not in cache_point_block
 
 
+def test_format_request_cachepoint_after_text_separate_blocks(model, model_id):
+    """Test that cachePoint after text is kept as separate block (Issue #1219).
+
+    This test verifies that cachePoint blocks are not merged into previous blocks,
+    but are formatted as standalone blocks. The Bedrock API requires each content
+    block to be a tagged union with exactly one key.
+    """
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Some long text content"},
+                {"cachePoint": {"type": "default"}},
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    # cachePoint should be a separate block, not merged into text block
+    content = formatted_request["messages"][0]["content"]
+    assert len(content) == 2
+    assert content[0] == {"text": "Some long text content"}
+    assert content[1] == {"cachePoint": {"type": "default"}}
+
+
 def test_config_validation_warns_on_unknown_keys(bedrock_client, captured_warnings):
     """Test that unknown config keys emit a warning."""
     BedrockModel(model_id="test-model", invalid_param="test")
