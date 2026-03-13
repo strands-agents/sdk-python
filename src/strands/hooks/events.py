@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 from ..types.agent import AgentInput
 from ..types.content import Message, Messages
+from ..types.event_loop import Metrics, Usage
 from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
@@ -128,6 +129,8 @@ class MessageAddedEvent(HookEvent):
     """
 
     message: Message
+    usage: Usage | None = None
+    metrics: Metrics | None = None
 
 
 @dataclass
