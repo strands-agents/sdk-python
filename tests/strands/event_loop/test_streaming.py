@@ -849,7 +849,7 @@ def test_extract_usage_metrics_empty_metadata():
                         "end_turn",
                         {
                             "role": "assistant",
-                            "content": [],
+                            "content": [{"text": ""}],
                         },
                         {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
                         {"latencyMs": 0, "timeToFirstByteMs": 0},
