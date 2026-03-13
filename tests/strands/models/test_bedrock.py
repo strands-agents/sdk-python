@@ -379,6 +379,20 @@ def test_format_request_guardrail_config_without_trace_or_stream_processing_mode
     assert tru_request == exp_request
 
 
+def test_format_request_with_service_tier(model, messages, model_id):
+    model.update_config(service_tier="flex")
+    tru_request = model._format_request(messages)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "serviceTier": {"type": "flex"},
+        "system": [],
+    }
+
+    assert tru_request == exp_request
+
+
 def test_format_request_inference_config(model, messages, model_id, inference_config):
     model.update_config(**inference_config)
     tru_request = model._format_request(messages)
