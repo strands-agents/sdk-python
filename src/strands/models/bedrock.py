@@ -186,6 +186,16 @@ class BedrockModel(Model):
         model_id = self.config.get("model_id", "").lower()
         if "claude" in model_id or "anthropic" in model_id:
             return "anthropic"
+
+        # Application / cross-region inference profile ARNs don't contain the
+        # foundation model name, so the substring check above misses them.
+        # When the user explicitly opted into caching via cache_config, we
+        # optimistically enable caching for inference-profile ARNs.  Currently
+        # only Anthropic Claude models support prompt caching on Bedrock; for
+        # non-caching models, the cache point is silently ignored by the API.
+        if model_id.startswith("arn:") and "inference-profile" in model_id:
+            return "anthropic"
+
         return None
 
     @override
