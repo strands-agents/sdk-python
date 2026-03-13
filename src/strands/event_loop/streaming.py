@@ -425,7 +425,10 @@ async def process_stream(
             state, typed_event = handle_content_block_delta(chunk["contentBlockDelta"], state)
             yield typed_event
         elif "contentBlockStop" in chunk:
+            had_text = bool(state.get("text"))
             state = handle_content_block_stop(state)
+            if had_text:
+                yield ModelStreamEvent({"complete": True})
         elif "messageStop" in chunk:
             stop_reason = handle_message_stop(chunk["messageStop"])
         elif "metadata" in chunk:
