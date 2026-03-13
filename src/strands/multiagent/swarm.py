@@ -17,6 +17,7 @@ import asyncio
 import copy
 import json
 import logging
+import sys
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
@@ -438,24 +439,25 @@ class Swarm(MultiAgentBase):
             async for event in async_generator:
                 yield event
         else:
-            # Track start time for total timeout
-            start_time = asyncio.get_event_loop().time()
-
-            while True:
-                # Calculate remaining time from total timeout budget
-                elapsed = asyncio.get_event_loop().time() - start_time
-                remaining = timeout - elapsed
-
-                if remaining <= 0:
-                    raise Exception(timeout_message)
-
+            # Avoid asyncio.wait_for() which wraps coroutines in new tasks,
+            # copying the contextvars.Context. This breaks OpenTelemetry's
+            # context.detach() because the token was created in the original
+            # context but detach runs in the copied context.
+            if sys.version_info >= (3, 11):
                 try:
-                    event = await asyncio.wait_for(async_generator.__anext__(), timeout=remaining)
+                    async with asyncio.timeout(timeout):
+                        async for event in async_generator:
+                            yield event
+                except TimeoutError:
+                    raise Exception(timeout_message)
+            else:
+                # Python 3.10 fallback: check deadline between events.
+                # This avoids creating new tasks that break context propagation.
+                deadline = asyncio.get_event_loop().time() + timeout
+                async for event in async_generator:
                     yield event
-                except StopAsyncIteration:
-                    break
-                except asyncio.TimeoutError as err:
-                    raise Exception(timeout_message) from err
+                    if asyncio.get_event_loop().time() >= deadline:
+                        raise Exception(timeout_message)
 
     def _setup_swarm(self, nodes: list[Agent]) -> None:
         """Initialize swarm configuration."""
