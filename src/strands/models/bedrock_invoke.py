@@ -5,10 +5,12 @@ instead of Converse/ConverseStream for models that don't support the latter.
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
-from typing import Any, AsyncGenerator, Callable, Optional, Type, TypeVar, Union, cast
+from collections.abc import AsyncGenerator, Callable
+from typing import Any, TypeVar, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -54,23 +56,23 @@ class BedrockModelInvoke(Model):
     class BedrockInvokeConfig(TypedDict, total=False):
         """Configuration options for Bedrock InvokeModel."""
 
-        guardrail_id: Optional[str]
-        guardrail_version: Optional[str]
-        max_tokens: Optional[int]
+        guardrail_id: str | None
+        guardrail_version: str | None
+        max_tokens: int | None
         model_id: str
-        streaming: Optional[bool]
-        temperature: Optional[float]
-        top_p: Optional[float]
-        top_k: Optional[int]
-        stop_sequences: Optional[list[str]]
+        streaming: bool | None
+        temperature: float | None
+        top_p: float | None
+        top_k: int | None
+        stop_sequences: list[str] | None
 
     def __init__(
         self,
         *,
-        boto_session: Optional[boto3.Session] = None,
-        boto_client_config: Optional[BotocoreConfig] = None,
-        region_name: Optional[str] = None,
-        endpoint_url: Optional[str] = None,
+        boto_session: boto3.Session | None = None,
+        boto_client_config: BotocoreConfig | None = None,
+        region_name: str | None = None,
+        endpoint_url: str | None = None,
         **model_config: Unpack[BedrockInvokeConfig],
     ):
         """Initialize provider instance."""
@@ -108,7 +110,7 @@ class BedrockModelInvoke(Model):
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
     @override
-    def update_config(self, **model_config: Unpack[BedrockInvokeConfig]) -> None:
+    def update_config(self, **model_config: Unpack[BedrockInvokeConfig]) -> None:  # type: ignore[override]
         """Update the Bedrock Model configuration."""
         validate_config_keys(model_config, self.BedrockInvokeConfig)
         self.config.update(model_config)
@@ -138,12 +140,12 @@ class BedrockModelInvoke(Model):
     def _format_anthropic_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format request for Anthropic Claude models."""
-        request = {
+        request: dict[str, Any] = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": self.config.get("max_tokens", 4096),
             "messages": [],
@@ -158,7 +160,7 @@ class BedrockModelInvoke(Model):
         # Convert messages
         for msg in messages:
             role = msg["role"]
-            content = []
+            content: list[dict[str, Any]] = []
 
             for block in msg["content"]:
                 if "text" in block:
@@ -171,7 +173,7 @@ class BedrockModelInvoke(Model):
                             "source": {
                                 "type": "base64",
                                 "media_type": image_data["format"],
-                                "data": image_data["source"]["bytes"],
+                                "data": base64.b64encode(image_data["source"]["bytes"]).decode("utf-8"),
                             },
                         }
                     )
@@ -226,12 +228,12 @@ class BedrockModelInvoke(Model):
     def _format_openai_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format request for OpenAI-compatible models."""
-        request = {
+        request: dict[str, Any] = {
             "model": self.config["model_id"],
             "messages": [],
             "max_tokens": self.config.get("max_tokens", 4096),
@@ -284,8 +286,8 @@ class BedrockModelInvoke(Model):
     def _format_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format request based on model family."""
@@ -295,7 +297,7 @@ class BedrockModelInvoke(Model):
 
     def _parse_anthropic_response(self, response: dict[str, Any]) -> list[StreamEvent]:
         """Parse response into StreamEvent format."""
-        events = []
+        events: list[StreamEvent] = []
 
         # Start message
         events.append({"messageStart": {"role": "assistant"}})
@@ -318,7 +320,7 @@ class BedrockModelInvoke(Model):
         # Try common text fields
         for field in ["completion", "outputText", "text", "response", "output"]:
             if field in response and isinstance(response[field], str):
-                return response[field]
+                return str(response[field])
 
         # Try Anthropic content format
         if "content" in response and isinstance(response["content"], list):
@@ -334,7 +336,7 @@ class BedrockModelInvoke(Model):
         # Fallback: convert entire response to string if no text found
         return json.dumps(response)
 
-    def _parse_anthropic_streaming_chunk(self, chunk: dict[str, Any]) -> Optional[StreamEvent]:
+    def _parse_anthropic_streaming_chunk(self, chunk: dict[str, Any]) -> StreamEvent | None:
         """Parse a single streaming chunk."""
         # Handle OpenAI-style chat completion chunks
         if "choices" in chunk and chunk["choices"]:
@@ -354,8 +356,8 @@ class BedrockModelInvoke(Model):
         return None
 
     def _extract_usage_from_response(
-        self, response: dict[str, Any], response_body: dict[str, Any] = None
-    ) -> Optional[dict[str, Any]]:
+        self, response: dict[str, Any], response_body: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         """Extract usage information from response body."""
         usage = {}
 
@@ -385,20 +387,20 @@ class BedrockModelInvoke(Model):
     async def stream(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Bedrock model using InvokeModel APIs."""
 
-        def callback(event: Optional[StreamEvent] = None) -> None:
+        def callback(event: StreamEvent | None = None) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, event)
 
         loop = asyncio.get_event_loop()
-        queue: asyncio.Queue[Optional[StreamEvent]] = asyncio.Queue()
+        queue: asyncio.Queue[StreamEvent | None] = asyncio.Queue()
 
         # Handle backward compatibility
         if system_prompt and system_prompt_content is None:
@@ -419,8 +421,8 @@ class BedrockModelInvoke(Model):
         self,
         callback: Callable[..., None],
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
     ) -> None:
         """Stream conversation in separate thread."""
@@ -512,11 +514,11 @@ class BedrockModelInvoke(Model):
     @override
     async def structured_output(
         self,
-        output_model: Type[T],
+        output_model: type[T],
         prompt: Messages,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model."""
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
