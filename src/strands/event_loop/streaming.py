@@ -436,6 +436,19 @@ async def process_stream(
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], state)
 
+    # Override stop_reason from "end_turn" to "tool_use" if the message contains
+    # toolUse content blocks. Some models (e.g., Sonnet 4.x via Bedrock) may
+    # send stopReason: "end_turn" in messageStop even when the response includes
+    # tool use requests. This can happen when contentBlockDelta events carry
+    # toolUse deltas without a prior contentBlockStart, or when the model
+    # inconsistently reports the stop reason. Without this override, the event
+    # loop would treat the response as a final answer and skip tool execution.
+    if stop_reason == "end_turn":
+        for block in state["message"].get("content", []):
+            if "toolUse" in block:
+                stop_reason = "tool_use"
+                break
+
     yield ModelStopReason(stop_reason=stop_reason, message=state["message"], usage=usage, metrics=metrics)
 
 
