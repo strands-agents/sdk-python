@@ -2550,7 +2550,27 @@ def test_cache_strategy_none_for_non_claude(bedrock_client):
     assert model._cache_strategy is None
 
 
-def test_inject_cache_point_adds_to_last_user(bedrock_client):
+def test_cache_strategy_anthropic_for_inference_profile_arn(bedrock_client):
+    """Test that _cache_strategy returns 'anthropic' for inference profile ARNs.
+
+    Application inference profile ARNs don't contain 'claude' or 'anthropic',
+    but should still support caching when the user explicitly opts in.
+
+    Reproduces: https://github.com/strands-agents/sdk-python/issues/1705
+    """
+    # Application inference profile ARN
+    model = BedrockModel(
+        model_id="arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123def456"
+    )
+    assert model._cache_strategy == "anthropic"
+
+    # Cross-region inference profile ARN
+    model2 = BedrockModel(
+        model_id="arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-sonnet-4-20250514-v1:0"
+    )
+    assert model2._cache_strategy == "anthropic"
+
+
     """Test that _inject_cache_point adds cache point to last user message."""
     model = BedrockModel(
         model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
