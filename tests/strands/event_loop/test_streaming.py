@@ -1334,3 +1334,55 @@ async def test_stream_messages_normalizes_messages(agenerator, alist):
         {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
         {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_process_stream_overrides_end_turn_when_tool_use_present(agenerator, alist):
+    """Test that stop_reason is overridden from end_turn to tool_use when message contains toolUse blocks.
+
+    Some models (e.g., Sonnet 4.x via Bedrock) may send stopReason: "end_turn" in messageStop
+    even when the response includes tool use requests. The SDK must detect this mismatch and
+    override the stop reason to ensure tool execution proceeds.
+
+    Reproduces: https://github.com/strands-agents/sdk-python/issues/1810
+    """
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        # Text block first
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "Let me call a tool."}}},
+        {"contentBlockStop": {}},
+        # Tool use block
+        {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "tool_1", "name": "my_tool"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"arg": "val"}'}}}},
+        {"contentBlockStop": {}},
+        # Model incorrectly reports end_turn
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                "metrics": {"latencyMs": 100},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    events = await alist(stream)
+
+    # The final event should be a ModelStopReason with the overridden stop reason
+    stop_event = events[-1]
+    assert "stop" in stop_event
+    stop_reason, message, usage, metrics = stop_event["stop"]
+
+    # Critical assertion: stop_reason must be overridden to "tool_use"
+    assert stop_reason == "tool_use", f"Expected 'tool_use' but got '{stop_reason}'"
+
+    # Verify the message content is correct
+    assert message["role"] == "assistant"
+    content = message["content"]
+    assert len(content) == 2
+    assert "text" in content[0]
+    assert content[0]["text"] == "Let me call a tool."
+    assert "toolUse" in content[1]
+    assert content[1]["toolUse"]["name"] == "my_tool"
+    assert content[1]["toolUse"]["input"] == {"arg": "val"}
