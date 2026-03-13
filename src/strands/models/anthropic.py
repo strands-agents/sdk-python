@@ -405,12 +405,22 @@ class AnthropicModel(Model):
         try:
             async with self.client.messages.stream(**request) as stream:
                 logger.debug("got response from model")
+                event = None
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
                         yield self.format_chunk(event.model_dump())
 
-                usage = event.message.usage  # type: ignore
-                yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
+                usage = getattr(getattr(event, "message", None), "usage", None) if event else None
+                if usage is not None:
+                    yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
+                else:
+                    logger.warning("stream ended without usage metadata (possible premature termination)")
+                    yield self.format_chunk(
+                        {
+                            "type": "metadata",
+                            "usage": {"input_tokens": 0, "output_tokens": 0},
+                        }
+                    )
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error
