@@ -739,6 +739,48 @@ async def test_stream(anthropic_client, model, agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_suppresses_pydantic_serialization_warnings(anthropic_client, model, agenerator, alist):
+    """Verify that Pydantic serialization warnings from ParsedTextBlock are suppressed.
+
+    Anthropic SDK >= 0.84.0 returns ParsedTextBlock objects whose extra fields
+    trigger PydanticSerializationUnexpectedValue warnings during model_dump().
+    These warnings should not propagate to stderr.
+    """
+    import warnings as _warnings
+
+    def model_dump_with_warning():
+        _warnings.warn(
+            "Expected `ParsedTextBlock[TypeVar]` - serialized value may not be as expected",
+            UserWarning,
+            stacklevel=1,
+        )
+        return {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": "hello"}}
+
+    mock_event_1 = unittest.mock.Mock(type="content_block_start", model_dump=model_dump_with_warning)
+    mock_event_2 = unittest.mock.Mock(
+        type="done",
+        message=unittest.mock.Mock(
+            usage=unittest.mock.Mock(
+                model_dump=lambda: {"input_tokens": 1, "output_tokens": 2},
+            )
+        ),
+    )
+
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = agenerator([mock_event_1, mock_event_2])
+    anthropic_client.messages.stream.return_value = mock_context
+
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+
+    with _warnings.catch_warnings(record=True) as caught:
+        _warnings.simplefilter("always")
+        await alist(model.stream(messages, None, None))
+
+    pydantic_warnings = [w for w in caught if "serialized value may not be as expected" in str(w.message)]
+    assert len(pydantic_warnings) == 0, f"Pydantic warnings leaked: {pydantic_warnings}"
+
+
+@pytest.mark.asyncio
 async def test_stream_rate_limit_error(anthropic_client, model, alist):
     anthropic_client.messages.stream.side_effect = anthropic.RateLimitError(
         "rate limit", response=unittest.mock.Mock(), body=None

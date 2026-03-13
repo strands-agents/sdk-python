@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
+import warnings
 from collections.abc import AsyncGenerator
 from typing import Any, TypedDict, TypeVar, cast
 
@@ -407,7 +408,19 @@ class AnthropicModel(Model):
                 logger.debug("got response from model")
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield self.format_chunk(event.model_dump())
+                        # Suppress Pydantic serialization warnings from ParsedTextBlock.
+                        # Anthropic SDK >= 0.84.0 returns ParsedTextBlock objects that have
+                        # extra fields (parsed, parsed_output) not in the Message.content
+                        # union type, triggering PydanticSerializationUnexpectedValue warnings
+                        # during model_dump(). The serialized dict is correct regardless.
+                        with warnings.catch_warnings():
+                            warnings.filterwarnings(
+                                "ignore",
+                                message="Expected `.*` - serialized value may not be as expected",
+                                category=UserWarning,
+                            )
+                            event_dict = event.model_dump()
+                        yield self.format_chunk(event_dict)
 
                 usage = event.message.usage  # type: ignore
                 yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
