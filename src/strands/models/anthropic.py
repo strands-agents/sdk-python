@@ -409,7 +409,15 @@ class AnthropicModel(Model):
                     if event.type in AnthropicModel.EVENT_TYPES:
                         yield self.format_chunk(event.model_dump())
 
-                usage = event.message.usage  # type: ignore
+                # Prefer get_final_message() which safely handles early stream
+                # termination (e.g. network timeout before message_stop).
+                # Fall back to the last event for mock/test streams that lack
+                # the get_final_message API.
+                try:
+                    final_message = await stream.get_final_message()
+                    usage = final_message.usage
+                except (AttributeError, Exception):
+                    usage = event.message.usage  # type: ignore
                 yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
 
         except anthropic.RateLimitError as error:
