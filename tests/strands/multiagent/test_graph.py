@@ -2405,3 +2405,37 @@ async def test_graph_with_agentbase_implementation(mock_strands_tracer, mock_use
     assert result.completed_nodes == 2
     assert "custom_node" in result.results
     assert "regular_node" in result.results
+
+
+@pytest.mark.asyncio
+async def test_reset_executor_state_preserves_graph_state_for_nested_graph():
+    """Verify reset_executor_state does not corrupt MultiAgentBase state.
+
+    When a GraphNode wraps a MultiAgentBase executor (e.g. a nested Graph),
+    reset_executor_state() must not overwrite GraphState with AgentState.
+    Regression test for #1775.
+    """
+    inner_agent = create_mock_agent("inner", "inner response")
+    inner_builder = GraphBuilder()
+    inner_builder.add_node(inner_agent, "inner_node")
+    inner_builder.set_entry_point("inner_node")
+    inner_graph = inner_builder.build()
+
+    # inner_graph.state is a GraphState, not AgentState
+    assert isinstance(inner_graph.state, GraphState)
+
+    node = GraphNode(node_id="nested", executor=inner_graph)
+
+    # Simulate a completed execution
+    node.execution_status = Status.COMPLETED
+    node.result = NodeResult(result=MagicMock(), status=Status.COMPLETED)
+
+    # Reset should NOT corrupt the nested graph's state
+    node.reset_executor_state()
+
+    # After reset, the executor's state must still be GraphState
+    assert isinstance(inner_graph.state, GraphState), (
+        "reset_executor_state overwrote GraphState with AgentState"
+    )
+    assert node.execution_status == Status.PENDING
+    assert node.result is None
