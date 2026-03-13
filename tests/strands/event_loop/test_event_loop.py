@@ -1084,3 +1084,51 @@ async def test_invalid_tool_names_adds_tool_uses(agent, model, alist):
         ],
         "role": "user",
     }
+
+
+@pytest.mark.asyncio
+async def test_event_loop_metrics_recorded_before_recursion(
+    agent,
+    model,
+    tool,
+    agenerator,
+    alist,
+):
+    model.stream.side_effect = [
+        agenerator(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": tool.tool_spec["name"],
+                            },
+                        },
+                    },
+                },
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
+    ]
+
+    with unittest.mock.patch.object(agent.event_loop_metrics, "end_cycle") as mock_end_cycle:
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state={"request_state": {}},
+        )
+        events = await alist(stream)
+
+        # Verify end_cycle was called once for tool cycle, once for text cycle
+        assert mock_end_cycle.call_count == 2
+
+        # Verify the event loop completed successfully
+        tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
+        assert tru_stop_reason == "end_turn"
