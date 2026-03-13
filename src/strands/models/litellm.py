@@ -19,11 +19,15 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import MetadataEvent, StreamEvent
-from ..types.tools import ToolChoice, ToolSpec
+from ..types.tools import ToolChoice, ToolSpec, ToolUse
 from ._validation import validate_config_keys
 from .openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
+
+# Separator used by LiteLLM to embed thought signatures inside tool call IDs.
+# See: https://ai.google.dev/gemini-api/docs/thought-signatures
+_THOUGHT_SIGNATURE_SEPARATOR = "__thought__"
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -114,6 +118,31 @@ class LiteLLMModel(OpenAIModel):
 
         return super().format_request_message_content(content)
 
+    @classmethod
+    @override
+    def format_request_message_tool_call(cls, tool_use: ToolUse, **kwargs: Any) -> dict[str, Any]:
+        """Format a LiteLLM compatible tool call, encoding thought signatures into the tool call ID.
+
+        Gemini thinking models attach a thought_signature to each function call. LiteLLM's OpenAI-compatible
+        interface embeds this signature inside the tool call ID using the ``__thought__`` separator. When
+        ``reasoningSignature`` is present and the tool call ID does not already contain the separator, this
+        method encodes it so LiteLLM can reconstruct the Gemini-native format on the next request.
+
+        Args:
+            tool_use: Tool use requested by the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            LiteLLM compatible tool call dict with thought signature encoded in the ID when present.
+        """
+        tool_call = super().format_request_message_tool_call(tool_use, **kwargs)
+
+        reasoning_signature = tool_use.get("reasoningSignature")
+        if reasoning_signature and _THOUGHT_SIGNATURE_SEPARATOR not in tool_call["id"]:
+            tool_call["id"] = f"{tool_call['id']}{_THOUGHT_SIGNATURE_SEPARATOR}{reasoning_signature}"
+
+        return tool_call
+
     def _stream_switch_content(self, data_type: str, prev_data_type: str | None) -> tuple[list[StreamEvent], str]:
         """Handle switching to a new content stream.
 
@@ -200,8 +229,9 @@ class LiteLLMModel(OpenAIModel):
     def format_chunk(self, event: dict[str, Any], **kwargs: Any) -> StreamEvent:
         """Format a LiteLLM response event into a standardized message chunk.
 
-        This method overrides OpenAI's format_chunk to handle the metadata case
-        with prompt caching support. All other chunk types use the parent implementation.
+        Extends OpenAI's format_chunk to:
+        1. Handle metadata with prompt caching support.
+        2. Extract thought signatures that LiteLLM embeds in tool call IDs for Gemini thinking models.
 
         Args:
             event: A response event from the LiteLLM model.
@@ -237,6 +267,43 @@ class LiteLLMModel(OpenAIModel):
                     usage=usage_data,
                 )
             )
+
+        # Extract thought signature from tool call content_start events.
+        # LiteLLM embeds Gemini thought signatures in the tool call ID using the __thought__ separator.
+        # We extract it into reasoningSignature so the streaming layer can preserve it through to
+        # the internal ToolUse representation. The full encoded ID is kept in toolUseId so that
+        # tool result messages (which reference toolUseId) continue to match the assistant message.
+        if event["chunk_type"] == "content_start" and event.get("data_type") == "tool":
+            data = event.get("data")
+            tool_call_id = getattr(data, "id", None) or ""
+            if not isinstance(tool_call_id, str):
+                tool_call_id = ""
+            # Also check provider_specific_fields for the signature (non-streaming responses)
+            psf = getattr(data, "provider_specific_fields", None) or {}
+            if isinstance(psf, dict):
+                psf_signature = psf.get("thought_signature")
+            else:
+                psf_signature = None
+            # Extract from encoded ID as fallback
+            id_signature = None
+            if _THOUGHT_SIGNATURE_SEPARATOR in tool_call_id:
+                _, id_signature = tool_call_id.split(_THOUGHT_SIGNATURE_SEPARATOR, 1)
+            # Also check function-level provider_specific_fields
+            func = getattr(data, "function", None)
+            func_psf = getattr(func, "provider_specific_fields", None) or {}
+            if isinstance(func_psf, dict):
+                func_signature = func_psf.get("thought_signature")
+            else:
+                func_signature = None
+
+            signature = psf_signature or func_signature or id_signature
+
+            chunk = super().format_chunk(event, **kwargs)
+            if signature:
+                tool_use = chunk.get("contentBlockStart", {}).get("start", {}).get("toolUse", {})
+                tool_use["reasoningSignature"] = signature
+            return chunk
+
         # For all other cases, use the parent implementation
         return super().format_chunk(event)
 
