@@ -547,6 +547,9 @@ async def test_event_loop_cycle_creates_spans(
     mock_get_tracer.assert_called_once()
     mock_tracer.start_event_loop_cycle_span.assert_called_once()
     mock_tracer.start_model_invoke_span.assert_called_once()
+    call_kwargs = mock_tracer.start_model_invoke_span.call_args[1]
+    assert call_kwargs["system_prompt"] == agent.system_prompt
+    assert call_kwargs["system_prompt_content"] == agent._system_prompt_content
     mock_tracer.end_model_invoke_span.assert_called_once()
     mock_tracer.end_event_loop_cycle_span.assert_called_once()
 
