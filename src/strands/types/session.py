@@ -165,11 +165,11 @@ class SessionAgent:
     @classmethod
     def from_dict(cls, env: dict[str, Any]) -> "SessionAgent":
         """Initialize a SessionAgent from a dictionary, ignoring keys that are not class parameters."""
-        return cls(**{k: v for k, v in env.items() if k in inspect.signature(cls).parameters})
+        return cls(**decode_bytes_values({k: v for k, v in env.items() if k in inspect.signature(cls).parameters}))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the SessionAgent to a dictionary representation."""
-        return asdict(self)
+        return encode_bytes_values(asdict(self))
 
     def initialize_internal_state(self, agent: "Agent") -> None:
         """Initialize internal state of agent."""
@@ -204,4 +204,4 @@ class Session:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the Session to a dictionary representation."""
-        return asdict(self)
+        return encode_bytes_values(asdict(self))

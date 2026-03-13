@@ -129,3 +129,43 @@ def test_session_agent_initialize_internal_state():
     tru_interrupt_state = agent._interrupt_state
     exp_interrupt_state = _InterruptState(interrupts={}, context={"test": "init"}, activated=False)
     assert tru_interrupt_state == exp_interrupt_state
+
+
+def test_session_agent_with_bytes():
+    """SessionAgent.to_dict() must encode bytes so json.dumps() doesn't crash.
+
+    This is the root cause of issue #1864: S3SessionManager fails when agent state
+    contains binary document content (e.g., inline PDF bytes from multimodal prompts).
+    """
+    state_with_bytes = {
+        "documents": [
+            {
+                "format": "pdf",
+                "name": "document.pdf",
+                "source": {"bytes": b"fake-pdf-binary-content"},
+            }
+        ]
+    }
+
+    session_agent = SessionAgent(
+        agent_id="a1",
+        conversation_manager_state={},
+        state=state_with_bytes,
+    )
+
+    # Must be JSON-serializable (this is where #1864 crashes without the fix)
+    agent_dict = session_agent.to_dict()
+    json_str = json.dumps(agent_dict)
+
+    # Round-trip: from_dict must decode bytes back
+    loaded_agent = SessionAgent.from_dict(json.loads(json_str))
+    assert loaded_agent.state["documents"][0]["source"]["bytes"] == b"fake-pdf-binary-content"
+    assert loaded_agent.agent_id == "a1"
+
+
+def test_session_with_bytes_in_session_type():
+    """Session.to_dict() must encode any bytes values to remain JSON-safe."""
+    session = Session(session_id="test-id", session_type=SessionType.AGENT)
+    session_dict = session.to_dict()
+    # Should not raise
+    json.dumps(session_dict)
