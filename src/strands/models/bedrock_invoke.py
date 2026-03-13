@@ -289,7 +289,8 @@ class BedrockModelInvoke(Model):
         tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format request based on model family."""
-        # Try OpenAI format first for imported models
+        if self._get_model_family() == "anthropic":
+            return self._format_anthropic_request(messages, tool_specs, system_prompt_content, tool_choice)
         return self._format_openai_request(messages, tool_specs, system_prompt_content, tool_choice)
 
     def _parse_anthropic_response(self, response: dict[str, Any]) -> list[StreamEvent]:
@@ -360,19 +361,15 @@ class BedrockModelInvoke(Model):
 
         # Check response body for usage info (model-specific formats)
         if response_body:
-            # Anthropic format
-            if "usage" in response_body:
-                body_usage = response_body["usage"]
-                if "input_tokens" in body_usage:
-                    usage["inputTokens"] = body_usage["input_tokens"]
+            body_usage = response_body.get("usage", {})
+            if "input_tokens" in body_usage:
+                # Anthropic format
+                usage["inputTokens"] = body_usage["input_tokens"]
                 if "output_tokens" in body_usage:
                     usage["outputTokens"] = body_usage["output_tokens"]
-
-            # OpenAI format (for imported models)
-            elif "usage" in response_body:
-                body_usage = response_body["usage"]
-                if "prompt_tokens" in body_usage:
-                    usage["inputTokens"] = body_usage["prompt_tokens"]
+            elif "prompt_tokens" in body_usage:
+                # OpenAI format (for imported models)
+                usage["inputTokens"] = body_usage["prompt_tokens"]
                 if "completion_tokens" in body_usage:
                     usage["outputTokens"] = body_usage["completion_tokens"]
                 if "total_tokens" in body_usage:
@@ -432,9 +429,9 @@ class BedrockModelInvoke(Model):
             request_body = self._format_request(messages, tool_specs, system_prompt_content, tool_choice)
             logger.debug("request_body=<%s>", request_body)
 
-            streaming = self.config.get("streaming", True)
+            use_streaming = self.config.get("streaming", True)
 
-            if streaming:
+            if use_streaming:
                 logger.debug("invoking model with streaming")
                 response = self.client.invoke_model_with_response_stream(
                     modelId=self.config["model_id"],
