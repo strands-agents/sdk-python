@@ -481,3 +481,28 @@ def test_update_nonexistent_multi_agent(s3_manager, sample_session):
     nonexistent_mock.id = "nonexistent"
     with pytest.raises(SessionException):
         s3_manager.update_multi_agent(sample_session.session_id, nonexistent_mock)
+
+
+def test_empty_prefix_no_leading_slash(mocked_aws, s3_bucket):
+    """Regression test for #1863: empty prefix must not produce leading slash in S3 keys."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, prefix="", region_name="us-west-2")
+    path = manager._get_session_path("my-session")
+    assert not path.startswith("/"), f"Path should not start with '/' but got: {path}"
+    assert path == "session_my-session/"
+
+
+def test_nonempty_prefix_preserves_structure(mocked_aws, s3_bucket):
+    """Ensure non-empty prefix still produces correct paths."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, prefix="my-prefix", region_name="us-west-2")
+    path = manager._get_session_path("my-session")
+    assert path == "my-prefix/session_my-session/"
+
+
+def test_empty_prefix_session_roundtrip(mocked_aws, s3_bucket):
+    """Verify sessions can be created and read back with empty prefix."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, prefix="", region_name="us-west-2")
+    session = Session(session_id="roundtrip-123", session_type=SessionType.AGENT)
+    manager.create_session(session)
+    restored = manager.read_session("roundtrip-123")
+    assert restored is not None
+    assert restored.session_id == "roundtrip-123"
