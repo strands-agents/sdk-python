@@ -642,6 +642,19 @@ def test_extract_usage_metrics_empty_metadata():
                     },
                 },
                 {
+                    "current_tool_use": {
+                        "input": {"key": "value"},
+                        "name": "test",
+                        "toolUseId": "123",
+                    },
+                    "delta": {
+                        "toolUse": {
+                            "input": "",
+                        },
+                    },
+                    "type": "tool_use_stream",
+                },
+                {
                     "event": {
                         "contentBlockDelta": {
                             "delta": {
@@ -654,9 +667,7 @@ def test_extract_usage_metrics_empty_metadata():
                 },
                 {
                     "current_tool_use": {
-                        "input": {
-                            "key": "value",
-                        },
+                        "input": {"key": "value"},
                         "name": "test",
                         "toolUseId": "123",
                     },
@@ -1293,6 +1304,39 @@ async def test_stream_messages_none_system_prompt_content(agenerator, alist):
     # Ensure that we're getting typed events coming out of process_stream
     non_typed_events = [event for event in tru_events if not isinstance(event, TypedEvent)]
     assert non_typed_events == []
+
+
+@pytest.mark.asyncio
+async def test_process_stream_emits_tool_use_event_on_content_block_start(agenerator, alist):
+    """Test that a ToolUseStreamEvent is emitted on contentBlockStart with toolUse.
+
+    This ensures tool calls are visible to users even when executed during the model's
+    thinking/reasoning phase before any contentBlockDelta events are received.
+    See: https://github.com/strands-agents/sdk-python/issues/1551
+    """
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {
+            "contentBlockStart": {"start": {"toolUse": {"toolUseId": "tool-1", "name": "get_user_info"}}},
+        },
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                "metrics": {"latencyMs": 1},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    events = await alist(stream)
+
+    # Find the ToolUseStreamEvent - should be emitted right after contentBlockStart
+    tool_use_events = [e for e in events if e.get("type") == "tool_use_stream"]
+    assert len(tool_use_events) == 1
+    assert tool_use_events[0]["current_tool_use"]["name"] == "get_user_info"
+    assert tool_use_events[0]["current_tool_use"]["toolUseId"] == "tool-1"
 
 
 @pytest.mark.asyncio
