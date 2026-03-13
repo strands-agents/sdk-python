@@ -2051,6 +2051,33 @@ def test_format_request_filters_video_content_blocks(model, model_id):
     assert "resolution" not in video_block
 
 
+def test_format_request_filters_audio_content_blocks(model, model_id):
+    """Test that format_request filters extra fields from audio content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "audio": {
+                        "format": "mp3",
+                        "source": {"bytes": b"audio_data"},
+                        "duration": 120,  # Extra field that should be filtered
+                        "bitrate": "320kbps",  # Extra field that should be filtered
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    audio_block = formatted_request["messages"][0]["content"][0]["audio"]
+    expected = {"format": "mp3", "source": {"bytes": b"audio_data"}}
+    assert audio_block == expected
+    assert "duration" not in audio_block
+    assert "bitrate" not in audio_block
+
+
 def test_format_request_filters_cache_point_content_blocks(model, model_id):
     """Test that format_request filters extra fields from cachePoint content blocks."""
     messages = [
