@@ -17,6 +17,7 @@ Key Features:
 import asyncio
 import copy
 import logging
+import sys
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
@@ -773,17 +774,30 @@ class Graph(MultiAgentBase):
         try:
             # Apply timeout to the entire streaming process if configured
             if self.node_timeout is not None:
-
-                async def stream_node() -> None:
+                # Avoid asyncio.wait_for() which wraps coroutines in new tasks,
+                # copying the contextvars.Context. This breaks OpenTelemetry's
+                # context.detach() token validation.
+                if sys.version_info >= (3, 11):
+                    try:
+                        async with asyncio.timeout(self.node_timeout):
+                            async for event in self._execute_node(node, invocation_state):
+                                await event_queue.put(event)
+                    except TimeoutError:
+                        # Handle timeout and send exception through queue
+                        timeout_exc = await self._handle_node_timeout(node, event_queue)
+                        await event_queue.put(timeout_exc)
+                else:
+                    # Python 3.10 fallback: check deadline between events.
+                    deadline = asyncio.get_event_loop().time() + self.node_timeout
+                    timed_out = False
                     async for event in self._execute_node(node, invocation_state):
                         await event_queue.put(event)
-
-                try:
-                    await asyncio.wait_for(stream_node(), timeout=self.node_timeout)
-                except asyncio.TimeoutError:
-                    # Handle timeout and send exception through queue
-                    timeout_exc = await self._handle_node_timeout(node, event_queue)
-                    await event_queue.put(timeout_exc)
+                        if asyncio.get_event_loop().time() >= deadline:
+                            timed_out = True
+                            break
+                    if timed_out:
+                        timeout_exc = await self._handle_node_timeout(node, event_queue)
+                        await event_queue.put(timeout_exc)
             else:
                 # No timeout - stream normally
                 async for event in self._execute_node(node, invocation_state):
