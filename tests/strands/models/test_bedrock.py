@@ -2809,3 +2809,176 @@ def test_guardrail_latest_message_disabled_does_not_wrap(model):
 
     assert "text" in formatted
     assert "guardContent" not in formatted
+
+
+# --- Tests for thinking-enabled multi-turn reasoningContent handling ---
+
+
+def test_format_request_injects_reasoning_when_thinking_enabled_and_missing(bedrock_client, model_id):
+    """When thinking is enabled, assistant messages without reasoningContent get a redactedContent placeholder."""
+    model = BedrockModel(
+        model_id=model_id,
+        additional_request_fields={"thinking": {"type": "enabled", "budget_tokens": 4096}},
+    )
+
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "I'll check."},
+                {"toolUse": {"toolUseId": "t1", "name": "lookup", "input": {}}},
+            ],
+        },
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "result"}]}}]},
+    ]
+
+    request = model._format_request(messages)
+    assistant_msg = request["messages"][1]
+    assert assistant_msg["role"] == "assistant"
+
+    # The first content block must be a reasoningContent placeholder
+    first_block = assistant_msg["content"][0]
+    assert "reasoningContent" in first_block
+    assert "redactedContent" in first_block["reasoningContent"]
+
+    # Original content blocks should follow
+    assert "text" in assistant_msg["content"][1]
+    assert "toolUse" in assistant_msg["content"][2]
+
+
+def test_format_request_no_injection_when_thinking_disabled(bedrock_client, model_id):
+    """When thinking is not enabled, assistant messages are not modified."""
+    model = BedrockModel(model_id=model_id)
+
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Response."},
+                {"toolUse": {"toolUseId": "t1", "name": "lookup", "input": {}}},
+            ],
+        },
+    ]
+
+    request = model._format_request(messages)
+    assistant_msg = request["messages"][1]
+
+    # No reasoningContent should be injected
+    assert not any("reasoningContent" in cb for cb in assistant_msg["content"])
+    assert "text" in assistant_msg["content"][0]
+    assert "toolUse" in assistant_msg["content"][1]
+
+
+def test_format_request_preserves_existing_reasoning_when_thinking_enabled(bedrock_client, model_id):
+    """When thinking is enabled and reasoningContent already exists, it should be preserved (not duplicated)."""
+    model = BedrockModel(
+        model_id=model_id,
+        additional_request_fields={"thinking": {"type": "enabled", "budget_tokens": 4096}},
+    )
+
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"reasoningContent": {"reasoningText": {"text": "Let me think...", "signature": "sig123"}}},
+                {"text": "Here's my response."},
+            ],
+        },
+    ]
+
+    request = model._format_request(messages)
+    assistant_msg = request["messages"][1]
+
+    # reasoningContent should be first and preserved (not duplicated)
+    assert len(assistant_msg["content"]) == 2
+    assert "reasoningContent" in assistant_msg["content"][0]
+    assert assistant_msg["content"][0]["reasoningContent"]["reasoningText"]["text"] == "Let me think..."
+    assert "text" in assistant_msg["content"][1]
+
+
+def test_format_request_reorders_reasoning_to_first_when_thinking_enabled(bedrock_client, model_id):
+    """When thinking is enabled and reasoningContent is not the first block, it should be moved to front."""
+    model = BedrockModel(
+        model_id=model_id,
+        additional_request_fields={"thinking": {"type": "enabled", "budget_tokens": 4096}},
+    )
+
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Response first."},
+                {"reasoningContent": {"reasoningText": {"text": "Thinking after text", "signature": "s1"}}},
+                {"toolUse": {"toolUseId": "t1", "name": "test", "input": {}}},
+            ],
+        },
+    ]
+
+    request = model._format_request(messages)
+    assistant_msg = request["messages"][1]
+
+    # reasoningContent must be first
+    assert "reasoningContent" in assistant_msg["content"][0]
+    # Followed by non-reasoning blocks
+    assert "text" in assistant_msg["content"][1]
+    assert "toolUse" in assistant_msg["content"][2]
+
+
+def test_format_request_multi_turn_thinking_session_reload(bedrock_client, model_id):
+    """Simulate a session reload where assistant messages lost reasoningContent blocks."""
+    model = BedrockModel(
+        model_id=model_id,
+        additional_request_fields={"thinking": {"type": "enabled", "budget_tokens": 4096}},
+    )
+
+    # Simulate messages loaded from a session manager that stripped reasoningContent
+    messages = [
+        {"role": "user", "content": [{"text": "What is the status of zone X?"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "I'll check the status."},
+                {"toolUse": {"toolUseId": "tool_123", "name": "zoneStatus", "input": {"zone": "X"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "tool_123", "content": [{"text": "Zone X is active"}]}}],
+        },
+        {
+            "role": "assistant",
+            "content": [{"text": "Zone X is currently active."}],
+        },
+        {"role": "user", "content": [{"text": "Now tell me about zone Y"}]},
+    ]
+
+    request = model._format_request(messages)
+
+    # Both assistant messages should now have reasoningContent as first block
+    for msg in request["messages"]:
+        if msg["role"] == "assistant":
+            first_block = msg["content"][0]
+            assert "reasoningContent" in first_block, (
+                f"Assistant message missing reasoningContent: {msg['content']}"
+            )
+
+
+def test_format_request_does_not_inject_reasoning_for_user_messages(bedrock_client, model_id):
+    """User messages should never get reasoningContent injected."""
+    model = BedrockModel(
+        model_id=model_id,
+        additional_request_fields={"thinking": {"type": "enabled", "budget_tokens": 4096}},
+    )
+
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+    ]
+
+    request = model._format_request(messages)
+    user_msg = request["messages"][0]
+
+    assert not any("reasoningContent" in cb for cb in user_msg["content"])
