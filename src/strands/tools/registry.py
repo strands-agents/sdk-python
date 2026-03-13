@@ -226,6 +226,23 @@ class ToolRegistry:
         logger.debug("tool_count=<%s> | tools configured", len(tool_config))
         return tool_config
 
+    def get_all_tools(self) -> dict[str, AgentTool]:
+        """Get all registered tool objects, combining built-in and dynamic tools.
+
+        Returns:
+            Dictionary mapping tool names to AgentTool instances.
+        """
+        all_tools: dict[str, AgentTool] = {}
+
+        for tool_name, tool in self.registry.items():
+            all_tools[tool_name] = tool
+
+        for tool_name, tool in self.dynamic_tools.items():
+            if tool_name not in all_tools:
+                all_tools[tool_name] = tool
+
+        return all_tools
+
     # mypy has problems converting between DecoratedFunctionTool <-> AgentTool
     def register_tool(self, tool: AgentTool) -> None:
         """Register a tool function with the given name.
