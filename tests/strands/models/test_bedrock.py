@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import logging
 import os
@@ -658,6 +659,38 @@ async def test_stream(bedrock_client, model, messages, tool_spec, model_id, addi
 
     assert tru_chunks == exp_chunks
     bedrock_client.converse_stream.assert_called_once_with(**request)
+
+
+@pytest.mark.asyncio
+async def test_stream_delivers_chunks_individually(bedrock_client, model, messages):
+    """Test that stream delivers chunks one at a time, not in batches.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1523.
+    When the Bedrock stream produces chunks in a burst (no delay between them),
+    the consumer should still receive them individually rather than all at once.
+    """
+    chunks = [f"chunk_{i}" for i in range(10)]
+    bedrock_client.converse_stream.return_value = {"stream": chunks}
+
+    queue_depths = []
+    original_get = asyncio.Queue.get
+
+    async def tracking_get(self):
+        result = await original_get(self)
+        queue_depths.append(self.qsize())
+        return result
+
+    with unittest.mock.patch.object(asyncio.Queue, "get", tracking_get):
+        received = []
+        async for event in model.stream(messages):
+            received.append(event)
+
+    assert received == chunks
+    # After each get(), the queue should be empty (depth 0) — chunks delivered one at a time
+    assert all(d == 0 for d in queue_depths), (
+        f"Chunks were batched! Queue depths after each get(): {queue_depths}. "
+        f"Expected all zeros for individual delivery."
+    )
 
 
 @pytest.mark.asyncio
