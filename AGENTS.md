@@ -124,14 +124,23 @@ strands-agents/
 │   │
 │   ├── hooks/                            # Event hooks system
 │   │   ├── events.py                     # Hook event definitions
-│   │   └── registry.py                   # Hook registration
+│   │   ├── registry.py                   # Hook registration
+│   │   └── _type_inference.py            # Event type inference from type hints
 │   │
 │   ├── plugins/                          # Plugin system
-│   │   ├── plugin.py                     # Plugin definition
+│   │   ├── plugin.py                     # Plugin base class
+│   │   ├── decorator.py                  # @hook decorator
 │   │   └── registry.py                   # PluginRegistry for tracking plugins
 │   │
 │   ├── handlers/                         # Event handlers
 │   │   └── callback_handler.py           # Callback handling
+│   │
+│   ├── vended_plugins/                   # Production plugin implementations
+│   │   ├── steering/                     # Agent steering system
+│   │   │   ├── context_providers/        # Context data providers (e.g., ledger)
+│   │   │   ├── core/                     # Base classes, actions, context
+│   │   │   └── handlers/                 # Handler implementations (e.g., LLM)
+│   │   └── skills/                       # AgentSkills.io integration (Skill, AgentSkills)
 │   │
 │   ├── experimental/                     # Experimental features (API may change)
 │   │   ├── agent_config.py               # Experimental agent config
@@ -145,11 +154,8 @@ strands-agents/
 │   │   ├── hooks/                        # Experimental hooks
 │   │   │   ├── events.py
 │   │   │   └── multiagent/
-│   │   ├── steering/                     # Agent steering
-│   │   │   ├── context_providers/
-│   │   │   ├── core/
-│   │   │   └── handlers/
-│   │   └── tools/                        # Experimental tools (deprecation shims)
+│   │   ├── steering/                     # Deprecated aliases for vended_plugins/steering
+│   │   └── tools/                        # Deprecated aliases for strands.tools
 │   │
 │   ├── __init__.py                       # Public API exports
 │   ├── interrupt.py                      # Interrupt handling

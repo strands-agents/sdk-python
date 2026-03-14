@@ -106,6 +106,11 @@ async def test_agent_stream_async(agent):
 
     assert all(string in text for string in ["12:00", "sunny"])
 
+    assert result.metrics.accumulated_usage is not None
+    assert result.metrics.accumulated_usage["inputTokens"] > 0
+    assert result.metrics.accumulated_usage["outputTokens"] > 0
+    assert result.metrics.accumulated_usage["totalTokens"] > 0
+
 
 def test_agent_structured_output(non_streaming_agent, weather):
     tru_weather = non_streaming_agent.structured_output(type(weather), "The time is 12:00 and the weather is sunny")

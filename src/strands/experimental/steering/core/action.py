@@ -1,76 +1,23 @@
-"""SteeringAction types for steering evaluation results.
+"""Deprecated: Use strands.vended_plugins.steering.core.action instead."""
 
-Defines structured outcomes from steering handlers that determine how agent actions
-should be handled. SteeringActions enable modular prompting by providing just-in-time
-feedback rather than front-loading all instructions in monolithic prompts.
+import warnings
+from typing import Any
 
-Flow:
-    SteeringHandler.steer_*() → SteeringAction → Event handling
-                    ↓                     ↓              ↓
-              Evaluate context      Action type    Execution modified
-
-SteeringAction types:
-    Proceed: Allow execution to continue without intervention
-    Guide: Provide contextual guidance to redirect the agent
-    Interrupt: Pause execution for human input
-
-Extensibility:
-    New action types can be added to the union. Always handle the default
-    case in pattern matching to maintain backward compatibility.
-"""
-
-from typing import Annotated, Literal
-
-from pydantic import BaseModel, Field
+_TARGET_MODULE = "strands.vended_plugins.steering.core.action"
 
 
-class Proceed(BaseModel):
-    """Allow execution to continue without intervention.
+def __getattr__(name: str) -> Any:
+    from strands.vended_plugins.steering.core import action
 
-    The action proceeds as planned. The reason provides context
-    for logging and debugging purposes.
-    """
-
-    type: Literal["proceed"] = "proceed"
-    reason: str
-
-
-class Guide(BaseModel):
-    """Provide contextual guidance to redirect the agent.
-
-    The agent receives the reason as contextual feedback to help guide
-    its behavior. The specific handling depends on the steering context
-    (e.g., tool call vs. model response).
-    """
-
-    type: Literal["guide"] = "guide"
-    reason: str
+    obj = getattr(action, name, None)
+    if obj is not None:
+        warnings.warn(
+            f"{name} has been moved to production. Use {name} from {_TARGET_MODULE} instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return obj
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-class Interrupt(BaseModel):
-    """Pause execution for human input via interrupt system.
-
-    Execution is paused and human input is requested through Strands'
-    interrupt system. The human can approve or deny the operation, and their
-    decision determines whether execution continues or is cancelled.
-    """
-
-    type: Literal["interrupt"] = "interrupt"
-    reason: str
-
-
-# Context-specific steering action types
-ToolSteeringAction = Annotated[Proceed | Guide | Interrupt, Field(discriminator="type")]
-"""Steering actions valid for tool steering (steer_before_tool).
-
-- Proceed: Allow tool execution to continue
-- Guide: Cancel tool and provide feedback for alternative approaches
-- Interrupt: Pause for human input before tool execution
-"""
-
-ModelSteeringAction = Annotated[Proceed | Guide, Field(discriminator="type")]
-"""Steering actions valid for model steering (steer_after_model).
-
-- Proceed: Accept model response without modification
-- Guide: Discard model response and retry with guidance
-"""
+__all__: list[str] = []

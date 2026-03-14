@@ -48,8 +48,10 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies
+        # Pin virtualenv until hatch is fixed.
+        # See https://github.com/pypa/hatch/issues/2193
         run: |
-          pip install --no-cache-dir hatch
+          pip install --no-cache-dir hatch 'virtualenv<21'
       - name: Run integration tests
         env:
           AWS_REGION: us-east-1
@@ -61,7 +63,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
           path: ./build/test-results.xml
@@ -90,7 +92,7 @@ jobs:
           persist-credentials: false
 
       - name: Download test results
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: test-results
 

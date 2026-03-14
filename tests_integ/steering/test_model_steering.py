@@ -1,11 +1,11 @@
 """Integration tests for model steering (steer_after_model)."""
 
 from strands import Agent, tool
-from strands.experimental.steering.context_providers.ledger_provider import LedgerProvider
-from strands.experimental.steering.core.action import Guide, ModelSteeringAction, Proceed
-from strands.experimental.steering.core.handler import SteeringHandler
 from strands.types.content import Message
 from strands.types.streaming import StopReason
+from strands.vended_plugins.steering.context_providers.ledger_provider import LedgerProvider
+from strands.vended_plugins.steering.core.action import Guide, ModelSteeringAction, Proceed
+from strands.vended_plugins.steering.core.handler import SteeringHandler
 
 
 class SimpleModelSteeringHandler(SteeringHandler):

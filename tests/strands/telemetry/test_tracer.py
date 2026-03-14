@@ -79,20 +79,9 @@ def test_start_span(mock_tracer):
         span = tracer._start_span("test_span", attributes={"key": "value"})
 
         mock_tracer.start_span.assert_called_once_with(name="test_span", context=None, kind=SpanKind.INTERNAL)
-        mock_span.set_attribute.assert_any_call("key", "value")
+        # Check that set_attributes was called with the provided attributes
+        mock_span.set_attributes.assert_called_once_with({"key": "value"})
         assert span is not None
-
-
-def test_set_attributes(mock_span):
-    """Test setting attributes on a span."""
-    tracer = Tracer()
-    attributes = {"str_attr": "value", "int_attr": 123, "bool_attr": True}
-
-    tracer._set_attributes(mock_span, attributes)
-
-    # Check that set_attribute was called for each attribute
-    calls = [mock.call(k, v) for k, v in attributes.items()]
-    mock_span.set_attribute.assert_has_calls(calls, any_order=True)
 
 
 def test_end_span_no_span():
@@ -109,7 +98,8 @@ def test_end_span(mock_span):
 
     tracer._end_span(mock_span, attributes)
 
-    mock_span.set_attribute.assert_any_call("key", "value")
+    # Check that set_attributes was called with the provided attributes
+    mock_span.set_attributes.assert_called_once_with({"key": "value"})
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
 
@@ -158,11 +148,16 @@ def test_start_model_invoke_span(mock_tracer):
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "chat"
         assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.INTERNAL
-        mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
-        mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "chat")
-        mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
-        mock_span.set_attribute.assert_any_call("custom_key", "custom_value")
-        mock_span.set_attribute.assert_any_call("user_id", "12345")
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "chat",
+                "gen_ai.system": "strands-agents",
+                "custom_key": "custom_value",
+                "user_id": "12345",
+                "gen_ai.request.model": model_id,
+                "agent_name": "TestAgent",
+            }
+        )
         mock_span.add_event.assert_called_with(
             "gen_ai.user.message", attributes={"content": json.dumps(messages[0]["content"])}
         )
@@ -195,9 +190,15 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer, monkeypatch):
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "chat"
         assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.INTERNAL
-        mock_span.set_attribute.assert_any_call("gen_ai.provider.name", "strands-agents")
-        mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "chat")
-        mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
+
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "chat",
+                "gen_ai.provider.name": "strands-agents",
+                "gen_ai.request.model": model_id,
+                "agent_name": "TestAgent",
+            }
+        )
         mock_span.add_event.assert_called_with(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -235,13 +236,17 @@ def test_end_model_invoke_span(mock_span):
 
     tracer.end_model_invoke_span(mock_span, message, usage, metrics, stop_reason)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 10)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 10)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 20)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
-    mock_span.set_attribute.assert_any_call("gen_ai.server.request.duration", 20)
-    mock_span.set_attribute.assert_any_call("gen_ai.server.time_to_first_token", 10)
+    mock_span.set_attributes.assert_called_once_with(
+        {
+            "gen_ai.usage.prompt_tokens": 10,
+            "gen_ai.usage.input_tokens": 10,
+            "gen_ai.usage.completion_tokens": 20,
+            "gen_ai.usage.output_tokens": 20,
+            "gen_ai.usage.total_tokens": 30,
+            "gen_ai.server.time_to_first_token": 10,
+            "gen_ai.server.request.duration": 20,
+        }
+    )
     mock_span.add_event.assert_called_with(
         "gen_ai.choice",
         attributes={"message": json.dumps(message["content"]), "finish_reason": "end_turn"},
@@ -260,13 +265,17 @@ def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
 
         tracer.end_model_invoke_span(mock_span, message, usage, metrics, stop_reason)
 
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 10)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 10)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 20)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
-        mock_span.set_attribute.assert_any_call("gen_ai.server.time_to_first_token", 10)
-        mock_span.set_attribute.assert_any_call("gen_ai.server.request.duration", 20)
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.usage.prompt_tokens": 10,
+                "gen_ai.usage.input_tokens": 10,
+                "gen_ai.usage.completion_tokens": 20,
+                "gen_ai.usage.output_tokens": 20,
+                "gen_ai.usage.total_tokens": 30,
+                "gen_ai.server.time_to_first_token": 10,
+                "gen_ai.server.request.duration": 20,
+            }
+        )
         mock_span.add_event.assert_called_with(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -299,12 +308,17 @@ def test_start_tool_call_span(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "execute_tool test-tool"
-        mock_span.set_attribute.assert_any_call("gen_ai.tool.name", "test-tool")
-        mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
-        mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "execute_tool")
-        mock_span.set_attribute.assert_any_call("gen_ai.tool.call.id", "123")
-        mock_span.set_attribute.assert_any_call("session_id", "abc123")
-        mock_span.set_attribute.assert_any_call("environment", "production")
+
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.tool.name": "test-tool",
+                "gen_ai.system": "strands-agents",
+                "gen_ai.operation.name": "execute_tool",
+                "gen_ai.tool.call.id": "123",
+                "session_id": "abc123",
+                "environment": "production",
+            }
+        )
         mock_span.add_event.assert_any_call(
             "gen_ai.tool.message", attributes={"role": "tool", "content": json.dumps({"param": "value"}), "id": "123"}
         )
@@ -327,10 +341,15 @@ def test_start_tool_call_span_latest_conventions(mock_tracer, monkeypatch):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "execute_tool test-tool"
-        mock_span.set_attribute.assert_any_call("gen_ai.tool.name", "test-tool")
-        mock_span.set_attribute.assert_any_call("gen_ai.provider.name", "strands-agents")
-        mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "execute_tool")
-        mock_span.set_attribute.assert_any_call("gen_ai.tool.call.id", "123")
+
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.tool.name": "test-tool",
+                "gen_ai.provider.name": "strands-agents",
+                "gen_ai.operation.name": "execute_tool",
+                "gen_ai.tool.call.id": "123",
+            }
+        )
         mock_span.add_event.assert_called_with(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -370,11 +389,16 @@ def test_start_swarm_call_span_with_string_task(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "invoke_swarm"
-        mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
-        mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "swarm")
-        mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "invoke_swarm")
-        mock_span.set_attribute.assert_any_call("workflow_id", "wf-789")
-        mock_span.set_attribute.assert_any_call("priority", "high")
+
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "invoke_swarm",
+                "gen_ai.system": "strands-agents",
+                "gen_ai.agent.name": "swarm",
+                "workflow_id": "wf-789",
+                "priority": "high",
+            }
+        )
         mock_span.add_event.assert_any_call("gen_ai.user.message", attributes={"content": "Design foo bar"})
         assert span is not None
 
@@ -394,9 +418,14 @@ def test_start_swarm_span_with_contentblock_task(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "invoke_swarm"
-        mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
-        mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "swarm")
-        mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "invoke_swarm")
+
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "invoke_swarm",
+                "gen_ai.system": "strands-agents",
+                "gen_ai.agent.name": "swarm",
+            }
+        )
         mock_span.add_event.assert_any_call(
             "gen_ai.user.message", attributes={"content": '[{"text": "Original Task: foo bar"}]'}
         )
@@ -447,9 +476,14 @@ def test_start_swarm_span_with_contentblock_task_latest_conventions(mock_tracer,
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "invoke_swarm"
-        mock_span.set_attribute.assert_any_call("gen_ai.provider.name", "strands-agents")
-        mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "swarm")
-        mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "invoke_swarm")
+
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "invoke_swarm",
+                "gen_ai.provider.name": "strands-agents",
+                "gen_ai.agent.name": "swarm",
+            }
+        )
         mock_span.add_event.assert_any_call(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -512,10 +546,15 @@ def test_start_graph_call_span(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "execute_tool test-tool"
-        mock_span.set_attribute.assert_any_call("gen_ai.tool.name", "test-tool")
-        mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
-        mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "execute_tool")
-        mock_span.set_attribute.assert_any_call("gen_ai.tool.call.id", "123")
+
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "execute_tool",
+                "gen_ai.system": "strands-agents",
+                "gen_ai.tool.name": "test-tool",
+                "gen_ai.tool.call.id": "123",
+            }
+        )
         mock_span.add_event.assert_any_call(
             "gen_ai.tool.message", attributes={"role": "tool", "content": json.dumps({"param": "value"}), "id": "123"}
         )
@@ -529,7 +568,7 @@ def test_end_tool_call_span(mock_span):
 
     tracer.end_tool_call_span(mock_span, tool_result)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.tool.status", "success")
+    mock_span.set_attributes.assert_called_once_with({"gen_ai.tool.status": "success"})
     mock_span.add_event.assert_called_with(
         "gen_ai.choice",
         attributes={"message": json.dumps(tool_result.get("content")), "id": ""},
@@ -546,7 +585,7 @@ def test_end_tool_call_span_latest_conventions(mock_span, monkeypatch):
 
     tracer.end_tool_call_span(mock_span, tool_result)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.tool.status", "success")
+    mock_span.set_attributes.assert_called_once_with({"gen_ai.tool.status": "success"})
     mock_span.add_event.assert_called_with(
         "gen_ai.client.inference.operation.details",
         attributes={
@@ -589,9 +628,14 @@ def test_start_event_loop_cycle_span(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "execute_event_loop_cycle"
-        mock_span.set_attribute.assert_any_call("event_loop.cycle_id", "cycle-123")
-        mock_span.set_attribute.assert_any_call("request_id", "req-456")
-        mock_span.set_attribute.assert_any_call("trace_level", "debug")
+
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "event_loop.cycle_id": "cycle-123",
+                "request_id": "req-456",
+                "trace_level": "debug",
+            }
+        )
         mock_span.add_event.assert_any_call(
             "gen_ai.user.message", attributes={"content": json.dumps([{"text": "Hello"}])}
         )
@@ -615,7 +659,8 @@ def test_start_event_loop_cycle_span_latest_conventions(mock_tracer, monkeypatch
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "execute_event_loop_cycle"
-        mock_span.set_attribute.assert_any_call("event_loop.cycle_id", "cycle-123")
+
+        mock_span.set_attributes.assert_called_once_with({"event_loop.cycle_id": "cycle-123"})
         mock_span.add_event.assert_any_call(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -707,10 +752,17 @@ def test_start_agent_span(mock_tracer):
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "invoke_agent WeatherAgent"
         assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.INTERNAL
-        mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
-        mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "WeatherAgent")
-        mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
-        mock_span.set_attribute.assert_any_call("custom_attr", "value")
+
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "invoke_agent",
+                "gen_ai.system": "strands-agents",
+                "gen_ai.agent.name": "WeatherAgent",
+                "gen_ai.request.model": model_id,
+                "gen_ai.agent.tools": json.dumps(tools),
+                "custom_attr": "value",
+            }
+        )
         mock_span.add_event.assert_any_call("gen_ai.user.message", attributes={"content": json.dumps(content)})
         assert span is not None
 
@@ -740,10 +792,17 @@ def test_start_agent_span_latest_conventions(mock_tracer, monkeypatch):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "invoke_agent WeatherAgent"
-        mock_span.set_attribute.assert_any_call("gen_ai.provider.name", "strands-agents")
-        mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "WeatherAgent")
-        mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
-        mock_span.set_attribute.assert_any_call("custom_attr", "value")
+
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "invoke_agent",
+                "gen_ai.provider.name": "strands-agents",
+                "gen_ai.agent.name": "WeatherAgent",
+                "gen_ai.request.model": model_id,
+                "gen_ai.agent.tools": json.dumps(tools),
+                "custom_attr": "value",
+            }
+        )
         mock_span.add_event.assert_any_call(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -770,13 +829,17 @@ def test_end_agent_span(mock_span):
 
     tracer.end_agent_span(mock_span, mock_response)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
+    mock_span.set_attributes.assert_called_once_with(
+        {
+            "gen_ai.usage.prompt_tokens": 50,
+            "gen_ai.usage.input_tokens": 50,
+            "gen_ai.usage.completion_tokens": 100,
+            "gen_ai.usage.output_tokens": 100,
+            "gen_ai.usage.total_tokens": 150,
+            "gen_ai.usage.cache_read_input_tokens": 0,
+            "gen_ai.usage.cache_write_input_tokens": 0,
+        }
+    )
     mock_span.add_event.assert_any_call(
         "gen_ai.choice",
         attributes={"message": "Agent response", "finish_reason": "end_turn"},
@@ -800,13 +863,19 @@ def test_end_agent_span_with_langfuse_observation_type(mock_span, monkeypatch):
     mock_response.__str__ = mock.MagicMock(return_value="Agent response")
 
     tracer.end_agent_span(mock_span, mock_response)
-    mock_span.set_attribute.assert_any_call("langfuse.observation.type", "span")
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
+
+    mock_span.set_attributes.assert_called_once_with(
+        {
+            "langfuse.observation.type": "span",
+            "gen_ai.usage.prompt_tokens": 50,
+            "gen_ai.usage.input_tokens": 50,
+            "gen_ai.usage.completion_tokens": 100,
+            "gen_ai.usage.output_tokens": 100,
+            "gen_ai.usage.total_tokens": 150,
+            "gen_ai.usage.cache_read_input_tokens": 0,
+            "gen_ai.usage.cache_write_input_tokens": 0,
+        }
+    )
     mock_span.add_event.assert_any_call(
         "gen_ai.choice",
         attributes={"message": "Agent response", "finish_reason": "end_turn"},
@@ -831,13 +900,17 @@ def test_end_agent_span_latest_conventions(mock_span, monkeypatch):
 
     tracer.end_agent_span(mock_span, mock_response)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
+    mock_span.set_attributes.assert_called_once_with(
+        {
+            "gen_ai.usage.prompt_tokens": 50,
+            "gen_ai.usage.input_tokens": 50,
+            "gen_ai.usage.completion_tokens": 100,
+            "gen_ai.usage.output_tokens": 100,
+            "gen_ai.usage.total_tokens": 150,
+            "gen_ai.usage.cache_read_input_tokens": 0,
+            "gen_ai.usage.cache_write_input_tokens": 0,
+        }
+    )
     mock_span.add_event.assert_called_with(
         "gen_ai.client.inference.operation.details",
         attributes={
@@ -872,15 +945,19 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
 
     tracer.end_model_invoke_span(mock_span, message, usage, metrics, stop_reason)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 10)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 10)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 20)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 5)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 3)
-    mock_span.set_attribute.assert_any_call("gen_ai.server.request.duration", 10)
-    mock_span.set_attribute.assert_any_call("gen_ai.server.time_to_first_token", 5)
+    mock_span.set_attributes.assert_called_once_with(
+        {
+            "gen_ai.usage.prompt_tokens": 10,
+            "gen_ai.usage.input_tokens": 10,
+            "gen_ai.usage.completion_tokens": 20,
+            "gen_ai.usage.output_tokens": 20,
+            "gen_ai.usage.total_tokens": 30,
+            "gen_ai.usage.cache_read_input_tokens": 5,
+            "gen_ai.usage.cache_write_input_tokens": 3,
+            "gen_ai.server.request.duration": 10,
+            "gen_ai.server.time_to_first_token": 5,
+        }
+    )
 
 
 def test_end_agent_span_with_cache_metrics(mock_span):
@@ -904,13 +981,17 @@ def test_end_agent_span_with_cache_metrics(mock_span):
 
     tracer.end_agent_span(mock_span, mock_response)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 25)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 10)
+    mock_span.set_attributes.assert_called_once_with(
+        {
+            "gen_ai.usage.prompt_tokens": 50,
+            "gen_ai.usage.input_tokens": 50,
+            "gen_ai.usage.completion_tokens": 100,
+            "gen_ai.usage.output_tokens": 100,
+            "gen_ai.usage.total_tokens": 150,
+            "gen_ai.usage.cache_read_input_tokens": 25,
+            "gen_ai.usage.cache_write_input_tokens": 10,
+        }
+    )
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
 
@@ -1444,3 +1525,129 @@ def test_start_agent_span_includes_tool_definitions_when_enabled(monkeypatch):
     ]
     expected_json = serialize(expected_tool_details)
     assert attributes["gen_ai.tool.definitions"] == expected_json
+
+
+def test_end_model_invoke_span_langfuse_adds_attributes(mock_span, monkeypatch):
+    """Test that end_model_invoke_span adds attributes via set_attributes for Langfuse."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://us.cloud.langfuse.com")
+
+    tracer = Tracer()
+    message = {"role": "assistant", "content": [{"text": "Response"}]}
+    usage = Usage(inputTokens=10, outputTokens=20, totalTokens=30)
+    metrics = Metrics(latencyMs=20, timeToFirstByteMs=10)
+    stop_reason: StopReason = "end_turn"
+
+    tracer.end_model_invoke_span(mock_span, message, usage, metrics, stop_reason)
+
+    expected_output = serialize(
+        [
+            {
+                "role": "assistant",
+                "parts": [{"type": "text", "content": "Response"}],
+                "finish_reason": "end_turn",
+            }
+        ]
+    )
+
+    assert mock_span.set_attributes.call_count == 2
+    mock_span.set_attributes.assert_any_call({"gen_ai.output.messages": expected_output})
+    mock_span.set_attributes.assert_any_call(
+        {
+            "gen_ai.usage.prompt_tokens": 10,
+            "gen_ai.usage.input_tokens": 10,
+            "gen_ai.usage.completion_tokens": 20,
+            "gen_ai.usage.output_tokens": 20,
+            "gen_ai.usage.total_tokens": 30,
+            "gen_ai.server.time_to_first_token": 10,
+            "gen_ai.server.request.duration": 20,
+        }
+    )
+
+    mock_span.add_event.assert_called_with(
+        "gen_ai.client.inference.operation.details",
+        attributes={"gen_ai.output.messages": expected_output},
+    )
+
+
+def test_end_model_invoke_span_non_langfuse_no_extra_attributes(mock_span, monkeypatch):
+    """Test that end_model_invoke_span doesn't add extra attributes for non-Langfuse endpoints."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.honeycomb.io")
+
+    tracer = Tracer()
+    message = {"role": "assistant", "content": [{"text": "Response"}]}
+    usage = Usage(inputTokens=10, outputTokens=20, totalTokens=30)
+    metrics = Metrics(latencyMs=20, timeToFirstByteMs=10)
+    stop_reason: StopReason = "end_turn"
+
+    tracer.end_model_invoke_span(mock_span, message, usage, metrics, stop_reason)
+
+    # Verify that set_attribute was NOT called with gen_ai.output.messages
+    # (it should only be in the event, not as an attribute)
+    expected_output = serialize(
+        [
+            {
+                "role": "assistant",
+                "parts": [{"type": "text", "content": "Response"}],
+                "finish_reason": "end_turn",
+            }
+        ]
+    )
+
+    # Check that gen_ai.output.messages was not set as an attribute
+    set_attribute_calls = [call[0][0] for call in mock_span.set_attribute.call_args_list]
+    assert "gen_ai.output.messages" not in set_attribute_calls
+
+    # But verify that add_event was still called
+    mock_span.add_event.assert_called_with(
+        "gen_ai.client.inference.operation.details",
+        attributes={"gen_ai.output.messages": expected_output},
+    )
+
+
+class TestIsLangfuse:
+    """Tests for the is_langfuse property."""
+
+    def test_is_langfuse_with_otel_exporter_otlp_endpoint(self, monkeypatch):
+        """Test is_langfuse returns True when OTEL_EXPORTER_OTLP_ENDPOINT contains langfuse."""
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://us.cloud.langfuse.com")
+        tracer = Tracer()
+        assert tracer.is_langfuse is True
+
+    def test_is_langfuse_with_otel_exporter_otlp_traces_endpoint(self, monkeypatch):
+        """Test is_langfuse returns True when OTEL_EXPORTER_OTLP_TRACES_ENDPOINT contains langfuse."""
+        monkeypatch.setenv(
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "https://us.cloud.langfuse.com/api/public/otel/v1/traces"
+        )
+        tracer = Tracer()
+        assert tracer.is_langfuse is True
+
+    def test_is_langfuse_with_langfuse_base_url(self, monkeypatch):
+        """Test is_langfuse returns True when LANGFUSE_BASE_URL contains langfuse."""
+        monkeypatch.setenv("LANGFUSE_BASE_URL", "https://us.cloud.langfuse.com")
+        tracer = Tracer()
+        assert tracer.is_langfuse is True
+
+    def test_is_langfuse_false_when_no_langfuse_env_vars(self, monkeypatch):
+        """Test is_langfuse returns False when no Langfuse-related env vars are set."""
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+        monkeypatch.delenv("LANGFUSE_BASE_URL", raising=False)
+        tracer = Tracer()
+        assert tracer.is_langfuse is False
+
+    def test_is_langfuse_false_with_non_langfuse_endpoint(self, monkeypatch):
+        """Test is_langfuse returns False when endpoint is not Langfuse."""
+        monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "https://api.honeycomb.io")
+        monkeypatch.delenv("LANGFUSE_BASE_URL", raising=False)
+        tracer = Tracer()
+        assert tracer.is_langfuse is False
+
+    def test_is_langfuse_false_with_non_langfuse_base_url(self, monkeypatch):
+        """Test is_langfuse returns False when LANGFUSE_BASE_URL doesn't contain langfuse."""
+        monkeypatch.setenv("LANGFUSE_BASE_URL", "https://some-other-service.com")
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+        monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+        tracer = Tracer()
+        assert tracer.is_langfuse is False
