@@ -356,13 +356,21 @@ class OpenAIResponsesModel(Model):
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
+        request = self._format_request(prompt, system_prompt=system_prompt)
+
+        excluded_keys = {"model", "input", "stream"}
+        parse_kwargs: dict[str, Any] = {
+            "model": request["model"],
+            "input": request["input"],
+            "text_format": output_model,
+        }
+        for key, value in request.items():
+            if key not in excluded_keys:
+                parse_kwargs.setdefault(key, value)
+
         async with openai.AsyncOpenAI(**self.client_args) as client:
             try:
-                response = await client.responses.parse(
-                    model=self.get_config()["model_id"],
-                    input=self._format_request(prompt, system_prompt=system_prompt)["input"],
-                    text_format=output_model,
-                )
+                response = await client.responses.parse(**parse_kwargs)
             except openai.BadRequestError as e:
                 if hasattr(e, "code") and e.code == "context_length_exceeded":
                     logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
