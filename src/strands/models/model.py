@@ -23,10 +23,11 @@ class CacheConfig:
 
     Attributes:
         strategy: Caching strategy to use.
-            - "auto": Automatically inject cachePoint at optimal positions
+            - "auto": Automatically detect model support and inject cachePoint to maximize cache coverage
+            - "anthropic": Inject cachePoint in Anthropic-compatible format without model support check
     """
 
-    strategy: Literal["auto"] = "auto"
+    strategy: Literal["auto", "anthropic"] = "auto"
 
 
 class Model(abc.ABC):

@@ -117,8 +117,9 @@ class Tracer:
         Returns:
             True if Langfuse is the OTLP endpoint, False otherwise.
         """
-        return "langfuse" in os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "") or "langfuse" in os.getenv(
-            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", ""
+        return any(
+            "langfuse" in os.getenv(var, "")
+            for var in ("OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "LANGFUSE_BASE_URL")
         )
 
     def _start_span(

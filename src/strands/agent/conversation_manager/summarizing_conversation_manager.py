@@ -220,8 +220,14 @@ class SummarizingConversationManager(ConversationManager):
         original_system_prompt = summarization_agent.system_prompt
         original_messages = summarization_agent.messages.copy()
         original_tool_registry = summarization_agent.tool_registry
+        original_structured_output_model = getattr(summarization_agent, "_default_structured_output_model", None)
 
         try:
+            # Disable structured output for summarization. Summaries are plain text and
+            # structured output adds toolUse blocks that are invalid in user messages.
+            if hasattr(summarization_agent, "_default_structured_output_model"):
+                summarization_agent._default_structured_output_model = None
+
             # Add no-op tool if agent has no tools to satisfy tool spec requirement
             if not summarization_agent.tool_names:
                 tool_registry = ToolRegistry()
@@ -237,6 +243,8 @@ class SummarizingConversationManager(ConversationManager):
             summarization_agent.system_prompt = original_system_prompt
             summarization_agent.messages = original_messages
             summarization_agent.tool_registry = original_tool_registry
+            if hasattr(summarization_agent, "_default_structured_output_model"):
+                summarization_agent._default_structured_output_model = original_structured_output_model
 
     # ------------------------------------------------------------------
     # Path 2 – default case: call model.stream() directly
