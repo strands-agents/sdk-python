@@ -4,9 +4,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from strands.experimental.steering.core.action import Guide, Interrupt, Proceed
-from strands.experimental.steering.handlers.llm.llm_handler import LLMSteeringHandler, _LLMSteering
-from strands.experimental.steering.handlers.llm.mappers import DefaultPromptMapper
+from strands.vended_plugins.steering.core.action import Guide, Interrupt, Proceed
+from strands.vended_plugins.steering.handlers.llm.llm_handler import LLMSteeringHandler, _LLMSteering
+from strands.vended_plugins.steering.handlers.llm.mappers import DefaultPromptMapper
 
 
 def test_llm_steering_handler_initialization():

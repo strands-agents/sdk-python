@@ -1,9 +1,11 @@
 """Tests for the plugin system."""
 
+import gc
 import unittest.mock
 
 import pytest
 
+from strands import Agent
 from strands.hooks import HookRegistry
 from strands.plugins import Plugin
 from strands.plugins.registry import _PluginRegistry
@@ -194,3 +196,14 @@ def test_plugin_registry_add_and_init_with_async_plugin(registry, mock_agent):
 
     assert plugin.initialized
     assert mock_agent.async_plugin_initialized
+
+
+def test_plugin_registry_raises_reference_error_after_agent_collected():
+    """Verify _PluginRegistry raises ReferenceError when the Agent has been garbage collected."""
+    agent = Agent()
+    registry = agent._plugin_registry
+    del agent
+    gc.collect()
+
+    with pytest.raises(ReferenceError, match="Agent has been garbage collected"):
+        _ = registry._agent
