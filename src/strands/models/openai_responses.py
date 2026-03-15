@@ -16,6 +16,7 @@ The Responses API is OpenAI's newer API that differs from the Chat Completions A
 """
 
 import base64
+import copy
 import json
 import logging
 import mimetypes
@@ -412,7 +413,7 @@ class OpenAIResponsesModel(Model):
             "model": self.config["model_id"],
             "input": input_items,
             "stream": True,
-            **cast(dict[str, Any], self.config.get("params", {})),
+            **copy.deepcopy(cast(dict[str, Any], self.config.get("params", {}))),
         }
 
         if system_prompt:
