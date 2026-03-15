@@ -263,7 +263,18 @@ class TestModelStopReason:
         metrics = Mock(spec=Metrics)
 
         event = ModelStopReason(stop_reason, message, usage, metrics)
-        assert event["stop"] == (stop_reason, message, usage, metrics)
+        assert event["stop"] == (stop_reason, message, usage, metrics, None)
+        assert event.is_callback_event is False
+
+    def test_initialization_with_cost(self):
+        """Test ModelStopReason initialization with cost."""
+        stop_reason = Mock(spec=StopReason)
+        message = Mock(spec=Message)
+        usage = Mock(spec=Usage)
+        metrics = Mock(spec=Metrics)
+
+        event = ModelStopReason(stop_reason, message, usage, metrics, cost=0.0025)
+        assert event["stop"] == (stop_reason, message, usage, metrics, 0.0025)
         assert event.is_callback_event is False
 
 
