@@ -336,6 +336,7 @@ async def _handle_model_execution(
                     system_prompt_content=agent._system_prompt_content,
                     tool_choice=structured_output_context.tool_choice,
                     invocation_state=invocation_state,
+                    cancel_signal=agent._cancel_signal,
                 ):
                     yield event
 
@@ -465,6 +466,47 @@ async def _handle_tool_execution(
         tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
 
     interrupts = []
+
+    # Check for cancellation before tool execution
+    # Add tool_result for each tool_use to maintain valid conversation state
+    if agent._cancel_signal.is_set():
+        logger.debug("tool_count=<%d> | cancellation detected before tool execution", len(tool_uses))
+
+        # Create cancellation tool_result for each tool_use to avoid invalid message state
+        # (tool_use without tool_result would be rejected on next invocation)
+        for tool_use in tool_uses:
+            cancel_result: ToolResult = {
+                "toolUseId": str(tool_use.get("toolUseId")),
+                "status": "error",
+                "content": [{"text": "Tool execution cancelled"}],
+            }
+            tool_results.append(cancel_result)
+
+        # Add tool results message to conversation if any tools were cancelled
+        cancelled_tool_result_message: Message | None = None
+        if tool_results:
+            _cancelled_msg: Message = {
+                "role": "user",
+                "content": [{"toolResult": result} for result in tool_results],
+            }
+            cancelled_tool_result_message = _cancelled_msg
+            agent.messages.append(_cancelled_msg)
+            await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=_cancelled_msg))
+            yield ToolResultMessageEvent(message=_cancelled_msg)
+
+        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+        yield EventLoopStopEvent(
+            "cancelled",
+            message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+        )
+        if cycle_span:
+            tracer.end_event_loop_cycle_span(
+                span=cycle_span, message=message, tool_result_message=cancelled_tool_result_message
+            )
+        return
+
     tool_events = agent.tool_executor._execute(
         agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
     )

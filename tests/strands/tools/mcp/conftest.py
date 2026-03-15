@@ -26,7 +26,9 @@ def mock_transport():
 def mock_session():
     """Create a mock MCP session."""
     mock_session = AsyncMock()
-    mock_session.initialize = AsyncMock()
+    mock_init_result = MagicMock()
+    mock_init_result.instructions = None
+    mock_session.initialize = AsyncMock(return_value=mock_init_result)
     # Default: no task support (get_server_capabilities is sync, not async!)
     mock_session.get_server_capabilities = MagicMock(return_value=None)
 

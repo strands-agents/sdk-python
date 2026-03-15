@@ -6,6 +6,7 @@ plugins that have been initialized with an agent instance.
 
 import inspect
 import logging
+import weakref
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, cast
 
@@ -55,8 +56,16 @@ class _PluginRegistry:
         Args:
             agent: The agent instance that plugins will be initialized with.
         """
-        self._agent = agent
+        self._agent_ref = weakref.ref(agent)
         self._plugins: dict[str, Plugin] = {}
+
+    @property
+    def _agent(self) -> "Agent":
+        """Return the agent, raising ReferenceError if it has been garbage collected."""
+        agent = self._agent_ref()
+        if agent is None:
+            raise ReferenceError("Agent has been garbage collected")
+        return agent
 
     def add_and_init(self, plugin: Plugin) -> None:
         """Add and initialize a plugin with the agent.

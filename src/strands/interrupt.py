@@ -52,10 +52,12 @@ class _InterruptState:
     interrupts: dict[str, Interrupt] = field(default_factory=dict)
     context: dict[str, Any] = field(default_factory=dict)
     activated: bool = False
+    _version: int = field(default=0, compare=False, repr=False)
 
     def activate(self) -> None:
         """Activate the interrupt state."""
         self.activated = True
+        self._version += 1
 
     def deactivate(self) -> None:
         """Deacitvate the interrupt state.
@@ -65,6 +67,7 @@ class _InterruptState:
         self.interrupts = {}
         self.context = {}
         self.activated = False
+        self._version += 1
 
     def resume(self, prompt: "AgentInput") -> None:
         """Configure the interrupt state if resuming from an interrupt event.
@@ -100,10 +103,27 @@ class _InterruptState:
             self.interrupts[interrupt_id].response = interrupt_response
 
         self.context["responses"] = contents
+        self._version += 1
+
+    def _get_version(self) -> int:
+        """Get the current version number of the interrupt state.
+
+        The version is incremented each time activate(), deactivate(), or resume() is called.
+        Consumers can compare versions to detect changes without requiring
+        explicit dirty flag clearing.
+
+        Returns:
+            The current version number.
+        """
+        return self._version
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for session management."""
-        return asdict(self)
+        return {
+            "interrupts": {k: v.to_dict() for k, v in self.interrupts.items()},
+            "context": self.context,
+            "activated": self.activated,
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "_InterruptState":

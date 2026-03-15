@@ -197,6 +197,31 @@ class PythonAgentTool(AgentTool):
         """
         return self._tool_spec
 
+    @tool_spec.setter
+    def tool_spec(self, value: ToolSpec) -> None:
+        """Set the tool specification.
+
+        This allows runtime modification of the tool's schema, enabling dynamic
+        tool configurations based on feature flags or other runtime conditions.
+
+        Args:
+            value: The new tool specification.
+
+        Raises:
+            ValueError: If the spec fails structural validation (wrong name or
+                missing required field).
+        """
+        if value.get("name") != self._tool_name:
+            raise ValueError(
+                f"cannot change tool name via tool_spec (expected '{self._tool_name}', got '{value.get('name')}')"
+            )
+
+        for field in ("description", "inputSchema"):
+            if field not in value:
+                raise ValueError(f"tool_spec must contain '{field}'")
+
+        self._tool_spec = value
+
     @property
     def supports_hot_reload(self) -> bool:
         """Check if this tool supports automatic reloading when modified.

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import threading
 import time
 import warnings
 from collections.abc import AsyncGenerator, AsyncIterable
@@ -368,13 +369,16 @@ def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | Non
 
 
 async def process_stream(
-    chunks: AsyncIterable[StreamEvent], start_time: float | None = None
+    chunks: AsyncIterable[StreamEvent],
+    start_time: float | None = None,
+    cancel_signal: threading.Event | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
     Args:
         chunks: The chunks of the response stream from the model.
         start_time: Time when the model request is initiated
+        cancel_signal: Optional threading.Event to check for cancellation during streaming.
 
     Yields:
         The reason for stopping, the constructed message, and the usage metrics.
@@ -395,6 +399,19 @@ async def process_stream(
     metrics: Metrics = Metrics(latencyMs=0, timeToFirstByteMs=0)
 
     async for chunk in chunks:
+        # Check for cancellation during stream processing
+        if cancel_signal and cancel_signal.is_set():
+            logger.debug("cancellation detected during stream processing")
+            # Return cancelled stop reason with cancellation message
+            # The incomplete message in state["message"] is discarded and never added to agent.messages
+            yield ModelStopReason(
+                stop_reason="cancelled",
+                message={"role": "assistant", "content": [{"text": "Cancelled by user"}]},
+                usage=usage,
+                metrics=metrics,
+            )
+            return
+
         # Track first byte time when we get first content
         if first_byte_time is None and ("contentBlockDelta" in chunk or "contentBlockStart" in chunk):
             first_byte_time = time.time()
@@ -431,6 +448,7 @@ async def stream_messages(
     tool_choice: Any | None = None,
     system_prompt_content: list[SystemContentBlock] | None = None,
     invocation_state: dict[str, Any] | None = None,
+    cancel_signal: threading.Event | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Streams messages to the model and processes the response.
@@ -444,6 +462,7 @@ async def stream_messages(
         system_prompt_content: The authoritative system prompt content blocks that always contains the
             system prompt data.
         invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
+        cancel_signal: Optional threading.Event to check for cancellation during streaming.
         **kwargs: Additional keyword arguments for future extensibility.
 
     Yields:
@@ -463,5 +482,5 @@ async def stream_messages(
         invocation_state=invocation_state,
     )
 
-    async for event in process_stream(chunks, start_time):
+    async for event in process_stream(chunks, start_time, cancel_signal):
         yield event

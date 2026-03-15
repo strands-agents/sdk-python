@@ -43,6 +43,7 @@ Example:
 import asyncio
 import functools
 import inspect
+import json
 import logging
 from collections.abc import Callable
 from typing import (
@@ -61,6 +62,7 @@ from typing import (
 import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from pydantic.fields import FieldInfo
+from pydantic_core import PydanticSerializationError
 from typing_extensions import override
 
 from ..interrupt import InterruptException
@@ -541,6 +543,31 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         """
         return self._tool_spec
 
+    @tool_spec.setter
+    def tool_spec(self, value: ToolSpec) -> None:
+        """Set the tool specification.
+
+        This allows runtime modification of the tool's schema, enabling dynamic
+        tool configurations based on feature flags or other runtime conditions.
+
+        Args:
+            value: The new tool specification.
+
+        Raises:
+            ValueError: If the spec fails structural validation (wrong name or
+                missing required field).
+        """
+        if value.get("name") != self._tool_name:
+            raise ValueError(
+                f"cannot change tool name via tool_spec (expected '{self._tool_name}', got '{value.get('name')}')"
+            )
+
+        for field in ("description", "inputSchema"):
+            if field not in value:
+                raise ValueError(f"tool_spec must contain '{field}'")
+
+        self._tool_spec = value
+
     @property
     def tool_type(self) -> str:
         """Get the type of the tool.
@@ -644,12 +671,25 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             return ToolResultEvent(cast(ToolResult, result), exception=exception)
         else:
             # Wrap any other return value in the standard format
-            # Always include at least one content item for consistency
+            # Serialize to JSON for consistent, parseable output (except strings)
+            if isinstance(result, str):
+                text = result
+            elif isinstance(result, BaseModel):
+                try:
+                    text = result.model_dump_json()
+                except PydanticSerializationError:
+                    text = str(result)
+            else:
+                try:
+                    text = json.dumps(result)
+                except (TypeError, ValueError):
+                    text = str(result)
+
             return ToolResultEvent(
                 {
                     "toolUseId": tool_use_d,
                     "status": "success",
-                    "content": [{"text": str(result)}],
+                    "content": [{"text": text}],
                 },
                 exception=exception,
             )

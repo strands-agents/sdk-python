@@ -1,6 +1,6 @@
 import pytest
 
-from strands.hooks import BeforeToolCallEvent
+from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.tools.executors import ConcurrentToolExecutor
 from strands.tools.structured_output._structured_output_context import StructuredOutputContext
@@ -76,3 +76,30 @@ async def test_concurrent_executor_interrupt(
     tru_results = tool_results
     exp_results = [exp_events[1].tool_result]
     assert tru_results == exp_results
+
+
+@pytest.mark.asyncio
+async def test_concurrent_executor_reraises_exceptions(
+    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context, alist
+):
+    """Test that hook re-raised exceptions propagate and cancel remaining tasks."""
+
+    def reraise_callback(event):
+        if event.exception is not None:
+            raise event.exception
+
+    agent.hooks.add_callback(AfterToolCallEvent, reraise_callback)
+
+    tool_uses = [
+        {"name": "exception_tool", "toolUseId": "1", "input": {}},
+        {"name": "slow_tool", "toolUseId": "2", "input": {}},
+    ]
+
+    stream = executor._execute(
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+    )
+
+    with pytest.raises(RuntimeError, match="Tool error"):
+        await alist(stream)
+
+    assert tool_results == []

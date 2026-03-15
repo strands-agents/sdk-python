@@ -18,6 +18,13 @@ from strands.models.ollama import OllamaModel
 from strands.models.openai import OpenAIModel
 from strands.models.writer import WriterModel
 
+try:
+    from strands.models.openai_responses import OpenAIResponsesModel
+
+    _openai_responses_available = True
+except ImportError:
+    _openai_responses_available = False
+
 
 class ProviderInfo:
     """Provider-based info for providers that require an APIKey via environment variables."""
@@ -118,6 +125,19 @@ openai = ProviderInfo(
         },
     ),
 )
+if _openai_responses_available:
+    openai_responses = ProviderInfo(
+        id="openai_responses",
+        environment_variable="OPENAI_API_KEY",
+        factory=lambda: OpenAIResponsesModel(
+            model_id="gpt-4o",
+            client_args={
+                "api_key": os.getenv("OPENAI_API_KEY"),
+            },
+        ),
+    )
+else:
+    openai_responses = None
 writer = ProviderInfo(
     id="writer",
     environment_variable="WRITER_API_KEY",
@@ -141,13 +161,18 @@ ollama = OllamaProviderInfo()
 
 
 all_providers = [
-    bedrock,
-    anthropic,
-    cohere,
-    gemini,
-    llama,
-    litellm,
-    mistral,
-    openai,
-    writer,
+    provider
+    for provider in [
+        bedrock,
+        anthropic,
+        cohere,
+        gemini,
+        llama,
+        litellm,
+        mistral,
+        openai,
+        openai_responses,
+        writer,
+    ]
+    if provider is not None
 ]
