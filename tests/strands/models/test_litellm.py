@@ -848,3 +848,96 @@ def test_format_request_messages_with_tool_calls_no_content():
         },
     ]
     assert tru_result == exp_result
+
+
+def test_format_chunk_metadata_includes_cost():
+    """Test that format_chunk includes cost when cost_per_token succeeds."""
+    model = LiteLLMModel(model_id="openai/gpt-4o")
+
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+    mock_usage.prompt_tokens_details = None
+    mock_usage.cache_creation_input_tokens = None
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    with unittest.mock.patch.object(strands.models.litellm.litellm, "cost_per_token", return_value=(0.0025, 0.005)):
+        result = model.format_chunk(event)
+
+    assert result["metadata"]["cost"] == 0.0075
+
+
+def test_format_chunk_metadata_omits_cost_on_failure():
+    """Test that format_chunk gracefully omits cost when cost_per_token raises."""
+    model = LiteLLMModel(model_id="unknown/model")
+
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+    mock_usage.prompt_tokens_details = None
+    mock_usage.cache_creation_input_tokens = None
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    with unittest.mock.patch.object(
+        strands.models.litellm.litellm, "cost_per_token", side_effect=Exception("model not mapped")
+    ):
+        result = model.format_chunk(event)
+
+    assert "cost" not in result["metadata"]
+    assert result["metadata"]["usage"]["inputTokens"] == 100
+
+
+def test_format_chunk_metadata_cost_with_cache_tokens():
+    """Test that cache tokens are passed to cost_per_token."""
+    model = LiteLLMModel(model_id="anthropic/claude-3-sonnet")
+
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+    mock_tokens_details = unittest.mock.Mock()
+    mock_tokens_details.cached_tokens = 25
+    mock_usage.prompt_tokens_details = mock_tokens_details
+    mock_usage.cache_creation_input_tokens = 10
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    with unittest.mock.patch.object(
+        strands.models.litellm.litellm, "cost_per_token", return_value=(0.001, 0.002)
+    ) as mock_cost:
+        result = model.format_chunk(event)
+
+    mock_cost.assert_called_once_with(
+        model="anthropic/claude-3-sonnet",
+        prompt_tokens=100,
+        completion_tokens=50,
+        cache_read_input_tokens=25,
+        cache_creation_input_tokens=10,
+    )
+    assert result["metadata"]["cost"] == 0.003
+
+
+def test_calculate_cost():
+    """Test _calculate_cost returns correct total cost."""
+    model = LiteLLMModel(model_id="openai/gpt-4o")
+
+    with unittest.mock.patch.object(strands.models.litellm.litellm, "cost_per_token", return_value=(0.01, 0.02)):
+        cost = model._calculate_cost(prompt_tokens=1000, completion_tokens=500)
+
+    assert cost == 0.03
+
+
+def test_calculate_cost_returns_none_on_failure():
+    """Test _calculate_cost returns None when cost_per_token raises."""
+    model = LiteLLMModel(model_id="unknown/model")
+
+    with unittest.mock.patch.object(
+        strands.models.litellm.litellm, "cost_per_token", side_effect=Exception("not mapped")
+    ):
+        cost = model._calculate_cost(prompt_tokens=100, completion_tokens=50)
+
+    assert cost is None

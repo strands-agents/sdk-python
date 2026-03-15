@@ -201,7 +201,7 @@ class LiteLLMModel(OpenAIModel):
         """Format a LiteLLM response event into a standardized message chunk.
 
         This method overrides OpenAI's format_chunk to handle the metadata case
-        with prompt caching support. All other chunk types use the parent implementation.
+        with prompt caching support and cost tracking. All other chunk types use the parent implementation.
 
         Args:
             event: A response event from the LiteLLM model.
@@ -223,22 +223,67 @@ class LiteLLMModel(OpenAIModel):
 
             # Only LiteLLM over Anthropic supports cache write tokens
             # Waiting until a more general approach is available to set cacheWriteInputTokens
+            cache_read_tokens = 0
+            cache_write_tokens = 0
             if tokens_details := getattr(event["data"], "prompt_tokens_details", None):
                 if cached := getattr(tokens_details, "cached_tokens", None):
                     usage_data["cacheReadInputTokens"] = cached
+                    cache_read_tokens = cached
             if creation := getattr(event["data"], "cache_creation_input_tokens", None):
                 usage_data["cacheWriteInputTokens"] = creation
+                cache_write_tokens = creation
 
-            return StreamEvent(
-                metadata=MetadataEvent(
-                    metrics={
-                        "latencyMs": 0,  # TODO
-                    },
-                    usage=usage_data,
-                )
+            metadata_event = MetadataEvent(
+                metrics={
+                    "latencyMs": 0,  # TODO
+                },
+                usage=usage_data,
             )
+
+            cost = self._calculate_cost(
+                prompt_tokens=event["data"].prompt_tokens,
+                completion_tokens=event["data"].completion_tokens,
+                cache_read_input_tokens=cache_read_tokens,
+                cache_creation_input_tokens=cache_write_tokens,
+            )
+            if cost is not None:
+                metadata_event["cost"] = cost
+
+            return StreamEvent(metadata=metadata_event)
         # For all other cases, use the parent implementation
         return super().format_chunk(event)
+
+    def _calculate_cost(
+        self,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cache_read_input_tokens: int = 0,
+        cache_creation_input_tokens: int = 0,
+    ) -> float | None:
+        """Calculate the cost for a model invocation using LiteLLM's cost tracking.
+
+        Args:
+            prompt_tokens: Number of input tokens.
+            completion_tokens: Number of output tokens.
+            cache_read_input_tokens: Number of tokens read from cache.
+            cache_creation_input_tokens: Number of tokens written to cache.
+
+        Returns:
+            Cost in USD, or None if cost calculation is not available for the model.
+        """
+        try:
+            model_id = self.get_config()["model_id"]
+            prompt_cost, completion_cost = litellm.cost_per_token(
+                model=model_id,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_read_input_tokens=cache_read_input_tokens,
+                cache_creation_input_tokens=cache_creation_input_tokens,
+            )
+            return prompt_cost + completion_cost
+        except Exception:
+            logger.debug("model_id=<%s> | could not calculate completion cost", self.get_config().get("model_id"))
+            return None
 
     @override
     async def stream(
