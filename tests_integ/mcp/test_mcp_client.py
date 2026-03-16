@@ -238,6 +238,87 @@ def test_mcp_client_without_structured_content():
         assert result["content"] == [{"text": "SIMPLE_ECHO_TEST"}]
 
 
+def test_call_tool_sync_with_meta():
+    """Test that call_tool_sync works correctly when meta is provided."""
+    stdio_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with stdio_mcp_client:
+        result = stdio_mcp_client.call_tool_sync(
+            tool_use_id="test-meta-sync",
+            name="echo",
+            arguments={"to_echo": "META_TEST"},
+            meta={"com.example/request_id": "abc-123"},
+        )
+
+        assert result["status"] == "success"
+        assert result["content"] == [{"text": "META_TEST"}]
+
+
+@pytest.mark.asyncio
+async def test_call_tool_async_with_meta():
+    """Test that call_tool_async works correctly when meta is provided."""
+    stdio_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with stdio_mcp_client:
+        result = await stdio_mcp_client.call_tool_async(
+            tool_use_id="test-meta-async",
+            name="echo",
+            arguments={"to_echo": "META_ASYNC_TEST"},
+            meta={"com.example/request_id": "def-456"},
+        )
+
+        assert result["status"] == "success"
+        assert result["content"] == [{"text": "META_ASYNC_TEST"}]
+
+
+def test_instrumentation_preserves_meta_on_tool_call():
+    """Test that OTel instrumentation correctly sets _meta on outgoing tool call requests."""
+    captured_params = []
+
+    def spy_send_request(wrapped, instance, args, kwargs):
+        if args:
+            request = args[0]
+            method = getattr(getattr(request, "root", None), "method", None)
+            if method == "tools/call" and hasattr(request.root, "params"):
+                params = request.root.params
+                if hasattr(params, "model_dump"):
+                    captured_params.append(params.model_dump(by_alias=True))
+                elif isinstance(params, dict):
+                    captured_params.append(params.copy())
+        return wrapped(*args, **kwargs)
+
+    stdio_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with stdio_mcp_client:
+        from mcp.shared.session import BaseSession
+        from wrapt import wrap_function_wrapper
+
+        original_send = BaseSession.send_request
+        wrap_function_wrapper("mcp.shared.session", "BaseSession.send_request", spy_send_request)
+
+        try:
+            result = stdio_mcp_client.call_tool_sync(
+                tool_use_id="test-instrumentation",
+                name="echo",
+                arguments={"to_echo": "INSTRUMENTATION_TEST"},
+            )
+
+            assert result["status"] == "success"
+            assert len(captured_params) > 0
+
+            params = captured_params[-1]
+            assert "_meta" in params
+            assert isinstance(params["_meta"], dict)
+        finally:
+            BaseSession.send_request = original_send
+
+
 @pytest.mark.skipif(
     condition=os.environ.get("GITHUB_ACTIONS") == "true",
     reason="streamable transport is failing in GitHub actions, debugging if linux compatibility issue",
