@@ -204,28 +204,32 @@ class OpenAIModel(Model):
             ],
         )
 
-        # Separate text and non-text (image/document) content blocks.
-        # Text is always joined into a single string for broad compatibility
-        # with OpenAI-compatible endpoints (e.g., Kimi K2.5, vLLM, Ollama).
-        text_parts: list[str] = []
-        non_text_parts: list[dict[str, Any]] = []
+        # Merge adjacent text blocks while preserving the order of non-text
+        # (image/document) content.  When all content is text, join into a
+        # single string for broad compatibility with OpenAI-compatible
+        # endpoints (e.g., Kimi K2.5, vLLM, Ollama).
+        # See https://github.com/strands-agents/sdk-python/issues/1696
+        merged: list[dict[str, Any]] = []
+        has_non_text = False
         for content_block in contents:
             if "text" in content_block:
-                text_parts.append(content_block["text"])
+                # Merge with the previous entry if it is also text (adjacent)
+                if merged and merged[-1].get("type") == "text":
+                    merged[-1]["text"] += "\n" + content_block["text"]
+                else:
+                    merged.append({"type": "text", "text": content_block["text"]})
             elif "image" in content_block or "document" in content_block:
-                non_text_parts.append(cls.format_request_message_content(content_block))
+                has_non_text = True
+                merged.append(cls.format_request_message_content(content_block))
 
         content: str | list[dict[str, Any]]
-        if non_text_parts:
+        if has_non_text:
             # Keep array format when images/documents are present so that
             # _split_tool_message_images can extract them into a user message.
-            formatted: list[dict[str, Any]] = []
-            if text_parts:
-                formatted.append({"type": "text", "text": "\n".join(text_parts)})
-            formatted.extend(non_text_parts)
-            content = formatted
+            content = merged
         else:
-            content = "\n".join(text_parts)
+            # All text — join into a single string for model compatibility.
+            content = "\n".join(item["text"] for item in merged)
 
         return {
             "role": "tool",
