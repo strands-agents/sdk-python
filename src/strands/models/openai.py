@@ -228,8 +228,9 @@ class OpenAIModel(Model):
             # _split_tool_message_images can extract them into a user message.
             content = merged
         else:
-            # All text — join into a single string for model compatibility.
-            content = "\n".join(item["text"] for item in merged)
+            # All text — the loop already merged adjacent blocks with "\n",
+            # so extract the single resulting entry.
+            content = merged[0]["text"] if merged else ""
 
         return {
             "role": "tool",
