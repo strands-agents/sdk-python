@@ -307,6 +307,20 @@ def test_format_request_tool_message_document_mixed():
     assert content[2] == {"type": "text", "text": "Footer"}
 
 
+def test_format_request_tool_message_empty_content():
+    """Test tool message with empty content list returns empty string."""
+    tool_result = {
+        "content": [],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    assert tru_result["content"] == ""
+    assert tru_result["role"] == "tool"
+    assert tru_result["tool_call_id"] == "c1"
+
+
 def test_split_tool_message_images_with_image():
     """Test that images are extracted from tool messages."""
     tool_message = {
