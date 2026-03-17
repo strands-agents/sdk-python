@@ -998,6 +998,39 @@ def test_call_tool_sync_elicitation_error_invalid_data(mock_transport, mock_sess
         assert "Tool execution failed" in result["content"][0]["text"]
 
 
+def test_call_tool_sync_elicitation_error_no_urls(mock_transport, mock_session):
+    """Test that -32042 error with empty URLs falls back to generic error."""
+    from mcp.shared.exceptions import McpError
+    from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
+
+    # Elicitation without URL
+    elicitation_data = ElicitationRequiredErrorData(
+        elicitations=[
+            ElicitRequestURLParams(url=None, message="No URL provided", elicitationId="elicit-1")
+        ]
+    )
+    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    mock_session.call_tool.side_effect = error
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
+        assert result["status"] == "error"
+        assert "Tool execution failed" in result["content"][0]["text"]
+
+
+def test_call_tool_sync_other_mcp_error_code(mock_transport, mock_session):
+    """Test that non-32042 McpError falls through to generic error."""
+    from mcp.shared.exceptions import McpError
+
+    error = McpError(error=MagicMock(code=-32600, message="Invalid request"))
+    mock_session.call_tool.side_effect = error
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
+        assert result["status"] == "error"
+        assert "Tool execution failed" in result["content"][0]["text"]
+
+
 @pytest.mark.asyncio
 async def test_call_tool_async_elicitation_error(mock_transport, mock_session):
     """Test that call_tool_async correctly handles elicitation required errors."""
