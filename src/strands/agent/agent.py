@@ -832,13 +832,12 @@ class Agent(AgentBase):
         if inflight is None:
             return
 
-        if error is None and result is None:
-            error = asyncio.CancelledError("Primary invocation was cancelled before completion.")
-
         if error is not None:
             inflight.error = error
-        else:
+        elif result is not None:
             inflight.result = result
+        else:
+            inflight.error = asyncio.CancelledError("Primary invocation was cancelled before completion.")
         inflight.done.set()
 
     async def stream_async(
