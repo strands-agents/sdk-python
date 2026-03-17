@@ -89,6 +89,17 @@ def test_init_s3_session_manager_with_existing_user_agent(mocked_aws, s3_bucket)
     assert "strands-agents" in session_manager.client.meta.config.user_agent_extra
 
 
+def test_empty_prefix_session_roundtrip(mocked_aws, s3_bucket, sample_session, sample_agent):
+    """Test that session data can be written and read back with default empty prefix."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, prefix="", region_name="us-west-2")
+    manager.create_session(sample_session)
+    manager.create_agent(sample_session.session_id, sample_agent)
+
+    result = manager.read_agent(sample_session.session_id, sample_agent.agent_id)
+    assert result is not None
+    assert result.agent_id == sample_agent.agent_id
+
+
 def test_create_session(s3_manager, sample_session):
     """Test creating a session in S3."""
     result = s3_manager.create_session(sample_session)
@@ -367,6 +378,24 @@ def test_update_nonexistent_message(s3_manager, sample_session, sample_agent, sa
     # Update message
     with pytest.raises(SessionException):
         s3_manager.update_message(sample_session.session_id, sample_agent.agent_id, sample_message)
+
+
+@pytest.mark.parametrize(
+    "prefix, expected_path",
+    [
+        ("", "session_test-id/"),
+        ("sessions", "sessions/session_test-id/"),
+        ("sessions/", "sessions/session_test-id/"),
+        ("/sessions", "sessions/session_test-id/"),
+        ("/sessions/", "sessions/session_test-id/"),
+        ("a/b/c", "a/b/c/session_test-id/"),
+        ("a/b/c/", "a/b/c/session_test-id/"),
+    ],
+)
+def test__get_session_path_prefix_normalization(mocked_aws, s3_bucket, prefix, expected_path):
+    """Test that _get_session_path normalizes prefix to avoid leading or double slashes."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, prefix=prefix, region_name="us-west-2")
+    assert manager._get_session_path("test-id") == expected_path
 
 
 @pytest.mark.parametrize(

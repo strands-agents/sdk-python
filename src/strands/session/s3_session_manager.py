@@ -95,7 +95,10 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             ValueError: If session id contains a path separator.
         """
         session_id = _identifier.validate(session_id, _identifier.Identifier.SESSION)
-        return f"{self.prefix}/{SESSION_PREFIX}{session_id}/"
+        prefix = self.prefix.strip("/")
+        if prefix:
+            return f"{prefix}/{SESSION_PREFIX}{session_id}/"
+        return f"{SESSION_PREFIX}{session_id}/"
 
     def _get_agent_path(self, session_id: str, agent_id: str) -> str:
         """Get agent S3 prefix.
