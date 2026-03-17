@@ -1,17 +1,18 @@
+import importlib
 import logging
 import unittest.mock
 
 import pydantic
 import pytest
 
-import strands
+import strands.models.mistral as mistral_module
 from strands.models.mistral import MistralModel
 from strands.types.exceptions import ModelThrottledException
 
 
 @pytest.fixture
 def mistral_client():
-    with unittest.mock.patch.object(strands.models.mistral.mistralai, "Mistral") as mock_client_cls:
+    with unittest.mock.patch("strands.models.mistral.MistralClient") as mock_client_cls:
         mock_client = unittest.mock.AsyncMock()
         mock_client_cls.return_value.__aenter__.return_value = mock_client
         yield mock_client
@@ -679,3 +680,42 @@ def test_format_request_filters_location_source_document(model, caplog):
     user_content = formatted_messages[0]["content"]
     assert user_content == "analyze this document"
     assert "Location sources are not supported by Mistral" in caplog.text
+
+
+def test_mistral_client_import_v2():
+    """Test that MistralClient resolves from mistralai.client.Mistral (v2.x import path)."""
+    mock_client_cls = unittest.mock.MagicMock(name="MistralClientV2")
+    mock_client_module = unittest.mock.MagicMock()
+    mock_client_module.Mistral = mock_client_cls
+
+    with unittest.mock.patch.dict("sys.modules", {"mistralai.client": mock_client_module}):
+        importlib.reload(mistral_module)
+
+        actual_client = mistral_module.MistralClient
+        exp_client = mock_client_cls
+
+        assert actual_client is exp_client
+        assert actual_client is not None
+
+    # Restore original module state
+    importlib.reload(mistral_module)
+
+
+def test_mistral_client_import_v1_fallback():
+    """Test that MistralClient falls back to mistralai.Mistral when mistralai.client is unavailable (v1.x path)."""
+    mock_client_cls = unittest.mock.MagicMock(name="MistralClientV1")
+    mock_mistralai = unittest.mock.MagicMock()
+    mock_mistralai.Mistral = mock_client_cls
+
+    # Setting a module to None in sys.modules causes ImportError on import
+    with unittest.mock.patch.dict("sys.modules", {"mistralai.client": None, "mistralai": mock_mistralai}):
+        importlib.reload(mistral_module)
+
+        actual_client = mistral_module.MistralClient
+        exp_client = mock_client_cls
+
+        assert actual_client is exp_client
+        assert actual_client is not None
+
+    # Restore original module state
+    importlib.reload(mistral_module)

@@ -9,8 +9,14 @@ import logging
 from collections.abc import AsyncGenerator, Iterable
 from typing import Any, TypeVar
 
-import mistralai
 from pydantic import BaseModel
+
+# Support both mistralai v1.x and v2.x import paths.
+# v2.0 moved the client class from mistralai.Mistral to mistralai.client.Mistral.
+try:
+    from mistralai.client import Mistral as MistralClient  # type: ignore[attr-defined]
+except ImportError:
+    from mistralai import Mistral as MistralClient
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import ContentBlock, Messages
@@ -434,7 +440,7 @@ class MistralModel(Model):
             logger.debug("got response from model")
             if not self.config.get("stream", True):
                 # Use non-streaming API
-                async with mistralai.Mistral(**self.client_args) as client:
+                async with MistralClient(**self.client_args) as client:
                     response = await client.chat.complete_async(**request)
                     for event in self._handle_non_streaming_response(response):
                         yield self.format_chunk(event)
@@ -442,7 +448,7 @@ class MistralModel(Model):
                 return
 
             # Use the streaming API
-            async with mistralai.Mistral(**self.client_args) as client:
+            async with MistralClient(**self.client_args) as client:
                 stream_response = await client.chat.stream_async(**request)
 
                 yield self.format_chunk({"chunk_type": "message_start"})
@@ -535,7 +541,7 @@ class MistralModel(Model):
         formatted_request["tool_choice"] = "any"
         formatted_request["parallel_tool_calls"] = False
 
-        async with mistralai.Mistral(**self.client_args) as client:
+        async with MistralClient(**self.client_args) as client:
             response = await client.chat.complete_async(**formatted_request)
 
         if response.choices and response.choices[0].message.tool_calls:
