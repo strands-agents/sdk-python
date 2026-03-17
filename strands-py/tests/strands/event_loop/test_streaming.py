@@ -100,6 +100,24 @@ def test_remove_blank_messages_content_text(messages, exp_result):
             ],
             id="missing tool name",
         ),
+        pytest.param(
+            [
+                {"role": "assistant", "content": [{"text": None}, {"toolUse": {"name": "a_name"}}]},
+            ],
+            [
+                {"role": "assistant", "content": [{"toolUse": {"name": "a_name"}}]},
+            ],
+            id="none text with tool use",
+        ),
+        pytest.param(
+            [
+                {"role": "assistant", "content": [{"text": None}]},
+            ],
+            [
+                {"role": "assistant", "content": [{"text": "[blank text]"}]},
+            ],
+            id="none text without tool use",
+        ),
     ],
 )
 def test_normalize_blank_messages_content_text(messages, exp_result):
