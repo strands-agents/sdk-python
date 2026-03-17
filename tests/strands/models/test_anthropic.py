@@ -740,10 +740,10 @@ async def test_stream(anthropic_client, model, agenerator, alist):
 
 @pytest.mark.asyncio
 async def test_stream_premature_termination(anthropic_client, model, agenerator, alist):
-    """Test that stream handles premature termination without crashing.
+    """Test that stream fails clearly on premature termination.
 
     When the Anthropic API stream ends before message_stop (e.g. network
-    timeout), event.message.usage may be None. The code must not crash
+    timeout), the request should fail with a clear error instead of crashing
     with AttributeError.
 
     Regression test for #1868.
@@ -766,16 +766,13 @@ async def test_stream_premature_termination(anthropic_client, model, agenerator,
     messages = [{"role": "user", "content": [{"text": "hello"}]}]
     response = model.stream(messages, None, None)
 
-    # Should not raise AttributeError
-    tru_events = await alist(response)
-
-    # Should still yield a metadata event with zero usage
-    assert any("metadata" in str(e) for e in tru_events)
+    with pytest.raises(RuntimeError, match="without usage metadata"):
+        await alist(response)
 
 
 @pytest.mark.asyncio
 async def test_stream_empty_no_events(anthropic_client, model, agenerator, alist):
-    """Test that stream handles an empty event sequence without crashing."""
+    """Test that an empty stream fails clearly."""
     mock_context = unittest.mock.AsyncMock()
     mock_context.__aenter__.return_value = agenerator([])
     anthropic_client.messages.stream.return_value = mock_context
@@ -783,11 +780,12 @@ async def test_stream_empty_no_events(anthropic_client, model, agenerator, alist
     messages = [{"role": "user", "content": [{"text": "hello"}]}]
     response = model.stream(messages, None, None)
 
-    # Should not raise UnboundLocalError or AttributeError
-    tru_events = await alist(response)
+    with pytest.raises(RuntimeError, match="before receiving any events"):
+        await alist(response)
 
-    # Should still yield a metadata event with zero usage
-    assert any("metadata" in str(e) for e in tru_events)
+
+@pytest.mark.asyncio
+async def test_stream_rate_limit_error(anthropic_client, model, alist):
     anthropic_client.messages.stream.side_effect = anthropic.RateLimitError(
         "rate limit", response=unittest.mock.Mock(), body=None
     )
