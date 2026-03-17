@@ -104,9 +104,10 @@ _DEFAULT_AGENT_ID = "default"
 class _InflightInvocation:
     """Tracks an inflight invocation for idempotency deduplication.
 
-    When a caller provides an `idempotency_token`, the agent registers the invocation in a dict keyed by the token.
-    If a duplicate call arrives with the same token while the original is still running, the duplicate waits on the
-    `done` event and receives the same result or error.
+    When a caller provides an `idempotency_token`, the agent registers this invocation
+    (in THROW mode only one can be inflight at a time). If a duplicate call arrives
+    with the same token while the original is still running, the duplicate waits on
+    the `done` event and receives the same result or error.
     """
 
     done: threading.Event = field(default_factory=threading.Event)
@@ -812,6 +813,8 @@ class Agent(AgentBase):
         """Signal waiting duplicates and clean up idempotency state.
 
         Safe to call even when registered_token is None (no-op in that case).
+        If both result and error are None (e.g. original caller disconnected),
+        sets asyncio.CancelledError so duplicates receive a clear error.
 
         Args:
             registered_token: The token that was registered by _check_idempotency, or None.
