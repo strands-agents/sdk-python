@@ -999,11 +999,10 @@ def test_call_tool_sync_elicitation_error_invalid_data(mock_transport, mock_sess
 
 
 def test_call_tool_sync_elicitation_error_no_urls(mock_transport, mock_session):
-    """Test that -32042 error with empty URLs falls back to generic error."""
+    """Test that -32042 error with elicitation data returns elicitation result."""
     from mcp.shared.exceptions import McpError
     from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
 
-    # Elicitation without URL
     elicitation_data = ElicitationRequiredErrorData(
         elicitations=[
             ElicitRequestURLParams(url=None, message="No URL provided", elicitationId="elicit-1")
@@ -1015,7 +1014,8 @@ def test_call_tool_sync_elicitation_error_no_urls(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
         assert result["status"] == "error"
-        assert "Tool execution failed" in result["content"][0]["text"]
+        assert "MCP Elicitation required" in result["content"][0]["text"]
+        assert "elicit-1" in result["content"][0]["text"]
 
 
 def test_call_tool_sync_other_mcp_error_code(mock_transport, mock_session):
@@ -1023,6 +1023,19 @@ def test_call_tool_sync_other_mcp_error_code(mock_transport, mock_session):
     from mcp.shared.exceptions import McpError
 
     error = McpError(error=MagicMock(code=-32600, message="Invalid request"))
+    mock_session.call_tool.side_effect = error
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
+        assert result["status"] == "error"
+        assert "Tool execution failed" in result["content"][0]["text"]
+        
+
+def test_call_tool_sync_elicitation_error_malformed_data(mock_transport, mock_session):
+    """Test that -32042 with unparseable data falls through to generic error."""
+    from mcp.shared.exceptions import McpError
+
+    error = McpError(error=MagicMock(code=-32042, data={"garbage": True}))
     mock_session.call_tool.side_effect = error
 
     with MCPClient(mock_transport["transport_callable"]) as client:
