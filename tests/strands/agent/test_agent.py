@@ -2756,3 +2756,305 @@ def test_as_tool_defaults_description_when_agent_has_none():
     tool = agent.as_tool()
 
     assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"
+
+
+class SyncEventFailingModel:
+    """A mock model that signals when streaming starts, then raises an error.
+
+    Used for testing idempotency behavior when the original invocation fails.
+    """
+
+    def __init__(self):
+        self.started_event = threading.Event()
+        self.proceed_event = threading.Event()
+
+    async def stream(self, *args, **kwargs):
+        self.started_event.set()
+        self.proceed_event.wait()
+        raise RuntimeError("Simulated model failure")
+        yield  # noqa: RET503 - makes this an async generator
+
+
+class IdempotencyTestAgent(Agent):
+    """Agent subclass that signals when a duplicate idempotency token is detected.
+
+    Pairs with SyncEventMockedModel to provide deterministic two-thread synchronization:
+    the model pauses Thread 1 inside stream(), and this class signals when Thread 2
+    has reached _check_idempotency and been identified as a duplicate.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.duplicate_detected = threading.Event()
+
+    def _check_idempotency(self, idempotency_token):
+        result = super()._check_idempotency(idempotency_token)
+        if result[0] is not None:
+            self.duplicate_detected.set()
+        return result
+
+
+def test_idempotency_duplicate_waits_and_returns_same_result():
+    """Test that a duplicate call with the same idempotency_token waits and returns the same result."""
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "hello"}]},
+        ]
+    )
+    agent = IdempotencyTestAgent(model=model, concurrent_invocation_mode="throw")
+
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke():
+        try:
+            result = agent("test", idempotency_token="abc-123")
+            with lock:
+                results.append(result)
+        except Exception as e:
+            with lock:
+                errors.append(e)
+
+    t1 = threading.Thread(target=invoke)
+    t1.start()
+    model.started_event.wait()
+
+    t2 = threading.Thread(target=invoke)
+    t2.start()
+    agent.duplicate_detected.wait()
+
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+
+    assert len(errors) == 0, f"Expected 0 errors, got {len(errors)}: {errors}"
+    assert len(results) == 2, f"Expected 2 results, got {len(results)}"
+    assert str(results[0]) == str(results[1])
+
+
+def test_idempotency_original_fails_duplicate_gets_same_error():
+    """Test that when the original invocation fails, the duplicate receives the same exception."""
+    model = SyncEventFailingModel()
+    agent = IdempotencyTestAgent(model=model, concurrent_invocation_mode="throw")
+
+    errors = []
+    lock = threading.Lock()
+
+    def invoke():
+        try:
+            agent("test", idempotency_token="abc-123")
+        except Exception as e:
+            with lock:
+                errors.append(e)
+
+    t1 = threading.Thread(target=invoke)
+    t1.start()
+    model.started_event.wait()
+
+    t2 = threading.Thread(target=invoke)
+    t2.start()
+    agent.duplicate_detected.wait()
+
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+
+    assert len(errors) == 2, f"Expected 2 errors, got {len(errors)}"
+    assert all(isinstance(e, RuntimeError) for e in errors)
+    assert all("Simulated model failure" in str(e) for e in errors)
+
+
+def test_idempotency_different_token_raises_concurrency_exception():
+    """Test that a different idempotency_token while another is inflight raises ConcurrencyException."""
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "hello"}]},
+            {"role": "assistant", "content": [{"text": "world"}]},
+        ]
+    )
+    agent = Agent(model=model, concurrent_invocation_mode="throw")
+
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke_abc():
+        try:
+            result = agent("test", idempotency_token="abc")
+            with lock:
+                results.append(result)
+        except Exception as e:
+            with lock:
+                errors.append(e)
+
+    def invoke_def():
+        try:
+            result = agent("test", idempotency_token="def")
+            with lock:
+                results.append(result)
+        except Exception as e:
+            with lock:
+                errors.append(e)
+
+    t1 = threading.Thread(target=invoke_abc)
+    t1.start()
+    model.started_event.wait()
+
+    t2 = threading.Thread(target=invoke_def)
+    t2.start()
+    t2.join(timeout=1.0)
+
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+
+    assert len(results) == 1, f"Expected 1 result, got {len(results)}"
+    assert len(errors) == 1, f"Expected 1 error, got {len(errors)}"
+    assert isinstance(errors[0], ConcurrencyException)
+
+
+def test_idempotency_no_token_falls_back_to_throw():
+    """Test that a call without idempotency_token still gets ConcurrencyException in THROW mode."""
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "hello"}]},
+            {"role": "assistant", "content": [{"text": "world"}]},
+        ]
+    )
+    agent = Agent(model=model, concurrent_invocation_mode="throw")
+
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke_with_token():
+        try:
+            result = agent("test", idempotency_token="abc")
+            with lock:
+                results.append(result)
+        except Exception as e:
+            with lock:
+                errors.append(e)
+
+    def invoke_without_token():
+        try:
+            result = agent("test")
+            with lock:
+                results.append(result)
+        except Exception as e:
+            with lock:
+                errors.append(e)
+
+    t1 = threading.Thread(target=invoke_with_token)
+    t1.start()
+    model.started_event.wait()
+
+    t2 = threading.Thread(target=invoke_without_token)
+    t2.start()
+    t2.join(timeout=1.0)
+
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+
+    assert len(results) == 1, f"Expected 1 result, got {len(results)}"
+    assert len(errors) == 1, f"Expected 1 error, got {len(errors)}"
+    assert isinstance(errors[0], ConcurrencyException)
+
+
+def test_idempotency_ignored_in_unsafe_reentrant():
+    """Test that idempotency_token has no effect in UNSAFE_REENTRANT mode."""
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "hello"}]},
+            {"role": "assistant", "content": [{"text": "world"}]},
+        ]
+    )
+    agent = Agent(model=model, concurrent_invocation_mode="unsafe_reentrant")
+
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke():
+        try:
+            result = agent("test", idempotency_token="abc")
+            with lock:
+                results.append(result)
+        except Exception as e:
+            with lock:
+                errors.append(e)
+
+    t1 = threading.Thread(target=invoke)
+    t1.start()
+    model.started_event.wait()
+
+    t2 = threading.Thread(target=invoke)
+    t2.start()
+
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+
+    assert len(errors) == 0, f"Expected 0 errors, got {len(errors)}: {errors}"
+    assert len(results) == 2, f"Expected 2 results, got {len(results)}"
+
+
+def test_idempotency_cleanup_after_completion():
+    """Test that after completion, the same token is treated as a fresh request."""
+    model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "response1"}]},
+            {"role": "assistant", "content": [{"text": "response2"}]},
+        ]
+    )
+    agent = Agent(model=model, concurrent_invocation_mode="throw")
+
+    result1 = agent("test", idempotency_token="abc")
+    assert str(result1).strip() == "response1"
+
+    result2 = agent("test", idempotency_token="abc")
+    assert str(result2).strip() == "response2"
+
+    assert str(result1) != str(result2)
+
+
+def test_idempotency_with_prompt_as_token():
+    """Test that the prompt itself can be used as the idempotency_token."""
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "hello"}]},
+        ]
+    )
+    agent = IdempotencyTestAgent(model=model, concurrent_invocation_mode="throw")
+
+    prompt = "What's the weather?"
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke():
+        try:
+            result = agent(prompt, idempotency_token=prompt)
+            with lock:
+                results.append(result)
+        except Exception as e:
+            with lock:
+                errors.append(e)
+
+    t1 = threading.Thread(target=invoke)
+    t1.start()
+    model.started_event.wait()
+
+    t2 = threading.Thread(target=invoke)
+    t2.start()
+    agent.duplicate_detected.wait()
+
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+
+    assert len(errors) == 0, f"Expected 0 errors, got {len(errors)}: {errors}"
+    assert len(results) == 2, f"Expected 2 results, got {len(results)}"
+    assert str(results[0]) == str(results[1])
