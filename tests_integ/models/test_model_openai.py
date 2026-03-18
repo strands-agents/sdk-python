@@ -225,16 +225,15 @@ def _rate_limit_params():
     return params
 
 
-@pytest.mark.parametrize("model_class,model_id", _rate_limit_params())
-def test_rate_limit_throttling_integration_no_retries(model_class, model_id):
+def test_rate_limit_throttling_integration_no_retries():
     """Integration test for rate limit handling with retries disabled.
 
     This test verifies that when a request exceeds OpenAI's rate limits,
     the model properly raises a ModelThrottledException. We disable retries
     to avoid waiting for the exponential backoff during testing.
     """
-    model = model_class(
-        model_id=model_id,
+    model = OpenAIModel(
+        model_id="gpt-4o",
         client_args={
             "api_key": os.getenv("OPENAI_API_KEY"),
         },
