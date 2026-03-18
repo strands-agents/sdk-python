@@ -62,6 +62,7 @@ from ..types.agent import AgentInput, ConcurrentInvocationMode
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.traces import AttributeValue
+from .agent_as_tool import AgentAsTool
 from .agent_result import AgentResult
 from .base import AgentBase
 from .conversation_manager import (
@@ -611,6 +612,34 @@ class Agent(AgentBase):
 
             finally:
                 await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self, invocation_state={}))
+
+    def as_tool(
+        self,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> AgentAsTool:
+        r"""Convert this agent into a tool for use by another agent.
+
+        Args:
+            name: Tool name. Must match the pattern ``[a-zA-Z0-9_\\-]{1,64}``.
+                Defaults to the agent's name.
+            description: Tool description. Defaults to the agent's description.
+
+        Returns:
+            An AgentAsTool wrapping this agent.
+
+        Example:
+            ```python
+            researcher = Agent(name="researcher", description="Finds information")
+            writer = Agent(name="writer", tools=[researcher.as_tool()])
+            writer("Write about AI agents")
+            ```
+        """
+        if not name:
+            name = self.name
+        if not description:
+            description = self.description or f"Use the {name} tool to invoke this agent as a tool"
+        return AgentAsTool(self, name=name, description=description)
 
     def cleanup(self) -> None:
         """Clean up resources used by the agent.
