@@ -201,6 +201,7 @@ class EventLoopMetrics:
     traces: list[Trace] = field(default_factory=list)
     accumulated_usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
+    accumulated_cost: float = 0.0
 
     @property
     def _metrics_client(self) -> "MetricsClient":
@@ -348,6 +349,14 @@ class EventLoopMetrics:
         """
         self.agent_invocations.append(AgentInvocation())
 
+    def update_cost(self, cost: float) -> None:
+        """Update the accumulated cost with new cost data.
+
+        Args:
+            cost: The cost in USD to add to the accumulated total.
+        """
+        self.accumulated_cost += cost
+
     def update_metrics(self, metrics: Metrics) -> None:
         """Update the accumulated performance metrics with new metrics data.
 
@@ -391,6 +400,7 @@ class EventLoopMetrics:
             "traces": [trace.to_dict() for trace in self.traces],
             "accumulated_usage": self.accumulated_usage,
             "accumulated_metrics": self.accumulated_metrics,
+            "accumulated_cost": self.accumulated_cost,
             "agent_invocations": [
                 {
                     "usage": invocation.usage,
@@ -436,6 +446,8 @@ def _metrics_summary_to_lines(event_loop_metrics: EventLoopMetrics, allowed_name
         token_parts.append(f"cache_write_input_tokens={summary['accumulated_usage']['cacheWriteInputTokens']}")
 
     yield f"├─ Tokens: {', '.join(token_parts)}"
+    if summary["accumulated_cost"] > 0:
+        yield f"├─ Cost: ${summary['accumulated_cost']:.6f}"
     yield f"├─ Bedrock Latency: {summary['accumulated_metrics']['latencyMs']}ms"
 
     yield "├─ Tool Usage:"

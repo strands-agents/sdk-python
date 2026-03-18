@@ -416,9 +416,36 @@ def test_event_loop_metrics_get_summary(trace, tool, event_loop_metrics, mock_ge
         "total_cycles": 0,
         "total_duration": 0,
         "traces": [],
+        "accumulated_cost": 0.0,
     }
 
     assert tru_summary == exp_summary
+
+
+def test_accumulated_cost_default_zero(event_loop_metrics):
+    """Test that accumulated_cost starts at 0.0."""
+    assert event_loop_metrics.accumulated_cost == 0.0
+
+
+def test_update_cost(event_loop_metrics):
+    """Test that update_cost adds to accumulated_cost."""
+    event_loop_metrics.update_cost(0.0025)
+    assert event_loop_metrics.accumulated_cost == 0.0025
+
+
+def test_update_cost_accumulates(event_loop_metrics):
+    """Test that multiple update_cost calls accumulate."""
+    event_loop_metrics.update_cost(0.001)
+    event_loop_metrics.update_cost(0.002)
+    event_loop_metrics.update_cost(0.003)
+    assert event_loop_metrics.accumulated_cost == pytest.approx(0.006)
+
+
+def test_get_summary_includes_accumulated_cost(event_loop_metrics):
+    """Test that get_summary includes accumulated_cost."""
+    event_loop_metrics.update_cost(0.0075)
+    summary = event_loop_metrics.get_summary()
+    assert summary["accumulated_cost"] == 0.0075
 
 
 @pytest.mark.parametrize(

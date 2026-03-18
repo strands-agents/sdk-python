@@ -284,7 +284,7 @@ class SummarizingConversationManager(ConversationManager):
             result_message: Message | None = None
             async for event in process_stream(chunks):
                 if "stop" in event:
-                    _, result_message, _, _ = event["stop"]
+                    _, result_message, *_ = event["stop"]
 
             if result_message is None:
                 raise RuntimeError("Failed to generate summary: no response from model")
