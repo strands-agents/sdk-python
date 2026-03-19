@@ -82,7 +82,14 @@ class AgentAsTool(AgentTool):
                         "input": {
                             "type": "string",
                             "description": "The input to send to the agent tool.",
-                        }
+                        },
+                        "preserve_context": {
+                            "type": "boolean",
+                            "description": (
+                                "Whether to preserve the agent's conversation context across invocations. "
+                                "Defaults to true. Set to false to clear conversation history before this call."
+                            ),
+                        },
                     },
                     "required": ["input"],
                 }
@@ -110,8 +117,43 @@ class AgentAsTool(AgentTool):
         Yields:
             ToolStreamEvent for intermediate events, then ToolResultEvent with the final response.
         """
-        prompt = tool_use["input"].get("input", "") if isinstance(tool_use["input"], dict) else tool_use["input"]
+        tool_input = tool_use["input"]
+        if isinstance(tool_input, dict):
+            prompt = tool_input.get("input", "")
+            preserve_context = tool_input.get("preserve_context", True)
+        elif isinstance(tool_input, str):
+            prompt = tool_input
+            preserve_context = True
+        else:
+            logger.warning(
+                "tool_name=<%s> | unexpected input type: %s",
+                self._tool_name,
+                type(tool_input),
+            )
+            prompt = str(tool_input)
+            preserve_context = True
+
         tool_use_id = tool_use["toolUseId"]
+
+        if not preserve_context:
+            # AgentBase is a protocol and does not guarantee a messages attribute.
+            # We check for it at runtime to support Agent and other implementations
+            # that expose a mutable messages list.
+            messages = getattr(self._agent, "messages", None)
+            if isinstance(messages, list):
+                logger.debug(
+                    "tool_name=<%s>, tool_use_id=<%s> | clearing agent conversation context",
+                    self._tool_name,
+                    tool_use_id,
+                )
+                messages.clear()
+            else:
+                logger.warning(
+                    "tool_name=<%s>, tool_use_id=<%s> | preserve_context=false requested"
+                    " but agent does not expose a messages list",
+                    self._tool_name,
+                    tool_use_id,
+                )
 
         logger.debug("tool_name=<%s>, tool_use_id=<%s> | invoking agent", self._tool_name, tool_use_id)
 

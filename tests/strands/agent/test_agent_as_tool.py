@@ -1,5 +1,6 @@
 """Tests for AgentAsTool - the agent-as-tool adapter."""
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -90,6 +91,8 @@ def test_tool_spec_input_schema(tool):
     assert schema["type"] == "object"
     assert "input" in schema["properties"]
     assert schema["properties"]["input"]["type"] == "string"
+    assert "preserve_context" in schema["properties"]
+    assert schema["properties"]["preserve_context"]["type"] == "boolean"
     assert schema["required"] == ["input"]
 
 
@@ -211,3 +214,139 @@ async def test_stream_structured_output(tool, mock_agent, tool_use):
     result_events = [e for e in events if isinstance(e, ToolResultEvent)]
     assert result_events[0]["tool_result"]["status"] == "success"
     assert result_events[0]["tool_result"]["content"][0]["json"] == {"answer": "42"}
+
+
+@pytest.mark.asyncio
+async def test_stream_string_input(tool, mock_agent, agent_result):
+    """When tool_use input is a plain string rather than a dict."""
+    tool_use = {
+        "toolUseId": "tool-123",
+        "name": "test_agent",
+        "input": "direct string",
+    }
+    mock_agent.stream_async.return_value = _mock_stream_async(agent_result)
+
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    mock_agent.stream_async.assert_called_once_with("direct string")
+
+
+# --- preserve_context ---
+
+
+class _FakeAgent:
+    """Minimal fake agent with a real messages list for preserve_context tests."""
+
+    def __init__(self):
+        self.name = "fake_agent"
+        self.messages: list = []
+
+    async def invoke_async(self, prompt=None, **kwargs):
+        pass
+
+    def __call__(self, prompt=None, **kwargs):
+        pass
+
+    def stream_async(self, prompt=None, **kwargs):
+        return _mock_stream_async(
+            AgentResult(
+                stop_reason="end_turn",
+                message={"role": "assistant", "content": [{"text": "ok"}]},
+                metrics=EventLoopMetrics(),
+                state={},
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_stream_clears_context_when_preserve_context_false():
+    agent = _FakeAgent()
+    agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
+    tool = AgentAsTool(agent, name="fake_agent", description="desc")
+
+    tool_use = {
+        "toolUseId": "tool-123",
+        "name": "fake_agent",
+        "input": {"input": "hello", "preserve_context": False},
+    }
+
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    assert agent.messages == []
+
+
+@pytest.mark.asyncio
+async def test_stream_preserves_context_by_default():
+    agent = _FakeAgent()
+    agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
+    tool = AgentAsTool(agent, name="fake_agent", description="desc")
+
+    tool_use = {
+        "toolUseId": "tool-123",
+        "name": "fake_agent",
+        "input": {"input": "hello"},
+    }
+
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    assert len(agent.messages) >= 1
+
+
+@pytest.mark.asyncio
+async def test_stream_preserves_context_when_explicitly_true():
+    agent = _FakeAgent()
+    agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
+    tool = AgentAsTool(agent, name="fake_agent", description="desc")
+
+    tool_use = {
+        "toolUseId": "tool-123",
+        "name": "fake_agent",
+        "input": {"input": "hello", "preserve_context": True},
+    }
+
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    assert len(agent.messages) >= 1
+
+
+@pytest.mark.asyncio
+async def test_stream_preserve_context_false_warns_when_no_messages_attr(caplog):
+    """Agent without a messages attribute should log a warning."""
+
+    class _NoMessagesAgent:
+        name = "bare_agent"
+
+        async def invoke_async(self, prompt=None, **kwargs):
+            pass
+
+        def __call__(self, prompt=None, **kwargs):
+            pass
+
+        def stream_async(self, prompt=None, **kwargs):
+            return _mock_stream_async(
+                AgentResult(
+                    stop_reason="end_turn",
+                    message={"role": "assistant", "content": [{"text": "ok"}]},
+                    metrics=EventLoopMetrics(),
+                    state={},
+                )
+            )
+
+    agent = _NoMessagesAgent()
+    tool = AgentAsTool(agent, name="bare_agent", description="desc")
+
+    tool_use = {
+        "toolUseId": "tool-123",
+        "name": "bare_agent",
+        "input": {"input": "hello", "preserve_context": False},
+    }
+
+    with caplog.at_level(logging.WARNING, logger="strands.agent.agent_as_tool"):
+        async for _ in tool.stream(tool_use, {}):
+            pass
+
+    assert "preserve_context=false requested" in caplog.text
