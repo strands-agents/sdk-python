@@ -62,7 +62,7 @@ from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput, ConcurrentInvocationMode
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
-from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
+from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException, IdempotencyAbortedError
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
 from .base import AgentBase
@@ -469,8 +469,9 @@ class Agent(AgentBase):
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
             idempotency_token: Optional token for duplicate request detection. If provided in THROW mode
                 and another invocation with the same token is already inflight, the caller waits for the
-                original to complete and receives the same result. Can be any hashable object (string,
-                UUID, or even the prompt itself). Ignored in UNSAFE_REENTRANT mode.
+                original to complete and receives the same result. Duplicate callers receive only the
+                final AgentResult; intermediate streaming events are not replayed. Can be any hashable
+                object (string, UUID, or even the prompt itself). Ignored in UNSAFE_REENTRANT mode.
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -522,8 +523,9 @@ class Agent(AgentBase):
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
             idempotency_token: Optional token for duplicate request detection. If provided in THROW mode
                 and another invocation with the same token is already inflight, the caller waits for the
-                original to complete and receives the same result. Can be any hashable object (string,
-                UUID, or even the prompt itself). Ignored in UNSAFE_REENTRANT mode.
+                original to complete and receives the same result. Duplicate callers receive only the
+                final AgentResult; intermediate streaming events are not replayed. Can be any hashable
+                object (string, UUID, or even the prompt itself). Ignored in UNSAFE_REENTRANT mode.
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -761,8 +763,8 @@ class Agent(AgentBase):
         """Signal waiting duplicates and clean up idempotency state.
 
         Safe to call even when registered_token is None (no-op in that case).
-        If both result and error are None (e.g. original caller disconnected),
-        sets asyncio.CancelledError so duplicates receive a clear error.
+        If both result and error are None (e.g. primary lost a lock race or was cancelled),
+        sets IdempotencyAbortedError so duplicates receive a clear error.
 
         Args:
             registered_token: The token that was registered by _check_idempotency, or None.
@@ -787,7 +789,7 @@ class Agent(AgentBase):
         elif result is not None:
             inflight.result = result
         else:
-            inflight.error = asyncio.CancelledError("Primary invocation was cancelled before completion.")
+            inflight.error = IdempotencyAbortedError("Primary invocation was aborted before producing a result.")
         inflight.done.set()
 
     async def stream_async(
@@ -819,8 +821,9 @@ class Agent(AgentBase):
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
             idempotency_token: Optional token for duplicate request detection. If provided in THROW mode
                 and another invocation with the same token is already inflight, the caller waits for the
-                original to complete and receives the same result. Can be any hashable object (string,
-                UUID, or even the prompt itself). Ignored in UNSAFE_REENTRANT mode.
+                original to complete and receives the same result. Duplicate callers receive only the
+                final AgentResult; intermediate streaming events are not replayed. Can be any hashable
+                object (string, UUID, or even the prompt itself). Ignored in UNSAFE_REENTRANT mode.
             **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
@@ -860,10 +863,11 @@ class Agent(AgentBase):
         if self._concurrent_invocation_mode == ConcurrentInvocationMode.THROW:
             lock_acquired = self._invocation_lock.acquire(blocking=False)
             if not lock_acquired:
-                self._complete_idempotent_invocation(registered_token)
-                raise ConcurrencyException(
+                exc = ConcurrencyException(
                     "Agent is already processing a request. Concurrent invocations are not supported."
                 )
+                self._complete_idempotent_invocation(registered_token, error=exc)
+                raise exc
 
         result: AgentResult | None = None
 
