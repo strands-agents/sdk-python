@@ -294,14 +294,14 @@ class OpenAIResponsesModel(Model):
                             if hasattr(event, "response") and hasattr(event.response, "usage"):
                                 final_usage = event.response.usage
                             break
-            except openai.BadRequestError as e:
+            except openai.APIError as e:
                 if hasattr(e, "code") and e.code == "context_length_exceeded":
                     logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)
                     raise ContextWindowOverflowException(str(e)) from e
+                if isinstance(e, openai.RateLimitError):
+                    logger.warning(_RATE_LIMIT_MSG)
+                    raise ModelThrottledException(str(e)) from e
                 raise
-            except openai.RateLimitError as e:
-                logger.warning(_RATE_LIMIT_MSG)
-                raise ModelThrottledException(str(e)) from e
 
             # Close current content block if we had any
             if data_type:
