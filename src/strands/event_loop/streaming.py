@@ -435,7 +435,10 @@ async def process_stream(
                 content = state["message"].get("content", [])
                 if any("toolUse" in item for item in content):
                     logger.warning(
-                        "stop_reason override: end_turn -> tool_use (response contains toolUse blocks)"
+                        "original_stop_reason=<%s>, new_stop_reason=<%s> | "
+                        "overriding stop reason due to toolUse blocks in response",
+                        "end_turn",
+                        "tool_use",
                     )
                     stop_reason = "tool_use"
         elif "metadata" in chunk:

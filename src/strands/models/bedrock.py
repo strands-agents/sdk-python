@@ -834,9 +834,6 @@ class BedrockModel(Model):
                             for event in self._generate_redaction_events():
                                 callback(event)
 
-                    # The stop_reason override for end_turn -> tool_use is now
-                    # handled centrally in streaming.py so no model-specific
-                    # fixup is needed here.
                     callback(chunk)
 
             else:
@@ -976,17 +973,9 @@ class BedrockModel(Model):
             yield {"contentBlockStop": {}}
 
         # Yield messageStop event
-        # Fix stopReason for models that return end_turn when they should return tool_use on non-streaming side
-        current_stop_reason = response["stopReason"]
-        if current_stop_reason == "end_turn":
-            message_content = response["output"]["message"]["content"]
-            if any("toolUse" in content for content in message_content):
-                current_stop_reason = "tool_use"
-                logger.warning("Override stop reason from end_turn to tool_use")
-
         yield {
             "messageStop": {
-                "stopReason": current_stop_reason,
+                "stopReason": response["stopReason"],
                 "additionalModelResponseFields": response.get("additionalModelResponseFields"),
             }
         }
