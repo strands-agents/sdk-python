@@ -73,8 +73,8 @@ a2a = [
 ]
 
 bidi = [
-    "aws_sdk_bedrock_runtime; python_version>='3.12'",
-    "smithy-aws-core>=0.0.1; python_version>='3.12'",
+    "aws_sdk_bedrock_runtime>=0.4.0,<1.0.0; python_version>='3.12'",
+    "smithy-aws-core>=0.4.0,<1.0.0; python_version>='3.12'",
 ]
 bidi-io = [
     "prompt_toolkit>=3.0.0,<4.0.0",
