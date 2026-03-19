@@ -10,6 +10,7 @@ with the MCP service.
 import asyncio
 import base64
 import contextvars
+import json
 import logging
 import threading
 import uuid
