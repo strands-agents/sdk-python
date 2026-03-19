@@ -29,7 +29,6 @@ from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
 from ..tools._tool_helpers import generate_missing_tool_result_content
-
 from ._snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
     Snapshot,

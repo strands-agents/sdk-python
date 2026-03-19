@@ -54,7 +54,7 @@ class Snapshot:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "Snapshot":
+    def from_dict(cls, d: dict[str, Any]) -> Snapshot:
         """Reconstruct a Snapshot from a dict produced by to_dict().
 
         Raises:
@@ -109,9 +109,7 @@ def resolve_snapshot_fields(options: TakeSnapshotOptions) -> set[SnapshotField]:
         fields -= set(exclude)
 
     if not fields:
-        raise SnapshotException(
-            "No snapshot fields resolved. Provide a preset or at least one field in 'include'."
-        )
+        raise SnapshotException("No snapshot fields resolved. Provide a preset or at least one field in 'include'.")
 
     return fields
 

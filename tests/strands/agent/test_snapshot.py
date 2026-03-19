@@ -316,9 +316,11 @@ def test_missing_fields_leave_agent_unchanged(omitted_field):
 
 def test_import_snapshot_from_strands():
     from strands import Snapshot as S
+
     assert S is not None
 
 
 def test_import_snapshot_from_strands_types():
     from strands.types import Snapshot as S
+
     assert S is not None
