@@ -30,6 +30,16 @@ from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
 from ..tools._tool_helpers import generate_missing_tool_result_content
 
+from ._snapshot import (
+    SNAPSHOT_SCHEMA_VERSION,
+    Snapshot,
+    SnapshotField,
+    SnapshotPreset,
+    TakeSnapshotOptions,
+    _utc_now_iso,
+    resolve_snapshot_fields,
+)
+
 if TYPE_CHECKING:
     from ..tools import ToolProvider
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
@@ -60,7 +70,7 @@ from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput, ConcurrentInvocationMode
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
-from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
+from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException, SnapshotException
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
 from .base import AgentBase
@@ -1038,6 +1048,88 @@ class Agent(AgentBase):
         for message in messages:
             self.messages.append(message)
             await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
+
+    def take_snapshot(
+        self,
+        *,
+        preset: SnapshotPreset | None = None,
+        include: list[SnapshotField] | None = None,
+        exclude: list[SnapshotField] | None = None,
+        app_data: dict[str, Any] | None = None,
+    ) -> Snapshot:
+        """Capture current agent state as an in-memory snapshot.
+
+        Args:
+            preset: Named preset of fields to capture. Currently only "session" is supported,
+                which captures messages, state, conversation_manager_state, and interrupt_state.
+            include: Additional fields to capture on top of the preset.
+            exclude: Fields to remove after applying preset and include.
+            app_data: Application-owned arbitrary JSON stored verbatim in the snapshot.
+
+        Returns:
+            A Snapshot containing the captured agent state.
+
+        Raises:
+            SnapshotException: If no fields are resolved or an invalid field name is provided.
+        """
+        options: TakeSnapshotOptions = {}
+        if preset is not None:
+            options["preset"] = preset
+        if include is not None:
+            options["include"] = include
+        if exclude is not None:
+            options["exclude"] = exclude
+
+        fields = resolve_snapshot_fields(options)
+
+        data: dict[str, Any] = {}
+        if "messages" in fields:
+            data["messages"] = list(self.messages)
+        if "state" in fields:
+            data["state"] = self.state.get()
+        if "conversation_manager_state" in fields:
+            data["conversation_manager_state"] = self.conversation_manager.get_state()
+        if "interrupt_state" in fields:
+            data["interrupt_state"] = self._interrupt_state.to_dict()
+        if "system_prompt" in fields:
+            data["system_prompt"] = self._system_prompt_content
+
+        return Snapshot(
+            schema_version=SNAPSHOT_SCHEMA_VERSION,
+            created_at=_utc_now_iso(),
+            data=data,
+            app_data=app_data or {},
+        )
+
+    def load_snapshot(self, snapshot: Snapshot) -> None:
+        """Restore agent state from a previously captured snapshot.
+
+        Only fields present in snapshot.data are restored; absent fields are left unchanged.
+
+        Args:
+            snapshot: The snapshot to restore from.
+
+        Raises:
+            SnapshotException: If snapshot.schema_version is not "1.0".
+        """
+        if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION:
+            raise SnapshotException(
+                f"Unsupported snapshot schema version: {snapshot.schema_version!r}. "
+                f"Current version: {SNAPSHOT_SCHEMA_VERSION}"
+            )
+
+        data = snapshot.data
+
+        if "messages" in data:
+            self.messages = data["messages"]
+        if "state" in data:
+            self.state = AgentState(data["state"])
+        if "conversation_manager_state" in data:
+            self.conversation_manager.restore_from_session(data["conversation_manager_state"])
+        if "interrupt_state" in data:
+            self._interrupt_state = _InterruptState.from_dict(data["interrupt_state"])
+        if "system_prompt" in data:
+            self.system_prompt = data["system_prompt"]
 
     def _redact_user_content(self, content: list[ContentBlock], redact_message: str) -> list[ContentBlock]:
         """Redact user content preserving toolResult blocks.
