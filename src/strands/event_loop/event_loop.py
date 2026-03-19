@@ -560,8 +560,9 @@ async def _handle_tool_execution(
     if cycle_span:
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
 
+    agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+
     if invocation_state["request_state"].get("stop_event_loop", False) or structured_output_context.stop_loop:
-        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
         yield EventLoopStopEvent(
             stop_reason,
             message,

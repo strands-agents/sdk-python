@@ -51,6 +51,7 @@ from ..types._events import (
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
+from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
@@ -1158,7 +1159,7 @@ class Graph(MultiAgentBase):
             "interrupted_nodes": [n.node_id for n in self.state.interrupted_nodes],
             "node_results": {k: v.to_dict() for k, v in (self.state.results or {}).items()},
             "next_nodes_to_execute": next_nodes,
-            "current_task": self.state.task,
+            "current_task": encode_bytes_values(self.state.task),
             "execution_order": [n.node_id for n in self.state.execution_order],
             "_internal_state": {
                 "interrupt_state": self._interrupt_state.to_dict(),
@@ -1248,7 +1249,7 @@ class Graph(MultiAgentBase):
         self.state.execution_order = [self.nodes[node_id] for node_id in order_node_ids if node_id in self.nodes]
 
         # Task
-        self.state.task = payload.get("current_task", self.state.task)
+        self.state.task = decode_bytes_values(payload.get("current_task", self.state.task))
 
         # next nodes to execute
         next_nodes = [self.nodes[nid] for nid in (payload.get("next_nodes_to_execute") or []) if nid in self.nodes]
