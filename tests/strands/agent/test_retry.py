@@ -170,6 +170,8 @@ async def test_model_retry_strategy_no_retry_on_success():
         stop_response=AfterModelCallEvent.ModelStopResponse(
             message={"role": "assistant", "content": [{"text": "Success"}]},
             stop_reason="end_turn",
+            usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+            metrics={"latencyMs": 100},
         ),
     )
 
@@ -203,6 +205,8 @@ async def test_model_retry_strategy_reset_on_success(mock_sleep):
         stop_response=AfterModelCallEvent.ModelStopResponse(
             message={"role": "assistant", "content": [{"text": "Success"}]},
             stop_reason="end_turn",
+            usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+            metrics={"latencyMs": 100},
         ),
     )
     await strategy._handle_after_model_call(event2)
@@ -281,6 +285,8 @@ async def test_model_retry_strategy_backwards_compatible_event_cleared_on_succes
         stop_response=AfterModelCallEvent.ModelStopResponse(
             message={"role": "assistant", "content": [{"text": "Success"}]},
             stop_reason="end_turn",
+            usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+            metrics={"latencyMs": 100},
         ),
     )
 
