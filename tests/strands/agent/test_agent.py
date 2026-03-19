@@ -3141,7 +3141,7 @@ def test_idempotency_no_deadlock_on_competing_token():
     t2.start()
     agent.duplicate_detected.wait()
 
-    # T3 arrives with a different token — must get ConcurrencyException, not corrupt T1's state
+    # T3 arrives with a different token - must get ConcurrencyException, not corrupt T1's state
     t3 = threading.Thread(target=invoke_def)
     t3.start()
     t3.join(timeout=2.0)
@@ -3152,8 +3152,8 @@ def test_idempotency_no_deadlock_on_competing_token():
     t1.join(timeout=5.0)
     t2.join(timeout=5.0)
 
-    assert not t1.is_alive(), "T1 hung — possible deadlock"
-    assert not t2.is_alive(), "T2 hung — deadlock: waiting duplicate never woke up"
+    assert not t1.is_alive(), "T1 hung - possible deadlock"
+    assert not t2.is_alive(), "T2 hung - deadlock: waiting duplicate never woke up"
 
     abc_results = [r for name, r in results if name == "abc"]
     assert len(abc_results) == 2, f"Expected T1 and T2 both to succeed, got results={results} errors={errors}"
