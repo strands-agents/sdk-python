@@ -799,6 +799,10 @@ class Agent(AgentBase):
         with self._inflight_invocations_lock:
             if self._inflight_idempotency_token == idempotency_token:
                 return self._inflight_invocation, None
+            elif self._inflight_idempotency_token is not None:
+                # A different token is already inflight; don't overwrite it.
+                # Fall through to the _invocation_lock check which will raise ConcurrencyException.
+                return None, None
             else:
                 self._inflight_invocation = _InflightInvocation()
                 self._inflight_idempotency_token = idempotency_token
@@ -825,6 +829,8 @@ class Agent(AgentBase):
             return
 
         with self._inflight_invocations_lock:
+            if self._inflight_idempotency_token != registered_token:
+                return  # Another invocation owns the slot; don't touch it.
             inflight = self._inflight_invocation
             self._inflight_idempotency_token = None
             self._inflight_invocation = None
