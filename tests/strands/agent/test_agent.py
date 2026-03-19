@@ -3001,3 +3001,71 @@ def test_idempotency_with_prompt_as_token():
     assert len(errors) == 0, f"Expected 0 errors, got {len(errors)}: {errors}"
     assert len(results) == 2, f"Expected 2 results, got {len(results)}"
     assert str(results[0]) == str(results[1])
+
+
+def test_idempotency_no_deadlock_on_competing_token():
+    """A 3rd thread with a different token must not prevent a waiting duplicate from waking up.
+
+    T1 runs with token "abc" → T2 (same token) waits as duplicate → T3 arrives with token "def"
+    and gets ConcurrencyException. T1 then completes and T2 must receive the result, not hang.
+    """
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "hello"}]},
+            {"role": "assistant", "content": [{"text": "world"}]},
+        ]
+    )
+    agent = IdempotencyTestAgent(model=model, concurrent_invocation_mode="throw")
+
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke_abc():
+        try:
+            result = agent("test", idempotency_token="abc")
+            with lock:
+                results.append(("abc", result))
+        except Exception as e:
+            with lock:
+                errors.append(e)
+
+    def invoke_def():
+        try:
+            result = agent("test", idempotency_token="def")
+            with lock:
+                results.append(("def", result))
+        except Exception as e:
+            with lock:
+                errors.append(e)
+
+    # T1 starts and pauses inside the model
+    t1 = threading.Thread(target=invoke_abc)
+    t1.start()
+    model.started_event.wait()
+
+    # T2 detects duplicate and waits
+    t2 = threading.Thread(target=invoke_abc)
+    t2.start()
+    agent.duplicate_detected.wait()
+
+    # T3 arrives with a different token — must get ConcurrencyException, not corrupt T1's state
+    t3 = threading.Thread(target=invoke_def)
+    t3.start()
+    t3.join(timeout=2.0)
+    assert not t3.is_alive(), "T3 should have returned quickly with ConcurrencyException"
+
+    # Unblock T1; T2 must wake up (not hang)
+    model.proceed_event.set()
+    t1.join(timeout=5.0)
+    t2.join(timeout=5.0)
+
+    assert not t1.is_alive(), "T1 hung — possible deadlock"
+    assert not t2.is_alive(), "T2 hung — deadlock: waiting duplicate never woke up"
+
+    abc_results = [r for name, r in results if name == "abc"]
+    assert len(abc_results) == 2, f"Expected T1 and T2 both to succeed, got results={results} errors={errors}"
+    assert str(abc_results[0]) == str(abc_results[1])
+
+    concurrency_errors = [e for e in errors if isinstance(e, ConcurrencyException)]
+    assert len(concurrency_errors) == 1, f"Expected exactly 1 ConcurrencyException for T3, got {errors}"
