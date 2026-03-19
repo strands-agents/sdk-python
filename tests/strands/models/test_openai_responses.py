@@ -654,6 +654,26 @@ async def test_stream_context_overflow_exception(openai_client, model, messages)
 
 
 @pytest.mark.asyncio
+async def test_stream_context_overflow_exception_api_error_type(openai_client, model, messages):
+    """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
+    mock_error = openai.APIError(
+        message="This model's maximum context length is 4096 tokens.",
+        request=unittest.mock.MagicMock(),
+        body={"error": {"code": "context_length_exceeded"}},
+    )
+    mock_error.code = "context_length_exceeded"
+
+    openai_client.responses.create.side_effect = mock_error
+
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    assert "maximum context length" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
 async def test_stream_rate_limit_as_throttle(openai_client, model, messages):
     """Test that rate limit errors are converted to ModelThrottledException."""
     mock_error = openai.RateLimitError(
