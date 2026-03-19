@@ -58,7 +58,6 @@ def mock_model(request):
     mock = unittest.mock.Mock(spec=getattr(request, "param", None))
     mock.configure_mock(mock_stream=unittest.mock.MagicMock())
     mock.stream.side_effect = stream
-    mock.stateful = False
 
     return mock
 
@@ -216,6 +215,42 @@ class SyncEventMockedModel(MockedModelProvider):
         self.proceed_event.wait()
         async for event in super().stream(messages, tool_specs, system_prompt, tool_choice, **kwargs):
             yield event
+
+
+class SyncEventFailingModel:
+    """A mock model that signals when streaming starts, then raises an error.
+
+    Used for testing idempotency behavior when the original invocation fails.
+    """
+
+    def __init__(self):
+        self.started_event = threading.Event()
+        self.proceed_event = threading.Event()
+
+    async def stream(self, *args, **kwargs):
+        self.started_event.set()
+        self.proceed_event.wait()
+        raise RuntimeError("Simulated model failure")
+        yield  # noqa: RET503 - makes this an async generator
+
+
+class IdempotencyTestAgent(Agent):
+    """Agent subclass that signals when a duplicate idempotency token is detected.
+
+    Pairs with SyncEventMockedModel to provide deterministic two-thread synchronization:
+    the model pauses Thread 1 inside stream(), and this class signals when Thread 2
+    has reached _check_idempotency and been identified as a duplicate.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.duplicate_detected = threading.Event()
+
+    def _check_idempotency(self, idempotency_token):
+        result = super()._check_idempotency(idempotency_token)
+        if result[0] is not None:
+            self.duplicate_detected.set()
+        return result
 
 
 def test_agent__init__tool_loader_format(tool_decorated, tool_module, tool_imported, tool_registry):
@@ -3126,3 +3161,71 @@ def test_idempotency_no_deadlock_on_competing_token():
 
     concurrency_errors = [e for e in errors if isinstance(e, ConcurrencyException)]
     assert len(concurrency_errors) == 1, f"Expected exactly 1 ConcurrencyException for T3, got {errors}"
+
+
+def test_idempotency_multiple_duplicates_all_wake_up():
+    """Test that multiple duplicates waiting on the same token all receive the result."""
+    model = SyncEventMockedModel(
+        [
+            {"role": "assistant", "content": [{"text": "hello"}]},
+        ]
+    )
+    agent = IdempotencyTestAgent(model=model, concurrent_invocation_mode="throw")
+
+    results = []
+    errors = []
+    lock = threading.Lock()
+
+    def invoke():
+        try:
+            result = agent("test", idempotency_token="abc")
+            with lock:
+                results.append(result)
+        except Exception as e:
+            with lock:
+                errors.append(e)
+
+    # T1 is the primary
+    t1 = threading.Thread(target=invoke)
+    t1.start()
+    model.started_event.wait()
+
+    # T2 and T3 are both duplicates waiting on the same token
+    t2 = threading.Thread(target=invoke)
+    t2.start()
+    agent.duplicate_detected.wait()
+    agent.duplicate_detected.clear()
+
+    t3 = threading.Thread(target=invoke)
+    t3.start()
+    agent.duplicate_detected.wait()
+
+    model.proceed_event.set()
+    t1.join()
+    t2.join()
+    t3.join()
+
+    assert len(errors) == 0, f"Expected 0 errors, got {len(errors)}: {errors}"
+    assert len(results) == 3, f"Expected 3 results (T1, T2, T3), got {len(results)}"
+    assert str(results[0]) == str(results[1]) == str(results[2])
+
+
+def test_idempotency_cleanup_after_failure():
+    """Test that after a failure, the same token is treated as a fresh request."""
+    fail_model = SyncEventFailingModel()
+    agent = Agent(model=fail_model, concurrent_invocation_mode="throw")
+
+    # First call fails
+    with pytest.raises(RuntimeError, match="Simulated model failure"):
+        fail_model.proceed_event.set()
+        agent("test", idempotency_token="abc")
+
+    # Second call with the same token should run fresh, not be treated as a duplicate
+    success_model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "recovered"}]},
+        ]
+    )
+    agent.model = success_model
+    result = agent("test", idempotency_token="abc")
+    assert str(result).strip() == "recovered"
