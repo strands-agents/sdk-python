@@ -166,8 +166,13 @@ class A2AServer:
             list[AgentSkill]: A list of skills this agent provides.
         """
         return [
-            AgentSkill(name=config["name"], id=config["name"], description=config["description"], tags=[])
-            for config in self.strands_agent.tool_registry.get_all_tools_config().values()
+            AgentSkill(
+                name=tool.tool_name,
+                id=tool.tool_name,
+                description=tool.tool_spec["description"],
+                tags=tool.tags,
+            )
+            for tool in self.strands_agent.tool_registry.get_all_tools().values()
         ]
 
     @property
