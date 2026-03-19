@@ -89,6 +89,13 @@ def test_init_s3_session_manager_with_existing_user_agent(mocked_aws, s3_bucket)
     assert "strands-agents" in session_manager.client.meta.config.user_agent_extra
 
 
+def test_init_s3_session_manager_with_endpoint_url(mocked_aws, s3_bucket, monkeypatch):
+    custom_endpoint = "http://localhost:9000"
+    monkeypatch.setenv("MOTO_S3_CUSTOM_ENDPOINTS", custom_endpoint)
+    session_manager = S3SessionManager(session_id="test", bucket=s3_bucket, endpoint_url=custom_endpoint)
+    assert session_manager.client.meta.endpoint_url == custom_endpoint
+
+
 def test_empty_prefix_session_roundtrip(mocked_aws, s3_bucket, sample_session, sample_agent):
     """Test that session data can be written and read back with default empty prefix."""
     manager = S3SessionManager(session_id="test", bucket=s3_bucket, prefix="", region_name="us-west-2")
