@@ -671,11 +671,11 @@ class MCPClient(ToolProvider):
 
     def _handle_tool_execution_error(self, tool_use_id: str, exception: Exception) -> MCPToolResult:
         """Create error ToolResult with consistent logging and elicitation callback support.
-    
+
         Args:
             tool_use_id: Unique identifier for this tool use.
             exception: The exception that occurred during tool execution.
-    
+
         Returns:
             MCPToolResult: Error result containing either the elicitation data or the
                 original exception message.
@@ -684,22 +684,17 @@ class MCPClient(ToolProvider):
             try:
                 error_data = ElicitationRequiredErrorData.model_validate(exception.error.data)
                 elicitations = [e.model_dump(exclude_none=True) for e in error_data.elicitations]
-    
+
                 return MCPToolResult(
                     status="error",
                     toolUseId=tool_use_id,
                     content=[
-                        {
-                            "text": (
-                                f"MCP Elicitation required: [{str(exception)}] "
-                                f"with data {json.dumps(elicitations)}"
-                            )
-                        }
+                        {"text": (f"MCP Elicitation required: [{str(exception)}] with data {json.dumps(elicitations)}")}
                     ],
                 )
             except Exception:
                 logger.debug("Failed to parse ElicitationRequiredErrorData from -32042 error", exc_info=True)
-    
+
         return MCPToolResult(
             status="error",
             toolUseId=tool_use_id,
