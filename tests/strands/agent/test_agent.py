@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 import strands
 from strands import Agent, Plugin, ToolContext
-from strands.agent import AgentResult
+from strands.agent import AgentAsTool, AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
@@ -2699,3 +2699,52 @@ def test_agent_plugins_can_register_hooks():
 
     agent("test")
     assert len(hook_called) == 1
+
+
+def test_as_tool_returns_agent_tool():
+    """Test that as_tool returns an AgentAsTool wrapping the agent."""
+    agent = Agent(name="researcher", description="Finds information")
+    tool = agent.as_tool()
+
+    assert isinstance(tool, AgentAsTool)
+    assert tool.agent is agent
+
+
+def test_as_tool_defaults_name_from_agent():
+    """Test that as_tool defaults the tool name to the agent's name."""
+    agent = Agent(name="researcher")
+    tool = agent.as_tool()
+
+    assert tool.tool_name == "researcher"
+
+
+def test_as_tool_defaults_description_from_agent():
+    """Test that as_tool defaults the description to the agent's description."""
+    agent = Agent(name="researcher", description="Finds information")
+    tool = agent.as_tool()
+
+    assert tool.tool_spec["description"] == "Finds information"
+
+
+def test_as_tool_custom_name():
+    """Test that as_tool accepts a custom name."""
+    agent = Agent(name="researcher")
+    tool = agent.as_tool(name="custom_name")
+
+    assert tool.tool_name == "custom_name"
+
+
+def test_as_tool_custom_description():
+    """Test that as_tool accepts a custom description."""
+    agent = Agent(name="researcher", description="Original")
+    tool = agent.as_tool(description="Custom description")
+
+    assert tool.tool_spec["description"] == "Custom description"
+
+
+def test_as_tool_defaults_description_when_agent_has_none():
+    """Test that as_tool generates a default description when agent has none."""
+    agent = Agent(name="researcher")
+    tool = agent.as_tool()
+
+    assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"
