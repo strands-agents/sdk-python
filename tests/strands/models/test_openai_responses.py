@@ -634,6 +634,54 @@ async def test_structured_output(openai_client, model, test_output_model_cls, al
 
 
 @pytest.mark.asyncio
+async def test_structured_output_passes_config_params(openai_client, test_output_model_cls, alist):
+    """Test that structured_output passes config params (max_output_tokens, reasoning, etc.) to responses.parse."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-5.4",
+        params={
+            "max_output_tokens": 500,
+            "reasoning": {"effort": "high"},
+        },
+    )
+
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    mock_parsed_instance = test_output_model_cls(name="Alice", age=25)
+    mock_response = unittest.mock.Mock(output_parsed=mock_parsed_instance)
+    openai_client.responses.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    events = await alist(model.structured_output(test_output_model_cls, messages))
+
+    assert events[-1] == {"output": test_output_model_cls(name="Alice", age=25)}
+
+    call_kwargs = openai_client.responses.parse.call_args.kwargs
+    assert call_kwargs["model"] == "gpt-5.4"
+    assert call_kwargs["text_format"] == test_output_model_cls
+    assert call_kwargs["max_output_tokens"] == 500
+    assert call_kwargs["reasoning"] == {"effort": "high"}
+    assert "stream" not in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_structured_output_passes_instructions(openai_client, test_output_model_cls, alist):
+    """Test that structured_output passes system_prompt as instructions to responses.parse."""
+    model = OpenAIResponsesModel(model_id="gpt-4o")
+
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    mock_parsed_instance = test_output_model_cls(name="Bob", age=40)
+    mock_response = unittest.mock.Mock(output_parsed=mock_parsed_instance)
+    openai_client.responses.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    events = await alist(model.structured_output(test_output_model_cls, messages, system_prompt="Be helpful"))
+
+    assert events[-1] == {"output": test_output_model_cls(name="Bob", age=40)}
+
+    call_kwargs = openai_client.responses.parse.call_args.kwargs
+    assert call_kwargs["instructions"] == "Be helpful"
+
+
+@pytest.mark.asyncio
 async def test_stream_context_overflow_exception(openai_client, model, messages):
     """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
     mock_error = openai.BadRequestError(
