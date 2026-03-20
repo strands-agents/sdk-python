@@ -530,10 +530,28 @@ def test_handle_content_block_stop(state, exp_updated_state):
 def test_handle_message_stop():
     event: MessageStopEvent = {"stopReason": "end_turn"}
 
-    tru_reason = strands.event_loop.streaming.handle_message_stop(event)
+    tru_reason = strands.event_loop.streaming.handle_message_stop(event, [])
     exp_reason = "end_turn"
 
     assert tru_reason == exp_reason
+
+
+def test_handle_message_stop_overrides_end_turn_when_tool_use_present():
+    event: MessageStopEvent = {"stopReason": "end_turn"}
+    content = [{"toolUse": {"toolUseId": "t1", "name": "myTool", "input": {}}}]
+
+    tru_reason = strands.event_loop.streaming.handle_message_stop(event, content)
+
+    assert tru_reason == "tool_use"
+
+
+def test_handle_message_stop_keeps_tool_use_unchanged():
+    event: MessageStopEvent = {"stopReason": "tool_use"}
+    content = [{"toolUse": {"toolUseId": "t1", "name": "myTool", "input": {}}}]
+
+    tru_reason = strands.event_loop.streaming.handle_message_stop(event, content)
+
+    assert tru_reason == "tool_use"
 
 
 def test_extract_usage_metrics():
