@@ -39,10 +39,7 @@ def mock_sleep():
 
 
 any_props = {
-    "agent": ANY,
     "event_loop_cycle_id": ANY,
-    "event_loop_cycle_span": ANY,
-    "event_loop_cycle_trace": ANY,
     "request_state": {},
 }
 
@@ -177,7 +174,6 @@ async def test_stream_e2e_success(alist):
             "delta": {"text": "Invoking async tool"},
             "event_loop_parent_cycle_id": ANY,
             "messages": ANY,
-            "model": ANY,
             "system_prompt": None,
             "tool_config": tool_config,
         },
@@ -191,7 +187,6 @@ async def test_stream_e2e_success(alist):
             "delta": {"toolUse": {"input": "{}"}},
             "event_loop_parent_cycle_id": ANY,
             "messages": ANY,
-            "model": ANY,
             "system_prompt": None,
             "tool_config": tool_config,
             "type": "tool_use_stream",
@@ -235,7 +230,6 @@ async def test_stream_e2e_success(alist):
             "delta": {"text": "Invoking streaming tool"},
             "event_loop_parent_cycle_id": ANY,
             "messages": ANY,
-            "model": ANY,
             "system_prompt": None,
             "tool_config": tool_config,
         },
@@ -249,7 +243,6 @@ async def test_stream_e2e_success(alist):
             "delta": {"toolUse": {"input": "{}"}},
             "event_loop_parent_cycle_id": ANY,
             "messages": ANY,
-            "model": ANY,
             "system_prompt": None,
             "tool_config": tool_config,
             "type": "tool_use_stream",
@@ -301,7 +294,6 @@ async def test_stream_e2e_success(alist):
             "delta": {"text": "I invoked the tools!"},
             "event_loop_parent_cycle_id": ANY,
             "messages": ANY,
-            "model": ANY,
             "system_prompt": None,
             "tool_config": tool_config,
         },
