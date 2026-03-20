@@ -28,6 +28,7 @@ from strands.types.exceptions import (
     MaxTokensReachedException,
     ModelThrottledException,
 )
+from strands.types.tools import ToolContext
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
@@ -1035,6 +1036,77 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
         "interrupts": {},
     }
     assert tru_state == exp_state
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_cascaded_interrupt_resume(agent, model, tool_registry, agenerator, alist):
+    sub_agent_interrupt = Interrupt(
+        id="sub_agent:interrupt:approval",
+        name="approval",
+        reason="approval required",
+    )
+    sub_agent_responses = {}
+
+    @strands.tool(context=True)
+    def run_sub_agent(query: str, tool_context: ToolContext) -> str:
+        responses = tool_context.get_cascaded_interrupt_responses()
+        if responses is None:
+            tool_context.cascade_interrupts([sub_agent_interrupt])
+
+        sub_agent_responses["query"] = query
+        sub_agent_responses["responses"] = responses
+        return "approved"
+
+    tool_registry.register_tool(run_sub_agent)
+
+    model.stream.side_effect = [
+        agenerator(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": run_sub_agent.tool_spec["name"],
+                            }
+                        },
+                    }
+                },
+                {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"query": "delete X"}'}}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "completed"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
+    ]
+
+    first_events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+    first_stop_reason, _, _, _, first_interrupts, _ = first_events[-1]["stop"]
+    assert first_stop_reason == "interrupt"
+    assert first_interrupts == [sub_agent_interrupt]
+    assert agent._interrupt_state.context["cascaded:t1"] == [sub_agent_interrupt.id]
+
+    agent._interrupt_state.resume(
+        [{"interruptResponse": {"interruptId": sub_agent_interrupt.id, "response": "approved"}}]
+    )
+
+    second_events = await alist(strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={}))
+    second_stop_reason, _, _, _, _, _ = second_events[-1]["stop"]
+    assert second_stop_reason == "end_turn"
+    assert sub_agent_responses["responses"] == [
+        {"interruptResponse": {"interruptId": sub_agent_interrupt.id, "response": "approved"}}
+    ]
+    assert agent.messages[-2]["content"][0]["toolResult"]["content"][0]["text"] == "approved"
+    assert agent._interrupt_state.to_dict() == {
+        "activated": False,
+        "context": {},
+        "interrupts": {},
+    }
 
 
 @pytest.mark.asyncio
