@@ -285,6 +285,8 @@ class Tracer:
         parent_span: Span | None = None,
         model_id: str | None = None,
         custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
+        system_prompt: str | None = None,
+        system_prompt_content: list | None = None,
         **kwargs: Any,
     ) -> Span:
         """Start a new span for a model invocation.
@@ -294,6 +296,8 @@ class Tracer:
             parent_span: Optional parent span to link this span to.
             model_id: Optional identifier for the model being invoked.
             custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
+            system_prompt: Optional system prompt string provided to the model.
+            system_prompt_content: Optional list of system prompt content blocks.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -311,6 +315,7 @@ class Tracer:
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
         span = self._start_span("chat", parent_span, attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL)
+        self._add_system_prompt_event(span, system_prompt, system_prompt_content)
         self._add_event_messages(span, messages)
 
         return span
@@ -812,6 +817,44 @@ class Tracer:
                 }
             )
         return dict(common_attributes)
+
+    def _add_system_prompt_event(
+        self,
+        span: Span,
+        system_prompt: str | None = None,
+        system_prompt_content: list | None = None,
+    ) -> None:
+        """Emit system prompt as a span event per OTel GenAI semantic conventions.
+
+        In legacy mode (v1.36), emits a ``gen_ai.system.message`` event.
+        In latest experimental mode, emits ``gen_ai.system_instructions`` on the
+        ``gen_ai.client.inference.operation.details`` event, since Strands passes
+        system instructions separately from chat history.
+
+        Args:
+            span: The span to add the event to.
+            system_prompt: Optional system prompt string.
+            system_prompt_content: Optional list of system prompt content blocks.
+        """
+        if not system_prompt and not system_prompt_content:
+            return
+
+        content_blocks = system_prompt_content if system_prompt_content else [{"text": system_prompt}]
+
+        if self.use_latest_genai_conventions:
+            parts = self._map_content_blocks_to_otel_parts(content_blocks)
+            self._add_event(
+                span,
+                "gen_ai.client.inference.operation.details",
+                {"gen_ai.system_instructions": serialize(parts)},
+                to_span_attributes=self.is_langfuse,
+            )
+        else:
+            self._add_event(
+                span,
+                "gen_ai.system.message",
+                {"content": serialize(content_blocks)},
+            )
 
     def _add_event_messages(self, span: Span, messages: Messages) -> None:
         """Adds messages as event to the provided span based on the current GenAI conventions.

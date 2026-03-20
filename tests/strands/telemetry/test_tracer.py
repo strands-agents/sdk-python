@@ -140,9 +140,14 @@ def test_start_model_invoke_span(mock_tracer):
         messages = [{"role": "user", "content": [{"text": "Hello"}]}]
         model_id = "test-model"
         custom_attrs = {"custom_key": "custom_value", "user_id": "12345"}
+        system_prompt = "You are a helpful assistant"
 
         span = tracer.start_model_invoke_span(
-            messages=messages, agent_name="TestAgent", model_id=model_id, custom_trace_attributes=custom_attrs
+            messages=messages,
+            agent_name="TestAgent",
+            model_id=model_id,
+            custom_trace_attributes=custom_attrs,
+            system_prompt=system_prompt,
         )
 
         mock_tracer.start_span.assert_called_once()
@@ -158,9 +163,14 @@ def test_start_model_invoke_span(mock_tracer):
                 "agent_name": "TestAgent",
             }
         )
-        mock_span.add_event.assert_called_with(
-            "gen_ai.user.message", attributes={"content": json.dumps(messages[0]["content"])}
+
+        calls = mock_span.add_event.call_args_list
+        assert len(calls) == 2
+        assert calls[0] == mock.call(
+            "gen_ai.system.message",
+            attributes={"content": serialize([{"text": system_prompt}])},
         )
+        assert calls[1] == mock.call("gen_ai.user.message", attributes={"content": json.dumps(messages[0]["content"])})
         assert span is not None
 
 
@@ -184,8 +194,11 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer, monkeypatch):
             },
         ]
         model_id = "test-model"
+        system_prompt = "You are a calculator assistant"
 
-        span = tracer.start_model_invoke_span(messages=messages, agent_name="TestAgent", model_id=model_id)
+        span = tracer.start_model_invoke_span(
+            messages=messages, agent_name="TestAgent", model_id=model_id, system_prompt=system_prompt
+        )
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "chat"
@@ -199,7 +212,16 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer, monkeypatch):
                 "agent_name": "TestAgent",
             }
         )
-        mock_span.add_event.assert_called_with(
+
+        calls = mock_span.add_event.call_args_list
+        assert len(calls) == 2
+        assert calls[0] == mock.call(
+            "gen_ai.client.inference.operation.details",
+            attributes={
+                "gen_ai.system_instructions": serialize([{"type": "text", "content": system_prompt}]),
+            },
+        )
+        assert calls[1] == mock.call(
             "gen_ai.client.inference.operation.details",
             attributes={
                 "gen_ai.input.messages": serialize(
@@ -222,6 +244,54 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer, monkeypatch):
                     ]
                 )
             },
+        )
+        assert span is not None
+
+
+def test_start_model_invoke_span_without_system_prompt(mock_tracer):
+    """Test that no system prompt event is emitted when system_prompt is None."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+
+        span = tracer.start_model_invoke_span(messages=messages, model_id="test-model")
+
+        assert mock_span.add_event.call_count == 1
+        mock_span.add_event.assert_called_once_with(
+            "gen_ai.user.message", attributes={"content": json.dumps(messages[0]["content"])}
+        )
+        assert span is not None
+
+
+def test_start_model_invoke_span_with_system_prompt_content(mock_tracer):
+    """Test that system_prompt_content takes priority over system_prompt string."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+        system_prompt_content = [{"text": "You are helpful"}, {"text": "Be concise"}]
+
+        span = tracer.start_model_invoke_span(
+            messages=messages,
+            model_id="test-model",
+            system_prompt="ignored string",
+            system_prompt_content=system_prompt_content,
+        )
+
+        calls = mock_span.add_event.call_args_list
+        assert len(calls) == 2
+        assert calls[0] == mock.call(
+            "gen_ai.system.message",
+            attributes={"content": serialize(system_prompt_content)},
         )
         assert span is not None
 
