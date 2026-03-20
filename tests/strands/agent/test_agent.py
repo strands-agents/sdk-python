@@ -2699,3 +2699,32 @@ def test_agent_plugins_can_register_hooks():
 
     agent("test")
     assert len(hook_called) == 1
+
+
+def test_agent_clear():
+    """Test that Agent.clear() removes conversation history and resets metrics."""
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+    )
+
+    # Simulate a conversation
+    agent.messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi!"}]},
+    ]
+
+    agent.clear()
+
+    assert len(agent.messages) == 0
+
+
+def test_agent_clear_idempotent():
+    """Test that clear() can be called multiple times safely."""
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+    )
+
+    agent.clear()
+    agent.clear()
+
+    assert len(agent.messages) == 0

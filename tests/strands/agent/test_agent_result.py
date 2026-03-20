@@ -370,3 +370,69 @@ def test__str__empty_interrupts_returns_agent_message(mock_metrics, simple_messa
 
     # Empty list is falsy, should fall through to text content
     assert message_string == "Hello world!\n"
+
+
+def test_text_property_returns_same_as_str(mock_metrics, simple_message: Message):
+    """Test that .text property returns the same value as str()."""
+    result = AgentResult(stop_reason="end_turn", message=simple_message, metrics=mock_metrics, state={})
+
+    assert result.text == str(result)
+    assert result.text == "Hello world!\n"
+
+
+def test_text_property_with_empty_message(mock_metrics, empty_message: Message):
+    """Test that .text returns empty string for empty message."""
+    result = AgentResult(stop_reason="end_turn", message=empty_message, metrics=mock_metrics, state={})
+
+    assert result.text == ""
+
+
+def test_text_property_with_complex_message(mock_metrics, complex_message: Message):
+    """Test that .text concatenates text blocks from complex messages."""
+    result = AgentResult(stop_reason="end_turn", message=complex_message, metrics=mock_metrics, state={})
+
+    assert result.text == str(result)
+    assert "First paragraph" in result.text
+    assert "Second paragraph" in result.text
+    assert "Third paragraph" in result.text
+
+
+def test_text_property_with_structured_output(mock_metrics, simple_message: Message):
+    """Test that .text returns structured output JSON when present."""
+    structured_output = StructuredOutputModel(name="test", value=42)
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=simple_message,
+        metrics=mock_metrics,
+        state={},
+        structured_output=structured_output,
+    )
+
+    assert result.text == str(result)
+    assert '"name": "test"' in result.text or '"name":"test"' in result.text
+
+
+def test_repr(mock_metrics, simple_message: Message):
+    """Test that __repr__ returns a useful debug representation."""
+    result = AgentResult(stop_reason="end_turn", message=simple_message, metrics=mock_metrics, state={})
+
+    repr_str = repr(result)
+
+    assert "AgentResult(" in repr_str
+    assert "end_turn" in repr_str
+    assert "Hello world!" in repr_str
+
+
+def test_repr_with_long_text(mock_metrics):
+    """Test that __repr__ truncates long text content."""
+    long_text = "A" * 200
+    long_message: Message = {"role": "assistant", "content": [{"text": long_text}]}
+
+    result = AgentResult(stop_reason="end_turn", message=long_message, metrics=mock_metrics, state={})
+
+    repr_str = repr(result)
+
+    assert "..." in repr_str
+    assert len(repr_str) < len(long_text) + 100  # Should be truncated
+    assert "AgentResult(" in repr_str
