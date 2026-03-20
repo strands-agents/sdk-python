@@ -186,6 +186,7 @@ class Tracer:
         attributes: dict[str, AttributeValue] | None = None,
         error: BaseException | None = None,
         error_message: str | None = None,
+        flush: bool = False,
     ) -> None:
         """Generic helper method to end a span.
 
@@ -194,6 +195,7 @@ class Tracer:
             attributes: Optional attributes to set before ending the span
             error: Optional exception if an error occurred
             error_message: Optional error message to set in the span status
+            flush: Force the tracer provider to flush after ending the span
         """
         if not span or not span.is_recording():
             return
@@ -217,8 +219,7 @@ class Tracer:
             logger.warning("error=<%s> | error while ending span", e, exc_info=True)
         finally:
             span.end()
-            # Force flush to ensure spans are exported
-            if self.tracer_provider and hasattr(self.tracer_provider, "force_flush"):
+            if flush and self.tracer_provider and hasattr(self.tracer_provider, "force_flush"):
                 try:
                     self.tracer_provider.force_flush()
                 except Exception as e:
@@ -699,7 +700,7 @@ class Tracer:
                     }
                 )
 
-        self._end_span(span, attributes, error)
+        self._end_span(span, attributes, error, flush=True)
 
     def _construct_tool_definitions(self, tools_config: dict) -> list[dict[str, Any]]:
         """Constructs a list of tool definitions from the provided tools_config."""
