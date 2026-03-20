@@ -9,6 +9,7 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
+import copy
 import logging
 import threading
 import warnings
@@ -1083,7 +1084,7 @@ class Agent(AgentBase):
 
         data: dict[str, Any] = {}
         if "messages" in fields:
-            data["messages"] = list(self.messages)
+            data["messages"] = copy.deepcopy(self.messages)
         if "state" in fields:
             data["state"] = self.state.get()
         if "conversation_manager_state" in fields:
@@ -1092,14 +1093,14 @@ class Agent(AgentBase):
             data["interrupt_state"] = self._interrupt_state.to_dict()
         if "system_prompt" in fields:
             # Store the content-block representation so round-trips preserve caching hints and
-            # other block-level metadata. The key name reflects what is actually stored.
-            data["system_prompt_content"] = self._system_prompt_content
+            # other block-level metadata.
+            data["system_prompt"] = self._system_prompt_content
 
         return Snapshot(
             schema_version=SNAPSHOT_SCHEMA_VERSION,
             created_at=_utc_now_iso(),
             data=data,
-            app_data=app_data or {},
+            app_data=copy.deepcopy(app_data) if app_data else {},
         )
 
     def load_snapshot(self, snapshot: Snapshot) -> None:
@@ -1118,15 +1119,15 @@ class Agent(AgentBase):
         data = snapshot.data
 
         if "messages" in data:
-            self.messages = data["messages"]
+            self.messages = copy.deepcopy(data["messages"])
         if "state" in data:
             self.state = AgentState(data["state"])
         if "conversation_manager_state" in data:
             self.conversation_manager.restore_from_session(data["conversation_manager_state"])
         if "interrupt_state" in data:
             self._interrupt_state = _InterruptState.from_dict(data["interrupt_state"])
-        if "system_prompt_content" in data:
-            self.system_prompt = data["system_prompt_content"]
+        if "system_prompt" in data:
+            self.system_prompt = copy.deepcopy(data["system_prompt"])
 
     def _redact_user_content(self, content: list[ContentBlock], redact_message: str) -> list[ContentBlock]:
         """Redact user content preserving toolResult blocks.
