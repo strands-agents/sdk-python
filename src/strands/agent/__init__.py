@@ -19,11 +19,16 @@ from .conversation_manager import (
     SlidingWindowConversationManager,
     SummarizingConversationManager,
 )
+from .state_machine import AgentExecutionState, AgentStateMachine, CHECKPOINT_STATES, InvalidStateTransitionError
 
 __all__ = [
     "Agent",
     "AgentBase",
     "AgentResult",
+    "AgentExecutionState",
+    "AgentStateMachine",
+    "CHECKPOINT_STATES",
+    "InvalidStateTransitionError",
     "ConversationManager",
     "NullConversationManager",
     "SlidingWindowConversationManager",

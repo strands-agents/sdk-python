@@ -37,6 +37,7 @@ from .events import (
     AfterNodeCallEvent,
     AfterToolCallEvent,
     AgentInitializedEvent,
+    AgentStateTransitionEvent,
     BeforeInvocationEvent,
     BeforeModelCallEvent,
     BeforeMultiAgentInvocationEvent,
@@ -49,6 +50,7 @@ from .registry import BaseHookEvent, HookCallback, HookEvent, HookProvider, Hook
 
 __all__ = [
     "AgentInitializedEvent",
+    "AgentStateTransitionEvent",
     "BeforeInvocationEvent",
     "BeforeToolCallEvent",
     "AfterToolCallEvent",
