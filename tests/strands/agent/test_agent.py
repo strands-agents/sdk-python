@@ -1423,6 +1423,27 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
     mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, error=test_exception)
 
 
+@pytest.mark.asyncio
+@unittest.mock.patch("strands.agent.agent.get_tracer")
+async def test_agent_stream_async_creates_and_ends_span_on_base_exception(mock_get_tracer, mock_model, alist):
+    """Test that stream_async ends the agent span when a BaseException occurs."""
+    mock_tracer = unittest.mock.MagicMock()
+    mock_span = unittest.mock.MagicMock()
+    mock_tracer.start_agent_span.return_value = mock_span
+    mock_get_tracer.return_value = mock_tracer
+
+    test_exception = KeyboardInterrupt("stop now")
+    mock_model.mock_stream.side_effect = test_exception
+
+    agent = Agent(model=mock_model)
+
+    with pytest.raises(KeyboardInterrupt, match="stop now"):
+        stream = agent.stream_async("test prompt")
+        await alist(stream)
+
+    mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, error=test_exception)
+
+
 def test_agent_init_with_state_object():
     agent = Agent(state=AgentState({"foo": "bar"}))
     assert agent.state.get("foo") == "bar"
