@@ -324,16 +324,31 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-def handle_message_stop(event: MessageStopEvent) -> StopReason:
+def handle_message_stop(event: MessageStopEvent, content: list[dict[str, Any]]) -> StopReason:
     """Handles the end of a message by returning the stop reason.
+
+    Some models return "end_turn" even when tool calls are present, which prevents the event loop from processing
+    those tool calls. This function overrides to "tool_use" so tool execution proceeds correctly.
 
     Args:
         event: Stop event.
+        content: The message content blocks accumulated during streaming.
 
     Returns:
         The reason for stopping the stream.
     """
-    return event["stopReason"]
+    stop_reason = event["stopReason"]
+
+    if stop_reason == "end_turn" and any("toolUse" in item for item in content):
+        logger.warning(
+            "original_stop_reason=<%s>, new_stop_reason=<%s> | "
+            "overriding stop reason due to toolUse blocks in response",
+            "end_turn",
+            "tool_use",
+        )
+        stop_reason = "tool_use"
+
+    return stop_reason
 
 
 def handle_redact_content(event: RedactContentEvent, state: dict[str, Any]) -> None:
@@ -427,7 +442,7 @@ async def process_stream(
         elif "contentBlockStop" in chunk:
             state = handle_content_block_stop(state)
         elif "messageStop" in chunk:
-            stop_reason = handle_message_stop(chunk["messageStop"])
+            stop_reason = handle_message_stop(chunk["messageStop"], state["message"].get("content", []))
         elif "metadata" in chunk:
             time_to_first_byte_ms = (
                 int(1000 * (first_byte_time - start_time)) if (start_time and first_byte_time) else None
