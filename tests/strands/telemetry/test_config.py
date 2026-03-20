@@ -231,3 +231,100 @@ def test_get_otel_resource_respects_otel_service_name(monkeypatch):
     resource = telemetry_config.get_otel_resource()
 
     assert resource.attributes.get("service.name") == "my-service"
+
+
+def test_init_disabled_programmatically(mock_resource):
+    """Test initializing telemetry with enabled=False."""
+    from opentelemetry.trace import NoOpTracerProvider
+
+    telemetry = StrandsTelemetry(enabled=False)
+
+    assert telemetry.enabled is False
+    assert isinstance(telemetry.tracer_provider, NoOpTracerProvider)
+
+
+def test_init_disabled_via_env_var_false(mock_resource, monkeypatch):
+    """Test disabling telemetry via STRANDS_OTEL_ENABLED=false."""
+    from opentelemetry.trace import NoOpTracerProvider
+
+    monkeypatch.setenv("STRANDS_OTEL_ENABLED", "false")
+    telemetry = StrandsTelemetry()
+
+    assert telemetry.enabled is False
+    assert isinstance(telemetry.tracer_provider, NoOpTracerProvider)
+
+
+def test_init_disabled_via_env_var_0(mock_resource, monkeypatch):
+    """Test disabling telemetry via STRANDS_OTEL_ENABLED=0."""
+    from opentelemetry.trace import NoOpTracerProvider
+
+    monkeypatch.setenv("STRANDS_OTEL_ENABLED", "0")
+    telemetry = StrandsTelemetry()
+
+    assert telemetry.enabled is False
+    assert isinstance(telemetry.tracer_provider, NoOpTracerProvider)
+
+
+def test_init_disabled_via_env_var_off(mock_resource, monkeypatch):
+    """Test disabling telemetry via STRANDS_OTEL_ENABLED=off."""
+    from opentelemetry.trace import NoOpTracerProvider
+
+    monkeypatch.setenv("STRANDS_OTEL_ENABLED", "off")
+    telemetry = StrandsTelemetry()
+
+    assert telemetry.enabled is False
+    assert isinstance(telemetry.tracer_provider, NoOpTracerProvider)
+
+
+def test_init_enabled_explicit(mock_resource, mock_tracer_provider, mock_set_tracer_provider, mock_set_global_textmap):
+    """Test that enabled=True explicitly enables telemetry."""
+    telemetry = StrandsTelemetry(enabled=True)
+
+    assert telemetry.enabled is True
+    mock_tracer_provider.assert_called()
+
+
+def test_init_enabled_overrides_env_var(
+    mock_resource, mock_tracer_provider, mock_set_tracer_provider, mock_set_global_textmap, monkeypatch
+):
+    """Test that explicit enabled=True overrides STRANDS_OTEL_ENABLED=false."""
+    monkeypatch.setenv("STRANDS_OTEL_ENABLED", "false")
+    telemetry = StrandsTelemetry(enabled=True)
+
+    assert telemetry.enabled is True
+    mock_tracer_provider.assert_called()
+
+
+def test_setup_console_exporter_noop_when_disabled(mock_resource, mock_console_exporter):
+    """Test that setup_console_exporter is a no-op when disabled."""
+    telemetry = StrandsTelemetry(enabled=False)
+    result = telemetry.setup_console_exporter()
+
+    mock_console_exporter.assert_not_called()
+    assert result is telemetry  # Should still return self for chaining
+
+
+def test_setup_otlp_exporter_noop_when_disabled(mock_resource, mock_otlp_exporter):
+    """Test that setup_otlp_exporter is a no-op when disabled."""
+    telemetry = StrandsTelemetry(enabled=False)
+    result = telemetry.setup_otlp_exporter()
+
+    mock_otlp_exporter.assert_not_called()
+    assert result is telemetry  # Should still return self for chaining
+
+
+def test_setup_meter_noop_when_disabled(mock_resource, mock_meter_provider, mock_metrics_api):
+    """Test that setup_meter is a no-op when disabled."""
+    telemetry = StrandsTelemetry(enabled=False)
+    result = telemetry.setup_meter(enable_console_exporter=True, enable_otlp_exporter=True)
+
+    mock_meter_provider.assert_not_called()
+    assert result is telemetry  # Should still return self for chaining
+
+
+def test_method_chaining_when_disabled(mock_resource):
+    """Test that method chaining still works when disabled."""
+    telemetry = StrandsTelemetry(enabled=False)
+    result = telemetry.setup_console_exporter().setup_otlp_exporter().setup_meter()
+
+    assert result is telemetry
