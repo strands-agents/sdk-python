@@ -680,6 +680,121 @@ async def test_event_loop_tracing_with_tool_execution(
     assert mock_tracer.end_model_invoke_span.call_count == 2
 
 
+@patch("strands.event_loop.event_loop.get_tracer")
+@pytest.mark.asyncio
+async def test_event_loop_cycle_closes_spans_on_stream_aclose(
+    mock_get_tracer,
+    agent,
+    model,
+    mock_tracer,
+):
+    mock_get_tracer.return_value = mock_tracer
+    cycle_span = MagicMock()
+    mock_tracer.start_event_loop_cycle_span.return_value = cycle_span
+    model_span = MagicMock()
+    mock_tracer.start_model_invoke_span.return_value = model_span
+
+    async def interrupted_stream():
+        yield {"contentBlockDelta": {"delta": {"text": "test text"}}}
+        await asyncio.sleep(10)
+        yield {"contentBlockStop": {}}
+
+    model.stream.return_value = interrupted_stream()
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state={},
+    )
+    await anext(stream)
+    await anext(stream)
+    await anext(stream)
+    await stream.aclose()
+
+    assert [call.args[0] for call in mock_tracer.end_span_with_error.call_args_list] == [model_span, cycle_span]
+    assert [call.args[1] for call in mock_tracer.end_span_with_error.call_args_list] == [
+        "",
+        "",
+    ]
+
+
+@patch("strands.event_loop.event_loop.get_tracer")
+@pytest.mark.asyncio
+async def test_event_loop_cycle_closes_spans_on_task_cancellation(
+    mock_get_tracer,
+    agent,
+    model,
+    mock_tracer,
+):
+    mock_get_tracer.return_value = mock_tracer
+    cycle_span = MagicMock()
+    mock_tracer.start_event_loop_cycle_span.return_value = cycle_span
+    model_span = MagicMock()
+    mock_tracer.start_model_invoke_span.return_value = model_span
+
+    blocked_on_stream = asyncio.Event()
+    release_stream = asyncio.Event()
+
+    async def interrupted_stream():
+        yield {"contentBlockDelta": {"delta": {"text": "test text"}}}
+        blocked_on_stream.set()
+        await release_stream.wait()
+        yield {"contentBlockStop": {}}
+
+    model.stream.return_value = interrupted_stream()
+
+    async def consume() -> None:
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state={},
+        )
+        async for _ in stream:
+            pass
+
+    task = asyncio.create_task(consume())
+    await blocked_on_stream.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert [call.args[0] for call in mock_tracer.end_span_with_error.call_args_list] == [model_span, cycle_span]
+    assert [call.args[1] for call in mock_tracer.end_span_with_error.call_args_list] == [
+        "",
+        "",
+    ]
+
+
+@patch("strands.event_loop.event_loop.get_tracer")
+@pytest.mark.asyncio
+async def test_event_loop_cycle_closes_spans_on_keyboard_interrupt(
+    mock_get_tracer,
+    agent,
+    model,
+    mock_tracer,
+    alist,
+):
+    mock_get_tracer.return_value = mock_tracer
+    cycle_span = MagicMock()
+    mock_tracer.start_event_loop_cycle_span.return_value = cycle_span
+    model_span = MagicMock()
+    mock_tracer.start_model_invoke_span.return_value = model_span
+
+    test_exception = KeyboardInterrupt("stop now")
+    model.stream.side_effect = test_exception
+
+    with pytest.raises(KeyboardInterrupt, match="stop now"):
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state={},
+        )
+        await alist(stream)
+
+    assert mock_tracer.end_span_with_error.call_args_list == [
+        call(model_span, "stop now", test_exception),
+        call(cycle_span, "stop now", test_exception),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_event_loop_cycle_closes_cycle_span_before_recursive_cycle(
     agent,

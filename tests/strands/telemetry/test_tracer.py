@@ -140,6 +140,18 @@ def test_end_span_with_empty_exception_message_uses_exception_name(mock_span):
     mock_span.end.assert_called_once()
 
 
+def test_end_span_with_empty_base_exception_message_uses_exception_name(mock_span):
+    """Test that empty BaseException messages fall back to the exception type name."""
+    tracer = Tracer()
+    error = KeyboardInterrupt()
+
+    tracer.end_span_with_error(mock_span, "", error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "KeyboardInterrupt")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
 def test_end_span_with_error_prefers_explicit_message(mock_span):
     """Test that an explicit error message takes precedence over the exception text."""
     tracer = Tracer()
@@ -1090,6 +1102,30 @@ def test_force_flush_with_error(mock_span, mock_get_tracer_provider):
 
     # Verify force_flush was called
     mock_tracer_provider.force_flush.assert_called_once()
+
+
+def test_end_agent_span_with_empty_error_message_uses_exception_name(mock_span):
+    """Test that agent spans fall back to the exception type name for empty errors."""
+    tracer = Tracer()
+    error = Exception()
+
+    tracer.end_agent_span(mock_span, error=error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "Exception")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
+def test_end_tool_call_span_with_empty_error_message_uses_exception_name(mock_span):
+    """Test that tool call spans fall back to the exception type name for empty errors."""
+    tracer = Tracer()
+    error = Exception()
+
+    tracer.end_tool_call_span(mock_span, None, error=error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "Exception")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
 
 
 def test_end_tool_call_span_with_none(mock_span):
