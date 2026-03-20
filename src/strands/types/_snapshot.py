@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal, TypedDict
 
-from ..types.exceptions import SnapshotException
+from .exceptions import SnapshotException
 
 SnapshotField = Literal["messages", "state", "conversation_manager_state", "interrupt_state", "system_prompt"]
 SnapshotPreset = Literal["session"]
@@ -44,6 +44,18 @@ class Snapshot:
     data: dict[str, Any]
     app_data: dict[str, Any]
 
+    def validate(self) -> None:
+        """Validate that this snapshot can be loaded by the current SDK version.
+
+        Raises:
+            SnapshotException: If schema_version is not "1.0".
+        """
+        if self.schema_version != SNAPSHOT_SCHEMA_VERSION:
+            raise SnapshotException(
+                f"Unsupported snapshot schema version: {self.schema_version!r}. "
+                f"Current version: {SNAPSHOT_SCHEMA_VERSION}"
+            )
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain JSON-compatible dict."""
         return {
@@ -60,17 +72,14 @@ class Snapshot:
         Raises:
             SnapshotException: If schema_version is not "1.0".
         """
-        version = d.get("schema_version", "")
-        if version != SNAPSHOT_SCHEMA_VERSION:
-            raise SnapshotException(
-                f"Unsupported snapshot schema version: {version!r}. Current version: {SNAPSHOT_SCHEMA_VERSION}"
-            )
-        return cls(
-            schema_version=d["schema_version"],
+        snapshot = cls(
+            schema_version=d.get("schema_version", ""),
             created_at=d["created_at"],
             data=d["data"],
             app_data=d.get("app_data", {}),
         )
+        snapshot.validate()
+        return snapshot
 
 
 def resolve_snapshot_fields(options: TakeSnapshotOptions) -> set[SnapshotField]:
@@ -109,7 +118,10 @@ def resolve_snapshot_fields(options: TakeSnapshotOptions) -> set[SnapshotField]:
         fields -= set(exclude)
 
     if not fields:
-        raise SnapshotException("No snapshot fields resolved. Provide a preset or at least one field in 'include'.")
+        raise SnapshotException(
+            "No snapshot fields resolved. Provide a preset or at least one field in 'include'. "
+            "Note: passing only 'exclude' without a preset or 'include' always results in an empty set."
+        )
 
     return fields
 

@@ -1,12 +1,13 @@
 """Tests for _snapshot.py — Snapshot dataclass and resolve_snapshot_fields."""
 
 import re
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 
 from strands import Agent
-from strands.agent._snapshot import (
+from strands.types._snapshot import (
     ALL_SNAPSHOT_FIELDS,
     SNAPSHOT_PRESETS,
     SNAPSHOT_SCHEMA_VERSION,
@@ -24,7 +25,7 @@ ISO_8601_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 
 
 def _make_snapshot(**kwargs: object) -> Snapshot:
-    defaults: dict = {
+    defaults: dict[str, Any] = {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
         "created_at": "2025-01-15T12:00:00.000000Z",
         "data": {},
@@ -64,36 +65,36 @@ def test_snapshot_to_dict_round_trip():
 
 def test_resolve_snapshot_fields_invalid_include_raises():
     with pytest.raises(SnapshotException, match="Invalid snapshot field"):
-        resolve_snapshot_fields(TakeSnapshotOptions(include=["not_a_field"]))  # type: ignore[list-item]
+        resolve_snapshot_fields({"include": ["not_a_field"]})  # type: ignore[typeddict-item]
 
 
 def test_resolve_snapshot_fields_invalid_exclude_raises():
     with pytest.raises(SnapshotException, match="Invalid snapshot field"):
-        resolve_snapshot_fields(TakeSnapshotOptions(preset="session", exclude=["not_a_field"]))  # type: ignore[list-item]
+        resolve_snapshot_fields({"preset": "session", "exclude": ["not_a_field"]})  # type: ignore[typeddict-item]
 
 
 def test_resolve_snapshot_fields_no_preset_no_include_raises():
     with pytest.raises(SnapshotException, match="No snapshot fields resolved"):
-        resolve_snapshot_fields(TakeSnapshotOptions())
+        resolve_snapshot_fields({})
 
 
 def test_resolve_snapshot_fields_session_preset():
-    assert resolve_snapshot_fields(TakeSnapshotOptions(preset="session")) == set(SNAPSHOT_PRESETS["session"])
+    assert resolve_snapshot_fields({"preset": "session"}) == set(SNAPSHOT_PRESETS["session"])
 
 
 def test_resolve_snapshot_fields_include_adds_to_preset():
-    fields = resolve_snapshot_fields(TakeSnapshotOptions(preset="session", include=["system_prompt"]))
+    fields = resolve_snapshot_fields({"preset": "session", "include": ["system_prompt"]})
     assert fields == set(SNAPSHOT_PRESETS["session"]) | {"system_prompt"}
 
 
 def test_resolve_snapshot_fields_exclude_removes_from_preset():
-    fields = resolve_snapshot_fields(TakeSnapshotOptions(preset="session", exclude=["messages"]))
+    fields = resolve_snapshot_fields({"preset": "session", "exclude": ["messages"]})
     assert "messages" not in fields
 
 
 def test_resolve_snapshot_fields_all_excluded_raises():
     with pytest.raises(SnapshotException):
-        resolve_snapshot_fields(TakeSnapshotOptions(exclude=list(ALL_SNAPSHOT_FIELDS)))  # type: ignore[arg-type]
+        resolve_snapshot_fields({"exclude": list(ALL_SNAPSHOT_FIELDS)})  # type: ignore[typeddict-item]
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +106,7 @@ _ROUND_TRIP_CASES = [
     ({}, {}),
     ({"messages": [{"role": "user", "content": [{"text": "hi"}]}]}, {}),
     ({"state": {"k": "v", "n": 1}}, {"app": "data"}),
-    ({"messages": [], "state": {}, "system_prompt": "hello"}, {"meta": True}),
+    ({"messages": [], "state": {}, "system_prompt_content": [{"text": "hello"}]}, {"meta": True}),
     ({"state": {"nested": None}}, {"x": None, "y": 42, "z": "str"}),
 ]
 
@@ -163,21 +164,19 @@ def test_resolve_snapshot_fields_ordering(preset, include, exclude):
 def test_empty_field_set_no_preset_no_include_raises():
     """Property 7: Empty field set raises SnapshotException."""
     with pytest.raises(SnapshotException):
-        resolve_snapshot_fields(TakeSnapshotOptions())
+        resolve_snapshot_fields({})
 
 
 def test_empty_field_set_all_excluded_raises():
     """Property 7: Excluding all fields raises SnapshotException."""
     with pytest.raises(SnapshotException):
-        resolve_snapshot_fields(TakeSnapshotOptions(exclude=list(ALL_SNAPSHOT_FIELDS)))  # type: ignore[arg-type]
+        resolve_snapshot_fields({"exclude": list(ALL_SNAPSHOT_FIELDS)})  # type: ignore[typeddict-item]
 
 
 def test_empty_field_set_preset_fully_excluded_raises():
     """Property 7: Excluding all preset fields with no include raises SnapshotException."""
     with pytest.raises(SnapshotException):
-        resolve_snapshot_fields(
-            TakeSnapshotOptions(preset="session", exclude=list(SNAPSHOT_PRESETS["session"]))  # type: ignore[arg-type]
-        )
+        resolve_snapshot_fields({"preset": "session", "exclude": list(SNAPSHOT_PRESETS["session"])})  # type: ignore[typeddict-item]
 
 
 # ---------------------------------------------------------------------------
@@ -205,7 +204,7 @@ def test_snapshot_structural_invariants(messages, state_dict, system_prompt):
     assert isinstance(snapshot.app_data, dict)
     for field in ("messages", "state", "conversation_manager_state", "interrupt_state"):
         assert field in snapshot.data
-    assert "system_prompt" not in snapshot.data
+    assert "system_prompt_content" not in snapshot.data
 
 
 # ---------------------------------------------------------------------------
@@ -275,7 +274,9 @@ def test_missing_fields_leave_agent_unchanged(omitted_field):
 
     include_fields = [f for f in ALL_SNAPSHOT_FIELDS if f != omitted_field]
     snapshot = agent.take_snapshot(include=include_fields)
-    assert omitted_field not in snapshot.data
+    # system_prompt is stored under the key "system_prompt_content" in snapshot.data
+    data_key = "system_prompt_content" if omitted_field == "system_prompt" else omitted_field
+    assert data_key not in snapshot.data
 
     fresh_agent = _make_agent(
         messages=list(agent.messages),
@@ -324,3 +325,35 @@ def test_import_snapshot_from_strands_types():
     from strands.types import Snapshot as S
 
     assert S is not None
+
+
+# ---------------------------------------------------------------------------
+# system_prompt cross-agent restore edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_snapshot_no_system_prompt_clears_target_agent_prompt():
+    """Snapshot from agent with no system_prompt (field included) clears prompt on restore."""
+    source_agent = _make_agent()  # no system_prompt
+    snapshot = source_agent.take_snapshot(include=["system_prompt"])
+
+    assert "system_prompt_content" in snapshot.data
+    assert snapshot.data["system_prompt_content"] is None
+
+    target_agent = _make_agent(system_prompt="existing prompt")
+    target_agent.load_snapshot(snapshot)
+
+    assert target_agent.system_prompt is None
+
+
+def test_snapshot_without_system_prompt_field_preserves_target_agent_prompt():
+    """Snapshot taken without system_prompt field does not override target agent's prompt."""
+    source_agent = _make_agent(system_prompt="source prompt")
+    snapshot = source_agent.take_snapshot(include=["messages"])  # system_prompt field excluded
+
+    assert "system_prompt_content" not in snapshot.data
+
+    target_agent = _make_agent(system_prompt="target prompt")
+    target_agent.load_snapshot(snapshot)
+
+    assert target_agent.system_prompt == "target prompt"
