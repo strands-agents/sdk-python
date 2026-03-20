@@ -11,6 +11,7 @@ from typing_extensions import override
 
 if TYPE_CHECKING:
     from ..agent.agent_result import AgentResult
+    from ..agent.state_machine import AgentExecutionState
 
 from ..types.agent import AgentInput
 from ..types.content import Message, Messages
@@ -402,3 +403,40 @@ class AfterMultiAgentInvocationEvent(BaseHookEvent):
     def should_reverse_callbacks(self) -> bool:
         """True to invoke callbacks in reverse order."""
         return True
+
+
+@dataclass
+class AgentStateTransitionEvent(HookEvent):
+    """Event triggered when the agent's execution state changes.
+
+    This event is fired synchronously on every :class:`~strands.agent.state_machine.AgentStateMachine`
+    state transition, allowing hooks to observe or react to lifecycle changes.
+
+    Common use-cases:
+
+    - **Durability checkpoints**: Serialize agent state when
+      ``new_state in CHECKPOINT_STATES``.
+    - **Observability / metrics**: Record how long the agent spends in each phase.
+    - **Audit logging**: Track every phase transition for compliance.
+
+    Example::
+
+        from strands.hooks import AgentStateTransitionEvent
+        from strands.agent.state_machine import AgentExecutionState, CHECKPOINT_STATES
+
+        class DurabilityHook(HookProvider):
+            def register_hooks(self, registry: HookRegistry) -> None:
+                registry.add_callback(AgentStateTransitionEvent, self.maybe_checkpoint)
+
+            def maybe_checkpoint(self, event: AgentStateTransitionEvent) -> None:
+                if event.new_state in CHECKPOINT_STATES:
+                    snapshot = event.agent.state_machine.to_dict()
+                    # persist snapshot to storage ...
+
+    Attributes:
+        old_state: The execution state before the transition.
+        new_state: The execution state after the transition.
+    """
+
+    old_state: "AgentExecutionState"
+    new_state: "AgentExecutionState"
