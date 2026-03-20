@@ -4,12 +4,15 @@ This module provides the AgentAsTool class that wraps an Agent (or any AgentBase
 so it can be passed to another agent's tool list.
 """
 
+import copy
 import logging
 from typing import Any
 
 from typing_extensions import override
 
-from ..types._events import ToolResultEvent
+from ..agent.state import AgentState
+from ..types._events import AgentAsToolStreamEvent, ToolResultEvent
+from ..types.content import Messages
 from ..types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
 from .base import AgentBase
 
@@ -25,7 +28,7 @@ class AgentAsTool(AgentTool):
     Example:
         ```python
         from strands import Agent
-        from strands.agent.agent_as_tool import AgentAsTool
+        from strands.agent import AgentAsTool
 
         researcher = Agent(name="researcher", description="Finds information")
 
@@ -34,6 +37,9 @@ class AgentAsTool(AgentTool):
 
         # Or via convenience method
         tool = researcher.as_tool()
+
+        # Start each invocation with a fresh conversation
+        tool = researcher.as_tool(preserve_context=False)
 
         writer = Agent(name="writer", tools=[tool])
         writer("Write about AI agents")
@@ -46,6 +52,7 @@ class AgentAsTool(AgentTool):
         *,
         name: str,
         description: str,
+        preserve_context: bool = True,
     ) -> None:
         r"""Initialize the agent-as-tool adapter.
 
@@ -53,11 +60,34 @@ class AgentAsTool(AgentTool):
             agent: The agent to wrap as a tool.
             name: Tool name. Must match the pattern ``[a-zA-Z0-9_\\-]{1,64}``.
             description: Tool description.
+            preserve_context: Whether to preserve the agent's conversation history across
+                invocations. When False, the agent's messages and state are reset to the
+                values they had at construction time before each call, ensuring every
+                invocation starts from the same baseline regardless of any external
+                interactions with the agent. Defaults to True. Only effective when the
+                wrapped agent exposes a mutable ``messages`` list and/or an ``AgentState``
+                (e.g. ``strands.agent.Agent``).
         """
         super().__init__()
         self._agent = agent
         self._tool_name = name
         self._description = description
+        self._preserve_context = preserve_context
+
+        # When preserve_context=False, we snapshot the agent's initial state so we can
+        # restore it before each invocation. This mirrors GraphNode.reset_executor_state().
+        # We require an Agent instance for this since AgentBase doesn't guarantee
+        # messages/state attributes.
+        self._initial_messages: Messages = []
+        self._initial_state: AgentState = AgentState()
+
+        if not preserve_context:
+            from .agent import Agent
+
+            if not isinstance(agent, Agent):
+                raise TypeError(f"preserve_context=False requires an Agent instance, got {type(agent).__name__}")
+            self._initial_messages = copy.deepcopy(agent.messages)
+            self._initial_state = AgentState(agent.state.get())
 
     @property
     def agent(self) -> AgentBase:
@@ -83,13 +113,6 @@ class AgentAsTool(AgentTool):
                             "type": "string",
                             "description": "The input to send to the agent tool.",
                         },
-                        "preserve_context": {
-                            "type": "boolean",
-                            "description": (
-                                "Whether to preserve the agent's conversation context across invocations. "
-                                "Defaults to true. Set to false to clear conversation history before this call."
-                            ),
-                        },
                     },
                     "required": ["input"],
                 }
@@ -105,8 +128,8 @@ class AgentAsTool(AgentTool):
     async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
         """Invoke the wrapped agent via streaming and yield events.
 
-        Intermediate agent events are forwarded as ToolStreamEvents so the parent
-        agent's callback handler can display sub-agent progress. The final
+        Intermediate agent events are wrapped in AgentAsToolStreamEvent so the caller
+        can distinguish sub-agent progress from regular tool events. The final
         AgentResult is yielded as a ToolResultEvent.
 
         Args:
@@ -115,45 +138,21 @@ class AgentAsTool(AgentTool):
             **kwargs: Additional keyword arguments.
 
         Yields:
-            ToolStreamEvent for intermediate events, then ToolResultEvent with the final response.
+            AgentAsToolStreamEvent for intermediate events, then ToolResultEvent with the final response.
         """
         tool_input = tool_use["input"]
         if isinstance(tool_input, dict):
             prompt = tool_input.get("input", "")
-            preserve_context = tool_input.get("preserve_context", True)
         elif isinstance(tool_input, str):
             prompt = tool_input
-            preserve_context = True
         else:
-            logger.warning(
-                "tool_name=<%s> | unexpected input type: %s",
-                self._tool_name,
-                type(tool_input),
-            )
+            logger.warning("tool_name=<%s> | unexpected input type: %s", self._tool_name, type(tool_input))
             prompt = str(tool_input)
-            preserve_context = True
 
         tool_use_id = tool_use["toolUseId"]
 
-        if not preserve_context:
-            # AgentBase is a protocol and does not guarantee a messages attribute.
-            # We check for it at runtime to support Agent and other implementations
-            # that expose a mutable messages list.
-            messages = getattr(self._agent, "messages", None)
-            if isinstance(messages, list):
-                logger.debug(
-                    "tool_name=<%s>, tool_use_id=<%s> | clearing agent conversation context",
-                    self._tool_name,
-                    tool_use_id,
-                )
-                messages.clear()
-            else:
-                logger.warning(
-                    "tool_name=<%s>, tool_use_id=<%s> | preserve_context=false requested"
-                    " but agent does not expose a messages list",
-                    self._tool_name,
-                    tool_use_id,
-                )
+        if not self._preserve_context:
+            self._reset_agent_state(tool_use_id)
 
         logger.debug("tool_name=<%s>, tool_use_id=<%s> | invoking agent", self._tool_name, tool_use_id)
 
@@ -163,7 +162,7 @@ class AgentAsTool(AgentTool):
                 if "result" in event:
                     result = event["result"]
                 else:
-                    yield event
+                    yield AgentAsToolStreamEvent(tool_use, event, self)
 
             if result is None:
                 yield ToolResultEvent(
@@ -206,6 +205,29 @@ class AgentAsTool(AgentTool):
                     "content": [{"text": f"Agent error: {e}"}],
                 }
             )
+
+    def _reset_agent_state(self, tool_use_id: str) -> None:
+        """Reset the wrapped agent to its initial state.
+
+        Restores messages and state to the values captured at construction time.
+        This mirrors the pattern used by ``GraphNode.reset_executor_state()``.
+
+        Args:
+            tool_use_id: Tool use ID for logging context.
+        """
+        from .agent import Agent
+
+        # isinstance narrows the type for mypy; __init__ guarantees this when preserve_context=False
+        if not isinstance(self._agent, Agent):
+            return
+
+        logger.debug(
+            "tool_name=<%s>, tool_use_id=<%s> | resetting agent to initial state",
+            self._tool_name,
+            tool_use_id,
+        )
+        self._agent.messages = copy.deepcopy(self._initial_messages)
+        self._agent.state = AgentState(self._initial_state.get())
 
     @override
     def get_display_properties(self) -> dict[str, str]:

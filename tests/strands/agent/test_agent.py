@@ -15,8 +15,7 @@ from pydantic import BaseModel
 
 import strands
 from strands import Agent, Plugin, ToolContext
-from strands.agent import AgentResult
-from strands.agent.agent_as_tool import AgentAsTool
+from strands.agent import AgentAsTool, AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
@@ -2748,4 +2747,4 @@ def test_as_tool_defaults_description_when_agent_has_none():
     agent = Agent(name="researcher")
     tool = agent.as_tool()
 
-    assert tool.tool_spec["description"] == "Use the researcher tool to invoke this agent as a tool"
+    assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"

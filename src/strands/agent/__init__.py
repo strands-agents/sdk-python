@@ -10,8 +10,8 @@ It includes:
 from typing import Any
 
 from ..event_loop._retry import ModelRetryStrategy
+from ._agent_as_tool import AgentAsTool
 from .agent import Agent
-from .agent_as_tool import AgentAsTool
 from .agent_result import AgentResult
 from .base import AgentBase
 from .conversation_manager import (

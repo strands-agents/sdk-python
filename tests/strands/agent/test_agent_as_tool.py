@@ -1,14 +1,13 @@
 """Tests for AgentAsTool - the agent-as-tool adapter."""
 
-import logging
 from unittest.mock import MagicMock
 
 import pytest
 
-from strands.agent.agent_as_tool import AgentAsTool
+from strands.agent import AgentAsTool
 from strands.agent.agent_result import AgentResult
 from strands.telemetry.metrics import EventLoopMetrics
-from strands.types._events import ToolResultEvent
+from strands.types._events import AgentAsToolStreamEvent, ToolResultEvent, ToolStreamEvent
 
 
 async def _mock_stream_async(result, intermediate_events=None):
@@ -53,50 +52,40 @@ def agent_result():
 # --- init ---
 
 
-def test_init_sets_name(mock_agent):
-    tool = AgentAsTool(mock_agent, name="my_tool", description="desc")
-    assert tool.tool_name == "my_tool"
-
-
-def test_init_sets_description(mock_agent):
+def test_init(mock_agent):
     tool = AgentAsTool(mock_agent, name="my_tool", description="custom desc")
+    assert tool.tool_name == "my_tool"
     assert tool._description == "custom desc"
-
-
-def test_init_stores_agent_reference(mock_agent, tool):
     assert tool.agent is mock_agent
+
+
+def test_init_preserve_context_defaults_true(mock_agent):
+    tool = AgentAsTool(mock_agent, name="t", description="d")
+    assert tool._preserve_context is True
+
+
+def test_init_preserve_context_false(fake_agent):
+    tool = AgentAsTool(fake_agent, name="t", description="d", preserve_context=False)
+    assert tool._preserve_context is False
 
 
 # --- properties ---
 
 
-def test_tool_name(tool):
+def test_tool_properties(tool):
     assert tool.tool_name == "test_agent"
-
-
-def test_tool_type(tool):
     assert tool.tool_type == "agent"
 
+    spec = tool.tool_spec
+    assert spec["name"] == "test_agent"
+    assert spec["description"] == "A test agent"
 
-def test_tool_spec_name(tool):
-    assert tool.tool_spec["name"] == "test_agent"
-
-
-def test_tool_spec_description(tool):
-    assert tool.tool_spec["description"] == "A test agent"
-
-
-def test_tool_spec_input_schema(tool):
-    schema = tool.tool_spec["inputSchema"]["json"]
+    schema = spec["inputSchema"]["json"]
     assert schema["type"] == "object"
     assert "input" in schema["properties"]
     assert schema["properties"]["input"]["type"] == "string"
-    assert "preserve_context" in schema["properties"]
-    assert schema["properties"]["preserve_context"]["type"] == "boolean"
     assert schema["required"] == ["input"]
 
-
-def test_display_properties(tool):
     props = tool.get_display_properties()
     assert props["Agent"] == "test_agent"
     assert props["Type"] == "agent"
@@ -143,6 +132,21 @@ async def test_stream_empty_input(tool, mock_agent, agent_result):
 
 
 @pytest.mark.asyncio
+async def test_stream_string_input(tool, mock_agent, agent_result):
+    tool_use = {
+        "toolUseId": "tool-123",
+        "name": "test_agent",
+        "input": "direct string",
+    }
+    mock_agent.stream_async.return_value = _mock_stream_async(agent_result)
+
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    mock_agent.stream_async.assert_called_once_with("direct string")
+
+
+@pytest.mark.asyncio
 async def test_stream_error(tool, mock_agent, tool_use):
     mock_agent.stream_async.side_effect = RuntimeError("boom")
 
@@ -170,11 +174,32 @@ async def test_stream_forwards_intermediate_events(tool, mock_agent, tool_use, a
 
     events = [event async for event in tool.stream(tool_use, {})]
 
-    # Intermediate events are yielded as-is (raw dicts); wrapping in ToolStreamEvent happens in the caller
-    non_result_events = [e for e in events if not isinstance(e, ToolResultEvent)]
-    assert len(non_result_events) == 2
-    assert non_result_events[0]["data"] == "partial"
-    assert non_result_events[1]["data"] == "more"
+    stream_events = [e for e in events if isinstance(e, AgentAsToolStreamEvent)]
+    assert len(stream_events) == 2
+    assert stream_events[0]["tool_stream_event"]["data"]["data"] == "partial"
+    assert stream_events[1]["tool_stream_event"]["data"]["data"] == "more"
+    assert stream_events[0].agent_as_tool is tool
+    assert stream_events[0].tool_use_id == "tool-123"
+
+
+@pytest.mark.asyncio
+async def test_stream_events_not_double_wrapped_by_executor(tool, mock_agent, tool_use, agent_result):
+    """AgentAsToolStreamEvent is a ToolStreamEvent subclass, so the executor should pass it through directly."""
+    intermediate = [{"data": "chunk"}]
+    mock_agent.stream_async.return_value = _mock_stream_async(agent_result, intermediate)
+
+    events = [event async for event in tool.stream(tool_use, {})]
+
+    stream_events = [e for e in events if isinstance(e, AgentAsToolStreamEvent)]
+    assert len(stream_events) == 1
+
+    event = stream_events[0]
+    # It's a ToolStreamEvent (so the executor yields it directly)
+    assert isinstance(event, ToolStreamEvent)
+    # But it's specifically an AgentAsToolStreamEvent (not re-wrapped)
+    assert type(event) is AgentAsToolStreamEvent
+    # And it references the originating AgentAsTool
+    assert event.agent_as_tool is tool
 
 
 @pytest.mark.asyncio
@@ -216,72 +241,37 @@ async def test_stream_structured_output(tool, mock_agent, tool_use):
     assert result_events[0]["tool_result"]["content"][0]["json"] == {"answer": "42"}
 
 
-@pytest.mark.asyncio
-async def test_stream_string_input(tool, mock_agent, agent_result):
-    """When tool_use input is a plain string rather than a dict."""
-    tool_use = {
-        "toolUseId": "tool-123",
-        "name": "test_agent",
-        "input": "direct string",
-    }
-    mock_agent.stream_async.return_value = _mock_stream_async(agent_result)
-
-    async for _ in tool.stream(tool_use, {}):
-        pass
-
-    mock_agent.stream_async.assert_called_once_with("direct string")
-
-
 # --- preserve_context ---
 
 
-class _FakeAgent:
-    """Minimal fake agent with a real messages list for preserve_context tests."""
+@pytest.fixture
+def fake_agent():
+    """A real Agent instance for preserve_context tests."""
+    from strands.agent.agent import Agent
 
-    def __init__(self):
-        self.name = "fake_agent"
-        self.messages: list = []
+    return Agent(name="fake_agent", callback_handler=None)
 
-    async def invoke_async(self, prompt=None, **kwargs):
-        pass
 
-    def __call__(self, prompt=None, **kwargs):
-        pass
+@pytest.mark.asyncio
+async def test_stream_resets_to_initial_state_when_preserve_context_false(fake_agent):
+    fake_agent.messages = [{"role": "user", "content": [{"text": "initial"}]}]
+    fake_agent.state.set("counter", 0)
 
-    def stream_async(self, prompt=None, **kwargs):
-        return _mock_stream_async(
-            AgentResult(
-                stop_reason="end_turn",
-                message={"role": "assistant", "content": [{"text": "ok"}]},
-                metrics=EventLoopMetrics(),
-                state={},
-            )
+    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+
+    # Mutate agent state as if a previous invocation happened
+    fake_agent.messages.append({"role": "assistant", "content": [{"text": "reply"}]})
+    fake_agent.state.set("counter", 5)
+
+    # Mock stream_async so we don't need a real model
+    fake_agent.stream_async = lambda prompt, **kw: _mock_stream_async(
+        AgentResult(
+            stop_reason="end_turn",
+            message={"role": "assistant", "content": [{"text": "ok"}]},
+            metrics=EventLoopMetrics(),
+            state={},
         )
-
-
-@pytest.mark.asyncio
-async def test_stream_clears_context_when_preserve_context_false():
-    agent = _FakeAgent()
-    agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
-    tool = AgentAsTool(agent, name="fake_agent", description="desc")
-
-    tool_use = {
-        "toolUseId": "tool-123",
-        "name": "fake_agent",
-        "input": {"input": "hello", "preserve_context": False},
-    }
-
-    async for _ in tool.stream(tool_use, {}):
-        pass
-
-    assert agent.messages == []
-
-
-@pytest.mark.asyncio
-async def test_stream_preserves_context_by_default():
-    agent = _FakeAgent()
-    agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
-    tool = AgentAsTool(agent, name="fake_agent", description="desc")
+    )
 
     tool_use = {
         "toolUseId": "tool-123",
@@ -292,33 +282,139 @@ async def test_stream_preserves_context_by_default():
     async for _ in tool.stream(tool_use, {}):
         pass
 
-    assert len(agent.messages) >= 1
+    assert fake_agent.messages == [{"role": "user", "content": [{"text": "initial"}]}]
+    assert fake_agent.state.get("counter") == 0
 
 
 @pytest.mark.asyncio
-async def test_stream_preserves_context_when_explicitly_true():
-    agent = _FakeAgent()
-    agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
-    tool = AgentAsTool(agent, name="fake_agent", description="desc")
+async def test_stream_resets_on_every_invocation(fake_agent):
+    """Each call should reset to the same initial snapshot, not to the previous call's state."""
+    fake_agent.messages = [{"role": "user", "content": [{"text": "seed"}]}]
+    fake_agent.state.set("count", 1)
+
+    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+
+    fake_agent.stream_async = lambda prompt, **kw: _mock_stream_async(
+        AgentResult(
+            stop_reason="end_turn",
+            message={"role": "assistant", "content": [{"text": "ok"}]},
+            metrics=EventLoopMetrics(),
+            state={},
+        )
+    )
+
+    tool_use = {
+        "toolUseId": "tool-1",
+        "name": "fake_agent",
+        "input": {"input": "first"},
+    }
+
+    async for _ in tool.stream(tool_use, {}):
+        pass
+    fake_agent.messages.append({"role": "assistant", "content": [{"text": "added"}]})
+    fake_agent.state.set("count", 99)
+
+    tool_use["toolUseId"] = "tool-2"
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    assert fake_agent.messages == [{"role": "user", "content": [{"text": "seed"}]}]
+    assert fake_agent.state.get("count") == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_initial_snapshot_is_deep_copy(fake_agent):
+    """Mutating the agent's messages after construction should not affect the snapshot."""
+    fake_agent.messages = [{"role": "user", "content": [{"text": "original"}]}]
+
+    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+
+    fake_agent.messages[0]["content"][0]["text"] = "mutated"
+    fake_agent.messages.append({"role": "assistant", "content": [{"text": "extra"}]})
+
+    fake_agent.stream_async = lambda prompt, **kw: _mock_stream_async(
+        AgentResult(
+            stop_reason="end_turn",
+            message={"role": "assistant", "content": [{"text": "ok"}]},
+            metrics=EventLoopMetrics(),
+            state={},
+        )
+    )
 
     tool_use = {
         "toolUseId": "tool-123",
         "name": "fake_agent",
-        "input": {"input": "hello", "preserve_context": True},
+        "input": {"input": "hello"},
     }
 
     async for _ in tool.stream(tool_use, {}):
         pass
 
-    assert len(agent.messages) >= 1
+    assert fake_agent.messages == [{"role": "user", "content": [{"text": "original"}]}]
 
 
 @pytest.mark.asyncio
-async def test_stream_preserve_context_false_warns_when_no_messages_attr(caplog):
-    """Agent without a messages attribute should log a warning."""
+async def test_stream_resets_empty_initial_state_when_preserve_context_false(fake_agent):
+    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
 
-    class _NoMessagesAgent:
-        name = "bare_agent"
+    fake_agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
+    fake_agent.state.set("key", "value")
+
+    fake_agent.stream_async = lambda prompt, **kw: _mock_stream_async(
+        AgentResult(
+            stop_reason="end_turn",
+            message={"role": "assistant", "content": [{"text": "ok"}]},
+            metrics=EventLoopMetrics(),
+            state={},
+        )
+    )
+
+    tool_use = {
+        "toolUseId": "tool-123",
+        "name": "fake_agent",
+        "input": {"input": "hello"},
+    }
+
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    assert fake_agent.messages == []
+    assert fake_agent.state.get() == {}
+
+
+@pytest.mark.asyncio
+async def test_stream_preserves_context_by_default(fake_agent):
+    fake_agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
+    fake_agent.state.set("key", "value")
+    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc")
+
+    fake_agent.stream_async = lambda prompt, **kw: _mock_stream_async(
+        AgentResult(
+            stop_reason="end_turn",
+            message={"role": "assistant", "content": [{"text": "ok"}]},
+            metrics=EventLoopMetrics(),
+            state={},
+        )
+    )
+
+    tool_use = {
+        "toolUseId": "tool-123",
+        "name": "fake_agent",
+        "input": {"input": "hello"},
+    }
+
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    assert len(fake_agent.messages) >= 1
+    assert fake_agent.state.get("key") == "value"
+
+
+def test_preserve_context_false_requires_agent_instance():
+    """preserve_context=False should raise TypeError for non-Agent instances."""
+
+    class _NotAnAgent:
+        name = "not_agent"
 
         async def invoke_async(self, prompt=None, **kwargs):
             pass
@@ -327,26 +423,7 @@ async def test_stream_preserve_context_false_warns_when_no_messages_attr(caplog)
             pass
 
         def stream_async(self, prompt=None, **kwargs):
-            return _mock_stream_async(
-                AgentResult(
-                    stop_reason="end_turn",
-                    message={"role": "assistant", "content": [{"text": "ok"}]},
-                    metrics=EventLoopMetrics(),
-                    state={},
-                )
-            )
-
-    agent = _NoMessagesAgent()
-    tool = AgentAsTool(agent, name="bare_agent", description="desc")
-
-    tool_use = {
-        "toolUseId": "tool-123",
-        "name": "bare_agent",
-        "input": {"input": "hello", "preserve_context": False},
-    }
-
-    with caplog.at_level(logging.WARNING, logger="strands.agent.agent_as_tool"):
-        async for _ in tool.stream(tool_use, {}):
             pass
 
-    assert "preserve_context=false requested" in caplog.text
+    with pytest.raises(TypeError, match="requires an Agent instance"):
+        AgentAsTool(_NotAnAgent(), name="bad", description="desc", preserve_context=False)

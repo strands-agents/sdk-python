@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from strands.telemetry import EventLoopMetrics
 from strands.types._events import (
+    AgentAsToolStreamEvent,
     AgentResultEvent,
     CitationStreamEvent,
     EventLoopStopEvent,
@@ -465,3 +466,39 @@ class TestEventSerialization:
             assert hasattr(event, "is_callback_event")
             assert hasattr(event, "as_dict")
             assert hasattr(event, "prepare")
+
+
+class TestAgentAsToolStreamEvent:
+    """Tests for AgentAsToolStreamEvent."""
+
+    def test_initialization(self):
+        """Test AgentAsToolStreamEvent initialization with agent-tool reference."""
+        tool_use: ToolUse = {
+            "toolUseId": "agent_tool_123",
+            "name": "researcher",
+            "input": {"input": "hello"},
+        }
+        agent_event = {"data": "partial response"}
+        mock_agent_as_tool = MagicMock()
+        mock_agent_as_tool.tool_name = "researcher"
+
+        event = AgentAsToolStreamEvent(tool_use, agent_event, mock_agent_as_tool)
+
+        assert event["tool_stream_event"]["tool_use"] == tool_use
+        assert event["tool_stream_event"]["data"] == agent_event
+        assert event.agent_as_tool is mock_agent_as_tool
+        assert event.tool_use_id == "agent_tool_123"
+
+    def test_is_tool_stream_event_subclass(self):
+        """Test that AgentAsToolStreamEvent is a ToolStreamEvent subclass."""
+        tool_use: ToolUse = {
+            "toolUseId": "id_123",
+            "name": "tool",
+            "input": {},
+        }
+        mock_agent_as_tool = MagicMock()
+        event = AgentAsToolStreamEvent(tool_use, {}, mock_agent_as_tool)
+
+        assert isinstance(event, ToolStreamEvent)
+        assert isinstance(event, TypedEvent)
+        assert type(event) is AgentAsToolStreamEvent
