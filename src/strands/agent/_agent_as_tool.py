@@ -52,7 +52,7 @@ class AgentAsTool(AgentTool):
         *,
         name: str,
         description: str,
-        preserve_context: bool = True,
+        preserve_context: bool = False,
     ) -> None:
         r"""Initialize the agent-as-tool adapter.
 
@@ -64,7 +64,7 @@ class AgentAsTool(AgentTool):
                 invocations. When False, the agent's messages and state are reset to the
                 values they had at construction time before each call, ensuring every
                 invocation starts from the same baseline regardless of any external
-                interactions with the agent. Defaults to True. Only effective when the
+                interactions with the agent. Defaults to False. Only effective when the
                 wrapped agent exposes a mutable ``messages`` list and/or an ``AgentState``
                 (e.g. ``strands.agent.Agent``).
         """

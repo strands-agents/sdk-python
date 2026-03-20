@@ -26,8 +26,16 @@ def mock_agent():
 
 
 @pytest.fixture
+def fake_agent():
+    """A real Agent instance for tests that need Agent-specific features."""
+    from strands.agent.agent import Agent
+
+    return Agent(name="fake_agent", callback_handler=None)
+
+
+@pytest.fixture
 def tool(mock_agent):
-    return AgentAsTool(mock_agent, name="test_agent", description="A test agent")
+    return AgentAsTool(mock_agent, name="test_agent", description="A test agent", preserve_context=True)
 
 
 @pytest.fixture
@@ -53,20 +61,20 @@ def agent_result():
 
 
 def test_init(mock_agent):
-    tool = AgentAsTool(mock_agent, name="my_tool", description="custom desc")
+    tool = AgentAsTool(mock_agent, name="my_tool", description="custom desc", preserve_context=True)
     assert tool.tool_name == "my_tool"
     assert tool._description == "custom desc"
     assert tool.agent is mock_agent
 
 
-def test_init_preserve_context_defaults_true(mock_agent):
-    tool = AgentAsTool(mock_agent, name="t", description="d")
-    assert tool._preserve_context is True
-
-
-def test_init_preserve_context_false(fake_agent):
-    tool = AgentAsTool(fake_agent, name="t", description="d", preserve_context=False)
+def test_init_preserve_context_defaults_false(fake_agent):
+    tool = AgentAsTool(fake_agent, name="t", description="d")
     assert tool._preserve_context is False
+
+
+def test_init_preserve_context_true(mock_agent):
+    tool = AgentAsTool(mock_agent, name="t", description="d", preserve_context=True)
+    assert tool._preserve_context is True
 
 
 # --- properties ---
@@ -244,14 +252,6 @@ async def test_stream_structured_output(tool, mock_agent, tool_use):
 # --- preserve_context ---
 
 
-@pytest.fixture
-def fake_agent():
-    """A real Agent instance for preserve_context tests."""
-    from strands.agent.agent import Agent
-
-    return Agent(name="fake_agent", callback_handler=None)
-
-
 @pytest.mark.asyncio
 async def test_stream_resets_to_initial_state_when_preserve_context_false(fake_agent):
     fake_agent.messages = [{"role": "user", "content": [{"text": "initial"}]}]
@@ -383,10 +383,44 @@ async def test_stream_resets_empty_initial_state_when_preserve_context_false(fak
 
 
 @pytest.mark.asyncio
-async def test_stream_preserves_context_by_default(fake_agent):
+async def test_stream_resets_context_by_default(fake_agent):
+    """Default preserve_context=False means each invocation starts fresh."""
     fake_agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
     fake_agent.state.set("key", "value")
     tool = AgentAsTool(fake_agent, name="fake_agent", description="desc")
+
+    # Mutate after construction
+    fake_agent.messages.append({"role": "assistant", "content": [{"text": "extra"}]})
+    fake_agent.state.set("key", "changed")
+
+    fake_agent.stream_async = lambda prompt, **kw: _mock_stream_async(
+        AgentResult(
+            stop_reason="end_turn",
+            message={"role": "assistant", "content": [{"text": "ok"}]},
+            metrics=EventLoopMetrics(),
+            state={},
+        )
+    )
+
+    tool_use = {
+        "toolUseId": "tool-123",
+        "name": "fake_agent",
+        "input": {"input": "hello"},
+    }
+
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    # Should reset to construction-time snapshot
+    assert fake_agent.messages == [{"role": "user", "content": [{"text": "old"}]}]
+    assert fake_agent.state.get("key") == "value"
+
+
+@pytest.mark.asyncio
+async def test_stream_preserves_context_when_explicitly_true(fake_agent):
+    fake_agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
+    fake_agent.state.set("key", "value")
+    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
 
     fake_agent.stream_async = lambda prompt, **kw: _mock_stream_async(
         AgentResult(
@@ -411,7 +445,7 @@ async def test_stream_preserves_context_by_default(fake_agent):
 
 
 def test_preserve_context_false_requires_agent_instance():
-    """preserve_context=False should raise TypeError for non-Agent instances."""
+    """Default preserve_context=False should raise TypeError for non-Agent instances."""
 
     class _NotAnAgent:
         name = "not_agent"
@@ -426,4 +460,4 @@ def test_preserve_context_false_requires_agent_instance():
             pass
 
     with pytest.raises(TypeError, match="requires an Agent instance"):
-        AgentAsTool(_NotAnAgent(), name="bad", description="desc", preserve_context=False)
+        AgentAsTool(_NotAnAgent(), name="bad", description="desc")

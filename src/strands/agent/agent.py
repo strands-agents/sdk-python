@@ -617,7 +617,7 @@ class Agent(AgentBase):
         self,
         name: str | None = None,
         description: str | None = None,
-        preserve_context: bool = True,
+        preserve_context: bool = False,
     ) -> AgentAsTool:
         r"""Convert this agent into a tool for use by another agent.
 
@@ -629,7 +629,7 @@ class Agent(AgentBase):
                 invocations. When False, the agent's messages and state are reset to the
                 values they had at construction time before each call, ensuring every
                 invocation starts from the same baseline regardless of any external
-                interactions with the agent. Defaults to True.
+                interactions with the agent. Defaults to False.
 
         Returns:
             An AgentAsTool wrapping this agent.
