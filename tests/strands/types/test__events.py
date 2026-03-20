@@ -162,6 +162,30 @@ class TestModelStreamEvent:
         event.prepare(invocation_state)
         assert "request_id" not in event
 
+    def test_prepare_filters_non_serializable(self):
+        """Test prepare method filters out non-JSON-serializable values."""
+        import json
+
+        class NonSerializable:
+            pass
+
+        event = ModelStreamEvent({"delta": "content"})
+        invocation_state = {
+            "request_id": "456",
+            "agent": NonSerializable(),
+            "span": NonSerializable(),
+            "cycle_id": 123,
+        }
+        event.prepare(invocation_state)
+        # Serializable values should be present
+        assert event["request_id"] == "456"
+        assert event["cycle_id"] == 123
+        # Non-serializable values should be filtered out
+        assert "agent" not in event
+        assert "span" not in event
+        # The resulting event dict must be JSON-serializable
+        json.dumps(dict(event))  # should not raise
+
 
 class TestToolUseStreamEvent:
     """Tests for ToolUseStreamEvent."""
