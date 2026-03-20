@@ -95,8 +95,8 @@ class BedrockModel(Model):
                 True includes status, False removes status, "auto" determines based on model_id. Defaults to "auto".
             service_tier: Service tier for the request, controlling the trade-off between latency and cost.
                 Valid values: "default" (standard), "priority" (faster, premium), "flex" (cheaper, slower).
-                Please check https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html for all
-                valid tiers.
+                Please check https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html for
+                supported service tiers, models, and regions
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
