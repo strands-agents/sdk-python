@@ -361,6 +361,24 @@ class Agent(AgentBase):
         """
         self._cancel_signal.set()
 
+    def clear(self) -> None:
+        """Clear the agent's conversation history and reset accumulated state.
+
+        This method removes all messages from the conversation history and resets
+        the event loop metrics. Use this to start a fresh conversation without
+        creating a new Agent instance.
+
+        Example:
+            ```python
+            agent = Agent(model=model)
+            agent("What is 2+2?")
+            agent.clear()
+            agent("Hello!")  # Fresh conversation, no prior context
+            ```
+        """
+        self.messages.clear()
+        self.event_loop_metrics.reset_usage_metrics()
+
     @property
     def system_prompt(self) -> str | None:
         """Get the system prompt as a string for backwards compatibility.

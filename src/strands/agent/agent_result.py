@@ -35,6 +35,22 @@ class AgentResult:
     interrupts: Sequence[Interrupt] | None = None
     structured_output: BaseModel | None = None
 
+    @property
+    def text(self) -> str:
+        """Extract the text content from the agent result.
+
+        Returns:
+            The concatenated text content from the message, same as ``str(self)``.
+            Returns empty string if no text content is available.
+
+        Example:
+            ```python
+            result = agent("Hello!")
+            print(result.text)  # "Hi there! How can I help?"
+            ```
+        """
+        return str(self)
+
     def __str__(self) -> str:
         """Return a string representation of the agent result.
 
@@ -66,6 +82,17 @@ class AgentResult:
                                 result += content.get("text", "") + "\n"
 
         return result
+
+    def __repr__(self) -> str:
+        """Return a detailed representation for debugging.
+
+        Returns:
+            A string containing the stop_reason and a preview of the message text.
+        """
+        text_preview = str(self).strip()
+        if len(text_preview) > 80:
+            text_preview = text_preview[:77] + "..."
+        return f"AgentResult(stop_reason={self.stop_reason!r}, text={text_preview!r})"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AgentResult":
