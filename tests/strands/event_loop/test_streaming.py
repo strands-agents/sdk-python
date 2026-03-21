@@ -813,6 +813,7 @@ def test_extract_usage_metrics_empty_metadata():
                     },
                 },
                 {"event": {"contentBlockStop": {}}},
+                {"complete": True},
                 {"event": {"messageStop": {"stopReason": "end_turn"}}},
                 {
                     "event": {
@@ -929,6 +930,7 @@ async def test_process_stream(response, exp_events, agenerator, alist):
                 {"event": {"contentBlockDelta": {"delta": {"text": "Hello!"}}}},
                 {"data": "Hello!", "delta": {"text": "Hello!"}},
                 {"event": {"contentBlockStop": {}}},
+                {"complete": True},
                 {"event": {"messageStop": {"stopReason": "guardrail_intervened"}}},
                 {
                     "event": {
@@ -1155,6 +1157,9 @@ async def test_stream_messages(agenerator, alist):
             "event": {
                 "contentBlockStop": {},
             },
+        },
+        {
+            "complete": True,
         },
         {
             "stop": (
@@ -1417,3 +1422,119 @@ async def test_process_stream_keeps_tool_use_stop_reason_unchanged(agenerator, a
     last_event = cast(ModelStopReason, (await alist(stream))[-1])
 
     assert last_event["stop"][0] == "tool_use"
+
+
+@pytest.mark.asyncio
+async def test_complete_event_emitted_for_text_block(agenerator, alist):
+    """Test that a complete=True event is emitted when a text content block finishes.
+
+    This ensures callback handlers like PrintingCallbackHandler can detect the end
+    of text streaming and format output accordingly (e.g., printing a trailing newline).
+    See: https://github.com/strands-agents/sdk-python/issues/826
+    """
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "Hello"}}},
+        {"contentBlockDelta": {"delta": {"text": " world"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                "metrics": {"latencyMs": 1},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    events = await alist(stream)
+
+    complete_events = [e for e in events if e.get("complete") is True]
+    assert len(complete_events) == 1, f"Expected exactly 1 complete event, got {len(complete_events)}"
+
+    complete_idx = next(i for i, e in enumerate(events) if e.get("complete") is True)
+    stop_idx = next(i for i, e in enumerate(events) if e.get("event", {}).get("contentBlockStop") is not None)
+    assert complete_idx == stop_idx + 1, "complete event must immediately follow contentBlockStop"
+
+
+@pytest.mark.asyncio
+async def test_no_complete_event_for_tool_use_block(agenerator, alist):
+    """Test that no complete event is emitted for toolUse content blocks."""
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t1", "name": "my_tool"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": "{}"}}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                "metrics": {"latencyMs": 1},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    events = await alist(stream)
+
+    complete_events = [e for e in events if e.get("complete") is True]
+    assert len(complete_events) == 0, "No complete event should be emitted for tool_use blocks"
+
+
+@pytest.mark.asyncio
+async def test_no_complete_event_for_reasoning_block(agenerator, alist):
+    """Test that no complete event is emitted for reasoning content blocks."""
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "thinking..."}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "sig123"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "answer"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                "metrics": {"latencyMs": 1},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    events = await alist(stream)
+
+    complete_events = [e for e in events if e.get("complete") is True]
+    assert len(complete_events) == 1, f"Expected 1 complete event (text only), got {len(complete_events)}"
+
+
+@pytest.mark.asyncio
+async def test_complete_event_with_multiple_text_blocks(agenerator, alist):
+    """Test that complete events are emitted for each text content block."""
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "first"}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "t1", "name": "tool"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": "{}"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "second"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                "metrics": {"latencyMs": 1},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    events = await alist(stream)
+
+    complete_events = [e for e in events if e.get("complete") is True]
+    assert len(complete_events) == 2, f"Expected 2 complete events (one per text block), got {len(complete_events)}"
