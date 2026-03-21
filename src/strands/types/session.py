@@ -55,6 +55,22 @@ def decode_bytes_values(obj: Any) -> Any:
         return obj
 
 
+def _encode_dict_values(obj: dict[str, Any]) -> dict[str, Any]:
+    """Encode bytes in a dictionary while preserving the expected payload shape."""
+    encoded = encode_bytes_values(obj)
+    if not isinstance(encoded, dict):
+        raise TypeError("encoded session payload must be a dictionary")
+    return encoded
+
+
+def _decode_dict_values(obj: dict[str, Any]) -> dict[str, Any]:
+    """Decode bytes markers in a dictionary while preserving the expected payload shape."""
+    decoded = decode_bytes_values(obj)
+    if not isinstance(decoded, dict):
+        raise TypeError("decoded session payload must be a dictionary")
+    return decoded
+
+
 @dataclass
 class SessionMessage:
     """Message within a SessionAgent.
@@ -97,11 +113,11 @@ class SessionMessage:
     def from_dict(cls, env: dict[str, Any]) -> "SessionMessage":
         """Initialize a SessionMessage from a dictionary, ignoring keys that are not class parameters."""
         extracted_relevant_parameters = {k: v for k, v in env.items() if k in inspect.signature(cls).parameters}
-        return cls(**decode_bytes_values(extracted_relevant_parameters))
+        return cls(**_decode_dict_values(extracted_relevant_parameters))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the SessionMessage to a dictionary representation."""
-        return encode_bytes_values(asdict(self))  # type: ignore
+        return _encode_dict_values(asdict(self))
 
 
 @dataclass
@@ -165,11 +181,11 @@ class SessionAgent:
     @classmethod
     def from_dict(cls, env: dict[str, Any]) -> "SessionAgent":
         """Initialize a SessionAgent from a dictionary, ignoring keys that are not class parameters."""
-        return cls(**decode_bytes_values({k: v for k, v in env.items() if k in inspect.signature(cls).parameters}))
+        return cls(**_decode_dict_values({k: v for k, v in env.items() if k in inspect.signature(cls).parameters}))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the SessionAgent to a dictionary representation."""
-        return encode_bytes_values(asdict(self))
+        return _encode_dict_values(asdict(self))
 
     def initialize_internal_state(self, agent: "Agent") -> None:
         """Initialize internal state of agent."""
@@ -204,4 +220,4 @@ class Session:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the Session to a dictionary representation."""
-        return encode_bytes_values(asdict(self))
+        return _encode_dict_values(asdict(self))
