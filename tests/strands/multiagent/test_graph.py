@@ -2477,6 +2477,7 @@ def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
     ready_ids = {n.node_id for n in ready}
     assert ready_ids == {"E"}, f"Expected only E, got {ready_ids}"
 
+
 @pytest.mark.asyncio
 async def test_reset_executor_state_preserves_graph_state_for_nested_graph():
     """Verify reset_executor_state does not corrupt MultiAgentBase state.
@@ -2504,8 +2505,6 @@ async def test_reset_executor_state_preserves_graph_state_for_nested_graph():
     node.reset_executor_state()
 
     # After reset, the executor's state must still be GraphState
-    assert isinstance(inner_graph.state, GraphState), (
-        "reset_executor_state overwrote GraphState with AgentState"
-    )
+    assert isinstance(inner_graph.state, GraphState), "reset_executor_state overwrote GraphState with AgentState"
     assert node.execution_status == Status.PENDING
     assert node.result is None
