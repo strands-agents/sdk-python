@@ -410,6 +410,12 @@ class BedrockModel(Model):
         filtered_unknown_members = False
         dropped_deepseek_reasoning_content = False
 
+        # Check if extended thinking is enabled — Bedrock requires every assistant message
+        # to start with a reasoningContent block when thinking is active.
+        additional_fields = self.config.get("additional_request_fields") or {}
+        thinking_config = additional_fields.get("thinking", {})
+        thinking_enabled = thinking_config.get("type") == "enabled"
+
         # Pre-compute the index of the last user message containing text or image content.
         # This ensures guardContent wrapping is maintained across tool execution cycles, where
         # the final message in the list is a toolResult (role=user) rather than text/image content.
@@ -445,6 +451,22 @@ class BedrockModel(Model):
                         formatted_content = {"guardContent": {"image": formatted_content["image"]}}
 
                 cleaned_content.append(formatted_content)
+
+            # When thinking is enabled, ensure assistant messages start with a reasoningContent block.
+            # Bedrock requires every assistant message to begin with a thinking block when thinking
+            # is enabled. Custom session managers or external history may strip or reorder these
+            # blocks, causing ValidationException. We defensively fix ordering and inject a minimal
+            # redactedContent placeholder when thinking blocks are missing entirely.
+            if message["role"] == "assistant" and thinking_enabled and cleaned_content:
+                has_reasoning = any("reasoningContent" in cb for cb in cleaned_content)
+                if has_reasoning:
+                    # Ensure reasoningContent blocks come first (Bedrock requirement)
+                    reasoning_blocks = [cb for cb in cleaned_content if "reasoningContent" in cb]
+                    other_blocks = [cb for cb in cleaned_content if "reasoningContent" not in cb]
+                    cleaned_content = reasoning_blocks + other_blocks
+                else:
+                    # Inject a minimal redactedContent placeholder at the start
+                    cleaned_content.insert(0, {"reasoningContent": {"redactedContent": b"redacted"}})
 
             # Create new message with cleaned content (skip if empty)
             if cleaned_content:
