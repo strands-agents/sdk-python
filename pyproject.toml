@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "strands-agents"
-dynamic = ["version"]  # Version determined by git tags
+version = "1.32.0"
 description = "A model-driven approach to building AI agents in just a few lines of code"
 readme = "README.md"
 requires-python = ">=3.10"
