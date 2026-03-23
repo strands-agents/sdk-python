@@ -219,8 +219,14 @@ class OpenAIResponsesModel(Model):
 
                 async for event in response:
                     if hasattr(event, "type"):
-                        if event.type == "response.reasoning_text.delta":
-                            # Reasoning content streaming (for o1/o3 reasoning models)
+                        if event.type in (
+                            "response.reasoning_text.delta",
+                            "response.reasoning_summary_text.delta",
+                        ):
+                            # Reasoning content streaming:
+                            # - response.reasoning_text.delta: encrypted reasoning (o1/o3 models)
+                            # - response.reasoning_summary_text.delta: readable reasoning summaries
+                            #   (GPT-5.x+ models with reasoning.summary="auto"|"concise"|"detailed")
                             chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
                             for chunk in chunks:
                                 yield chunk
@@ -232,6 +238,15 @@ class OpenAIResponsesModel(Model):
                                         "data": event.delta,
                                     }
                                 )
+
+                        elif event.type in (
+                            "response.reasoning_summary_part.added",
+                            "response.reasoning_summary_part.done",
+                            "response.reasoning_summary_text.done",
+                        ):
+                            # Metadata events for reasoning summaries — content is already
+                            # handled via the delta events above
+                            pass
 
                         elif event.type == "response.output_text.delta":
                             # Text content streaming
