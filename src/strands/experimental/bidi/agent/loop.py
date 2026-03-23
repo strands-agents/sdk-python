@@ -5,6 +5,7 @@ The agent loop handles the events received from the model and executes tools whe
 
 import asyncio
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
 from ....types._events import ToolInterruptEvent, ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
@@ -277,6 +278,7 @@ class _BidiAgentLoop:
 
                 await self._event_queue.put(tool_event)
 
+            # Normal flow for all tools (including stop_conversation)
             tool_result_event = cast(ToolResultEvent, tool_event)
 
             tool_use_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
@@ -285,9 +287,21 @@ class _BidiAgentLoop:
 
             await self._event_queue.put(ToolResultMessageEvent(tool_result_message))
 
-            # Check for stop_event_loop flag (set by strands_tools.stop or any tool)
+            # Check for stop_event_loop flag (set by strands_tools.stop, stop_conversation, or any custom tool)
             request_state = invocation_state.get("request_state", {})
-            if request_state.get("stop_event_loop", False):
+            should_stop = request_state.get("stop_event_loop", False)
+
+            # Backward compatibility: also check for stop_conversation by name (deprecated)
+            if not should_stop and tool_use["name"] == "stop_conversation":
+                warnings.warn(
+                    "Stopping the event loop by tool name 'stop_conversation' is deprecated. "
+                    "Use request_state['stop_event_loop'] = True instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                should_stop = True
+
+            if should_stop:
                 logger.info("stop_event_loop=<True> | stopping conversation")
                 connection_id = getattr(self._agent.model, "_connection_id", "unknown")
                 await self._event_queue.put(

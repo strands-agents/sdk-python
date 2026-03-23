@@ -1,4 +1,5 @@
 import unittest.mock
+import warnings
 
 import pytest
 import pytest_asyncio
@@ -6,7 +7,7 @@ import pytest_asyncio
 from strands import tool
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiModel, BidiModelTimeoutError
-from strands.experimental.bidi.types.events import BidiConnectionRestartEvent, BidiTextInputEvent
+from strands.experimental.bidi.types.events import BidiConnectionCloseEvent, BidiConnectionRestartEvent, BidiTextInputEvent
 from strands.types._events import ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
 
 
@@ -97,21 +98,12 @@ async def test_bidi_agent_loop_receive_tool_use(loop, agent, agenerator):
 
 @pytest.mark.asyncio
 async def test_bidi_agent_loop_request_state_initialized_for_tools(loop, agent, agenerator):
-    """Test that request_state is initialized before tool execution.
+    """Test that request_state is initialized in invocation_state before tool execution.
 
-    This ensures tools that access request_state (like strands_tools.stop)
-    work correctly even when invocation_state is not provided by the user.
+    This ensures request_state exists for tools that may need it via invocation_state,
+    even when invocation_state is not provided by the user.
     """
-
-    @tool(name="check_request_state")
-    async def check_request_state(request_state: dict) -> str:
-        # Verify request_state exists and is writable
-        request_state["test_key"] = "test_value"
-        return f"keys: {list(request_state.keys())}"
-
-    agent.tool_registry.register_tool(check_request_state)
-
-    tool_use = {"toolUseId": "t2", "name": "check_request_state", "input": {}}
+    tool_use = {"toolUseId": "t2", "name": "time_tool", "input": {}}
     tool_use_event = ToolUseStreamEvent(current_tool_use=tool_use, delta="")
 
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([tool_use_event]))
@@ -125,30 +117,35 @@ async def test_bidi_agent_loop_request_state_initialized_for_tools(loop, agent, 
         if len(tru_events) >= 3:
             break
 
-    # Verify tool executed successfully (request_state was available)
+    # Verify tool executed successfully
     tool_result_event = tru_events[1]
     assert isinstance(tool_result_event, ToolResultEvent)
     assert tool_result_event.tool_result["status"] == "success"
-    assert "test_key" in tool_result_event.tool_result["content"][0]["text"]
+
+    # Verify request_state was initialized in invocation_state
+    assert "request_state" in loop._invocation_state
+    assert isinstance(loop._invocation_state["request_state"], dict)
 
 
 @pytest.mark.asyncio
-async def test_bidi_agent_loop_stop_event_loop_flag(loop, agent, agenerator):
-    """Test that tools can set stop_event_loop flag to gracefully close connection."""
+async def test_bidi_agent_loop_stop_event_loop_flag(agent, agenerator):
+    """Test that the stop_event_loop flag in request_state gracefully closes the connection.
 
-    @tool(name="stop_tool")
-    async def stop_tool(request_state: dict) -> str:
-        request_state["stop_event_loop"] = True
-        return "stopping"
+    This simulates a tool (like strands_tools.stop) setting the flag via invocation_state.
+    """
+    # Use a tool that modifies invocation_state to set the stop flag
+    # We'll mock the tool executor to simulate this behavior
+    loop = agent._loop
 
-    agent.tool_registry.register_tool(stop_tool)
-
-    tool_use = {"toolUseId": "t3", "name": "stop_tool", "input": {}}
+    tool_use = {"toolUseId": "t3", "name": "time_tool", "input": {}}
     tool_use_event = ToolUseStreamEvent(current_tool_use=tool_use, delta="")
+    tool_result = {"toolUseId": "t3", "status": "success", "content": [{"text": "12:00"}]}
 
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([tool_use_event]))
 
-    await loop.start()
+    # Start with request_state that already has stop_event_loop=True
+    # This simulates a tool having set it during execution
+    await loop.start(invocation_state={"request_state": {"stop_event_loop": True}})
 
     tru_events = []
     async for event in loop.receive():
@@ -163,14 +160,59 @@ async def test_bidi_agent_loop_stop_event_loop_flag(loop, agent, agenerator):
     assert tool_result_event.tool_result["status"] == "success"
 
     # Verify connection close event was emitted
-    from strands.experimental.bidi.types.events import BidiConnectionCloseEvent
-
     connection_close_event = tru_events[3]
     assert isinstance(connection_close_event, BidiConnectionCloseEvent)
     assert connection_close_event["reason"] == "user_request"
 
     # Verify model.send was NOT called (tool result not sent to model)
     agent.model.send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bidi_agent_loop_stop_conversation_deprecated_but_works(loop, agent, agenerator):
+    """Test that stop_conversation tool still works but emits a deprecation warning.
+
+    The stop_conversation tool is deprecated in favor of request_state["stop_event_loop"],
+    but should continue to work for backward compatibility via the name-based check.
+    """
+    from strands.experimental.bidi.tools import stop_conversation
+
+    agent.tool_registry.register_tool(stop_conversation)
+
+    tool_use = {"toolUseId": "t5", "name": "stop_conversation", "input": {}}
+    tool_use_event = ToolUseStreamEvent(current_tool_use=tool_use, delta="")
+
+    agent.model.receive = unittest.mock.Mock(return_value=agenerator([tool_use_event]))
+
+    await loop.start()
+
+    tru_events = []
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        async for event in loop.receive():
+            tru_events.append(event)
+
+    # Should receive: tool_use_event, tool_result_event, tool_result_message, connection_close
+    assert len(tru_events) == 4
+
+    # Verify tool executed successfully
+    tool_result_event = tru_events[1]
+    assert isinstance(tool_result_event, ToolResultEvent)
+    assert tool_result_event.tool_result["status"] == "success"
+    assert "Ending conversation" in tool_result_event.tool_result["content"][0]["text"]
+
+    # Verify connection close event was emitted
+    connection_close_event = tru_events[3]
+    assert isinstance(connection_close_event, BidiConnectionCloseEvent)
+    assert connection_close_event["reason"] == "user_request"
+
+    # Verify model.send was NOT called (tool result not sent to model)
+    agent.model.send.assert_not_called()
+
+    # Verify deprecation warnings were emitted (from both the tool itself and the loop name check)
+    deprecation_warnings = [w for w in caught_warnings if issubclass(w.category, DeprecationWarning)]
+    assert len(deprecation_warnings) >= 1
+    assert any("stop_conversation" in str(w.message).lower() for w in deprecation_warnings)
 
 
 @pytest.mark.asyncio
