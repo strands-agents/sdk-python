@@ -1458,6 +1458,8 @@ async def test_structured_output_fallback_tool_choice_auto(bedrock_client, model
 
     second_call = bedrock_client.converse_stream.call_args_list[1]
     assert second_call.kwargs["toolConfig"]["toolChoice"] == {"auto": {}}
+
+
 @pytest.mark.asyncio
 async def test_add_note_on_client_error(bedrock_client, model, alist, messages):
     """Test that add_note is called on ClientError with region and model ID information."""
