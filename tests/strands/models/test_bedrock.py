@@ -2962,9 +2962,7 @@ def test_format_request_multi_turn_thinking_session_reload(bedrock_client, model
     for msg in request["messages"]:
         if msg["role"] == "assistant":
             first_block = msg["content"][0]
-            assert "reasoningContent" in first_block, (
-                f"Assistant message missing reasoningContent: {msg['content']}"
-            )
+            assert "reasoningContent" in first_block, f"Assistant message missing reasoningContent: {msg['content']}"
 
 
 def test_format_request_does_not_inject_reasoning_for_user_messages(bedrock_client, model_id):
