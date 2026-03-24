@@ -484,7 +484,9 @@ class OpenAIResponsesModel(Model):
             formatted_contents = [
                 cls._format_request_message_content(content, role=role)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+                if not any(
+                    block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"]
+                )
             ]
 
             formatted_tool_calls = [
