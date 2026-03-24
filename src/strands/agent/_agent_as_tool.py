@@ -11,8 +11,9 @@ from typing import Any
 from typing_extensions import override
 
 from ..agent.state import AgentState
-from ..types._events import AgentAsToolStreamEvent, ToolResultEvent
+from ..types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent
 from ..types.content import Messages
+from ..types.interrupt import InterruptResponseContent
 from ..types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
 from .base import AgentBase
 
@@ -132,13 +133,18 @@ class AgentAsTool(AgentTool):
         can distinguish sub-agent progress from regular tool events. The final
         AgentResult is yielded as a ToolResultEvent.
 
+        When the sub-agent encounters a hook interrupt (e.g. from BeforeToolCallEvent),
+        the interrupts are propagated to the parent agent via ToolInterruptEvent. On
+        resume, interrupt responses are forwarded to the sub-agent automatically.
+
         Args:
             tool_use: The tool use request containing the input parameter.
             invocation_state: Context for the tool invocation.
             **kwargs: Additional keyword arguments.
 
         Yields:
-            AgentAsToolStreamEvent for intermediate events, then ToolResultEvent with the final response.
+            AgentAsToolStreamEvent for intermediate events, ToolInterruptEvent if the
+            sub-agent is interrupted, or ToolResultEvent with the final response.
         """
         tool_input = tool_use["input"]
         if isinstance(tool_input, dict):
@@ -151,7 +157,15 @@ class AgentAsTool(AgentTool):
 
         tool_use_id = tool_use["toolUseId"]
 
-        if not self._preserve_context:
+        # Determine if we are resuming the sub-agent from an interrupt.
+        if self._is_sub_agent_interrupted():
+            prompt = self._build_interrupt_responses()
+            logger.debug(
+                "tool_name=<%s>, tool_use_id=<%s> | resuming sub-agent from interrupt",
+                self._tool_name,
+                tool_use_id,
+            )
+        elif not self._preserve_context:
             self._reset_agent_state(tool_use_id)
 
         logger.debug("tool_name=<%s>, tool_use_id=<%s> | invoking agent", self._tool_name, tool_use_id)
@@ -172,6 +186,11 @@ class AgentAsTool(AgentTool):
                         "content": [{"text": "Agent did not produce a result"}],
                     }
                 )
+                return
+
+            # Propagate sub-agent interrupts to the parent agent.
+            if result.stop_reason == "interrupt" and result.interrupts:
+                yield ToolInterruptEvent(tool_use, list(result.interrupts))
                 return
 
             if result.structured_output:
@@ -228,6 +247,35 @@ class AgentAsTool(AgentTool):
         )
         self._agent.messages = copy.deepcopy(self._initial_messages)
         self._agent.state = AgentState(self._initial_state.get())
+
+    def _is_sub_agent_interrupted(self) -> bool:
+        """Check whether the wrapped agent is in an activated interrupt state."""
+        from .agent import Agent
+
+        if not isinstance(self._agent, Agent):
+            return False
+        return self._agent._interrupt_state.activated
+
+    def _build_interrupt_responses(self) -> list[InterruptResponseContent]:
+        """Build interrupt response payloads from the sub-agent's interrupt state.
+
+        The parent agent's ``_interrupt_state.resume()`` sets ``.response`` on the shared
+        ``Interrupt`` objects (registered by the executor), so we re-package them in the
+        format expected by ``Agent.stream_async``.
+
+        Returns:
+            List of interrupt response content blocks for resuming the sub-agent.
+        """
+        from .agent import Agent
+
+        if not isinstance(self._agent, Agent):
+            return []
+
+        return [
+            {"interruptResponse": {"interruptId": interrupt.id, "response": interrupt.response}}
+            for interrupt in self._agent._interrupt_state.interrupts.values()
+            if interrupt.response is not None
+        ]
 
     @override
     def get_display_properties(self) -> dict[str, str]:

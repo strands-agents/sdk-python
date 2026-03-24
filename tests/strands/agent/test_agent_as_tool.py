@@ -6,8 +6,9 @@ import pytest
 
 from strands.agent import AgentAsTool
 from strands.agent.agent_result import AgentResult
+from strands.interrupt import Interrupt
 from strands.telemetry.metrics import EventLoopMetrics
-from strands.types._events import AgentAsToolStreamEvent, ToolResultEvent, ToolStreamEvent
+from strands.types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 
 
 async def _mock_stream_async(result, intermediate_events=None):
@@ -461,3 +462,156 @@ def test_preserve_context_false_requires_agent_instance():
 
     with pytest.raises(TypeError, match="requires an Agent instance"):
         AgentAsTool(_NotAnAgent(), name="bad", description="desc")
+
+
+# --- interrupt propagation ---
+
+
+@pytest.fixture
+def interrupt_result():
+    interrupt = Interrupt(id="interrupt-1", name="approval", reason="need approval")
+    return AgentResult(
+        stop_reason="interrupt",
+        message={"role": "assistant", "content": [{"text": "pending"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+        interrupts=[interrupt],
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_interrupt_yields_tool_interrupt_event(tool, mock_agent, tool_use, interrupt_result):
+    """When the sub-agent returns an interrupt result, AgentAsTool should yield ToolInterruptEvent."""
+    mock_agent.stream_async.return_value = _mock_stream_async(interrupt_result)
+
+    events = [event async for event in tool.stream(tool_use, {})]
+
+    assert len(events) == 1
+    assert isinstance(events[0], ToolInterruptEvent)
+    assert events[0].interrupts == interrupt_result.interrupts
+    assert events[0].tool_use_id == "tool-123"
+
+
+@pytest.mark.asyncio
+async def test_stream_interrupt_no_tool_result_appended(tool, mock_agent, tool_use, interrupt_result):
+    """ToolInterruptEvent should not produce a ToolResultEvent."""
+    mock_agent.stream_async.return_value = _mock_stream_async(interrupt_result)
+
+    events = [event async for event in tool.stream(tool_use, {})]
+
+    result_events = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert result_events == []
+
+
+@pytest.mark.asyncio
+async def test_stream_interrupt_forwards_intermediate_events(tool, mock_agent, tool_use, interrupt_result):
+    """Intermediate events should still be yielded before the interrupt."""
+    intermediate = [{"data": "partial"}]
+    mock_agent.stream_async.return_value = _mock_stream_async(interrupt_result, intermediate)
+
+    events = [event async for event in tool.stream(tool_use, {})]
+
+    stream_events = [e for e in events if isinstance(e, AgentAsToolStreamEvent)]
+    interrupt_events = [e for e in events if isinstance(e, ToolInterruptEvent)]
+    assert len(stream_events) == 1
+    assert len(interrupt_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_interrupt_resume_forwards_responses(fake_agent):
+    """On resume, AgentAsTool should forward interrupt responses to the sub-agent."""
+    interrupt = Interrupt(id="interrupt-1", name="approval", reason="need approval", response="APPROVE")
+
+    # Put the sub-agent in an activated interrupt state with the response already set
+    fake_agent._interrupt_state.interrupts["interrupt-1"] = interrupt
+    fake_agent._interrupt_state.activate()
+
+    normal_result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"text": "approved"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+    fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(normal_result))
+
+    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "do something"}}
+
+    events = [event async for event in tool.stream(tool_use, {})]
+
+    # Should have called stream_async with interrupt responses, not the original prompt
+    call_args = fake_agent.stream_async.call_args
+    agent_input = call_args[0][0]
+    assert isinstance(agent_input, list)
+    assert len(agent_input) == 1
+    assert agent_input[0]["interruptResponse"]["interruptId"] == "interrupt-1"
+    assert agent_input[0]["interruptResponse"]["response"] == "APPROVE"
+
+    # Should produce a normal result
+    result_events = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert len(result_events) == 1
+    assert result_events[0]["tool_result"]["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_stream_interrupt_resume_skips_state_reset(fake_agent):
+    """When resuming from interrupt with preserve_context=False, state reset should be skipped."""
+    fake_agent.messages = [{"role": "user", "content": [{"text": "initial"}]}]
+    fake_agent.state.set("key", "value")
+
+    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+
+    # Simulate the sub-agent being in interrupt state after a previous invocation
+    interrupt = Interrupt(id="interrupt-1", name="approval", reason="need approval", response="APPROVE")
+    fake_agent._interrupt_state.interrupts["interrupt-1"] = interrupt
+    fake_agent._interrupt_state.activate()
+
+    # Mutate messages to simulate sub-agent progress before interrupt
+    fake_agent.messages.append({"role": "assistant", "content": [{"text": "working on it"}]})
+
+    normal_result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"text": "done"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+    fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(normal_result))
+
+    tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "do something"}}
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    # Messages should NOT have been reset — the sub-agent needs its conversation history intact
+    assert len(fake_agent.messages) == 2
+
+
+@pytest.mark.asyncio
+async def test_is_sub_agent_interrupted_false_for_mock(tool):
+    """_is_sub_agent_interrupted returns False for non-Agent instances."""
+    assert tool._is_sub_agent_interrupted() is False
+
+
+@pytest.mark.asyncio
+async def test_is_sub_agent_interrupted_true_when_activated(fake_agent):
+    """_is_sub_agent_interrupted returns True when the sub-agent's interrupt state is activated."""
+    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    assert tool._is_sub_agent_interrupted() is False
+
+    fake_agent._interrupt_state.activate()
+    assert tool._is_sub_agent_interrupted() is True
+
+
+@pytest.mark.asyncio
+async def test_build_interrupt_responses(fake_agent):
+    """_build_interrupt_responses packages sub-agent interrupts into response content blocks."""
+    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+
+    interrupt_a = Interrupt(id="id-a", name="a", reason="r", response="yes")
+    interrupt_b = Interrupt(id="id-b", name="b", reason="r", response=None)
+    fake_agent._interrupt_state.interrupts = {"id-a": interrupt_a, "id-b": interrupt_b}
+
+    responses = tool._build_interrupt_responses()
+
+    # Only interrupt_a has a response
+    assert len(responses) == 1
+    assert responses[0] == {"interruptResponse": {"interruptId": "id-a", "response": "yes"}}
