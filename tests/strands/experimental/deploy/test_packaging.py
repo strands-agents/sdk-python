@@ -6,15 +6,15 @@ from unittest.mock import MagicMock
 
 from strands.experimental.deploy._packaging import (
     _should_exclude,
+    _strip_deploy_call,
     create_code_zip,
-    extract_agent_config,
     generate_agentcore_entrypoint,
 )
 
 
 class TestShouldExclude:
     def test_excludes_strands_dir(self):
-        assert _should_exclude("/project/.strands/state.json", "/project")
+        assert _should_exclude("/project/.strands_deploy/state.json", "/project")
 
     def test_excludes_git_dir(self):
         assert _should_exclude("/project/.git/config", "/project")
@@ -53,15 +53,15 @@ class TestCreateCodeZip:
         (tmp_path / "main.py").write_text("code")
         (tmp_path / ".git").mkdir()
         (tmp_path / ".git" / "config").write_text("git config")
-        (tmp_path / ".strands").mkdir()
-        (tmp_path / ".strands" / "state.json").write_text("{}")
+        (tmp_path / ".strands_deploy").mkdir()
+        (tmp_path / ".strands_deploy" / "state.json").write_text("{}")
 
         zip_bytes = create_code_zip("# entrypoint", base_dir=str(tmp_path))
 
         with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
             names = zf.namelist()
             assert not any(".git" in n for n in names)
-            assert not any(".strands" in n for n in names)
+            assert not any(".strands_deploy" in n for n in names)
 
     def test_excludes_pyc_files(self, tmp_path):
         (tmp_path / "main.py").write_text("code")
@@ -85,33 +85,36 @@ class TestCreateCodeZip:
             assert "from strands import Agent" in content
 
 
-class TestExtractAgentConfig:
-    def test_extracts_name_and_system_prompt(self):
-        agent = MagicMock()
-        agent.name = "test-agent"
-        agent.system_prompt = "You are a helpful assistant."
-        agent.model = MagicMock()
-        agent.model.config = {"model_id": "us.anthropic.claude-sonnet-4-20250514"}
+class TestStripDeployCall:
+    def test_removes_deploy_call(self):
+        source = "from strands import Agent\nagent = Agent()\ndeploy(agent, name='test')\n"
+        result = _strip_deploy_call(source)
+        assert "deploy(" not in result
+        assert "agent = Agent()" in result
 
-        config = extract_agent_config(agent)
+    def test_removes_module_deploy_call(self):
+        source = "import strands\nagent = Agent()\nstrands.deploy(agent)\n"
+        result = _strip_deploy_call(source)
+        assert "deploy(" not in result
 
-        assert config["name"] == "test-agent"
-        assert config["system_prompt"] == "You are a helpful assistant."
-        assert config["model_id"] == "us.anthropic.claude-sonnet-4-20250514"
+    def test_removes_if_name_main(self):
+        source = "agent = Agent()\nif __name__ == '__main__':\n    deploy(agent)\n"
+        result = _strip_deploy_call(source)
+        assert "__name__" not in result
+        assert "__main__" not in result
 
-    def test_handles_missing_model_config(self):
-        agent = MagicMock()
-        agent.name = "test"
-        agent.system_prompt = None
-        agent.model = MagicMock(spec=[])  # No config attr
 
-        config = extract_agent_config(agent)
-        assert config["name"] == "test"
-        assert "model_id" not in config
+    def test_preserves_non_deploy_code(self):
+        source = "from strands import Agent\nfrom my_tools import search\nagent = Agent(tools=[search])\n"
+        result = _strip_deploy_call(source)
+        assert "from strands import Agent" in result
+        assert "from my_tools import search" in result
+        assert "Agent(tools=[search])" in result
 
 
 class TestGenerateAgentcoreEntrypoint:
-    def test_generates_valid_python(self):
+    def test_fallback_generates_valid_python(self):
+        """When caller source can't be found (e.g., test context), falls back to template."""
         agent = MagicMock()
         agent.name = "my-agent"
         agent.system_prompt = "Be helpful."
@@ -120,15 +123,11 @@ class TestGenerateAgentcoreEntrypoint:
 
         code = generate_agentcore_entrypoint(agent)
 
-        # Should be valid Python (compile check)
         compile(code, "<test>", "exec")
-
         assert "BedrockAgentCoreApp" in code
-        assert "us.anthropic.claude-sonnet-4-20250514" in code
-        assert "Be helpful." in code
         assert "@app.entrypoint" in code
 
-    def test_handles_none_system_prompt(self):
+    def test_fallback_handles_none_system_prompt(self):
         agent = MagicMock()
         agent.name = "test"
         agent.system_prompt = None

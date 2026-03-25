@@ -87,10 +87,18 @@ def deploy(
         DeployException: If deployment fails.
 
     Note:
-        The deployment automatically includes ``bedrock-agentcore`` and ``strands-agents``
-        as dependencies. If your project has additional dependencies, provide them in a
-        ``requirements.txt`` file in the current working directory. Dependencies listed in
-        ``pyproject.toml`` are not yet automatically included.
+        **Packaging:** The deployment packages all files in the current working directory.
+        The caller's source file is copied into the entrypoint with the ``deploy()`` call
+        stripped out, so all tools, plugins, hooks, and Agent parameters are preserved.
+
+        **Imports:** Absolute imports from the CWD root and relative imports within the
+        caller's directory are supported. For projects that rely on custom ``PYTHONPATH``
+        or editable installs, run ``deploy()`` from the project root.
+
+        **Dependencies:** ``bedrock-agentcore`` and ``strands-agents`` are automatically
+        included. For additional dependencies, provide a ``requirements.txt`` file in the
+        current working directory. Dependencies in ``pyproject.toml`` are not yet
+        automatically included.
 
     Example::
 
