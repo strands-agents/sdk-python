@@ -15,7 +15,8 @@ from pydantic import BaseModel
 
 import strands
 from strands import Agent, Plugin, ToolContext
-from strands.agent import AgentResult, _AgentAsTool
+from strands.agent import AgentResult
+from strands.agent._agent_as_tool import _AgentAsTool
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState

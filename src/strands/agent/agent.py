@@ -61,6 +61,7 @@ from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopE
 from ..types.agent import AgentInput, ConcurrentInvocationMode
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
+from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
 from ._agent_as_tool import _AgentAsTool
 from .agent_result import AgentResult
@@ -618,7 +619,7 @@ class Agent(AgentBase):
         name: str | None = None,
         description: str | None = None,
         preserve_context: bool = False,
-    ) -> _AgentAsTool:
+    ) -> AgentTool:
         r"""Convert this agent into a tool for use by another agent.
 
         Args:
@@ -633,7 +634,7 @@ class Agent(AgentBase):
                 interactions with the agent. Defaults to False.
 
         Returns:
-            An _AgentAsTool wrapping this agent.
+            A tool wrapping this agent.
 
         Example:
             ```python

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from strands.agent import _AgentAsTool
+from strands.agent._agent_as_tool import _AgentAsTool
 from strands.agent.agent_result import AgentResult
 from strands.interrupt import Interrupt, _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
