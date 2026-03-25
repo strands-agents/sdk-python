@@ -2,7 +2,6 @@
 
 import logging
 import os
-import tempfile
 from typing import TYPE_CHECKING
 
 from ._base import DeployTarget
@@ -12,7 +11,7 @@ from ._packaging import generate_agentcore_entrypoint
 from ._state import DeployState
 
 if TYPE_CHECKING:
-    from ..agent.agent import Agent
+    from ...agent.agent import Agent
     from . import DeployConfig, DeployResult
     from ._state import StateManager
 
@@ -32,6 +31,18 @@ def _get_runtime_class():
             "Install it with: pip install 'strands-agents[deploy]'"
         ) from e
     return Runtime
+
+
+def _inject_user_agent():
+    """Best-effort injection of strands-agents-deploy into the toolkit's user agent string."""
+    try:
+        from bedrock_agentcore_starter_toolkit.services import runtime as _toolkit_runtime
+
+        _original_fn = _toolkit_runtime._get_user_agent
+        if "strands-agents-deploy" not in _original_fn():
+            _toolkit_runtime._get_user_agent = lambda: _original_fn() + " strands-agents-deploy"
+    except Exception:
+        pass
 
 
 class AgentCoreTarget(DeployTarget):
@@ -61,12 +72,22 @@ class AgentCoreTarget(DeployTarget):
         region = self._resolve_region(agent, config)
         print(f"  Region: {region}")
 
-        # Generate the entrypoint file into a temp directory
+        # Generate the entrypoint file in CWD so the toolkit includes it in the deployment zip
         entrypoint_code = generate_agentcore_entrypoint(agent)
-        work_dir = tempfile.mkdtemp(prefix="strands-deploy-")
-        entrypoint_path = os.path.join(work_dir, "_strands_entrypoint.py")
+        entrypoint_path = os.path.join(os.getcwd(), "_strands_entrypoint.py")
         with open(entrypoint_path, "w") as f:
             f.write(entrypoint_code)
+
+        # Build requirements list: our deps + any existing project requirements
+        requirements = ["bedrock-agentcore", "strands-agents"]
+        existing_reqs_path = os.path.join(os.getcwd(), "requirements.txt")
+        had_existing_reqs = os.path.exists(existing_reqs_path)
+        if had_existing_reqs:
+            with open(existing_reqs_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        requirements.append(line)
 
         existing = state_manager.load(config.name)
         is_update = bool(existing and existing.get("agent_runtime_id"))
@@ -74,11 +95,13 @@ class AgentCoreTarget(DeployTarget):
         runtime = Runtime()
         configure_kwargs: dict = {
             "entrypoint": entrypoint_path,
-            "agent_name": f"strands-{config.name}",
+            "agent_name": f"strands_{config.name}",
             "deployment_type": "direct_code_deploy",
             "runtime_type": get_python_runtime(),
             "region": region,
             "non_interactive": True,
+            "auto_create_execution_role": True,
+            "requirements": requirements,
         }
 
         if config.environment_variables:
@@ -90,19 +113,32 @@ class AgentCoreTarget(DeployTarget):
             runtime.configure(**configure_kwargs)
 
             if is_update:
-                print(f"  Updating AgentCore Runtime: strands-{config.name}")
+                print(f"  Updating AgentCore Runtime: strands_{config.name}")
             else:
-                print(f"  Creating AgentCore Runtime: strands-{config.name}")
+                print(f"  Creating AgentCore Runtime: strands_{config.name}")
 
+            _inject_user_agent()
             launch_result = runtime.launch()
         except Exception as e:
             raise DeployTargetException("agentcore", str(e), cause=e) from e
+        finally:
+            cwd = os.path.dirname(entrypoint_path)
+            cleanup = [entrypoint_path]
+            # Only remove the generated requirements.txt if we created it
+            if not had_existing_reqs:
+                cleanup.append(os.path.join(cwd, "requirements.txt"))
+            # Remove toolkit build cache (not .bedrock_agentcore.yaml — needed for redeploys)
+            cleanup.append(os.path.join(cwd, "dependencies.hash"))
+            cleanup.append(os.path.join(cwd, "dependencies.zip"))
+            for path in cleanup:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
-        # Extract result fields from the toolkit's launch result
-        runtime_id = getattr(launch_result, "agent_runtime_id", None) or ""
-        runtime_arn = getattr(launch_result, "agent_runtime_arn", None) or ""
-        endpoint_arn = getattr(launch_result, "agent_runtime_endpoint_arn", None) or ""
-        role_arn = getattr(launch_result, "role_arn", None) or ""
+        # Extract result fields from the toolkit's LaunchResult
+        runtime_id = launch_result.agent_id or ""
+        runtime_arn = launch_result.agent_arn or ""
 
         # Save state
         state = DeployState(
@@ -110,8 +146,6 @@ class AgentCoreTarget(DeployTarget):
             region=region,
             agent_runtime_id=runtime_id,
             agent_runtime_arn=runtime_arn,
-            agent_runtime_endpoint_arn=endpoint_arn,
-            role_arn=role_arn,
         )
         state_manager.save(config.name, state)
 
@@ -122,8 +156,6 @@ class AgentCoreTarget(DeployTarget):
             created=not is_update,
             agent_runtime_id=runtime_id,
             agent_runtime_arn=runtime_arn,
-            agent_runtime_endpoint_arn=endpoint_arn,
-            role_arn=role_arn,
         )
 
     def destroy(self, name: str, state_manager: "StateManager", region: str | None = None) -> None:
@@ -139,11 +171,12 @@ class AgentCoreTarget(DeployTarget):
         try:
             runtime = Runtime()
             runtime.configure(
-                agent_name=f"strands-{name}",
+                agent_name=f"strands_{name}",
                 region=deploy_region,
                 non_interactive=True,
             )
-            print(f"  Destroying AgentCore Runtime: strands-{name}")
+            _inject_user_agent()
+            print(f"  Destroying AgentCore Runtime: strands_{name}")
             runtime.destroy()
         except Exception as e:
             logger.warning("Failed to destroy runtime for '%s': %s", name, e)

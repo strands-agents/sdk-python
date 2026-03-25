@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from strands.deploy._constants import PYTHON_RUNTIME_MAP, get_python_runtime
+from strands.experimental.deploy._constants import PYTHON_RUNTIME_MAP, get_python_runtime
 
 
 class TestGetPythonRuntime:

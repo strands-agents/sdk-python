@@ -8,12 +8,11 @@ PYTHON_RUNTIME_MAP: dict[tuple[int, int], str] = {
     (3, 11): "PYTHON_3_11",
     (3, 12): "PYTHON_3_12",
     (3, 13): "PYTHON_3_13",
-    (3, 14): "PYTHON_3_14",
 }
 
 # Directories and files to exclude when packaging agent code
 PACKAGING_EXCLUDES = {
-    ".strands",
+    ".strands_deploy",
     "__pycache__",
     ".git",
     ".venv",
@@ -27,6 +26,9 @@ PACKAGING_EXCLUDES = {
     "dist",
     "build",
     "*.egg-info",
+    ".bedrock_agentcore.yaml",
+    "dependencies.hash",
+    "dependencies.zip",
 }
 
 
@@ -35,6 +37,10 @@ def get_python_runtime() -> str:
     version_key = (sys.version_info.major, sys.version_info.minor)
     runtime = PYTHON_RUNTIME_MAP.get(version_key)
     if runtime is None:
+        # Fall back to the highest supported version if local Python is newer
+        max_supported = max(PYTHON_RUNTIME_MAP.keys())
+        if version_key > max_supported:
+            return PYTHON_RUNTIME_MAP[max_supported]
         supported = ", ".join(f"{m}.{n}" for m, n in sorted(PYTHON_RUNTIME_MAP.keys()))
         raise ValueError(
             f"Python {sys.version_info.major}.{sys.version_info.minor} is not supported by AgentCore. "

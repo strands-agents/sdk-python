@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from strands.deploy._state import DeployState, StateManager
+from strands.experimental.deploy._state import DeployState, StateManager
 
 
 @pytest.fixture
@@ -88,7 +88,7 @@ class TestStateManager:
         with open(os.path.join(state_dir, "state.json"), "w") as f:
             f.write("not valid json{{{")
 
-        from strands.deploy._exceptions import DeployStateException
+        from strands.experimental.deploy._exceptions import DeployStateException
 
         with pytest.raises(DeployStateException):
             state_manager.load("anything")

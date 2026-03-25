@@ -13,7 +13,7 @@ from ._constants import PACKAGING_EXCLUDES
 from ._exceptions import DeployPackagingException
 
 if TYPE_CHECKING:
-    from ..agent.agent import Agent
+    from ...agent.agent import Agent
 
 logger = logging.getLogger(__name__)
 

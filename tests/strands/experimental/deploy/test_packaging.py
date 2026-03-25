@@ -4,7 +4,7 @@ import zipfile
 from io import BytesIO
 from unittest.mock import MagicMock
 
-from strands.deploy._packaging import (
+from strands.experimental.deploy._packaging import (
     _should_exclude,
     create_code_zip,
     extract_agent_config,

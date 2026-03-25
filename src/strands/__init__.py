@@ -1,6 +1,6 @@
 """A framework for building, deploying, and managing AI agents."""
 
-from . import agent, deploy, models, telemetry, types
+from . import agent, models, telemetry, types
 from .agent.agent import Agent
 from .agent.base import AgentBase
 from .event_loop._retry import ModelRetryStrategy
@@ -14,7 +14,6 @@ __all__ = [
     "AgentBase",
     "AgentSkills",
     "agent",
-    "deploy",
     "models",
     "ModelRetryStrategy",
     "Plugin",

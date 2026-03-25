@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..agent.agent import Agent
+    from ...agent.agent import Agent
     from . import DeployConfig, DeployResult
     from ._state import StateManager
 

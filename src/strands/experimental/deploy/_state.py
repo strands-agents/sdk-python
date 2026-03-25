@@ -32,14 +32,14 @@ class DeployState(TypedDict, total=False):
 
 
 class StateManager:
-    """Manages .strands/state.json for tracking deployed AWS resources.
+    """Manages .strands_deploy/state.json for tracking deployed AWS resources.
 
     Uses atomic writes (tmp file + os.replace) to prevent corruption.
     """
 
     def __init__(self, base_dir: str | None = None):
         self._base_dir = base_dir or os.getcwd()
-        self._state_dir = os.path.join(self._base_dir, ".strands")
+        self._state_dir = os.path.join(self._base_dir, ".strands_deploy")
         self._state_file = os.path.join(self._state_dir, "state.json")
 
     def load(self, deployment_name: str) -> DeployState | None:

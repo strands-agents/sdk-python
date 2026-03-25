@@ -16,7 +16,6 @@ from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
-    Literal,
     TypeVar,
     Union,
     cast,
@@ -32,7 +31,6 @@ from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, even
 from ..tools._tool_helpers import generate_missing_tool_result_content
 
 if TYPE_CHECKING:
-    from ..deploy import DeployResult
     from ..tools import ToolProvider
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
@@ -416,58 +414,6 @@ class Agent(AgentBase):
         """
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
-
-    def deploy(
-        self,
-        target: Literal["agentcore"] = "agentcore",
-        *,
-        name: str | None = None,
-        auth: Literal["public", "iam"] = "public",
-        region: str | None = None,
-        description: str | None = None,
-        environment_variables: dict[str, str] | None = None,
-    ) -> "DeployResult":
-        """Deploy this agent to a cloud target.
-
-        Packages the agent's code and configuration, provisions cloud infrastructure,
-        and returns endpoint information. State is tracked in .strands/state.json
-        so subsequent calls update the existing deployment.
-
-        Args:
-            target: Deployment target. Currently only "agentcore" (Bedrock AgentCore) is supported.
-            name: Name for the deployed resource. Defaults to a sanitized version of self.name.
-            auth: Authentication mode - "public" for open access, "iam" for IAM-authenticated.
-            region: AWS region. Auto-detected from the model config, boto3 session, or AWS_REGION env var.
-            description: Description for the deployed runtime.
-            environment_variables: Environment variables to set in the runtime.
-
-        Returns:
-            DeployResult with ARNs and endpoint information.
-
-        Raises:
-            DeployException: If deployment fails.
-
-        Example::
-
-            agent = Agent(model="us.anthropic.claude-sonnet-4-20250514")
-            result = agent.deploy(target="agentcore", name="my-agent")
-            print(result.agent_runtime_arn)
-        """
-        import re
-
-        from ..deploy import DeployConfig
-        from ..deploy import deploy as _deploy
-
-        deploy_name = name or re.sub(r"[^a-zA-Z0-9-]", "-", self.name.lower()).strip("-")[:64]
-        config = DeployConfig(
-            target=target,
-            name=deploy_name,
-            auth=auth,
-            region=region,
-            description=description,
-            environment_variables=environment_variables or {},
-        )
-        return _deploy(self, config)
 
     def __call__(
         self,
