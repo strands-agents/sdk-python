@@ -6,6 +6,7 @@ so it can be passed to another agent's tool list.
 
 import copy
 import logging
+import threading
 from typing import Any
 
 from typing_extensions import override
@@ -81,6 +82,10 @@ class AgentAsTool(AgentTool):
         # messages/state attributes.
         self._initial_messages: Messages = []
         self._initial_state: AgentState = AgentState()
+        # Serialize access so _reset_agent_state + stream_async are atomic.
+        # threading.Lock (not asyncio.Lock) because run_async() may create
+        # separate event loops in different threads.
+        self._lock = threading.Lock()
 
         if not preserve_context:
             from .agent import Agent
@@ -157,20 +162,38 @@ class AgentAsTool(AgentTool):
 
         tool_use_id = tool_use["toolUseId"]
 
-        # Determine if we are resuming the sub-agent from an interrupt.
-        if self._is_sub_agent_interrupted():
-            prompt = self._build_interrupt_responses()
-            logger.debug(
-                "tool_name=<%s>, tool_use_id=<%s> | resuming sub-agent from interrupt",
+        # Serialize access to the underlying agent. _reset_agent_state() mutates
+        # the agent before stream_async acquires its own lock, so a concurrent
+        # call would corrupt an in-flight invocation.
+        if not self._lock.acquire(blocking=False):
+            logger.warning(
+                "tool_name=<%s>, tool_use_id=<%s> | agent is already processing a request",
                 self._tool_name,
                 tool_use_id,
             )
-        elif not self._preserve_context:
-            self._reset_agent_state(tool_use_id)
-
-        logger.debug("tool_name=<%s>, tool_use_id=<%s> | invoking agent", self._tool_name, tool_use_id)
+            yield ToolResultEvent(
+                {
+                    "toolUseId": tool_use_id,
+                    "status": "error",
+                    "content": [{"text": f"Agent '{self._tool_name}' is already processing a request"}],
+                }
+            )
+            return
 
         try:
+            # Determine if we are resuming the sub-agent from an interrupt.
+            if self._is_sub_agent_interrupted():
+                prompt = self._build_interrupt_responses()
+                logger.debug(
+                    "tool_name=<%s>, tool_use_id=<%s> | resuming sub-agent from interrupt",
+                    self._tool_name,
+                    tool_use_id,
+                )
+            elif not self._preserve_context:
+                self._reset_agent_state(tool_use_id)
+
+            logger.debug("tool_name=<%s>, tool_use_id=<%s> | invoking agent", self._tool_name, tool_use_id)
+
             result = None
             async for event in self._agent.stream_async(prompt):
                 if "result" in event:
@@ -224,6 +247,8 @@ class AgentAsTool(AgentTool):
                     "content": [{"text": f"Agent error: {e}"}],
                 }
             )
+        finally:
+            self._lock.release()
 
     def _reset_agent_state(self, tool_use_id: str) -> None:
         """Reset the wrapped agent to its initial state.
@@ -250,11 +275,8 @@ class AgentAsTool(AgentTool):
 
     def _is_sub_agent_interrupted(self) -> bool:
         """Check whether the wrapped agent is in an activated interrupt state."""
-        from .agent import Agent
-
-        if not isinstance(self._agent, Agent):
-            return False
-        return self._agent._interrupt_state.activated
+        interrupt_state = getattr(self._agent, "_interrupt_state", None)
+        return interrupt_state is not None and interrupt_state.activated
 
     def _build_interrupt_responses(self) -> list[InterruptResponseContent]:
         """Build interrupt response payloads from the sub-agent's interrupt state.
@@ -266,14 +288,13 @@ class AgentAsTool(AgentTool):
         Returns:
             List of interrupt response content blocks for resuming the sub-agent.
         """
-        from .agent import Agent
-
-        if not isinstance(self._agent, Agent):
+        interrupt_state = getattr(self._agent, "_interrupt_state", None)
+        if interrupt_state is None:
             return []
 
         return [
             {"interruptResponse": {"interruptId": interrupt.id, "response": interrupt.response}}
-            for interrupt in self._agent._interrupt_state.interrupts.values()
+            for interrupt in interrupt_state.interrupts.values()
             if interrupt.response is not None
         ]
 

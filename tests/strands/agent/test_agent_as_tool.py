@@ -23,6 +23,9 @@ def mock_agent():
     agent = MagicMock()
     agent.name = "test_agent"
     agent.description = "A test agent"
+    # Prevent MagicMock from auto-creating _interrupt_state on access,
+    # so getattr checks in AgentAsTool correctly detect its absence.
+    agent._interrupt_state = None
     return agent
 
 
@@ -615,3 +618,55 @@ async def test_build_interrupt_responses(fake_agent):
     # Only interrupt_a has a response
     assert len(responses) == 1
     assert responses[0] == {"interruptResponse": {"interruptId": "id-a", "response": "yes"}}
+
+
+# --- concurrency ---
+
+
+@pytest.mark.asyncio
+async def test_stream_rejects_concurrent_call(tool, mock_agent, tool_use, agent_result):
+    """A second concurrent call should get an error ToolResultEvent."""
+    mock_agent.stream_async.return_value = _mock_stream_async(agent_result)
+
+    # Simulate the lock already being held by another invocation
+    tool._lock.acquire()
+    try:
+        events = [event async for event in tool.stream(tool_use, {})]
+
+        assert len(events) == 1
+        assert isinstance(events[0], ToolResultEvent)
+        assert events[0]["tool_result"]["status"] == "error"
+        assert "already processing" in events[0]["tool_result"]["content"][0]["text"]
+        mock_agent.stream_async.assert_not_called()
+    finally:
+        tool._lock.release()
+
+
+@pytest.mark.asyncio
+async def test_stream_releases_lock_after_completion(tool, mock_agent, tool_use, agent_result):
+    """Lock should be released after stream completes, allowing subsequent calls."""
+    mock_agent.stream_async.return_value = _mock_stream_async(agent_result)
+
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    assert not tool._lock.locked()
+
+    # A second call should succeed
+    mock_agent.stream_async.return_value = _mock_stream_async(agent_result)
+    events = [event async for event in tool.stream(tool_use, {})]
+
+    result_events = [e for e in events if isinstance(e, ToolResultEvent)]
+    assert len(result_events) == 1
+    assert result_events[0]["tool_result"]["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_stream_releases_lock_after_error(tool, mock_agent, tool_use):
+    """Lock should be released even when the agent raises an exception."""
+    mock_agent.stream_async.side_effect = RuntimeError("boom")
+
+    async for _ in tool.stream(tool_use, {}):
+        pass
+
+    assert not tool._lock.locked()
