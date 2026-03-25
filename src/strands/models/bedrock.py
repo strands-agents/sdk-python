@@ -907,11 +907,14 @@ class BedrockModel(Model):
         yield {"messageStart": {"role": response["output"]["message"]["role"]}}
 
         # Process content blocks
-        for content in cast(list[ContentBlock], response["output"]["message"]["content"]):
-            # Yield contentBlockStart event if needed
+        for content_block_index, content in enumerate(
+            cast(list[ContentBlock], response["output"]["message"]["content"])
+        ):
+            # Yield contentBlockStart for all content block types to match streaming behavior
             if "toolUse" in content:
                 yield {
                     "contentBlockStart": {
+                        "contentBlockIndex": content_block_index,
                         "start": {
                             "toolUse": {
                                 "toolUseId": content["toolUse"]["toolUseId"],
@@ -926,14 +929,24 @@ class BedrockModel(Model):
 
                 yield {"contentBlockDelta": {"delta": {"toolUse": {"input": input_value}}}}
             elif "text" in content:
-                # Then yield the text as a delta
+                yield {
+                    "contentBlockStart": {
+                        "contentBlockIndex": content_block_index,
+                        "start": {},
+                    }
+                }
                 yield {
                     "contentBlockDelta": {
                         "delta": {"text": content["text"]},
                     }
                 }
             elif "reasoningContent" in content:
-                # Then yield the reasoning content as a delta
+                yield {
+                    "contentBlockStart": {
+                        "contentBlockIndex": content_block_index,
+                        "start": {},
+                    }
+                }
                 yield {
                     "contentBlockDelta": {
                         "delta": {"reasoningContent": {"text": content["reasoningContent"]["reasoningText"]["text"]}}
@@ -951,6 +964,12 @@ class BedrockModel(Model):
                         }
                     }
             elif "citationsContent" in content:
+                yield {
+                    "contentBlockStart": {
+                        "contentBlockIndex": content_block_index,
+                        "start": {},
+                    }
+                }
                 # For non-streaming citations, emit text and metadata deltas in sequence
                 # to match streaming behavior where they flow naturally
                 if "content" in content["citationsContent"]:
