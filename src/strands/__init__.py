@@ -1,10 +1,13 @@
 """A framework for building, deploying, and managing AI agents."""
 
-from . import agent, models, telemetry, types
+from . import agent, models, sandbox, telemetry, types
 from .agent.agent import Agent
 from .agent.base import AgentBase
 from .event_loop._retry import ModelRetryStrategy
 from .plugins import Plugin
+from .sandbox.base import ExecutionResult, Sandbox
+from .sandbox.docker import DockerSandbox
+from .sandbox.local import LocalSandbox
 from .tools.decorator import tool
 from .types._snapshot import Snapshot
 from .types.tools import ToolContext
@@ -15,9 +18,14 @@ __all__ = [
     "AgentBase",
     "AgentSkills",
     "agent",
+    "DockerSandbox",
+    "ExecutionResult",
+    "LocalSandbox",
     "models",
     "ModelRetryStrategy",
     "Plugin",
+    "sandbox",
+    "Sandbox",
     "Skill",
     "Snapshot",
     "tool",
