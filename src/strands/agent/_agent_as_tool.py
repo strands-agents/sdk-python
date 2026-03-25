@@ -1,13 +1,15 @@
 """Agent-as-tool adapter.
 
-This module provides the AgentAsTool class that wraps an Agent (or any AgentBase) as a tool
+This module provides the _AgentAsTool class that wraps an Agent as a tool
 so it can be passed to another agent's tool list.
 """
+
+from __future__ import annotations
 
 import copy
 import logging
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
@@ -16,12 +18,14 @@ from ..types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResu
 from ..types.content import Messages
 from ..types.interrupt import InterruptResponseContent
 from ..types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
-from .base import AgentBase
+
+if TYPE_CHECKING:
+    from .agent import Agent
 
 logger = logging.getLogger(__name__)
 
 
-class AgentAsTool(AgentTool):
+class _AgentAsTool(AgentTool):
     """Adapter that exposes an Agent as a tool for use by other agents.
 
     The tool accepts a single ``input`` string parameter, invokes the wrapped
@@ -30,18 +34,14 @@ class AgentAsTool(AgentTool):
     Example:
         ```python
         from strands import Agent
-        from strands.agent import AgentAsTool
 
         researcher = Agent(name="researcher", description="Finds information")
 
-        # Use directly
-        tool = AgentAsTool(researcher, name="researcher", description="Finds information")
-
-        # Or via convenience method
+        # Use via convenience method (default: fresh conversation each call)
         tool = researcher.as_tool()
 
-        # Start each invocation with a fresh conversation
-        tool = researcher.as_tool(preserve_context=False)
+        # Preserve context across invocations
+        tool = researcher.as_tool(preserve_context=True)
 
         writer = Agent(name="writer", tools=[tool])
         writer("Write about AI agents")
@@ -50,10 +50,10 @@ class AgentAsTool(AgentTool):
 
     def __init__(
         self,
-        agent: AgentBase,
+        agent: Agent,
         *,
         name: str,
-        description: str,
+        description: str | None = None,
         preserve_context: bool = False,
     ) -> None:
         r"""Initialize the agent-as-tool adapter.
@@ -61,25 +61,24 @@ class AgentAsTool(AgentTool):
         Args:
             agent: The agent to wrap as a tool.
             name: Tool name. Must match the pattern ``[a-zA-Z0-9_\\-]{1,64}``.
-            description: Tool description.
+            description: Tool description. Defaults to the agent's description, or a
+                generic description if the agent has no description set.
             preserve_context: Whether to preserve the agent's conversation history across
                 invocations. When False, the agent's messages and state are reset to the
                 values they had at construction time before each call, ensuring every
                 invocation starts from the same baseline regardless of any external
-                interactions with the agent. Defaults to False. Only effective when the
-                wrapped agent exposes a mutable ``messages`` list and/or an ``AgentState``
-                (e.g. ``strands.agent.Agent``).
+                interactions with the agent. Defaults to False.
         """
         super().__init__()
         self._agent = agent
         self._tool_name = name
-        self._description = description
+        self._description = (
+            description or agent.description or f"Use the {name} agent as a tool by providing a natural language input"
+        )
         self._preserve_context = preserve_context
 
         # When preserve_context=False, we snapshot the agent's initial state so we can
         # restore it before each invocation. This mirrors GraphNode.reset_executor_state().
-        # We require an Agent instance for this since AgentBase doesn't guarantee
-        # messages/state attributes.
         self._initial_messages: Messages = []
         self._initial_state: AgentState = AgentState()
         # Serialize access so _reset_agent_state + stream_async are atomic.
@@ -88,15 +87,17 @@ class AgentAsTool(AgentTool):
         self._lock = threading.Lock()
 
         if not preserve_context:
-            from .agent import Agent
-
-            if not isinstance(agent, Agent):
-                raise TypeError(f"preserve_context=False requires an Agent instance, got {type(agent).__name__}")
+            if getattr(agent, "_session_manager", None) is not None:
+                raise ValueError(
+                    "preserve_context=False cannot be used with an agent that has a session manager. "
+                    "The session manager persists conversation history externally, which conflicts with "
+                    "resetting the agent's state between invocations."
+                )
             self._initial_messages = copy.deepcopy(agent.messages)
             self._initial_state = AgentState(agent.state.get())
 
     @property
-    def agent(self) -> AgentBase:
+    def agent(self) -> Agent:
         """The wrapped agent instance."""
         return self._agent
 
@@ -259,12 +260,6 @@ class AgentAsTool(AgentTool):
         Args:
             tool_use_id: Tool use ID for logging context.
         """
-        from .agent import Agent
-
-        # isinstance narrows the type for mypy; __init__ guarantees this when preserve_context=False
-        if not isinstance(self._agent, Agent):
-            return
-
         logger.debug(
             "tool_name=<%s>, tool_use_id=<%s> | resetting agent to initial state",
             self._tool_name,
@@ -275,8 +270,7 @@ class AgentAsTool(AgentTool):
 
     def _is_sub_agent_interrupted(self) -> bool:
         """Check whether the wrapped agent is in an activated interrupt state."""
-        interrupt_state = getattr(self._agent, "_interrupt_state", None)
-        return interrupt_state is not None and interrupt_state.activated
+        return self._agent._interrupt_state.activated
 
     def _build_interrupt_responses(self) -> list[InterruptResponseContent]:
         """Build interrupt response payloads from the sub-agent's interrupt state.
@@ -288,13 +282,9 @@ class AgentAsTool(AgentTool):
         Returns:
             List of interrupt response content blocks for resuming the sub-agent.
         """
-        interrupt_state = getattr(self._agent, "_interrupt_state", None)
-        if interrupt_state is None:
-            return []
-
         return [
             {"interruptResponse": {"interruptId": interrupt.id, "response": interrupt.response}}
-            for interrupt in interrupt_state.interrupts.values()
+            for interrupt in self._agent._interrupt_state.interrupts.values()
             if interrupt.response is not None
         ]
 

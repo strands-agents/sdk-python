@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 import strands
 from strands import Agent, Plugin, ToolContext
-from strands.agent import AgentAsTool, AgentResult
+from strands.agent import AgentResult, _AgentAsTool
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
@@ -2702,11 +2702,11 @@ def test_agent_plugins_can_register_hooks():
 
 
 def test_as_tool_returns_agent_tool():
-    """Test that as_tool returns an AgentAsTool wrapping the agent."""
+    """Test that as_tool returns an _AgentAsTool wrapping the agent."""
     agent = Agent(name="researcher", description="Finds information")
     tool = agent.as_tool()
 
-    assert isinstance(tool, AgentAsTool)
+    assert isinstance(tool, _AgentAsTool)
     assert tool.agent is agent
 
 

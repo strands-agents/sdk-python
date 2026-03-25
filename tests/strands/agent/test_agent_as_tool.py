@@ -1,12 +1,12 @@
-"""Tests for AgentAsTool - the agent-as-tool adapter."""
+"""Tests for _AgentAsTool - the agent-as-tool adapter."""
 
 from unittest.mock import MagicMock
 
 import pytest
 
-from strands.agent import AgentAsTool
+from strands.agent import _AgentAsTool
 from strands.agent.agent_result import AgentResult
-from strands.interrupt import Interrupt
+from strands.interrupt import Interrupt, _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.types._events import AgentAsToolStreamEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 
@@ -23,9 +23,7 @@ def mock_agent():
     agent = MagicMock()
     agent.name = "test_agent"
     agent.description = "A test agent"
-    # Prevent MagicMock from auto-creating _interrupt_state on access,
-    # so getattr checks in AgentAsTool correctly detect its absence.
-    agent._interrupt_state = None
+    agent._interrupt_state = _InterruptState()
     return agent
 
 
@@ -39,7 +37,7 @@ def fake_agent():
 
 @pytest.fixture
 def tool(mock_agent):
-    return AgentAsTool(mock_agent, name="test_agent", description="A test agent", preserve_context=True)
+    return _AgentAsTool(mock_agent, name="test_agent", description="A test agent", preserve_context=True)
 
 
 @pytest.fixture
@@ -65,19 +63,36 @@ def agent_result():
 
 
 def test_init(mock_agent):
-    tool = AgentAsTool(mock_agent, name="my_tool", description="custom desc", preserve_context=True)
+    tool = _AgentAsTool(mock_agent, name="my_tool", description="custom desc", preserve_context=True)
     assert tool.tool_name == "my_tool"
     assert tool._description == "custom desc"
     assert tool.agent is mock_agent
 
 
+def test_init_description_defaults_to_agent_description(fake_agent):
+    fake_agent.description = "Agent that researches topics"
+    tool = _AgentAsTool(fake_agent, name="researcher", preserve_context=True)
+    assert tool._description == "Agent that researches topics"
+
+
+def test_init_description_defaults_to_generic_when_agent_has_none(fake_agent):
+    tool = _AgentAsTool(fake_agent, name="researcher", preserve_context=True)
+    assert tool._description == "Use the researcher agent as a tool by providing a natural language input"
+
+
+def test_init_description_explicit_overrides_agent_description(fake_agent):
+    fake_agent.description = "Agent that researches topics"
+    tool = _AgentAsTool(fake_agent, name="researcher", description="custom", preserve_context=True)
+    assert tool._description == "custom"
+
+
 def test_init_preserve_context_defaults_false(fake_agent):
-    tool = AgentAsTool(fake_agent, name="t", description="d")
+    tool = _AgentAsTool(fake_agent, name="t", description="d")
     assert tool._preserve_context is False
 
 
 def test_init_preserve_context_true(mock_agent):
-    tool = AgentAsTool(mock_agent, name="t", description="d", preserve_context=True)
+    tool = _AgentAsTool(mock_agent, name="t", description="d", preserve_context=True)
     assert tool._preserve_context is True
 
 
@@ -210,7 +225,7 @@ async def test_stream_events_not_double_wrapped_by_executor(tool, mock_agent, to
     assert isinstance(event, ToolStreamEvent)
     # But it's specifically an AgentAsToolStreamEvent (not re-wrapped)
     assert type(event) is AgentAsToolStreamEvent
-    # And it references the originating AgentAsTool
+    # And it references the originating _AgentAsTool
     assert event.agent_as_tool is tool
 
 
@@ -261,7 +276,7 @@ async def test_stream_resets_to_initial_state_when_preserve_context_false(fake_a
     fake_agent.messages = [{"role": "user", "content": [{"text": "initial"}]}]
     fake_agent.state.set("counter", 0)
 
-    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
 
     # Mutate agent state as if a previous invocation happened
     fake_agent.messages.append({"role": "assistant", "content": [{"text": "reply"}]})
@@ -296,7 +311,7 @@ async def test_stream_resets_on_every_invocation(fake_agent):
     fake_agent.messages = [{"role": "user", "content": [{"text": "seed"}]}]
     fake_agent.state.set("count", 1)
 
-    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
 
     fake_agent.stream_async = lambda prompt, **kw: _mock_stream_async(
         AgentResult(
@@ -331,7 +346,7 @@ async def test_stream_initial_snapshot_is_deep_copy(fake_agent):
     """Mutating the agent's messages after construction should not affect the snapshot."""
     fake_agent.messages = [{"role": "user", "content": [{"text": "original"}]}]
 
-    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
 
     fake_agent.messages[0]["content"][0]["text"] = "mutated"
     fake_agent.messages.append({"role": "assistant", "content": [{"text": "extra"}]})
@@ -359,7 +374,7 @@ async def test_stream_initial_snapshot_is_deep_copy(fake_agent):
 
 @pytest.mark.asyncio
 async def test_stream_resets_empty_initial_state_when_preserve_context_false(fake_agent):
-    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
 
     fake_agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
     fake_agent.state.set("key", "value")
@@ -391,7 +406,7 @@ async def test_stream_resets_context_by_default(fake_agent):
     """Default preserve_context=False means each invocation starts fresh."""
     fake_agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
     fake_agent.state.set("key", "value")
-    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc")
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc")
 
     # Mutate after construction
     fake_agent.messages.append({"role": "assistant", "content": [{"text": "extra"}]})
@@ -424,7 +439,7 @@ async def test_stream_resets_context_by_default(fake_agent):
 async def test_stream_preserves_context_when_explicitly_true(fake_agent):
     fake_agent.messages = [{"role": "user", "content": [{"text": "old"}]}]
     fake_agent.state.set("key", "value")
-    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
 
     fake_agent.stream_async = lambda prompt, **kw: _mock_stream_async(
         AgentResult(
@@ -448,23 +463,12 @@ async def test_stream_preserves_context_when_explicitly_true(fake_agent):
     assert fake_agent.state.get("key") == "value"
 
 
-def test_preserve_context_false_requires_agent_instance():
-    """Default preserve_context=False should raise TypeError for non-Agent instances."""
+def test_preserve_context_false_rejects_session_manager(fake_agent):
+    """preserve_context=False should raise ValueError when agent has a session manager."""
+    fake_agent._session_manager = MagicMock()
 
-    class _NotAnAgent:
-        name = "not_agent"
-
-        async def invoke_async(self, prompt=None, **kwargs):
-            pass
-
-        def __call__(self, prompt=None, **kwargs):
-            pass
-
-        def stream_async(self, prompt=None, **kwargs):
-            pass
-
-    with pytest.raises(TypeError, match="requires an Agent instance"):
-        AgentAsTool(_NotAnAgent(), name="bad", description="desc")
+    with pytest.raises(ValueError, match="cannot be used with an agent that has a session manager"):
+        _AgentAsTool(fake_agent, name="t", description="d", preserve_context=False)
 
 
 # --- interrupt propagation ---
@@ -484,7 +488,7 @@ def interrupt_result():
 
 @pytest.mark.asyncio
 async def test_stream_interrupt_yields_tool_interrupt_event(tool, mock_agent, tool_use, interrupt_result):
-    """When the sub-agent returns an interrupt result, AgentAsTool should yield ToolInterruptEvent."""
+    """When the sub-agent returns an interrupt result, _AgentAsTool should yield ToolInterruptEvent."""
     mock_agent.stream_async.return_value = _mock_stream_async(interrupt_result)
 
     events = [event async for event in tool.stream(tool_use, {})]
@@ -522,7 +526,7 @@ async def test_stream_interrupt_forwards_intermediate_events(tool, mock_agent, t
 
 @pytest.mark.asyncio
 async def test_stream_interrupt_resume_forwards_responses(fake_agent):
-    """On resume, AgentAsTool should forward interrupt responses to the sub-agent."""
+    """On resume, _AgentAsTool should forward interrupt responses to the sub-agent."""
     interrupt = Interrupt(id="interrupt-1", name="approval", reason="need approval", response="APPROVE")
 
     # Put the sub-agent in an activated interrupt state with the response already set
@@ -537,7 +541,7 @@ async def test_stream_interrupt_resume_forwards_responses(fake_agent):
     )
     fake_agent.stream_async = MagicMock(return_value=_mock_stream_async(normal_result))
 
-    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
     tool_use = {"toolUseId": "tool-123", "name": "fake_agent", "input": {"input": "do something"}}
 
     events = [event async for event in tool.stream(tool_use, {})]
@@ -562,7 +566,7 @@ async def test_stream_interrupt_resume_skips_state_reset(fake_agent):
     fake_agent.messages = [{"role": "user", "content": [{"text": "initial"}]}]
     fake_agent.state.set("key", "value")
 
-    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=False)
 
     # Simulate the sub-agent being in interrupt state after a previous invocation
     interrupt = Interrupt(id="interrupt-1", name="approval", reason="need approval", response="APPROVE")
@@ -589,15 +593,15 @@ async def test_stream_interrupt_resume_skips_state_reset(fake_agent):
 
 
 @pytest.mark.asyncio
-async def test_is_sub_agent_interrupted_false_for_mock(tool):
-    """_is_sub_agent_interrupted returns False for non-Agent instances."""
+async def test_is_sub_agent_interrupted_false_by_default(tool):
+    """_is_sub_agent_interrupted returns False when no interrupts are active."""
     assert tool._is_sub_agent_interrupted() is False
 
 
 @pytest.mark.asyncio
 async def test_is_sub_agent_interrupted_true_when_activated(fake_agent):
     """_is_sub_agent_interrupted returns True when the sub-agent's interrupt state is activated."""
-    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
     assert tool._is_sub_agent_interrupted() is False
 
     fake_agent._interrupt_state.activate()
@@ -607,7 +611,7 @@ async def test_is_sub_agent_interrupted_true_when_activated(fake_agent):
 @pytest.mark.asyncio
 async def test_build_interrupt_responses(fake_agent):
     """_build_interrupt_responses packages sub-agent interrupts into response content blocks."""
-    tool = AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
+    tool = _AgentAsTool(fake_agent, name="fake_agent", description="desc", preserve_context=True)
 
     interrupt_a = Interrupt(id="id-a", name="a", reason="r", response="yes")
     interrupt_b = Interrupt(id="id-b", name="b", reason="r", response=None)

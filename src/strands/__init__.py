@@ -1,7 +1,7 @@
 """A framework for building, deploying, and managing AI agents."""
 
 from . import agent, models, telemetry, types
-from .agent._agent_as_tool import AgentAsTool
+from .agent._agent_as_tool import _AgentAsTool
 from .agent.agent import Agent
 from .agent.base import AgentBase
 from .event_loop._retry import ModelRetryStrategy
@@ -12,7 +12,7 @@ from .vended_plugins.skills import AgentSkills, Skill
 
 __all__ = [
     "Agent",
-    "AgentAsTool",
+    "_AgentAsTool",
     "AgentBase",
     "AgentSkills",
     "agent",

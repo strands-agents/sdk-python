@@ -470,7 +470,7 @@ async def test_executor_stream_tool_interrupt_registers_on_agent(
 ):
     """ToolInterruptEvent from a tool should register interrupts in the agent's _interrupt_state."""
     # Create a tool that yields a ToolInterruptEvent with an interrupt NOT pre-registered on the agent
-    # (simulates AgentAsTool propagating sub-agent interrupts).
+    # (simulates _AgentAsTool propagating sub-agent interrupts).
     foreign_interrupt = Interrupt(id="sub-agent-interrupt-1", name="approval", reason="need approval")
 
     @strands.tool(name="agent_tool")

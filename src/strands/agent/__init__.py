@@ -10,7 +10,7 @@ It includes:
 from typing import Any
 
 from ..event_loop._retry import ModelRetryStrategy
-from ._agent_as_tool import AgentAsTool
+from ._agent_as_tool import _AgentAsTool
 from .agent import Agent
 from .agent_result import AgentResult
 from .base import AgentBase
@@ -25,7 +25,7 @@ __all__ = [
     "Agent",
     "AgentBase",
     "AgentResult",
-    "AgentAsTool",
+    "_AgentAsTool",
     "ConversationManager",
     "NullConversationManager",
     "SlidingWindowConversationManager",

@@ -62,7 +62,7 @@ from ..types.agent import AgentInput, ConcurrentInvocationMode
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.traces import AttributeValue
-from ._agent_as_tool import AgentAsTool
+from ._agent_as_tool import _AgentAsTool
 from .agent_result import AgentResult
 from .base import AgentBase
 from .conversation_manager import (
@@ -618,13 +618,14 @@ class Agent(AgentBase):
         name: str | None = None,
         description: str | None = None,
         preserve_context: bool = False,
-    ) -> AgentAsTool:
+    ) -> _AgentAsTool:
         r"""Convert this agent into a tool for use by another agent.
 
         Args:
             name: Tool name. Must match the pattern ``[a-zA-Z0-9_\\-]{1,64}``.
                 Defaults to the agent's name.
-            description: Tool description. Defaults to the agent's description.
+            description: Tool description. Defaults to the agent's description, or a
+                generic description if the agent has no description set.
             preserve_context: Whether to preserve the agent's conversation history across
                 invocations. When False, the agent's messages and state are reset to the
                 values they had at construction time before each call, ensuring every
@@ -632,7 +633,7 @@ class Agent(AgentBase):
                 interactions with the agent. Defaults to False.
 
         Returns:
-            An AgentAsTool wrapping this agent.
+            An _AgentAsTool wrapping this agent.
 
         Example:
             ```python
@@ -643,9 +644,7 @@ class Agent(AgentBase):
         """
         if not name:
             name = self.name
-        if not description:
-            description = self.description or f"Use the {name} agent as a tool by providing a natural language input"
-        return AgentAsTool(self, name=name, description=description, preserve_context=preserve_context)
+        return _AgentAsTool(self, name=name, description=description, preserve_context=preserve_context)
 
     def cleanup(self) -> None:
         """Clean up resources used by the agent.
