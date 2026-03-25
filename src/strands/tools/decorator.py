@@ -52,6 +52,7 @@ from typing import (
     Generic,
     ParamSpec,
     TypeVar,
+    Union,
     cast,
     get_args,
     get_origin,
@@ -367,6 +368,11 @@ class FunctionToolMetadata:
         This method ensures that the input data meets the expected schema before it's passed to the actual function. It
         converts the data to the correct types when possible and raises informative errors when not.
 
+        Some model providers (notably Bedrock/Claude) may serialize nested object or array
+        parameters as JSON strings instead of native dicts/lists.  Before running Pydantic
+        validation we attempt to deserialize any such string values so that they match the
+        expected type.
+
         Args:
             input_data: A dictionary of parameter names and values to validate.
 
@@ -377,8 +383,9 @@ class FunctionToolMetadata:
             ValueError: If the input data fails validation, with details about what failed.
         """
         try:
+            coerced = self._coerce_json_string_params(input_data)
             # Validate with Pydantic model
-            validated = self.input_model(**input_data)
+            validated = self.input_model(**coerced)
 
             # Return as dict
             return validated.model_dump()
@@ -386,6 +393,62 @@ class FunctionToolMetadata:
             # Re-raise with more detailed error message
             error_msg = str(e)
             raise ValueError(f"Validation failed for input parameters: {error_msg}") from e
+
+    def _coerce_json_string_params(self, input_data: dict[str, Any]) -> dict[str, Any]:
+        """Deserialize string values that should be dicts or lists.
+
+        Some model providers (notably Bedrock/Claude) serialize nested object or array
+        tool-call parameters as JSON strings.  This method inspects the Pydantic input
+        model to find fields whose annotation accepts ``dict`` or ``list`` and, when
+        the incoming value is a string, attempts ``json.loads`` to coerce it.  If
+        deserialization fails or the value is already the correct type the original
+        value is left untouched.
+        """
+        if not input_data:
+            return input_data
+
+        coerced = dict(input_data)
+        for field_name, field_info in self.input_model.model_fields.items():
+            value = coerced.get(field_name)
+            if not isinstance(value, str):
+                continue
+
+            if self._annotation_accepts_mapping_or_sequence(field_info.annotation):
+                try:
+                    parsed = json.loads(value)
+                    if isinstance(parsed, (dict, list)):
+                        coerced[field_name] = parsed
+                except (json.JSONDecodeError, ValueError):
+                    pass
+
+        return coerced
+
+    @staticmethod
+    def _annotation_accepts_mapping_or_sequence(annotation: Any) -> bool:
+        """Return ``True`` if *annotation* can accept a ``dict`` or ``list`` value."""
+        if annotation is None:
+            return False
+
+        origin = get_origin(annotation)
+
+        # Plain dict / list
+        if annotation is dict or annotation is list:
+            return True
+        if origin is dict or origin is list:
+            return True
+
+        # typing.Union / Optional — check each branch
+        if origin is Union:
+            return any(
+                FunctionToolMetadata._annotation_accepts_mapping_or_sequence(arg)
+                for arg in get_args(annotation)
+            )
+
+        # typing.Any accepts everything
+        if annotation is Any:
+            return True
+
+        return False
 
     def inject_special_parameters(
         self, validated_input: dict[str, Any], tool_use: ToolUse, invocation_state: dict[str, Any]

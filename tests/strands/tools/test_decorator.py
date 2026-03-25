@@ -2101,3 +2101,75 @@ def test_tool_nullable_optional_field_simplifies_anyof():
     # Since tag is not required, anyOf should be simplified away
     assert "anyOf" not in schema["properties"]["tag"]
     assert schema["properties"]["tag"]["type"] == "string"
+
+
+def test_validate_input_coerces_json_string_to_dict():
+    """Test that JSON-stringified dict params are deserialized before Pydantic validation.
+
+    Reproduces: https://github.com/strands-agents/sdk-python/issues/1285
+    Bedrock/Claude sometimes sends nested object parameters as JSON strings instead
+    of native dicts, causing Pydantic validation errors.
+    """
+    from typing import Any, Optional
+
+    @strands.tool
+    def ecs_tool(action: str, parameters: Optional[dict[str, Any]] = None) -> str:
+        """ECS troubleshooting tool.
+
+        Args:
+            action: The action to perform
+            parameters: Optional parameters dict
+        """
+        return f"{action}: {parameters}"
+
+    metadata = ecs_tool._metadata
+
+    # Simulate Bedrock/Claude sending parameters as a JSON string
+    stringified_input = {
+        "action": "fetch_service_events",
+        "parameters": '{"ecs_cluster_name": "my-cluster", "ecs_service_name": "my-service"}',
+    }
+    validated = metadata.validate_input(stringified_input)
+    assert validated["action"] == "fetch_service_events"
+    assert isinstance(validated["parameters"], dict)
+    assert validated["parameters"]["ecs_cluster_name"] == "my-cluster"
+    assert validated["parameters"]["ecs_service_name"] == "my-service"
+
+    # Verify that dict values still work normally (no regression)
+    dict_input = {
+        "action": "fetch_service_events",
+        "parameters": {"ecs_cluster_name": "my-cluster"},
+    }
+    validated2 = metadata.validate_input(dict_input)
+    assert isinstance(validated2["parameters"], dict)
+    assert validated2["parameters"]["ecs_cluster_name"] == "my-cluster"
+
+    # Verify that None still works for optional params
+    none_input = {"action": "fetch_service_events", "parameters": None}
+    validated3 = metadata.validate_input(none_input)
+    assert validated3["parameters"] is None
+
+    # Verify non-JSON strings are NOT coerced (should still fail validation)
+    bad_input = {"action": "fetch_service_events", "parameters": "not-json"}
+    import pytest
+    with pytest.raises(ValueError, match="Validation failed"):
+        metadata.validate_input(bad_input)
+
+
+def test_validate_input_coerces_json_string_to_list():
+    """Test that JSON-stringified list params are deserialized before Pydantic validation."""
+
+    @strands.tool
+    def list_tool(items: list[str]) -> str:
+        """List tool.
+
+        Args:
+            items: A list of items
+        """
+        return str(items)
+
+    metadata = list_tool._metadata
+
+    stringified_input = {"items": '["a", "b", "c"]'}
+    validated = metadata.validate_input(stringified_input)
+    assert validated["items"] == ["a", "b", "c"]
