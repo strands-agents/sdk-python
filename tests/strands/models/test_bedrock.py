@@ -2809,3 +2809,38 @@ def test_guardrail_latest_message_disabled_does_not_wrap(model):
 
     assert "text" in formatted
     assert "guardContent" not in formatted
+
+
+def test_format_bedrock_messages_reorders_reasoning_blocks_first():
+    """Test that reasoning blocks are reordered to come first in assistant messages.
+
+    Bedrock requires reasoningContent blocks to precede all other blocks in assistant
+    messages when thinking is enabled. Session managers may restore messages with blocks
+    in wrong order, so _format_bedrock_messages must defensively reorder them.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1698
+    """
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+
+    messages = [
+        {"role": "user", "content": [{"text": "What is the status?"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "I'll check the status."},
+                {"reasoningContent": {"reasoningText": {"text": "Let me think...", "signature": "sig"}}},
+                {"toolUse": {"toolUseId": "t1", "name": "check", "input": {}}},
+            ],
+        },
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "t1", "content": [{"text": "OK"}]}}]},
+    ]
+
+    result = model._format_bedrock_messages(messages)
+
+    assistant_msg = result[1]
+    assert assistant_msg["role"] == "assistant"
+    assert "reasoningContent" in assistant_msg["content"][0], (
+        "reasoningContent must be the first block in assistant messages"
+    )
+    assert "text" in assistant_msg["content"][1]
+    assert "toolUse" in assistant_msg["content"][2]
