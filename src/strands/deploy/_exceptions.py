@@ -30,7 +30,3 @@ class DeployStateException(DeployException):
     pass
 
 
-class DeployIAMException(DeployException):
-    """Raised when IAM role creation or propagation fails."""
-
-    pass

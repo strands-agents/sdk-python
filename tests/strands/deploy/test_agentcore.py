@@ -40,66 +40,46 @@ def target():
     return AgentCoreTarget()
 
 
-class TestAgentCoreValidate:
-    @patch("strands.deploy._agentcore.boto3")
-    def test_validate_succeeds_with_valid_setup(self, mock_boto3, target, config):
-        target.validate(config)
-        mock_boto3.client.assert_any_call("bedrock-agentcore-control", region_name="us-east-1")
-        mock_boto3.client.assert_any_call("sts")
+@pytest.fixture
+def mock_runtime_class():
+    """Create a mock Runtime class that returns a mock instance."""
+    mock_instance = MagicMock()
+    mock_instance.launch.return_value = MagicMock(
+        agent_runtime_id="rt-abc123",
+        agent_runtime_arn="arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/rt-abc123",
+        agent_runtime_endpoint_arn="arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/rt-abc123/endpoint/ep-1",
+        role_arn="arn:aws:iam::123456789012:role/strands-test-agent-agentcore-role",
+    )
+    mock_cls = MagicMock(return_value=mock_instance)
+    return mock_cls, mock_instance
 
-    @patch("strands.deploy._agentcore.boto3")
-    def test_validate_fails_without_credentials(self, mock_boto3, target, config):
-        mock_boto3.client.return_value.get_caller_identity.side_effect = Exception("No credentials")
+
+class TestAgentCoreValidate:
+    @patch("strands.deploy._agentcore._get_runtime_class")
+    @patch("boto3.client")
+    def test_validate_succeeds_with_valid_setup(self, mock_client, mock_get_runtime, target, config):
+        target.validate(config)
+        mock_get_runtime.assert_called_once()
+        mock_client.assert_called_with("sts")
+
+    @patch("strands.deploy._agentcore._get_runtime_class")
+    @patch("boto3.client")
+    def test_validate_fails_without_credentials(self, mock_client, mock_get_runtime, target, config):
+        mock_client.return_value.get_caller_identity.side_effect = Exception("No credentials")
         with pytest.raises(DeployException, match="credentials"):
+            target.validate(config)
+
+    @patch("strands.deploy._agentcore._get_runtime_class", side_effect=DeployException("not installed"))
+    def test_validate_fails_without_toolkit(self, mock_get_runtime, target, config):
+        with pytest.raises(DeployException, match="not installed"):
             target.validate(config)
 
 
 class TestAgentCoreDeploy:
-    @patch("strands.deploy._agentcore.time.sleep")
-    @patch("strands.deploy._agentcore.boto3")
-    @patch("strands.deploy._packaging.boto3")
-    def test_deploy_creates_new_runtime(
-        self, mock_packaging_boto3, mock_boto3, mock_sleep, target, mock_agent, config, state_manager
-    ):
-        # Setup mocks
-        mock_sts = MagicMock()
-        mock_sts.get_caller_identity.return_value = {"Account": "123456789012"}
-
-        mock_iam = MagicMock()
-        mock_iam.create_role.return_value = {
-            "Role": {"Arn": "arn:aws:iam::123456789012:role/strands-test-agent-agentcore-role"}
-        }
-
-        mock_control = MagicMock()
-        mock_control.create_agent_runtime.return_value = {
-            "agentRuntimeId": "rt-abc123",
-            "agentRuntimeArn": "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/rt-abc123",
-            "agentRuntimeVersion": "1",
-            "status": "CREATING",
-        }
-        mock_control.get_agent_runtime.return_value = {
-            "status": "READY",
-        }
-        mock_control.create_agent_runtime_endpoint.return_value = {
-            "agentRuntimeEndpointArn": (
-                "arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/rt-abc123/endpoint/ep-1"
-            ),
-        }
-
-        mock_s3 = MagicMock()
-
-        def client_factory(service, **kwargs):
-            clients = {
-                "sts": mock_sts,
-                "iam": mock_iam,
-                "bedrock-agentcore-control": mock_control,
-                "s3": mock_s3,
-            }
-            return clients.get(service, MagicMock())
-
-        mock_boto3.client.side_effect = client_factory
-        mock_boto3.Session.return_value.region_name = "us-west-2"
-        mock_packaging_boto3.client.side_effect = client_factory
+    @patch("strands.deploy._agentcore._get_runtime_class")
+    def test_deploy_creates_new_runtime(self, mock_get_runtime, mock_runtime_class, target, mock_agent, config, state_manager):
+        mock_cls, mock_instance = mock_runtime_class
+        mock_get_runtime.return_value = mock_cls
 
         result = target.deploy(mock_agent, config, state_manager)
 
@@ -112,32 +92,22 @@ class TestAgentCoreDeploy:
         assert result.agent_runtime_id == "rt-abc123"
         assert "rt-abc123" in result.agent_runtime_arn
 
-        # Verify IAM role was created
-        mock_iam.create_role.assert_called_once()
-        create_role_kwargs = mock_iam.create_role.call_args[1]
-        assert create_role_kwargs["RoleName"] == "strands-test-agent-agentcore-role"
-
-        # Verify runtime was created (not updated)
-        mock_control.create_agent_runtime.assert_called_once()
-        create_kwargs = mock_control.create_agent_runtime.call_args[1]
-        assert create_kwargs["agentRuntimeName"] == "strands-test-agent"
-        assert "codeConfiguration" in create_kwargs["agentRuntimeArtifact"]
-        assert create_kwargs["networkConfiguration"]["networkMode"] == "PUBLIC"
-
-        # Verify endpoint was created
-        mock_control.create_agent_runtime_endpoint.assert_called_once()
+        # Verify Runtime was configured and launched
+        mock_instance.configure.assert_called_once()
+        configure_kwargs = mock_instance.configure.call_args[1]
+        assert configure_kwargs["agent_name"] == "strands-test-agent"
+        assert configure_kwargs["deployment_type"] == "direct_code_deploy"
+        assert configure_kwargs["region"] == "us-west-2"
+        assert configure_kwargs["non_interactive"] is True
+        mock_instance.launch.assert_called_once()
 
         # Verify state was saved
         saved = state_manager.load("test-agent")
         assert saved is not None
         assert saved["agent_runtime_id"] == "rt-abc123"
 
-    @patch("strands.deploy._agentcore.time.sleep")
-    @patch("strands.deploy._agentcore.boto3")
-    @patch("strands.deploy._packaging.boto3")
-    def test_deploy_updates_existing_runtime(
-        self, mock_packaging_boto3, mock_boto3, mock_sleep, target, mock_agent, config, state_manager
-    ):
+    @patch("strands.deploy._agentcore._get_runtime_class")
+    def test_deploy_updates_existing_runtime(self, mock_get_runtime, mock_runtime_class, target, mock_agent, config, state_manager):
         # Pre-populate state with existing deployment
         state_manager.save(
             "test-agent",
@@ -151,76 +121,45 @@ class TestAgentCoreDeploy:
             ),
         )
 
-        mock_sts = MagicMock()
-        mock_sts.get_caller_identity.return_value = {"Account": "123456789012"}
-
-        mock_control = MagicMock()
-        mock_control.update_agent_runtime.return_value = {
-            "agentRuntimeId": "rt-existing",
-            "agentRuntimeArn": "arn:aws:bedrock-agentcore:us-west-2:123:runtime/rt-existing",
-            "agentRuntimeVersion": "2",
-            "status": "UPDATING",
-        }
-        mock_control.get_agent_runtime.return_value = {"status": "READY"}
-
-        mock_s3 = MagicMock()
-
-        def client_factory(service, **kwargs):
-            return {"sts": mock_sts, "bedrock-agentcore-control": mock_control, "s3": mock_s3}.get(
-                service, MagicMock()
-            )
-
-        mock_boto3.client.side_effect = client_factory
-        mock_packaging_boto3.client.side_effect = client_factory
+        mock_cls, mock_instance = mock_runtime_class
+        mock_get_runtime.return_value = mock_cls
 
         result = target.deploy(mock_agent, config, state_manager)
 
         assert result.created is False
-        assert result.agent_runtime_id == "rt-existing"
+        mock_instance.configure.assert_called_once()
+        mock_instance.launch.assert_called_once()
 
-        # Should update, not create
-        mock_control.update_agent_runtime.assert_called_once()
-        mock_control.create_agent_runtime.assert_not_called()
+    @patch("strands.deploy._agentcore._get_runtime_class")
+    def test_deploy_passes_environment_variables(self, mock_get_runtime, mock_runtime_class, target, mock_agent, config, state_manager):
+        mock_cls, mock_instance = mock_runtime_class
+        mock_get_runtime.return_value = mock_cls
+        config.environment_variables = {"API_KEY": "secret"}
 
-        # Should NOT create a new endpoint
-        mock_control.create_agent_runtime_endpoint.assert_not_called()
+        target.deploy(mock_agent, config, state_manager)
 
-    @patch("strands.deploy._agentcore.time.sleep")
-    @patch("strands.deploy._agentcore.boto3")
-    @patch("strands.deploy._packaging.boto3")
-    def test_deploy_raises_on_runtime_failure(
-        self, mock_packaging_boto3, mock_boto3, mock_sleep, target, mock_agent, config, state_manager
-    ):
-        mock_sts = MagicMock()
-        mock_sts.get_caller_identity.return_value = {"Account": "123456789012"}
+        configure_kwargs = mock_instance.configure.call_args[1]
+        assert configure_kwargs["environment_variables"] == {"API_KEY": "secret"}
 
-        mock_iam = MagicMock()
-        mock_iam.create_role.return_value = {
-            "Role": {"Arn": "arn:aws:iam::123:role/test-role"}
-        }
+    @patch("strands.deploy._agentcore._get_runtime_class")
+    def test_deploy_passes_description(self, mock_get_runtime, mock_runtime_class, target, mock_agent, config, state_manager):
+        mock_cls, mock_instance = mock_runtime_class
+        mock_get_runtime.return_value = mock_cls
+        config.description = "A test agent"
 
-        mock_control = MagicMock()
-        mock_control.create_agent_runtime.return_value = {
-            "agentRuntimeId": "rt-fail",
-            "agentRuntimeArn": "arn:aws:bedrock-agentcore:us-west-2:123:runtime/rt-fail",
-            "status": "CREATING",
-        }
-        mock_control.get_agent_runtime.return_value = {
-            "status": "CREATE_FAILED",
-            "failureReason": "Invalid configuration",
-        }
+        target.deploy(mock_agent, config, state_manager)
 
-        mock_s3 = MagicMock()
+        configure_kwargs = mock_instance.configure.call_args[1]
+        assert configure_kwargs["description"] == "A test agent"
 
-        def client_factory(service, **kwargs):
-            return {"sts": mock_sts, "iam": mock_iam, "bedrock-agentcore-control": mock_control, "s3": mock_s3}.get(
-                service, MagicMock()
-            )
+    @patch("strands.deploy._agentcore._get_runtime_class")
+    def test_deploy_raises_on_launch_failure(self, mock_get_runtime, target, mock_agent, config, state_manager):
+        mock_instance = MagicMock()
+        mock_instance.launch.side_effect = RuntimeError("Launch failed")
+        mock_cls = MagicMock(return_value=mock_instance)
+        mock_get_runtime.return_value = mock_cls
 
-        mock_boto3.client.side_effect = client_factory
-        mock_packaging_boto3.client.side_effect = client_factory
-
-        with pytest.raises(DeployTargetException, match="CREATE_FAILED"):
+        with pytest.raises(DeployTargetException, match="Launch failed"):
             target.deploy(mock_agent, config, state_manager)
 
 
@@ -230,19 +169,19 @@ class TestAgentCoreResolveRegion:
         result = target._resolve_region(mock_agent, config)
         assert result == "eu-west-1"
 
-    @patch("strands.deploy._agentcore.boto3")
-    def test_falls_back_to_boto3_session(self, mock_boto3, target, mock_agent, config):
+    @patch("boto3.Session")
+    def test_falls_back_to_boto3_session(self, mock_session, target, mock_agent, config):
         config.region = None
         mock_agent.model = MagicMock(spec=[])  # No config attr
-        mock_boto3.Session.return_value.region_name = "ap-southeast-1"
+        mock_session.return_value.region_name = "ap-southeast-1"
 
         result = target._resolve_region(mock_agent, config)
         assert result == "ap-southeast-1"
 
 
 class TestAgentCoreDestroy:
-    @patch("strands.deploy._agentcore.boto3")
-    def test_destroy_deletes_runtime_and_role(self, mock_boto3, target, state_manager):
+    @patch("strands.deploy._agentcore._get_runtime_class")
+    def test_destroy_delegates_to_runtime(self, mock_get_runtime, target, state_manager):
         state_manager.save(
             "my-agent",
             DeployState(
@@ -253,22 +192,23 @@ class TestAgentCoreDestroy:
             ),
         )
 
-        mock_control = MagicMock()
-        mock_iam = MagicMock()
-        mock_iam.list_role_policies.return_value = {"PolicyNames": ["strands-agentcore-execution"]}
-
-        def client_factory(service, **kwargs):
-            return {"bedrock-agentcore-control": mock_control, "iam": mock_iam}.get(service, MagicMock())
-
-        mock_boto3.client.side_effect = client_factory
+        mock_instance = MagicMock()
+        mock_cls = MagicMock(return_value=mock_instance)
+        mock_get_runtime.return_value = mock_cls
 
         target.destroy("my-agent", state_manager)
 
-        mock_control.delete_agent_runtime.assert_called_once_with(agentRuntimeId="rt-123")
-        mock_iam.delete_role.assert_called_once()
+        # Verify Runtime was configured and destroy was called
+        mock_instance.configure.assert_called_once()
+        configure_kwargs = mock_instance.configure.call_args[1]
+        assert configure_kwargs["agent_name"] == "strands-my-agent"
+        assert configure_kwargs["region"] == "us-west-2"
+        mock_instance.destroy.assert_called_once()
+
+        # Verify state was cleaned up
         assert state_manager.load("my-agent") is None
 
-    @patch("strands.deploy._agentcore.boto3")
-    def test_destroy_nonexistent_is_noop(self, mock_boto3, target, state_manager):
+    @patch("strands.deploy._agentcore._get_runtime_class")
+    def test_destroy_nonexistent_is_noop(self, mock_get_runtime, target, state_manager):
         target.destroy("nonexistent", state_manager)
-        mock_boto3.client.assert_not_called()
+        mock_get_runtime.assert_not_called()

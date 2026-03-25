@@ -9,7 +9,6 @@ from strands.deploy._packaging import (
     create_code_zip,
     extract_agent_config,
     generate_agentcore_entrypoint,
-    get_s3_bucket_name,
 )
 
 
@@ -138,8 +137,3 @@ class TestGenerateAgentcoreEntrypoint:
         code = generate_agentcore_entrypoint(agent)
         compile(code, "<test>", "exec")
         assert "system_prompt=None" in code
-
-
-class TestGetS3BucketName:
-    def test_format(self):
-        assert get_s3_bucket_name("123456789", "us-west-2") == "strands-deploy-123456789-us-west-2"

@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from strands.deploy._constants import PYTHON_RUNTIME_MAP, SUPPORTED_REGIONS, get_python_runtime
+from strands.deploy._constants import PYTHON_RUNTIME_MAP, get_python_runtime
 
 
 class TestGetPythonRuntime:
@@ -21,13 +21,3 @@ class TestGetPythonRuntime:
         for version, runtime in PYTHON_RUNTIME_MAP.items():
             assert runtime.startswith("PYTHON_")
             assert len(version) == 2  # (major, minor) tuple
-
-
-class TestSupportedRegions:
-    def test_contains_common_regions(self):
-        assert "us-east-1" in SUPPORTED_REGIONS
-        assert "us-west-2" in SUPPORTED_REGIONS
-        assert "eu-west-1" in SUPPORTED_REGIONS
-
-    def test_has_17_regions(self):
-        assert len(SUPPORTED_REGIONS) == 17
