@@ -139,6 +139,10 @@ class SlidingWindowConversationManager(ConversationManager):
         This method is called after every event loop cycle to apply a sliding window if the message count
         exceeds the window size.
 
+        Unlike reduce_context (which prioritizes content truncation for context overflow recovery),
+        this method prioritizes sliding window trimming to remove old messages. This prevents false
+        positives where tool results inside the kept window are unnecessarily truncated.
+
         Args:
             agent: The agent whose messages will be managed.
                 This list is modified in-place.
@@ -151,7 +155,7 @@ class SlidingWindowConversationManager(ConversationManager):
                 "message_count=<%s>, window_size=<%s> | skipping context reduction", len(messages), self.window_size
             )
             return
-        self.reduce_context(agent)
+        self._slide_window(messages)
 
     def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Trim the oldest messages to reduce the conversation context size.
@@ -184,7 +188,22 @@ class SlidingWindowConversationManager(ConversationManager):
                 logger.debug("message_index=<%s> | tool results truncated", oldest_message_idx_with_tool_results)
                 return
 
-        # Try to trim index id when tool result cannot be truncated anymore
+        # Try to trim messages when tool result cannot be truncated anymore
+        self._slide_window(messages, e)
+
+    def _slide_window(self, messages: Messages, e: Exception | None = None) -> None:
+        """Remove the oldest messages using a sliding window.
+
+        Handles special cases where trimming the messages leads to toolResult
+        with no corresponding toolUse or toolUse with no corresponding toolResult.
+
+        Args:
+            messages: The conversation message history (modified in-place).
+            e: The exception that triggered the context reduction, if any.
+
+        Raises:
+            ContextWindowOverflowException: If no valid trim index can be found.
+        """
         # If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size
         trim_index = 2 if len(messages) <= self.window_size else len(messages) - self.window_size
 
