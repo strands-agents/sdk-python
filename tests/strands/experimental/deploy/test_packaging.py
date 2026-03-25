@@ -4,6 +4,9 @@ import zipfile
 from io import BytesIO
 from unittest.mock import MagicMock
 
+import pytest
+
+from strands.experimental.deploy._exceptions import DeployPackagingException
 from strands.experimental.deploy._packaging import (
     _should_exclude,
     _strip_deploy_call,
@@ -113,26 +116,13 @@ class TestStripDeployCall:
 
 
 class TestGenerateAgentcoreEntrypoint:
-    def test_fallback_generates_valid_python(self):
-        """When caller source can't be found (e.g., test context), falls back to template."""
+    def test_raises_when_caller_source_not_found(self):
+        """When caller source can't be found (e.g., REPL), raises an error."""
+        from unittest.mock import patch
+
         agent = MagicMock()
         agent.name = "my-agent"
-        agent.system_prompt = "Be helpful."
-        agent.model = MagicMock()
-        agent.model.config = {"model_id": "us.anthropic.claude-sonnet-4-20250514"}
 
-        code = generate_agentcore_entrypoint(agent)
-
-        compile(code, "<test>", "exec")
-        assert "BedrockAgentCoreApp" in code
-        assert "@app.entrypoint" in code
-
-    def test_fallback_handles_none_system_prompt(self):
-        agent = MagicMock()
-        agent.name = "test"
-        agent.system_prompt = None
-        agent.model = MagicMock(spec=[])
-
-        code = generate_agentcore_entrypoint(agent)
-        compile(code, "<test>", "exec")
-        assert "system_prompt=None" in code
+        with patch("strands.experimental.deploy._packaging._find_caller_info", return_value=None):
+            with pytest.raises(DeployPackagingException, match="Could not find the source file"):
+                generate_agentcore_entrypoint(agent)

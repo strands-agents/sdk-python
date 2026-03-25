@@ -38,36 +38,6 @@ if __name__ == "__main__":
     app.run()
 '''
 
-AGENTCORE_ENTRYPOINT_TEMPLATE = '''\
-"""Auto-generated Strands Agent entrypoint for AgentCore."""
-import sys
-import os
-
-sys.path.insert(0, os.path.dirname(__file__))
-
-from bedrock_agentcore import BedrockAgentCoreApp
-from strands import Agent
-
-app = BedrockAgentCoreApp()
-
-agent = Agent(
-    model={model_repr},
-    system_prompt={system_prompt_repr},
-    name={name_repr},
-)
-
-
-@app.entrypoint
-def invoke(payload):
-    prompt = payload.get("prompt", "Hello!")
-    result = agent(prompt)
-    return {{"result": str(result), "stop_reason": result.stop_reason}}
-
-
-if __name__ == "__main__":
-    app.run()
-'''
-
 
 def _find_caller_info(agent: "Agent") -> tuple[str, str, str] | None:
     """Find the source file and agent variable name from the call stack.
@@ -221,57 +191,39 @@ def _strip_deploy_call(source: str, agent_var: str = "") -> str:
 def generate_agentcore_entrypoint(agent: "Agent") -> str:
     """Generate a BedrockAgentCoreApp entrypoint for the agent.
 
-    Tries to copy the caller's source file and append the AgentCore wrapper.
-    Falls back to a template-based approach if the caller's file can't be found.
+    Copies the caller's source file, strips the deploy() call, and appends
+    the AgentCore wrapper.
+
+    Raises:
+        DeployPackagingException: If the caller's source file cannot be found.
     """
     caller_info = _find_caller_info(agent)
 
-    if caller_info is not None:
-        source, agent_var, caller_dir = caller_info
-        cleaned = _strip_deploy_call(source, agent_var)
-        preamble = (
-            '"""Auto-generated Strands Agent entrypoint for AgentCore."""\n'
-            "import sys\nimport os\n\n"
-            "_here = os.path.dirname(__file__)\n"
-            "sys.path.insert(0, _here)\n"
+    if caller_info is None:
+        raise DeployPackagingException(
+            "Could not find the source file that called deploy(). "
+            "deploy() must be called from a .py file, not a REPL or notebook."
         )
-        # If the caller's file is in a subdirectory of CWD, add that subdir to sys.path
-        # so its sibling modules (my_tools.py, etc.) are importable.
-        # TODO: For large codebases with complex import hierarchies (editable installs,
-        # custom PYTHONPATH), walk all parent dirs from caller_dir up to CWD and add
-        # each to sys.path to cover more project layouts.
-        if caller_dir and caller_dir != ".":
-            preamble += f"sys.path.insert(0, os.path.join(_here, {caller_dir!r}))\n"
-        preamble += "\n"
-        wrapper = AGENTCORE_WRAPPER_TEMPLATE.format(agent_var=agent_var)
-        return preamble + cleaned + wrapper
 
-    # Fallback: reconstruct from agent properties
-    logger.warning("Could not find caller source file; falling back to template-based entrypoint")
-    return _generate_fallback_entrypoint(agent)
-
-
-def _generate_fallback_entrypoint(agent: "Agent") -> str:
-    """Generate entrypoint from agent properties when caller source is unavailable."""
-    model = agent.model
-    model_id = None
-    if hasattr(model, "config"):
-        model_config = model.config
-        if hasattr(model_config, "get"):
-            model_id = model_config.get("model_id")
-        elif hasattr(model_config, "model_id"):
-            model_id = model_config.model_id
-
-    model_repr = repr(model_id) if model_id else "None"
-    system_prompt = agent.system_prompt if isinstance(agent.system_prompt, str) else None
-    system_prompt_repr = repr(system_prompt) if system_prompt else "None"
-    name_repr = repr(getattr(agent, "name", "Strands Agent"))
-
-    return AGENTCORE_ENTRYPOINT_TEMPLATE.format(
-        model_repr=model_repr,
-        system_prompt_repr=system_prompt_repr,
-        name_repr=name_repr,
+    source, agent_var, caller_dir = caller_info
+    cleaned = _strip_deploy_call(source, agent_var)
+    preamble = (
+        '"""Auto-generated Strands Agent entrypoint for AgentCore."""\n'
+        "import sys\nimport os\n\n"
+        "_here = os.path.dirname(__file__)\n"
+        "sys.path.insert(0, _here)\n"
     )
+    # If the caller's file is in a subdirectory of CWD, add that subdir to sys.path
+    # so its sibling modules (my_tools.py, etc.) are importable.
+    # TODO: For large codebases with complex import hierarchies (editable installs,
+    # custom PYTHONPATH), walk all parent dirs from caller_dir up to CWD and add
+    # each to sys.path to cover more project layouts.
+    if caller_dir and caller_dir != ".":
+        preamble += f"sys.path.insert(0, os.path.join(_here, {caller_dir!r}))\n"
+    preamble += "\n"
+    wrapper = AGENTCORE_WRAPPER_TEMPLATE.format(agent_var=agent_var)
+    return preamble + cleaned + wrapper
+
 
 
 def _should_exclude(path: str, base_dir: str) -> bool:
