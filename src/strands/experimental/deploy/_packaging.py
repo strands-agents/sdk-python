@@ -5,10 +5,8 @@ Handles zipping agent code and generating entrypoints for AgentCore.
 
 import ast
 import inspect
-import io
 import logging
 import os
-import zipfile
 from typing import TYPE_CHECKING
 
 from ._constants import PACKAGING_EXCLUDES
@@ -238,46 +236,3 @@ def _should_exclude(path: str, base_dir: str) -> bool:
             if pattern.startswith("*") and part.endswith(pattern[1:]):
                 return True
     return False
-
-
-def create_code_zip(entrypoint_code: str, base_dir: str | None = None) -> bytes:
-    """Create a zip of the working directory plus the generated entrypoint.
-
-    Args:
-        entrypoint_code: Generated Python entrypoint source code.
-        base_dir: Directory to package. Defaults to CWD.
-
-    Returns:
-        Zip file contents as bytes.
-    """
-    base_dir = base_dir or os.getcwd()
-    buffer = io.BytesIO()
-    file_count = 0
-
-    try:
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for root, dirs, files in os.walk(base_dir):
-                # Prune excluded directories in-place
-                dirs[:] = [d for d in dirs if not _should_exclude(os.path.join(root, d), base_dir)]
-
-                for filename in files:
-                    if filename.endswith(".pyc"):
-                        continue
-                    full_path = os.path.join(root, filename)
-                    if _should_exclude(full_path, base_dir):
-                        continue
-                    arc_name = os.path.relpath(full_path, base_dir)
-                    zf.write(full_path, arc_name)
-                    file_count += 1
-
-            # Add generated entrypoint
-            zf.writestr("_strands_entrypoint.py", entrypoint_code)
-            file_count += 1
-    except OSError as e:
-        raise DeployPackagingException(f"Failed to create deployment zip: {e}") from e
-
-    zip_bytes = buffer.getvalue()
-    size_kb = len(zip_bytes) / 1024
-    print(f"  Packaging agent code ({file_count} files, {size_kb:.0f}KB)")
-
-    return zip_bytes

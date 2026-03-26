@@ -1,7 +1,5 @@
 """Tests for deployment packaging utilities."""
 
-import zipfile
-from io import BytesIO
 from unittest.mock import MagicMock
 
 import pytest
@@ -10,7 +8,6 @@ from strands.experimental.deploy._exceptions import DeployPackagingException
 from strands.experimental.deploy._packaging import (
     _should_exclude,
     _strip_deploy_call,
-    create_code_zip,
     generate_agentcore_entrypoint,
 )
 
@@ -35,57 +32,6 @@ class TestShouldExclude:
     def test_includes_normal_files(self):
         assert not _should_exclude("/project/main.py", "/project")
         assert not _should_exclude("/project/src/agent.py", "/project")
-
-
-class TestCreateCodeZip:
-    def test_zips_directory_contents(self, tmp_path):
-        # Create test files
-        (tmp_path / "main.py").write_text("print('hello')")
-        (tmp_path / "tools").mkdir()
-        (tmp_path / "tools" / "calc.py").write_text("def add(a, b): return a + b")
-
-        zip_bytes = create_code_zip("# entrypoint", base_dir=str(tmp_path))
-
-        with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
-            names = zf.namelist()
-            assert "main.py" in names
-            assert "tools/calc.py" in names
-            assert "_strands_entrypoint.py" in names
-
-    def test_excludes_hidden_dirs(self, tmp_path):
-        (tmp_path / "main.py").write_text("code")
-        (tmp_path / ".git").mkdir()
-        (tmp_path / ".git" / "config").write_text("git config")
-        (tmp_path / ".strands_deploy").mkdir()
-        (tmp_path / ".strands_deploy" / "state.json").write_text("{}")
-
-        zip_bytes = create_code_zip("# entrypoint", base_dir=str(tmp_path))
-
-        with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
-            names = zf.namelist()
-            assert not any(".git" in n for n in names)
-            assert not any(".strands_deploy" in n for n in names)
-
-    def test_excludes_pyc_files(self, tmp_path):
-        (tmp_path / "main.py").write_text("code")
-        (tmp_path / "main.pyc").write_text("bytecode")
-
-        zip_bytes = create_code_zip("# entrypoint", base_dir=str(tmp_path))
-
-        with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
-            names = zf.namelist()
-            assert "main.py" in names
-            assert "main.pyc" not in names
-
-    def test_includes_generated_entrypoint(self, tmp_path):
-        (tmp_path / "app.py").write_text("agent = Agent()")
-        entrypoint_code = "from strands import Agent\nagent = Agent()"
-
-        zip_bytes = create_code_zip(entrypoint_code, base_dir=str(tmp_path))
-
-        with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
-            content = zf.read("_strands_entrypoint.py").decode()
-            assert "from strands import Agent" in content
 
 
 class TestStripDeployCall:

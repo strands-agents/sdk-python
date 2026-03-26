@@ -44,8 +44,8 @@ class TestStateManager:
         state = DeployState(target="agentcore", region="us-east-1")
         state_manager.save("test", state)
 
-        assert os.path.isdir(os.path.join(tmp_dir, ".strands"))
-        assert os.path.isfile(os.path.join(tmp_dir, ".strands", "state.json"))
+        assert os.path.isdir(os.path.join(tmp_dir, ".strands_deploy"))
+        assert os.path.isfile(os.path.join(tmp_dir, ".strands_deploy", "state.json"))
 
     def test_save_preserves_created_at_on_update(self, state_manager):
         state1 = DeployState(target="agentcore", region="us-west-2")
@@ -78,12 +78,12 @@ class TestStateManager:
 
     def test_state_file_has_version(self, state_manager, tmp_dir):
         state_manager.save("test", DeployState(target="agentcore", region="us-east-1"))
-        with open(os.path.join(tmp_dir, ".strands", "state.json")) as f:
+        with open(os.path.join(tmp_dir, ".strands_deploy", "state.json")) as f:
             data = json.load(f)
         assert data["version"] == "1"
 
     def test_corrupted_state_file_raises(self, state_manager, tmp_dir):
-        state_dir = os.path.join(tmp_dir, ".strands")
+        state_dir = os.path.join(tmp_dir, ".strands_deploy")
         os.makedirs(state_dir, exist_ok=True)
         with open(os.path.join(state_dir, "state.json"), "w") as f:
             f.write("not valid json{{{")

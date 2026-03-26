@@ -25,7 +25,6 @@ def config():
     return DeployConfig(
         target="agentcore",
         name="test-agent",
-        auth="public",
         region="us-west-2",
     )
 
@@ -95,7 +94,7 @@ class TestAgentCoreDeploy:
         # Verify Runtime was configured and launched
         mock_instance.configure.assert_called_once()
         configure_kwargs = mock_instance.configure.call_args[1]
-        assert configure_kwargs["agent_name"] == "strands-test-agent"
+        assert configure_kwargs["agent_name"] == "strands_test-agent"
         assert configure_kwargs["deployment_type"] == "direct_code_deploy"
         assert configure_kwargs["region"] == "us-west-2"
         assert configure_kwargs["non_interactive"] is True
@@ -201,7 +200,7 @@ class TestAgentCoreDestroy:
         # Verify Runtime was configured and destroy was called
         mock_instance.configure.assert_called_once()
         configure_kwargs = mock_instance.configure.call_args[1]
-        assert configure_kwargs["agent_name"] == "strands-my-agent"
+        assert configure_kwargs["agent_name"] == "strands_my-agent"
         assert configure_kwargs["region"] == "us-west-2"
         mock_instance.destroy.assert_called_once()
 

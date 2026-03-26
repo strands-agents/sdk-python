@@ -53,8 +53,6 @@ class DeployResult:
     # AgentCore fields
     agent_runtime_id: str | None = None
     agent_runtime_arn: str | None = None
-    agent_runtime_endpoint_arn: str | None = None
-    role_arn: str | None = None
 
 
 def deploy(
@@ -141,8 +139,6 @@ def deploy(
     print()
     if result.agent_runtime_arn:
         print(f"  Runtime ARN: {result.agent_runtime_arn}")
-    if result.agent_runtime_endpoint_arn:
-        print(f"  Endpoint ARN: {result.agent_runtime_endpoint_arn}")
     print(f"  Status: {'Created' if result.created else 'Updated'}")
     print("\n  Deploy state saved to .strands_deploy/state.json")
 

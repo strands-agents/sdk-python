@@ -44,7 +44,7 @@ class TestDeployFunction:
 
         mock_target = MagicMock()
         mock_target.deploy.return_value = DeployResult(
-            target="agentcore", name="my-special-agent", region="us-east-1", created=True
+            target="agentcore", name="my_special_agent", region="us-east-1", created=True
         )
         mock_target_cls.return_value = mock_target
 
@@ -54,8 +54,8 @@ class TestDeployFunction:
         deploy(agent, target="agentcore")
 
         config = mock_target.deploy.call_args[0][1]
-        # Should be sanitized: lowercase, special chars replaced with hyphens
-        assert config.name == "my-special-agent"
+        # Should be sanitized: lowercase, special chars replaced with underscores, stripped
+        assert config.name == "my_special_agent"
 
     @patch("strands.experimental.deploy._agentcore.AgentCoreTarget")
     def test_deploy_passes_environment_variables(self, mock_target_cls):
