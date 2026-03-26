@@ -20,10 +20,8 @@ AWS Bedrock AgentCore provides managed infrastructure for running agents: auto-s
 
 Even with the toolkit, a developer still needs to:
 
-- **Learn AgentCore's mental model.** AgentCore introduces its own concepts — runtimes, endpoints, execution roles, deployment types — none of which exist in the Strands SDK. Before making a single API call, a developer must understand how runtimes map to compute, what `direct_code_deploy` means, and how endpoints expose the agent.
+- **Learn AgentCore's mental model.** AgentCore introduces its own concepts that developers need to learn.
 - **Write a `BedrockAgentCoreApp` entrypoint from scratch.** The toolkit expects a specific entrypoint format: a `BedrockAgentCoreApp` instance with an `@app.entrypoint` decorator. The developer must manually reconstruct their Strands agent inside this file. No bridge exists between the Strands `Agent` class and AgentCore's expected format.
-- **Manage dependencies across two systems.** A `requirements.txt` must include `bedrock-agentcore`, `strands-agents`, and every project-specific package. Miss one and the runtime fails at import time in the cloud — with no local way to catch the error.
-- **Choose and configure runtime parameters.** Python version (`PYTHON_3_12` vs `PYTHON_3_13`), AWS region, IAM role creation, and environment variables all require explicit decisions. The toolkit infers none of these from the agent or local environment.
 - **Track deployed resources manually.** Each deployment creates IAM roles, runtime IDs, and endpoint ARNs. The developer must track these across create-vs-update cycles to avoid orphaned resources or duplicates. No built-in state management exists.
 
 This is too many concepts, too many files, and too many failure modes for someone who just wants to ship an agent.
@@ -47,7 +45,7 @@ For the initial launch, we expose deployment as a standalone function under `str
 from strands import Agent
 from strands.experimental.deploy import deploy
 
-agent = Agent(model="us.anthropic.claude-sonnet-4-20250514", tools=[my_tool])
+agent = Agent(name="ac_agent", tools=[my_tool])
 result = deploy(agent)
 ```
 
