@@ -6,32 +6,9 @@ import pytest
 
 from strands.experimental.deploy._exceptions import DeployPackagingException
 from strands.experimental.deploy._packaging import (
-    _should_exclude,
     _strip_deploy_call,
     generate_agentcore_entrypoint,
 )
-
-
-class TestShouldExclude:
-    def test_excludes_strands_dir(self):
-        assert _should_exclude("/project/.strands_deploy/state.json", "/project")
-
-    def test_excludes_git_dir(self):
-        assert _should_exclude("/project/.git/config", "/project")
-
-    def test_excludes_pycache(self):
-        assert _should_exclude("/project/__pycache__/module.pyc", "/project")
-
-    def test_excludes_venv(self):
-        assert _should_exclude("/project/.venv/lib/python3.12", "/project")
-        assert _should_exclude("/project/venv/lib/python3.12", "/project")
-
-    def test_excludes_egg_info(self):
-        assert _should_exclude("/project/package.egg-info/PKG-INFO", "/project")
-
-    def test_includes_normal_files(self):
-        assert not _should_exclude("/project/main.py", "/project")
-        assert not _should_exclude("/project/src/agent.py", "/project")
 
 
 class TestStripDeployCall:

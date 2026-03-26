@@ -10,27 +10,6 @@ PYTHON_RUNTIME_MAP: dict[tuple[int, int], str] = {
     (3, 13): "PYTHON_3_13",
 }
 
-# Directories and files to exclude when packaging agent code
-PACKAGING_EXCLUDES = {
-    ".strands_deploy",
-    "__pycache__",
-    ".git",
-    ".venv",
-    "venv",
-    ".env",
-    "node_modules",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".tox",
-    "dist",
-    "build",
-    "*.egg-info",
-    ".bedrock_agentcore.yaml",
-    "dependencies.hash",
-    "dependencies.zip",
-}
-
 
 def get_python_runtime() -> str:
     """Get the AgentCore Python runtime identifier for the current Python version."""

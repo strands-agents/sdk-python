@@ -1,6 +1,6 @@
 """Packaging utilities for agent deployment.
 
-Handles zipping agent code and generating entrypoints for AgentCore.
+Handles generating entrypoints for AgentCore.
 """
 
 import ast
@@ -9,7 +9,6 @@ import logging
 import os
 from typing import TYPE_CHECKING
 
-from ._constants import PACKAGING_EXCLUDES
 from ._exceptions import DeployPackagingException
 
 if TYPE_CHECKING:
@@ -221,18 +220,3 @@ def generate_agentcore_entrypoint(agent: "Agent") -> str:
     preamble += "\n"
     wrapper = AGENTCORE_WRAPPER_TEMPLATE.format(agent_var=agent_var)
     return preamble + cleaned + wrapper
-
-
-
-def _should_exclude(path: str, base_dir: str) -> bool:
-    """Check if a path should be excluded from the deployment zip."""
-    rel = os.path.relpath(path, base_dir)
-    parts = rel.split(os.sep)
-    for part in parts:
-        if part in PACKAGING_EXCLUDES:
-            return True
-        # Match wildcard patterns like *.egg-info
-        for pattern in PACKAGING_EXCLUDES:
-            if pattern.startswith("*") and part.endswith(pattern[1:]):
-                return True
-    return False
