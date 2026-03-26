@@ -80,7 +80,7 @@ pip install 'strands-agents[deploy]'
 
 ### Strategy pattern for deployment targets
 
-A core tenet of the Strands SDK is platform agnosticism. Strands agents already use any model provider — Bedrock, OpenAI, Gemini — and the same principle extends to deployment. A developer should deploy the same agent to AgentCore today and to Lambda, ECS, or a non-AWS platform tomorrow without rewriting deployment code. The deploy module cannot be built around a single target. It must support multiple backends behind a stable interface.
+A core tenet of the Strands SDK is platform independence. Strands agents already use any model provider — Bedrock, OpenAI, Gemini — and the same principle extends to deployment. A developer should deploy the same agent to AgentCore today and to Lambda, ECS, or a non-AWS platform tomorrow without rewriting deployment code. The deploy module cannot be built around a single target. It must support multiple backends behind a stable interface.
 
 The module uses the Strategy pattern to achieve this:
 
