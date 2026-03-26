@@ -10,6 +10,29 @@ PYTHON_RUNTIME_MAP: dict[tuple[int, int], str] = {
     (3, 13): "PYTHON_3_13",
 }
 
+# Resource naming prefix for AgentCore deployments
+AGENTCORE_NAME_PREFIX = "strands_"
+
+# Generated entrypoint filename written to CWD during deployment
+ENTRYPOINT_FILENAME = "_strands_entrypoint.py"
+
+# Local state directory name (relative to CWD)
+STATE_DIR_NAME = ".strands_deploy"
+
+# AgentCore deployment type identifier
+DEPLOYMENT_TYPE = "direct_code_deploy"
+
+# Default requirements for AgentCore deployments
+AGENTCORE_BASE_REQUIREMENTS = ["bedrock-agentcore", "strands-agents"]
+
+# Toolkit build artifacts to clean up after deployment
+TOOLKIT_BUILD_ARTIFACTS = ["dependencies.hash", "dependencies.zip"]
+
+
+def agentcore_runtime_name(name: str) -> str:
+    """Build the AgentCore runtime name from a deploy name."""
+    return f"{AGENTCORE_NAME_PREFIX}{name}"
+
 
 def get_python_runtime() -> str:
     """Get the AgentCore Python runtime identifier for the current Python version."""

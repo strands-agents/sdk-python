@@ -133,13 +133,11 @@ def deploy(
 
     state_manager = StateManager()
 
-    print(f"\nDeploying agent '{config.name}' to {config.target}...")
+    logger.info("name=<%s>, target=<%s> | deploying agent", config.name, config.target)
     result = target_impl.deploy(agent, config, state_manager)
 
-    print()
     if result.agent_runtime_arn:
-        print(f"  Runtime ARN: {result.agent_runtime_arn}")
-    print(f"  Status: {'Created' if result.created else 'Updated'}")
-    print("\n  Deploy state saved to .strands_deploy/state.json")
+        logger.info("agent_runtime_arn=<%s> | deployment complete", result.agent_runtime_arn)
+    logger.info("name=<%s>, status=<%s> | deployment %s", config.name, "created" if result.created else "updated", "created" if result.created else "updated")
 
     return result

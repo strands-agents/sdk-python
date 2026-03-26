@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, TypedDict
 
+from ._constants import STATE_DIR_NAME
 from ._exceptions import DeployStateException
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ class StateManager:
 
     def __init__(self, base_dir: str | None = None):
         self._base_dir = base_dir or os.getcwd()
-        self._state_dir = os.path.join(self._base_dir, ".strands_deploy")
+        self._state_dir = os.path.join(self._base_dir, STATE_DIR_NAME)
         self._state_file = os.path.join(self._state_dir, "state.json")
 
     def load(self, deployment_name: str) -> DeployState | None:

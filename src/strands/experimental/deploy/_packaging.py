@@ -154,7 +154,6 @@ class _DeployStripper(ast.NodeTransformer):
         return node
 
 
-
 def _strip_deploy_call(source: str, agent_var: str = "") -> str:
     """Remove deploy-related code from the caller's source.
 

@@ -44,10 +44,8 @@ def mock_runtime_class():
     """Create a mock Runtime class that returns a mock instance."""
     mock_instance = MagicMock()
     mock_instance.launch.return_value = MagicMock(
-        agent_runtime_id="rt-abc123",
-        agent_runtime_arn="arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/rt-abc123",
-        agent_runtime_endpoint_arn="arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/rt-abc123/endpoint/ep-1",
-        role_arn="arn:aws:iam::123456789012:role/strands-test-agent-agentcore-role",
+        agent_id="rt-abc123",
+        agent_arn="arn:aws:bedrock-agentcore:us-west-2:123456789012:runtime/rt-abc123",
     )
     mock_cls = MagicMock(return_value=mock_instance)
     return mock_cls, mock_instance

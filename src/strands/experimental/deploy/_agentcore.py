@@ -5,7 +5,14 @@ import os
 from typing import TYPE_CHECKING
 
 from ._base import DeployTarget
-from ._constants import get_python_runtime
+from ._constants import (
+    AGENTCORE_BASE_REQUIREMENTS,
+    DEPLOYMENT_TYPE,
+    ENTRYPOINT_FILENAME,
+    TOOLKIT_BUILD_ARTIFACTS,
+    agentcore_runtime_name,
+    get_python_runtime,
+)
 from ._exceptions import DeployException, DeployTargetException
 from ._packaging import generate_agentcore_entrypoint
 from ._state import DeployState
@@ -70,16 +77,17 @@ class AgentCoreTarget(DeployTarget):
 
         Runtime = _get_runtime_class()
         region = self._resolve_region(agent, config)
-        print(f"  Region: {region}")
+        runtime_name = agentcore_runtime_name(config.name)
+        logger.info("region=<%s> | resolved deployment region", region)
 
         # Generate the entrypoint file in CWD so the toolkit includes it in the deployment zip
         entrypoint_code = generate_agentcore_entrypoint(agent)
-        entrypoint_path = os.path.join(os.getcwd(), "_strands_entrypoint.py")
+        entrypoint_path = os.path.join(os.getcwd(), ENTRYPOINT_FILENAME)
         with open(entrypoint_path, "w") as f:
             f.write(entrypoint_code)
 
         # Build requirements list: our deps + any existing project requirements
-        requirements = ["bedrock-agentcore", "strands-agents"]
+        requirements = list(AGENTCORE_BASE_REQUIREMENTS)
         existing_reqs_path = os.path.join(os.getcwd(), "requirements.txt")
         had_existing_reqs = os.path.exists(existing_reqs_path)
         if had_existing_reqs:
@@ -95,8 +103,8 @@ class AgentCoreTarget(DeployTarget):
         runtime = Runtime()
         configure_kwargs: dict = {
             "entrypoint": entrypoint_path,
-            "agent_name": f"strands_{config.name}",
-            "deployment_type": "direct_code_deploy",
+            "agent_name": runtime_name,
+            "deployment_type": DEPLOYMENT_TYPE,
             "runtime_type": get_python_runtime(),
             "region": region,
             "non_interactive": True,
@@ -113,9 +121,9 @@ class AgentCoreTarget(DeployTarget):
             runtime.configure(**configure_kwargs)
 
             if is_update:
-                print(f"  Updating AgentCore Runtime: strands_{config.name}")
+                logger.info("runtime_name=<%s> | updating agentcore runtime", runtime_name)
             else:
-                print(f"  Creating AgentCore Runtime: strands_{config.name}")
+                logger.info("runtime_name=<%s> | creating agentcore runtime", runtime_name)
 
             _inject_user_agent()
             launch_result = runtime.launch()
@@ -124,12 +132,9 @@ class AgentCoreTarget(DeployTarget):
         finally:
             cwd = os.path.dirname(entrypoint_path)
             cleanup = [entrypoint_path]
-            # Only remove the generated requirements.txt if we created it
             if not had_existing_reqs:
                 cleanup.append(os.path.join(cwd, "requirements.txt"))
-            # Remove toolkit build cache (not .bedrock_agentcore.yaml — needed for redeploys)
-            cleanup.append(os.path.join(cwd, "dependencies.hash"))
-            cleanup.append(os.path.join(cwd, "dependencies.zip"))
+            cleanup.extend(os.path.join(cwd, artifact) for artifact in TOOLKIT_BUILD_ARTIFACTS)
             for path in cleanup:
                 try:
                     os.remove(path)
@@ -162,27 +167,28 @@ class AgentCoreTarget(DeployTarget):
         """Tear down AgentCore resources via the starter toolkit."""
         existing = state_manager.load(name)
         if not existing:
-            print(f"  No deployment found for '{name}'")
+            logger.info("name=<%s> | no deployment found, skipping destroy", name)
             return
 
         Runtime = _get_runtime_class()
         deploy_region = region or existing.get("region", "us-east-1")
+        runtime_name = agentcore_runtime_name(name)
 
         try:
             runtime = Runtime()
             runtime.configure(
-                agent_name=f"strands_{name}",
+                agent_name=runtime_name,
                 region=deploy_region,
                 non_interactive=True,
             )
             _inject_user_agent()
-            print(f"  Destroying AgentCore Runtime: strands_{name}")
+            logger.info("runtime_name=<%s> | destroying agentcore runtime", runtime_name)
             runtime.destroy()
         except Exception as e:
-            logger.warning("Failed to destroy runtime for '%s': %s", name, e)
+            logger.warning("name=<%s> | failed to destroy runtime: %s", name, e)
 
         state_manager.delete(name)
-        print(f"  Deployment '{name}' destroyed")
+        logger.info("name=<%s> | deployment destroyed", name)
 
     def _resolve_region(self, agent: "Agent", config: "DeployConfig") -> str:
         """Resolve the AWS region from config, agent model, or environment."""
