@@ -616,6 +616,7 @@ class Agent(AgentBase):
 
     def as_tool(
         self,
+        *,
         name: str | None = None,
         description: str | None = None,
         preserve_context: bool = False,
