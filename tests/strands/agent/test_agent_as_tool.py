@@ -674,3 +674,49 @@ async def test_stream_releases_lock_after_error(tool, mock_agent, tool_use):
         pass
 
     assert not tool._lock.locked()
+
+
+# --- Agent-as-tool sugar (passing agents directly in tools list) ---
+
+
+def test_agent_passed_directly_in_tools_list():
+    """Test that an Agent can be passed directly in another Agent's tools list."""
+    from strands.agent.agent import Agent
+
+    sub_agent = Agent(name="research_agent", description="Does research", callback_handler=None)
+
+    # This should work without calling .as_tool() explicitly
+    parent_agent = Agent(name="orchestrator", tools=[sub_agent], callback_handler=None)
+
+    assert "research_agent" in parent_agent.tool_names
+
+
+def test_multiple_agents_passed_directly_in_tools_list():
+    """Test that multiple Agents can be passed directly in another Agent's tools list."""
+    from strands.agent.agent import Agent
+
+    agent_a = Agent(name="agent_a", callback_handler=None)
+    agent_b = Agent(name="agent_b", callback_handler=None)
+
+    parent = Agent(name="parent", tools=[agent_a, agent_b], callback_handler=None)
+
+    assert "agent_a" in parent.tool_names
+    assert "agent_b" in parent.tool_names
+
+
+def test_agent_mixed_with_regular_tools_in_tools_list():
+    """Test that Agents can be mixed with regular tools in the tools list."""
+    from strands import tool as tool_decorator
+    from strands.agent.agent import Agent
+
+    @tool_decorator
+    def my_tool(x: str) -> str:
+        """A regular tool."""
+        return x
+
+    sub_agent = Agent(name="helper_agent", callback_handler=None)
+
+    parent = Agent(name="parent", tools=[my_tool, sub_agent], callback_handler=None)
+
+    assert "my_tool" in parent.tool_names
+    assert "helper_agent" in parent.tool_names

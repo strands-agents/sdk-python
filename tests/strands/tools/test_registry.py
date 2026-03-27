@@ -603,3 +603,92 @@ def test_tool_registry_replace_non_dynamic_with_dynamic():
 
     assert registry.registry["my_tool"] == new_tool
     assert registry.dynamic_tools["my_tool"] == new_tool
+
+
+# --- Agent-as-tool sugar ---
+
+
+def test_process_tools_with_agent_instance():
+    """Test that passing an Agent instance in tools list auto-wraps it with as_tool()."""
+    from strands.agent.agent import Agent
+
+    sub_agent = Agent(name="research_agent", description="Finds information", callback_handler=None)
+
+    registry = ToolRegistry()
+    tool_names = registry.process_tools([sub_agent])
+
+    assert "research_agent" in tool_names
+    assert "research_agent" in registry.registry
+    assert registry.registry["research_agent"].tool_type == "agent"
+
+
+def test_process_tools_with_agent_instance_uses_agent_name():
+    """Test that the auto-wrapped tool uses the agent's name."""
+    from strands.agent.agent import Agent
+
+    sub_agent = Agent(name="my_custom_agent", callback_handler=None)
+
+    registry = ToolRegistry()
+    registry.process_tools([sub_agent])
+
+    assert "my_custom_agent" in registry.registry
+    spec = registry.registry["my_custom_agent"].tool_spec
+    assert spec["name"] == "my_custom_agent"
+
+
+def test_process_tools_with_agent_instance_uses_agent_description():
+    """Test that the auto-wrapped tool uses the agent's description."""
+    from strands.agent.agent import Agent
+
+    sub_agent = Agent(name="helper", description="A helpful assistant", callback_handler=None)
+
+    registry = ToolRegistry()
+    registry.process_tools([sub_agent])
+
+    spec = registry.registry["helper"].tool_spec
+    assert spec["description"] == "A helpful assistant"
+
+
+def test_process_tools_with_agent_in_nested_list():
+    """Test that Agent instances in nested iterables are auto-wrapped."""
+    from strands.agent.agent import Agent
+
+    agent_a = Agent(name="agent_a", callback_handler=None)
+    agent_b = Agent(name="agent_b", callback_handler=None)
+
+    registry = ToolRegistry()
+    tool_names = sorted(registry.process_tools([[agent_a, agent_b]]))
+
+    assert tool_names == ["agent_a", "agent_b"]
+
+
+def test_process_tools_with_mixed_agents_and_tools():
+    """Test that Agent instances can be mixed with regular tools."""
+    from strands.agent.agent import Agent
+
+    def function() -> str:
+        return "done"
+
+    regular_tool = tool(name="regular_tool")(function)
+    sub_agent = Agent(name="sub_agent", callback_handler=None)
+
+    registry = ToolRegistry()
+    tool_names = sorted(registry.process_tools([regular_tool, sub_agent]))
+
+    assert tool_names == ["regular_tool", "sub_agent"]
+    assert registry.registry["sub_agent"].tool_type == "agent"
+
+
+def test_process_tools_with_multiple_agents():
+    """Test that multiple Agent instances can be passed."""
+    from strands.agent.agent import Agent
+
+    agent_1 = Agent(name="researcher", description="Does research", callback_handler=None)
+    agent_2 = Agent(name="writer", description="Writes content", callback_handler=None)
+    agent_3 = Agent(name="reviewer", description="Reviews work", callback_handler=None)
+
+    registry = ToolRegistry()
+    tool_names = sorted(registry.process_tools([agent_1, agent_2, agent_3]))
+
+    assert tool_names == ["researcher", "reviewer", "writer"]
+    assert all(registry.registry[name].tool_type == "agent" for name in tool_names)

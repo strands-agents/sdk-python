@@ -153,7 +153,8 @@ class Agent(AgentBase):
                 - Imported Python modules (e.g., from strands_tools import current_time)
                 - Dictionaries with name/path keys (e.g., {"name": "tool_name", "path": "/path/to/tool.py"})
                 - ToolProvider instances for managed tool collections
-                - Functions decorated with `@strands.tool` decorator.
+                - Functions decorated with `@strands.tool` decorator
+                - Agent instances (auto-wrapped via `agent.as_tool()` with defaults)
 
                 If provided, only these tools will be available. If None, all tools will be available.
             system_prompt: System prompt to guide model behavior.
