@@ -19,6 +19,7 @@ from typing import Any, cast
 from typing_extensions import TypedDict
 
 from .._async import run_async
+from ..agent.base import AgentBase
 from ..tools.decorator import DecoratedFunctionTool
 from ..types.tools import AgentTool, ToolSpec
 from . import ToolProvider
@@ -26,17 +27,6 @@ from .loader import load_tool_from_string, load_tools_from_module
 from .tools import _COMPOSITION_KEYWORDS, PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
-
-
-
-def _get_agent_class() -> type:
-    """Get the Agent class via deferred import to avoid circular imports.
-
-    Agent imports ToolRegistry, so we cannot import Agent at module level.
-    """
-    from ..agent.agent import Agent
-
-    return Agent
 
 
 class ToolRegistry:
@@ -153,7 +143,7 @@ class ToolRegistry:
                         self.register_tool(provider_tool)
                         tool_names.append(provider_tool.tool_name)
                 # Agent instances - auto-wrap with .as_tool() for convenience
-                elif isinstance(tool, _get_agent_class()):
+                elif isinstance(tool, AgentBase) and hasattr(tool, "as_tool") and callable(tool.as_tool):
                     wrapped_tool = tool.as_tool()
                     self.register_tool(wrapped_tool)
                     tool_names.append(wrapped_tool.tool_name)
