@@ -41,6 +41,7 @@ from ..types.exceptions import (
 )
 from ..types.streaming import StopReason
 from ..types.tools import ToolResult, ToolUse
+from ..agent.state_machine import AgentExecutionState
 from ._recover_message_on_max_tokens_reached import recover_message_on_max_tokens_reached
 from ._retry import ModelRetryStrategy
 from .streaming import stream_messages
@@ -142,13 +143,16 @@ async def event_loop_cycle(
     with trace_api.use_span(cycle_span, end_on_exit=True):
         # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
         if agent._interrupt_state.activated:
+            agent.state_machine.transition(AgentExecutionState.TOOL_EXECUTION)
             stop_reason: StopReason = "tool_use"
             message = agent._interrupt_state.context["tool_use_message"]
         # Skip model invocation if the latest message contains ToolUse
         elif _has_tool_use_in_latest_message(agent.messages):
+            agent.state_machine.transition(AgentExecutionState.TOOL_EXECUTION)
             stop_reason = "tool_use"
             message = agent.messages[-1]
         else:
+            agent.state_machine.transition(AgentExecutionState.MODEL_CALL)
             model_events = _handle_model_execution(
                 agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
             )
@@ -177,6 +181,10 @@ async def event_loop_cycle(
                 )
 
             if stop_reason == "tool_use":
+                # Only transition MODEL_CALL → TOOL_EXECUTION here; the interrupt and
+                # has_tool_use_in_latest_message paths already transitioned above.
+                if agent.state_machine.state == AgentExecutionState.MODEL_CALL:
+                    agent.state_machine.transition(AgentExecutionState.TOOL_EXECUTION)
                 # Handle tool execution
                 tool_events = _handle_tool_execution(
                     stop_reason,
@@ -207,6 +215,7 @@ async def event_loop_cycle(
             raise e
         except Exception as e:
             # Handle any other exceptions
+            agent.state_machine.try_transition(AgentExecutionState.ERROR)
             yield ForceStopEvent(reason=e)
             logger.exception("cycle failed")
             raise EventLoopException(e, invocation_state["request_state"]) from e

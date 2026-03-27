@@ -42,6 +42,7 @@ from ..hooks import (
     HookRegistry,
     MessageAddedEvent,
 )
+from ..hooks.events import AgentStateTransitionEvent
 from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
 from ..models.bedrock import BedrockModel
@@ -71,6 +72,7 @@ from .conversation_manager import (
     SlidingWindowConversationManager,
 )
 from .state import AgentState
+from .state_machine import AgentExecutionState, AgentStateMachine
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +284,11 @@ class Agent(AgentBase):
 
         self._interrupt_state = _InterruptState()
 
+        # Formal execution state machine — tracks the agent's lifecycle phase and
+        # emits AgentStateTransitionEvent hook events on every transition.
+        self.state_machine = AgentStateMachine()
+        self.state_machine.add_listener(self._on_state_transition)
+
         # Initialize lock for guarding concurrent invocations
         # Using threading.Lock instead of asyncio.Lock because run_async() creates
         # separate event loops in different threads, so asyncio.Lock wouldn't work
@@ -332,6 +339,12 @@ class Agent(AgentBase):
                 self._plugin_registry.add_and_init(plugin)
 
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+
+    def _on_state_transition(
+        self, old_state: AgentExecutionState, new_state: AgentExecutionState
+    ) -> None:
+        """Fire an :class:`~strands.hooks.events.AgentStateTransitionEvent` hook on every state change."""
+        self.hooks.invoke_callbacks(AgentStateTransitionEvent(agent=self, old_state=old_state, new_state=new_state))
 
     def cancel(self) -> None:
         """Cancel the currently running agent invocation.
@@ -781,6 +794,7 @@ class Agent(AgentBase):
                 )
 
         try:
+            self.state_machine.transition(AgentExecutionState.INITIALIZING)
             self._interrupt_state.resume(prompt)
 
             self.event_loop_metrics.reset_usage_metrics()
@@ -829,6 +843,13 @@ class Agent(AgentBase):
         finally:
             # Clear cancel signal to allow agent reuse after cancellation
             self._cancel_signal.clear()
+
+            # Return to IDLE unless we're paused at an INTERRUPTED checkpoint,
+            # which persists so external code can observe the paused state.
+            # Use reset() rather than transition() so exceptions in any running
+            # state (e.g. MODEL_CALL) don't strand the state machine.
+            if self.state_machine.state != AgentExecutionState.INTERRUPTED:
+                self.state_machine.reset()
 
             if self._invocation_lock.locked():
                 self._invocation_lock.release()
@@ -894,6 +915,13 @@ class Agent(AgentBase):
                 # Capture the result from the final event if available
                 if isinstance(event, EventLoopStopEvent):
                     agent_result = AgentResult(*event["stop"])
+                    stop_reason = event["stop"][0]
+                    if stop_reason == "interrupt":
+                        self.state_machine.transition(AgentExecutionState.INTERRUPTED)
+                    elif stop_reason == "cancelled":
+                        self.state_machine.transition(AgentExecutionState.CANCELLED)
+                    else:
+                        self.state_machine.transition(AgentExecutionState.COMPLETED)
 
             finally:
                 self.conversation_manager.apply_management(self)
@@ -909,6 +937,7 @@ class Agent(AgentBase):
                 # raise TypeError if the resume input is not valid interrupt responses.
                 self._interrupt_state.resume(after_invocation_event.resume)
                 current_messages = await self._convert_prompt_to_messages(after_invocation_event.resume)
+                self.state_machine.transition(AgentExecutionState.INITIALIZING)
             else:
                 current_messages = None
 
@@ -950,6 +979,9 @@ class Agent(AgentBase):
             # Sync agent after reduce_context to keep conversation_manager_state up to date in the session
             if self._session_manager:
                 self._session_manager.sync_agent(self)
+
+            # Return to INITIALIZING so event_loop_cycle can re-enter MODEL_CALL cleanly
+            self.state_machine.try_transition(AgentExecutionState.INITIALIZING)
 
             events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
             async for event in events:
