@@ -28,6 +28,17 @@ from .tools import _COMPOSITION_KEYWORDS, PythonAgentTool, normalize_schema, nor
 logger = logging.getLogger(__name__)
 
 
+
+def _get_agent_class() -> type:
+    """Get the Agent class via deferred import to avoid circular imports.
+
+    Agent imports ToolRegistry, so we cannot import Agent at module level.
+    """
+    from ..agent.agent import Agent
+
+    return Agent
+
+
 class ToolRegistry:
     """Central registry for all tools available to the agent.
 
@@ -142,7 +153,7 @@ class ToolRegistry:
                         self.register_tool(provider_tool)
                         tool_names.append(provider_tool.tool_name)
                 # Agent instances - auto-wrap with .as_tool() for convenience
-                elif hasattr(tool, "as_tool") and callable(tool.as_tool):
+                elif isinstance(tool, _get_agent_class()):
                     wrapped_tool = tool.as_tool()
                     self.register_tool(wrapped_tool)
                     tool_names.append(wrapped_tool.tool_name)
