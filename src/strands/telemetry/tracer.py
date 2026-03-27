@@ -836,7 +836,7 @@ class Tracer:
             system_prompt: Optional system prompt string.
             system_prompt_content: Optional list of system prompt content blocks.
         """
-        if not system_prompt and not system_prompt_content:
+        if system_prompt is None and system_prompt_content is None:
             return
 
         content_blocks = system_prompt_content if system_prompt_content else [{"text": system_prompt}]
