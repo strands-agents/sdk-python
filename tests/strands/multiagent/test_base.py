@@ -240,3 +240,58 @@ def test_serialize_node_result_for_persist(agent_result):
     assert "result" in serialized_exception
     assert serialized_exception["result"]["type"] == "exception"
     assert serialized_exception["result"]["message"] == "Test error"
+
+
+def test_node_result_str_with_agent_result():
+    """Test NodeResult.__str__ delegates to AgentResult.__str__."""
+    agent_result = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Hello world"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    node_result = NodeResult(result=agent_result)
+    assert str(node_result) == str(agent_result)
+    assert "Hello world" in str(node_result)
+
+
+def test_node_result_str_with_exception():
+    """Test NodeResult.__str__ with an Exception result."""
+    node_result = NodeResult(result=Exception("something broke"), status=Status.FAILED)
+    assert str(node_result) == "something broke"
+
+
+def test_multi_agent_result_str_single_node(agent_result):
+    """Test MultiAgentResult.__str__ with a single node."""
+    result = MultiAgentResult(
+        status=Status.COMPLETED,
+        results={"writer": NodeResult(result=agent_result)},
+    )
+    output = str(result)
+    assert "writer: Test response" in output
+
+
+def test_multi_agent_result_str_with_interrupts():
+    """Test MultiAgentResult.__str__ prioritizes interrupts over node results."""
+    from strands.interrupt import Interrupt
+
+    ar = AgentResult(
+        message={"role": "assistant", "content": [{"text": "should not appear"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    result = MultiAgentResult(
+        status=Status.INTERRUPTED,
+        results={"node": NodeResult(result=ar)},
+        interrupts=[Interrupt(id="int-1", name="approval", reason="needs review")],
+    )
+    output = str(result)
+    assert "should not appear" not in output
+    assert "approval" in output
+
+
+def test_multi_agent_result_str_empty():
+    """Test MultiAgentResult.__str__ with no results."""
+    result = MultiAgentResult(status=Status.COMPLETED, results={})
+    assert str(result) == ""
