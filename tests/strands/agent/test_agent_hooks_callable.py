@@ -1,7 +1,5 @@
 """Tests for accepting callable hook callbacks in Agent constructor's hooks parameter."""
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from strands import Agent
@@ -46,7 +44,7 @@ class TestHooksParamAcceptsCallables:
                 self.events.append(event)
 
         provider = MyProvider()
-        agent = Agent(hooks=[provider], callback_handler=None)
+        Agent(hooks=[provider], callback_handler=None)
 
         assert len(provider.events) == 1
         assert isinstance(provider.events[0], AgentInitializedEvent)
@@ -81,9 +79,7 @@ class TestHooksParamAcceptsCallables:
         def on_after(event: AfterInvocationEvent) -> None:
             after_events.append(event)
 
-        mock_model = MockedModelProvider(
-            [{"role": "assistant", "content": [{"text": "Hello!"}]}]
-        )
+        mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello!"}]}])
 
         agent = Agent(
             model=mock_model,
@@ -119,9 +115,7 @@ class TestHooksParamAcceptsCallables:
         def on_model_call(event: BeforeModelCallEvent) -> None:
             model_call_events.append(event)
 
-        mock_model = MockedModelProvider(
-            [{"role": "assistant", "content": [{"text": "result"}]}]
-        )
+        mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "result"}]}])
 
         agent = Agent(
             model=mock_model,
@@ -152,7 +146,7 @@ class TestHooksParamAcceptsCallables:
         def callback_b(event: AgentInitializedEvent) -> None:
             events_b.append(event)
 
-        agent = Agent(hooks=[callback_a, callback_b], callback_handler=None)
+        Agent(hooks=[callback_a, callback_b], callback_handler=None)
 
         assert len(events_a) == 1
         assert len(events_b) == 1
@@ -168,9 +162,7 @@ class TestHooksParamAsyncCallables:
         async def my_async_callback(event: BeforeInvocationEvent) -> None:
             events_received.append(event)
 
-        mock_model = MockedModelProvider(
-            [{"role": "assistant", "content": [{"text": "Hello!"}]}]
-        )
+        mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello!"}]}])
 
         agent = Agent(
             model=mock_model,
@@ -188,5 +180,7 @@ class TestHooksParamAsyncCallables:
         async def my_async_callback(event: AgentInitializedEvent) -> None:
             pass
 
-        with pytest.raises(ValueError, match="AgentInitializedEvent can only be registered with a synchronous callback"):
+        with pytest.raises(
+            ValueError, match="AgentInitializedEvent can only be registered with a synchronous callback"
+        ):
             Agent(hooks=[my_async_callback], callback_handler=None)
