@@ -295,3 +295,43 @@ def test_multi_agent_result_str_empty():
     """Test MultiAgentResult.__str__ with no results."""
     result = MultiAgentResult(status=Status.COMPLETED, results={})
     assert str(result) == ""
+
+
+def test_multi_agent_result_str_multiple_nodes():
+    """Test MultiAgentResult.__str__ with multiple nodes."""
+    ar1 = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Response 1"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    ar2 = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Response 2"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    result = MultiAgentResult(
+        status=Status.COMPLETED,
+        results={"node1": NodeResult(result=ar1), "node2": NodeResult(result=ar2)},
+    )
+    output = str(result)
+    assert "node1: Response 1" in output
+    assert "node2: Response 2" in output
+    assert "\n" in output
+
+
+def test_node_result_str_with_nested_multiagent():
+    """Test NodeResult.__str__ with nested MultiAgentResult."""
+    inner_ar = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Nested response"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    inner_mar = MultiAgentResult(
+        status=Status.COMPLETED,
+        results={"inner_node": NodeResult(result=inner_ar)},
+    )
+    outer_node = NodeResult(result=inner_mar)
+    assert "inner_node: Nested response" in str(outer_node)
