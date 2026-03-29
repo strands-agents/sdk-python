@@ -362,7 +362,20 @@ class BedrockModel(Model):
                 last_user_idx = msg_idx
 
         if last_user_idx is not None and messages[last_user_idx].get("content"):
-            messages[last_user_idx]["content"].append({"cachePoint": {"type": "default"}})
+            content = messages[last_user_idx]["content"]
+
+            # Insert before non-PDF document blocks to avoid Bedrock ValidationException
+            first_non_pdf_doc_idx = None
+            for i, block in enumerate(content):
+                if "document" in block and block["document"].get("format", "") != "pdf":
+                    first_non_pdf_doc_idx = i
+                    break
+
+            if first_non_pdf_doc_idx is not None:
+                content.insert(first_non_pdf_doc_idx, {"cachePoint": {"type": "default"}})
+            else:
+                content.append({"cachePoint": {"type": "default"}})
+
             logger.debug("msg_idx=<%s> | added cache point to last user message", last_user_idx)
 
     def _find_last_user_text_message_index(self, messages: Messages) -> int | None:
