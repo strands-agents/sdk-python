@@ -198,14 +198,13 @@ async def test_send_all_content_types(mock_genai_client, model):
     _, mock_live_session, _ = mock_genai_client
     await model.start()
 
-    # Test text input
+    # Test text input — routed through send_realtime_input (Gemini 3.1 compatible)
     text_input = BidiTextInputEvent(text="Hello", role="user")
     await model.send(text_input)
-    mock_live_session.send_client_content.assert_called_once()
-    call_args = mock_live_session.send_client_content.call_args
-    content = call_args.kwargs.get("turns")
-    assert content.role == "user"
-    assert content.parts[0].text == "Hello"
+    mock_live_session.send_realtime_input.assert_called_with(text="Hello")
+
+    # Reset for next assertion
+    mock_live_session.send_realtime_input.reset_mock()
 
     # Test audio input (base64 encoded)
     audio_b64 = base64.b64encode(b"audio_bytes").decode("utf-8")
