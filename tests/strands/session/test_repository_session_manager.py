@@ -733,6 +733,36 @@ def test_sync_agent_calls_update_when_conversation_manager_state_changed(mock_re
     assert len(update_agent_calls) == 1
 
 
+def test_sync_agent_calls_update_when_model_state_changed(mock_repository):
+    """Test that sync_agent() calls update_agent() when model state changed."""
+    session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+
+    # Create and initialize agent
+    agent = Agent(agent_id="test-agent", session_manager=session_manager)
+
+    # Track update_agent calls
+    update_agent_calls = []
+    original_update_agent = mock_repository.update_agent
+
+    def tracking_update_agent(session_id, session_agent):
+        update_agent_calls.append((session_id, session_agent))
+        return original_update_agent(session_id, session_agent)
+
+    mock_repository.update_agent = tracking_update_agent
+
+    # First sync to establish baseline
+    session_manager.sync_agent(agent)
+    update_agent_calls.clear()
+
+    # Modify model state
+    agent._model_state["response_id"] = "resp_abc123"
+    agent._model_state["stored"] = True
+
+    # Sync should call update_agent because model state changed
+    session_manager.sync_agent(agent)
+    assert len(update_agent_calls) == 1
+
+
 def test_sync_agent_tracks_version_after_successful_sync(mock_repository):
     """Test that sync_agent() tracks version after successful sync."""
     session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
