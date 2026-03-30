@@ -218,7 +218,7 @@ class OpenAIResponsesModel(Model):
                 yield self._format_chunk({"chunk_type": "message_start"})
 
                 tool_calls: dict[str, _ToolCallInfo] = {}
-                final_usage: Any = None
+                final_usage = None
                 data_type: str | None = None
                 stop_reason: str | None = None
 
