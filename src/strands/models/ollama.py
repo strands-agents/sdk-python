@@ -273,8 +273,8 @@ class OllamaModel(Model):
                 return {
                     "metadata": {
                         "usage": {
-                            "inputTokens": event["data"].eval_count,
-                            "outputTokens": event["data"].prompt_eval_count,
+                            "inputTokens": event["data"].prompt_eval_count,
+                            "outputTokens": event["data"].eval_count,
                             "totalTokens": event["data"].eval_count + event["data"].prompt_eval_count,
                         },
                         "metrics": {
