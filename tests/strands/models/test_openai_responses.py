@@ -423,7 +423,7 @@ def test_format_request(model, messages, tool_specs, system_prompt):
         (
             {
                 "chunk_type": "metadata",
-                "data": {"usage": unittest.mock.Mock(input_tokens=100, output_tokens=50, total_tokens=150)},
+                "data": unittest.mock.Mock(input_tokens=100, output_tokens=50, total_tokens=150),
             },
             {
                 "metadata": {
@@ -968,9 +968,13 @@ def test_stateful(model_id, stateful):
 
 @pytest.mark.asyncio
 async def test_stream_stateful(openai_client, model_id, agenerator, alist):
-    """When stateful is enabled, model_state maps to previous_response_id and metadata contains responseId."""
+    """When stateful is enabled, model writes response_id to model_state from response.created."""
     model = OpenAIResponsesModel(model_id=model_id, stateful=True)
     mock_events = [
+        unittest.mock.Mock(
+            type="response.created",
+            response=unittest.mock.Mock(id="resp_abc123"),
+        ),
         unittest.mock.Mock(type="response.output_text.delta", delta="Hi"),
         unittest.mock.Mock(
             type="response.completed",
@@ -983,20 +987,22 @@ async def test_stream_stateful(openai_client, model_id, agenerator, alist):
 
     openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator(mock_events))
 
+    model_state = {"response_id": "resp_previous"}
     events = await alist(
         model.stream(
             [{"role": "user", "content": [{"text": "Hello"}]}],
-            model_state={"response_id": "resp_previous"},
+            model_state=model_state,
         )
     )
 
     call_kwargs = openai_client.responses.create.call_args[1]
     assert call_kwargs["previous_response_id"] == "resp_previous"
 
+    assert model_state["response_id"] == "resp_abc123"
+
     metadata_events = [e for e in events if "metadata" in e]
     assert len(metadata_events) == 1
     assert metadata_events[0]["metadata"] == {
         "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
         "metrics": {"latencyMs": 0},
-        "responseId": "resp_abc123",
     }

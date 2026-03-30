@@ -218,13 +218,20 @@ class OpenAIResponsesModel(Model):
                 yield self._format_chunk({"chunk_type": "message_start"})
 
                 tool_calls: dict[str, _ToolCallInfo] = {}
-                metadata: dict[str, Any] = {}
+                final_usage: Any = None
                 data_type: str | None = None
                 stop_reason: str | None = None
 
                 async for event in response:
                     if hasattr(event, "type"):
-                        if event.type == "response.reasoning_text.delta":
+                        if event.type == "response.created":
+                            # Capture response id for server-side conversation chaining
+                            if hasattr(event, "response"):
+                                response_id = getattr(event.response, "id", None)
+                                if model_state is not None and response_id:
+                                    model_state["response_id"] = response_id
+
+                        elif event.type == "response.reasoning_text.delta":
                             # Reasoning content streaming (for o1/o3 reasoning models)
                             chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
                             for chunk in chunks:
@@ -282,9 +289,8 @@ class OpenAIResponsesModel(Model):
                         elif event.type == "response.incomplete":
                             # Response stopped early (e.g., max tokens reached)
                             if hasattr(event, "response"):
-                                metadata["response_id"] = getattr(event.response, "id", None)
                                 if hasattr(event.response, "usage"):
-                                    metadata["usage"] = event.response.usage
+                                    final_usage = event.response.usage
                                 # Check if stopped due to max_output_tokens
                                 if (
                                     hasattr(event.response, "incomplete_details")
@@ -297,10 +303,8 @@ class OpenAIResponsesModel(Model):
 
                         elif event.type == "response.completed":
                             # Response complete
-                            if hasattr(event, "response"):
-                                metadata["response_id"] = getattr(event.response, "id", None)
-                                if hasattr(event.response, "usage"):
-                                    metadata["usage"] = event.response.usage
+                            if hasattr(event, "response") and hasattr(event.response, "usage"):
+                                final_usage = event.response.usage
                             break
             except openai.APIError as e:
                 if hasattr(e, "code") and e.code == "context_length_exceeded":
@@ -340,8 +344,8 @@ class OpenAIResponsesModel(Model):
                 finish_reason = "stop"
             yield self._format_chunk({"chunk_type": "message_stop", "data": finish_reason})
 
-            if metadata:
-                yield self._format_chunk({"chunk_type": "metadata", "data": metadata})
+            if final_usage:
+                yield self._format_chunk({"chunk_type": "metadata", "data": final_usage})
 
         logger.debug("finished streaming response from OpenAI Responses API model")
 
@@ -691,20 +695,17 @@ class OpenAIResponsesModel(Model):
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
-                data = event["data"]
-                usage = data.get("usage")
-                response_id = data.get("response_id")
+                # Responses API uses input_tokens/output_tokens naming convention
                 return {
                     "metadata": {
                         "usage": {
-                            "inputTokens": getattr(usage, "input_tokens", 0) if usage else 0,
-                            "outputTokens": getattr(usage, "output_tokens", 0) if usage else 0,
-                            "totalTokens": getattr(usage, "total_tokens", 0) if usage else 0,
+                            "inputTokens": getattr(event["data"], "input_tokens", 0),
+                            "outputTokens": getattr(event["data"], "output_tokens", 0),
+                            "totalTokens": getattr(event["data"], "total_tokens", 0),
                         },
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },
-                        **({"responseId": response_id} if response_id else {}),
                     },
                 }
 

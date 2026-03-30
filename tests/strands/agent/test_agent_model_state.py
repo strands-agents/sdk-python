@@ -10,7 +10,7 @@ from strands.agent.conversation_manager import NullConversationManager, SlidingW
 
 @pytest.fixture
 def mock_model():
-    """Create a mock model that returns a responseId in metadata."""
+    """Create a mock model that writes response_id to model_state."""
     model = unittest.mock.MagicMock()
     model.config = {"model_id": "test-model"}
     model.get_config.return_value = {"model_id": "test-model"}
@@ -22,6 +22,10 @@ def mock_model():
         call_count += 1
         resp_id = "resp_abc123" if call_count == 1 else "resp_def456"
 
+        model_state = kwargs.get("model_state")
+        if model_state is not None:
+            model_state["response_id"] = resp_id
+
         yield {"messageStart": {"role": "assistant"}}
         yield {"contentBlockStart": {"start": {}}}
         yield {"contentBlockDelta": {"delta": {"text": "Hello"}}}
@@ -31,7 +35,6 @@ def mock_model():
             "metadata": {
                 "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
                 "metrics": {"latencyMs": 100},
-                "responseId": resp_id,
             }
         }
 
