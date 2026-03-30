@@ -959,10 +959,17 @@ def test_openai_version_check():
         importlib.reload(openai_responses_module)
 
 
+@pytest.mark.parametrize("stateful", [True, False])
+def test_stateful(model_id, stateful):
+    """Model.stateful reflects the stateful config option."""
+    model = OpenAIResponsesModel(model_id=model_id, stateful=stateful)
+    assert model.stateful is stateful
+
+
 @pytest.mark.asyncio
-async def test_stream_store(openai_client, model_id, agenerator, alist):
-    """When store is enabled, response_id maps to previous_response_id and metadata contains responseId."""
-    model = OpenAIResponsesModel(model_id=model_id, params={"store": True})
+async def test_stream_stateful(openai_client, model_id, agenerator, alist):
+    """When stateful is enabled, model_state maps to previous_response_id and metadata contains responseId."""
+    model = OpenAIResponsesModel(model_id=model_id, stateful=True)
     mock_events = [
         unittest.mock.Mock(type="response.output_text.delta", delta="Hi"),
         unittest.mock.Mock(
@@ -976,7 +983,12 @@ async def test_stream_store(openai_client, model_id, agenerator, alist):
 
     openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator(mock_events))
 
-    events = await alist(model.stream([{"role": "user", "content": [{"text": "Hello"}]}], response_id="resp_previous"))
+    events = await alist(
+        model.stream(
+            [{"role": "user", "content": [{"text": "Hello"}]}],
+            model_state={"response_id": "resp_previous"},
+        )
+    )
 
     call_kwargs = openai_client.responses.create.call_args[1]
     assert call_kwargs["previous_response_id"] == "resp_previous"
@@ -987,5 +999,5 @@ async def test_stream_store(openai_client, model_id, agenerator, alist):
         "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
         "metrics": {"latencyMs": 0},
         "responseId": "resp_abc123",
-        "stored": True,
+        "stateful": True,
     }

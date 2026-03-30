@@ -122,10 +122,14 @@ class OpenAIResponsesModel(Model):
             params: Model parameters (e.g., max_output_tokens, temperature, etc.).
                 For a complete list of supported parameters, see
                 https://platform.openai.com/docs/api-reference/responses/create.
+            stateful: Whether to enable server-side conversation state management.
+                When True, the server stores conversation history and the client does not need to
+                send the full message history with each request. Defaults to False.
         """
 
         model_id: str
         params: dict[str, Any] | None
+        stateful: bool
 
     def __init__(
         self, client_args: dict[str, Any] | None = None, **model_config: Unpack[OpenAIResponsesConfig]
@@ -142,6 +146,15 @@ class OpenAIResponsesModel(Model):
         self.client_args = client_args or {}
 
         logger.debug("config=<%s> | initializing", self.config)
+
+    @property
+    @override
+    def stateful(self) -> bool:
+        """Whether server-side conversation storage is enabled.
+
+        Derived from the ``stateful`` configuration option.
+        """
+        return bool(self.config.get("stateful"))
 
     @override
     def update_config(self, **model_config: Unpack[OpenAIResponsesConfig]) -> None:  # type: ignore[override]
@@ -170,7 +183,7 @@ class OpenAIResponsesModel(Model):
         system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
-        response_id: str | None = None,
+        model_state: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the OpenAI Responses API model.
@@ -180,8 +193,7 @@ class OpenAIResponsesModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
-            response_id: Server-generated response identifier from a previous turn.
-                When provided, the server continues from messages stored server-side (if enabled).
+            model_state: Runtime state for model providers (e.g., server-side response ids).
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -192,7 +204,7 @@ class OpenAIResponsesModel(Model):
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
         logger.debug("formatting request for OpenAI Responses API")
-        request = self._format_request(messages, tool_specs, system_prompt, tool_choice, response_id)
+        request = self._format_request(messages, tool_specs, system_prompt, tool_choice, model_state)
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking OpenAI Responses API model")
@@ -379,7 +391,7 @@ class OpenAIResponsesModel(Model):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
-        response_id: str | None = None,
+        model_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Format an OpenAI Responses API compatible response streaming request.
 
@@ -388,8 +400,7 @@ class OpenAIResponsesModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
-            response_id: Server-generated response identifier from a previous turn.
-                When provided, the server continues from messages stored server-side (if enabled).
+            model_state: Runtime state for model providers (e.g., server-side response ids).
 
         Returns:
             An OpenAI Responses API compatible response streaming request.
@@ -403,10 +414,11 @@ class OpenAIResponsesModel(Model):
             "model": self.config["model_id"],
             "input": input_items,
             "stream": True,
-            "store": False,
             **cast(dict[str, Any], self.config.get("params", {})),
+            "store": self.stateful,
         }
 
+        response_id = model_state.get("response_id") if model_state else None
         if response_id:
             request["previous_response_id"] = response_id
 
@@ -682,7 +694,6 @@ class OpenAIResponsesModel(Model):
                 data = event["data"]
                 usage = data.get("usage")
                 response_id = data.get("response_id")
-                stored = bool(cast(dict[str, Any], self.config.get("params", {})).get("store"))
                 return {
                     "metadata": {
                         "usage": {
@@ -694,7 +705,7 @@ class OpenAIResponsesModel(Model):
                             "latencyMs": 0,  # TODO
                         },
                         **({"responseId": response_id} if response_id else {}),
-                        **({"stored": True} if stored else {}),
+                        **({"stateful": True} if self.stateful else {}),
                     },
                 }
 

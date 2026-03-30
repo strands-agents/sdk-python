@@ -392,7 +392,7 @@ async def test_event_loop_cycle_tool_result(
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
-        response_id=unittest.mock.ANY,
+        model_state=unittest.mock.ANY,
     )
 
 

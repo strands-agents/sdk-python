@@ -5,6 +5,7 @@ import unittest.mock
 import pytest
 
 from strands.agent.agent import Agent
+from strands.agent.conversation_manager import NullConversationManager, SlidingWindowConversationManager
 
 
 @pytest.fixture
@@ -31,17 +32,19 @@ def mock_model():
                 "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
                 "metrics": {"latencyMs": 100},
                 "responseId": resp_id,
-                "stored": True,
+                "stateful": True,
             }
         }
 
     model.stream = unittest.mock.MagicMock(side_effect=mock_stream)
+    model.stateful = True
     return model
 
 
 def test_agent_model_state(mock_model):
-    """Verify model_state is populated, messages are cleared, and response_id is passed on subsequent calls."""
+    """Verify model_state is populated, messages are cleared, and model_state is passed on subsequent calls."""
     agent = Agent(model=mock_model, callback_handler=None)
+    assert isinstance(agent.conversation_manager, NullConversationManager)
 
     agent("Turn 1")
     assert agent._model_state.get("response_id") == "resp_abc123"
@@ -52,4 +55,13 @@ def test_agent_model_state(mock_model):
     assert len(agent.messages) == 0
 
     second_call_kwargs = mock_model.stream.call_args_list[1][1]
-    assert second_call_kwargs.get("response_id") == "resp_abc123"
+    assert second_call_kwargs.get("model_state") is agent._model_state
+
+
+def test_agent_model_state_raises_with_conversation_manager():
+    """Passing a conversation_manager with a stateful model raises ValueError."""
+    model = unittest.mock.MagicMock()
+    model.stateful = True
+
+    with pytest.raises(ValueError, match="conversation_manager cannot be used with a stateful model"):
+        Agent(model=model, conversation_manager=SlidingWindowConversationManager())

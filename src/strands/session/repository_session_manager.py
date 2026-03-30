@@ -225,7 +225,7 @@ class RepositorySessionManager(SessionManager):
                 self._latest_agent_message[agent.agent_id] = session_messages[-1]
 
             # Skip restoring messages when conversation is managed server-side
-            if agent._model_state.get("stored"):
+            if agent._model_state.get("stateful"):
                 logger.debug(
                     "agent_id=<%s> | session_id=<%s> | skipping message restore for server-managed conversation",
                     agent.agent_id,

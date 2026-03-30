@@ -253,7 +253,7 @@ def test_initialize_skips_message_restore_for_server_managed_conversation(existi
         conversation_manager_state=SlidingWindowConversationManager().get_state(),
         _internal_state={
             "interrupt_state": {"interrupts": {}, "context": {}, "activated": False},
-            "model_state": {"stored": True, "response_id": "resp_abc123"},
+            "model_state": {"stateful": True, "response_id": "resp_abc123"},
         },
     )
     existing_session_manager.session_repository.create_agent("test-session", session_agent)
@@ -265,7 +265,7 @@ def test_initialize_skips_message_restore_for_server_managed_conversation(existi
     existing_session_manager.initialize(agent)
 
     assert agent.messages == []
-    assert agent._model_state == {"stored": True, "response_id": "resp_abc123"}
+    assert agent._model_state == {"stateful": True, "response_id": "resp_abc123"}
     assert existing_session_manager.session_repository.list_messages("test-session", "existing-agent") == [message]
 
 
@@ -780,7 +780,7 @@ def test_sync_agent_calls_update_when_model_state_changed(mock_repository):
 
     # Modify model state
     agent._model_state["response_id"] = "resp_abc123"
-    agent._model_state["stored"] = True
+    agent._model_state["stateful"] = True
 
     # Sync should call update_agent because model state changed
     session_manager.sync_agent(agent)

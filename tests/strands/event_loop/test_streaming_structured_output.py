@@ -67,7 +67,7 @@ async def test_stream_messages_with_tool_choice(agenerator, alist):
         tool_choice=tool_choice,
         system_prompt_content=[{"text": "test prompt"}],
         invocation_state=None,
-        response_id=None,
+        model_state=None,
     )
 
     # Verify we get the expected events
@@ -134,7 +134,7 @@ async def test_stream_messages_with_forced_structured_output(agenerator, alist):
         tool_choice=tool_choice,
         system_prompt_content=[{"text": "Extract user information"}],
         invocation_state=None,
-        response_id=None,
+        model_state=None,
     )
 
     assert len(tru_events) > 0

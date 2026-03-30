@@ -450,9 +450,9 @@ async def process_stream(
                 int(1000 * (first_byte_time - start_time)) if (start_time and first_byte_time) else None
             )
             usage, metrics = extract_usage_metrics(chunk["metadata"], time_to_first_byte_ms)
-            if model_state is not None and chunk["metadata"].get("stored"):
+            if model_state is not None and chunk["metadata"].get("stateful"):
                 model_state["response_id"] = chunk["metadata"]["responseId"]
-                model_state["stored"] = True
+                model_state["stateful"] = True
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], state)
 
@@ -502,7 +502,7 @@ async def stream_messages(
         tool_choice=tool_choice,
         system_prompt_content=system_prompt_content,
         invocation_state=invocation_state,
-        response_id=model_state.get("response_id") if model_state else None,
+        model_state=model_state,
     )
 
     async for event in process_stream(chunks, start_time, cancel_signal, model_state):
