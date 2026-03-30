@@ -224,11 +224,21 @@ class RepositorySessionManager(SessionManager):
             if len(session_messages) > 0:
                 self._latest_agent_message[agent.agent_id] = session_messages[-1]
 
-            # Restore the agents messages array including the optional prepend messages
-            agent.messages = prepend_messages + [session_message.to_message() for session_message in session_messages]
+            # Skip restoring messages when conversation is managed server-side
+            if agent._model_state.get("stored"):
+                logger.debug(
+                    "agent_id=<%s> | session_id=<%s> | skipping message restore for server-managed conversation",
+                    agent.agent_id,
+                    self.session_id,
+                )
+            else:
+                # Restore the agents messages array including the optional prepend messages
+                agent.messages = prepend_messages + [
+                    session_message.to_message() for session_message in session_messages
+                ]
 
-            # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
-            agent.messages = self._fix_broken_tool_use(agent.messages)
+                # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
+                agent.messages = self._fix_broken_tool_use(agent.messages)
 
         self._is_new_session = False
 

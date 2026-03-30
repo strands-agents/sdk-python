@@ -245,6 +245,30 @@ def test_initialize_multi_agent_existing(existing_session_manager, mock_multi_ag
     mock_multi_agent.deserialize_state.assert_called_once_with(existing_state)
 
 
+def test_initialize_skips_message_restore_for_server_managed_conversation(existing_session_manager):
+    """Test that messages are not restored when model manages conversation server-side."""
+    session_agent = SessionAgent(
+        agent_id="existing-agent",
+        state={},
+        conversation_manager_state=SlidingWindowConversationManager().get_state(),
+        _internal_state={
+            "interrupt_state": {"interrupts": {}, "context": {}, "activated": False},
+            "model_state": {"stored": True, "response_id": "resp_abc123"},
+        },
+    )
+    existing_session_manager.session_repository.create_agent("test-session", session_agent)
+
+    message = SessionMessage.from_message({"role": "user", "content": [{"text": "Hello"}]}, 0)
+    existing_session_manager.session_repository.create_message("test-session", "existing-agent", message)
+
+    agent = Agent(agent_id="existing-agent")
+    existing_session_manager.initialize(agent)
+
+    assert agent.messages == []
+    assert agent._model_state == {"stored": True, "response_id": "resp_abc123"}
+    assert existing_session_manager.session_repository.list_messages("test-session", "existing-agent") == [message]
+
+
 def test_fix_broken_tool_use_adds_missing_tool_results(existing_session_manager):
     """Test that _fix_broken_tool_use adds missing toolResult messages."""
     conversation_manager = SlidingWindowConversationManager()
