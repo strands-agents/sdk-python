@@ -282,6 +282,9 @@ class Agent(AgentBase):
 
         self._interrupt_state = _InterruptState()
 
+        # Runtime state for model providers (e.g., server-side response ids)
+        self._model_state: dict[str, Any] = {}
+
         # Initialize lock for guarding concurrent invocations
         # Using threading.Lock instead of asyncio.Lock because run_async() creates
         # separate event loops in different threads, so asyncio.Lock wouldn't work

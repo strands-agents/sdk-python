@@ -328,6 +328,7 @@ def test_format_request(model, messages, tool_specs, system_prompt):
             }
         ],
         "stream": True,
+        "store": False,
         "instructions": system_prompt,
         "tools": [
             {
@@ -422,7 +423,7 @@ def test_format_request(model, messages, tool_specs, system_prompt):
         (
             {
                 "chunk_type": "metadata",
-                "data": unittest.mock.Mock(input_tokens=100, output_tokens=50, total_tokens=150),
+                "data": {"usage": unittest.mock.Mock(input_tokens=100, output_tokens=50, total_tokens=150)},
             },
             {
                 "metadata": {
@@ -487,6 +488,7 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
         "model": model_id,
         "input": [{"role": "user", "content": [{"type": "input_text", "text": "test"}]}],
         "stream": True,
+        "store": False,
         "max_output_tokens": 100,
     }
     openai_client.responses.create.assert_called_once_with(**expected_request)
@@ -955,3 +957,35 @@ def test_openai_version_check():
     # Reload with valid version to restore module state
     with unittest.mock.patch("importlib.metadata.version", mock_valid_version):
         importlib.reload(openai_responses_module)
+
+
+@pytest.mark.asyncio
+async def test_stream_store(openai_client, model_id, agenerator, alist):
+    """When store is enabled, response_id maps to previous_response_id and metadata contains responseId."""
+    model = OpenAIResponsesModel(model_id=model_id, params={"store": True})
+    mock_events = [
+        unittest.mock.Mock(type="response.output_text.delta", delta="Hi"),
+        unittest.mock.Mock(
+            type="response.completed",
+            response=unittest.mock.Mock(
+                id="resp_abc123",
+                usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15),
+            ),
+        ),
+    ]
+
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator(mock_events))
+
+    events = await alist(model.stream([{"role": "user", "content": [{"text": "Hello"}]}], response_id="resp_previous"))
+
+    call_kwargs = openai_client.responses.create.call_args[1]
+    assert call_kwargs["previous_response_id"] == "resp_previous"
+
+    metadata_events = [e for e in events if "metadata" in e]
+    assert len(metadata_events) == 1
+    assert metadata_events[0]["metadata"] == {
+        "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+        "metrics": {"latencyMs": 0},
+        "responseId": "resp_abc123",
+        "stored": True,
+    }

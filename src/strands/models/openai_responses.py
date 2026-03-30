@@ -1,18 +1,8 @@
 """OpenAI model provider using the Responses API.
 
-The Responses API is OpenAI's newer API that differs from the Chat Completions API in several key ways:
+Note: Built-in tools (web search, code interpreter, file search) are not yet supported.
 
-1. The Responses API can maintain conversation state server-side through "previous_response_id",
-   while Chat Completions is stateless and requires sending full conversation history each time.
-   Note: This implementation currently only implements the stateless approach.
-
-2. Responses API uses "input" (list of items) instead of "messages", and system
-   prompts are passed as "instructions" rather than a system role message.
-
-3. Responses API supports built-in tools (web search, code interpreter, file search)
-   Note: These are not yet implemented in this provider.
-
-- Docs: https://platform.openai.com/docs/api-reference/responses
+Docs: https://platform.openai.com/docs/api-reference/responses
 """
 
 import base64
@@ -180,6 +170,7 @@ class OpenAIResponsesModel(Model):
         system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
+        response_id: str | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the OpenAI Responses API model.
@@ -189,6 +180,8 @@ class OpenAIResponsesModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            response_id: Server-generated response identifier from a previous turn.
+                When provided, the server continues from messages stored server-side (if enabled).
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -199,7 +192,7 @@ class OpenAIResponsesModel(Model):
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
         logger.debug("formatting request for OpenAI Responses API")
-        request = self._format_request(messages, tool_specs, system_prompt, tool_choice)
+        request = self._format_request(messages, tool_specs, system_prompt, tool_choice, response_id)
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking OpenAI Responses API model")
@@ -213,7 +206,7 @@ class OpenAIResponsesModel(Model):
                 yield self._format_chunk({"chunk_type": "message_start"})
 
                 tool_calls: dict[str, _ToolCallInfo] = {}
-                final_usage = None
+                metadata: dict[str, Any] = {}
                 data_type: str | None = None
                 stop_reason: str | None = None
 
@@ -277,8 +270,9 @@ class OpenAIResponsesModel(Model):
                         elif event.type == "response.incomplete":
                             # Response stopped early (e.g., max tokens reached)
                             if hasattr(event, "response"):
+                                metadata["response_id"] = getattr(event.response, "id", None)
                                 if hasattr(event.response, "usage"):
-                                    final_usage = event.response.usage
+                                    metadata["usage"] = event.response.usage
                                 # Check if stopped due to max_output_tokens
                                 if (
                                     hasattr(event.response, "incomplete_details")
@@ -291,8 +285,10 @@ class OpenAIResponsesModel(Model):
 
                         elif event.type == "response.completed":
                             # Response complete
-                            if hasattr(event, "response") and hasattr(event.response, "usage"):
-                                final_usage = event.response.usage
+                            if hasattr(event, "response"):
+                                metadata["response_id"] = getattr(event.response, "id", None)
+                                if hasattr(event.response, "usage"):
+                                    metadata["usage"] = event.response.usage
                             break
             except openai.APIError as e:
                 if hasattr(e, "code") and e.code == "context_length_exceeded":
@@ -332,8 +328,8 @@ class OpenAIResponsesModel(Model):
                 finish_reason = "stop"
             yield self._format_chunk({"chunk_type": "message_stop", "data": finish_reason})
 
-            if final_usage:
-                yield self._format_chunk({"chunk_type": "metadata", "data": final_usage})
+            if metadata:
+                yield self._format_chunk({"chunk_type": "metadata", "data": metadata})
 
         logger.debug("finished streaming response from OpenAI Responses API model")
 
@@ -383,6 +379,7 @@ class OpenAIResponsesModel(Model):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
+        response_id: str | None = None,
     ) -> dict[str, Any]:
         """Format an OpenAI Responses API compatible response streaming request.
 
@@ -391,6 +388,8 @@ class OpenAIResponsesModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            response_id: Server-generated response identifier from a previous turn.
+                When provided, the server continues from messages stored server-side (if enabled).
 
         Returns:
             An OpenAI Responses API compatible response streaming request.
@@ -400,12 +399,16 @@ class OpenAIResponsesModel(Model):
                 format.
         """
         input_items = self._format_request_messages(messages)
-        request = {
+        request: dict[str, Any] = {
             "model": self.config["model_id"],
             "input": input_items,
             "stream": True,
+            "store": False,
             **cast(dict[str, Any], self.config.get("params", {})),
         }
+
+        if response_id:
+            request["previous_response_id"] = response_id
 
         if system_prompt:
             request["instructions"] = system_prompt
@@ -676,17 +679,22 @@ class OpenAIResponsesModel(Model):
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
-                # Responses API uses input_tokens/output_tokens naming convention
+                data = event["data"]
+                usage = data.get("usage")
+                response_id = data.get("response_id")
+                stored = bool(cast(dict[str, Any], self.config.get("params", {})).get("store"))
                 return {
                     "metadata": {
                         "usage": {
-                            "inputTokens": getattr(event["data"], "input_tokens", 0),
-                            "outputTokens": getattr(event["data"], "output_tokens", 0),
-                            "totalTokens": getattr(event["data"], "total_tokens", 0),
+                            "inputTokens": getattr(usage, "input_tokens", 0) if usage else 0,
+                            "outputTokens": getattr(usage, "output_tokens", 0) if usage else 0,
+                            "totalTokens": getattr(usage, "total_tokens", 0) if usage else 0,
                         },
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },
+                        **({"responseId": response_id} if response_id else {}),
+                        **({"stored": True} if stored else {}),
                     },
                 }
 

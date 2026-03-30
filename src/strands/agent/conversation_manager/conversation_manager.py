@@ -1,13 +1,17 @@
 """Abstract interface for conversation history management."""
 
+import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from ...hooks.events import AfterInvocationEvent
 from ...hooks.registry import HookProvider, HookRegistry
 from ...types.content import Message
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationManager(ABC, HookProvider):
@@ -46,6 +50,9 @@ class ConversationManager(ABC, HookProvider):
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hooks for agent lifecycle events.
 
+        Registers a cleanup hook on AfterInvocationEvent that clears messages when the model
+        is operating in server-managed conversation mode.
+
         Derived classes that override this method must call the base implementation to ensure proper hook
         registration chain.
 
@@ -60,7 +67,21 @@ class ConversationManager(ABC, HookProvider):
                 registry.add_callback(SomeEvent, self.on_some_event)
             ```
         """
-        pass
+        registry.add_callback(AfterInvocationEvent, self._on_after_invocation)
+
+    def _on_after_invocation(self, event: AfterInvocationEvent) -> None:
+        """Handle post-invocation conversation management tasks.
+
+        Performs the following:
+        - Clears messages when the model is managing conversation state server-side.
+        """
+        model_state = getattr(event.agent, "_model_state", {})
+        if model_state.get("stored"):
+            event.agent.messages.clear()
+            logger.debug(
+                "response_id=<%s> | cleared messages for server-managed conversation",
+                model_state["response_id"],
+            )
 
     def restore_from_session(self, state: dict[str, Any]) -> list[Message] | None:
         """Restore the Conversation Manager's state from a session.

@@ -170,6 +170,7 @@ class GraphNode:
     execution_time: int = 0
     _initial_messages: Messages = field(default_factory=list, init=False)
     _initial_state: AgentState = field(default_factory=AgentState, init=False)
+    _initial_model_state: dict[str, Any] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         """Capture initial executor state after initialization."""
@@ -179,6 +180,9 @@ class GraphNode:
 
         if hasattr(self.executor, "state") and hasattr(self.executor.state, "get"):
             self._initial_state = AgentState(self.executor.state.get())
+
+        if hasattr(self.executor, "_model_state"):
+            self._initial_model_state = copy.deepcopy(self.executor._model_state)
 
     def reset_executor_state(self) -> None:
         """Reset GraphNode executor state to initial state when graph was created.
@@ -191,6 +195,9 @@ class GraphNode:
 
         if hasattr(self.executor, "state"):
             self.executor.state = AgentState(self._initial_state.get())
+
+        if hasattr(self.executor, "_model_state"):
+            self.executor._model_state = copy.deepcopy(self._initial_model_state)
 
         # Reset execution status
         self.execution_status = Status.PENDING
@@ -639,6 +646,7 @@ class Graph(MultiAgentBase):
                     "interrupt_state": node.executor._interrupt_state.to_dict(),
                     "state": node.executor.state.get(),
                     "messages": node.executor.messages,
+                    "model_state": node.executor._model_state,
                 }
             )
 
@@ -1074,6 +1082,7 @@ class Graph(MultiAgentBase):
                         node.executor.messages = node_context["messages"]
                         node.executor.state = AgentState(node_context["state"])
                         node.executor._interrupt_state = _InterruptState.from_dict(node_context["interrupt_state"])
+                        node.executor._model_state = node_context.get("model_state", {})
 
                     return node_responses
 

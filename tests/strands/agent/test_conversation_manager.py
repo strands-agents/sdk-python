@@ -4,9 +4,10 @@ import pytest
 
 from strands import tool
 from strands.agent.agent import Agent
+from strands.agent.conversation_manager.conversation_manager import ConversationManager
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
-from strands.hooks.events import BeforeModelCallEvent
+from strands.hooks.events import AfterInvocationEvent, BeforeModelCallEvent
 from strands.hooks.registry import HookProvider, HookRegistry
 from strands.types.exceptions import ContextWindowOverflowException
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -273,7 +274,6 @@ def test_conversation_manager_is_hook_provider():
 
 def test_derived_class_does_not_need_to_implement_register_hooks():
     """Test that derived classes don't need to override register_hooks for backwards compatibility."""
-    from strands.agent.conversation_manager.conversation_manager import ConversationManager
 
     class MinimalConversationManager(ConversationManager):
         """A minimal implementation that only implements abstract methods."""
@@ -288,9 +288,9 @@ def test_derived_class_does_not_need_to_implement_register_hooks():
     manager = MinimalConversationManager()
     registry = HookRegistry()
 
-    # Should work without error
+    # Should work without error and register base class hooks
     manager.register_hooks(registry)
-    assert not registry.has_callbacks()
+    assert registry.has_callbacks()
 
 
 def test_per_turn_hooks_registration():
@@ -591,3 +591,29 @@ def test_boundary_text_in_tool_result_not_truncated():
 
     assert not changed
     assert messages[0]["content"][0]["toolResult"]["content"][0]["text"] == boundary_text
+
+
+def test_on_after_invocation_clears_messages_when_stored():
+    """Messages are cleared when model_state indicates server-side storage."""
+    manager = NullConversationManager()
+    agent = MagicMock()
+    agent._model_state = {"stored": True, "response_id": "resp_123"}
+    agent.messages = [{"role": "user", "content": [{"text": "hello"}]}]
+
+    event = AfterInvocationEvent(agent=agent, invocation_state={})
+    manager._on_after_invocation(event)
+
+    assert agent.messages == []
+
+
+def test_on_after_invocation_preserves_messages_when_not_stored():
+    """Messages are preserved when model_state has no stored flag."""
+    manager = NullConversationManager()
+    agent = MagicMock()
+    agent._model_state = {}
+    agent.messages = [{"role": "user", "content": [{"text": "hello"}]}]
+
+    event = AfterInvocationEvent(agent=agent, invocation_state={})
+    manager._on_after_invocation(event)
+
+    assert len(agent.messages) == 1

@@ -163,11 +163,15 @@ class MetadataEvent(TypedDict, total=False):
         metrics: Performance metrics related to the model invocation.
         trace: Trace information for debugging and monitoring.
         usage: Resource usage information for the model invocation.
+        responseId: Server-generated response identifier.
+        stored: Whether the response was stored server-side for conversation chaining.
     """
 
     metrics: Metrics
     trace: Trace | None
     usage: Usage
+    responseId: str
+    stored: bool
 
 
 class ExceptionEvent(TypedDict):

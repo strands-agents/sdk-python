@@ -387,6 +387,7 @@ async def process_stream(
     chunks: AsyncIterable[StreamEvent],
     start_time: float | None = None,
     cancel_signal: threading.Event | None = None,
+    model_state: dict[str, Any] | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
@@ -394,6 +395,7 @@ async def process_stream(
         chunks: The chunks of the response stream from the model.
         start_time: Time when the model request is initiated
         cancel_signal: Optional threading.Event to check for cancellation during streaming.
+        model_state: Runtime state for model providers (e.g., server-side response ids).
 
     Yields:
         The reason for stopping, the constructed message, and the usage metrics.
@@ -448,6 +450,9 @@ async def process_stream(
                 int(1000 * (first_byte_time - start_time)) if (start_time and first_byte_time) else None
             )
             usage, metrics = extract_usage_metrics(chunk["metadata"], time_to_first_byte_ms)
+            if model_state is not None and chunk["metadata"].get("stored"):
+                model_state["response_id"] = chunk["metadata"]["responseId"]
+                model_state["stored"] = True
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], state)
 
@@ -463,6 +468,7 @@ async def stream_messages(
     tool_choice: Any | None = None,
     system_prompt_content: list[SystemContentBlock] | None = None,
     invocation_state: dict[str, Any] | None = None,
+    model_state: dict[str, Any] | None = None,
     cancel_signal: threading.Event | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
@@ -477,6 +483,7 @@ async def stream_messages(
         system_prompt_content: The authoritative system prompt content blocks that always contains the
             system prompt data.
         invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
+        model_state: Runtime state for model providers (e.g., server-side response ids).
         cancel_signal: Optional threading.Event to check for cancellation during streaming.
         **kwargs: Additional keyword arguments for future extensibility.
 
@@ -495,7 +502,8 @@ async def stream_messages(
         tool_choice=tool_choice,
         system_prompt_content=system_prompt_content,
         invocation_state=invocation_state,
+        response_id=model_state.get("response_id") if model_state else None,
     )
 
-    async for event in process_stream(chunks, start_time, cancel_signal):
+    async for event in process_stream(chunks, start_time, cancel_signal, model_state):
         yield event

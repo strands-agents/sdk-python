@@ -358,6 +358,7 @@ def test_agent__call__(
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
                 invocation_state=unittest.mock.ANY,
+                response_id=unittest.mock.ANY,
             ),
             unittest.mock.call(
                 [
@@ -397,6 +398,7 @@ def test_agent__call__(
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
                 invocation_state=unittest.mock.ANY,
+                response_id=unittest.mock.ANY,
             ),
         ],
     )
@@ -519,6 +521,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
+        response_id=unittest.mock.ANY,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -667,6 +670,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
+        response_id=unittest.mock.ANY,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
