@@ -450,9 +450,8 @@ async def process_stream(
                 int(1000 * (first_byte_time - start_time)) if (start_time and first_byte_time) else None
             )
             usage, metrics = extract_usage_metrics(chunk["metadata"], time_to_first_byte_ms)
-            if model_state is not None and chunk["metadata"].get("stateful"):
+            if model_state is not None and "responseId" in chunk["metadata"]:
                 model_state["response_id"] = chunk["metadata"]["responseId"]
-                model_state["stateful"] = True
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], state)
 

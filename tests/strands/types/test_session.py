@@ -127,7 +127,7 @@ def test_session_agent_initialize_internal_state():
         state={},
         _internal_state={
             "interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False},
-            "model_state": {"response_id": "resp_abc", "stateful": True},
+            "model_state": {"response_id": "resp_abc"},
         },
     )
 
@@ -138,5 +138,5 @@ def test_session_agent_initialize_internal_state():
     assert tru_interrupt_state == exp_interrupt_state
 
     tru_model_state = agent._model_state
-    exp_model_state = {"response_id": "resp_abc", "stateful": True}
+    exp_model_state = {"response_id": "resp_abc"}
     assert tru_model_state == exp_model_state

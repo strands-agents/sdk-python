@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from strands.agent.agent import Agent
+from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
 from strands.agent.state import AgentState
@@ -250,10 +251,10 @@ def test_initialize_skips_message_restore_for_server_managed_conversation(existi
     session_agent = SessionAgent(
         agent_id="existing-agent",
         state={},
-        conversation_manager_state=SlidingWindowConversationManager().get_state(),
+        conversation_manager_state=NullConversationManager().get_state(),
         _internal_state={
             "interrupt_state": {"interrupts": {}, "context": {}, "activated": False},
-            "model_state": {"stateful": True, "response_id": "resp_abc123"},
+            "model_state": {"response_id": "resp_abc123"},
         },
     )
     existing_session_manager.session_repository.create_agent("test-session", session_agent)
@@ -261,11 +262,13 @@ def test_initialize_skips_message_restore_for_server_managed_conversation(existi
     message = SessionMessage.from_message({"role": "user", "content": [{"text": "Hello"}]}, 0)
     existing_session_manager.session_repository.create_message("test-session", "existing-agent", message)
 
-    agent = Agent(agent_id="existing-agent")
+    mock_model = Mock()
+    mock_model.stateful = True
+    agent = Agent(agent_id="existing-agent", model=mock_model)
     existing_session_manager.initialize(agent)
 
     assert agent.messages == []
-    assert agent._model_state == {"stateful": True, "response_id": "resp_abc123"}
+    assert agent._model_state == {"response_id": "resp_abc123"}
     assert existing_session_manager.session_repository.list_messages("test-session", "existing-agent") == [message]
 
 
@@ -780,7 +783,6 @@ def test_sync_agent_calls_update_when_model_state_changed(mock_repository):
 
     # Modify model state
     agent._model_state["response_id"] = "resp_abc123"
-    agent._model_state["stateful"] = True
 
     # Sync should call update_agent because model state changed
     session_manager.sync_agent(agent)

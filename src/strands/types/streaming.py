@@ -164,14 +164,12 @@ class MetadataEvent(TypedDict, total=False):
         trace: Trace information for debugging and monitoring.
         usage: Resource usage information for the model invocation.
         responseId: Server-generated response identifier.
-        stateful: Whether the model is managing conversation state server-side.
     """
 
     metrics: Metrics
     trace: Trace | None
     usage: Usage
     responseId: str
-    stateful: bool
 
 
 class ExceptionEvent(TypedDict):

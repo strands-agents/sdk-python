@@ -999,5 +999,4 @@ async def test_stream_stateful(openai_client, model_id, agenerator, alist):
         "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
         "metrics": {"latencyMs": 0},
         "responseId": "resp_abc123",
-        "stateful": True,
     }

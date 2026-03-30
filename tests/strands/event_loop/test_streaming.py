@@ -1426,7 +1426,7 @@ async def test_process_stream_keeps_tool_use_stop_reason_unchanged(agenerator, a
 
 @pytest.mark.asyncio
 async def test_process_stream_captures_response_id_when_stateful(agenerator, alist):
-    """process_stream writes responseId to model_state when stateful is true."""
+    """process_stream writes responseId to model_state when metadata contains responseId."""
     response = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
@@ -1437,7 +1437,6 @@ async def test_process_stream_captures_response_id_when_stateful(agenerator, ali
             "metadata": {
                 "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
                 "responseId": "resp_abc",
-                "stateful": True,
             }
         },
     ]
@@ -1446,19 +1445,19 @@ async def test_process_stream_captures_response_id_when_stateful(agenerator, ali
     stream = strands.event_loop.streaming.process_stream(agenerator(response), model_state=model_state)
     await alist(stream)
 
-    assert model_state == {"response_id": "resp_abc", "stateful": True}
+    assert model_state == {"response_id": "resp_abc"}
 
 
 @pytest.mark.asyncio
-async def test_process_stream_ignores_response_id_when_not_stateful(agenerator, alist):
-    """process_stream does not write to model_state when stateful is not set."""
+async def test_process_stream_ignores_response_id_when_not_present(agenerator, alist):
+    """process_stream does not write to model_state when responseId is not in metadata."""
     response = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "Hello"}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
-        {"metadata": {"usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}, "responseId": "resp_abc"}},
+        {"metadata": {"usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}}},
     ]
 
     model_state: dict = {}

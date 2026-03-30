@@ -419,7 +419,7 @@ class OpenAIResponsesModel(Model):
         }
 
         response_id = model_state.get("response_id") if model_state else None
-        if response_id:
+        if response_id and self.stateful:
             request["previous_response_id"] = response_id
 
         if system_prompt:
@@ -705,7 +705,6 @@ class OpenAIResponsesModel(Model):
                             "latencyMs": 0,  # TODO
                         },
                         **({"responseId": response_id} if response_id else {}),
-                        **({"stateful": True} if self.stateful else {}),
                     },
                 }
 

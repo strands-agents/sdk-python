@@ -32,7 +32,6 @@ def mock_model():
                 "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
                 "metrics": {"latencyMs": 100},
                 "responseId": resp_id,
-                "stateful": True,
             }
         }
 

@@ -146,12 +146,11 @@ class _ModelPlugin(Plugin):
         Performs the following:
         - Clears messages when the model is managing conversation state server-side.
         """
-        model_state = getattr(event.agent, "_model_state", {})
-        if model_state.get("stateful"):
+        if event.agent.model.stateful:
             event.agent.messages.clear()
             logger.debug(
                 "response_id=<%s> | cleared messages for server-managed conversation",
-                model_state["response_id"],
+                event.agent._model_state.get("response_id"),
             )
 
     def init_agent(self, agent: "Agent") -> None:

@@ -190,9 +190,10 @@ def test_stateful_false(model):
 
 
 def test_model_plugin_clears_messages_when_stateful(model_plugin):
-    """Messages are cleared when model_state indicates server-side storage."""
+    """Messages are cleared when model is stateful."""
     agent = MagicMock()
-    agent._model_state = {"stateful": True, "response_id": "resp_123"}
+    agent.model.stateful = True
+    agent._model_state = {"response_id": "resp_123"}
     agent.messages = [{"role": "user", "content": [{"text": "hello"}]}]
 
     event = AfterInvocationEvent(agent=agent, invocation_state={})
@@ -202,8 +203,9 @@ def test_model_plugin_clears_messages_when_stateful(model_plugin):
 
 
 def test_model_plugin_preserves_messages_when_not_stateful(model_plugin):
-    """Messages are preserved when model_state has no stateful flag."""
+    """Messages are preserved when model is not stateful."""
     agent = MagicMock()
+    agent.model.stateful = False
     agent._model_state = {}
     agent.messages = [{"role": "user", "content": [{"text": "hello"}]}]
 
