@@ -26,6 +26,7 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent.state = AgentState()
     agent.messages = []
     agent._interrupt_state = _InterruptState()
+    agent._model_state = {}
 
     if metrics is None:
         metrics = Mock(
@@ -2270,6 +2271,7 @@ def test_graph_interrupt_on_agent(agenerator):
         },
         "messages": [],
         "state": {},
+        "model_state": {},
     }
 
     responses = [

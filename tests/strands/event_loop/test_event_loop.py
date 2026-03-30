@@ -152,6 +152,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.tool_executor = tool_executor
     mock._interrupt_state = _InterruptState()
     mock._cancel_signal = threading.Event()
+    mock._model_state = {}
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
 
@@ -391,6 +392,7 @@ async def test_event_loop_cycle_tool_result(
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
+        model_state=unittest.mock.ANY,
     )
 
 

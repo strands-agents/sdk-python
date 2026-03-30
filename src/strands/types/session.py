@@ -134,6 +134,7 @@ class SessionAgent:
             state=agent.state.get(),
             _internal_state={
                 "interrupt_state": agent._interrupt_state.to_dict(),
+                "model_state": agent._model_state,
             },
         )
 
@@ -175,6 +176,8 @@ class SessionAgent:
         """Initialize internal state of agent."""
         if "interrupt_state" in self._internal_state:
             agent._interrupt_state = _InterruptState.from_dict(self._internal_state["interrupt_state"])
+        if "model_state" in self._internal_state:
+            agent._model_state = self._internal_state["model_state"]
 
     def initialize_bidi_internal_state(self, agent: "BidiAgent") -> None:
         """Initialize internal state of BidiAgent.

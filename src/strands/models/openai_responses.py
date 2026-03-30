@@ -1,18 +1,8 @@
 """OpenAI model provider using the Responses API.
 
-The Responses API is OpenAI's newer API that differs from the Chat Completions API in several key ways:
+Note: Built-in tools (web search, code interpreter, file search) are not yet supported.
 
-1. The Responses API can maintain conversation state server-side through "previous_response_id",
-   while Chat Completions is stateless and requires sending full conversation history each time.
-   Note: This implementation currently only implements the stateless approach.
-
-2. Responses API uses "input" (list of items) instead of "messages", and system
-   prompts are passed as "instructions" rather than a system role message.
-
-3. Responses API supports built-in tools (web search, code interpreter, file search)
-   Note: These are not yet implemented in this provider.
-
-- Docs: https://platform.openai.com/docs/api-reference/responses
+Docs: https://platform.openai.com/docs/api-reference/responses
 """
 
 import base64
@@ -132,10 +122,14 @@ class OpenAIResponsesModel(Model):
             params: Model parameters (e.g., max_output_tokens, temperature, etc.).
                 For a complete list of supported parameters, see
                 https://platform.openai.com/docs/api-reference/responses/create.
+            stateful: Whether to enable server-side conversation state management.
+                When True, the server stores conversation history and the client does not need to
+                send the full message history with each request. Defaults to False.
         """
 
         model_id: str
         params: dict[str, Any] | None
+        stateful: bool
 
     def __init__(
         self, client_args: dict[str, Any] | None = None, **model_config: Unpack[OpenAIResponsesConfig]
@@ -152,6 +146,15 @@ class OpenAIResponsesModel(Model):
         self.client_args = client_args or {}
 
         logger.debug("config=<%s> | initializing", self.config)
+
+    @property
+    @override
+    def stateful(self) -> bool:
+        """Whether server-side conversation storage is enabled.
+
+        Derived from the ``stateful`` configuration option.
+        """
+        return bool(self.config.get("stateful"))
 
     @override
     def update_config(self, **model_config: Unpack[OpenAIResponsesConfig]) -> None:  # type: ignore[override]
@@ -180,6 +183,7 @@ class OpenAIResponsesModel(Model):
         system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
+        model_state: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the OpenAI Responses API model.
@@ -189,6 +193,7 @@ class OpenAIResponsesModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            model_state: Runtime state for model providers (e.g., server-side response ids).
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -199,7 +204,7 @@ class OpenAIResponsesModel(Model):
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
         logger.debug("formatting request for OpenAI Responses API")
-        request = self._format_request(messages, tool_specs, system_prompt, tool_choice)
+        request = self._format_request(messages, tool_specs, system_prompt, tool_choice, model_state)
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking OpenAI Responses API model")
@@ -219,7 +224,14 @@ class OpenAIResponsesModel(Model):
 
                 async for event in response:
                     if hasattr(event, "type"):
-                        if event.type == "response.reasoning_text.delta":
+                        if event.type == "response.created":
+                            # Capture response id for server-side conversation chaining
+                            if hasattr(event, "response"):
+                                response_id = getattr(event.response, "id", None)
+                                if model_state is not None and response_id:
+                                    model_state["response_id"] = response_id
+
+                        elif event.type == "response.reasoning_text.delta":
                             # Reasoning content streaming (for o1/o3 reasoning models)
                             chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
                             for chunk in chunks:
@@ -383,6 +395,7 @@ class OpenAIResponsesModel(Model):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
+        model_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Format an OpenAI Responses API compatible response streaming request.
 
@@ -391,6 +404,7 @@ class OpenAIResponsesModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            model_state: Runtime state for model providers (e.g., server-side response ids).
 
         Returns:
             An OpenAI Responses API compatible response streaming request.
@@ -400,12 +414,17 @@ class OpenAIResponsesModel(Model):
                 format.
         """
         input_items = self._format_request_messages(messages)
-        request = {
+        request: dict[str, Any] = {
             "model": self.config["model_id"],
             "input": input_items,
             "stream": True,
             **cast(dict[str, Any], self.config.get("params", {})),
+            "store": self.stateful,
         }
+
+        response_id = model_state.get("response_id") if model_state else None
+        if response_id and self.stateful:
+            request["previous_response_id"] = response_id
 
         if system_prompt:
             request["instructions"] = system_prompt

@@ -287,3 +287,24 @@ def test_system_prompt_backward_compatibility_integration(model):
 
     # The response should contain our specific system prompt instruction
     assert "BACKWARD_COMPAT_TEST" in result.message["content"][0]["text"]
+
+
+@pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
+def test_responses_server_side_conversation():
+    """Integration test for server-side conversation state management.
+
+    Verifies that when stateful=True, the model tracks conversation across turns
+    via previous_response_id and the agent clears messages between invocations.
+    """
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o-mini",
+        stateful=True,
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+    agent = Agent(model=model, system_prompt="Reply in one short sentence.")
+
+    agent("My name is Alice.")
+    assert len(agent.messages) == 0
+
+    result = agent("What is my name?")
+    assert "alice" in result.message["content"][0]["text"].lower()

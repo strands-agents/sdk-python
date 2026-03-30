@@ -58,6 +58,7 @@ def mock_model(request):
     mock = unittest.mock.Mock(spec=getattr(request, "param", None))
     mock.configure_mock(mock_stream=unittest.mock.MagicMock())
     mock.stream.side_effect = stream
+    mock.stateful = False
 
     return mock
 
@@ -358,6 +359,7 @@ def test_agent__call__(
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
                 invocation_state=unittest.mock.ANY,
+                model_state=unittest.mock.ANY,
             ),
             unittest.mock.call(
                 [
@@ -397,6 +399,7 @@ def test_agent__call__(
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
                 invocation_state=unittest.mock.ANY,
+                model_state=unittest.mock.ANY,
             ),
         ],
     )
@@ -519,6 +522,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
+        model_state=unittest.mock.ANY,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -667,6 +671,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
+        model_state=unittest.mock.ANY,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
@@ -1307,7 +1312,9 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
 
 @pytest.mark.asyncio
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_tracer, mock_event_loop_cycle, alist):
+async def test_agent_stream_async_creates_and_ends_span_on_success(
+    mock_get_tracer, mock_event_loop_cycle, mock_model, alist
+):
     """Test that stream_async creates and ends a span when the call succeeds."""
     # Setup mock tracer and span
     mock_tracer = unittest.mock.MagicMock()

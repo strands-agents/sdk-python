@@ -45,7 +45,7 @@ from ..hooks import (
 from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
 from ..models.bedrock import BedrockModel
-from ..models.model import Model
+from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
 from ..session.session_manager import SessionManager
@@ -68,6 +68,7 @@ from .agent_result import AgentResult
 from .base import AgentBase
 from .conversation_manager import (
     ConversationManager,
+    NullConversationManager,
     SlidingWindowConversationManager,
 )
 from .state import AgentState
@@ -229,7 +230,19 @@ class Agent(AgentBase):
         else:
             self.callback_handler = callback_handler
 
-        self.conversation_manager = conversation_manager if conversation_manager else SlidingWindowConversationManager()
+        if self.model.stateful and conversation_manager is not None:
+            raise ValueError(
+                "conversation_manager cannot be used with a stateful model. "
+                "The model manages conversation state server-side."
+            )
+
+        self.conversation_manager: ConversationManager
+        if self.model.stateful:
+            self.conversation_manager = NullConversationManager()
+        elif conversation_manager:
+            self.conversation_manager = conversation_manager
+        else:
+            self.conversation_manager = SlidingWindowConversationManager()
 
         # Process trace attributes to ensure they're of compatible types
         self.trace_attributes: dict[str, AttributeValue] = {}
@@ -282,6 +295,9 @@ class Agent(AgentBase):
 
         self._interrupt_state = _InterruptState()
 
+        # Runtime state for model providers (e.g., server-side response ids)
+        self._model_state: dict[str, Any] = {}
+
         # Initialize lock for guarding concurrent invocations
         # Using threading.Lock instead of asyncio.Lock because run_async() creates
         # separate event loops in different threads, so asyncio.Lock wouldn't work
@@ -326,6 +342,9 @@ class Agent(AgentBase):
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
+
+        # Register built-in plugins
+        self._plugin_registry.add_and_init(_ModelPlugin())
 
         if plugins:
             for plugin in plugins:

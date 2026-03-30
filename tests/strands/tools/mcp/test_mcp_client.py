@@ -928,3 +928,152 @@ async def test_handle_error_message_with_percent_in_message():
 
     # This should not raise TypeError and should not raise the exception (since it's non-fatal)
     await client._handle_error_message(error_with_percent)
+
+
+def test_call_tool_sync_elicitation_error(mock_transport, mock_session):
+    """Test that call_tool_sync correctly handles elicitation required errors."""
+    from mcp.shared.exceptions import McpError
+    from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
+
+    elicitation_data = ElicitationRequiredErrorData(
+        elicitations=[
+            ElicitRequestURLParams(
+                url="https://example.com/auth", message="Please authorize the application", elicitationId="elicit-123"
+            )
+        ]
+    )
+
+    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    mock_session.call_tool.side_effect = error
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        assert result["status"] == "error"
+        assert result["toolUseId"] == "test-123"
+        assert len(result["content"]) == 1
+        assert "MCP Elicitation required" in result["content"][0]["text"]
+        assert "https://example.com/auth" in result["content"][0]["text"]
+        assert "Please authorize the application" in result["content"][0]["text"]
+        assert "elicit-123" in result["content"][0]["text"]
+
+
+def test_call_tool_sync_elicitation_error_multiple_urls(mock_transport, mock_session):
+    """Test that call_tool_sync correctly handles elicitation errors with multiple elicitations."""
+    from mcp.shared.exceptions import McpError
+    from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
+
+    elicitation_data = ElicitationRequiredErrorData(
+        elicitations=[
+            ElicitRequestURLParams(
+                url="https://example.com/auth1", message="First authorization", elicitationId="elicit-1"
+            ),
+            ElicitRequestURLParams(
+                url="https://example.com/auth2", message="Second authorization", elicitationId="elicit-2"
+            ),
+        ]
+    )
+
+    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    mock_session.call_tool.side_effect = error
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        assert result["status"] == "error"
+        assert result["toolUseId"] == "test-123"
+        assert len(result["content"]) == 1
+        assert "MCP Elicitation required" in result["content"][0]["text"]
+        assert "https://example.com/auth1" in result["content"][0]["text"]
+        assert "https://example.com/auth2" in result["content"][0]["text"]
+        assert "First authorization" in result["content"][0]["text"]
+        assert "Second authorization" in result["content"][0]["text"]
+        assert "elicit-1" in result["content"][0]["text"]
+        assert "elicit-2" in result["content"][0]["text"]
+
+
+def test_call_tool_sync_elicitation_error_no_urls(mock_transport, mock_session):
+    """Test that -32042 error with empty URL still returns generic elicitation result."""
+    from mcp.shared.exceptions import McpError
+    from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
+
+    elicitation_data = ElicitationRequiredErrorData(
+        elicitations=[ElicitRequestURLParams(url="", message="No URL provided", elicitationId="elicit-1")]
+    )
+    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+    mock_session.call_tool.side_effect = error
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
+        assert result["status"] == "error"
+        assert "MCP Elicitation required" in result["content"][0]["text"]
+        assert "elicit-1" in result["content"][0]["text"]
+        assert "No URL provided" in result["content"][0]["text"]
+
+
+def test_call_tool_sync_other_mcp_error_code(mock_transport, mock_session):
+    """Test that non-32042 McpError falls through to generic error."""
+    from mcp.shared.exceptions import McpError
+
+    error = McpError(error=MagicMock(code=-32600, message="Invalid request"))
+    mock_session.call_tool.side_effect = error
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
+        assert result["status"] == "error"
+        assert "Tool execution failed" in result["content"][0]["text"]
+
+
+def test_call_tool_sync_elicitation_error_malformed_data(mock_transport, mock_session):
+    """Test that -32042 with unparseable data falls through to generic error."""
+    from mcp.shared.exceptions import McpError
+
+    error = McpError(error=MagicMock(code=-32042, data={"garbage": True}))
+    mock_session.call_tool.side_effect = error
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
+        assert result["status"] == "error"
+        assert "Tool execution failed" in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_call_tool_async_elicitation_error(mock_transport, mock_session):
+    """Test that call_tool_async correctly handles elicitation required errors."""
+    from mcp.shared.exceptions import McpError
+    from mcp.types import ElicitationRequiredErrorData, ElicitRequestURLParams
+
+    elicitation_data = ElicitationRequiredErrorData(
+        elicitations=[
+            ElicitRequestURLParams(
+                url="https://example.com/auth", message="Please authorize the application", elicitationId="elicit-123"
+            )
+        ]
+    )
+
+    error = McpError(error=MagicMock(code=-32042, data=elicitation_data.model_dump()))
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        with (
+            patch("asyncio.run_coroutine_threadsafe") as mock_run_coroutine_threadsafe,
+            patch("asyncio.wrap_future") as mock_wrap_future,
+        ):
+            mock_future = MagicMock()
+            mock_run_coroutine_threadsafe.return_value = mock_future
+
+            async def mock_awaitable():
+                raise error
+
+            mock_wrap_future.return_value = mock_awaitable()
+
+            result = await client.call_tool_async(
+                tool_use_id="test-123", name="test_tool", arguments={"param": "value"}
+            )
+
+        assert result["status"] == "error"
+        assert result["toolUseId"] == "test-123"
+        assert len(result["content"]) == 1
+        assert "MCP Elicitation required" in result["content"][0]["text"]
+        assert "https://example.com/auth" in result["content"][0]["text"]
+        assert "Please authorize the application" in result["content"][0]["text"]
+        assert "elicit-123" in result["content"][0]["text"]
