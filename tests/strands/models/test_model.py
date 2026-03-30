@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from strands.hooks.events import AfterInvocationEvent
 from strands.models import Model as SAModel
-from strands.models.model import ModelPlugin
+from strands.models.model import _ModelPlugin
 
 
 class Person(BaseModel):
@@ -73,7 +73,7 @@ def tool_specs():
 
 @pytest.fixture
 def model_plugin():
-    return ModelPlugin()
+    return _ModelPlugin()
 
 
 @pytest.fixture

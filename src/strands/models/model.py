@@ -131,7 +131,7 @@ class Model(abc.ABC):
         pass
 
 
-class ModelPlugin(Plugin):
+class _ModelPlugin(Plugin):
     """Plugin that manages model-related lifecycle hooks."""
 
     @property

@@ -293,7 +293,7 @@ def test_system_prompt_backward_compatibility_integration(model):
 def test_responses_server_side_conversation():
     """Integration test for server-side conversation state management.
 
-    Verifies that when store=True, the model tracks conversation across turns
+    Verifies that when stateful=True, the model tracks conversation across turns
     via previous_response_id and the agent clears messages between invocations.
     """
     model = OpenAIResponsesModel(

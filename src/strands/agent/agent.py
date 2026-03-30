@@ -45,7 +45,7 @@ from ..hooks import (
 from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
 from ..models.bedrock import BedrockModel
-from ..models.model import Model, ModelPlugin
+from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
 from ..session.session_manager import SessionManager
@@ -344,7 +344,7 @@ class Agent(AgentBase):
                 self.hooks.add_hook(hook)
 
         # Register built-in plugins
-        self._plugin_registry.add_and_init(ModelPlugin())
+        self._plugin_registry.add_and_init(_ModelPlugin())
 
         if plugins:
             for plugin in plugins:
