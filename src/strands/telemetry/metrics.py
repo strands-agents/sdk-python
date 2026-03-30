@@ -206,8 +206,7 @@ class EventLoopMetrics:
     def latest_context_tokens(self) -> int:
         """Most recent context size from the last LLM call.
 
-        Returns the inputTokens from the most recent cycle of the most recent
-        invocation. This represents the current context size as reported by the model.
+        This represents the current context size as reported by the model.
 
         Returns:
             The input token count from the most recent cycle, or 0 if no cycles exist.
