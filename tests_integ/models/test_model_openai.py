@@ -298,7 +298,7 @@ def test_responses_server_side_conversation():
     """
     model = OpenAIResponsesModel(
         model_id="gpt-4o-mini",
-        params={"store": True},
+        stateful=True,
         client_args={"api_key": os.getenv("OPENAI_API_KEY")},
     )
     agent = Agent(model=model, system_prompt="Reply in one short sentence.")

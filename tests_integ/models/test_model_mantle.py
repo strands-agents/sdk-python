@@ -55,7 +55,7 @@ def model(client_args):
 
 @pytest.fixture
 def stateful_model(client_args):
-    return OpenAIResponsesModel(model_id="openai.gpt-oss-120b", params={"store": True}, client_args=client_args)
+    return OpenAIResponsesModel(model_id="openai.gpt-oss-120b", stateful=True, client_args=client_args)
 
 
 def test_agent_invoke(model):

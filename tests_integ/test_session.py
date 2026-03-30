@@ -160,7 +160,7 @@ def test_agent_with_file_session_server_side_conversation(temp_dir):
     try:
         model = OpenAIResponsesModel(
             model_id="gpt-4o-mini",
-            params={"store": True},
+            stateful=True,
             client_args={"api_key": os.getenv("OPENAI_API_KEY")},
         )
         agent = Agent(model=model, system_prompt="Reply in one short sentence.", session_manager=session_manager)
@@ -172,7 +172,7 @@ def test_agent_with_file_session_server_side_conversation(temp_dir):
         session_manager_2 = FileSessionManager(session_id=test_session_id, storage_dir=temp_dir)
         model_2 = OpenAIResponsesModel(
             model_id="gpt-4o-mini",
-            params={"store": True},
+            stateful=True,
             client_args={"api_key": os.getenv("OPENAI_API_KEY")},
         )
         agent_2 = Agent(model=model_2, system_prompt="Reply in one short sentence.", session_manager=session_manager_2)
