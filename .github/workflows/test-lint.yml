@@ -130,3 +130,6 @@ jobs:
         run: hatch fmt --linter --check
         continue-on-error: false
 
+      - name: Run type check
+        run: hatch run hatch-static-analysis:lint-check
+
