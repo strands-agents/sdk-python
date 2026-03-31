@@ -9,6 +9,9 @@ metadata:
 - web_search (supported): Full support including URL citations.
 - file_search (partial): File citation annotations not emitted (no matching CitationLocation variant).
 - code_interpreter (partial): Executed code and stdout/stderr not surfaced.
+- mcp (partial): Approval flow and ``mcp_list_tools``/``mcp_call`` events not surfaced.
+- shell (partial): Local (client-executed) mode not supported.
+- tool_search (not supported): Requires ``defer_loading`` on function tools, which is not supported.
 - image_generation (not supported): Requires image content block delta support in the event loop.
 - computer_use_preview (not supported): Requires a developer-managed screenshot/action loop.
 

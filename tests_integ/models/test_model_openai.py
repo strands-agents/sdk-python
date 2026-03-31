@@ -385,3 +385,18 @@ def test_responses_builtin_tool_code_interpreter():
     result = agent("Compute the SHA-256 hash of the string 'strands'. Return only the hex digest.")
     text = result.message["content"][0]["text"]
     assert "11e0e34bd35e12185cfacd5e5a256ab4292bfa3616d8d5b74e20eca36feed228" in text
+
+
+@pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
+def test_responses_builtin_tool_shell():
+    """Test that the shell built-in tool executes commands in a hosted container."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-5.4-mini",
+        params={"tools": [{"type": "shell", "environment": {"type": "container_auto"}}]},
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+    agent = Agent(model=model, system_prompt="Answer concisely.", callback_handler=None)
+
+    result = agent("Use the shell to compute the md5sum of the string 'strands-test'. Return only the hash.")
+    text = result.message["content"][0]["text"]
+    assert "d82f373f079b00a1db7ef1eec7f15c68" in text
