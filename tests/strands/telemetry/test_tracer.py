@@ -889,8 +889,11 @@ def test_end_agent_span(mock_span):
     tracer = Tracer()
 
     # Mock AgentResult with metrics
+    mock_invocation = mock.MagicMock()
+    mock_invocation.usage = {"inputTokens": 50, "outputTokens": 100, "totalTokens": 150}
     mock_metrics = mock.MagicMock()
-    mock_metrics.accumulated_usage = {"inputTokens": 50, "outputTokens": 100, "totalTokens": 150}
+    mock_metrics.accumulated_usage = {"inputTokens": 500, "outputTokens": 1000, "totalTokens": 1500}
+    mock_metrics.latest_agent_invocation = mock_invocation
 
     mock_response = mock.MagicMock()
     mock_response.metrics = mock_metrics
@@ -924,8 +927,11 @@ def test_end_agent_span_with_langfuse_observation_type(mock_span, monkeypatch):
     tracer = Tracer()
 
     # Mock AgentResult with metrics
+    mock_invocation = mock.MagicMock()
+    mock_invocation.usage = {"inputTokens": 50, "outputTokens": 100, "totalTokens": 150}
     mock_metrics = mock.MagicMock()
-    mock_metrics.accumulated_usage = {"inputTokens": 50, "outputTokens": 100, "totalTokens": 150}
+    mock_metrics.accumulated_usage = {"inputTokens": 500, "outputTokens": 1000, "totalTokens": 1500}
+    mock_metrics.latest_agent_invocation = mock_invocation
 
     mock_response = mock.MagicMock()
     mock_response.metrics = mock_metrics
@@ -960,8 +966,11 @@ def test_end_agent_span_latest_conventions(mock_span, monkeypatch):
     tracer = Tracer()
 
     # Mock AgentResult with metrics
+    mock_invocation = mock.MagicMock()
+    mock_invocation.usage = {"inputTokens": 50, "outputTokens": 100, "totalTokens": 150}
     mock_metrics = mock.MagicMock()
-    mock_metrics.accumulated_usage = {"inputTokens": 50, "outputTokens": 100, "totalTokens": 150}
+    mock_metrics.accumulated_usage = {"inputTokens": 500, "outputTokens": 1000, "totalTokens": 1500}
+    mock_metrics.latest_agent_invocation = mock_invocation
 
     mock_response = mock.MagicMock()
     mock_response.metrics = mock_metrics
@@ -997,6 +1006,35 @@ def test_end_agent_span_latest_conventions(mock_span, monkeypatch):
     )
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
+
+
+def test_end_agent_span_uses_per_invocation_usage_not_accumulated(mock_span):
+    """Test that agent span reports per-invocation usage, not session-accumulated usage."""
+    tracer = Tracer()
+
+    # Simulate a multi-invocation session where accumulated_usage has grown large
+    # but the latest invocation only used a small amount of tokens
+    mock_invocation = mock.MagicMock()
+    mock_invocation.usage = {"inputTokens": 100, "outputTokens": 50, "totalTokens": 150}
+
+    mock_metrics = mock.MagicMock()
+    mock_metrics.accumulated_usage = {"inputTokens": 1000, "outputTokens": 500, "totalTokens": 1500}
+    mock_metrics.latest_agent_invocation = mock_invocation
+
+    mock_response = mock.MagicMock()
+    mock_response.metrics = mock_metrics
+    mock_response.stop_reason = "end_turn"
+    mock_response.__str__ = mock.MagicMock(return_value="Agent response")
+
+    tracer.end_agent_span(mock_span, mock_response)
+
+    call_args = mock_span.set_attributes.call_args[0][0]
+    # Should use per-invocation usage (100/50/150), NOT accumulated (1000/500/1500)
+    assert call_args["gen_ai.usage.input_tokens"] == 100
+    assert call_args["gen_ai.usage.output_tokens"] == 50
+    assert call_args["gen_ai.usage.total_tokens"] == 150
+    assert call_args["gen_ai.usage.prompt_tokens"] == 100
+    assert call_args["gen_ai.usage.completion_tokens"] == 50
 
 
 def test_end_model_invoke_span_with_cache_metrics(mock_span):
@@ -1035,14 +1073,23 @@ def test_end_agent_span_with_cache_metrics(mock_span):
     tracer = Tracer()
 
     # Mock AgentResult with metrics including cache tokens
-    mock_metrics = mock.MagicMock()
-    mock_metrics.accumulated_usage = {
+    mock_invocation = mock.MagicMock()
+    mock_invocation.usage = {
         "inputTokens": 50,
         "outputTokens": 100,
         "totalTokens": 150,
         "cacheReadInputTokens": 25,
         "cacheWriteInputTokens": 10,
     }
+    mock_metrics = mock.MagicMock()
+    mock_metrics.accumulated_usage = {
+        "inputTokens": 500,
+        "outputTokens": 1000,
+        "totalTokens": 1500,
+        "cacheReadInputTokens": 250,
+        "cacheWriteInputTokens": 100,
+    }
+    mock_metrics.latest_agent_invocation = mock_invocation
 
     mock_response = mock.MagicMock()
     mock_response.metrics = mock_metrics
