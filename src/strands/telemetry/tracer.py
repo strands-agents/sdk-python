@@ -693,7 +693,8 @@ class Tracer:
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
                 if self.is_langfuse:
                     attributes.update({"langfuse.observation.type": "span"})
-                usage = response.metrics.latest_agent_invocation.usage
+                latest_invocation = response.metrics.latest_agent_invocation
+                usage = latest_invocation.usage if latest_invocation else response.metrics.accumulated_usage
                 attributes.update(
                     {
                         "gen_ai.usage.prompt_tokens": usage["inputTokens"],

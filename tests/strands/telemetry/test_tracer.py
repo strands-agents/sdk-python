@@ -1037,6 +1037,27 @@ def test_end_agent_span_uses_per_invocation_usage_not_accumulated(mock_span):
     assert call_args["gen_ai.usage.completion_tokens"] == 50
 
 
+def test_end_agent_span_falls_back_to_accumulated_when_no_invocations(mock_span):
+    """Test fallback to accumulated_usage when no agent invocations exist."""
+    tracer = Tracer()
+
+    mock_metrics = mock.MagicMock()
+    mock_metrics.accumulated_usage = {"inputTokens": 200, "outputTokens": 100, "totalTokens": 300}
+    mock_metrics.latest_agent_invocation = None
+
+    mock_response = mock.MagicMock()
+    mock_response.metrics = mock_metrics
+    mock_response.stop_reason = "end_turn"
+    mock_response.__str__ = mock.MagicMock(return_value="Agent response")
+
+    tracer.end_agent_span(mock_span, mock_response)
+
+    call_args = mock_span.set_attributes.call_args[0][0]
+    assert call_args["gen_ai.usage.input_tokens"] == 200
+    assert call_args["gen_ai.usage.output_tokens"] == 100
+    assert call_args["gen_ai.usage.total_tokens"] == 300
+
+
 def test_end_model_invoke_span_with_cache_metrics(mock_span):
     """Test ending a model invoke span with cache metrics."""
     tracer = Tracer()
