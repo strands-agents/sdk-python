@@ -117,12 +117,7 @@ class Client(Protocol):
 
 
 class OpenAIResponsesModel(Model):
-    """OpenAI Responses API model provider implementation.
-
-    Note:
-        This implementation currently only supports function tools (custom tools defined via tool_specs).
-        OpenAI's built-in system tools are not yet supported.
-    """
+    """OpenAI Responses API model provider implementation."""
 
     client: Client
     client_args: dict[str, Any]
