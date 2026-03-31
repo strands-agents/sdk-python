@@ -240,8 +240,13 @@ class OpenAIResponsesModel(Model):
                                 if model_state is not None and response_id:
                                     model_state["response_id"] = response_id
 
-                        elif event.type == "response.reasoning_text.delta":
-                            # Reasoning content streaming (for o1/o3 reasoning models)
+                        elif event.type in (
+                            "response.reasoning_text.delta",
+                            "response.reasoning_summary_text.delta",
+                        ):
+                            # Reasoning content streaming:
+                            # - reasoning_text: full chain-of-thought (gpt-oss models)
+                            # - reasoning_summary_text: condensed summary (o-series models)
                             chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
                             for chunk in chunks:
                                 yield chunk
@@ -510,10 +515,15 @@ class OpenAIResponsesModel(Model):
             role = message["role"]
             contents = message["content"]
 
+            if any("reasoningContent" in content for content in contents):
+                logger.warning(
+                    "reasoningContent is not yet supported in multi-turn conversations with the Responses API"
+                )
+
             formatted_contents = [
                 cls._format_request_message_content(content, role=role)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
             ]
 
             formatted_tool_calls = [

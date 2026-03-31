@@ -72,3 +72,28 @@ def test_responses_server_side_conversation(stateful_model):
 
     result = agent("What is my name?")
     assert "alice" in str(result).lower()
+
+
+def test_reasoning_content_multi_turn(client_args):
+    """Test that reasoning content from gpt-oss models doesn't break multi-turn conversations."""
+    model = OpenAIResponsesModel(
+        model_id="openai.gpt-oss-120b",
+        client_args=client_args,
+        params={"reasoning": {"effort": "low"}},
+    )
+    agent = Agent(model=model, system_prompt="Reply in one short sentence.", callback_handler=None)
+
+    result1 = agent("What is 2+2?")
+    assert "4" in str(result1)
+
+    # Verify reasoning content was produced
+    has_reasoning = any(
+        "reasoningContent" in block
+        for msg in agent.messages
+        if msg["role"] == "assistant"
+        for block in msg["content"]
+    )
+    assert has_reasoning
+
+    # Second turn should not raise despite reasoningContent in message history
+    agent("What about 3+3?")

@@ -596,9 +596,16 @@ async def test_stream_response_incomplete(openai_client, model, agenerator, alis
 
 
 @pytest.mark.asyncio
-async def test_stream_reasoning_content(openai_client, model, agenerator, alist):
-    """Test that reasoning content (o1/o3 models) is streamed correctly."""
-    mock_reasoning_event = unittest.mock.Mock(type="response.reasoning_text.delta", delta="Let me think...")
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "response.reasoning_text.delta",
+        "response.reasoning_summary_text.delta",
+    ],
+)
+async def test_stream_reasoning_content(openai_client, model, agenerator, alist, event_type):
+    """Test that reasoning content is streamed correctly for both full and summary reasoning events."""
+    mock_reasoning_event = unittest.mock.Mock(type=event_type, delta="Let me think...")
     mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="The answer is 42")
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
@@ -1152,3 +1159,34 @@ async def test_stream_stateful(openai_client, model_id, agenerator, alist):
         "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
         "metrics": {"latencyMs": 0},
     }
+
+
+def test_format_request_messages_excludes_reasoning_content(caplog):
+    """Test that reasoningContent blocks are filtered from messages with a warning."""
+    messages = [
+        {
+            "content": [{"text": "Hello"}],
+            "role": "user",
+        },
+        {
+            "content": [
+                {"reasoningContent": {"reasoningText": {"text": "Let me think..."}}},
+                {"text": "The answer is 42"},
+            ],
+            "role": "assistant",
+        },
+        {
+            "content": [{"text": "Thanks"}],
+            "role": "user",
+        },
+    ]
+
+    with caplog.at_level("WARNING"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == [
+        {"role": "user", "content": [{"type": "input_text", "text": "Hello"}]},
+        {"role": "assistant", "content": [{"type": "output_text", "text": "The answer is 42"}]},
+        {"role": "user", "content": [{"type": "input_text", "text": "Thanks"}]},
+    ]
+    assert "reasoningContent is not yet supported" in caplog.text
