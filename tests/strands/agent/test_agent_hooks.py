@@ -1054,19 +1054,6 @@ def test_hooks_param_accepts_mixed_list():
     assert length == 1
 
 
-def test_hooks_param_accepts_tuple():
-    """Verify that a tuple of hooks can be passed (Sequence support)."""
-    events_received = []
-
-    def my_callback(event: AgentInitializedEvent) -> None:
-        events_received.append(event)
-
-    agent = Agent(hooks=(my_callback,), callback_handler=None)
-
-    assert len(events_received) == 1
-    assert events_received[0].agent is agent
-
-
 def test_hooks_param_invalid_hook_raises_error():
     """Verify that passing an invalid hook raises ValueError."""
     with pytest.raises(ValueError, match="Invalid hook"):

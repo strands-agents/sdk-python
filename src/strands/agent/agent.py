@@ -12,7 +12,7 @@ The Agent interface supports two complementary interaction patterns:
 import logging
 import threading
 import warnings
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -132,7 +132,7 @@ class Agent(AgentBase):
         description: str | None = None,
         state: AgentState | dict | None = None,
         plugins: list[Plugin] | None = None,
-        hooks: Sequence[HookProvider | HookCallback] | None = None,
+        hooks: list[HookProvider | HookCallback] | None = None,
         session_manager: SessionManager | None = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
@@ -187,8 +187,7 @@ class Agent(AgentBase):
                 Plugins are initialized with the agent instance after construction and can register hooks,
                 modify agent attributes, or perform other setup tasks.
                 Defaults to None.
-            hooks: Hooks to be added to the agent hook registry. Accepts any sequence
-                (list, tuple) of HookProvider instances
+            hooks: Hooks to be added to the agent hook registry. Accepts HookProvider instances
                 or plain callable hook callbacks (functions with typed event parameters).
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
