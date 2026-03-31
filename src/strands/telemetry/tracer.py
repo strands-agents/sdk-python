@@ -839,7 +839,9 @@ class Tracer:
         if system_prompt is None and system_prompt_content is None:
             return
 
-        content_blocks = system_prompt_content if system_prompt_content else [{"text": system_prompt}]
+        content_blocks: list[ContentBlock] = (
+            system_prompt_content if system_prompt_content else [{"text": system_prompt or ""}]
+        )
 
         if self.use_latest_genai_conventions:
             parts = self._map_content_blocks_to_otel_parts(content_blocks)

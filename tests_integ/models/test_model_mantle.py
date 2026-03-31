@@ -88,10 +88,7 @@ def test_reasoning_content_multi_turn(client_args):
 
     # Verify reasoning content was produced
     has_reasoning = any(
-        "reasoningContent" in block
-        for msg in agent.messages
-        if msg["role"] == "assistant"
-        for block in msg["content"]
+        "reasoningContent" in block for msg in agent.messages if msg["role"] == "assistant" for block in msg["content"]
     )
     assert has_reasoning
 
