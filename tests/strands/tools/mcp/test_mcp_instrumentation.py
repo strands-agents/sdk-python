@@ -452,9 +452,10 @@ class TestMCPInstrumentation:
 
             patch_function(mock_wrapped, None, [mock_request], {})
 
-            # inject should be called with the existing _meta dict (not a new empty one)
-            inject_call_args = mock_textmap_instance.inject.call_args[0][0]
-            assert inject_call_args.get("com.example/request_id") == "abc-123"
+            # Verify the reconstructed params use the key "_meta" (alias) not "meta" (Python name)
+            validated_params = mock_request.root.params.model_dump(by_alias=True)
+            assert "_meta" in validated_params
+            assert validated_params["_meta"]["com.example/request_id"] == "abc-123"
 
     def test_patch_mcp_client_injects_context_dict_params(self):
         """Test that the client patch injects OpenTelemetry context into dict params."""

@@ -239,7 +239,7 @@ def test_mcp_client_without_structured_content():
 
 
 def test_call_tool_sync_with_meta():
-    """Test that call_tool_sync works correctly when meta is provided."""
+    """Test that call_tool_sync forwards meta to the MCP server."""
     stdio_mcp_client = MCPClient(
         lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
@@ -247,18 +247,19 @@ def test_call_tool_sync_with_meta():
     with stdio_mcp_client:
         result = stdio_mcp_client.call_tool_sync(
             tool_use_id="test-meta-sync",
-            name="echo",
-            arguments={"to_echo": "META_TEST"},
+            name="echo_meta",
+            arguments={},
             meta={"com.example/request_id": "abc-123"},
         )
 
         assert result["status"] == "success"
-        assert result["content"] == [{"text": "META_TEST"}]
+        received_meta = json.loads(result["content"][0]["text"])
+        assert received_meta["com.example/request_id"] == "abc-123"
 
 
 @pytest.mark.asyncio
 async def test_call_tool_async_with_meta():
-    """Test that call_tool_async works correctly when meta is provided."""
+    """Test that call_tool_async forwards meta to the MCP server."""
     stdio_mcp_client = MCPClient(
         lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
@@ -266,57 +267,43 @@ async def test_call_tool_async_with_meta():
     with stdio_mcp_client:
         result = await stdio_mcp_client.call_tool_async(
             tool_use_id="test-meta-async",
-            name="echo",
-            arguments={"to_echo": "META_ASYNC_TEST"},
+            name="echo_meta",
+            arguments={},
             meta={"com.example/request_id": "def-456"},
         )
 
         assert result["status"] == "success"
-        assert result["content"] == [{"text": "META_ASYNC_TEST"}]
+        received_meta = json.loads(result["content"][0]["text"])
+        assert received_meta["com.example/request_id"] == "def-456"
 
 
 def test_instrumentation_preserves_meta_on_tool_call():
-    """Test that OTel instrumentation correctly sets _meta on outgoing tool call requests."""
-    captured_params = []
+    """Test that OTel instrumentation sets _meta that reaches the MCP server."""
+    from unittest.mock import MagicMock, patch
 
-    def spy_send_request(wrapped, instance, args, kwargs):
-        if args:
-            request = args[0]
-            method = getattr(getattr(request, "root", None), "method", None)
-            if method == "tools/call" and hasattr(request.root, "params"):
-                params = request.root.params
-                if hasattr(params, "model_dump"):
-                    captured_params.append(params.model_dump(by_alias=True))
-                elif isinstance(params, dict):
-                    captured_params.append(params.copy())
-        return wrapped(*args, **kwargs)
+    # Mock the propagator to always inject a known value, bypassing the need for
+    # an active span on the background thread where send_request runs
+    mock_textmap = MagicMock()
+    mock_textmap.inject = lambda carrier, **kwargs: carrier.update({"traceparent": "00-abc-def-01"})
 
-    stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
-    )
+    with patch("opentelemetry.propagate.get_global_textmap", return_value=mock_textmap):
+        stdio_mcp_client = MCPClient(
+            lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+        )
 
-    with stdio_mcp_client:
-        from mcp.shared.session import BaseSession
-        from wrapt import wrap_function_wrapper
-
-        original_send = BaseSession.send_request
-        wrap_function_wrapper("mcp.shared.session", "BaseSession.send_request", spy_send_request)
-
-        try:
+        with stdio_mcp_client:
             result = stdio_mcp_client.call_tool_sync(
                 tool_use_id="test-instrumentation",
-                name="echo",
-                arguments={"to_echo": "INSTRUMENTATION_TEST"},
+                name="echo_meta",
+                arguments={},
             )
 
-            assert result["status"] == "success"
-            assert len(captured_params) > 0
-
-            params = captured_params[-1]
-            assert "_meta" in params
-            assert isinstance(params["_meta"], dict)
-        finally:
-            BaseSession.send_request = original_send
+        assert result["status"] == "success"
+        received_meta = json.loads(result["content"][0]["text"])
+        # OTel instrumentation should have injected _meta with tracing context
+        assert received_meta is not None
+        assert isinstance(received_meta, dict)
+        assert received_meta["traceparent"] == "00-abc-def-01"
 
 
 @pytest.mark.skipif(
