@@ -241,22 +241,25 @@ class DockerSandbox(ShellBasedSandbox):
             stderr=asyncio.subprocess.PIPE,
         )
 
-        stdout_lines: list[str] = []
-        stderr_lines: list[str] = []
+        #: Maximum number of bytes to read at once from a subprocess stream.
+        _READ_CHUNK_SIZE = 64 * 1024  # 64 KiB
+
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
 
         async def _read_stream(stream: asyncio.StreamReader | None, collected: list[str]) -> None:
             if stream is None:
                 return
             while True:
-                line_bytes = await stream.readline()
-                if not line_bytes:
+                chunk_bytes = await stream.read(_READ_CHUNK_SIZE)
+                if not chunk_bytes:
                     break
-                collected.append(line_bytes.decode())
+                collected.append(chunk_bytes.decode())
 
         try:
             read_task = asyncio.gather(
-                _read_stream(proc.stdout, stdout_lines),
-                _read_stream(proc.stderr, stderr_lines),
+                _read_stream(proc.stdout, stdout_chunks),
+                _read_stream(proc.stderr, stderr_chunks),
             )
             await asyncio.wait_for(read_task, timeout=timeout)
             await proc.wait()
@@ -265,13 +268,13 @@ class DockerSandbox(ShellBasedSandbox):
             await proc.communicate()
             raise
 
-        stdout_text = "".join(stdout_lines)
-        stderr_text = "".join(stderr_lines)
+        stdout_text = "".join(stdout_chunks)
+        stderr_text = "".join(stderr_chunks)
 
-        for line in stdout_lines:
-            yield line
-        for line in stderr_lines:
-            yield line
+        for chunk in stdout_chunks:
+            yield chunk
+        for chunk in stderr_chunks:
+            yield chunk
 
         yield ExecutionResult(
             exit_code=proc.returncode or 0,
