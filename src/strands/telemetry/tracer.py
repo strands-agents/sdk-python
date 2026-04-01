@@ -184,7 +184,9 @@ class Tracer:
         self,
         span: Span,
         attributes: dict[str, AttributeValue] | None = None,
-        error: Exception | None = None,
+        error: BaseException | None = None,
+        error_message: str | None = None,
+        flush: bool = False,
     ) -> None:
         """Generic helper method to end a span.
 
@@ -192,8 +194,10 @@ class Tracer:
             span: The span to end
             attributes: Optional attributes to set before ending the span
             error: Optional exception if an error occurred
+            error_message: Optional error message to set in the span status
+            flush: Force the tracer provider to flush after ending the span
         """
-        if not span:
+        if not span or not span.is_recording():
             return
 
         try:
@@ -206,7 +210,8 @@ class Tracer:
 
             # Handle error if present
             if error:
-                span.set_status(StatusCode.ERROR, str(error))
+                status_description = error_message or str(error) or type(error).__name__
+                span.set_status(StatusCode.ERROR, status_description)
                 span.record_exception(error)
             else:
                 span.set_status(StatusCode.OK)
@@ -214,14 +219,13 @@ class Tracer:
             logger.warning("error=<%s> | error while ending span", e, exc_info=True)
         finally:
             span.end()
-            # Force flush to ensure spans are exported
-            if self.tracer_provider and hasattr(self.tracer_provider, "force_flush"):
+            if flush and self.tracer_provider and hasattr(self.tracer_provider, "force_flush"):
                 try:
                     self.tracer_provider.force_flush()
                 except Exception as e:
                     logger.warning("error=<%s> | failed to force flush tracer provider", e)
 
-    def end_span_with_error(self, span: Span, error_message: str, exception: Exception | None = None) -> None:
+    def end_span_with_error(self, span: Span, error_message: str, exception: BaseException | None = None) -> None:
         """End a span with error status.
 
         Args:
@@ -229,11 +233,11 @@ class Tracer:
             error_message: Error message to set in the span status.
             exception: Optional exception to record in the span.
         """
-        if not span:
+        if not span or not span.is_recording():
             return
 
         error = exception or Exception(error_message)
-        self._end_span(span, error=error)
+        self._end_span(span, error=error, error_message=error_message)
 
     def _add_event(
         self, span: Span | None, event_name: str, event_attributes: Attributes, to_span_attributes: bool = False
@@ -330,18 +334,15 @@ class Tracer:
     ) -> None:
         """End a model invocation span with results and metrics.
 
-        Note: The span is automatically closed and exceptions recorded. This method just sets the necessary attributes.
-        Status in the span is automatically set to UNSET (OK) on success or ERROR on exception.
-
         Args:
-            span: The span to set attributes on.
+            span: The span to end.
             message: The message response from the model.
             usage: Token usage information from the model call.
             metrics: Metrics from the model call.
             stop_reason: The reason the model stopped generating.
         """
-        # Set end time attribute
-        span.set_attribute("gen_ai.event.end_time", datetime.now(timezone.utc).isoformat())
+        if not span or not span.is_recording():
+            return
 
         attributes: dict[str, AttributeValue] = {
             "gen_ai.usage.prompt_tokens": usage["inputTokens"],
@@ -378,7 +379,7 @@ class Tracer:
                 event_attributes={"finish_reason": str(stop_reason), "message": serialize(message["content"])},
             )
 
-        span.set_attributes(attributes)
+        self._end_span(span, attributes)
 
     def start_tool_call_span(
         self,
@@ -450,7 +451,9 @@ class Tracer:
 
         return span
 
-    def end_tool_call_span(self, span: Span, tool_result: ToolResult | None, error: Exception | None = None) -> None:
+    def end_tool_call_span(
+        self, span: Span, tool_result: ToolResult | None, error: BaseException | None = None
+    ) -> None:
         """End a tool call span with results.
 
         Args:
@@ -553,19 +556,13 @@ class Tracer:
     ) -> None:
         """End an event loop cycle span with results.
 
-        Note: The span is automatically closed and exceptions recorded. This method just sets the necessary attributes.
-        Status in the span is automatically set to UNSET (OK) on success or ERROR on exception.
-
         Args:
-            span: The span to set attributes on.
+            span: The span to end.
             message: The message response from this cycle.
             tool_result_message: Optional tool result message if a tool was called.
         """
-        if not span:
+        if not span or not span.is_recording():
             return
-
-        # Set end time attribute
-        span.set_attribute("gen_ai.event.end_time", datetime.now(timezone.utc).isoformat())
 
         event_attributes: dict[str, AttributeValue] = {"message": serialize(message["content"])}
 
@@ -590,6 +587,8 @@ class Tracer:
                 )
             else:
                 self._add_event(span, "gen_ai.choice", event_attributes=event_attributes)
+
+        self._end_span(span)
 
     def start_agent_span(
         self,
@@ -654,7 +653,7 @@ class Tracer:
         self,
         span: Span,
         response: AgentResult | None = None,
-        error: Exception | None = None,
+        error: BaseException | None = None,
     ) -> None:
         """End an agent span with results and metrics.
 
@@ -706,7 +705,7 @@ class Tracer:
                     }
                 )
 
-        self._end_span(span, attributes, error)
+        self._end_span(span, attributes, error, flush=True)
 
     def _construct_tool_definitions(self, tools_config: dict) -> list[dict[str, Any]]:
         """Constructs a list of tool definitions from the provided tools_config."""
