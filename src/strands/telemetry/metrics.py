@@ -203,17 +203,17 @@ class EventLoopMetrics:
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
 
     @property
-    def latest_context_tokens(self) -> int:
+    def latest_context_size(self) -> int | None:
         """Most recent context size from the last LLM call.
 
         This represents the current context size as reported by the model.
 
         Returns:
-            The input token count from the most recent cycle, or 0 if no cycles exist.
+            The input token count from the most recent cycle, or None if no data is available.
         """
         if self.agent_invocations and self.agent_invocations[-1].cycles:
-            return self.agent_invocations[-1].cycles[-1].usage.get("inputTokens", 0)
-        return 0
+            return self.agent_invocations[-1].cycles[-1].usage.get("inputTokens")
+        return None
 
     @property
     def _metrics_client(self) -> "MetricsClient":
