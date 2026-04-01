@@ -80,8 +80,11 @@ class TestDockerSandboxExecute:
         assert len(result_chunks) == 1
         assert result_chunks[0].exit_code == 0
         assert result_chunks[0].stdout == "hello\nworld\n"
-        assert "hello\n" in str_chunks
-        assert "world\n" in str_chunks
+        # With chunk-based reading (read() instead of readline()),
+        # all output may arrive in a single chunk
+        combined = "".join(str_chunks)
+        assert "hello" in combined
+        assert "world" in combined
 
     @pytest.mark.asyncio
     async def test_execute_returns_exit_code(self, sandbox: DockerSandbox) -> None:
