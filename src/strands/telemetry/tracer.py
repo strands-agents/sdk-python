@@ -501,6 +501,12 @@ class Tracer:
                     },
                 )
 
+        # If no explicit error but tool_result indicates an error, synthesize one so the span gets StatusCode.ERROR
+        if error is None and tool_result is not None and tool_result.get("status") == "error":
+            content = tool_result.get("content", [])
+            error_message = content[0].get("text", "Tool call failed") if content else "Tool call failed"
+            error = Exception(error_message)
+
         self._end_span(span, attributes, error)
 
     def start_event_loop_cycle_span(
