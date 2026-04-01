@@ -11,13 +11,18 @@ import asyncio
 import logging
 import os
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
-from .base import ExecutionResult, Sandbox
+from .base import ExecutionResult, ShellBasedSandbox
 
 logger = logging.getLogger(__name__)
 
+#: Maximum number of bytes to read at once from a subprocess stream.
+#: Prevents memory exhaustion from extremely long lines without newlines.
+_READ_CHUNK_SIZE = 64 * 1024  # 64 KiB
 
-class LocalSandbox(Sandbox):
+
+class LocalSandbox(ShellBasedSandbox):
     """Execute code and commands on the local host.
 
     Uses asyncio subprocesses for command execution and native filesystem
@@ -49,6 +54,24 @@ class LocalSandbox(Sandbox):
         super().__init__()
         self.working_dir = working_dir or os.getcwd()
 
+    async def start(self) -> None:
+        """Initialize the sandbox and ensure the working directory exists.
+
+        Creates the working directory if it does not exist. Raises a clear
+        error if the path exists but is not a directory.
+
+        Raises:
+            NotADirectoryError: If the working_dir path exists but is not a directory.
+        """
+        working_path = Path(self.working_dir)
+        if working_path.exists() and not working_path.is_dir():
+            raise NotADirectoryError(
+                "working_dir is not a directory: %s" % self.working_dir
+            )
+        working_path.mkdir(parents=True, exist_ok=True)
+        logger.debug("working_dir=<%s> | local sandbox started", self.working_dir)
+        self._started = True
+
     async def execute(
         self,
         command: str,
@@ -56,7 +79,8 @@ class LocalSandbox(Sandbox):
     ) -> AsyncGenerator[str | ExecutionResult, None]:
         """Execute a shell command on the local host, streaming output.
 
-        Reads stdout and stderr line by line and yields each line as it
+        Reads stdout and stderr in chunks (up to 64 KiB at a time) to avoid
+        blocking on extremely long lines. Each chunk is yielded as it
         arrives. The final yield is an ExecutionResult with the exit code
         and complete captured output.
 
@@ -65,7 +89,7 @@ class LocalSandbox(Sandbox):
             timeout: Maximum execution time in seconds. None means no timeout.
 
         Yields:
-            str lines of output, then a final ExecutionResult.
+            str chunks of output, then a final ExecutionResult.
 
         Raises:
             asyncio.TimeoutError: If the command exceeds the timeout.
@@ -79,27 +103,25 @@ class LocalSandbox(Sandbox):
             stderr=asyncio.subprocess.PIPE,
         )
 
-        stdout_lines: list[str] = []
-        stderr_lines: list[str] = []
+        stdout_chunks: list[str] = []
+        stderr_chunks: list[str] = []
 
         async def _read_stream(
             stream: asyncio.StreamReader | None,
             collected: list[str],
-            is_stderr: bool = False,
         ) -> None:
             if stream is None:
                 return
             while True:
-                line_bytes = await stream.readline()
-                if not line_bytes:
+                chunk_bytes = await stream.read(_READ_CHUNK_SIZE)
+                if not chunk_bytes:
                     break
-                line = line_bytes.decode()
-                collected.append(line)
+                collected.append(chunk_bytes.decode())
 
         try:
             read_task = asyncio.gather(
-                _read_stream(proc.stdout, stdout_lines),
-                _read_stream(proc.stderr, stderr_lines, is_stderr=True),
+                _read_stream(proc.stdout, stdout_chunks),
+                _read_stream(proc.stderr, stderr_chunks),
             )
             await asyncio.wait_for(read_task, timeout=timeout)
             await proc.wait()
@@ -108,14 +130,14 @@ class LocalSandbox(Sandbox):
             await proc.communicate()
             raise
 
-        stdout_text = "".join(stdout_lines)
-        stderr_text = "".join(stderr_lines)
+        stdout_text = "".join(stdout_chunks)
+        stderr_text = "".join(stderr_chunks)
 
-        # Yield each collected line as a streaming chunk
-        for line in stdout_lines:
-            yield line
-        for line in stderr_lines:
-            yield line
+        # Yield each collected chunk as a streaming piece
+        for chunk in stdout_chunks:
+            yield chunk
+        for chunk in stderr_chunks:
+            yield chunk
 
         # Final yield: the complete ExecutionResult
         yield ExecutionResult(

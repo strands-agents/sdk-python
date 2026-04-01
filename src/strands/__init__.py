@@ -5,7 +5,7 @@ from .agent.agent import Agent
 from .agent.base import AgentBase
 from .event_loop._retry import ModelRetryStrategy
 from .plugins import Plugin
-from .sandbox.base import ExecutionResult, Sandbox
+from .sandbox.base import ExecutionResult, Sandbox, ShellBasedSandbox
 from .sandbox.docker import DockerSandbox
 from .sandbox.local import LocalSandbox
 from .tools.decorator import tool
@@ -26,6 +26,7 @@ __all__ = [
     "Plugin",
     "sandbox",
     "Sandbox",
+    "ShellBasedSandbox",
     "Skill",
     "Snapshot",
     "tool",

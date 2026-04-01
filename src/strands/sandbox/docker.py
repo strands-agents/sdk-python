@@ -14,12 +14,12 @@ import shlex
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from .base import ExecutionResult, Sandbox
+from .base import ExecutionResult, ShellBasedSandbox
 
 logger = logging.getLogger(__name__)
 
 
-class DockerSandbox(Sandbox):
+class DockerSandbox(ShellBasedSandbox):
     """Execute code and commands in a Docker container.
 
     The container is created during start() and removed during stop().
