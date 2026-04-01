@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace as trace_api
 
-from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
+from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, BeforeStreamChunkEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -39,7 +39,7 @@ from ..types.exceptions import (
     MaxTokensReachedException,
     StructuredOutputException,
 )
-from ..types.streaming import StopReason
+from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolResult, ToolUse
 from ._recover_message_on_max_tokens_reached import recover_message_on_max_tokens_reached
 from ._retry import ModelRetryStrategy
@@ -329,6 +329,18 @@ async def _handle_model_execution(
                 tool_specs = [tool_spec] if tool_spec else []
             else:
                 tool_specs = agent.tool_registry.get_all_tool_specs()
+
+            # Create chunk interceptor that invokes BeforeStreamChunkEvent hook
+            async def chunk_interceptor(chunk: StreamEvent) -> tuple[StreamEvent, bool]:
+                """Intercept chunks and invoke BeforeStreamChunkEvent hook."""
+                stream_chunk_event = BeforeStreamChunkEvent(
+                    agent=agent,
+                    chunk=chunk,
+                    invocation_state=invocation_state,
+                )
+                await agent.hooks.invoke_callbacks_async(stream_chunk_event)
+                return stream_chunk_event.chunk, stream_chunk_event.skip
+
             try:
                 async for event in stream_messages(
                     agent.model,
@@ -340,6 +352,7 @@ async def _handle_model_execution(
                     invocation_state=invocation_state,
                     model_state=agent._model_state,
                     cancel_signal=agent._cancel_signal,
+                    chunk_interceptor=chunk_interceptor,
                 ):
                     yield event
 
