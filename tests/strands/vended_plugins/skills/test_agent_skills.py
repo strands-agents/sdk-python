@@ -38,6 +38,9 @@ def _mock_agent():
         lambda self, value: _set_system_prompt(self, value),
     )
 
+    # Make system_prompt_content property behave like the real Agent
+    type(agent).system_prompt_content = property(lambda self: self._system_prompt_content)
+
     agent.hooks = HookRegistry()
     agent.add_hook = MagicMock(
         side_effect=lambda callback, event_type=None: agent.hooks.add_callback(event_type, callback)
@@ -419,7 +422,7 @@ class TestSystemPromptInjection:
 
         # The public setter should have been used, so _system_prompt_content
         # should be consistent with _system_prompt
-        assert agent._system_prompt_content == [{"text": agent._system_prompt}]
+        assert agent.system_prompt_content == [{"text": agent._system_prompt}]
 
     def test_warns_when_previous_xml_not_found(self, caplog):
         """Test that a warning is logged when the previously injected XML is missing from the prompt."""
