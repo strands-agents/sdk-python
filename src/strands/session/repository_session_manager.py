@@ -255,8 +255,6 @@ class RepositorySessionManager(SessionManager):
 
         Args:
             messages: The list of messages to fix
-            agent_id: The agent ID for fetching previous messages
-            removed_message_count: Number of messages removed by the conversation manager
 
         Returns:
             Fixed list of messages with proper tool use/result pairs
