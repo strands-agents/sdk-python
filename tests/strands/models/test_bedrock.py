@@ -2809,3 +2809,123 @@ def test_guardrail_latest_message_disabled_does_not_wrap(model):
 
     assert "text" in formatted
     assert "guardContent" not in formatted
+
+
+def test_inject_cache_point_with_ttl(bedrock_client):
+    """Test that _inject_cache_point includes TTL when configured."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="1h"),
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there!"}]},
+        {"role": "user", "content": [{"text": "How are you?"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages, ttl="1h")
+
+    cache_point = cleaned_messages[2]["content"][-1]
+    assert "cachePoint" in cache_point
+    assert cache_point["cachePoint"]["type"] == "default"
+    assert cache_point["cachePoint"]["ttl"] == "1h"
+
+
+def test_inject_cache_point_without_ttl_has_no_ttl_field(bedrock_client):
+    """Test that _inject_cache_point does not include TTL when not passed."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    cache_point = cleaned_messages[0]["content"][-1]
+    assert "cachePoint" in cache_point
+    assert cache_point["cachePoint"]["type"] == "default"
+    assert "ttl" not in cache_point["cachePoint"]
+
+
+def test_inject_cache_point_with_5m_ttl(bedrock_client):
+    """Test that _inject_cache_point includes 5m TTL when configured."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="5m"),
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages, ttl="5m")
+
+    cache_point = cleaned_messages[0]["content"][-1]
+    assert cache_point["cachePoint"]["ttl"] == "5m"
+
+
+def test_format_bedrock_messages_passes_ttl_from_cache_config(bedrock_client):
+    """Test that _format_bedrock_messages passes cache_config.ttl to _inject_cache_point."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="1h"),
+    )
+
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+    ]
+
+    formatted = model._format_bedrock_messages(messages)
+
+    cache_point = formatted[0]["content"][-1]
+    assert "cachePoint" in cache_point
+    assert cache_point["cachePoint"]["ttl"] == "1h"
+
+
+def test_format_request_cache_tools_with_ttl(model, messages, model_id, tool_spec):
+    """Test that cache_tools_ttl is included in the tools cache point."""
+    model.update_config(cache_tools="default", cache_tools_ttl="1h")
+
+    tru_request = model._format_request(messages, tool_specs=[tool_spec])
+
+    tools = tru_request["toolConfig"]["tools"]
+    cache_point_block = tools[-1]
+    assert "cachePoint" in cache_point_block
+    assert cache_point_block["cachePoint"]["type"] == "default"
+    assert cache_point_block["cachePoint"]["ttl"] == "1h"
+
+
+def test_format_request_cache_tools_without_ttl(model, messages, model_id, tool_spec):
+    """Test that no TTL is included in tools cache point when cache_tools_ttl is not set."""
+    model.update_config(cache_tools="default")
+
+    tru_request = model._format_request(messages, tool_specs=[tool_spec])
+
+    tools = tru_request["toolConfig"]["tools"]
+    cache_point_block = tools[-1]
+    assert "cachePoint" in cache_point_block
+    assert cache_point_block["cachePoint"]["type"] == "default"
+    assert "ttl" not in cache_point_block["cachePoint"]
+
+
+def test_format_bedrock_content_block_cache_point_with_ttl(model):
+    """Test that _format_request_message_content preserves TTL on cachePoint blocks."""
+    content = {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+    result = model._format_request_message_content(content)
+
+    assert result == {"cachePoint": {"type": "default", "ttl": "1h"}}
+
+
+def test_format_bedrock_content_block_cache_point_without_ttl(model):
+    """Test that _format_request_message_content does not add TTL when not present."""
+    content = {"cachePoint": {"type": "default"}}
+
+    result = model._format_request_message_content(content)
+
+    assert result == {"cachePoint": {"type": "default"}}
+    assert "ttl" not in result["cachePoint"]
