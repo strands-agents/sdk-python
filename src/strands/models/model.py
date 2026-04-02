@@ -30,9 +30,13 @@ class CacheConfig:
         strategy: Caching strategy to use.
             - "auto": Automatically detect model support and inject cachePoint to maximize cache coverage
             - "anthropic": Inject cachePoint in Anthropic-compatible format without model support check
+        ttl: Time-to-live for cache points. Supported values depend on the model provider.
+            For Bedrock, supported values are "5m" (5 minutes) and "1h" (1 hour).
+            If None, the provider default (typically 5 minutes) is used.
     """
 
     strategy: Literal["auto", "anthropic"] = "auto"
+    ttl: Literal["5m", "1h"] | None = None
 
 
 class Model(abc.ABC):
