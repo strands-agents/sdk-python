@@ -19,6 +19,7 @@ from typing import Any, cast
 from typing_extensions import TypedDict
 
 from .._async import run_async
+from ..agent.base import AgentBase
 from ..tools.decorator import DecoratedFunctionTool
 from ..types.tools import AgentTool, ToolSpec
 from . import ToolProvider
@@ -62,6 +63,7 @@ class ToolRegistry:
                 3. A module for a module based tool
                 4. Instances of AgentTool (@tool decorated functions)
                 5. Dictionaries with name/path keys (deprecated)
+                6. Agent instances with an ``as_tool()`` method (auto-wrapped)
 
 
         Returns:
@@ -140,6 +142,12 @@ class ToolRegistry:
                     for provider_tool in provider_tools:
                         self.register_tool(provider_tool)
                         tool_names.append(provider_tool.tool_name)
+                # Agent instances - auto-wrap with .as_tool() for convenience
+                elif isinstance(tool, AgentBase) and hasattr(tool, "as_tool") and callable(tool.as_tool):
+                    wrapped_tool = tool.as_tool()
+                    self.register_tool(wrapped_tool)
+                    tool_names.append(wrapped_tool.tool_name)
+
                 else:
                     logger.warning("tool=<%s> | unrecognized tool specification", tool)
 

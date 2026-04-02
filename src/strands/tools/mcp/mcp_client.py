@@ -10,6 +10,7 @@ with the MCP service.
 import asyncio
 import base64
 import contextvars
+import json
 import logging
 import threading
 import uuid
@@ -24,8 +25,10 @@ from typing import Any, TypeVar, cast
 import anyio
 from mcp import ClientSession, ListToolsResult
 from mcp.client.session import ElicitationFnT
+from mcp.shared.exceptions import McpError
 from mcp.types import (
     BlobResourceContents,
+    ElicitationRequiredErrorData,
     GetPromptResult,
     ListPromptsResult,
     ListResourcesResult,
@@ -668,7 +671,31 @@ class MCPClient(ToolProvider):
             return self._handle_tool_execution_error(tool_use_id, e)
 
     def _handle_tool_execution_error(self, tool_use_id: str, exception: Exception) -> MCPToolResult:
-        """Create error ToolResult with consistent logging."""
+        """Create error ToolResult with consistent logging and elicitation callback support.
+
+        Args:
+            tool_use_id: Unique identifier for this tool use.
+            exception: The exception that occurred during tool execution.
+
+        Returns:
+            MCPToolResult: Error result containing either the elicitation data or the
+                original exception message.
+        """
+        if isinstance(exception, McpError) and exception.error.code == -32042:
+            try:
+                error_data = ElicitationRequiredErrorData.model_validate(exception.error.data)
+                elicitations = [e.model_dump(exclude_none=True) for e in error_data.elicitations]
+
+                return MCPToolResult(
+                    status="error",
+                    toolUseId=tool_use_id,
+                    content=[
+                        {"text": (f"MCP Elicitation required: [{str(exception)}] with data {json.dumps(elicitations)}")}
+                    ],
+                )
+            except Exception:
+                logger.debug("Failed to parse ElicitationRequiredErrorData from -32042 error", exc_info=True)
+
         return MCPToolResult(
             status="error",
             toolUseId=tool_use_id,

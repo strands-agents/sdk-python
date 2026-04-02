@@ -1,5 +1,6 @@
 """Integration tests for session management."""
 
+import os
 import tempfile
 from uuid import uuid4
 
@@ -9,8 +10,10 @@ from botocore.client import ClientError
 
 from strands import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
+from strands.models.openai_responses import OpenAIResponsesModel
 from strands.session.file_session_manager import FileSessionManager
 from strands.session.s3_session_manager import S3SessionManager
+from tests_integ.models.providers import openai as openai_provider
 
 # yellow_img imported from conftest
 
@@ -147,3 +150,35 @@ def test_agent_with_s3_session_with_image(yellow_img, bucket_name):
     finally:
         session_manager.delete_session(test_session_id)
         assert session_manager.read_session(test_session_id) is None
+
+
+@openai_provider.mark
+def test_agent_with_file_session_server_side_conversation(temp_dir):
+    """Test that server-side conversation state survives session save/restore."""
+    test_session_id = str(uuid4())
+    session_manager = FileSessionManager(session_id=test_session_id, storage_dir=temp_dir)
+    try:
+        model = OpenAIResponsesModel(
+            model_id="gpt-4o-mini",
+            stateful=True,
+            client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+        )
+        agent = Agent(model=model, system_prompt="Reply in one short sentence.", session_manager=session_manager)
+
+        agent("My name is Alice.")
+        assert len(agent.messages) == 0
+
+        # Simulate process restart: create new session manager and agent
+        session_manager_2 = FileSessionManager(session_id=test_session_id, storage_dir=temp_dir)
+        model_2 = OpenAIResponsesModel(
+            model_id="gpt-4o-mini",
+            stateful=True,
+            client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+        )
+        agent_2 = Agent(model=model_2, system_prompt="Reply in one short sentence.", session_manager=session_manager_2)
+
+        assert len(agent_2.messages) == 0
+        result = agent_2("What is my name?")
+        assert "alice" in result.message["content"][0]["text"].lower()
+    finally:
+        session_manager.delete_session(test_session_id)

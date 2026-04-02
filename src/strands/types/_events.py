@@ -21,6 +21,7 @@ from .tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..agent import AgentResult
+    from ..agent._agent_as_tool import _AgentAsTool
     from ..multiagent.base import MultiAgentResult, NodeResult
 
 
@@ -321,6 +322,31 @@ class ToolStreamEvent(TypedEvent):
     def tool_use_id(self) -> str:
         """The toolUseId associated with this stream."""
         return cast(ToolUse, cast(dict, self.get("tool_stream_event")).get("tool_use"))["toolUseId"]
+
+
+class AgentAsToolStreamEvent(ToolStreamEvent):
+    """Event emitted when an agent-as-tool yields intermediate events during execution.
+
+    Extends ToolStreamEvent with a reference to the originating _AgentAsTool so callers
+    can distinguish sub-agent stream events from regular tool stream events and access
+    the wrapped agent, tool name, description, etc.
+    """
+
+    def __init__(self, tool_use: ToolUse, tool_stream_data: Any, agent_as_tool: "_AgentAsTool") -> None:
+        """Initialize with tool streaming data and agent-tool reference.
+
+        Args:
+            tool_use: The tool invocation producing the stream.
+            tool_stream_data: The yielded event from the sub-agent execution.
+            agent_as_tool: The _AgentAsTool instance that produced this event.
+        """
+        super().__init__(tool_use, tool_stream_data)
+        self._agent_as_tool = agent_as_tool
+
+    @property
+    def agent_as_tool(self) -> "_AgentAsTool":
+        """The _AgentAsTool instance that produced this event."""
+        return self._agent_as_tool
 
 
 class ToolCancelEvent(TypedEvent):

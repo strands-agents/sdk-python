@@ -88,11 +88,11 @@ def exit_hook():
             self.should_exit = True
 
         def register_hooks(self, registry):
-            registry.add_callback(BeforeNodeCallEvent, self.exit_before_analyst)
+            registry.add_callback(BeforeNodeCallEvent, self.exit_before_writer)
 
-        def exit_before_analyst(self, event):
-            if event.node_id == "analyst" and self.should_exit:
-                raise SystemExit("Controlled exit before analyst")
+        def exit_before_writer(self, event):
+            if event.node_id == "writer" and self.should_exit:
+                raise SystemExit("Controlled exit before writer")
 
     return ExitHook()
 
@@ -365,32 +365,30 @@ def test_swarm_resume_from_executing_state(tmpdir, exit_hook, verify_hook):
     # First execution - exit before second node
     session_manager = FileSessionManager(session_id=session_id, storage_dir=tmpdir)
     researcher = Agent(name="researcher", system_prompt="you are a researcher.")
-    analyst = Agent(name="analyst", system_prompt="you are an analyst.")
     writer = Agent(name="writer", system_prompt="you are a writer.")
 
-    swarm = Swarm([researcher, analyst, writer], session_manager=session_manager, hooks=[exit_hook])
+    swarm = Swarm([researcher, writer], session_manager=session_manager, hooks=[exit_hook])
 
     try:
-        swarm("write AI trends and calculate growth in 100 words")
+        swarm("write AI trends in 100 words")
     except SystemExit as e:
-        assert "Controlled exit before analyst" in str(e)
+        assert "Controlled exit before writer" in str(e)
 
     # Verify state was persisted with EXECUTING status and next node
     persisted_state = session_manager.read_multi_agent(session_id, swarm.id)
     assert persisted_state["status"] == "executing"
     assert len(persisted_state["node_history"]) == 1
     assert persisted_state["node_history"][0] == "researcher"
-    assert persisted_state["next_nodes_to_execute"] == ["analyst"]
+    assert persisted_state["next_nodes_to_execute"] == ["writer"]
 
     exit_hook.should_exit = False
     researcher2 = Agent(name="researcher", system_prompt="you are a researcher.")
-    analyst2 = Agent(name="analyst", system_prompt="you are an analyst.")
     writer2 = Agent(name="writer", system_prompt="you are a writer.")
-    new_swarm = Swarm([researcher2, analyst2, writer2], session_manager=session_manager, hooks=[verify_hook])
-    result = new_swarm("write AI trends and calculate growth in 100 words")
+    new_swarm = Swarm([researcher2, writer2], session_manager=session_manager, hooks=[verify_hook])
+    result = new_swarm("write AI trends in 100 words")
 
-    # Verify swarm behavior - should resume from analyst, not restart
+    # Verify swarm behavior - should resume from writer, not restart
     assert result.status.value == "completed"
-    assert verify_hook.first_node == "analyst"
+    assert verify_hook.first_node == "writer"
     node_ids = [n.node_id for n in result.node_history]
-    assert "analyst" in node_ids
+    assert "writer" in node_ids

@@ -1,18 +1,21 @@
 """OpenAI model provider using the Responses API.
 
-The Responses API is OpenAI's newer API that differs from the Chat Completions API in several key ways:
+Built-in tools (e.g. web_search, file_search, code_interpreter) can be passed via the
+``params`` configuration and will be merged with any agent function tools in the request.
 
-1. The Responses API can maintain conversation state server-side through "previous_response_id",
-   while Chat Completions is stateless and requires sending full conversation history each time.
-   Note: This implementation currently only implements the stateless approach.
+All built-in tools produce text responses that stream correctly. Limitations on tool-specific
+metadata:
 
-2. Responses API uses "input" (list of items) instead of "messages", and system
-   prompts are passed as "instructions" rather than a system role message.
+- web_search (supported): Full support including URL citations.
+- file_search (partial): File citation annotations not emitted (no matching CitationLocation variant).
+- code_interpreter (partial): Executed code and stdout/stderr not surfaced.
+- mcp (partial): Approval flow and ``mcp_list_tools``/``mcp_call`` events not surfaced.
+- shell (partial): Local (client-executed) mode not supported.
+- tool_search (not supported): Requires ``defer_loading`` on function tools, which is not supported.
+- image_generation (not supported): Requires image content block delta support in the event loop.
+- computer_use_preview (not supported): Requires a developer-managed screenshot/action loop.
 
-3. Responses API supports built-in tools (web search, code interpreter, file search)
-   Note: These are not yet implemented in this provider.
-
-- Docs: https://platform.openai.com/docs/api-reference/responses
+Docs: https://platform.openai.com/docs/api-reference/responses
 """
 
 import base64
@@ -50,6 +53,7 @@ except Exception as e:
 
 import openai  # noqa: E402 - must import after version check
 
+from ..types.citations import WebLocationDict  # noqa: E402
 from ..types.content import ContentBlock, Messages, Role  # noqa: E402
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
 from ..types.streaming import StreamEvent  # noqa: E402
@@ -113,12 +117,7 @@ class Client(Protocol):
 
 
 class OpenAIResponsesModel(Model):
-    """OpenAI Responses API model provider implementation.
-
-    Note:
-        This implementation currently only supports function tools (custom tools defined via tool_specs).
-        OpenAI's built-in system tools are not yet supported.
-    """
+    """OpenAI Responses API model provider implementation."""
 
     client: Client
     client_args: dict[str, Any]
@@ -132,10 +131,14 @@ class OpenAIResponsesModel(Model):
             params: Model parameters (e.g., max_output_tokens, temperature, etc.).
                 For a complete list of supported parameters, see
                 https://platform.openai.com/docs/api-reference/responses/create.
+            stateful: Whether to enable server-side conversation state management.
+                When True, the server stores conversation history and the client does not need to
+                send the full message history with each request. Defaults to False.
         """
 
         model_id: str
         params: dict[str, Any] | None
+        stateful: bool
 
     def __init__(
         self, client_args: dict[str, Any] | None = None, **model_config: Unpack[OpenAIResponsesConfig]
@@ -152,6 +155,15 @@ class OpenAIResponsesModel(Model):
         self.client_args = client_args or {}
 
         logger.debug("config=<%s> | initializing", self.config)
+
+    @property
+    @override
+    def stateful(self) -> bool:
+        """Whether server-side conversation storage is enabled.
+
+        Derived from the ``stateful`` configuration option.
+        """
+        return bool(self.config.get("stateful"))
 
     @override
     def update_config(self, **model_config: Unpack[OpenAIResponsesConfig]) -> None:  # type: ignore[override]
@@ -180,6 +192,7 @@ class OpenAIResponsesModel(Model):
         system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
+        model_state: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the OpenAI Responses API model.
@@ -189,6 +202,7 @@ class OpenAIResponsesModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            model_state: Runtime state for model providers (e.g., server-side response ids).
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -199,7 +213,7 @@ class OpenAIResponsesModel(Model):
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
         logger.debug("formatting request for OpenAI Responses API")
-        request = self._format_request(messages, tool_specs, system_prompt, tool_choice)
+        request = self._format_request(messages, tool_specs, system_prompt, tool_choice, model_state)
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking OpenAI Responses API model")
@@ -219,8 +233,20 @@ class OpenAIResponsesModel(Model):
 
                 async for event in response:
                     if hasattr(event, "type"):
-                        if event.type == "response.reasoning_text.delta":
-                            # Reasoning content streaming (for o1/o3 reasoning models)
+                        if event.type == "response.created":
+                            # Capture response id for server-side conversation chaining
+                            if hasattr(event, "response"):
+                                response_id = getattr(event.response, "id", None)
+                                if model_state is not None and response_id:
+                                    model_state["response_id"] = response_id
+
+                        elif event.type in (
+                            "response.reasoning_text.delta",
+                            "response.reasoning_summary_text.delta",
+                        ):
+                            # Reasoning content streaming:
+                            # - reasoning_text: full chain-of-thought (gpt-oss models)
+                            # - reasoning_summary_text: condensed summary (o-series models)
                             chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
                             for chunk in chunks:
                                 yield chunk
@@ -242,6 +268,22 @@ class OpenAIResponsesModel(Model):
                                 yield self._format_chunk(
                                     {"chunk_type": "content_delta", "data_type": "text", "data": event.delta}
                                 )
+
+                        elif event.type == "response.output_text.annotation.added":
+                            if hasattr(event, "annotation"):
+                                if event.annotation.get("type") == "url_citation":
+                                    yield self._format_chunk(
+                                        {
+                                            "chunk_type": "content_delta",
+                                            "data_type": "citation",
+                                            "data": event.annotation,
+                                        }
+                                    )
+                                else:
+                                    logger.warning(
+                                        "annotation_type=<%s> | unsupported annotation type",
+                                        event.annotation.get("type"),
+                                    )
 
                         elif event.type == "response.output_item.added":
                             # Tool call started
@@ -383,6 +425,7 @@ class OpenAIResponsesModel(Model):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
+        model_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Format an OpenAI Responses API compatible response streaming request.
 
@@ -391,6 +434,7 @@ class OpenAIResponsesModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            model_state: Runtime state for model providers (e.g., server-side response ids).
 
         Returns:
             An OpenAI Responses API compatible response streaming request.
@@ -400,19 +444,25 @@ class OpenAIResponsesModel(Model):
                 format.
         """
         input_items = self._format_request_messages(messages)
-        request = {
+        request: dict[str, Any] = {
             "model": self.config["model_id"],
             "input": input_items,
             "stream": True,
             **cast(dict[str, Any], self.config.get("params", {})),
+            "store": self.stateful,
         }
+
+        response_id = model_state.get("response_id") if model_state else None
+        if response_id and self.stateful:
+            request["previous_response_id"] = response_id
 
         if system_prompt:
             request["instructions"] = system_prompt
 
         # Add tools if provided
         if tool_specs:
-            request["tools"] = [
+            # Merge with any built-in tools (e.g. web_search) already in the request from params
+            request.setdefault("tools", []).extend(
                 {
                     "type": "function",
                     "name": tool_spec["name"],
@@ -421,8 +471,7 @@ class OpenAIResponsesModel(Model):
                     **({"strict": tool_spec["strict"]} if "strict" in tool_spec else {}),
                 }
                 for tool_spec in tool_specs
-            ]
-            # Add tool_choice if provided
+            )
             request.update(self._format_request_tool_choice(tool_choice))
 
         return request
@@ -467,10 +516,15 @@ class OpenAIResponsesModel(Model):
             role = message["role"]
             contents = message["content"]
 
+            if any("reasoningContent" in content for content in contents):
+                logger.warning(
+                    "reasoningContent is not yet supported in multi-turn conversations with the Responses API"
+                )
+
             formatted_contents = [
                 cls._format_request_message_content(content, role=role)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
             ]
 
             formatted_tool_calls = [
@@ -531,6 +585,11 @@ class OpenAIResponsesModel(Model):
         if "text" in content:
             text_type = "output_text" if role == "assistant" else "input_text"
             return {"type": text_type, "text": content["text"]}
+
+        if "citationsContent" in content:
+            text = "".join(c["text"] for c in content["citationsContent"].get("content", []) if "text" in c)
+            text_type = "output_text" if role == "assistant" else "input_text"
+            return {"type": text_type, "text": text}
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
@@ -661,6 +720,19 @@ class OpenAIResponsesModel(Model):
 
                 if event["data_type"] == "reasoning_content":
                     return {"contentBlockDelta": {"delta": {"reasoningContent": {"text": event["data"]}}}}
+
+                if event["data_type"] == "citation":
+                    web_location: WebLocationDict = {"web": {"url": event["data"].get("url", "")}}
+                    return {
+                        "contentBlockDelta": {
+                            "delta": {
+                                "citation": {
+                                    "title": event["data"].get("title", ""),
+                                    "location": web_location,
+                                }
+                            }
+                        }
+                    }
 
                 return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
 
