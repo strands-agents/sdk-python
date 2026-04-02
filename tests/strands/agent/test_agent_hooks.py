@@ -175,6 +175,8 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
                 "role": "assistant",
             },
             stop_reason="tool_use",
+            usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+            metrics={"latencyMs": 100},
         ),
         exception=None,
     )
@@ -201,6 +203,8 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
         stop_response=AfterModelCallEvent.ModelStopResponse(
             message=mock_model.agent_responses[1],
             stop_reason="end_turn",
+            usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+            metrics={"latencyMs": 100},
         ),
         exception=None,
     )
@@ -248,6 +252,8 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
                 "role": "assistant",
             },
             stop_reason="tool_use",
+            usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+            metrics={"latencyMs": 100},
         ),
         exception=None,
     )
@@ -274,6 +280,8 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
         stop_response=AfterModelCallEvent.ModelStopResponse(
             message=mock_model.agent_responses[1],
             stop_reason="end_turn",
+            usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+            metrics={"latencyMs": 100},
         ),
         exception=None,
     )

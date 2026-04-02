@@ -106,3 +106,9 @@ class MockedModelProvider(Model):
                     yield {"contentBlockStop": {}}
 
         yield {"messageStop": {"stopReason": stop_reason}}
+        yield {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                "metrics": {"latencyMs": 100},
+            }
+        }
