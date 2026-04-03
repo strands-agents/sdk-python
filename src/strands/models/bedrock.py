@@ -524,7 +524,7 @@ class BedrockModel(Model):
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_DocumentBlock.html
         if "document" in content:
             document = content["document"]
-            result = {}
+            result: dict[str, Any] = {}
 
             # Handle required fields (all optional due to total=False)
             if "name" in document:
