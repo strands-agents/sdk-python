@@ -102,7 +102,7 @@ class BidiGeminiLiveModel(BidiModel):
 
         # Set default http_options if not provided
         if "http_options" not in resolved:
-            resolved["http_options"] = {"api_version": "v1alpha"}
+            resolved["http_options"] = {"api_version": "v1beta"}
 
         return resolved
 
@@ -429,12 +429,14 @@ class BidiGeminiLiveModel(BidiModel):
         await self._live_session.send(input=msg)
 
     async def _send_text_content(self, text: str) -> None:
-        """Internal: Send text content using Gemini Live API."""
-        # Create content with text
-        content = genai_types.Content(role="user", parts=[genai_types.Part(text=text)])
+        """Internal: Send text content using Gemini Live API.
 
-        # Send as client content
-        await self._live_session.send_client_content(turns=content)
+        Uses send_realtime_input for text delivery. Gemini 3.1+ models only
+        accept send_client_content for seeding initial context history — mid-session
+        text must go through send_realtime_input. This path is also compatible with
+        Gemini 2.5 models.
+        """
+        await self._live_session.send_realtime_input(text=text)
 
     async def _send_tool_result(self, tool_result: ToolResult) -> None:
         """Internal: Send tool result using Gemini Live API."""
@@ -491,7 +493,9 @@ class BidiGeminiLiveModel(BidiModel):
         """
         config_dict: dict[str, Any] = self.config["inference"].copy()
 
-        config_dict["session_resumption"] = {"handle": kwargs.get("live_session_handle")}
+        live_session_handle = kwargs.get("live_session_handle")
+        if live_session_handle is not None:
+            config_dict["session_resumption"] = {"handle": live_session_handle}
 
         # Add system instruction if provided
         if system_prompt:
