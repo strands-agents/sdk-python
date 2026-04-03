@@ -213,3 +213,256 @@ def test_model_plugin_preserves_messages_when_not_stateful(model_plugin):
     model_plugin._on_after_invocation(event)
 
     assert len(agent.messages) == 1
+
+
+def test_estimate_tokens_empty_messages(model):
+    assert model._estimate_tokens(messages=[]) == 0
+
+
+def test_estimate_tokens_system_prompt_only(model):
+    result = model._estimate_tokens(messages=[], system_prompt="You are a helpful assistant.")
+    assert result == 6
+
+
+def test_estimate_tokens_text_messages(model, messages):
+    result = model._estimate_tokens(messages=messages)
+    assert result == 1  # "hello"
+
+
+def test_estimate_tokens_with_tool_specs(model, messages, tool_specs):
+    without_tools = model._estimate_tokens(messages=messages)
+    with_tools = model._estimate_tokens(messages=messages, tool_specs=tool_specs)
+    assert without_tools == 1  # "hello"
+    assert with_tools == 49  # "hello" (1) + tool_spec (48)
+
+
+def test_estimate_tokens_with_system_prompt(model, messages, system_prompt):
+    without_prompt = model._estimate_tokens(messages=messages)
+    with_prompt = model._estimate_tokens(messages=messages, system_prompt=system_prompt)
+    assert without_prompt == 1  # "hello"
+    assert with_prompt == 3  # "hello" (1) + "s1" (2)
+
+
+def test_estimate_tokens_combined(model, messages, tool_specs, system_prompt):
+    result = model._estimate_tokens(messages=messages, tool_specs=tool_specs, system_prompt=system_prompt)
+    assert result == 51  # "hello" (1) + tool_spec (48) + "s1" (2)
+
+
+def test_estimate_tokens_tool_use_block(model):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "123",
+                        "name": "my_tool",
+                        "input": {"query": "test"},
+                    }
+                }
+            ],
+        }
+    ]
+    result = model._estimate_tokens(messages=messages)
+    # name "my_tool" (2) + json.dumps(input) (6) = 8
+    assert result == 8
+
+
+def test_estimate_tokens_tool_result_block(model):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "123",
+                        "content": [{"text": "tool output here"}],
+                        "status": "success",
+                    }
+                }
+            ],
+        }
+    ]
+    result = model._estimate_tokens(messages=messages)
+    assert result == 3  # "tool output here"
+
+
+def test_estimate_tokens_reasoning_block(model):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "reasoningContent": {
+                        "reasoningText": {
+                            "text": "Let me think about this step by step.",
+                        }
+                    }
+                }
+            ],
+        }
+    ]
+    result = model._estimate_tokens(messages=messages)
+    assert result == 9  # "Let me think about this step by step."
+
+
+def test_estimate_tokens_skips_binary_content(model):
+    messages = [
+        {
+            "role": "user",
+            "content": [{"image": {"format": "png", "source": {"bytes": b"fake image data"}}}],
+        }
+    ]
+    assert model._estimate_tokens(messages=messages) == 0
+
+
+def test_estimate_tokens_tool_result_with_bytes_only(model):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "123",
+                        "content": [{"image": {"format": "png", "source": {"bytes": b"image data"}}}],
+                        "status": "success",
+                    }
+                }
+            ],
+        }
+    ]
+    result = model._estimate_tokens(messages=messages)
+    assert result == 0
+
+
+def test_estimate_tokens_tool_result_with_text_and_bytes(model):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "123",
+                        "content": [
+                            {"text": "Here is the screenshot"},
+                            {"image": {"format": "png", "source": {"bytes": b"image data"}}},
+                        ],
+                        "status": "success",
+                    }
+                }
+            ],
+        }
+    ]
+    result = model._estimate_tokens(messages=messages)
+    assert result > 0
+
+
+def test_estimate_tokens_guard_content_block(model):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"guardContent": {"text": {"text": "This content was filtered by guardrails."}}}],
+        }
+    ]
+    result = model._estimate_tokens(messages=messages)
+    assert result == 8  # "This content was filtered by guardrails."
+
+
+def test_estimate_tokens_tool_use_with_bytes(model):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "123",
+                        "name": "my_tool",
+                        "input": {"data": b"binary data"},
+                    }
+                }
+            ],
+        }
+    ]
+    result = model._estimate_tokens(messages=messages)
+    # Should still count the tool name even though input has non-serializable bytes
+    assert result == 2  # "my_tool" name only
+
+
+def test_estimate_tokens_non_serializable_tool_spec(model, messages):
+    tool_specs = [
+        {
+            "name": "test",
+            "description": "a tool",
+            "inputSchema": {"json": {"default": b"bytes"}},
+        }
+    ]
+    result = model._estimate_tokens(messages=messages, tool_specs=tool_specs)
+    # Should still count the message tokens even though tool spec fails
+    assert result == 1  # "hello" only, tool spec skipped
+
+
+def test_estimate_tokens_citations_block(model):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "citationsContent": {
+                        "content": [{"text": "According to the document, the answer is 42."}],
+                        "citations": [],
+                    }
+                }
+            ],
+        }
+    ]
+    result = model._estimate_tokens(messages=messages)
+    assert result == 11  # "According to the document, the answer is 42."
+
+
+def test_estimate_tokens_system_prompt_content(model):
+    result = model._estimate_tokens(
+        messages=[],
+        system_prompt_content=[{"text": "You are a helpful assistant."}],
+    )
+    assert result == 6  # "You are a helpful assistant."
+
+
+def test_estimate_tokens_system_prompt_content_with_cache_point(model):
+    result = model._estimate_tokens(
+        messages=[],
+        system_prompt_content=[
+            {"text": "You are a helpful assistant."},
+            {"cachePoint": {"type": "default"}},
+        ],
+    )
+    assert result == 6  # "You are a helpful assistant.", cachePoint adds 0
+
+
+def test_estimate_tokens_system_prompt_content_takes_priority(model):
+    content_only = model._estimate_tokens(
+        messages=[],
+        system_prompt_content=[{"text": "Short."}],
+    )
+    # When both are provided, system_prompt_content wins — system_prompt is ignored
+    both = model._estimate_tokens(
+        messages=[],
+        system_prompt="This is a much longer system prompt that should have more tokens.",
+        system_prompt_content=[{"text": "Short."}],
+    )
+    assert content_only == 2  # "Short."
+    assert content_only == both
+
+
+def test_estimate_tokens_all_inputs(model):
+    messages = [
+        {"role": "user", "content": [{"text": "hello world"}]},
+        {"role": "assistant", "content": [{"text": "hi there"}]},
+    ]
+    result = model._estimate_tokens(
+        messages=messages,
+        tool_specs=[{"name": "test", "description": "a test tool", "inputSchema": {"json": {}}}],
+        system_prompt="Be helpful.",
+        system_prompt_content=[{"text": "Additional system context."}],
+    )
+    # system_prompt_content (4) + "hello world" (2) + "hi there" (2) + tool_spec (23) = 31
+    assert result == 31
