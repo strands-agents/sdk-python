@@ -409,8 +409,12 @@ class AnthropicModel(Model):
                     if event.type in AnthropicModel.EVENT_TYPES:
                         yield self.format_chunk(event.model_dump())
 
-                usage = event.message.usage  # type: ignore
-                yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
+                try:
+                    message_snapshot = await stream.get_final_message()
+                except AssertionError as e:
+                    logger.warning("error=<%s> | failed to retrieve message snapshot, usage metadata unavailable", e)
+                else:
+                    yield self.format_chunk({"type": "metadata", "usage": message_snapshot.usage.model_dump()})
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error
