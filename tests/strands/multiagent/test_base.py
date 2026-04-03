@@ -1,6 +1,8 @@
 import pytest
+from pydantic import BaseModel
 
 from strands.agent import AgentResult
+from strands.interrupt import Interrupt
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 
@@ -315,3 +317,41 @@ def test_multi_agent_result_str_nested():
     outer_multi = MultiAgentResult(status=Status.COMPLETED, results={"outer": outer_node})
 
     assert "Nested response" in str(outer_multi)
+
+
+def test_multi_agent_result_str_with_interrupts():
+    """Test MultiAgentResult __str__ returns interrupt info when agent result has interrupts."""
+    interrupt = Interrupt(id="i1", name="human_approval", reason="Needs review")
+    agent_result = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Some text"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+        interrupts=[interrupt],
+    )
+    node_result = NodeResult(result=agent_result, status=Status.COMPLETED)
+    multi_result = MultiAgentResult(status=Status.COMPLETED, results={"node1": node_result})
+
+    result_str = str(multi_result)
+    assert "Interrupt: human_approval" in result_str
+    assert "Reason: Needs review" in result_str
+
+
+def test_multi_agent_result_str_structured_output_fallback():
+    """Test MultiAgentResult __str__ falls back to structured output when no text content."""
+
+    class OutputModel(BaseModel):
+        answer: str
+
+    structured = OutputModel(answer="42")
+    agent_result = AgentResult(
+        message={"role": "assistant", "content": []},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+        structured_output=structured,
+    )
+    node_result = NodeResult(result=agent_result, status=Status.COMPLETED)
+    multi_result = MultiAgentResult(status=Status.COMPLETED, results={"node1": node_result})
+
+    assert "42" in str(multi_result)

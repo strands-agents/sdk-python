@@ -39,12 +39,16 @@ class AgentResult:
         """Get the agent's last message as a string.
 
         This method extracts and concatenates all text content from the final message, ignoring any non-text content
-        like images or structured data. If there's no text content but structured output is present, it serializes
+        like images or structured data. If there's an interrupt, it returns the interrupt information.
+        If there's no text content but structured output is present, it serializes
         the structured output instead.
 
         Returns:
-            The agent's last message as a string.
+            The agent's result as a string.
         """
+        if self.interrupts:
+            return "\n".join(f"Interrupt: {i.name} (Reason: {i.reason})" for i in self.interrupts)
+
         content_array = self.message.get("content", [])
 
         result = ""
