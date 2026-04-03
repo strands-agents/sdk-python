@@ -957,7 +957,7 @@ async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model,
             UserWarning,
             stacklevel=2,
         )
-        return {"type": "message_stop", "message": {"stop_reason": "end_turn"}}
+        return {"type": mock_message_stop.type, "message": {"stop_reason": mock_message_stop.message.stop_reason}}
 
     mock_message_stop.model_dump = model_dump_with_warning
 
@@ -988,4 +988,4 @@ async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model,
     assert len(pydantic_warnings) == 0, f"Unexpected Pydantic warnings: {pydantic_warnings}"
 
     # Verify the message_stop event was still processed correctly
-    assert {"messageStop": {"stopReason": "end_turn"}} in events
+    assert {"messageStop": {"stopReason": mock_message_stop.message.stop_reason}} in events
