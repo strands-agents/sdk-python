@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+from unittest.mock import ANY
 
 import pytest
 
@@ -31,7 +32,7 @@ async def test_agent_cancel_before_invocation():
     result = await agent.invoke_async("Hello")
 
     assert result.stop_reason == "cancelled"
-    assert result.message == {"role": "assistant", "content": [{"text": "Cancelled by user"}]}
+    assert result.message == {"role": "assistant", "content": [{"text": "Cancelled by user"}], "metadata": ANY}
 
 
 @pytest.mark.asyncio

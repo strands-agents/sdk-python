@@ -1025,7 +1025,7 @@ class Agent(AgentBase):
                 # Check if all item in input list are dictionaries
                 elif all(isinstance(item, dict) for item in prompt):
                     # Check if all items are messages
-                    if all(all(key in item for key in Message.__annotations__.keys()) for item in prompt):
+                    if all(all(key in item for key in Message.__required_keys__) for item in prompt):
                         # Messages input - add all messages to conversation
                         messages = cast(Messages, prompt)
 

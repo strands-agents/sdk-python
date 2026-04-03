@@ -336,7 +336,7 @@ def test_agent__call__(
         "stop_reason": result.stop_reason,
     }
     exp_result = {
-        "message": {"content": [{"text": "test text"}], "role": "assistant"},
+        "message": {"content": [{"text": "test text"}], "role": "assistant", "metadata": unittest.mock.ANY},
         "state": {},
         "stop_reason": "end_turn",
     }
@@ -781,6 +781,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
                     {"reasoningContent": {"reasoningText": {"text": "value", "signature": "value"}}},
                     {"text": "value"},
                 ],
+                "metadata": unittest.mock.ANY,
             },
         ),
         unittest.mock.call(
@@ -793,6 +794,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
                         {"reasoningContent": {"reasoningText": {"text": "value", "signature": "value"}}},
                         {"text": "value"},
                     ],
+                    "metadata": unittest.mock.ANY,
                 },
                 metrics=unittest.mock.ANY,
                 state={},
@@ -817,7 +819,7 @@ async def test_agent__call__in_async_context(mock_model, agent, agenerator):
     result = agent("test")
 
     tru_message = result.message
-    exp_message = {"content": [{"text": "abc"}], "role": "assistant"}
+    exp_message = {"content": [{"text": "abc"}], "role": "assistant", "metadata": unittest.mock.ANY}
     assert tru_message == exp_message
 
 
@@ -837,7 +839,7 @@ async def test_agent_invoke_async(mock_model, agent, agenerator):
     result = await agent.invoke_async("test")
 
     tru_message = result.message
-    exp_message = {"content": [{"text": "abc"}], "role": "assistant"}
+    exp_message = {"content": [{"text": "abc"}], "role": "assistant", "metadata": unittest.mock.ANY}
     assert tru_message == exp_message
 
 
@@ -1128,7 +1130,7 @@ async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, ali
     tru_message = agent.messages
     exp_message = [
         {"content": prompt, "role": "user"},
-        {"content": [{"text": "I see text and an image"}], "role": "assistant"},
+        {"content": [{"text": "I see text and an image"}], "role": "assistant", "metadata": unittest.mock.ANY},
     ]
     assert tru_message == exp_message
 
@@ -1966,7 +1968,11 @@ def test_agent__call__invalid_tool_name():
     }
 
     # And that it continued to the LLM call
-    assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}
+    assert agent.messages[-1] == {
+        "content": [{"text": "I invoked a tool!"}],
+        "role": "assistant",
+        "metadata": unittest.mock.ANY,
+    }
 
 
 def test_agent_string_system_prompt():
