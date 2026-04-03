@@ -955,6 +955,7 @@ async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model,
         warnings.warn(
             "PydanticSerializationUnexpectedValue(Expected `ParsedTextBlock[TypeVar]`)",
             UserWarning,
+            stacklevel=2,
         )
         return {"type": "message_stop", "message": {"stop_reason": "end_turn"}}
 
