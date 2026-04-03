@@ -466,3 +466,21 @@ def test_estimate_tokens_all_inputs(model):
     )
     # system_prompt_content (4) + "hello world" (2) + "hi there" (2) + tool_spec (23) = 31
     assert result == 31
+
+
+def test_get_encoding_raises_without_tiktoken(monkeypatch):
+    """Test that _get_encoding raises ImportError with install instructions when tiktoken is missing."""
+    import strands.models.model as model_module
+
+    monkeypatch.setattr(model_module, "_cached_encoding", None)
+    original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
+    def _block_tiktoken(name, *args, **kwargs):
+        if name == "tiktoken":
+            raise ImportError("No module named 'tiktoken'")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr("builtins.__import__", _block_tiktoken)
+
+    with pytest.raises(ImportError, match="pip install strands-agents\\[token-estimation\\]"):
+        model_module._get_encoding()
