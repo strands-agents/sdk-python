@@ -692,7 +692,7 @@ def test_format_chunk_unknown(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(anthropic_client, model, agenerator, alist):
+async def test_stream(anthropic_client, model, alist):
     mock_event_1 = unittest.mock.Mock(
         type="message_start",
         dict=lambda: {"type": "message_start"},
@@ -713,8 +713,21 @@ async def test_stream(anthropic_client, model, agenerator, alist):
         ),
     )
 
+    mock_stream = unittest.mock.AsyncMock()
+
+    async def mock_aiter(self):
+        for event in [mock_event_1, mock_event_2, mock_event_3]:
+            yield event
+
+    mock_stream.__aiter__ = mock_aiter
+    mock_stream.get_final_message.return_value = unittest.mock.Mock(
+        usage=unittest.mock.Mock(
+            model_dump=lambda: {"input_tokens": 1, "output_tokens": 2},
+        )
+    )
+
     mock_context = unittest.mock.AsyncMock()
-    mock_context.__aenter__.return_value = agenerator([mock_event_1, mock_event_2, mock_event_3])
+    mock_context.__aenter__.return_value = mock_stream
     anthropic_client.messages.stream.return_value = mock_context
 
     messages = [{"role": "user", "content": [{"text": "hello"}]}]
@@ -736,6 +749,57 @@ async def test_stream(anthropic_client, model, agenerator, alist):
         "tools": [],
     }
     anthropic_client.messages.stream.assert_called_once_with(**expected_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_early_termination(anthropic_client, model, alist, caplog):
+    caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+    mock_event = unittest.mock.Mock(
+        type="message_start",
+        model_dump=lambda: {"type": "message_start"},
+    )
+
+    mock_stream = unittest.mock.AsyncMock()
+
+    async def mock_aiter(self):
+        yield mock_event
+
+    mock_stream.__aiter__ = mock_aiter
+    mock_stream.get_final_message.side_effect = AssertionError("message snapshot is not available")
+
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = mock_stream
+    anthropic_client.messages.stream.return_value = mock_context
+
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+    tru_events = await alist(model.stream(messages, None, None))
+
+    assert len(tru_events) == 1
+    assert "messageStart" in tru_events[0]
+    assert "failed to retrieve message snapshot, usage metadata unavailable" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_empty(anthropic_client, model, alist, caplog):
+    caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+    mock_stream = unittest.mock.AsyncMock()
+
+    async def mock_aiter(self):
+        for event in []:
+            yield event
+
+    mock_stream.__aiter__ = mock_aiter
+    mock_stream.get_final_message.side_effect = AssertionError("message snapshot is not available")
+
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = mock_stream
+    anthropic_client.messages.stream.return_value = mock_context
+
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+    tru_events = await alist(model.stream(messages, None, None))
+
+    assert tru_events == []
+    assert "failed to retrieve message snapshot, usage metadata unavailable" in caplog.text
 
 
 @pytest.mark.asyncio
