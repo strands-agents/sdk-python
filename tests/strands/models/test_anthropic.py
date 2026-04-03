@@ -739,6 +739,52 @@ async def test_stream(anthropic_client, model, agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_premature_termination(anthropic_client, model, agenerator, alist):
+    """Test that stream fails clearly on premature termination.
+
+    When the Anthropic API stream ends before message_stop (e.g. network
+    timeout), the request should fail with a clear error instead of crashing
+    with AttributeError.
+
+    Regression test for #1868.
+    """
+    mock_event_1 = unittest.mock.Mock(
+        type="message_start",
+        model_dump=lambda: {"type": "message_start"},
+    )
+    # Last event has no .message attribute (simulating premature termination)
+    mock_event_2 = unittest.mock.Mock(
+        type="content_block_stop",
+        model_dump=lambda: {"type": "content_block_stop", "index": 0},
+        spec=["type", "model_dump"],
+    )
+
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = agenerator([mock_event_1, mock_event_2])
+    anthropic_client.messages.stream.return_value = mock_context
+
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+    response = model.stream(messages, None, None)
+
+    with pytest.raises(RuntimeError, match="without usage metadata"):
+        await alist(response)
+
+
+@pytest.mark.asyncio
+async def test_stream_empty_no_events(anthropic_client, model, agenerator, alist):
+    """Test that an empty stream fails clearly."""
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = agenerator([])
+    anthropic_client.messages.stream.return_value = mock_context
+
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+    response = model.stream(messages, None, None)
+
+    with pytest.raises(RuntimeError, match="before receiving any events"):
+        await alist(response)
+
+
+@pytest.mark.asyncio
 async def test_stream_rate_limit_error(anthropic_client, model, alist):
     anthropic_client.messages.stream.side_effect = anthropic.RateLimitError(
         "rate limit", response=unittest.mock.Mock(), body=None

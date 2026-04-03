@@ -396,6 +396,7 @@ class AnthropicModel(Model):
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the request is throttled by Anthropic.
+            RuntimeError: If the stream ends before final usage metadata is available.
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
@@ -405,11 +406,18 @@ class AnthropicModel(Model):
         try:
             async with self.client.messages.stream(**request) as stream:
                 logger.debug("got response from model")
+                event = None
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
                         yield self.format_chunk(event.model_dump())
 
-                usage = event.message.usage  # type: ignore
+                if event is None:
+                    raise RuntimeError("Anthropic stream terminated before receiving any events")
+
+                usage = getattr(getattr(event, "message", None), "usage", None)
+                if usage is None:
+                    raise RuntimeError("Anthropic stream ended without usage metadata")
+
                 yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
 
         except anthropic.RateLimitError as error:
