@@ -707,6 +707,20 @@ def test_end_tool_call_span_latest_conventions(mock_span, monkeypatch):
     mock_span.end.assert_called_once()
 
 
+def test_end_tool_call_span_with_error(mock_span):
+    """Test ending a tool call span with an explicit error sets StatusCode.ERROR."""
+    tracer = Tracer()
+    error = ValueError("tool exploded")
+    tool_result = {"status": "error", "content": [{"text": "Error: tool exploded"}]}
+
+    tracer.end_tool_call_span(mock_span, tool_result, error=error)
+
+    mock_span.set_attributes.assert_called_once_with({"gen_ai.tool.status": "error"})
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "tool exploded")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
 def test_start_event_loop_cycle_span(mock_tracer):
     """Test starting an event loop cycle span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):

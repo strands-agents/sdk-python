@@ -171,9 +171,15 @@ class ToolExecutor(abc.ABC):
                 }
 
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
-                    agent, None, tool_use, invocation_state, cancel_result, cancel_message=cancel_message
+                    agent,
+                    None,
+                    tool_use,
+                    invocation_state,
+                    cancel_result,
+                    exception=Exception(cancel_message),
+                    cancel_message=cancel_message,
                 )
-                yield ToolResultEvent(after_event.result)
+                yield ToolResultEvent(after_event.result, exception=after_event.exception)
                 tool_results.append(after_event.result)
                 return
 
@@ -202,15 +208,16 @@ class ToolExecutor(abc.ABC):
                         "content": [{"text": f"Unknown tool: {tool_name}"}],
                     }
 
+                    unknown_tool_error = Exception(f"Unknown tool: {tool_name}")
                     after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
-                        agent, selected_tool, tool_use, invocation_state, result
+                        agent, selected_tool, tool_use, invocation_state, result, exception=unknown_tool_error
                     )
                     # Check if retry requested for unknown tool error
                     # Use getattr because BidiAfterToolCallEvent doesn't have retry attribute
                     if getattr(after_event, "retry", False):
                         logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
                         continue
-                    yield ToolResultEvent(after_event.result)
+                    yield ToolResultEvent(after_event.result, exception=after_event.exception)
                     tool_results.append(after_event.result)
                     return
                 if structured_output_context.is_enabled:
@@ -258,7 +265,7 @@ class ToolExecutor(abc.ABC):
                     logger.debug("tool_name=<%s> | retry requested, retrying tool call", tool_name)
                     continue
 
-                yield ToolResultEvent(after_event.result)
+                yield ToolResultEvent(after_event.result, exception=after_event.exception)
                 tool_results.append(after_event.result)
                 return
 
@@ -277,7 +284,7 @@ class ToolExecutor(abc.ABC):
                 if getattr(after_event, "retry", False):
                     logger.debug("tool_name=<%s> | retry requested after exception, retrying tool call", tool_name)
                     continue
-                yield ToolResultEvent(after_event.result)
+                yield ToolResultEvent(after_event.result, exception=after_event.exception)
                 tool_results.append(after_event.result)
                 return
 
@@ -338,7 +345,7 @@ class ToolExecutor(abc.ABC):
                 agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
             cycle_trace.add_child(tool_trace)
 
-            tracer.end_tool_call_span(tool_call_span, result)
+            tracer.end_tool_call_span(tool_call_span, result, error=result_event.exception)
 
     @abc.abstractmethod
     # pragma: no cover
