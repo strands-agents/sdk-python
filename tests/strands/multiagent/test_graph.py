@@ -4,7 +4,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
-from strands.agent import Agent, AgentResult
+from strands.agent import Agent, AgentBase, AgentResult
 from strands.agent.state import AgentState
 from strands.hooks import AgentInitializedEvent, BeforeNodeCallEvent
 from strands.hooks.registry import HookProvider, HookRegistry
@@ -26,6 +26,7 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent.state = AgentState()
     agent.messages = []
     agent._interrupt_state = _InterruptState()
+    agent._model_state = {}
 
     if metrics is None:
         metrics = Mock(
@@ -1103,9 +1104,6 @@ async def test_state_reset_only_with_cycles_enabled():
     # Create GraphNode
     node = GraphNode("test_node", agent)
 
-    # Simulate agent being in completed_nodes (as if revisited)
-    from strands.multiagent.graph import GraphState
-
     state = GraphState()
     state.completed_nodes.add(node)
 
@@ -1989,7 +1987,10 @@ async def test_graph_multiagent_no_result_event(mock_strands_tracer, mock_use_sp
 
 @pytest.mark.asyncio
 async def test_graph_persisted(mock_strands_tracer, mock_use_span):
-    """Test graph persistence functionality."""
+    """Test graph persistence functionality with multimodal input containing binary bytes."""
+    import base64
+    import json
+
     # Create mock session manager
     session_manager = Mock(spec=FileSessionManager)
     session_manager.read_multi_agent().return_value = None
@@ -2014,7 +2015,40 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     assert "completed_nodes" in state
     assert "node_results" in state
 
-    # Test apply_state_from_dict with persisted state
+    # Build a multimodal prompt with inline binary PDF bytes (the problematic case)
+    pdf_bytes = b"%PDF-1.4 binary content"
+    multimodal_task = [
+        {"text": "Analyze this PDF"},
+        {
+            "document": {
+                "format": "pdf",
+                "name": "document.pdf",
+                "source": {
+                    "bytes": pdf_bytes,
+                },
+            }
+        },
+    ]
+
+    # Simulate graph having executed with a multimodal task
+    graph.state.task = multimodal_task
+
+    # serialize_state must not raise TypeError for bytes
+    serialized = graph.serialize_state()
+    assert json.dumps(serialized)  # must be JSON-serializable
+
+    # The bytes should be encoded in the serialized form
+    encoded_bytes = serialized["current_task"][1]["document"]["source"]["bytes"]
+    assert encoded_bytes == {"__bytes_encoded__": True, "data": base64.b64encode(pdf_bytes).decode()}
+
+    # deserialize_state must restore bytes back to original
+    serialized["next_nodes_to_execute"] = ["test_node"]
+    serialized["status"] = "executing"
+    graph.deserialize_state(serialized)
+    restored_bytes = graph.state.task[1]["document"]["source"]["bytes"]
+    assert restored_bytes == pdf_bytes
+
+    # Test apply_state_from_dict with plain string persisted state (backward compat)
     persisted_state = {
         "status": "executing",
         "completed_nodes": [],
@@ -2228,7 +2262,8 @@ def test_graph_interrupt_on_agent(agenerator):
         ],
     )
     graph._interrupt_state.context["test_agent"] = {
-        "activated": True,
+        "from_hook": False,
+        "interrupt_ids": [interrupt.id],
         "interrupt_state": {
             "activated": True,
             "context": {},
@@ -2236,6 +2271,7 @@ def test_graph_interrupt_on_agent(agenerator):
         },
         "messages": [],
         "state": {},
+        "model_state": {},
     }
 
     responses = [
@@ -2259,3 +2295,186 @@ def test_graph_interrupt_on_agent(agenerator):
     assert len(multiagent_result.results) == 1
 
     agent.stream_async.assert_called_once_with(responses, invocation_state={})
+
+
+def test_graph_interrupt_on_multiagent(agenerator):
+    exp_interrupts = [
+        Interrupt(
+            id="test_id",
+            name="test_name",
+            reason="test_reason",
+        )
+    ]
+
+    multiagent = create_mock_multi_agent("test_multiagent", "Multi-agent completed")
+    multiagent.stream_async = Mock()
+    multiagent.stream_async.return_value = agenerator(
+        [
+            {
+                "result": MultiAgentResult(
+                    results={},
+                    status=Status.INTERRUPTED,
+                    interrupts=exp_interrupts,
+                ),
+            },
+        ],
+    )
+
+    builder = GraphBuilder()
+    builder.add_node(multiagent, "test_multiagent")
+    graph = builder.build()
+
+    multiagent_result = graph("Test task")
+
+    tru_result_status = multiagent_result.status
+    exp_result_status = Status.INTERRUPTED
+    assert tru_result_status == exp_result_status
+
+    tru_state_status = graph.state.status
+    exp_state_status = Status.INTERRUPTED
+    assert tru_state_status == exp_state_status
+
+    tru_node_ids = [node.node_id for node in graph.state.interrupted_nodes]
+    exp_node_ids = ["test_multiagent"]
+    assert tru_node_ids == exp_node_ids
+
+    tru_interrupts = multiagent_result.interrupts
+    assert tru_interrupts == exp_interrupts
+
+    interrupt = multiagent_result.interrupts[0]
+
+    multiagent.stream_async = Mock()
+    multiagent.stream_async.return_value = agenerator(
+        [
+            {
+                "result": MultiAgentResult(
+                    results={
+                        "inner_node": NodeResult(
+                            result=AgentResult(
+                                message={"role": "assistant", "content": [{"text": "Inner completed"}]},
+                                stop_reason="end_turn",
+                                state={},
+                                metrics={},
+                            )
+                        )
+                    },
+                    status=Status.COMPLETED,
+                ),
+            },
+        ],
+    )
+    graph._interrupt_state.context["test_multiagent"] = {
+        "from_hook": False,
+        "interrupt_ids": [interrupt.id],
+    }
+
+    responses = [
+        {
+            "interruptResponse": {
+                "interruptId": interrupt.id,
+                "response": "test_response",
+            },
+        },
+    ]
+    multiagent_result = graph(responses)
+
+    tru_result_status = multiagent_result.status
+    exp_result_status = Status.COMPLETED
+    assert tru_result_status == exp_result_status
+
+    tru_state_status = graph.state.status
+    exp_state_status = Status.COMPLETED
+    assert tru_state_status == exp_state_status
+
+    assert len(multiagent_result.results) == 1
+
+    multiagent.stream_async.assert_called_once_with(responses, {})
+
+
+@pytest.mark.asyncio
+async def test_graph_with_agentbase_implementation(mock_strands_tracer, mock_use_span):
+    """Test that Graph accepts any AgentBase implementation (not just Agent)."""
+
+    # Create a minimal AgentBase implementation
+    class CustomAgentBase:
+        """Custom AgentBase implementation for testing."""
+
+        def __init__(self, name: str, response_text: str):
+            self.name = name
+            self.id = f"{name}_id"
+            self._response_text = response_text
+
+        def __call__(self, prompt=None, **kwargs):
+            return AgentResult(
+                message={"role": "assistant", "content": [{"text": self._response_text}]},
+                stop_reason="end_turn",
+                state={},
+                metrics=Mock(
+                    accumulated_usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                    accumulated_metrics={"latencyMs": 100.0},
+                ),
+            )
+
+        async def invoke_async(self, prompt=None, **kwargs):
+            return self(prompt, **kwargs)
+
+        async def stream_async(self, prompt=None, **kwargs):
+            yield {"start": True}
+            yield {"result": self(prompt, **kwargs)}
+
+    # Verify it satisfies AgentBase protocol
+    custom_agent = CustomAgentBase("custom", "Custom response")
+    assert isinstance(custom_agent, AgentBase)
+
+    # Create a regular mock agent
+    regular_agent = create_mock_agent("regular", "Regular response")
+
+    # Build graph with both
+    builder = GraphBuilder()
+    builder.add_node(custom_agent, "custom_node")
+    builder.add_node(regular_agent, "regular_node")
+    builder.add_edge("custom_node", "regular_node")
+    builder.set_entry_point("custom_node")
+    graph = builder.build()
+
+    result = await graph.invoke_async("Test task")
+
+    assert result.status == Status.COMPLETED
+    assert result.completed_nodes == 2
+    assert "custom_node" in result.results
+    assert "regular_node" in result.results
+
+
+def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
+    """Verify _find_newly_ready_nodes only checks destinations of outbound edges from completed batch.
+
+    Previously, it iterated over ALL nodes, which could cause nodes to fire
+    before their actual dependencies completed.
+
+    See: https://github.com/strands-agents/sdk-python/issues/685
+    """
+    # Build a graph: A -> B -> C, D -> E (independent chain)
+    node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+    node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+    node_c = GraphNode(node_id="C", executor=create_mock_agent("C"))
+    node_d = GraphNode(node_id="D", executor=create_mock_agent("D"))
+    node_e = GraphNode(node_id="E", executor=create_mock_agent("E"))
+
+    graph = Graph.__new__(Graph)
+    graph.nodes = {"A": node_a, "B": node_b, "C": node_c, "D": node_d, "E": node_e}
+    graph.edges = [
+        GraphEdge(from_node=node_a, to_node=node_b),
+        GraphEdge(from_node=node_b, to_node=node_c),
+        GraphEdge(from_node=node_d, to_node=node_e),
+    ]
+    graph.state = GraphState()
+
+    # When A completes, only B should be ready (not E)
+    ready = graph._find_newly_ready_nodes([node_a])
+    ready_ids = {n.node_id for n in ready}
+    assert ready_ids == {"B"}, f"Expected only B, got {ready_ids}"
+
+    # When D completes, only E should be ready (not B or C)
+    ready = graph._find_newly_ready_nodes([node_d])
+    ready_ids = {n.node_id for n in ready}
+    assert ready_ids == {"E"}, f"Expected only E, got {ready_ids}"

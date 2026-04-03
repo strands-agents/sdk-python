@@ -1,5 +1,6 @@
 """Repository session manager implementation."""
 
+import copy
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -51,13 +52,19 @@ class RepositorySessionManager(SessionManager):
         # Create a session if it does not exist yet
         if session is None:
             logger.debug("session_id=<%s> | session not found, creating new session", self.session_id)
+            self._is_new_session = True
             session = Session(session_id=session_id, session_type=SessionType.AGENT)
             session_repository.create_session(session)
+        else:
+            self._is_new_session = False
 
         self.session = session
 
         # Keep track of the latest message of each agent in case we need to redact it.
         self._latest_agent_message: dict[str, SessionMessage | None] = {}
+
+        # Track the previously synced internal state for each agent to detect changes.
+        self._last_synced_internal_state: dict[str, dict[str, Any]] = {}
 
     def append_message(self, message: Message, agent: "Agent", **kwargs: Any) -> None:
         """Append a message to the agent's session.
@@ -95,14 +102,69 @@ class RepositorySessionManager(SessionManager):
     def sync_agent(self, agent: "Agent", **kwargs: Any) -> None:
         """Serialize and update the agent into the session repository.
 
+        Only updates the agent if state has been modified or internal state has changed.
+        This optimization reduces unnecessary I/O operations when the agent processes
+        messages without modifying its state.
+
         Args:
             agent: Agent to sync to the session.
             **kwargs: Additional keyword arguments for future extensibility.
         """
+        # Get current versions and conversation manager state
+        current_state_version = agent.state._get_version()
+        current_interrupt_state_version = agent._interrupt_state._get_version()
+        current_conversation_manager_state = agent.conversation_manager.get_state()
+        current_model_state = agent._model_state
+
+        # Check if we have a previous state to compare against
+        last_synced = self._last_synced_internal_state.get(agent.agent_id)
+
+        # Determine if we need to update by comparing versions
+        if last_synced is None:
+            # First sync for this agent - always update
+            state_changed = True
+            internal_state_changed = True
+            conversation_manager_state_changed = True
+        else:
+            state_changed = current_state_version != last_synced.get("state_version")
+            internal_state_changed = current_interrupt_state_version != last_synced.get(
+                "interrupt_state_version"
+            ) or current_model_state != last_synced.get("model_state")
+            conversation_manager_state_changed = current_conversation_manager_state != last_synced.get(
+                "conversation_manager_state"
+            )
+
+        if not state_changed and not internal_state_changed and not conversation_manager_state_changed:
+            logger.debug(
+                "agent_id=<%s> | session_id=<%s> | skipping sync, no changes detected",
+                agent.agent_id,
+                self.session_id,
+            )
+            return
+
+        logger.debug(
+            "agent_id=<%s> | session_id=<%s> | state_changed=<%s>, internal_state_changed=<%s>, "
+            "conversation_manager_state_changed=<%s> | syncing agent",
+            agent.agent_id,
+            self.session_id,
+            state_changed,
+            internal_state_changed,
+            conversation_manager_state_changed,
+        )
+
+        # Perform the update
         self.session_repository.update_agent(
             self.session_id,
             SessionAgent.from_agent(agent),
         )
+
+        # Update tracked versions after successful sync
+        self._last_synced_internal_state[agent.agent_id] = {
+            "state_version": current_state_version,
+            "interrupt_state_version": current_interrupt_state_version,
+            "conversation_manager_state": copy.deepcopy(current_conversation_manager_state),
+            "model_state": copy.deepcopy(current_model_state),
+        }
 
     def initialize(self, agent: "Agent", **kwargs: Any) -> None:
         """Initialize an agent with a session.
@@ -115,7 +177,11 @@ class RepositorySessionManager(SessionManager):
             raise SessionException("The `agent_id` of an agent must be unique in a session.")
         self._latest_agent_message[agent.agent_id] = None
 
-        session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
+        # Skip read_agent call for new sessions since no agents can exist yet
+        if self._is_new_session:
+            session_agent = None
+        else:
+            session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
 
         if session_agent is None:
             logger.debug(
@@ -158,11 +224,23 @@ class RepositorySessionManager(SessionManager):
             if len(session_messages) > 0:
                 self._latest_agent_message[agent.agent_id] = session_messages[-1]
 
-            # Restore the agents messages array including the optional prepend messages
-            agent.messages = prepend_messages + [session_message.to_message() for session_message in session_messages]
+            # Skip restoring messages when conversation is managed server-side
+            if agent.model.stateful:
+                logger.debug(
+                    "agent_id=<%s> | session_id=<%s> | skipping message restore for server-managed conversation",
+                    agent.agent_id,
+                    self.session_id,
+                )
+            else:
+                # Restore the agents messages array including the optional prepend messages
+                agent.messages = prepend_messages + [
+                    session_message.to_message() for session_message in session_messages
+                ]
 
-            # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
-            agent.messages = self._fix_broken_tool_use(agent.messages)
+                # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
+                agent.messages = self._fix_broken_tool_use(agent.messages)
+
+        self._is_new_session = False
 
     def _fix_broken_tool_use(self, messages: list[Message]) -> list[Message]:
         """Fix broken tool use/result pairs in message history.
@@ -244,12 +322,19 @@ class RepositorySessionManager(SessionManager):
             source: Multi-agent source object to restore state into
             **kwargs: Additional keyword arguments for future extensibility.
         """
-        state = self.session_repository.read_multi_agent(self.session_id, source.id, **kwargs)
+        # Skip read_multi_agent call for new sessions since no multi-agents can exist yet
+        if self._is_new_session:
+            state = None
+        else:
+            state = self.session_repository.read_multi_agent(self.session_id, source.id, **kwargs)
+
         if state is None:
             self.session_repository.create_multi_agent(self.session_id, source, **kwargs)
         else:
             logger.debug("session_id=<%s> | restoring multi-agent state", self.session_id)
             source.deserialize_state(state)
+
+        self._is_new_session = False
 
     def initialize_bidi_agent(self, agent: "BidiAgent", **kwargs: Any) -> None:
         """Initialize a bidirectional agent with a session.
@@ -262,7 +347,11 @@ class RepositorySessionManager(SessionManager):
             raise SessionException("The `agent_id` of an agent must be unique in a session.")
         self._latest_agent_message[agent.agent_id] = None
 
-        session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
+        # Skip read_agent call for new sessions since no agents can exist yet
+        if self._is_new_session:
+            session_agent = None
+        else:
+            session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
 
         if session_agent is None:
             logger.debug(
@@ -303,6 +392,8 @@ class RepositorySessionManager(SessionManager):
 
             # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
             agent.messages = self._fix_broken_tool_use(agent.messages)
+
+        self._is_new_session = False
 
     def append_bidi_message(self, message: Message, agent: "BidiAgent", **kwargs: Any) -> None:
         """Append a message to the bidirectional agent's session.

@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from strands.experimental.tools.tool_provider import ToolProvider
+from strands.tools import ToolProvider
 from strands.tools.registry import ToolRegistry
 from tests.fixtures.mock_agent_tool import MockAgentTool
 

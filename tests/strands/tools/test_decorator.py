@@ -136,7 +136,7 @@ async def test_stream_with_agent(alist):
 
     tru_events = await alist(stream)
     exp_events = [
-        ToolResultEvent({"toolUseId": "unknown", "status": "success", "content": [{"text": "(2, {'state': 1})"}]})
+        ToolResultEvent({"toolUseId": "unknown", "status": "success", "content": [{"text": '[2, {"state": 1}]'}]})
     ]
     assert tru_events == exp_events
 
@@ -595,12 +595,12 @@ async def test_tool_decorator_with_different_return_values(alist):
     assert result["tool_result"]["status"] == "success"
     assert result["tool_result"]["content"][0]["text"] == "Result: test"
 
-    # Test None return - should still create valid ToolResult with "None" text
+    # Test None return - should still create valid ToolResult with "null"
     stream = none_return_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
     assert result["tool_result"]["status"] == "success"
-    assert result["tool_result"]["content"][0]["text"] == "None"
+    assert result["tool_result"]["content"][0]["text"] == "null"
 
 
 @pytest.mark.asyncio
@@ -861,7 +861,7 @@ async def test_return_type_validation(alist):
 
     result = (await alist(stream))[-1]
     assert result["tool_result"]["status"] == "success"
-    assert result["tool_result"]["content"][0]["text"] == "None"
+    assert result["tool_result"]["content"][0]["text"] == "null"
 
     # Define tool with Union return type
     @strands.tool
@@ -884,10 +884,7 @@ async def test_return_type_validation(alist):
 
     result = (await alist(stream))[-1]
     assert result["tool_result"]["status"] == "success"
-    assert (
-        "{'key': 'value'}" in result["tool_result"]["content"][0]["text"]
-        or '{"key": "value"}' in result["tool_result"]["content"][0]["text"]
-    )
+    assert result["tool_result"]["content"][0]["text"] == '{"key": "value"}'
 
     tool_use = {"toolUseId": "test-id", "input": {"param": "str"}}
     stream = union_return_tool.stream(tool_use, {})
@@ -901,7 +898,7 @@ async def test_return_type_validation(alist):
 
     result = (await alist(stream))[-1]
     assert result["tool_result"]["status"] == "success"
-    assert result["tool_result"]["content"][0]["text"] == "None"
+    assert result["tool_result"]["content"][0]["text"] == "null"
 
 
 @pytest.mark.asyncio
@@ -990,6 +987,132 @@ async def test_custom_tool_result_handling(alist):
     assert result["tool_result"]["content"][0]["text"] == "First line: test"
     assert result["tool_result"]["content"][1]["text"] == "Second line"
     assert result["tool_result"]["content"][1]["type"] == "markdown"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_json_serialization_dict(alist):
+    """Test that dict results are serialized as JSON."""
+
+    @strands.tool
+    def dict_tool() -> dict:
+        """Returns a dict."""
+        return {"key": "value", "number": 42}
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = dict_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == '{"key": "value", "number": 42}'
+
+
+@pytest.mark.asyncio
+async def test_tool_result_json_serialization_list(alist):
+    """Test that list results are serialized as JSON."""
+
+    @strands.tool
+    def list_tool() -> list:
+        """Returns a list."""
+        return [1, "two", {"three": 3}]
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = list_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == '[1, "two", {"three": 3}]'
+
+
+@pytest.mark.asyncio
+async def test_tool_result_json_serialization_pydantic(alist):
+    """Test that Pydantic model results are serialized as JSON."""
+    from pydantic import BaseModel
+
+    class MyModel(BaseModel):
+        name: str
+        count: int
+
+    @strands.tool
+    def pydantic_tool() -> MyModel:
+        """Returns a Pydantic model."""
+        return MyModel(name="test", count=5)
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = pydantic_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == '{"name":"test","count":5}'
+
+
+@pytest.mark.asyncio
+async def test_tool_result_json_serialization_pydantic_non_serializable(alist):
+    """Test that Pydantic models with non-serializable fields fall back to str()."""
+    from pydantic import BaseModel
+
+    class NonSerializable:
+        def __repr__(self):
+            return "NonSerializable()"
+
+    class MyModel(BaseModel):
+        model_config = {"arbitrary_types_allowed": True}
+        data: NonSerializable
+
+    @strands.tool
+    def pydantic_tool() -> MyModel:
+        """Returns a Pydantic model with non-serializable field."""
+        return MyModel(data=NonSerializable())
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = pydantic_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == "data=NonSerializable()"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_json_serialization_non_serializable(alist):
+    """Test that non-JSON-serializable results fall back to str()."""
+
+    class CustomClass:
+        def __str__(self):
+            return "custom_str_repr"
+
+    @strands.tool
+    def custom_tool() -> Any:
+        """Returns a non-serializable object."""
+        return CustomClass()
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = custom_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == "custom_str_repr"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_string_not_json_encoded(alist):
+    """Test that string results are NOT JSON-encoded (no extra quotes)."""
+
+    @strands.tool
+    def string_tool() -> str:
+        """Returns a string."""
+        return "hello world"
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    stream = string_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    text = result["tool_result"]["content"][0]["text"]
+
+    assert text == "hello world"
 
 
 def test_docstring_parsing():
@@ -1823,3 +1946,158 @@ def test_tool_decorator_annotated_field_with_inner_default():
         @strands.tool
         def inner_default_tool(name: str, level: Annotated[int, Field(description="A level value", default=10)]) -> str:
             return f"{name} is at level {level}"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_carries_exception_runtime_error(alist):
+    """Test that ToolResultEvent carries exception when tool raises RuntimeError."""
+
+    @strands.tool
+    def error_tool():
+        """Tool that raises a RuntimeError."""
+        raise RuntimeError("test runtime error")
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(error_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert hasattr(result_event, "exception")
+    assert isinstance(result_event.exception, RuntimeError)
+    assert str(result_event.exception) == "test runtime error"
+    assert result_event.tool_result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_carries_exception_value_error(alist):
+    """Test that ToolResultEvent carries exception when tool raises ValueError."""
+
+    @strands.tool
+    def validation_error_tool():
+        """Tool that raises a ValueError."""
+        raise ValueError("validation failed")
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(validation_error_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert hasattr(result_event, "exception")
+    assert isinstance(result_event.exception, ValueError)
+    assert str(result_event.exception) == "validation failed"
+    assert result_event.tool_result["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_no_exception_on_success(alist):
+    """Test that ToolResultEvent.exception is None when tool succeeds."""
+
+    @strands.tool
+    def success_tool():
+        """Tool that succeeds."""
+        return "success"
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(success_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert result_event.exception is None
+    assert result_event.tool_result["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_tool_result_event_carries_exception_assertion_error(alist):
+    """Test that ToolResultEvent carries AssertionError for unexpected failures."""
+
+    @strands.tool
+    def assertion_error_tool():
+        """Tool that raises an AssertionError."""
+        raise AssertionError("unexpected assertion failure")
+
+    tool_use = {"toolUseId": "test-id", "input": {}}
+    events = await alist(assertion_error_tool.stream(tool_use, {}))
+
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert isinstance(result_event.exception, AssertionError)
+    assert "unexpected assertion failure" in str(result_event.exception)
+    assert result_event.tool_result["status"] == "error"
+
+
+def test_tool_nullable_required_field_preserves_anyof():
+    """Test that a required nullable field preserves anyOf so the model can pass null.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1525
+    """
+    from enum import Enum
+
+    class Priority(str, Enum):
+        HIGH = "high"
+        MEDIUM = "medium"
+        LOW = "low"
+
+    @strands.tool
+    def prioritized_task(description: str, priority: Priority | None) -> str:
+        """Create a task with optional priority.
+
+        Args:
+            description: Task description
+            priority: Optional priority level
+        """
+        return f"{description}: {priority}"
+
+    spec = prioritized_task.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    expected_schema = {
+        "$defs": {
+            "Priority": {
+                "enum": ["high", "medium", "low"],
+                "title": "Priority",
+                "type": "string",
+            },
+        },
+        "type": "object",
+        "properties": {
+            "description": {
+                "type": "string",
+                "description": "Task description",
+            },
+            "priority": {
+                "anyOf": [
+                    {"$ref": "#/$defs/Priority"},
+                    {"type": "null"},
+                ],
+                "description": "Optional priority level",
+            },
+        },
+        "required": ["description", "priority"],
+    }
+
+    assert schema == expected_schema
+
+
+def test_tool_nullable_optional_field_simplifies_anyof():
+    """Test that a non-required nullable field still gets anyOf simplified."""
+
+    @strands.tool
+    def my_tool(name: str, tag: str | None = None) -> str:
+        """A tool.
+
+        Args:
+            name: The name
+            tag: An optional tag
+        """
+        return f"{name}: {tag}"
+
+    spec = my_tool.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # tag has a default, so it should NOT be required
+    assert "name" in schema["required"]
+    assert "tag" not in schema["required"]
+
+    # Since tag is not required, anyOf should be simplified away
+    assert "anyOf" not in schema["properties"]["tag"]
+    assert schema["properties"]["tag"]["type"] == "string"

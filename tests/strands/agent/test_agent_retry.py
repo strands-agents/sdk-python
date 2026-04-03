@@ -14,7 +14,7 @@ from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
 def test_agent_with_default_retry_strategy():
-    """Test that Agent uses ModelRetryStrategy by default when retry_strategy=None."""
+    """Test that Agent uses ModelRetryStrategy by default when retry_strategy is not provided."""
     agent = Agent()
 
     # Should have a retry_strategy
@@ -25,6 +25,16 @@ def test_agent_with_default_retry_strategy():
     assert agent._retry_strategy._max_attempts == 6
     assert agent._retry_strategy._initial_delay == 4
     assert agent._retry_strategy._max_delay == 240
+
+
+def test_agent_with_retry_strategy_none_disables_retries():
+    """Test that Agent disables retries when retry_strategy=None is explicitly passed."""
+    agent = Agent(retry_strategy=None)
+
+    # Should have a retry_strategy with max_attempts=1 (no retries)
+    assert agent._retry_strategy is not None
+    assert isinstance(agent._retry_strategy, ModelRetryStrategy)
+    assert agent._retry_strategy._max_attempts == 1
 
 
 def test_agent_with_custom_model_retry_strategy():
@@ -159,3 +169,21 @@ async def test_event_loop_throttle_event_emitted(mock_sleep):
 
     # Should have the correct delay value
     assert throttle_events[0]["event_loop_throttled_delay"] > 0
+
+
+@pytest.mark.asyncio
+async def test_agent_no_retry_when_retry_strategy_none(mock_sleep):
+    """Test that Agent does not retry when retry_strategy=None."""
+    # Create a model that fails with throttling
+    model = Mock()
+    model.stream.side_effect = ModelThrottledException("ThrottlingException")
+
+    # Explicitly disable retries
+    agent = Agent(model=model, retry_strategy=None)
+
+    with pytest.raises(ModelThrottledException):
+        result = agent.stream_async("test prompt")
+        _ = [event async for event in result]
+
+    # Should not have slept at all (no retries)
+    assert len(mock_sleep.sleep_calls) == 0

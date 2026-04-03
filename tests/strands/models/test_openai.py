@@ -1,3 +1,4 @@
+import logging
 import unittest.mock
 
 import openai
@@ -172,11 +173,152 @@ def test_format_request_tool_message():
 
     tru_result = OpenAIModel.format_request_tool_message(tool_result)
     exp_result = {
-        "content": [{"text": "4", "type": "text"}, {"text": '["4"]', "type": "text"}],
+        "content": '4\n["4"]',
         "role": "tool",
         "tool_call_id": "c1",
     }
     assert tru_result == exp_result
+
+
+def test_format_request_tool_message_single_text_returns_string():
+    """Test that single text content is returned as string for model compatibility."""
+    tool_result = {
+        "content": [{"text": '{"result": "success"}'}],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    exp_result = {
+        "content": '{"result": "success"}',
+        "role": "tool",
+        "tool_call_id": "c1",
+    }
+    assert tru_result == exp_result
+
+
+def test_format_request_tool_message_multi_text_returns_joined_string():
+    """Test that multi-content text results are joined into a single string.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1696.
+    OpenAI-compatible endpoints (e.g., Kimi K2.5, vLLM, Ollama) only correctly
+    parse string content for tool messages; array format causes hallucinated results.
+    """
+    tool_result = {
+        "content": [
+            {"text": "Temperature: 72°F"},
+            {"json": {"humidity": 45, "unit": "%"}},
+            {"text": "Wind: 5 mph"},
+        ],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    exp_result = {
+        "content": 'Temperature: 72°F\n{"humidity": 45, "unit": "%"}\nWind: 5 mph',
+        "role": "tool",
+        "tool_call_id": "c1",
+    }
+    assert tru_result == exp_result
+
+
+def test_format_request_tool_message_mixed_text_image_preserves_order():
+    """Test that text and image content blocks preserve their original order."""
+    tool_result = {
+        "content": [
+            {"text": "Before image"},
+            {"image": {"format": "png", "source": {"bytes": b"PNG"}}},
+            {"text": "After image"},
+        ],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    content = tru_result["content"]
+    # Array format since images are present
+    assert isinstance(content, list)
+    assert len(content) == 3
+    # Order preserved: text, image, text
+    assert content[0] == {"type": "text", "text": "Before image"}
+    assert content[1]["type"] == "image_url"
+    assert content[2] == {"type": "text", "text": "After image"}
+
+
+def test_format_request_tool_message_merges_adjacent_text():
+    """Test that adjacent text blocks are merged while non-text order is preserved."""
+    tool_result = {
+        "content": [
+            {"text": "Line 1"},
+            {"text": "Line 2"},
+            {"image": {"format": "png", "source": {"bytes": b"PNG"}}},
+            {"text": "Line 3"},
+        ],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    content = tru_result["content"]
+    assert isinstance(content, list)
+    assert len(content) == 3
+    # Adjacent text merged, image order preserved
+    assert content[0] == {"type": "text", "text": "Line 1\nLine 2"}
+    assert content[1]["type"] == "image_url"
+    assert content[2] == {"type": "text", "text": "Line 3"}
+
+
+def test_format_request_tool_message_image_only():
+    """Test tool message with only non-text content."""
+    tool_result = {
+        "content": [
+            {"image": {"format": "png", "source": {"bytes": b"PNG"}}},
+        ],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    content = tru_result["content"]
+    assert isinstance(content, list)
+    assert len(content) == 1
+    assert content[0]["type"] == "image_url"
+
+
+def test_format_request_tool_message_document_mixed():
+    """Test tool message with document content mixed with text."""
+    tool_result = {
+        "content": [
+            {"text": "Summary"},
+            {"document": {"format": "pdf", "name": "report.pdf", "source": {"bytes": b"PDF"}}},
+            {"text": "Footer"},
+        ],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    content = tru_result["content"]
+    assert isinstance(content, list)
+    assert len(content) == 3
+    assert content[0] == {"type": "text", "text": "Summary"}
+    assert content[1]["type"] == "file"
+    assert content[2] == {"type": "text", "text": "Footer"}
+
+
+def test_format_request_tool_message_empty_content():
+    """Test tool message with empty content list returns empty string."""
+    tool_result = {
+        "content": [],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    assert tru_result["content"] == ""
+    assert tru_result["role"] == "tool"
+    assert tru_result["tool_call_id"] == "c1"
 
 
 def test_split_tool_message_images_with_image():
@@ -440,7 +582,7 @@ def test_format_request_messages(system_prompt):
             ],
         },
         {
-            "content": [{"text": "4", "type": "text"}],
+            "content": "4",
             "role": "tool",
             "tool_call_id": "c1",
         },
@@ -1035,6 +1177,92 @@ async def test_stream_context_overflow_exception(openai_client, model, messages)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Input is too long for requested model",
+        "input length and `max_tokens` exceed context limit",
+        "too many total text bytes",
+    ],
+)
+async def test_stream_alternative_context_overflow_messages(openai_client, model, messages, error_message):
+    """Test that alternative context overflow messages in APIError are properly converted."""
+    # Create a mock OpenAI APIError with alternative context overflow message
+    mock_error = openai.APIError(
+        message=error_message,
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": error_message}},
+    )
+
+    # Configure the mock client to raise the APIError
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that the stream method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert error_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error_message",
+    [
+        "Input is too long for requested model",
+        "input length and `max_tokens` exceed context limit",
+        "too many total text bytes",
+    ],
+)
+async def test_structured_output_alternative_context_overflow_messages(
+    openai_client, model, messages, test_output_model_cls, error_message
+):
+    """Test that alternative context overflow messages in APIError are properly converted in structured output."""
+    # Create a mock OpenAI APIError with alternative context overflow message
+    mock_error = openai.APIError(
+        message=error_message,
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": error_message}},
+    )
+
+    # Configure the mock client to raise the APIError
+    openai_client.beta.chat.completions.parse.side_effect = mock_error
+
+    # Test that the structured_output method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert error_message in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_api_error_passthrough(openai_client, model, messages):
+    """Test that APIError without overflow messages passes through unchanged."""
+    # Create a mock OpenAI APIError without overflow message
+    mock_error = openai.APIError(
+        message="Some other API error",
+        request=unittest.mock.MagicMock(),
+        body={"error": {"message": "Some other API error"}},
+    )
+
+    # Configure the mock client to raise the APIError
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that APIError without overflow messages passes through
+    with pytest.raises(openai.APIError) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the original exception is raised, not ContextWindowOverflowException
+    assert exc_info.value == mock_error
+
+
+@pytest.mark.asyncio
 async def test_stream_other_bad_request_errors_passthrough(openai_client, model, messages):
     """Test that other BadRequestError exceptions are not converted to ContextWindowOverflowException."""
     # Create a mock OpenAI BadRequestError with a different error code
@@ -1246,3 +1474,186 @@ def test_init_with_both_client_and_client_args_raises_error():
 
     with pytest.raises(ValueError, match="Only one of 'client' or 'client_args' should be provided"):
         OpenAIModel(client=mock_client, client_args={"api_key": "test"}, model_id="test-model")
+
+
+def test_format_request_filters_s3_source_image(model, caplog):
+    """Test that images with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.openai")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "look at this image"},
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Image with S3 source should be filtered, text should remain
+    formatted_content = request["messages"][0]["content"]
+    assert len(formatted_content) == 1
+    assert formatted_content[0]["type"] == "text"
+    assert "Location sources are not supported by OpenAI" in caplog.text
+
+
+def test_format_request_filters_location_source_document(model, caplog):
+    """Test that documents with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.openai")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this document"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Document with S3 source should be filtered, text should remain
+    formatted_content = request["messages"][0]["content"]
+    assert len(formatted_content) == 1
+    assert formatted_content[0]["type"] == "text"
+    assert "Location sources are not supported by OpenAI" in caplog.text
+
+
+def test_format_request_messages_with_tool_calls_no_content():
+    """Test that assistant messages with only tool calls are included and have no content field."""
+    messages = [
+        {"role": "user", "content": [{"text": "Use the calculator"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "input": {"expression": "2+2"},
+                        "name": "calculator",
+                        "toolUseId": "c1",
+                    },
+                },
+            ],
+        },
+    ]
+
+    tru_result = OpenAIModel.format_request_messages(messages)
+
+    exp_result = [
+        {"role": "user", "content": [{"text": "Use the calculator", "type": "text"}]},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "function": {"arguments": '{"expression": "2+2"}', "name": "calculator"},
+                    "id": "c1",
+                    "type": "function",
+                }
+            ],
+        },
+    ]
+    assert tru_result == exp_result
+
+
+def test_format_request_messages_multiple_tool_calls_with_images():
+    """Test that multiple tool calls with image results are formatted correctly.
+
+    OpenAI requires all tool response messages to immediately follow the assistant
+    message with tool_calls, before any other messages. When tools return images,
+    the images are moved to user messages, but these must come after ALL tool messages.
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "Run the tools"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"input": {}, "name": "tool1", "toolUseId": "call_1"}},
+                {"toolUse": {"input": {}, "name": "tool2", "toolUseId": "call_2"}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "call_1",
+                        "content": [{"image": {"format": "png", "source": {"bytes": b"img1"}}}],
+                        "status": "success",
+                    }
+                },
+                {
+                    "toolResult": {
+                        "toolUseId": "call_2",
+                        "content": [{"image": {"format": "png", "source": {"bytes": b"img2"}}}],
+                        "status": "success",
+                    }
+                },
+            ],
+        },
+    ]
+
+    tru_result = OpenAIModel.format_request_messages(messages)
+
+    image_placeholder = (
+        "Tool successfully returned an image. The image is being provided in the following user message."
+    )
+    exp_result = [
+        {"role": "user", "content": [{"text": "Run the tools", "type": "text"}]},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"function": {"arguments": "{}", "name": "tool1"}, "id": "call_1", "type": "function"},
+                {"function": {"arguments": "{}", "name": "tool2"}, "id": "call_2", "type": "function"},
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": [{"type": "text", "text": image_placeholder}],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_2",
+            "content": [{"type": "text", "text": image_placeholder}],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image_url": {"detail": "auto", "format": "image/png", "url": "data:image/png;base64,aW1nMQ=="},
+                    "type": "image_url",
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image_url": {"detail": "auto", "format": "image/png", "url": "data:image/png;base64,aW1nMg=="},
+                    "type": "image_url",
+                }
+            ],
+        },
+    ]
+    assert tru_result == exp_result

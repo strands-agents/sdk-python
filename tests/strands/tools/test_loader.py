@@ -10,6 +10,14 @@ from strands.tools.decorator import DecoratedFunctionTool
 from strands.tools.loader import _TOOL_MODULE_PREFIX, ToolLoader, load_tools_from_file_path
 from strands.tools.tools import PythonAgentTool
 
+# Suppress deprecation warnings for deprecated ToolLoader methods being tested
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:ToolLoader.load_python_tool is deprecated:DeprecationWarning",
+    "ignore:ToolLoader.load_python_tools is deprecated:DeprecationWarning",
+    "ignore:ToolLoader.load_tool is deprecated:DeprecationWarning",
+    "ignore:ToolLoader.load_tools is deprecated:DeprecationWarning",
+)
+
 
 @pytest.fixture
 def tool_path(request, tmp_path, monkeypatch):

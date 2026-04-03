@@ -1,4 +1,5 @@
 import json
+import logging
 import unittest.mock
 
 import pydantic
@@ -393,8 +394,8 @@ def test_format_chunk_metadata(model):
     exp_chunk = {
         "metadata": {
             "usage": {
-                "inputTokens": 100,
-                "outputTokens": 50,
+                "inputTokens": 50,
+                "outputTokens": 100,
                 "totalTokens": 150,
             },
             "metrics": {
@@ -437,7 +438,7 @@ async def test_stream(ollama_client, model, agenerator, alist, captured_warnings
         {"messageStop": {"stopReason": "end_turn"}},
         {
             "metadata": {
-                "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+                "usage": {"inputTokens": 5, "outputTokens": 10, "totalTokens": 15},
                 "metrics": {"latencyMs": 1.0},
             }
         },
@@ -509,7 +510,7 @@ async def test_stream_with_tool_calls(ollama_client, model, agenerator, alist):
         {"messageStop": {"stopReason": "tool_use"}},
         {
             "metadata": {
-                "usage": {"inputTokens": 15, "outputTokens": 8, "totalTokens": 23},
+                "usage": {"inputTokens": 8, "outputTokens": 15, "totalTokens": 23},
                 "metrics": {"latencyMs": 2.0},
             }
         },
@@ -559,3 +560,68 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert len(captured_warnings) == 1
     assert "Invalid configuration parameters" in str(captured_warnings[0].message)
     assert "wrong_param" in str(captured_warnings[0].message)
+
+
+def test_format_request_filters_s3_source_image(model, caplog):
+    """Test that images with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.ollama")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "look at this image"},
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Image with S3 source should be filtered, text should remain
+    formatted_messages = request["messages"]
+    user_message = formatted_messages[0]
+    assert user_message["content"] == "look at this image"
+    assert "images" not in user_message or user_message.get("images") == []
+    assert "Location sources are not supported by Ollama" in caplog.text
+
+
+def test_format_request_filters_location_source_document(model, caplog):
+    """Test that documents with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.ollama")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this document"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Document with S3 source should be filtered, text should remain
+    formatted_messages = request["messages"]
+    user_message = formatted_messages[0]
+    assert user_message["content"] == "analyze this document"
+    assert "Location sources are not supported by Ollama" in caplog.text

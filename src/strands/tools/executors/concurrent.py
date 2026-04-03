@@ -48,34 +48,43 @@ class ConcurrentToolExecutor(ToolExecutor):
         task_events = [asyncio.Event() for _ in tool_uses]
         stop_event = object()
 
-        tasks = [
-            asyncio.create_task(
-                self._task(
-                    agent,
-                    tool_use,
-                    tool_results,
-                    cycle_trace,
-                    cycle_span,
-                    invocation_state,
-                    task_id,
-                    task_queue,
-                    task_events[task_id],
-                    stop_event,
-                    structured_output_context,
+        tasks = []
+        try:
+            for task_id, tool_use in enumerate(tool_uses):
+                tasks.append(
+                    asyncio.create_task(
+                        self._task(
+                            agent,
+                            tool_use,
+                            tool_results,
+                            cycle_trace,
+                            cycle_span,
+                            invocation_state,
+                            task_id,
+                            task_queue,
+                            task_events[task_id],
+                            stop_event,
+                            structured_output_context,
+                        )
+                    )
                 )
-            )
-            for task_id, tool_use in enumerate(tool_uses)
-        ]
 
-        task_count = len(tasks)
-        while task_count:
-            task_id, event = await task_queue.get()
-            if event is stop_event:
-                task_count -= 1
-                continue
+            task_count = len(tasks)
+            while task_count:
+                task_id, event = await task_queue.get()
+                if event is stop_event:
+                    task_count -= 1
+                    continue
 
-            yield event
-            task_events[task_id].set()
+                if isinstance(event, Exception):
+                    raise event
+
+                yield event
+                task_events[task_id].set()
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _task(
         self,
@@ -114,6 +123,9 @@ class ConcurrentToolExecutor(ToolExecutor):
                 task_queue.put_nowait((task_id, event))
                 await task_event.wait()
                 task_event.clear()
+
+        except Exception as e:
+            task_queue.put_nowait((task_id, e))
 
         finally:
             task_queue.put_nowait((task_id, stop_event))

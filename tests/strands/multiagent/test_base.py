@@ -158,6 +158,7 @@ def test_multi_agent_base_abstract_behavior():
     assert isinstance(agent, MultiAgentBase)
 
 
+@pytest.mark.filterwarnings("ignore:`\\*\\*kwargs` parameter is deprecating:UserWarning")
 def test_multi_agent_base_call_method():
     """Test that __call__ method properly delegates to invoke_async."""
 
@@ -333,8 +334,8 @@ def test_multi_agent_result_str_with_interrupts():
     multi_result = MultiAgentResult(status=Status.COMPLETED, results={"node1": node_result})
 
     result_str = str(multi_result)
-    assert "Interrupt: human_approval" in result_str
-    assert "Reason: Needs review" in result_str
+    assert "human_approval" in result_str
+    assert "Needs review" in result_str
 
 
 def test_multi_agent_result_str_structured_output_fallback():

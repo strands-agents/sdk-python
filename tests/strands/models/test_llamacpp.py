@@ -2,7 +2,8 @@
 
 import base64
 import json
-from unittest.mock import AsyncMock, patch
+import logging
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -247,7 +248,7 @@ async def test_stream_basic() -> None:
 
     mock_response = AsyncMock()
     mock_response.aiter_lines = mock_aiter_lines
-    mock_response.raise_for_status = AsyncMock()
+    mock_response.raise_for_status = MagicMock()
 
     with patch.object(model.client, "post", return_value=mock_response):
         messages = [{"role": "user", "content": [{"text": "Hi"}]}]
@@ -637,3 +638,71 @@ def test_format_messages_with_mixed_content() -> None:
     assert result[0]["content"][2]["type"] == "image_url"
     assert "image_url" in result[0]["content"][2]
     assert result[0]["content"][2]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+
+def test_format_request_filters_s3_source_image(caplog) -> None:
+    """Test that images with Location sources are filtered out with warning."""
+    model = LlamaCppModel()
+    caplog.set_level(logging.WARNING, logger="strands.models.llamacpp")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "look at this image"},
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model._format_request(messages)
+
+    # Image with S3 source should be filtered, text should remain
+    formatted_messages = request["messages"]
+    user_content = formatted_messages[0]["content"]
+    assert len(user_content) == 1
+    assert user_content[0]["type"] == "text"
+    assert "Location sources are not supported by llama.cpp" in caplog.text
+
+
+def test_format_request_filters_location_source_document(caplog) -> None:
+    """Test that documents with Location sources are filtered out with warning."""
+    model = LlamaCppModel()
+    caplog.set_level(logging.WARNING, logger="strands.models.llamacpp")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this document"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model._format_request(messages)
+
+    # Document with S3 source should be filtered, text should remain
+    formatted_messages = request["messages"]
+    user_content = formatted_messages[0]["content"]
+    assert len(user_content) == 1
+    assert user_content[0]["type"] == "text"
+    assert "Location sources are not supported by llama.cpp" in caplog.text

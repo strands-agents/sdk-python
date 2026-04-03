@@ -23,6 +23,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -31,9 +32,10 @@ dependencies = [
     "botocore>=1.29.0,<2.0.0",
     "docstring_parser>=0.15,<1.0",
     "jsonschema>=4.0.0,<5.0.0",
-    "mcp>=1.11.0,<2.0.0",
+    "mcp>=1.23.0,<2.0.0",
     "pydantic>=2.4.0,<3.0.0",
     "typing-extensions>=4.13.2,<5.0.0",
+    "pyyaml>=6.0.0,<7.0.0",
     "watchdog>=6.0.0,<7.0.0",
     "opentelemetry-api>=1.30.0,<2.0.0",
     "opentelemetry-sdk>=1.30.0,<2.0.0",
@@ -44,15 +46,15 @@ dependencies = [
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.21.0,<1.0.0"]
 gemini = ["google-genai>=1.32.0,<2.0.0"]
-litellm = ["litellm>=1.75.9,<2.0.0", "openai>=1.68.0,<1.110.0"]
+litellm = ["litellm>=1.75.9,<=1.82.6", "openai>=1.68.0,<3.0.0"]
 llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
-mistral = ["mistralai>=1.8.2"]
+mistral = ["mistralai>=1.8.2,<2.0.0"]
 ollama = ["ollama>=0.4.8,<1.0.0"]
-openai = ["openai>=1.68.0,<2.0.0"]
+openai = ["openai>=1.68.0,<3.0.0"]
 writer = ["writer-sdk>=2.2.0,<3.0.0"]
 sagemaker = [
     "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0",
-    "openai>=1.68.0,<2.0.0",  # SageMaker uses OpenAI-compatible interface
+    "openai>=1.68.0,<3.0.0",  # SageMaker uses OpenAI-compatible interface
 ]
 otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
 docs = [
@@ -71,16 +73,18 @@ a2a = [
 ]
 
 bidi = [
-    "aws_sdk_bedrock_runtime; python_version>='3.12'",
+    "aws_sdk_bedrock_runtime>=0.4.0,<1.0.0; python_version>='3.12'",
+    "smithy-aws-core>=0.4.0,<1.0.0; python_version>='3.12'",
+]
+bidi-io = [
     "prompt_toolkit>=3.0.0,<4.0.0",
     "pyaudio>=0.2.13,<1.0.0",
-    "smithy-aws-core>=0.0.1; python_version>='3.12'",
 ]
 bidi-gemini = ["google-genai>=1.32.0,<2.0.0"]
 bidi-openai = ["websockets>=15.0.0,<17.0.0"]
 
 all = ["strands-agents[a2a,anthropic,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
-bidi-all = ["strands-agents[a2a,bidi,bidi-gemini,bidi-openai,docs,otel]"]
+bidi-all = ["strands-agents[a2a,bidi,bidi-io,bidi-gemini,bidi-openai,docs,otel]"]
 
 dev = [
     "commitizen>=4.4.0,<5.0.0",
@@ -91,6 +95,7 @@ dev = [
     "pytest>=9.0.0,<10.0.0",
     "pytest-cov>=7.0.0,<8.0.0",
     "pytest-asyncio>=1.0.0,<1.4.0",
+    "pytest-timeout>=2.0.0,<3.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "ruff>=0.13.0,<0.15.0",
     "tenacity>=9.0.0,<10.0.0",
@@ -146,12 +151,14 @@ dependencies = [
     "pytest>=9.0.0,<10.0.0",
     "pytest-cov>=7.0.0,<8.0.0",
     "pytest-asyncio>=1.0.0,<1.4.0",
+    "pytest-timeout>=2.0.0,<3.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
+    "pytest-timeout>=2.0.0,<3.0.0",
     "moto>=5.1.0,<6.0.0",
 ]
 
 [[tool.hatch.envs.hatch-test.matrix]]
-python = ["3.13", "3.12", "3.11", "3.10"]
+python = ["3.14", "3.13", "3.12", "3.11", "3.10"]
 
 [tool.hatch.envs.hatch-test.scripts]
 run = "pytest{env:HATCH_TEST_ARGS:} {args}" # Run with: hatch test
@@ -238,7 +245,8 @@ convention = "google"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
-addopts = "--ignore=tests/strands/experimental/bidi --ignore=tests_integ/bidi"
+addopts = "--ignore=tests/strands/experimental/bidi --ignore=tests_integ/bidi --junit-xml=build/test-results.xml"
+timeout = 90
 
 
 [tool.coverage.run]
@@ -295,7 +303,7 @@ prepare = [
     "hatch run bidi-test:test-cov",
 ]
 
-[tools.hatch.envs.bidi-lint]
+[tool.hatch.envs.bidi-lint]
 template = "bidi"
 
 [tool.hatch.envs.bidi-lint.scripts]

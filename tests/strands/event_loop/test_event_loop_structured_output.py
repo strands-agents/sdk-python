@@ -1,15 +1,25 @@
 """Tests for structured output integration in the event loop."""
 
+import threading
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import StatusCode
 from pydantic import BaseModel
 
 from strands.event_loop.event_loop import event_loop_cycle, recurse_event_loop
 from strands.telemetry.metrics import EventLoopMetrics
+from strands.telemetry.tracer import Tracer
 from strands.tools.registry import ToolRegistry
-from strands.tools.structured_output._structured_output_context import StructuredOutputContext
+from strands.tools.structured_output._structured_output_context import (
+    DEFAULT_STRUCTURED_OUTPUT_PROMPT,
+    StructuredOutputContext,
+)
 from strands.types._events import EventLoopStopEvent, StructuredOutputEvent
+from strands.types.exceptions import EventLoopException, StructuredOutputException
 
 
 class UserModel(BaseModel):
@@ -49,6 +59,7 @@ def mock_agent():
     agent._interrupt_state = Mock()
     agent._interrupt_state.activated = False
     agent._interrupt_state.context = {}
+    agent._cancel_signal = threading.Event()
 
     return agent
 
@@ -190,11 +201,141 @@ async def test_event_loop_forces_structured_output_on_end_turn(
         mock_agent._append_messages.assert_called_once()
         args = mock_agent._append_messages.call_args[0][0]
         assert args["role"] == "user"
+        # Should use the default prompt
+        assert args["content"][0]["text"] == DEFAULT_STRUCTURED_OUTPUT_PROMPT
 
         # Should have called recurse_event_loop with the context
         mock_recurse.assert_called_once()
         call_kwargs = mock_recurse.call_args[1]
         assert call_kwargs["structured_output_context"] == structured_output_context
+
+
+@pytest.mark.asyncio
+async def test_event_loop_forces_structured_output_with_custom_prompt(mock_agent, agenerator, alist):
+    """Test that event loop uses custom prompt when forcing structured output."""
+    custom_prompt = "Please format your response as structured data using the output schema."
+    structured_output_context = StructuredOutputContext(
+        structured_output_model=UserModel,
+        structured_output_prompt=custom_prompt,
+    )
+
+    # First call returns end_turn without using structured output tool
+    mock_agent.model.stream.side_effect = [
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "Here is the user info"}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+            ]
+        ),
+    ]
+
+    # Mock recurse_event_loop to return final result
+    with patch("strands.event_loop.event_loop.recurse_event_loop") as mock_recurse:
+        mock_stop_event = Mock()
+        mock_stop_event.stop = (
+            "end_turn",
+            {"role": "assistant", "content": [{"text": "Done"}]},
+            mock_agent.event_loop_metrics,
+            {},
+            None,
+            UserModel(name="John", age=30, email="john@example.com"),
+        )
+        mock_stop_event.__getitem__ = lambda self, key: {"stop": self.stop}[key]
+
+        mock_recurse.return_value = agenerator([mock_stop_event])
+
+        stream = event_loop_cycle(
+            agent=mock_agent,
+            invocation_state={},
+            structured_output_context=structured_output_context,
+        )
+        await alist(stream)
+
+        # Should have appended a message with the custom prompt
+        mock_agent._append_messages.assert_called_once()
+        args = mock_agent._append_messages.call_args[0][0]
+        assert args["role"] == "user"
+        assert args["content"][0]["text"] == custom_prompt
+
+
+@patch("strands.event_loop.event_loop.get_tracer")
+@pytest.mark.asyncio
+async def test_event_loop_structured_output_failure_closes_cycle_span_with_error(
+    mock_get_tracer,
+    mock_agent,
+    structured_output_context,
+    agenerator,
+    alist,
+):
+    mock_tracer = Mock()
+    cycle_span = Mock()
+    model_span = Mock()
+    mock_tracer.start_event_loop_cycle_span.return_value = cycle_span
+    mock_tracer.start_model_invoke_span.return_value = model_span
+    mock_get_tracer.return_value = mock_tracer
+
+    structured_output_context.set_forced_mode()
+    mock_agent.model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "Still not structured"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    expected_message = "The model failed to invoke the structured output tool even after it was forced."
+    with pytest.raises(StructuredOutputException, match=expected_message):
+        stream = event_loop_cycle(
+            agent=mock_agent,
+            invocation_state={},
+            structured_output_context=structured_output_context,
+        )
+        await alist(stream)
+
+    mock_tracer.end_model_invoke_span.assert_called_once()
+    mock_tracer.end_event_loop_cycle_span.assert_not_called()
+    mock_tracer.end_span_with_error.assert_called_once()
+    assert mock_tracer.end_span_with_error.call_args.args[0] == cycle_span
+    assert mock_tracer.end_span_with_error.call_args.args[1] == expected_message
+    assert isinstance(mock_tracer.end_span_with_error.call_args.args[2], StructuredOutputException)
+
+
+@pytest.mark.asyncio
+async def test_event_loop_forced_structured_output_append_failure_records_error_span(
+    mock_agent, structured_output_context, agenerator, alist
+):
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    tracer = Tracer()
+    tracer.tracer_provider = provider
+    tracer.tracer = provider.get_tracer(tracer.service_name)
+
+    mock_agent.model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "Here is the user info"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    mock_agent._append_messages = AsyncMock(side_effect=RuntimeError("append failed"))
+
+    with patch("strands.event_loop.event_loop.get_tracer", return_value=tracer):
+        with pytest.raises(EventLoopException, match="append failed"):
+            stream = event_loop_cycle(
+                agent=mock_agent,
+                invocation_state={},
+                structured_output_context=structured_output_context,
+            )
+            await alist(stream)
+
+    finished_cycle_spans = [span for span in exporter.get_finished_spans() if span.name == "execute_event_loop_cycle"]
+
+    assert len(finished_cycle_spans) == 1
+    assert finished_cycle_spans[0].status.status_code == StatusCode.ERROR
 
 
 @pytest.mark.asyncio

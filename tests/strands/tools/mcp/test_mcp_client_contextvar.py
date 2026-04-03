@@ -37,6 +37,8 @@ def mock_session():
     """Create mock MCP session."""
     mock_session = AsyncMock()
     mock_session.initialize = AsyncMock()
+    # get_server_capabilities is sync, not async
+    mock_session.get_server_capabilities = MagicMock(return_value=None)
 
     mock_session_cm = AsyncMock()
     mock_session_cm.__aenter__.return_value = mock_session

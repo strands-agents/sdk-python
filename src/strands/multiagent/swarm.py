@@ -51,6 +51,7 @@ from ..types._events import (
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
+from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
@@ -68,12 +69,14 @@ class SwarmNode:
     swarm: Optional["Swarm"] = None
     _initial_messages: Messages = field(default_factory=list, init=False)
     _initial_state: AgentState = field(default_factory=AgentState, init=False)
+    _initial_model_state: dict[str, Any] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         """Capture initial executor state after initialization."""
         # Deep copy the initial messages and state to preserve them
         self._initial_messages = copy.deepcopy(self.executor.messages)
         self._initial_state = AgentState(self.executor.state.get())
+        self._initial_model_state = copy.deepcopy(self.executor._model_state)
 
     def __hash__(self) -> int:
         """Return hash for SwarmNode based on node_id."""
@@ -103,10 +106,12 @@ class SwarmNode:
             self.executor.messages = context["messages"]
             self.executor.state = AgentState(context["state"])
             self.executor._interrupt_state = _InterruptState.from_dict(context["interrupt_state"])
+            self.executor._model_state = context.get("model_state", {})
             return
 
         self.executor.messages = copy.deepcopy(self._initial_messages)
         self.executor.state = AgentState(self._initial_state.get())
+        self.executor._model_state = copy.deepcopy(self._initial_model_state)
 
 
 @dataclass
@@ -696,6 +701,7 @@ class Swarm(MultiAgentBase):
             "interrupt_state": node.executor._interrupt_state.to_dict(),
             "state": node.executor.state.get(),
             "messages": node.executor.messages,
+            "model_state": node.executor._model_state,
         }
 
         self._interrupt_state.interrupts.update({interrupt.id: interrupt for interrupt in interrupts})
@@ -965,7 +971,7 @@ class Swarm(MultiAgentBase):
             "node_history": [n.node_id for n in self.state.node_history],
             "node_results": {k: v.to_dict() for k, v in self.state.results.items()},
             "next_nodes_to_execute": next_nodes,
-            "current_task": self.state.task,
+            "current_task": encode_bytes_values(self.state.task),
             "context": {
                 "shared_context": getattr(self.state.shared_context, "context", {}) or {},
                 "handoff_node": self.state.handoff_node.node_id if self.state.handoff_node else None,
@@ -1028,7 +1034,7 @@ class Swarm(MultiAgentBase):
                 logger.exception("Failed to hydrate NodeResult for node_id=%s; skipping.", node_id)
                 raise
         self.state.results = results
-        self.state.task = payload.get("current_task", self.state.task)
+        self.state.task = decode_bytes_values(payload.get("current_task", self.state.task))
 
         next_node_ids = payload.get("next_nodes_to_execute") or []
         if next_node_ids:

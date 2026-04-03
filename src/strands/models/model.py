@@ -3,17 +3,36 @@
 import abc
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable
-from typing import Any, TypeVar
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from pydantic import BaseModel
 
+from ..hooks.events import AfterInvocationEvent
+from ..plugins.plugin import Plugin
 from ..types.content import Messages, SystemContentBlock
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 
+if TYPE_CHECKING:
+    from ..agent.agent import Agent
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+
+@dataclass
+class CacheConfig:
+    """Configuration for prompt caching.
+
+    Attributes:
+        strategy: Caching strategy to use.
+            - "auto": Automatically detect model support and inject cachePoint to maximize cache coverage
+            - "anthropic": Inject cachePoint in Anthropic-compatible format without model support check
+    """
+
+    strategy: Literal["auto", "anthropic"] = "auto"
 
 
 class Model(abc.ABC):
@@ -22,6 +41,15 @@ class Model(abc.ABC):
     This class defines the interface for all model implementations in the Strands Agents SDK. It provides a
     standardized way to configure and process requests for different AI model providers.
     """
+
+    @property
+    def stateful(self) -> bool:
+        """Whether the model manages conversation state server-side.
+
+        Returns:
+            False by default. Model providers that support server-side state should override this.
+        """
+        return False
 
     @abc.abstractmethod
     # pragma: no cover
@@ -101,3 +129,34 @@ class Model(abc.ABC):
             ModelThrottledException: When the model service is throttling requests from the client.
         """
         pass
+
+
+class _ModelPlugin(Plugin):
+    """Plugin that manages model-related lifecycle hooks."""
+
+    @property
+    def name(self) -> str:
+        """A stable string identifier for this plugin."""
+        return "strands:model"
+
+    @staticmethod
+    def _on_after_invocation(event: AfterInvocationEvent) -> None:
+        """Handle post-invocation model management tasks.
+
+        Performs the following:
+        - Clears messages when the model is managing conversation state server-side.
+        """
+        if event.agent.model.stateful:
+            event.agent.messages.clear()
+            logger.debug(
+                "response_id=<%s> | cleared messages for server-managed conversation",
+                event.agent._model_state.get("response_id"),
+            )
+
+    def init_agent(self, agent: "Agent") -> None:
+        """Register model lifecycle hooks with the agent.
+
+        Args:
+            agent: The agent instance to register hooks with.
+        """
+        agent.add_hook(self._on_after_invocation, AfterInvocationEvent)

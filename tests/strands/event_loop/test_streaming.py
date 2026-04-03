@@ -48,6 +48,7 @@ def moto_autouse(moto_env, moto_mock_aws):
         ),
     ],
 )
+@pytest.mark.filterwarnings("ignore:remove_blank_messages_content_text is deprecated:DeprecationWarning")
 def test_remove_blank_messages_content_text(messages, exp_result):
     tru_result = strands.event_loop.streaming.remove_blank_messages_content_text(messages)
 
@@ -123,6 +124,10 @@ def test_handle_message_start():
         (
             {"start": {"toolUse": {"toolUseId": "test", "name": "test"}}},
             {"toolUseId": "test", "name": "test", "input": ""},
+        ),
+        (
+            {"start": {"toolUse": {"toolUseId": "test", "name": "test", "reasoningSignature": "YWJj"}}},
+            {"toolUseId": "test", "name": "test", "input": "", "reasoningSignature": "YWJj"},
         ),
     ],
 )
@@ -302,6 +307,39 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
+        # Tool Use - With reasoningSignature
+        (
+            {
+                "content": [],
+                "current_tool_use": {
+                    "toolUseId": "123",
+                    "name": "test",
+                    "input": '{"key": "value"}',
+                    "reasoningSignature": "YWJj",
+                },
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "123",
+                            "name": "test",
+                            "input": {"key": "value"},
+                            "reasoningSignature": "YWJj",
+                        }
+                    }
+                ],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
@@ -492,10 +530,28 @@ def test_handle_content_block_stop(state, exp_updated_state):
 def test_handle_message_stop():
     event: MessageStopEvent = {"stopReason": "end_turn"}
 
-    tru_reason = strands.event_loop.streaming.handle_message_stop(event)
+    tru_reason = strands.event_loop.streaming.handle_message_stop(event, [])
     exp_reason = "end_turn"
 
     assert tru_reason == exp_reason
+
+
+def test_handle_message_stop_overrides_end_turn_when_tool_use_present():
+    event: MessageStopEvent = {"stopReason": "end_turn"}
+    content = [{"toolUse": {"toolUseId": "t1", "name": "myTool", "input": {}}}]
+
+    tru_reason = strands.event_loop.streaming.handle_message_stop(event, content)
+
+    assert tru_reason == "tool_use"
+
+
+def test_handle_message_stop_keeps_tool_use_unchanged():
+    event: MessageStopEvent = {"stopReason": "tool_use"}
+    content = [{"toolUse": {"toolUseId": "t1", "name": "myTool", "input": {}}}]
+
+    tru_reason = strands.event_loop.streaming.handle_message_stop(event, content)
+
+    assert tru_reason == "tool_use"
 
 
 def test_extract_usage_metrics():
@@ -1118,6 +1174,7 @@ async def test_stream_messages(agenerator, alist):
         tool_choice=None,
         system_prompt_content=[{"text": "test prompt"}],
         invocation_state=None,
+        model_state=None,
     )
 
 
@@ -1152,6 +1209,7 @@ async def test_stream_messages_with_system_prompt_content(agenerator, alist):
         tool_choice=None,
         system_prompt_content=system_prompt_content,
         invocation_state=None,
+        model_state=None,
     )
 
 
@@ -1186,6 +1244,7 @@ async def test_stream_messages_single_text_block_backwards_compatibility(agenera
         tool_choice=None,
         system_prompt_content=system_prompt_content,
         invocation_state=None,
+        model_state=None,
     )
 
 
@@ -1218,6 +1277,7 @@ async def test_stream_messages_empty_system_prompt_content(agenerator, alist):
         tool_choice=None,
         system_prompt_content=[],
         invocation_state=None,
+        model_state=None,
     )
 
 
@@ -1250,6 +1310,7 @@ async def test_stream_messages_none_system_prompt_content(agenerator, alist):
         tool_choice=None,
         system_prompt_content=None,
         invocation_state=None,
+        model_state=None,
     )
 
     # Ensure that we're getting typed events coming out of process_stream
@@ -1296,3 +1357,68 @@ async def test_stream_messages_normalizes_messages(agenerator, alist):
         {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
         {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_process_stream_overrides_end_turn_when_tool_use_present(agenerator, alist):
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"contentBlockIndex": 0, "start": {"toolUse": {"toolUseId": "t1", "name": "myTool"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"key": "val"}'}}, "contentBlockIndex": 0}},
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                "metrics": {"latencyMs": 100},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+
+    assert last_event["stop"][0] == "tool_use"
+
+
+@pytest.mark.asyncio
+async def test_process_stream_keeps_end_turn_when_no_tool_use(agenerator, alist):
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "Hello!"}, "contentBlockIndex": 0}},
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                "metrics": {"latencyMs": 100},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+
+    assert last_event["stop"][0] == "end_turn"
+
+
+@pytest.mark.asyncio
+async def test_process_stream_keeps_tool_use_stop_reason_unchanged(agenerator, alist):
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"contentBlockIndex": 0, "start": {"toolUse": {"toolUseId": "t1", "name": "myTool"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": "{}"}}, "contentBlockIndex": 0}},
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                "metrics": {"latencyMs": 100},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+
+    assert last_event["stop"][0] == "tool_use"

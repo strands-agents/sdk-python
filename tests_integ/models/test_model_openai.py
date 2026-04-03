@@ -1,23 +1,38 @@
 import os
-import unittest.mock
+import tempfile
+import time
 
+import openai as openai_sdk
 import pydantic
 import pytest
 
 import strands
 from strands import Agent, tool
+from strands.event_loop._retry import ModelRetryStrategy
 from strands.models.openai import OpenAIModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from tests_integ.models import providers
+from tests_integ.models.providers import _openai_responses_available
+
+if _openai_responses_available:
+    from strands.models.openai_responses import OpenAIResponsesModel
 
 # these tests only run if we have the openai api key
 pytestmark = providers.openai.mark
 
 
-@pytest.fixture
-def model():
-    return OpenAIModel(
-        model_id="gpt-4o",
+def _model_params():
+    params = [(OpenAIModel, "gpt-4o")]
+    if _openai_responses_available:
+        params.append((OpenAIResponsesModel, "gpt-4o"))
+    return params
+
+
+@pytest.fixture(params=_model_params())
+def model(request):
+    model_class, model_id = request.param
+    return model_class(
+        model_id=model_id,
         client_args={
             "api_key": os.getenv("OPENAI_API_KEY"),
         },
@@ -69,11 +84,36 @@ def yellow_color():
 
 
 @pytest.fixture(scope="module")
+def openai_vector_store():
+    """Create a vector store with a test file for file_search tests."""
+    client = openai_sdk.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt") as f:
+        f.write("The secret code is ALPHA-7742.")
+        f.flush()
+        file_obj = client.files.create(file=open(f.name, "rb"), purpose="assistants")
+
+    vector_store = client.vector_stores.create(name="test-builtin-tools")
+    try:
+        client.vector_stores.files.create(vector_store_id=vector_store.id, file_id=file_obj.id)
+
+        for _ in range(30):
+            if client.vector_stores.retrieve(vector_store.id).file_counts.completed > 0:
+                break
+            time.sleep(1)
+
+        yield vector_store.id
+    finally:
+        client.vector_stores.delete(vector_store.id)
+        client.files.delete(file_obj.id)
+
+
+@pytest.fixture(scope="module")
 def test_image_path(request):
     return request.config.rootpath / "tests_integ" / "test_image.png"
 
 
-def test_agent_invoke(agent):
+def test_agent_invoke(agent, model):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
@@ -81,7 +121,7 @@ def test_agent_invoke(agent):
 
 
 @pytest.mark.asyncio
-async def test_agent_invoke_async(agent):
+async def test_agent_invoke_async(agent, model):
     result = await agent.invoke_async("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
@@ -89,7 +129,7 @@ async def test_agent_invoke_async(agent):
 
 
 @pytest.mark.asyncio
-async def test_agent_stream_async(agent):
+async def test_agent_stream_async(agent, model):
     stream = agent.stream_async("What is the time and weather in New York?")
     async for event in stream:
         _ = event
@@ -170,15 +210,23 @@ def test_tool_returning_images(model, yellow_img):
     agent("Run the the tool and analyze the image")
 
 
-def test_context_window_overflow_integration():
+def _mini_model_params():
+    params = [(OpenAIModel, "gpt-4o-mini-2024-07-18")]
+    if _openai_responses_available:
+        params.append((OpenAIResponsesModel, "gpt-4o-mini-2024-07-18"))
+    return params
+
+
+@pytest.mark.parametrize("model_class,model_id", _mini_model_params())
+def test_context_window_overflow_integration(model_class, model_id):
     """Integration test for context window overflow with OpenAI.
 
     This test verifies that when a request exceeds the model's context window,
     the OpenAI model properly raises a ContextWindowOverflowException.
     """
     # Use gpt-4o-mini which has a smaller context window to make this test more reliable
-    mini_model = OpenAIModel(
-        model_id="gpt-4o-mini-2024-07-18",
+    mini_model = model_class(
+        model_id=model_id,
         client_args={
             "api_key": os.getenv("OPENAI_API_KEY"),
         },
@@ -198,28 +246,39 @@ def test_context_window_overflow_integration():
         agent(long_text)
 
 
-def test_rate_limit_throttling_integration_no_retries(model):
+def _rate_limit_params():
+    params = [(OpenAIModel, "gpt-4o")]
+    if _openai_responses_available:
+        params.append((OpenAIResponsesModel, "gpt-4o"))
+    return params
+
+
+def test_rate_limit_throttling_integration_no_retries():
     """Integration test for rate limit handling with retries disabled.
 
     This test verifies that when a request exceeds OpenAI's rate limits,
     the model properly raises a ModelThrottledException. We disable retries
     to avoid waiting for the exponential backoff during testing.
     """
-    # Patch the event loop constants to disable retries for this test
-    with unittest.mock.patch("strands.event_loop.event_loop.MAX_ATTEMPTS", 1):
-        agent = Agent(model=model)
+    model = OpenAIModel(
+        model_id="gpt-4o",
+        client_args={
+            "api_key": os.getenv("OPENAI_API_KEY"),
+        },
+    )
+    agent = Agent(model=model, retry_strategy=ModelRetryStrategy(max_attempts=1))
 
-        # Create a message that's very long to trigger token-per-minute rate limits
-        # This should be large enough to exceed TPM limits immediately
-        very_long_text = "Really long text " * 20000
+    # Create a message that's very long to trigger token-per-minute rate limits
+    # This should be large enough to exceed TPM limits immediately
+    very_long_text = "Really long text " * 600000
 
-        # This should raise ModelThrottledException without retries
-        with pytest.raises(ModelThrottledException) as exc_info:
-            agent(very_long_text)
+    # This should raise ModelThrottledException without retries
+    with pytest.raises(ModelThrottledException) as exc_info:
+        agent(very_long_text)
 
-        # Verify it's a rate limit error
-        error_message = str(exc_info.value).lower()
-        assert "rate limit" in error_message or "tokens per min" in error_message
+    # Verify it's a rate limit error
+    error_message = str(exc_info.value).lower()
+    assert "rate_limit_exceeded" in error_message
 
 
 def test_content_blocks_handling(model):
@@ -256,3 +315,88 @@ def test_system_prompt_backward_compatibility_integration(model):
 
     # The response should contain our specific system prompt instruction
     assert "BACKWARD_COMPAT_TEST" in result.message["content"][0]["text"]
+
+
+@pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
+def test_responses_server_side_conversation():
+    """Integration test for server-side conversation state management.
+
+    Verifies that when stateful=True, the model tracks conversation across turns
+    via previous_response_id and the agent clears messages between invocations.
+    """
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o-mini",
+        stateful=True,
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+    agent = Agent(model=model, system_prompt="Reply in one short sentence.")
+
+    agent("My name is Alice.")
+    assert len(agent.messages) == 0
+
+    result = agent("What is my name?")
+    assert "alice" in result.message["content"][0]["text"].lower()
+
+
+@pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
+def test_responses_builtin_tool_web_search():
+    """Test that web_search produces text with citation content."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o",
+        params={"tools": [{"type": "web_search"}]},
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+    agent = Agent(model=model, system_prompt="Answer concisely.", callback_handler=None)
+
+    result = agent("Search https://strandsagents.com/ and tell me what Strands Agents is.")
+    content = result.message["content"][0]
+
+    assert "citationsContent" in content
+    citations = content["citationsContent"]["citations"]
+    assert any("strandsagents.com" in c["location"]["web"]["url"] for c in citations)
+
+
+@pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
+def test_responses_builtin_tool_file_search(openai_vector_store):
+    """Test that file_search produces text output from uploaded files."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o",
+        params={"tools": [{"type": "file_search", "vector_store_ids": [openai_vector_store]}]},
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+    agent = Agent(model=model, system_prompt="Answer based on the files.", callback_handler=None)
+
+    result = agent("What is the secret code?")
+    text = result.message["content"][0]["text"]
+    assert "ALPHA-7742" in text
+
+
+@pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
+def test_responses_builtin_tool_code_interpreter():
+    """Test that code_interpreter produces correct results via text output."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o",
+        params={"tools": [{"type": "code_interpreter", "container": {"type": "auto"}}]},
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+    agent = Agent(model=model, system_prompt="Answer concisely.", callback_handler=None)
+
+    # SHA-256 of "strands" requires actual computation
+    result = agent("Compute the SHA-256 hash of the string 'strands'. Return only the hex digest.")
+    text = result.message["content"][0]["text"]
+    assert "11e0e34bd35e12185cfacd5e5a256ab4292bfa3616d8d5b74e20eca36feed228" in text
+
+
+@pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
+def test_responses_builtin_tool_shell():
+    """Test that the shell built-in tool executes commands in a hosted container."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-5.4-mini",
+        params={"tools": [{"type": "shell", "environment": {"type": "container_auto"}}]},
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+    agent = Agent(model=model, system_prompt="Answer concisely.", callback_handler=None)
+
+    result = agent("Use the shell to compute the md5sum of the string 'strands-test'. Return only the hash.")
+    text = result.message["content"][0]["text"]
+    assert "d82f373f079b00a1db7ef1eec7f15c68" in text

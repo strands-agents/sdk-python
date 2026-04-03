@@ -72,15 +72,23 @@ def test_swarm_interrupt_session(weather_tool, tmpdir):
 
 
 def test_graph_interrupt_session(weather_tool, tmpdir):
+    parent_sm = FileSessionManager(session_id="parent-session", storage_dir=tmpdir / "parent")
+    child_sm = FileSessionManager(session_id="child-session", storage_dir=tmpdir / "child")
+
     weather_agent = Agent(name="weather", tools=[weather_tool])
     summarizer_agent = Agent(name="summarizer")
-    session_manager = FileSessionManager(session_id="strands-interrupt-test", storage_dir=tmpdir)
+
+    weather_builder = GraphBuilder()
+    weather_builder.add_node(weather_agent, "weather")
+    weather_builder.set_entry_point("weather")
+    weather_builder.set_session_manager(child_sm)
+    weather_graph = weather_builder.build()
 
     builder = GraphBuilder()
-    builder.add_node(weather_agent, "weather")
+    builder.add_node(weather_graph, "weather")
     builder.add_node(summarizer_agent, "summarizer")
     builder.add_edge("weather", "summarizer")
-    builder.set_session_manager(session_manager)
+    builder.set_session_manager(parent_sm)
     graph = builder.build()
 
     multiagent_result = graph("Can you check the weather and then summarize the results?")
@@ -105,15 +113,23 @@ def test_graph_interrupt_session(weather_tool, tmpdir):
 
     interrupt = multiagent_result.interrupts[0]
 
+    parent_sm = FileSessionManager(session_id="parent-session", storage_dir=tmpdir / "parent")
+    child_sm = FileSessionManager(session_id="child-session", storage_dir=tmpdir / "child")
+
     weather_agent = Agent(name="weather", tools=[weather_tool])
     summarizer_agent = Agent(name="summarizer")
-    session_manager = FileSessionManager(session_id="strands-interrupt-test", storage_dir=tmpdir)
+
+    weather_builder = GraphBuilder()
+    weather_builder.add_node(weather_agent, "weather")
+    weather_builder.set_entry_point("weather")
+    weather_builder.set_session_manager(child_sm)
+    weather_graph = weather_builder.build()
 
     builder = GraphBuilder()
-    builder.add_node(weather_agent, "weather")
+    builder.add_node(weather_graph, "weather")
     builder.add_node(summarizer_agent, "summarizer")
     builder.add_edge("weather", "summarizer")
-    builder.set_session_manager(session_manager)
+    builder.set_session_manager(parent_sm)
     graph = builder.build()
 
     responses = [

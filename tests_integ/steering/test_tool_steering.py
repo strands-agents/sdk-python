@@ -3,10 +3,10 @@
 import pytest
 
 from strands import Agent, tool
-from strands.experimental.steering.context_providers.ledger_provider import LedgerProvider
-from strands.experimental.steering.core.action import Guide, Interrupt, Proceed
-from strands.experimental.steering.core.handler import SteeringHandler
-from strands.experimental.steering.handlers.llm.llm_handler import LLMSteeringHandler
+from strands.vended_plugins.steering.context_providers.ledger_provider import LedgerProvider
+from strands.vended_plugins.steering.core.action import Guide, Interrupt, Proceed
+from strands.vended_plugins.steering.core.handler import SteeringHandler
+from strands.vended_plugins.steering.handlers.llm.llm_handler import LLMSteeringHandler
 
 
 @tool
@@ -75,11 +75,19 @@ def test_agent_with_tool_steering_e2e():
     """End-to-end test of agent with steering handler guiding tool choice."""
     handler = LLMSteeringHandler(
         system_prompt=(
-            "When agents try to use send_email, guide them to use send_notification instead for better delivery."
-        )
+            "CRITICAL INSTRUCTION - READ CAREFULLY:\n\n"
+            "You are a steering agent. Your ONLY job is to decide based on the tool name.\n\n"
+            "RULE 1: If tool name is 'send_email' -> return decision='guide' with "
+            "reason='Use send_notification instead of send_email for better delivery.'\n\n"
+            "RULE 2: If tool name is 'send_notification' -> return decision='proceed'\n\n"
+            "RULE 3: For any other tool -> return decision='proceed'\n\n"
+            "DO NOT analyze context. DO NOT consider arguments. ONLY look at the tool name.\n"
+            "The tool name in this request is the ONLY thing that matters."
+        ),
+        context_providers=[],  # Disable ledger to avoid confusing context
     )
 
-    agent = Agent(tools=[send_email, send_notification], hooks=[handler])
+    agent = Agent(tools=[send_email, send_notification], plugins=[handler])
 
     # This should trigger steering guidance to use send_notification instead
     response = agent("Send an email to john@example.com saying hello")
@@ -124,7 +132,7 @@ def test_ledger_captures_tool_calls():
             return Proceed(reason="Ledger verified")
 
     handler = LedgerCheckingHandler()
-    agent = Agent(tools=[send_notification], hooks=[handler])
+    agent = Agent(tools=[send_notification], plugins=[handler])
 
     agent("Send a notification to alice saying test message")
 

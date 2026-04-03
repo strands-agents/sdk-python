@@ -72,56 +72,21 @@ def test_call_with_data_complete(handler, mock_print):
     mock_print.assert_any_call("\n")
 
 
-def test_call_with_current_tool_use_new(handler, mock_print):
-    """Test calling the handler with a new tool use."""
-    current_tool_use = {"name": "test_tool", "input": {"param": "value"}}
-
-    handler(current_tool_use=current_tool_use)
-
-    # Should print tool information
-    mock_print.assert_called_once_with("\nTool #1: test_tool")
-
-    # Should update the handler state
-    assert handler.tool_count == 1
-    assert handler.previous_tool_use == current_tool_use
-
-
-def test_call_with_current_tool_use_same(handler, mock_print):
-    """Test calling the handler with the same tool use twice."""
-    current_tool_use = {"name": "test_tool", "input": {"param": "value"}}
-
-    # First call
-    handler(current_tool_use=current_tool_use)
-    mock_print.reset_mock()
-
-    # Second call with same tool use
-    handler(current_tool_use=current_tool_use)
-
-    # Should not print tool information again
-    mock_print.assert_not_called()
-
-    # Tool count should not increase
-    assert handler.tool_count == 1
-
-
-def test_call_with_current_tool_use_different(handler, mock_print):
+def test_call_with_tool_uses(handler, mock_print):
     """Test calling the handler with different tool uses."""
-    first_tool_use = {"name": "first_tool", "input": {"param": "value1"}}
-    second_tool_use = {"name": "second_tool", "input": {"param": "value2"}}
+    first_event = {"contentBlockStart": {"start": {"toolUse": {"name": "first_tool"}}}}
+    second_event = {"contentBlockStart": {"start": {"toolUse": {"name": "second_tool"}}}}
 
-    # First call
-    handler(current_tool_use=first_tool_use)
-    mock_print.reset_mock()
+    handler(event=first_event)
+    handler(event=second_event)
 
-    # Second call with different tool use
-    handler(current_tool_use=second_tool_use)
-
-    # Should print info for the new tool
-    mock_print.assert_called_once_with("\nTool #2: second_tool")
+    assert mock_print.call_args_list == [
+        unittest.mock.call("\nTool #1: first_tool"),
+        unittest.mock.call("\nTool #2: second_tool"),
+    ]
 
     # Tool count should increase
     assert handler.tool_count == 2
-    assert handler.previous_tool_use == second_tool_use
 
 
 def test_call_with_data_and_complete_extra_newline(handler, mock_print):
@@ -146,42 +111,30 @@ def test_call_with_message_no_effect(handler, mock_print):
 
 def test_call_with_multiple_parameters(handler, mock_print):
     """Test calling handler with multiple parameters."""
-    current_tool_use = {"name": "test_tool", "input": {"param": "value"}}
+    event = {"contentBlockStart": {"start": {"toolUse": {"name": "test_tool"}}}}
 
-    handler(data="Test output", complete=True, current_tool_use=current_tool_use)
+    handler(data="Test output", complete=True, event=event)
 
-    # Should print data with newline, an extra newline for completion, and tool information
-    assert mock_print.call_count == 3
-    mock_print.assert_any_call("Test output", end="\n")
-    mock_print.assert_any_call("\n")
-    mock_print.assert_any_call("\nTool #1: test_tool")
-
-
-def test_unknown_tool_name_handling(handler, mock_print):
-    """Test handling of a tool use without a name."""
-    # The SDK implementation doesn't have a fallback for tool uses without a name field
-    # It checks for both presence of current_tool_use and current_tool_use.get("name")
-    current_tool_use = {"input": {"param": "value"}, "name": "Unknown tool"}
-
-    handler(current_tool_use=current_tool_use)
-
-    # Should print the tool information
-    mock_print.assert_called_once_with("\nTool #1: Unknown tool")
+    # Should print data with newline, tool information, and an extra newline for completion
+    assert mock_print.call_args_list == [
+        unittest.mock.call("Test output", end="\n"),
+        unittest.mock.call("\nTool #1: test_tool"),
+        unittest.mock.call("\n"),
+    ]
 
 
 def test_tool_use_empty_object(handler, mock_print):
-    """Test handling of an empty tool use object."""
+    """Test handling of an empty tool use object in event."""
     # Tool use is an empty dict
-    current_tool_use = {}
+    event = {"contentBlockStart": {"start": {"toolUse": {}}}}
 
-    handler(current_tool_use=current_tool_use)
+    handler(event=event)
 
     # Should not print anything
     mock_print.assert_not_called()
 
     # Should not update state
     assert handler.tool_count == 0
-    assert handler.previous_tool_use is None
 
 
 def test_composite_handler_forwards_to_all_handlers():
@@ -193,7 +146,7 @@ def test_composite_handler_forwards_to_all_handlers():
     kwargs = {
         "data": "Test output",
         "complete": True,
-        "current_tool_use": {"name": "test_tool", "input": {"param": "value"}},
+        "event": {"contentBlockStart": {"start": {"toolUse": {"name": "test_tool"}}}},
     }
 
     # Call the composite handler
@@ -215,12 +168,11 @@ def test_verbose_tool_use_disabled(mock_print):
     handler = PrintingCallbackHandler(verbose_tool_use=False)
     assert handler._verbose_tool_use is False
 
-    current_tool_use = {"name": "test_tool", "input": {"param": "value"}}
-    handler(current_tool_use=current_tool_use)
+    event = {"contentBlockStart": {"start": {"toolUse": {"name": "test_tool"}}}}
+    handler(event=event)
 
     # Should not print tool information when verbose_tool_use is False
     mock_print.assert_not_called()
 
-    # Should still update tool count and previous_tool_use
+    # Should still update tool count
     assert handler.tool_count == 1
-    assert handler.previous_tool_use == current_tool_use

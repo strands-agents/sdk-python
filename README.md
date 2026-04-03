@@ -179,6 +179,7 @@ Built-in providers:
  - [MistralAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/mistral/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
  - [OpenAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)
+ - [OpenAI Responses API](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)
  - [SageMaker](https://strandsagents.com/latest/user-guide/concepts/model-providers/sagemaker/)
  - [Writer](https://strandsagents.com/latest/user-guide/concepts/model-providers/writer/)
 
@@ -208,6 +209,16 @@ Build real-time voice and audio conversations with persistent streaming connecti
 - Google Gemini Live
 - OpenAI Realtime API
 
+**Installation:**
+
+```bash
+# Server-side only (no audio I/O dependencies)
+pip install strands-agents[bidi]
+
+# With audio I/O support (includes PyAudio dependency)
+pip install strands-agents[bidi,bidi-io]
+```
+
 **Quick Example:**
 
 ```python
@@ -223,7 +234,7 @@ async def main():
     model = BidiNovaSonicModel()
     agent = BidiAgent(model=model, tools=[calculator, stop_conversation])
 
-    # Setup audio and text I/O
+    # Setup audio and text I/O (requires bidi-io extra)
     audio_io = BidiAudioIO()
     text_io = BidiTextIO()
 
@@ -237,6 +248,8 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+> **Note**: `BidiAudioIO` and `BidiTextIO` require the `bidi-io` extra. For server-side deployments where audio I/O is handled by clients (browsers, mobile apps), install only `strands-agents[bidi]` and implement custom input/output handlers using the `BidiInput` and `BidiOutput` protocols.
 
 **Configuration Options:**
 

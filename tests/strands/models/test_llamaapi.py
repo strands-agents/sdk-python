@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates
+import logging
 import unittest.mock
 
 import pytest
@@ -414,3 +415,69 @@ async def test_tool_choice_none_no_warning(model, messages, captured_warnings, a
         await alist(response)
 
     assert len(captured_warnings) == 0
+
+
+def test_format_request_filters_s3_source_image(model, caplog):
+    """Test that images with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.llamaapi")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "look at this image"},
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Image with S3 source should be filtered, text should remain
+    formatted_messages = request["messages"]
+    user_content = formatted_messages[0]["content"]
+    assert len(user_content) == 1
+    assert user_content[0]["type"] == "text"
+    assert "Location sources are not supported by LlamaAPI" in caplog.text
+
+
+def test_format_request_filters_location_source_document(model, caplog):
+    """Test that documents with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.llamaapi")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this document"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+
+    # Document with S3 source should be filtered, text should remain
+    formatted_messages = request["messages"]
+    user_content = formatted_messages[0]["content"]
+    assert len(user_content) == 1
+    assert user_content[0]["type"] == "text"
+    assert "Location sources are not supported by LlamaAPI" in caplog.text

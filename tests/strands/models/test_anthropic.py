@@ -1,3 +1,4 @@
+import logging
 import unittest.mock
 
 import anthropic
@@ -866,3 +867,69 @@ def test_tool_choice_none_no_warning(model, messages, captured_warnings):
     model.format_request(messages, tool_choice=None)
 
     assert len(captured_warnings) == 0
+
+
+def test_format_request_filters_s3_source_image(model, model_id, max_tokens, caplog):
+    """Test that images with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "look at this image"},
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    tru_request = model.format_request(messages)
+
+    # Image with S3 source should be filtered, text should remain
+    exp_messages = [
+        {"role": "user", "content": [{"type": "text", "text": "look at this image"}]},
+    ]
+    assert tru_request["messages"] == exp_messages
+    assert "Location sources are not supported by Anthropic" in caplog.text
+
+
+def test_format_request_filters_location_source_document(model, model_id, max_tokens, caplog):
+    """Test that documents with Location sources are filtered out with warning."""
+    caplog.set_level(logging.WARNING, logger="strands.models.anthropic")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this document"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "report.pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    },
+                },
+            ],
+        },
+    ]
+
+    tru_request = model.format_request(messages)
+
+    # Document with S3 source should be filtered, text should remain
+    exp_messages = [
+        {"role": "user", "content": [{"type": "text", "text": "analyze this document"}]},
+    ]
+    assert tru_request["messages"] == exp_messages
+    assert "Location sources are not supported by Anthropic" in caplog.text

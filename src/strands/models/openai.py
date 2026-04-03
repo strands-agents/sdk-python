@@ -20,12 +20,21 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys
+from ._validation import _has_location_source, validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+# Alternative context overflow error messages
+# These are commonly returned by OpenAI-compatible endpoints wrapping other providers
+# (e.g., Databricks serving Bedrock models)
+_CONTEXT_OVERFLOW_MESSAGES = [
+    "Input is too long for requested model",
+    "input length and `max_tokens` exceed context limit",
+    "too many total text bytes",
+]
 
 
 class Client(Protocol):
@@ -195,10 +204,38 @@ class OpenAIModel(Model):
             ],
         )
 
+        # Merge adjacent text blocks while preserving the order of non-text
+        # (image/document) content.  When all content is text, join into a
+        # single string for broad compatibility with OpenAI-compatible
+        # endpoints (e.g., Kimi K2.5, vLLM, Ollama).
+        # See https://github.com/strands-agents/sdk-python/issues/1696
+        merged: list[dict[str, Any]] = []
+        has_non_text = False
+        for content_block in contents:
+            if "text" in content_block:
+                # Merge with the previous entry if it is also text (adjacent)
+                if merged and merged[-1].get("type") == "text":
+                    merged[-1]["text"] += "\n" + content_block["text"]
+                else:
+                    merged.append({"type": "text", "text": content_block["text"]})
+            elif "image" in content_block or "document" in content_block:
+                has_non_text = True
+                merged.append(cls.format_request_message_content(content_block))
+
+        content: str | list[dict[str, Any]]
+        if has_non_text:
+            # Keep array format when images/documents are present so that
+            # _split_tool_message_images can extract them into a user message.
+            content = merged
+        else:
+            # All text — the loop already merged adjacent blocks with "\n",
+            # so extract the single resulting entry.
+            content = merged[0]["text"] if merged else ""
+
         return {
             "role": "tool",
             "tool_call_id": tool_result["toolUseId"],
-            "content": [cls.format_request_message_content(content) for content in contents],
+            "content": content,
         }
 
     @classmethod
@@ -338,11 +375,17 @@ class OpenAIModel(Model):
                     "reasoningContent is not supported in multi-turn conversations with the Chat Completions API."
                 )
 
-            formatted_contents = [
-                cls.format_request_message_content(content)
-                for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
-            ]
+            # Filter out content blocks that shouldn't be formatted
+            filtered_contents = []
+            for content in contents:
+                if any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"]):
+                    continue
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by OpenAI | skipping content block")
+                    continue
+                filtered_contents.append(content)
+
+            formatted_contents = [cls.format_request_message_content(content) for content in filtered_contents]
             formatted_tool_calls = [
                 cls.format_request_message_tool_call(content["toolUse"]) for content in contents if "toolUse" in content
             ]
@@ -354,18 +397,21 @@ class OpenAIModel(Model):
 
             formatted_message = {
                 "role": message["role"],
-                "content": formatted_contents,
+                **({"content": formatted_contents} if formatted_contents else {}),
                 **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
             }
             formatted_messages.append(formatted_message)
 
             # Process tool messages to extract images into separate user messages
             # OpenAI API requires images to be in user role messages only
+            # All tool messages must be grouped together before any user messages with images
+            user_messages_with_images = []
             for tool_msg in formatted_tool_messages:
                 tool_msg_clean, user_msg_with_images = cls._split_tool_message_images(tool_msg)
                 formatted_messages.append(tool_msg_clean)
                 if user_msg_with_images:
-                    formatted_messages.append(user_msg_with_images)
+                    user_messages_with_images.append(user_msg_with_images)
+            formatted_messages.extend(user_messages_with_images)
 
         return formatted_messages
 
@@ -392,7 +438,7 @@ class OpenAIModel(Model):
         formatted_messages = cls._format_system_messages(system_prompt, system_prompt_content=system_prompt_content)
         formatted_messages.extend(cls._format_regular_messages(messages))
 
-        return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
+        return [message for message in formatted_messages if "content" in message or "tool_calls" in message]
 
     def format_request(
         self,
@@ -594,6 +640,14 @@ class OpenAIModel(Model):
                 # Rate limits (including TPM) require waiting/retrying, not context reduction
                 logger.warning("OpenAI threw rate limit error")
                 raise ModelThrottledException(str(e)) from e
+            except openai.APIError as e:
+                # Check for alternative context overflow error messages
+                error_message = str(e)
+                if any(overflow_msg in error_message for overflow_msg in _CONTEXT_OVERFLOW_MESSAGES):
+                    logger.warning("context window overflow error detected")
+                    raise ContextWindowOverflowException(error_message) from e
+                # Re-raise other APIError exceptions
+                raise
 
             logger.debug("got response from model")
             yield self.format_chunk({"chunk_type": "message_start"})
@@ -717,6 +771,14 @@ class OpenAIModel(Model):
                 # Rate limits (including TPM) require waiting/retrying, not context reduction
                 logger.warning("OpenAI threw rate limit error")
                 raise ModelThrottledException(str(e)) from e
+            except openai.APIError as e:
+                # Check for alternative context overflow error messages
+                error_message = str(e)
+                if any(overflow_msg in error_message for overflow_msg in _CONTEXT_OVERFLOW_MESSAGES):
+                    logger.warning("context window overflow error detected")
+                    raise ContextWindowOverflowException(error_message) from e
+                # Re-raise other APIError exceptions
+                raise
 
         parsed: T | None = None
         # Find the first choice with tool_calls

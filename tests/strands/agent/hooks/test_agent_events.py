@@ -84,7 +84,7 @@ async def test_stream_e2e_success(alist):
     mock_callback = unittest.mock.Mock()
     agent = Agent(model=mock_provider, tools=[async_tool, normal_tool, streaming_tool], callback_handler=mock_callback)
 
-    stream = agent.stream_async("Do the stuff", arg1=1013)
+    stream = agent.stream_async("Do the stuff", invocation_state={"arg1": 1013})
 
     tool_config = {
         "toolChoice": {"auto": {}},
@@ -344,7 +344,7 @@ async def test_stream_e2e_throttle_and_redact(alist, mock_sleep):
     mock_callback = unittest.mock.Mock()
     agent = Agent(model=model, tools=[normal_tool], callback_handler=mock_callback)
 
-    stream = agent.stream_async("Do the stuff", arg1=1013)
+    stream = agent.stream_async("Do the stuff", invocation_state={"arg1": 1013})
 
     # Base object with common properties
     throttle_props = {
@@ -492,7 +492,7 @@ async def test_event_loop_cycle_text_response_throttling_early_end(
 
         # Because we're throwing an exception, we manually collect the items here
         tru_events = []
-        stream = agent.stream_async("Do the stuff", arg1=1013)
+        stream = agent.stream_async("Do the stuff", invocation_state={"arg1": 1013})
         async for event in stream:
             tru_events.append(event)
 
@@ -525,6 +525,7 @@ async def test_event_loop_cycle_text_response_throttling_early_end(
     assert typed_events == []
 
 
+@pytest.mark.filterwarnings("ignore:Agent.structured_output_async method is deprecated:DeprecationWarning")
 @pytest.mark.asyncio
 async def test_structured_output(agenerator):
     # we use bedrock here as it uses the tool implementation

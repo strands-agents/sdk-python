@@ -35,22 +35,33 @@ class AgentResult:
     interrupts: Sequence[Interrupt] | None = None
     structured_output: BaseModel | None = None
 
-    def __str__(self) -> str:
-        """Get the agent's last message as a string.
-
-        This method extracts and concatenates all text content from the final message, ignoring any non-text content
-        like images or structured data. If there's an interrupt, it returns the interrupt information.
-        If there's no text content but structured output is present, it serializes
-        the structured output instead.
+    @property
+    def context_size(self) -> int | None:
+        """Most recent context size in tokens from the last LLM call.
 
         Returns:
-            The agent's result as a string.
+            The input token count from the most recent cycle, or None if no data is available.
+        """
+        return self.metrics.latest_context_size
+
+    def __str__(self) -> str:
+        """Return a string representation of the agent result.
+
+        Priority order:
+        1. Interrupts (if present) → stringified list of interrupt dicts
+        2. Structured output (if present) → JSON string
+        3. Text content from message → concatenated text blocks
+
+        Returns:
+            String representation based on the priority order above.
         """
         if self.interrupts:
-            return "\n".join(f"Interrupt: {i.name} (Reason: {i.reason})" for i in self.interrupts)
+            return str([interrupt.to_dict() for interrupt in self.interrupts])
+
+        if self.structured_output:
+            return self.structured_output.model_dump_json()
 
         content_array = self.message.get("content", [])
-
         result = ""
         for item in content_array:
             if isinstance(item, dict):
@@ -62,9 +73,6 @@ class AgentResult:
                         for content in citations_block["content"]:
                             if isinstance(content, dict) and "text" in content:
                                 result += content.get("text", "") + "\n"
-
-        if not result and self.structured_output:
-            result = self.structured_output.model_dump_json()
 
         return result
 

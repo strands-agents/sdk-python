@@ -5,9 +5,11 @@ import pytest
 from strands.agent.agent_result import AgentResult
 from strands.hooks import (
     AfterInvocationEvent,
+    AfterModelCallEvent,
     AfterToolCallEvent,
     AgentInitializedEvent,
     BeforeInvocationEvent,
+    BeforeModelCallEvent,
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
@@ -170,6 +172,39 @@ def test_after_invocation_event_properties_not_writable(agent):
     with pytest.raises(AttributeError, match="Property agent is not writable"):
         event.agent = Mock()
 
+    with pytest.raises(AttributeError, match="Property invocation_state is not writable"):
+        event.invocation_state = {}
+
+
+def test_invocation_state_is_available_in_invocation_events(agent):
+    """Test that invocation_state is accessible in BeforeInvocationEvent and AfterInvocationEvent."""
+    invocation_state = {"session_id": "test-123", "request_id": "req-456"}
+
+    before_event = BeforeInvocationEvent(agent=agent, invocation_state=invocation_state)
+    assert before_event.invocation_state == invocation_state
+    assert before_event.invocation_state["session_id"] == "test-123"
+    assert before_event.invocation_state["request_id"] == "req-456"
+
+    after_event = AfterInvocationEvent(agent=agent, invocation_state=invocation_state, result=None)
+    assert after_event.invocation_state == invocation_state
+    assert after_event.invocation_state["session_id"] == "test-123"
+    assert after_event.invocation_state["request_id"] == "req-456"
+
+
+def test_invocation_state_is_available_in_model_call_events(agent):
+    """Test that invocation_state is accessible in BeforeModelCallEvent and AfterModelCallEvent."""
+    invocation_state = {"session_id": "test-123", "request_id": "req-456"}
+
+    before_event = BeforeModelCallEvent(agent=agent, invocation_state=invocation_state)
+    assert before_event.invocation_state == invocation_state
+    assert before_event.invocation_state["session_id"] == "test-123"
+    assert before_event.invocation_state["request_id"] == "req-456"
+
+    after_event = AfterModelCallEvent(agent=agent, invocation_state=invocation_state)
+    assert after_event.invocation_state == invocation_state
+    assert after_event.invocation_state["session_id"] == "test-123"
+    assert after_event.invocation_state["request_id"] == "req-456"
+
 
 def test_before_invocation_event_messages_default_none(agent):
     """Test that BeforeInvocationEvent.messages defaults to None for backward compatibility."""
@@ -195,3 +230,33 @@ def test_before_invocation_event_agent_not_writable(start_request_event_with_mes
     """Test that BeforeInvocationEvent.agent is not writable."""
     with pytest.raises(AttributeError, match="Property agent is not writable"):
         start_request_event_with_messages.agent = Mock()
+
+
+def test_after_invocation_event_resume_defaults_to_none(agent):
+    """Test that AfterInvocationEvent.resume defaults to None."""
+    event = AfterInvocationEvent(agent=agent, result=None)
+    assert event.resume is None
+
+
+def test_after_invocation_event_resume_is_writable(agent):
+    """Test that AfterInvocationEvent.resume can be set by hooks."""
+    event = AfterInvocationEvent(agent=agent, result=None)
+    event.resume = "continue with this input"
+    assert event.resume == "continue with this input"
+
+
+def test_after_invocation_event_resume_accepts_various_input_types(agent):
+    """Test that resume accepts all AgentInput types."""
+    event = AfterInvocationEvent(agent=agent, result=None)
+
+    # String input
+    event.resume = "hello"
+    assert event.resume == "hello"
+
+    # Content block list
+    event.resume = [{"text": "hello"}]
+    assert event.resume == [{"text": "hello"}]
+
+    # None to stop
+    event.resume = None
+    assert event.resume is None

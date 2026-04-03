@@ -17,7 +17,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
+from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -212,6 +212,11 @@ class MistralModel(Model):
             tool_messages: list[dict[str, Any]] = []
 
             for content in contents:
+                # Check for location sources and skip with warning
+                if _has_location_source(content):
+                    logger.warning("Location sources are not supported by Mistral | skipping content block")
+                    continue
+
                 if "text" in content:
                     formatted_content = self._format_request_message_content(content)
                     if isinstance(formatted_content, str):
@@ -491,8 +496,8 @@ class MistralModel(Model):
 
                             yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
-                            if hasattr(chunk, "usage"):
-                                yield self.format_chunk({"chunk_type": "metadata", "data": chunk.usage})
+                            if hasattr(chunk, "data") and hasattr(chunk.data, "usage") and chunk.data.usage:
+                                yield self.format_chunk({"chunk_type": "metadata", "data": chunk.data.usage})
 
         except Exception as e:
             if "rate" in str(e).lower() or "429" in str(e):

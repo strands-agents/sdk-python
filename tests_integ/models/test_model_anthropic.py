@@ -28,7 +28,7 @@ def model():
         client_args={
             "api_key": os.getenv("ANTHROPIC_API_KEY"),
         },
-        model_id="claude-3-7-sonnet-20250219",
+        model_id="claude-sonnet-4-6",
         max_tokens=512,
     )
 

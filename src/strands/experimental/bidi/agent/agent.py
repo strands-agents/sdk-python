@@ -25,11 +25,11 @@ from ....tools._caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
+from ....tools.tool_provider import ToolProvider
 from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
-from ...tools import ToolProvider
 from .._async import _TaskGroup, stop_all
 from ..models.model import BidiModel
 from ..types.agent import BidiAgentInput

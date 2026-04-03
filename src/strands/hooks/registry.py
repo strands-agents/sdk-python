@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, runtime_checkable
 
 from ..interrupt import Interrupt, InterruptException
+from ._type_inference import infer_event_types
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -157,27 +158,96 @@ class HookRegistry:
         """Initialize an empty hook registry."""
         self._registered_callbacks: dict[type, list[HookCallback]] = {}
 
-    def add_callback(self, event_type: type[TEvent], callback: HookCallback[TEvent]) -> None:
+    def add_callback(
+        self,
+        event_type: type[TEvent] | list[type[TEvent]] | None,
+        callback: HookCallback[TEvent],
+    ) -> None:
         """Register a callback function for a specific event type.
 
+        If ``event_type`` is None, then this will check the callback handler type hint
+        for the lifecycle event type. Union types (``A | B`` or ``Union[A, B]``) in
+        type hints will register the callback for each event type in the union.
+
+        If ``event_type`` is a list, the callback will be registered for each event
+        type in the list (duplicates are ignored).
+
         Args:
-            event_type: The class type of events this callback should handle.
+            event_type: The lifecycle event type(s) this callback should handle.
+                Can be a single type, a list of types, or None to infer from type hints.
             callback: The callback function to invoke when events of this type occur.
+
+        Raises:
+            ValueError: If event_type is not provided and cannot be inferred from
+                the callback's type hints, or if AgentInitializedEvent is registered
+                with an async callback, or if the event_type list is empty.
 
         Example:
             ```python
             def my_handler(event: StartRequestEvent):
                 print("Request started")
 
+            # With explicit event type
             registry.add_callback(StartRequestEvent, my_handler)
+
+            # With event type inferred from type hint
+            registry.add_callback(None, my_handler)
+
+            # With union type hint (registers for both types)
+            def union_handler(event: BeforeModelCallEvent | AfterModelCallEvent):
+                print(f"Event: {type(event).__name__}")
+            registry.add_callback(None, union_handler)
+
+            # With list of event types
+            def multi_handler(event):
+                print(f"Event: {type(event).__name__}")
+            registry.add_callback([BeforeModelCallEvent, AfterModelCallEvent], multi_handler)
             ```
         """
-        # Related issue: https://github.com/strands-agents/sdk-python/issues/330
-        if event_type.__name__ == "AgentInitializedEvent" and inspect.iscoroutinefunction(callback):
-            raise ValueError("AgentInitializedEvent can only be registered with a synchronous callback")
+        resolved_event_types: list[type[TEvent]]
 
-        callbacks = self._registered_callbacks.setdefault(event_type, [])
-        callbacks.append(callback)
+        # Handle list of event types
+        if isinstance(event_type, list):
+            if not event_type:
+                raise ValueError("event_type list cannot be empty")
+            resolved_event_types = self._validate_event_type_list(event_type)
+        elif event_type is None:
+            # Infer event type(s) from callback type hints
+            resolved_event_types = infer_event_types(callback)
+        else:
+            # Single event type provided explicitly
+            resolved_event_types = [event_type]
+
+        # Deduplicate event types while preserving order
+        unique_event_types: set[type[TEvent]] = set(resolved_event_types)
+
+        # Register callback for each event type
+        for resolved_event_type in unique_event_types:
+            # Related issue: https://github.com/strands-agents/sdk-python/issues/330
+            if resolved_event_type.__name__ == "AgentInitializedEvent" and inspect.iscoroutinefunction(callback):
+                raise ValueError("AgentInitializedEvent can only be registered with a synchronous callback")
+
+            callbacks = self._registered_callbacks.setdefault(resolved_event_type, [])
+            callbacks.append(callback)
+
+    def _validate_event_type_list(self, event_types: list[type[TEvent]]) -> list[type[TEvent]]:
+        """Validate that all types in a list are valid BaseHookEvent subclasses.
+
+        Args:
+            event_types: List of event types to validate.
+
+        Returns:
+            The validated list of event types.
+
+        Raises:
+            ValueError: If any type is not a valid BaseHookEvent subclass.
+        """
+        validated: list[type[TEvent]] = []
+        for et in event_types:
+            if not (isinstance(et, type) and issubclass(et, BaseHookEvent)):
+                raise ValueError(f"Invalid event type: {et} | must be a subclass of BaseHookEvent")
+            validated.append(et)
+        return validated
 
     def add_hook(self, hook: HookProvider) -> None:
         """Register all callbacks from a hook provider.
