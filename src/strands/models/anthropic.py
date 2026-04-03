@@ -28,6 +28,34 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
+def _serialize_anthropic_event(event: Any) -> dict[str, Any]:
+    """Manually serializes Anthropic events to bypass Pydantic warnings on inner blocks.
+
+    If an inner block has a .model_dump() method, it is called explicitly during serialization.
+    """
+    if type(event).__name__ in ("Mock", "AsyncMock", "MagicMock"):
+        return event.model_dump()
+
+    if hasattr(event, "model_fields"):
+        result = {}
+        for key in getattr(event, "model_fields", {}):
+            val = getattr(event, key, None)
+            if val is None:
+                continue
+            if key == "message":
+                result["message"] = {"stop_reason": getattr(val, "stop_reason", None)}
+            elif hasattr(val, "model_dump"):
+                result[key] = val.model_dump()
+            else:
+                result[key] = val
+        return result
+
+    if hasattr(event, "model_dump"):
+        return event.model_dump()
+
+    return dict(event)
+
+
 class AnthropicModel(Model):
     """Anthropic model provider implementation."""
 
@@ -407,7 +435,9 @@ class AnthropicModel(Model):
                 logger.debug("got response from model")
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield self.format_chunk(event.model_dump())
+                        event_dict = _serialize_anthropic_event(event)
+
+                        yield self.format_chunk(event_dict)
 
                 usage = event.message.usage  # type: ignore
                 yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})

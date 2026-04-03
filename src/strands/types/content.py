@@ -6,8 +6,9 @@ SDK. These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Literal
+from typing import Annotated, Any, Literal
 
+from pydantic import PlainSerializer
 from typing_extensions import NotRequired, TypedDict
 
 from .citations import CitationsContentBlock
@@ -177,6 +178,10 @@ Role = Literal["user", "assistant"]
 """
 
 
+def _serialize_blocks(blocks: list[Any]) -> list[Any]:
+    return [b.model_dump() if hasattr(b, "model_dump") else b for b in blocks]
+
+
 class Message(TypedDict):
     """A message in a conversation with the agent.
 
@@ -185,7 +190,7 @@ class Message(TypedDict):
         role: The role of the message sender.
     """
 
-    content: list[ContentBlock]
+    content: Annotated[list[ContentBlock], PlainSerializer(_serialize_blocks, return_type=list[Any])]
     role: Role
 
 
