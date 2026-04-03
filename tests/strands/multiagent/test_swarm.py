@@ -830,6 +830,60 @@ async def test_swarm_streaming_timeout_behavior(mock_strands_tracer, mock_use_sp
 
 
 @pytest.mark.asyncio
+async def test_swarm_timeout_preserves_otel_context(mock_strands_tracer, mock_use_span):
+    """Test that timeout-wrapped streaming does not break OpenTelemetry context propagation.
+
+    Reproduces https://github.com/strands-agents/sdk-python/issues/1316 where
+    asyncio.wait_for() created a new task, copying the contextvars.Context.
+    This caused context.detach(token) to fail with:
+        ValueError: <Token> was created in a different Context
+    """
+    import contextvars
+
+    # Track context operations to detect cross-context token usage
+    context_errors = []
+    original_attach = contextvars.copy_context
+
+    # Create a real ContextVar and token to verify they stay in the same context
+    test_var: contextvars.ContextVar[str] = contextvars.ContextVar("test_otel_span")
+
+    agent = create_mock_agent("otel_agent", "OTEL response")
+
+    async def stream_with_context_check(*args, **kwargs):
+        """Mock stream that attaches/detaches context vars like OTEL use_span does."""
+        token = test_var.set("span_active")
+        try:
+            yield {"agent_start": True, "node": "otel_agent"}
+            await asyncio.sleep(0.01)
+            yield {"agent_thinking": True, "thought": "Working"}
+            await asyncio.sleep(0.01)
+            yield {"result": agent.return_value}
+        finally:
+            try:
+                test_var.reset(token)
+            except ValueError as e:
+                context_errors.append(str(e))
+
+    agent.stream_async = Mock(side_effect=stream_with_context_check)
+
+    swarm = Swarm(
+        nodes=[agent],
+        max_handoffs=1,
+        max_iterations=1,
+        execution_timeout=5.0,  # Generous timeout — should not fire
+    )
+
+    events = []
+    async for event in swarm.stream_async("Test OTEL context"):
+        events.append(event)
+
+    # The critical assertion: no context errors should have occurred
+    assert context_errors == [], (
+        f"ContextVar token errors detected (would cause OTEL ValueError): {context_errors}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_swarm_streaming_backward_compatibility(mock_strands_tracer, mock_use_span, alist):
     """Test that swarm streaming maintains backward compatibility."""
     # Create simple agent
