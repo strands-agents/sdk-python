@@ -939,12 +939,9 @@ def test_format_request_filters_location_source_document(model, model_id, max_to
 
 @pytest.mark.asyncio
 async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model, agenerator, alist):
-    """Test that message_stop events with ParsedTextBlock content don't emit Pydantic warnings.
+    """Verify no Pydantic serialization warnings are emitted for message_stop events.
 
-    This test verifies the fix for issue #1746 where Pydantic serializer warnings
-    were emitted when the Anthropic SDK returned ParsedTextBlock in message content.
-    The fix avoids calling model_dump() on message_stop events, instead extracting
-    only the stop_reason directly from the event.
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1746.
     """
     # Create a mock message_stop event where model_dump() would emit warnings
     # The key is that the event has a .message attribute with .stop_reason
