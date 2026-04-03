@@ -8,6 +8,8 @@ It includes:
   size while preserving conversation coherence
 - SummarizingConversationManager: An implementation that summarizes older context instead
   of simply trimming it
+- TokenAwareConversationManager: An implementation that uses actual input token counts to
+  proactively compact context with a four-pass strategy (sanitize, truncate, summarize, trim)
 
 Conversation managers help control memory usage and context length while maintaining relevant conversation state, which
 is critical for effective agent interactions.
@@ -17,10 +19,12 @@ from .conversation_manager import ConversationManager
 from .null_conversation_manager import NullConversationManager
 from .sliding_window_conversation_manager import SlidingWindowConversationManager
 from .summarizing_conversation_manager import SummarizingConversationManager
+from .token_aware_conversation_manager import TokenAwareConversationManager
 
 __all__ = [
     "ConversationManager",
     "NullConversationManager",
     "SlidingWindowConversationManager",
     "SummarizingConversationManager",
+    "TokenAwareConversationManager",
 ]
