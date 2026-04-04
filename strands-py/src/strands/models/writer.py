@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from ..types.exceptions import ModelThrottledException
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
@@ -62,6 +62,14 @@ class WriterModel(Model):
 
         client_args = client_args or {}
         self.client = writerai.AsyncClient(**client_args)
+
+    OVERFLOW_MESSAGES = {
+        "context length exceeded",
+        "context window",
+        "max context length",
+        "prompt is too long",
+        "token limit",
+    }
 
     @override
     def update_config(self, **model_config: Unpack[WriterConfig]) -> None:  # type: ignore[override]
@@ -397,6 +405,11 @@ class WriterModel(Model):
             response = await self.client.chat.chat(**request)
         except writerai.RateLimitError as e:
             raise ModelThrottledException(str(e)) from e
+        except Exception as error:
+            error_str = str(error).lower()
+            if any(msg in error_str for msg in self.OVERFLOW_MESSAGES):
+                raise ContextWindowOverflowException(str(error)) from error
+            raise
 
         yield self.format_chunk({"chunk_type": "message_start"})
         yield self.format_chunk({"chunk_type": "content_block_start", "data_type": "text"})

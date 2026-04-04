@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
+from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
@@ -33,6 +34,13 @@ class OllamaModel(Model):
     - Streaming responses
     - Tool/function calling
     """
+
+    OVERFLOW_MESSAGES = {
+        "context length exceeded",
+        "context window",
+        "max context length",
+        "prompt is too long",
+    }
 
     class OllamaConfig(BaseModelConfig, total=False):
         """Configuration parameters for Ollama models.
@@ -321,7 +329,14 @@ class OllamaModel(Model):
         tool_requested = False
 
         client = ollama.AsyncClient(self.host, **self.client_args)
-        response = await client.chat(**request)
+        
+        try:
+            response = await client.chat(**request)
+        except Exception as error:
+            error_str = str(error).lower()
+            if any(msg in error_str for msg in self.OVERFLOW_MESSAGES):
+                raise ContextWindowOverflowException(str(error)) from error
+            raise
 
         logger.debug("got response from model")
         yield self.format_chunk({"chunk_type": "message_start"})
