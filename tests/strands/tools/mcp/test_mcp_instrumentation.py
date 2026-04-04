@@ -328,7 +328,7 @@ class MockPydanticParams:
     def __init__(self, **data):
         self._data = data
 
-    def model_dump(self):
+    def model_dump(self, **kwargs):
         return self._data.copy()
 
     @classmethod
@@ -507,7 +507,7 @@ class TestMCPInstrumentation:
             def __init__(self, **data):
                 self._data = data
 
-            def model_dump(self):
+            def model_dump(self, **kwargs):
                 return self._data.copy()
 
             def model_validate(self, data):
@@ -537,3 +537,37 @@ class TestMCPInstrumentation:
             assert isinstance(mock_request.root.params, dict)
             assert "_meta" in mock_request.root.params
             mock_wrapped.assert_called_once_with(mock_request)
+
+    def test_patch_mcp_client_injects_context_into_real_mcp_params(self):
+        """Regression test: _meta alias is preserved when using real MCP Pydantic models.
+
+        model_dump() serialises the alias-based `_meta` field as `meta`, so
+        setdefault("_meta", ...) creates a second, unrelated key and the tracing
+        context never reaches the MCP server. model_dump(by_alias=True) must be
+        used so the key is `_meta` throughout.
+        """
+        from mcp.types import CallToolRequestParams
+
+        params = CallToolRequestParams(name="test_tool", arguments={"key": "val"})
+
+        mock_request = MagicMock()
+        mock_request.root.method = "tools/call"
+        mock_request.root.params = params
+
+        with patch("strands.tools.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
+            mcp_instrumentation()
+            patch_function = mock_wrap.call_args_list[0][0][2]
+
+        mock_wrapped = MagicMock()
+
+        with patch.object(propagate, "get_global_textmap") as mock_textmap:
+            mock_textmap_instance = MagicMock()
+            mock_textmap.return_value = mock_textmap_instance
+
+            patch_function(mock_wrapped, None, [mock_request], {})
+
+        # After patching, the params model must still be a CallToolRequestParams
+        # (not a plain dict) and its _meta alias field must be present.
+        updated_params = mock_request.root.params
+        dumped = updated_params.model_dump(by_alias=True)
+        assert "_meta" in dumped, "tracing context was injected under 'meta' instead of '_meta'"
