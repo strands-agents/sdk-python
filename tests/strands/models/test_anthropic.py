@@ -933,3 +933,50 @@ def test_format_request_filters_location_source_document(model, model_id, max_to
     ]
     assert tru_request["messages"] == exp_messages
     assert "Location sources are not supported by Anthropic" in caplog.text
+
+
+def test_normalize_event_converts_parsed_text_block(model):
+    """_normalize_event replaces ParsedTextBlock with TextBlock to avoid Pydantic warnings."""
+    try:
+        from anthropic.types.parsed_message import ParsedTextBlock
+    except ImportError:
+        pytest.skip("ParsedTextBlock not available in this SDK version")
+
+    from anthropic.types import TextBlock
+
+    parsed_block = ParsedTextBlock(type="text", text="hello", citations=None)
+    mock_event = unittest.mock.Mock()
+    mock_event.type = "content_block_start"
+    mock_event.content_block = parsed_block
+
+    result = AnthropicModel._normalize_event(mock_event)
+
+    assert result is mock_event
+    assert isinstance(result.content_block, TextBlock)
+    assert not isinstance(result.content_block, ParsedTextBlock)
+    assert result.content_block.text == "hello"
+
+
+def test_normalize_event_passes_through_text_block(model):
+    """_normalize_event leaves events with a plain TextBlock unchanged."""
+    from anthropic.types import TextBlock
+
+    plain_block = TextBlock(type="text", text="world")
+    mock_event = unittest.mock.Mock()
+    mock_event.type = "content_block_start"
+    mock_event.content_block = plain_block
+
+    result = AnthropicModel._normalize_event(mock_event)
+
+    assert result is mock_event
+    assert result.content_block is plain_block
+
+
+def test_normalize_event_passes_through_non_content_block_start(model):
+    """_normalize_event leaves events with types other than content_block_start unchanged."""
+    mock_event = unittest.mock.Mock()
+    mock_event.type = "message_start"
+
+    result = AnthropicModel._normalize_event(mock_event)
+
+    assert result is mock_event

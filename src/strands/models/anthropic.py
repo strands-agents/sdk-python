@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator
 from typing import Any, TypedDict, TypeVar, cast
 
 import anthropic
+from anthropic.types import TextBlock
 from pydantic import BaseModel
 from typing_extensions import Required, Unpack, override
 
@@ -254,6 +255,32 @@ class AnthropicModel(Model):
         else:
             return {}
 
+    @staticmethod
+    def _normalize_event(event: Any) -> Any:
+        """Normalize Anthropic stream events to avoid Pydantic serialization warnings.
+
+        The Anthropic SDK returns ParsedTextBlock (a TextBlock subclass with an extra
+        parsed_output field) in content_block_start events. Calling model_dump() on those
+        events triggers PydanticSerializationUnexpectedValue warnings because ParsedTextBlock
+        is not in the discriminated union on Message.content.
+
+        This converts any ParsedTextBlock back to a plain TextBlock so the discriminated
+        union matches cleanly and no warnings are emitted.
+        """
+        try:
+            from anthropic.types.parsed_message import ParsedTextBlock
+        except ImportError:
+            return event
+
+        if event.type == "content_block_start" and isinstance(event.content_block, ParsedTextBlock):
+            event.content_block = TextBlock(
+                text=event.content_block.text,
+                type=event.content_block.type,
+                citations=event.content_block.citations,
+            )
+
+        return event
+
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
         """Format the Anthropic response events into standardized message chunks.
 
@@ -407,7 +434,7 @@ class AnthropicModel(Model):
                 logger.debug("got response from model")
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield self.format_chunk(event.model_dump())
+                        yield self.format_chunk(self._normalize_event(event).model_dump())
 
                 usage = event.message.usage  # type: ignore
                 yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
