@@ -57,7 +57,14 @@ from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
 from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
-from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
+from ..types._events import (
+    AgentResultEvent,
+    ContextWindowFallbackStreamEvent,
+    EventLoopStopEvent,
+    InitEventLoopEvent,
+    ModelStreamChunkEvent,
+    TypedEvent,
+)
 from ..types.agent import AgentInput, ConcurrentInvocationMode
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
@@ -963,6 +970,8 @@ class Agent(AgentBase):
                 yield event
 
         except ContextWindowOverflowException as e:
+            # Notify callers that context compression is starting before the blocking operation
+            yield ContextWindowFallbackStreamEvent(message=str(e))
             # Try reducing the context size and retrying
             self.conversation_manager.reduce_context(self, e=e)
 

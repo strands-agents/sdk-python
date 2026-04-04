@@ -205,6 +205,20 @@ class RedactContentEvent(TypedDict, total=False):
     redactAssistantContentMessage: str | None
 
 
+class ContextWindowFallbackEvent(TypedDict):
+    """Event emitted when the agent handles a context window overflow.
+
+    Fired before the conversation manager reduces the context, giving callers a
+    real-time signal that context compression is about to begin. Useful for
+    showing progress indicators or logging during long-running agent sessions.
+
+    Attributes:
+        message: The overflow error message from the model provider.
+    """
+
+    message: str
+
+
 class StreamEvent(TypedDict, total=False):
     """The messages output stream.
 
@@ -212,6 +226,7 @@ class StreamEvent(TypedDict, total=False):
         contentBlockDelta: Delta content for a content block.
         contentBlockStart: Start of a content block.
         contentBlockStop: End of a content block.
+        contextWindowFallback: Context window overflow is being handled by reducing context.
         internalServerException: Internal server error information.
         messageStart: Start of a message.
         messageStop: End of a message.
@@ -225,6 +240,7 @@ class StreamEvent(TypedDict, total=False):
     contentBlockDelta: ContentBlockDeltaEvent
     contentBlockStart: ContentBlockStartEvent
     contentBlockStop: ContentBlockStopEvent
+    contextWindowFallback: ContextWindowFallbackEvent
     internalServerException: ExceptionEvent
     messageStart: MessageStartEvent
     messageStop: MessageStopEvent
