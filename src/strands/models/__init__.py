@@ -47,6 +47,10 @@ def __getattr__(name: str) -> Any:
         from .mistral import MistralModel
 
         return MistralModel
+    if name == "NovitaModel":
+        from .novita import NovitaModel
+
+        return NovitaModel
     if name == "OllamaModel":
         from .ollama import OllamaModel
 
