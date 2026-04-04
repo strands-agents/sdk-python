@@ -729,6 +729,8 @@ def test_start_event_loop_cycle_span(mock_tracer):
 
         mock_span.set_attributes.assert_called_once_with(
             {
+                "gen_ai.operation.name": "execute_event_loop_cycle",
+                "gen_ai.system": "strands-agents",
                 "event_loop.cycle_id": "cycle-123",
                 "request_id": "req-456",
                 "trace_level": "debug",
@@ -758,7 +760,13 @@ def test_start_event_loop_cycle_span_latest_conventions(mock_tracer, monkeypatch
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "execute_event_loop_cycle"
 
-        mock_span.set_attributes.assert_called_once_with({"event_loop.cycle_id": "cycle-123"})
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "execute_event_loop_cycle",
+                "gen_ai.provider.name": "strands-agents",
+                "event_loop.cycle_id": "cycle-123",
+            }
+        )
         mock_span.add_event.assert_any_call(
             "gen_ai.client.inference.operation.details",
             attributes={
