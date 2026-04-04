@@ -191,6 +191,11 @@ class BedrockModel(Model):
         model_id = self.config.get("model_id", "").lower()
         if "claude" in model_id or "anthropic" in model_id:
             return "anthropic"
+        # Application inference profile ARNs don't contain model names.
+        # When the user explicitly enables caching via cache_config, assume Anthropic
+        # strategy for Bedrock ARNs since only Anthropic models currently support it.
+        if model_id.startswith("arn:") and "bedrock" in model_id:
+            return "anthropic"
         return None
 
     @override
