@@ -167,6 +167,21 @@ def test_call_tool_sync_with_structured_content(mock_transport, mock_session):
         assert result["structuredContent"]["status"] == "completed"
 
 
+@pytest.mark.parametrize("is_error,expect_is_error_field", [(True, True), (False, False)])
+def test_call_tool_sync_preserves_is_error(mock_transport, mock_session, is_error, expect_is_error_field):
+    """Test that call_tool_sync exposes CallToolResult.isError in MCPToolResult."""
+    mock_content = MCPTextContent(type="text", text="Tool output")
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=is_error, content=[mock_content])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
+
+        if expect_is_error_field:
+            assert result.get("isError") is True
+        else:
+            assert "isError" not in result
+
+
 def test_call_tool_sync_exception(mock_transport, mock_session):
     """Test that call_tool_sync correctly handles exceptions."""
     mock_session.call_tool.side_effect = Exception("Test exception")

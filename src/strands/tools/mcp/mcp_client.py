@@ -732,6 +732,8 @@ class MCPClient(ToolProvider):
             content=mapped_contents,
         )
 
+        if call_tool_result.isError:
+            result["isError"] = True
         if call_tool_result.structuredContent:
             result["structuredContent"] = call_tool_result.structuredContent
         if call_tool_result.meta:

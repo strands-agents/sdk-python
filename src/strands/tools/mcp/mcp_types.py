@@ -61,7 +61,12 @@ class MCPToolResult(ToolResult):
         metadata: Optional arbitrary metadata returned by the MCP tool. This field allows
             MCP servers to attach custom metadata to tool results (e.g., token usage,
             performance metrics, or business-specific tracking information).
+        isError: Whether the MCP tool itself reported an application-level error.
+            True means the tool executed but returned a failure result (application error).
+            Absent means the call succeeded or that an exception was raised before the
+            tool could return a result (protocol or transport error).
     """
 
     structuredContent: NotRequired[dict[str, Any]]
     metadata: NotRequired[dict[str, Any]]
+    isError: NotRequired[bool]
