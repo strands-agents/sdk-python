@@ -875,13 +875,13 @@ class BedrockModel(Model):
             add_exception_note(e, f"└ Model id: {self.config.get('model_id')}")
 
             if (
-                e.response["Error"]["Code"] == "AccessDeniedException"
-                and "You don't have access to the model" in error_message
+                e.response["Error"]["Code"] == "ValidationException"
+                and "The provided model identifier is invalid" in error_message
             ):
                 add_exception_note(
                     e,
                     "└ For more information see "
-                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#model-identifier-is-invalid",
                 )
 
             if (
@@ -891,7 +891,7 @@ class BedrockModel(Model):
                 add_exception_note(
                     e,
                     "└ For more information see "
-                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
                 )
 
             raise e
