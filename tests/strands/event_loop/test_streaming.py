@@ -366,6 +366,25 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
                 "redactedContent": b"",
             },
         ),
+        # Tool Use - Malformed input JSON
+        (
+            {
+                "content": [],
+                "current_tool_use": {"toolUseId": "123", "name": "test", "input": "{invalid json}"},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
         # Text
         (
             {
