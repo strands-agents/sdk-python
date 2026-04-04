@@ -136,6 +136,27 @@ class MultiAgentResult:
     execution_time: int = 0
     interrupts: list[Interrupt] = field(default_factory=list)
 
+    def __str__(self) -> str:
+        """Return a string representation of the multi-agent result.
+
+        Priority order:
+        1. Interrupts (if present) -> stringified list of interrupt dicts
+        2. Text output from all node results -> concatenated strings
+
+        Returns:
+            String representation based on the priority order above.
+        """
+        if self.interrupts:
+            return str([interrupt.to_dict() for interrupt in self.interrupts])
+
+        parts = []
+        for node_result in self.results.values():
+            for agent_result in node_result.get_agent_results():
+                text = str(agent_result).strip()
+                if text:
+                    parts.append(text)
+        return chr(10).join(parts)
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MultiAgentResult":
         """Rehydrate a MultiAgentResult from persisted JSON."""
