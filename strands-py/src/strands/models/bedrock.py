@@ -1038,6 +1038,16 @@ class BedrockModel(Model):
 
             if (
                 e.response["Error"]["Code"] == "ValidationException"
+                and "The provided model identifier is invalid" in error_message
+            ):
+                add_exception_note(
+                    e,
+                    "└ For more information see "
+                    "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#model-identifier-is-invalid",
+                )
+
+            if (
+                e.response["Error"]["Code"] == "ValidationException"
                 and "with on-demand throughput isn’t supported" in error_message
             ):
                 add_exception_note(

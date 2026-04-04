@@ -1764,6 +1764,32 @@ async def test_add_note_on_access_denied_exception(bedrock_client, model, alist,
 
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
 @pytest.mark.asyncio
+async def test_add_note_on_validation_exception_identifier(bedrock_client, model, alist, messages):
+    """Test that add_note adds documentation link for ValidationException about invalid model identifier."""
+    # Mock the client error response for invalid model identifier
+    error_response = {
+        "Error": {
+            "Code": "ValidationException",
+            "Message": "An error occurred (ValidationException) when calling the ConverseStream operation: "
+            "The provided model identifier is invalid.",
+        }
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConversationStream")
+
+    # Call the stream method which should catch and add notes to the exception
+    with pytest.raises(ClientError) as err:
+        await alist(model.stream(messages))
+
+    assert err.value.__notes__ == [
+        "└ Bedrock region: us-west-2",
+        "└ Model id: m1",
+        "└ For more information see "
+        "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#model-identifier-is-invalid",
+    ]
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
+@pytest.mark.asyncio
 async def test_add_note_on_validation_exception_throughput(bedrock_client, model, alist, messages):
     """Test that add_note adds documentation link for ValidationException about on-demand throughput."""
     # Mock the client error response for validation exception
