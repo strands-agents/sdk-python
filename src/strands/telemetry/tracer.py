@@ -526,9 +526,10 @@ class Tracer:
         event_loop_cycle_id = str(invocation_state.get("event_loop_cycle_id"))
         parent_span = parent_span if parent_span else invocation_state.get("event_loop_parent_span")
 
-        attributes: dict[str, AttributeValue] = {
-            "event_loop.cycle_id": event_loop_cycle_id,
-        }
+        attributes: dict[str, AttributeValue] = self._get_common_attributes(
+            operation_name="execute_event_loop_cycle"
+        )
+        attributes["event_loop.cycle_id"] = event_loop_cycle_id
 
         if custom_trace_attributes:
             attributes.update(custom_trace_attributes)

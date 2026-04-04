@@ -729,6 +729,8 @@ def test_start_event_loop_cycle_span(mock_tracer):
 
         mock_span.set_attributes.assert_called_once_with(
             {
+                "gen_ai.operation.name": "execute_event_loop_cycle",
+                "gen_ai.system": "strands-agents",
                 "event_loop.cycle_id": "cycle-123",
                 "request_id": "req-456",
                 "trace_level": "debug",
@@ -758,7 +760,13 @@ def test_start_event_loop_cycle_span_latest_conventions(mock_tracer, monkeypatch
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "execute_event_loop_cycle"
 
-        mock_span.set_attributes.assert_called_once_with({"event_loop.cycle_id": "cycle-123"})
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "execute_event_loop_cycle",
+                "gen_ai.provider.name": "strands-agents",
+                "event_loop.cycle_id": "cycle-123",
+            }
+        )
         mock_span.add_event.assert_any_call(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -766,6 +774,27 @@ def test_start_event_loop_cycle_span_latest_conventions(mock_tracer, monkeypatch
             },
         )
         assert span is not None
+
+
+def test_start_event_loop_cycle_span_includes_common_attributes(mock_tracer):
+    """Test that start_event_loop_cycle_span includes gen_ai common attributes."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        event_loop_kwargs = {"event_loop_cycle_id": "cycle-123"}
+        messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+
+        tracer.start_event_loop_cycle_span(event_loop_kwargs, messages=messages)
+
+        set_attrs_call = mock_span.set_attributes.call_args[0][0]
+        assert "gen_ai.operation.name" in set_attrs_call
+        assert set_attrs_call["gen_ai.operation.name"] == "execute_event_loop_cycle"
+        assert "gen_ai.system" in set_attrs_call
+        assert set_attrs_call["gen_ai.system"] == "strands-agents"
 
 
 def test_end_event_loop_cycle_span(mock_span):
