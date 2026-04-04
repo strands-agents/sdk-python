@@ -199,6 +199,7 @@ class ModelStopReason(TypedEvent):
         message: Message,
         usage: Usage,
         metrics: Metrics,
+        cost: float | None = None,
     ) -> None:
         """Initialize with the final execution results.
 
@@ -207,8 +208,9 @@ class ModelStopReason(TypedEvent):
             message: Final message from the model
             usage: Usage information from the model
             metrics: Execution metrics and performance data
+            cost: Cost in USD for the model invocation, if available from the provider.
         """
-        super().__init__({"stop": (stop_reason, message, usage, metrics)})
+        super().__init__({"stop": (stop_reason, message, usage, metrics, cost)})
 
     @property
     @override

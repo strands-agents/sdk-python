@@ -163,11 +163,13 @@ class MetadataEvent(TypedDict, total=False):
         metrics: Performance metrics related to the model invocation.
         trace: Trace information for debugging and monitoring.
         usage: Resource usage information for the model invocation.
+        cost: Cost in USD for the model invocation, as calculated by the model provider (e.g. LiteLLM).
     """
 
     metrics: Metrics
     trace: Trace | None
     usage: Usage
+    cost: float
 
 
 class ExceptionEvent(TypedDict):

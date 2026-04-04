@@ -351,7 +351,7 @@ async def _handle_model_execution(
                 ):
                     yield event
 
-                stop_reason, message, usage, metrics = event["stop"]
+                stop_reason, message, usage, metrics, cost = event["stop"]
                 invocation_state.setdefault("request_state", {})
 
                 after_model_call_event = AfterModelCallEvent(
@@ -423,6 +423,8 @@ async def _handle_model_execution(
         # Update metrics
         agent.event_loop_metrics.update_usage(usage)
         agent.event_loop_metrics.update_metrics(metrics)
+        if cost is not None:
+            agent.event_loop_metrics.update_cost(cost)
 
     except Exception as e:
         yield ForceStopEvent(reason=e)
