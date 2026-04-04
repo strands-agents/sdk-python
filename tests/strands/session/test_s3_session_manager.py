@@ -89,6 +89,22 @@ def test_init_s3_session_manager_with_existing_user_agent(mocked_aws, s3_bucket)
     assert "strands-agents" in session_manager.client.meta.config.user_agent_extra
 
 
+def test_init_s3_session_manager_with_endpoint_url():
+    from unittest.mock import patch
+
+    from strands.session.repository_session_manager import RepositorySessionManager
+
+    endpoint = "http://localhost:9000"
+    with patch("boto3.Session.client") as mock_client:
+        mock_client.return_value = Mock()
+        # Skip session initialization so no S3 calls are made
+        with patch.object(RepositorySessionManager, "__init__", return_value=None):
+            S3SessionManager(session_id="test", bucket="my-bucket", endpoint_url=endpoint)
+
+    _, kwargs = mock_client.call_args
+    assert kwargs.get("endpoint_url") == endpoint
+
+
 def test_empty_prefix_session_roundtrip(mocked_aws, s3_bucket, sample_session, sample_agent):
     """Test that session data can be written and read back with default empty prefix."""
     manager = S3SessionManager(session_id="test", bucket=s3_bucket, prefix="", region_name="us-west-2")
