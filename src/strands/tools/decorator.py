@@ -62,7 +62,7 @@ from typing import (
 import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from pydantic.fields import FieldInfo
-from pydantic_core import PydanticSerializationError
+from pydantic_core import PydanticSerializationError, PydanticUndefined
 from typing_extensions import override
 
 from ..interrupt import InterruptException
@@ -159,12 +159,28 @@ class FunctionToolMetadata:
                     )
 
         # Determine the final description with a clear priority order
-        # Priority: 1. Annotated string -> 2. Docstring -> 3. Fallback
+        # Priority: 1. Annotated string -> 2. Docstring -> 3. Field description -> 4. Fallback
         final_description = description
         if final_description is None:
-            final_description = self.param_descriptions.get(param_name) or f"Parameter {param_name}"
-        # Create FieldInfo object from scratch
-        final_field = Field(default=param_default, description=final_description)
+            field_description = param_default.description if isinstance(param_default, FieldInfo) else None
+            final_description = (
+                self.param_descriptions.get(param_name) or field_description or f"Parameter {param_name}"
+            )
+
+        # Create FieldInfo object from scratch, correctly handling Field() defaults.
+        # When the caller uses `param: T = Field(default_factory=list)`, param_default is a
+        # FieldInfo whose .default is PydanticUndefined. Passing a FieldInfo as `default=` to
+        # a new Field() triggers a PydanticJsonSchemaWarning because FieldInfo is not JSON
+        # serializable, so we unwrap it and forward the actual default or factory instead.
+        if isinstance(param_default, FieldInfo):
+            if param_default.default_factory is not None:
+                final_field = Field(default_factory=param_default.default_factory, description=final_description)
+            elif param_default.default is not PydanticUndefined:
+                final_field = Field(default=param_default.default, description=final_description)
+            else:
+                final_field = Field(description=final_description)
+        else:
+            final_field = Field(default=param_default, description=final_description)
 
         return actual_type, final_field
 

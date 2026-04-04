@@ -2101,3 +2101,44 @@ def test_tool_nullable_optional_field_simplifies_anyof():
     # Since tag is not required, anyOf should be simplified away
     assert "anyOf" not in schema["properties"]["tag"]
     assert schema["properties"]["tag"]["type"] == "string"
+
+
+def test_tool_field_default_factory_no_warning(recwarn):
+    """Field(default_factory=...) as a parameter default must not emit PydanticJsonSchemaWarning."""
+
+    @strands.tool
+    def my_tool(items: list[str] = Field(default_factory=list, description="items")) -> int:  # noqa: B008
+        """A tool."""
+        return len(items)
+
+    schema_warnings = [w for w in recwarn.list if "not JSON serializable" in str(w.message)]
+    assert schema_warnings == [], "PydanticJsonSchemaWarning should not be emitted for default_factory"
+
+
+def test_tool_field_default_factory_description_used():
+    """Description provided via Field(description=...) is included in the tool schema."""
+
+    @strands.tool
+    def my_tool(items: list[str] = Field(default_factory=list, description="the items list")) -> int:  # noqa: B008
+        """A tool."""
+        return len(items)
+
+    schema = my_tool.tool_spec["inputSchema"]["json"]
+    assert schema["properties"]["items"]["description"] == "the items list"
+    assert "items" not in schema.get("required", [])
+
+
+def test_tool_field_default_value_no_warning(recwarn):
+    """Field(default=...) as a parameter default must not emit PydanticJsonSchemaWarning."""
+
+    @strands.tool
+    def my_tool(count: int = Field(default=5, description="the count")) -> int:  # noqa: B008
+        """A tool."""
+        return count
+
+    schema_warnings = [w for w in recwarn.list if "not JSON serializable" in str(w.message)]
+    assert schema_warnings == [], "PydanticJsonSchemaWarning should not be emitted for Field(default=...)"
+
+    schema = my_tool.tool_spec["inputSchema"]["json"]
+    assert schema["properties"]["count"]["description"] == "the count"
+    assert "count" not in schema.get("required", [])
