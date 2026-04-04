@@ -510,3 +510,45 @@ def test_update_nonexistent_multi_agent(s3_manager, sample_session):
     nonexistent_mock.id = "nonexistent"
     with pytest.raises(SessionException):
         s3_manager.update_multi_agent(sample_session.session_id, nonexistent_mock)
+
+
+def test_write_and_read_message_with_binary_document_content(s3_manager, sample_session, sample_agent, sample_message):
+    """Test that messages containing bytes (e.g., inline PDF documents) can be serialized and deserialized.
+
+    Reproduces: https://github.com/strands-agents/sdk-python/issues/1864
+    """
+    # Create session and agent
+    s3_manager.create_session(sample_session)
+    s3_manager.create_agent(sample_session.session_id, sample_agent)
+
+    # Create a message containing binary document content (simulating a multimodal prompt)
+    pdf_bytes = b"%PDF-1.4 fake content for test"
+    message_with_bytes = SessionMessage.from_message(
+        message={
+            "role": "user",
+            "content": [
+                {"text": "Analyze this PDF"},
+                {
+                    "document": {
+                        "format": "pdf",
+                        "name": "document.pdf",
+                        "source": {
+                            "bytes": pdf_bytes,
+                        },
+                    }
+                },
+            ],
+        },
+        index=0,
+    )
+
+    # This should NOT raise TypeError: Object of type bytes is not JSON serializable
+    s3_manager.create_message(sample_session.session_id, sample_agent.agent_id, message_with_bytes)
+
+    # Read back and verify the bytes are correctly restored
+    result = s3_manager.read_message(sample_session.session_id, sample_agent.agent_id, 0)
+    assert result is not None
+    content = result.message["content"]
+    assert len(content) == 2
+    assert content[0]["text"] == "Analyze this PDF"
+    assert content[1]["document"]["source"]["bytes"] == pdf_bytes
