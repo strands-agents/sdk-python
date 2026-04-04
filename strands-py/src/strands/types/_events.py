@@ -16,7 +16,7 @@ from ..telemetry import EventLoopMetrics
 from .citations import Citation
 from .content import Message
 from .event_loop import Metrics, StopReason, Usage
-from .streaming import ContentBlockDelta, StreamEvent
+from .streaming import ContentBlockDelta, ContextWindowFallbackEvent, StreamEvent
 from .tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
@@ -214,6 +214,22 @@ class ModelStopReason(TypedEvent):
     @override
     def is_callback_event(self) -> bool:
         return False
+
+
+class ContextWindowFallbackStreamEvent(TypedEvent):
+    """Event emitted when the agent handles a context window overflow by reducing context.
+
+    Fired immediately before the conversation manager reduces the context, giving
+    callers a real-time signal that context compression is about to begin.
+    """
+
+    def __init__(self, message: str) -> None:
+        """Initialize with the overflow error message.
+
+        Args:
+            message: The overflow error message from the model provider.
+        """
+        super().__init__({"contextWindowFallback": ContextWindowFallbackEvent(message=message)})
 
 
 class EventLoopStopEvent(TypedEvent):
