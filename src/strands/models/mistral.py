@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from ..types.exceptions import ModelThrottledException
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
@@ -96,6 +96,14 @@ class MistralModel(Model):
         self.client_args = client_args or {}
         if api_key:
             self.client_args["api_key"] = api_key
+
+    OVERFLOW_MESSAGES = {
+        "context length exceeded",
+        "context window",
+        "max context length",
+        "prompt is too long",
+        "token limit",
+    }
 
     @override
     def update_config(self, **model_config: Unpack[MistralConfig]) -> None:  # type: ignore
@@ -500,7 +508,10 @@ class MistralModel(Model):
                                 yield self.format_chunk({"chunk_type": "metadata", "data": chunk.data.usage})
 
         except Exception as e:
-            if "rate" in str(e).lower() or "429" in str(e):
+            error_str = str(e).lower()
+            if any(msg in error_str for msg in self.OVERFLOW_MESSAGES):
+                raise ContextWindowOverflowException(str(e)) from e
+            if "rate" in error_str or "429" in str(e):
                 raise ModelThrottledException(str(e)) from e
             raise
 
