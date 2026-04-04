@@ -5,6 +5,8 @@ providing a structured way to observe to different events of the event loop and
 agent lifecycle.
 """
 
+import json
+import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, cast
 
@@ -23,6 +25,44 @@ if TYPE_CHECKING:
     from ..agent import AgentResult
     from ..agent._agent_as_tool import _AgentAsTool
     from ..multiagent.base import MultiAgentResult, NodeResult
+
+
+def _is_json_serializable(value: Any) -> bool:
+    """Check if a value is JSON-serializable.
+
+    Args:
+        value: The value to check.
+
+    Returns:
+        True if the value can be serialized to JSON, False otherwise.
+    """
+    try:
+        json.dumps(value)
+        return True
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _sanitize_invocation_state(invocation_state: dict) -> dict:
+    """Filter invocation_state to only include JSON-serializable values.
+
+    Non-serializable objects (Agent instances, OpenTelemetry Spans, etc.) are
+    silently dropped so that events yielded from stream_async() remain
+    JSON-serializable. UUID values are converted to their string representation.
+
+    Args:
+        invocation_state: The raw invocation state dict.
+
+    Returns:
+        A new dict containing only JSON-serializable key-value pairs.
+    """
+    result = {}
+    for k, v in invocation_state.items():
+        if isinstance(v, uuid.UUID):
+            result[k] = str(v)
+        elif _is_json_serializable(v):
+            result[k] = v
+    return result
 
 
 class TypedEvent(dict):
@@ -70,7 +110,7 @@ class InitEventLoopEvent(TypedEvent):
 
     @override
     def prepare(self, invocation_state: dict) -> None:
-        self.update(invocation_state)
+        self.update(_sanitize_invocation_state(invocation_state))
 
 
 class StartEvent(TypedEvent):
@@ -139,7 +179,7 @@ class ModelStreamEvent(TypedEvent):
     @override
     def prepare(self, invocation_state: dict) -> None:
         if "delta" in self:
-            self.update(invocation_state)
+            self.update(_sanitize_invocation_state(invocation_state))
 
 
 class ToolUseStreamEvent(ModelStreamEvent):
@@ -271,7 +311,7 @@ class EventLoopThrottleEvent(TypedEvent):
 
     @override
     def prepare(self, invocation_state: dict) -> None:
-        self.update(invocation_state)
+        self.update(_sanitize_invocation_state(invocation_state))
 
 
 class ToolResultEvent(TypedEvent):
