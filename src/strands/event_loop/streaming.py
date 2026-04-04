@@ -279,6 +279,11 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
         try:
             current_tool_use["input"] = json.loads(current_tool_use["input"])
         except ValueError:
+            logger.warning(
+                "tool_name=<%s> raw_input=<%s> | failed to parse tool input as JSON; falling back to empty dict",
+                current_tool_use.get("name"),
+                current_tool_use["input"][:200],
+            )
             current_tool_use["input"] = {}
 
         tool_use_id = current_tool_use["toolUseId"]

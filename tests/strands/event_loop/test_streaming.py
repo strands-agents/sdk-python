@@ -527,6 +527,25 @@ def test_handle_content_block_stop(state, exp_updated_state):
     assert tru_updated_state == exp_updated_state
 
 
+def test_handle_content_block_stop_invalid_json_logs_warning(caplog):
+    state = {
+        "content": [],
+        "current_tool_use": {"toolUseId": "123", "name": "my_tool", "input": "not valid json"},
+        "text": "",
+        "reasoningText": "",
+        "citationsContent": [],
+        "redactedContent": b"",
+    }
+
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="strands.event_loop.streaming"):
+        tru_updated_state = strands.event_loop.streaming.handle_content_block_stop(state)
+
+    assert tru_updated_state["content"] == [{"toolUse": {"toolUseId": "123", "name": "my_tool", "input": {}}}]
+    assert any("failed to parse tool input as JSON" in record.message for record in caplog.records)
+
+
 def test_handle_message_stop():
     event: MessageStopEvent = {"stopReason": "end_turn"}
 
