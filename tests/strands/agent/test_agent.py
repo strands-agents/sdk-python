@@ -1080,8 +1080,11 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle, alist):
     stream = agent.stream_async("test message", callback_handler=mock_callback)
 
     tru_events = await alist(stream)
+
+    # stream_async() yields events without invocation_state merged in; invocation_state
+    # is only passed to the callback_handler for backward compat.
     exp_events = [
-        {"init_event_loop": True, "callback_handler": mock_callback},
+        {"init_event_loop": True},
         {"data": "First chunk"},
         {"data": "Second chunk"},
         {"complete": True, "data": "Final chunk"},
@@ -1096,8 +1099,24 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle, alist):
     ]
     assert tru_events == exp_events
 
-    exp_calls = [unittest.mock.call(**event) for event in exp_events]
-    mock_callback.assert_has_calls(exp_calls)
+    # The callback_handler receives the fully-merged dict (including invocation_state).
+    exp_callback_calls = [
+        unittest.mock.call(**{"init_event_loop": True, "callback_handler": mock_callback}),
+        unittest.mock.call(**{"data": "First chunk"}),
+        unittest.mock.call(**{"data": "Second chunk"}),
+        unittest.mock.call(**{"complete": True, "data": "Final chunk"}),
+        unittest.mock.call(
+            **{
+                "result": AgentResult(
+                    stop_reason="stop",
+                    message={"role": "assistant", "content": [{"text": "Response"}]},
+                    metrics={},
+                    state={},
+                )
+            }
+        ),
+    ]
+    mock_callback.assert_has_calls(exp_callback_calls)
 
 
 @pytest.mark.asyncio
@@ -1196,7 +1215,7 @@ async def test_stream_async_passes_invocation_state(agent, mock_model, mock_even
 
     tru_events = await alist(stream)
     exp_events = [
-        {"init_event_loop": True, "some_value": "a_value"},
+        {"init_event_loop": True},
         {
             "result": AgentResult(
                 stop_reason="stop",
@@ -1209,6 +1228,35 @@ async def test_stream_async_passes_invocation_state(agent, mock_model, mock_even
     assert tru_events == exp_events
 
     assert mock_event_loop_cycle.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_async_does_not_yield_invocation_state(mock_event_loop_cycle, alist):
+    """stream_async() must not include invocation_state in yielded events.
+
+    Non-serializable objects passed via invocation_state were previously merged
+    into every ModelStreamEvent by prepare(), causing repr() serialization of
+    ~131 KB Agent/Span objects on the wire (issue #1928).
+    """
+
+    class _NotSerializable:
+        pass
+
+    not_serializable = _NotSerializable()
+
+    async def test_event_loop(*args, **kwargs):
+        yield ModelStreamEvent({"data": "hello", "delta": {"text": "hello"}})
+        yield EventLoopStopEvent("end_turn", {"role": "assistant", "content": []}, {}, {})
+
+    mock_event_loop_cycle.side_effect = test_event_loop
+
+    agent = Agent()
+    events = await alist(agent.stream_async("hi", invocation_state={"obj": not_serializable}))
+
+    stream_events = [e for e in events if "data" in e]
+    assert len(stream_events) == 1
+    assert "obj" not in stream_events[0], "invocation_state must not appear in yielded stream events"
+    assert stream_events[0] == {"data": "hello", "delta": {"text": "hello"}}
 
 
 @pytest.mark.asyncio

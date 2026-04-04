@@ -828,12 +828,16 @@ class Agent(AgentBase):
                     events = self._run_loop(messages, merged_state, structured_output_model, structured_output_prompt)
 
                     async for event in events:
+                        # Snapshot the event data before prepare() merges invocation_state
+                        # into the dict. The callback_handler receives the full merged dict
+                        # for backward compatibility, but stream_async() callers only see
+                        # the serializable event fields.
+                        event_data = event.as_dict()
                         event.prepare(invocation_state=merged_state)
 
                         if event.is_callback_event:
-                            as_dict = event.as_dict()
-                            callback_handler(**as_dict)
-                            yield as_dict
+                            callback_handler(**event.as_dict())
+                            yield event_data
 
                     result = AgentResult(*event["stop"])
                     callback_handler(result=result)

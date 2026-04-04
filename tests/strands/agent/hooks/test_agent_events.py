@@ -46,6 +46,24 @@ any_props = {
     "request_state": {},
 }
 
+# Keys that prepare() merges from invocation_state. stream_async() no longer includes
+# these in yielded events; callback_handler still receives them for backward compat.
+_INVOCATION_STATE_KEYS = frozenset(any_props.keys()) | frozenset(
+    {
+        "event_loop_parent_cycle_id",
+        "messages",
+        "model",
+        "system_prompt",
+        "tool_config",
+    }
+)
+
+
+def _strip_state(events: list[dict], *user_keys: str) -> list[dict]:
+    """Return events with invocation_state fields removed (matches what stream_async() yields)."""
+    keys_to_remove = _INVOCATION_STATE_KEYS | set(user_keys)
+    return [{k: v for k, v in e.items() if k not in keys_to_remove} for e in events]
+
 
 @pytest.mark.asyncio
 async def test_stream_e2e_success(alist):
@@ -317,7 +335,10 @@ async def test_stream_e2e_success(alist):
             ),
         },
     ]
-    assert tru_events == exp_events
+    # stream_async() yields events without invocation_state; callback_handler receives
+    # the full merged dict. Verify both independently.
+    exp_yield_events = _strip_state(exp_events, "arg1")
+    assert tru_events == exp_yield_events
 
     exp_calls = [call(**event) for event in exp_events]
     act_calls = mock_callback.call_args_list
@@ -381,7 +402,8 @@ async def test_stream_e2e_throttle_and_redact(alist, mock_sleep):
             ),
         },
     ]
-    assert tru_events == exp_events
+    exp_yield_events = _strip_state(exp_events, "arg1")
+    assert tru_events == exp_yield_events
 
     exp_calls = [call(**event) for event in exp_events]
     act_calls = mock_callback.call_args_list
@@ -459,7 +481,8 @@ async def test_stream_e2e_reasoning_redacted_content(alist):
             ),
         },
     ]
-    assert tru_events == exp_events
+    exp_yield_events = _strip_state(exp_events)
+    assert tru_events == exp_yield_events
 
     exp_calls = [call(**event) for event in exp_events]
     act_calls = mock_callback.call_args_list
@@ -514,7 +537,8 @@ async def test_event_loop_cycle_text_response_throttling_early_end(
         {"force_stop": True, "force_stop_reason": "ThrottlingException | ConverseStream"},
     ]
 
-    assert tru_events == exp_events
+    exp_yield_events = _strip_state(exp_events, "arg1")
+    assert tru_events == exp_yield_events
 
     exp_calls = [call(**event) for event in exp_events]
     act_calls = mock_callback.call_args_list
