@@ -724,6 +724,44 @@ async def test_structured_output(openai_client, model, test_output_model_cls, al
 
 
 @pytest.mark.asyncio
+async def test_structured_output_forwards_config_params(openai_client, test_output_model_cls, alist):
+    """Test that structured_output passes config params (e.g. max_output_tokens, reasoning) to parse()."""
+    model_with_params = OpenAIResponsesModel(
+        model_id="gpt-4o",
+        params={"max_output_tokens": 500, "reasoning": {"effort": "high"}},
+    )
+
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    mock_parsed_instance = test_output_model_cls(name="Jane", age=25)
+    mock_response = unittest.mock.Mock(output_parsed=mock_parsed_instance)
+    openai_client.responses.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    stream = model_with_params.structured_output(test_output_model_cls, messages)
+    await alist(stream)
+
+    call_kwargs = openai_client.responses.parse.call_args[1]
+    assert call_kwargs.get("max_output_tokens") == 500
+    assert call_kwargs.get("reasoning") == {"effort": "high"}
+    assert "stream" not in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_structured_output_forwards_system_prompt(openai_client, model, test_output_model_cls, alist):
+    """Test that structured_output forwards system_prompt as instructions to parse()."""
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    mock_parsed_instance = test_output_model_cls(name="Jane", age=25)
+    mock_response = unittest.mock.Mock(output_parsed=mock_parsed_instance)
+    openai_client.responses.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    stream = model.structured_output(test_output_model_cls, messages, system_prompt="You are helpful.")
+    await alist(stream)
+
+    call_kwargs = openai_client.responses.parse.call_args[1]
+    assert call_kwargs.get("instructions") == "You are helpful."
+    assert "stream" not in call_kwargs
+
+
+@pytest.mark.asyncio
 async def test_stream_context_overflow_exception(openai_client, model, messages):
     """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
     mock_error = openai.BadRequestError(
