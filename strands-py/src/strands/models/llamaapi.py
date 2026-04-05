@@ -179,7 +179,7 @@ class LlamaAPIModel(Model):
             # Filter out location sources and unsupported block types
             filtered_contents = []
             for content in contents:
-                if any(block_type in content for block_type in ["toolResult", "toolUse"]):
+                if any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"]):
                     continue
                 if _has_location_source(content):
                     logger.warning("Location sources are not supported by LlamaAPI | skipping content block")

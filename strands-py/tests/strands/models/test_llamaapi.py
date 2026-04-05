@@ -241,6 +241,26 @@ def test_format_request_with_unsupported_type(model):
         model.format_request(messages)
 
 
+def test_format_request_skips_reasoning_content(model):
+    """Test that reasoningContent blocks from other providers are silently skipped."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Hello"},
+                {"reasoningContent": {"reasoningText": {"text": "Let me think...", "signature": "sig"}}},
+            ],
+        },
+    ]
+
+    # Should not raise — reasoningContent is silently dropped
+    request = model.format_request(messages)
+    # Only the text block should appear in the formatted request
+    user_messages = [m for m in request["messages"] if m["role"] == "user"]
+    assert len(user_messages) == 1
+    assert user_messages[0]["content"] == [{"type": "text", "text": "Hello"}]
+
+
 def test_format_chunk_message_start(model):
     event = {"chunk_type": "message_start"}
 
