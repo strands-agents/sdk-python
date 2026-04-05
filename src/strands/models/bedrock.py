@@ -368,8 +368,24 @@ class BedrockModel(Model):
                 last_user_idx = msg_idx
 
         if last_user_idx is not None and messages[last_user_idx].get("content"):
-            messages[last_user_idx]["content"].append({"cachePoint": {"type": "default"}})
-            logger.debug("msg_idx=<%s> | added cache point to last user message", last_user_idx)
+            content = messages[last_user_idx]["content"]
+            # Walk backwards to find insertion point: cachePoint must not immediately follow a
+            # non-PDF document block because Bedrock cannot translate that combination to the
+            # Anthropic API format (non-PDF documents are not natively supported by Anthropic,
+            # so the conversion path fails when a cachePoint trails one).
+            insert_idx = len(content)
+            for i in range(len(content) - 1, -1, -1):
+                doc = content[i].get("document", {})
+                if doc and doc.get("format") != "pdf":
+                    insert_idx = i
+                else:
+                    break
+            content.insert(insert_idx, {"cachePoint": {"type": "default"}})
+            logger.debug(
+                "msg_idx=<%s>, insert_idx=<%s> | added cache point to last user message",
+                last_user_idx,
+                insert_idx,
+            )
 
     def _find_last_user_text_message_index(self, messages: Messages) -> int | None:
         """Find the index of the last user message containing text or image content.

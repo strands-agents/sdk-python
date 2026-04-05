@@ -2735,6 +2735,84 @@ def test_inject_cache_point_auto_strategy_resolves_to_anthropic_for_claude(bedro
     assert len(formatted[1]["content"]) == 1
 
 
+def test_inject_cache_point_before_non_pdf_document(bedrock_client):
+    """Test that cachePoint is inserted before trailing non-PDF document blocks."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Analyze this file\n\n[Attached files: README.md]"},
+                {"document": {"format": "md", "name": "readme", "source": {"bytes": b"..."}}},
+            ],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    content = cleaned_messages[0]["content"]
+    assert len(content) == 3
+    # cachePoint must be inserted before the non-PDF document block
+    cache_idx = next(i for i, b in enumerate(content) if "cachePoint" in b)
+    doc_idx = next(i for i, b in enumerate(content) if "document" in b)
+    assert cache_idx < doc_idx, "cachePoint must come before the non-PDF document block"
+    assert content[cache_idx]["cachePoint"]["type"] == "default"
+
+
+def test_inject_cache_point_after_pdf_document(bedrock_client):
+    """Test that cachePoint is appended after a PDF document block (PDF is supported by Anthropic)."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Summarize this PDF"},
+                {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"..."}}},
+            ],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    content = cleaned_messages[0]["content"]
+    assert len(content) == 3
+    # PDF documents are safe to precede a cachePoint, so cachePoint goes at the end
+    assert "cachePoint" in content[-1]
+    assert content[-1]["cachePoint"]["type"] == "default"
+
+
+def test_inject_cache_point_before_multiple_non_pdf_documents(bedrock_client):
+    """Test that cachePoint is inserted before multiple trailing non-PDF document blocks."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Compare these files"},
+                {"document": {"format": "csv", "name": "data1", "source": {"bytes": b"..."}}},
+                {"document": {"format": "xlsx", "name": "data2", "source": {"bytes": b"..."}}},
+            ],
+        }
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    content = cleaned_messages[0]["content"]
+    assert len(content) == 4
+    cache_idx = next(i for i, b in enumerate(content) if "cachePoint" in b)
+    first_doc_idx = next(i for i, b in enumerate(content) if "document" in b)
+    assert cache_idx < first_doc_idx, "cachePoint must come before all non-PDF document blocks"
+
+
 def test_find_last_user_text_message_index_no_user_messages(bedrock_client):
     """Test _find_last_user_text_message_index returns None when no user text messages exist."""
     model = BedrockModel(model_id="test-model")
