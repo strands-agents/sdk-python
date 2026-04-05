@@ -273,37 +273,48 @@ class RepositorySessionManager(SessionManager):
 
         # Then check for orphaned toolUse messages
         for index, message in enumerate(messages):
-            # Check all but the latest message in the messages array
-            # The latest message being orphaned is handled in the agent class
-            if index + 1 < len(messages):
-                if any("toolUse" in content for content in message["content"]):
-                    tool_use_ids = [
-                        content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content
-                    ]
+            if not any("toolUse" in content for content in message["content"]):
+                continue
 
-                    # Check if there are more messages after the current toolUse message
-                    tool_result_ids = [
-                        content["toolResult"]["toolUseId"]
-                        for content in messages[index + 1]["content"]
-                        if "toolResult" in content
-                    ]
+            tool_use_ids = [
+                content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content
+            ]
 
-                    missing_tool_use_ids = list(set(tool_use_ids) - set(tool_result_ids))
-                    # If there are missing tool use ids, that means the messages history is broken
-                    if missing_tool_use_ids:
-                        logger.warning(
-                            "Session message history has an orphaned toolUse with no toolResult. "
-                            "Adding toolResult content blocks to create valid conversation."
-                        )
-                        # Create the missing toolResult content blocks
-                        missing_content_blocks = generate_missing_tool_result_content(missing_tool_use_ids)
+            if index + 1 >= len(messages):
+                # The last message has an orphaned toolUse. The in-process fallback
+                # (_has_tool_use_in_latest_message) only works within the same process.
+                # On cross-process restore the tool execution context is lost, so report
+                # an error to the model and let it decide how to proceed.
+                logger.warning(
+                    "Session message history ends with an orphaned toolUse with no toolResult. "
+                    "Adding toolResult content blocks to create valid conversation."
+                )
+                missing_content_blocks = generate_missing_tool_result_content(tool_use_ids)
+                messages.append({"role": "user", "content": missing_content_blocks})
+            else:
+                # Check if the next message already has tool results
+                tool_result_ids = [
+                    content["toolResult"]["toolUseId"]
+                    for content in messages[index + 1]["content"]
+                    if "toolResult" in content
+                ]
 
-                        if tool_result_ids:
-                            # If there were any toolResult ids, that means only some of the content blocks are missing
-                            messages[index + 1]["content"].extend(missing_content_blocks)
-                        else:
-                            # The message following the toolUse was not a toolResult, so lets insert it
-                            messages.insert(index + 1, {"role": "user", "content": missing_content_blocks})
+                missing_tool_use_ids = list(set(tool_use_ids) - set(tool_result_ids))
+                # If there are missing tool use ids, that means the messages history is broken
+                if missing_tool_use_ids:
+                    logger.warning(
+                        "Session message history has an orphaned toolUse with no toolResult. "
+                        "Adding toolResult content blocks to create valid conversation."
+                    )
+                    # Create the missing toolResult content blocks
+                    missing_content_blocks = generate_missing_tool_result_content(missing_tool_use_ids)
+
+                    if tool_result_ids:
+                        # If there were any toolResult ids, that means only some of the content blocks are missing
+                        messages[index + 1]["content"].extend(missing_content_blocks)
+                    else:
+                        # The message following the toolUse was not a toolResult, so lets insert it
+                        messages.insert(index + 1, {"role": "user", "content": missing_content_blocks})
         return messages
 
     def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:

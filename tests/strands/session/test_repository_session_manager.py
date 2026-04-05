@@ -416,8 +416,8 @@ def test_fix_broken_tool_use_handles_multiple_orphaned_tools(existing_session_ma
     assert tool_use_ids == {"orphaned-123", "orphaned-456"}
 
 
-def test_fix_broken_tool_use_ignores_last_message(session_manager):
-    """Test that orphaned toolUse in the last message is not fixed."""
+def test_fix_broken_tool_use_repairs_orphaned_last_message(session_manager):
+    """Test that orphaned toolUse in the last message is repaired with a synthetic toolResult."""
     messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
         {
@@ -430,8 +430,13 @@ def test_fix_broken_tool_use_ignores_last_message(session_manager):
 
     fixed_messages = session_manager._fix_broken_tool_use(messages)
 
-    # Should remain unchanged since toolUse is in last message
-    assert fixed_messages == messages
+    # A synthetic toolResult should be appended for the orphaned toolUse
+    assert len(fixed_messages) == 3
+    assert fixed_messages[2]["role"] == "user"
+    tool_result_ids = [
+        c["toolResult"]["toolUseId"] for c in fixed_messages[2]["content"] if "toolResult" in c
+    ]
+    assert "last-message-123" in tool_result_ids
 
 
 def test_fix_broken_tool_use_does_not_change_valid_message(session_manager):
