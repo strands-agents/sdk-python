@@ -689,16 +689,19 @@ class Tracer:
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
                 if self.is_langfuse:
                     attributes.update({"langfuse.observation.type": "span"})
-                accumulated_usage = response.metrics.accumulated_usage
+                # Use the latest invocation's usage so each agent span reports only its
+                # own tokens, not the session-lifetime accumulated total (issue #2010).
+                invocation = response.metrics.latest_agent_invocation
+                usage = invocation.usage if invocation is not None else response.metrics.accumulated_usage
                 attributes.update(
                     {
-                        "gen_ai.usage.prompt_tokens": accumulated_usage["inputTokens"],
-                        "gen_ai.usage.completion_tokens": accumulated_usage["outputTokens"],
-                        "gen_ai.usage.input_tokens": accumulated_usage["inputTokens"],
-                        "gen_ai.usage.output_tokens": accumulated_usage["outputTokens"],
-                        "gen_ai.usage.total_tokens": accumulated_usage["totalTokens"],
-                        "gen_ai.usage.cache_read_input_tokens": accumulated_usage.get("cacheReadInputTokens", 0),
-                        "gen_ai.usage.cache_write_input_tokens": accumulated_usage.get("cacheWriteInputTokens", 0),
+                        "gen_ai.usage.prompt_tokens": usage["inputTokens"],
+                        "gen_ai.usage.completion_tokens": usage["outputTokens"],
+                        "gen_ai.usage.input_tokens": usage["inputTokens"],
+                        "gen_ai.usage.output_tokens": usage["outputTokens"],
+                        "gen_ai.usage.total_tokens": usage["totalTokens"],
+                        "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
+                        "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
                     }
                 )
 
