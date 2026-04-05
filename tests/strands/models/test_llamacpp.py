@@ -706,3 +706,25 @@ def test_format_request_filters_location_source_document(caplog) -> None:
     assert len(user_content) == 1
     assert user_content[0]["type"] == "text"
     assert "Location sources are not supported by llama.cpp" in caplog.text
+
+
+def test_format_request_skips_reasoning_content() -> None:
+    """Test that reasoningContent blocks from other providers are silently skipped."""
+    model = LlamaCppModel()
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Hello"},
+                {"reasoningContent": {"reasoningText": {"text": "Let me think...", "signature": "sig"}}},
+            ],
+        },
+    ]
+
+    # Should not raise — reasoningContent is silently dropped
+    request = model._format_request(messages)
+    # Only the text block should appear in the formatted request
+    user_messages = [m for m in request["messages"] if m["role"] == "user"]
+    assert len(user_messages) == 1
+    assert user_messages[0]["content"] == [{"type": "text", "text": "Hello"}]
