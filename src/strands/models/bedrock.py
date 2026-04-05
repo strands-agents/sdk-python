@@ -52,6 +52,13 @@ _MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
 ]
 
+# Models that support toolConfig.toolChoice.any in the Bedrock Converse API.
+# Other model families (Meta Llama, Amazon Titan/Nova, Mistral, Cohere, etc.) reject
+# toolChoice.any with a ValidationException.
+_MODELS_SUPPORT_TOOL_CHOICE_ANY = [
+    "anthropic.claude",
+]
+
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
@@ -193,6 +200,39 @@ class BedrockModel(Model):
             return "anthropic"
         return None
 
+    @property
+    def _supports_tool_choice_any(self) -> bool:
+        """Whether this model supports toolConfig.toolChoice.any in the Bedrock Converse API.
+
+        Only Anthropic Claude models support toolChoice.any. Other families (Meta Llama, Amazon
+        Titan/Nova, Mistral, Cohere, etc.) reject it with a ValidationException.
+
+        Returns:
+            True if the model supports toolChoice.any, False otherwise.
+        """
+        model_id = self.config.get("model_id", "").lower()
+        return any(prefix in model_id for prefix in _MODELS_SUPPORT_TOOL_CHOICE_ANY)
+
+    def _resolve_tool_choice(self, tool_choice: ToolChoice | None) -> dict[str, Any]:
+        """Resolve the effective toolChoice for a Bedrock Converse request.
+
+        Falls back from toolChoice.any to toolChoice.auto for models that do not
+        support toolChoice.any (e.g. Meta Llama, Amazon Titan/Nova, Mistral).
+
+        Args:
+            tool_choice: Requested tool choice, or None for the default.
+
+        Returns:
+            A toolChoice dict safe to include in the Bedrock Converse request.
+        """
+        if tool_choice and "any" in tool_choice and not self._supports_tool_choice_any:
+            logger.warning(
+                "model_id=<%s> | toolChoice.any is not supported by this model; falling back to toolChoice.auto",
+                self.config.get("model_id"),
+            )
+            return {"auto": {}}
+        return tool_choice if tool_choice else {"auto": {}}
+
     @override
     def update_config(self, **model_config: Unpack[BedrockConfig]) -> None:  # type: ignore
         """Update the Bedrock Model configuration with the provided arguments.
@@ -271,7 +311,11 @@ class BedrockModel(Model):
                                 else []
                             ),
                         ],
-                        **({"toolChoice": tool_choice if tool_choice else {"auto": {}}}),
+                        **(
+                            {
+                                "toolChoice": self._resolve_tool_choice(tool_choice),
+                            }
+                        ),
                     }
                 }
                 if tool_specs

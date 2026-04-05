@@ -502,9 +502,34 @@ def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):
     assert tru_request == exp_request
 
 
-def test_format_request_tool_choice_any(model, messages, model_id, tool_spec):
+def test_format_request_tool_choice_any(bedrock_client, messages, tool_spec):
+    """toolChoice.any passes through unchanged for Anthropic Claude models."""
+    claude_model_id = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    claude_model = BedrockModel(model_id=claude_model_id)
     tool_choice = {"any": {}}
-    tru_request = model._format_request(messages, [tool_spec], tool_choice=tool_choice)
+    tru_request = claude_model._format_request(messages, [tool_spec], tool_choice=tool_choice)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": claude_model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": tool_choice,
+        },
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_any_falls_back_for_unsupported_models(
+    bedrock_client, messages, model_id, tool_spec
+):
+    """toolChoice.any falls back to toolChoice.auto for models that do not support it."""
+    # model_id fixture is "m1" (not a Claude model)
+    non_claude_model = BedrockModel(model_id=model_id)
+    tool_choice = {"any": {}}
+    tru_request = non_claude_model._format_request(messages, [tool_spec], tool_choice=tool_choice)
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -512,7 +537,7 @@ def test_format_request_tool_choice_any(model, messages, model_id, tool_spec):
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
-            "toolChoice": tool_choice,
+            "toolChoice": {"auto": {}},
         },
     }
 
