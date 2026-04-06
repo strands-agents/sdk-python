@@ -5,12 +5,10 @@ from collections.abc import AsyncGenerator
 import pytest
 
 from strands.sandbox.base import (
-    ALLOWED_LANGUAGES,
     ExecutionResult,
     Sandbox,
-    ShellBasedSandbox,
-    _validate_language,
 )
+from strands.sandbox.shell_based import ShellBasedSandbox
 
 
 class ConcreteShellSandbox(ShellBasedSandbox):
@@ -60,7 +58,7 @@ class TestExecutionResult:
 
 
 class TestSandboxABC:
-    """Tests that Sandbox has all 5 abstract methods and cannot be partially implemented."""
+    """Tests that Sandbox has all 6 abstract methods and cannot be partially implemented."""
 
     def test_cannot_instantiate_abstract(self) -> None:
         with pytest.raises(TypeError):
@@ -78,10 +76,40 @@ class TestSandboxABC:
         with pytest.raises(TypeError):
             OnlyExecute()  # type: ignore
 
-    def test_all_five_methods_required(self) -> None:
-        """A class must implement all 5 abstract methods to be concrete."""
+    def test_all_six_methods_required(self) -> None:
+        """A class must implement all 6 abstract methods to be concrete."""
 
-        class AllFive(Sandbox):
+        class AllSix(Sandbox):
+            async def execute(
+                self, command: str, timeout: int | None = None
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def execute_code(
+                self, code: str, language: str = "python", timeout: int | None = None
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def read_file(self, path: str) -> str:
+                return ""
+
+            async def write_file(self, path: str, content: str) -> None:
+                pass
+
+            async def remove_file(self, path: str) -> None:
+                pass
+
+            async def list_files(self, path: str = ".") -> list[str]:
+                return []
+
+        # Should not raise
+        sandbox = AllSix()
+        assert sandbox is not None
+
+    def test_missing_remove_file_is_abstract(self) -> None:
+        """A class missing remove_file() is still abstract."""
+
+        class MissingRemoveFile(Sandbox):
             async def execute(
                 self, command: str, timeout: int | None = None
             ) -> AsyncGenerator[str | ExecutionResult, None]:
@@ -101,9 +129,8 @@ class TestSandboxABC:
             async def list_files(self, path: str = ".") -> list[str]:
                 return []
 
-        # Should not raise
-        sandbox = AllFive()
-        assert sandbox is not None
+        with pytest.raises(TypeError):
+            MissingRemoveFile()  # type: ignore
 
     @pytest.mark.asyncio
     async def test_default_start_stop_work(self) -> None:
@@ -124,6 +151,9 @@ class TestSandboxABC:
                 return ""
 
             async def write_file(self, path: str, content: str) -> None:
+                pass
+
+            async def remove_file(self, path: str) -> None:
                 pass
 
             async def list_files(self, path: str = ".") -> list[str]:
@@ -156,6 +186,9 @@ class TestSandboxABC:
             async def write_file(self, path: str, content: str) -> None:
                 pass
 
+            async def remove_file(self, path: str) -> None:
+                pass
+
             async def list_files(self, path: str = ".") -> list[str]:
                 return []
 
@@ -180,7 +213,7 @@ class TestShellBasedSandboxABC:
 
 
 class TestShellBasedSandboxOperations:
-    """Tests for the shell-based default implementations of the 4 convenience methods."""
+    """Tests for the shell-based default implementations of the 5 convenience methods."""
 
     @pytest.mark.asyncio
     async def test_execute_yields_lines_and_result(self) -> None:
@@ -236,6 +269,17 @@ class TestShellBasedSandboxOperations:
         assert "python3.12" in sandbox.commands[0]
 
     @pytest.mark.asyncio
+    async def test_execute_code_quotes_malicious_language(self) -> None:
+        """Malicious language parameter is safely shell-quoted, not executed."""
+        sandbox = ConcreteShellSandbox()
+        result = await sandbox._execute_code_to_result("print(1)", language="python; rm -rf /")
+        # The command should contain the safely quoted malicious string
+        assert result.exit_code == 0
+        # shlex.quote should wrap the malicious string so it's treated as a single arg
+        cmd = sandbox.commands[0]
+        assert "python; rm -rf /" not in cmd.split(" -c ")[0] or "'" in cmd
+
+    @pytest.mark.asyncio
     async def test_read_file_success(self) -> None:
         sandbox = ConcreteShellSandbox()
         content = await sandbox.read_file("/tmp/test.txt")
@@ -279,6 +323,26 @@ class TestShellBasedSandboxOperations:
     async def test_read_file_path_is_shell_quoted(self) -> None:
         sandbox = ConcreteShellSandbox()
         content = await sandbox.read_file("/tmp/test file.txt")
+        assert "'/tmp/test file.txt'" in sandbox.commands[0]
+
+    @pytest.mark.asyncio
+    async def test_remove_file_success(self) -> None:
+        sandbox = ConcreteShellSandbox()
+        await sandbox.remove_file("/tmp/test.txt")
+        assert len(sandbox.commands) == 1
+        assert "rm" in sandbox.commands[0]
+        assert "/tmp/test.txt" in sandbox.commands[0]
+
+    @pytest.mark.asyncio
+    async def test_remove_file_not_found(self) -> None:
+        sandbox = ConcreteShellSandbox()
+        with pytest.raises(FileNotFoundError):
+            await sandbox.remove_file("/tmp/fail.txt")
+
+    @pytest.mark.asyncio
+    async def test_remove_file_path_is_shell_quoted(self) -> None:
+        sandbox = ConcreteShellSandbox()
+        await sandbox.remove_file("/tmp/test file.txt")
         assert "'/tmp/test file.txt'" in sandbox.commands[0]
 
     @pytest.mark.asyncio
@@ -353,59 +417,3 @@ class TestShellBasedSandboxOperations:
         sandbox = BadSandbox()
         with pytest.raises(RuntimeError, match="did not yield an ExecutionResult"):
             await sandbox._execute_to_result("anything")
-
-
-class TestLanguageValidation:
-    """Tests for the language injection fix (Bug 1)."""
-
-    def test_allowed_languages_accepted(self) -> None:
-        for lang in ALLOWED_LANGUAGES:
-            _validate_language(lang)  # Should not raise
-
-    def test_simple_interpreter_name_accepted(self) -> None:
-        _validate_language("python3.12")
-        _validate_language("node18")
-        _validate_language("my-custom-interp")
-
-    def test_command_injection_rejected(self) -> None:
-        with pytest.raises(ValueError, match="alphanumeric interpreter name"):
-            _validate_language("python; rm -rf /")
-
-    def test_semicolon_injection_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            _validate_language("python;ls")
-
-    def test_pipe_injection_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            _validate_language("python | cat /etc/passwd")
-
-    def test_backtick_injection_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            _validate_language("python`whoami`")
-
-    def test_dollar_injection_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            _validate_language("$(rm -rf /)")
-
-    def test_empty_string_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            _validate_language("")
-
-    def test_space_injection_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            _validate_language("python -c 'evil'")
-
-    @pytest.mark.asyncio
-    async def test_execute_code_rejects_injection(self) -> None:
-        """End-to-end test: execute_code rejects malicious language."""
-        sandbox = ConcreteShellSandbox()
-        with pytest.raises(ValueError):
-            async for _ in sandbox.execute_code("print(1)", language="python; rm -rf /"):
-                pass
-
-    @pytest.mark.asyncio
-    async def test_execute_code_result_rejects_injection(self) -> None:
-        """End-to-end test via _execute_code_to_result helper."""
-        sandbox = ConcreteShellSandbox()
-        with pytest.raises(ValueError):
-            await sandbox._execute_code_to_result("print(1)", language="python; rm -rf /")

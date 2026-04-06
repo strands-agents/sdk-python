@@ -5,7 +5,8 @@ import os
 
 import pytest
 
-from strands.sandbox.base import ExecutionResult, ShellBasedSandbox
+from strands.sandbox.base import ExecutionResult
+from strands.sandbox.shell_based import ShellBasedSandbox
 from strands.sandbox.local import LocalSandbox
 
 
@@ -132,11 +133,14 @@ class TestLocalSandboxExecuteCode:
         assert "x = 42" in result.stdout
 
     @pytest.mark.asyncio
-    async def test_execute_code_rejects_language_injection(self, tmp_path: object) -> None:
-        """Bug 1 fix: language parameter injection is blocked."""
+    async def test_execute_code_safely_quotes_language(self, tmp_path: object) -> None:
+        """Language parameter is safely shell-quoted, preventing injection."""
         sandbox = LocalSandbox(working_dir=str(tmp_path))
-        with pytest.raises(ValueError):
-            await sandbox._execute_code_to_result("print(1)", language="python; rm -rf /")
+        # Malicious language gets shlex.quote'd, so it's treated as a single argument
+        # and the shell will try to find a binary called "python; rm -rf /" which doesn't exist
+        result = await sandbox._execute_code_to_result("print(1)", language="python; rm -rf /")
+        # The command should fail because there's no binary named "python; rm -rf /"
+        assert result.exit_code != 0
 
 
 class TestLocalSandboxFileOps:

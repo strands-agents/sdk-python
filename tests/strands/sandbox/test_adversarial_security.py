@@ -3,26 +3,17 @@
 Tests for:
 - Path traversal attacks in LocalSandbox
 - Heredoc delimiter collision in ShellBasedSandbox
-- Language validation bypasses
 - Symlink attacks
 - Binary/special content handling
-- Docker readline hanging on no-newline output
 """
 
-import asyncio
 import os
-import unittest.mock
 
 import pytest
 
-from strands.sandbox.base import (
-    ALLOWED_LANGUAGES,
-    ExecutionResult,
-    ShellBasedSandbox,
-    _validate_language,
-)
+from strands.sandbox.base import ExecutionResult
+from strands.sandbox.shell_based import ShellBasedSandbox
 from strands.sandbox.local import LocalSandbox
-from strands.sandbox.docker import DockerSandbox
 
 
 class TestPathTraversal:
@@ -128,100 +119,6 @@ class TestHeredocInjection:
         content = await sandbox.read_file("large.txt")
         assert len(content) == len(large_content)
         assert content == large_content
-
-
-class TestLanguageValidationBypass:
-    """Can we bypass language validation?"""
-
-    def test_path_separator_in_language(self):
-        """Language with path separator should be rejected."""
-        with pytest.raises(ValueError):
-            _validate_language("/usr/bin/python")
-
-    def test_language_with_equals(self):
-        """Language with = should be rejected (env var injection)."""
-        with pytest.raises(ValueError):
-            _validate_language("FOO=bar python")
-
-    def test_language_with_ampersand(self):
-        """Language with & should be rejected."""
-        with pytest.raises(ValueError):
-            _validate_language("python&rm")
-
-    def test_language_with_newline(self):
-        """Language with newline should be rejected."""
-        with pytest.raises(ValueError):
-            _validate_language("python\nrm -rf /")
-
-    def test_language_dot_dot_slash(self):
-        """Language like ../../evil should be rejected."""
-        with pytest.raises(ValueError):
-            _validate_language("../../evil")
-
-    def test_language_rm(self):
-        """Language 'rm' passes validation — it's alphanumeric. Is this intentional?"""
-        # This PASSES _validate_language because it matches _LANGUAGE_RE
-        # But 'rm -c <code>' would try to run rm with -c flag
-        # The code is also shlex.quote'd, so it's 'rm' -c '<code>'
-        # rm doesn't have -c flag so it would just error out
-        _validate_language("rm")  # This should not raise
-
-    def test_language_chmod(self):
-        """Language 'chmod' passes validation — alphanumeric."""
-        _validate_language("chmod")  # This should not raise
-
-    def test_language_with_long_name(self):
-        """Very long language name should be accepted (no length limit)."""
-        _validate_language("a" * 10000)  # No max length check
-
-
-class TestDockerSandboxReadlineHang:
-    """DockerSandbox uses readline() which hangs on output without newlines."""
-
-    @pytest.mark.asyncio
-    async def test_docker_execute_no_newline_output(self):
-        """DockerSandbox.execute() uses readline() — hangs if output has no newlines.
-        
-        LocalSandbox uses read() with a chunk size, but DockerSandbox uses readline().
-        If a command outputs 1MB without a newline, readline() will buffer the entire
-        thing in memory and only return when it hits EOF or a newline.
-        
-        This is a design inconsistency between LocalSandbox and DockerSandbox.
-        """
-        sandbox = DockerSandbox()
-        sandbox._container_id = "fake-container"
-        sandbox._started = True
-
-        # Simulate a process that outputs 1MB without newlines
-        huge_output = b"A" * (1024 * 1024)  # 1MB, no newline
-
-        async def mock_create_subprocess_exec(*args, **kwargs):
-            proc = unittest.mock.AsyncMock()
-            proc.returncode = 0
-            reader = asyncio.StreamReader()
-            reader.feed_data(huge_output)
-            reader.feed_eof()
-            proc.stdout = reader
-            proc.stderr = asyncio.StreamReader()
-            proc.stderr.feed_eof()
-            proc.wait = unittest.mock.AsyncMock(return_value=0)
-            return proc
-
-        with unittest.mock.patch(
-            "asyncio.create_subprocess_exec", side_effect=mock_create_subprocess_exec
-        ):
-            chunks = []
-            async for chunk in sandbox.execute("cat /dev/urandom"):
-                chunks.append(chunk)
-
-        # DockerSandbox uses readline() — this will read the entire 1MB as one line
-        # because there are no newlines. The readline() call buffers everything until EOF.
-        str_chunks = [c for c in chunks if isinstance(c, str)]
-        result_chunks = [c for c in chunks if isinstance(c, ExecutionResult)]
-        assert len(result_chunks) == 1
-        assert len(result_chunks[0].stdout) == 1024 * 1024
-        # This works but demonstrates the inconsistency:
-        # LocalSandbox yields 64KB chunks, DockerSandbox yields the entire output as one chunk
 
 
 class TestLocalSandboxEdgeCases:
@@ -336,7 +233,7 @@ print(y)
     @pytest.mark.asyncio
     async def test_blocking_file_io_in_async_context(self, tmp_path):
         """LocalSandbox.read_file/write_file use BLOCKING file I/O in async context.
-        
+
         This is a design concern: open() and f.read()/f.write() are synchronous
         blocking calls. In an async context with many concurrent operations,
         this could block the event loop.
@@ -349,6 +246,34 @@ print(y)
         assert len(content) == 1024 * 1024
         # This works but blocks the event loop during I/O
 
+    @pytest.mark.asyncio
+    async def test_remove_file_nonexistent(self, tmp_path):
+        """remove_file should raise FileNotFoundError for missing files."""
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        with pytest.raises(FileNotFoundError):
+            await sandbox.remove_file("nonexistent.txt")
+
+    @pytest.mark.asyncio
+    async def test_remove_file_then_read(self, tmp_path):
+        """Removing a file and then reading it should raise FileNotFoundError."""
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        await sandbox.write_file("to_delete.txt", "content")
+        await sandbox.remove_file("to_delete.txt")
+        with pytest.raises(FileNotFoundError):
+            await sandbox.read_file("to_delete.txt")
+
+    @pytest.mark.asyncio
+    async def test_remove_file_outside_sandbox(self, tmp_path):
+        """remove_file with absolute path can delete files outside sandbox."""
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        outside_dir = tmp_path.parent / "remove_escape"
+        outside_dir.mkdir(exist_ok=True)
+        outside_file = outside_dir / "target.txt"
+        outside_file.write_text("will be deleted")
+
+        await sandbox.remove_file(str(outside_file))
+        assert not outside_file.exists()
+
 
 class TestShellBasedSandboxHeredocEdgeCases:
     """Edge cases in the ShellBasedSandbox heredoc implementation."""
@@ -356,9 +281,6 @@ class TestShellBasedSandboxHeredocEdgeCases:
     @pytest.mark.asyncio
     async def test_write_file_content_with_single_quotes(self):
         """Content with single quotes used in heredoc delimiter quoting."""
-        # The heredoc uses: cat > path << 'DELIMITER'
-        # Single quotes around delimiter prevent variable expansion
-        # But what if content itself manipulates the heredoc?
 
         class MockShellSandbox(ShellBasedSandbox):
             def __init__(self):
@@ -380,8 +302,6 @@ class TestShellBasedSandboxHeredocEdgeCases:
         # Verify the heredoc command is well-formed
         cmd = sandbox.last_command
         assert "STRANDS_EOF_" in cmd
-        # shlex.quote only quotes paths with shell metacharacters
-        # /tmp/test.txt is safe, so no extra quoting is applied
         assert "/tmp/test.txt" in cmd
         assert content in cmd
 
