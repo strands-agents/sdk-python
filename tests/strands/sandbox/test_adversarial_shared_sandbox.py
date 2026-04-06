@@ -14,7 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from strands.sandbox.base import ExecutionResult, ShellBasedSandbox
+from strands.sandbox.base import ExecutionResult
+from strands.sandbox.shell_based import ShellBasedSandbox
 from strands.sandbox.local import LocalSandbox
 
 

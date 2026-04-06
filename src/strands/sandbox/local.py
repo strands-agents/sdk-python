@@ -1,8 +1,8 @@
 """Local sandbox implementation for host-process execution.
 
 This module implements the LocalSandbox, which executes commands and code
-on the local host using asyncio subprocesses. It overrides read_file and
-write_file with native filesystem calls for encoding safety.
+on the local host using asyncio subprocesses. It overrides read_file,
+write_file, and remove_file with native filesystem calls for encoding safety.
 
 This is the default sandbox used when no explicit sandbox is configured.
 """
@@ -13,7 +13,8 @@ import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
-from .base import ExecutionResult, ShellBasedSandbox
+from .base import ExecutionResult
+from .shell_based import ShellBasedSandbox
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +142,7 @@ class LocalSandbox(ShellBasedSandbox):
 
         # Final yield: the complete ExecutionResult
         yield ExecutionResult(
-            exit_code=proc.returncode or 0,
+            exit_code=0 if proc.returncode is None else proc.returncode,
             stdout=stdout_text,
             stderr=stderr_text,
         )
@@ -181,3 +182,18 @@ class LocalSandbox(ShellBasedSandbox):
             os.makedirs(parent_dir, exist_ok=True)
         with open(full_path, "w") as f:
             f.write(content)
+
+    async def remove_file(self, path: str) -> None:
+        """Remove a file from the local filesystem.
+
+        Uses native file removal instead of shell commands.
+
+        Args:
+            path: Path to the file to remove. Relative paths are resolved
+                against the working directory.
+
+        Raises:
+            FileNotFoundError: If the file does not exist.
+        """
+        full_path = os.path.join(self.working_dir, path) if not os.path.isabs(path) else path
+        os.remove(full_path)

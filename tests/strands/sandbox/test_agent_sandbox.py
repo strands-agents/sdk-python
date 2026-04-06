@@ -3,12 +3,13 @@
 import pytest
 
 from strands import Agent
-from strands.sandbox.base import ExecutionResult, Sandbox, ShellBasedSandbox
+from strands.sandbox.base import ExecutionResult, Sandbox
+from strands.sandbox.shell_based import ShellBasedSandbox
 from strands.sandbox.local import LocalSandbox
 
 
 class CustomSandbox(Sandbox):
-    """Custom sandbox implementing all 5 abstract methods for testing."""
+    """Custom sandbox implementing all 6 abstract methods for testing."""
 
     async def execute(self, command: str, timeout: int | None = None):  # type: ignore[override]
         yield ExecutionResult(exit_code=0, stdout="custom", stderr="")
@@ -20,6 +21,9 @@ class CustomSandbox(Sandbox):
         return "custom content"
 
     async def write_file(self, path: str, content: str) -> None:
+        pass
+
+    async def remove_file(self, path: str) -> None:
         pass
 
     async def list_files(self, path: str = ".") -> list[str]:
