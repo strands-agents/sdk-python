@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from ...agent.agent import Agent
 
 from ...types.exceptions import ContextWindowOverflowException
+from ...hooks import BeforeReduceContextEvent
 from .conversation_manager import ConversationManager
 
 
@@ -40,6 +41,9 @@ class NullConversationManager(ConversationManager):
             e: If provided.
             ContextWindowOverflowException: If e is None.
         """
+        # Fire before event
+        agent.hooks.invoke_callbacks(BeforeReduceContextEvent(agent=agent, exception=e))
+
         if e:
             raise e
         else:

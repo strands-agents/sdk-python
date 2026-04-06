@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
-from ...hooks import BeforeModelCallEvent, HookRegistry
+from ...hooks import BeforeModelCallEvent, BeforeReduceContextEvent, AfterReduceContextEvent, HookRegistry
 from ...types.content import ContentBlock, Messages
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import ToolResultContent
@@ -171,6 +171,9 @@ class SlidingWindowConversationManager(ConversationManager):
                 error was provided (e is not None). When called during routine window management (e is None),
                 logs a warning and returns without modification.
         """
+        # Fire before event
+        agent.hooks.invoke_callbacks(BeforeReduceContextEvent(agent=agent, exception=e))
+
         messages = agent.messages
 
         # Try to truncate the tool result first
@@ -231,6 +234,9 @@ class SlidingWindowConversationManager(ConversationManager):
 
         # Overwrite message history
         messages[:] = messages[trim_index:]
+
+        # Fire after event
+        agent.hooks.invoke_callbacks(AfterReduceContextEvent(agent=agent))
 
     def _truncate_tool_results(self, messages: Messages, msg_idx: int) -> bool:
         """Truncate tool results and replace image blocks in a message to reduce context size.
