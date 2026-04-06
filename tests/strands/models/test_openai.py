@@ -627,6 +627,25 @@ def test_format_request(model, messages, tool_specs, system_prompt):
     assert tru_request == exp_request
 
 
+@pytest.mark.parametrize("model_id", ["openai.gpt-oss-120b"])
+def test_format_request_gpt_oss_injects_stop_tokens(model_id, model, messages, tool_specs, system_prompt):
+    tru_request = model.format_request(messages, tool_specs, system_prompt)
+    assert tru_request["stop"] == ["<|call|>", "<|return|>", "<|end|>"]
+
+
+@pytest.mark.parametrize("model_id", ["openai.gpt-oss-120b"])
+def test_format_request_gpt_oss_preserves_explicit_stop_tokens(model_id, model, messages, tool_specs, system_prompt):
+    model.update_config(params={"max_tokens": 1, "stop": ["<|end|>"]})
+
+    tru_request = model.format_request(messages, tool_specs, system_prompt)
+    assert tru_request["stop"] == ["<|end|>"]
+
+
+def test_format_request_non_gpt_oss_no_stop_tokens(model, messages, tool_specs, system_prompt):
+    tru_request = model.format_request(messages, tool_specs, system_prompt)
+    assert "stop" not in tru_request
+
+
 def test_format_request_with_tool_choice_auto(model, messages, tool_specs, system_prompt):
     tool_choice = {"auto": {}}
     tru_request = model.format_request(messages, tool_specs, system_prompt, tool_choice)

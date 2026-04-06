@@ -36,6 +36,10 @@ _CONTEXT_OVERFLOW_MESSAGES = [
     "too many total text bytes",
 ]
 
+# Stop tokens for GPT-OSS models to enforce generation boundaries
+# https://github.com/openai/harmony/blob/main/src/registry.rs
+_GPT_OSS_STOP_TOKENS = ["<|call|>", "<|return|>", "<|end|>"]
+
 
 class Client(Protocol):
     """Protocol defining the OpenAI-compatible interface for the underlying provider client."""
@@ -467,6 +471,11 @@ class OpenAIModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an OpenAI-compatible
                 format.
         """
+        params = cast(dict[str, Any], self.config.get("params", {}))
+        # Inject default GPT-OSS stop tokens unless the user has explicitly provided their own
+        if "gpt-oss" in cast(str, self.config.get("model_id", "")).lower() and "stop" not in params:
+            params = {**params, "stop": _GPT_OSS_STOP_TOKENS}
+
         return {
             "messages": self.format_request_messages(
                 messages, system_prompt, system_prompt_content=system_prompt_content
@@ -486,7 +495,7 @@ class OpenAIModel(Model):
                 for tool_spec in tool_specs or []
             ],
             **(self._format_request_tool_choice(tool_choice)),
-            **cast(dict[str, Any], self.config.get("params", {})),
+            **params,
         }
 
     def format_chunk(self, event: dict[str, Any], **kwargs: Any) -> StreamEvent:
