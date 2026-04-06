@@ -592,7 +592,7 @@ class MCPClient(ToolProvider):
             async def _call_as_task() -> MCPCallToolResult:
                 # When task-augmented execution is used, use the read_timeout_seconds parameter
                 # (which is a timedelta) for the polling timeout.
-                return await self._call_tool_as_task_and_poll_async(name, arguments, poll_timeout=read_timeout_seconds)
+                return await self._call_tool_as_task_and_poll_async(name, arguments, poll_timeout=read_timeout_seconds, meta=meta)
 
             return _call_as_task()
         else:
@@ -1100,6 +1100,7 @@ class MCPClient(ToolProvider):
         arguments: dict[str, Any] | None = None,
         ttl: timedelta | None = None,
         poll_timeout: timedelta | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> MCPCallToolResult:
         """Call a tool using task-augmented execution and poll until completion.
 
@@ -1113,6 +1114,7 @@ class MCPClient(ToolProvider):
             arguments: Optional arguments to pass to the tool.
             ttl: Task time-to-live. Uses configured value if not specified.
             poll_timeout: Timeout for polling. Uses configured value if not specified.
+            meta: Optional metadata to pass to the tool call per MCP spec (_meta).
 
         Returns:
             MCPCallToolResult: The final tool result after task completion.
@@ -1133,6 +1135,7 @@ class MCPClient(ToolProvider):
             name=name,
             arguments=arguments,
             ttl=ttl_ms,
+            meta=meta,
         )
         task_id = create_result.task.taskId
         self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task created", name, task_id)
