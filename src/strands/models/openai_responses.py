@@ -1,6 +1,19 @@
 """OpenAI model provider using the Responses API.
 
-Note: Built-in tools (web search, code interpreter, file search) are not yet supported.
+Built-in tools (e.g. web_search, file_search, code_interpreter) can be passed via the
+``params`` configuration and will be merged with any agent function tools in the request.
+
+All built-in tools produce text responses that stream correctly. Limitations on tool-specific
+metadata:
+
+- web_search (supported): Full support including URL citations.
+- file_search (partial): File citation annotations not emitted (no matching CitationLocation variant).
+- code_interpreter (partial): Executed code and stdout/stderr not surfaced.
+- mcp (partial): Approval flow and ``mcp_list_tools``/``mcp_call`` events not surfaced.
+- shell (partial): Local (client-executed) mode not supported.
+- tool_search (not supported): Requires ``defer_loading`` on function tools, which is not supported.
+- image_generation (not supported): Requires image content block delta support in the event loop.
+- computer_use_preview (not supported): Requires a developer-managed screenshot/action loop.
 
 Docs: https://platform.openai.com/docs/api-reference/responses
 """
@@ -40,6 +53,7 @@ except Exception as e:
 
 import openai  # noqa: E402 - must import after version check
 
+from ..types.citations import WebLocationDict  # noqa: E402
 from ..types.content import ContentBlock, Messages, Role  # noqa: E402
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
 from ..types.streaming import StreamEvent  # noqa: E402
@@ -103,12 +117,7 @@ class Client(Protocol):
 
 
 class OpenAIResponsesModel(Model):
-    """OpenAI Responses API model provider implementation.
-
-    Note:
-        This implementation currently only supports function tools (custom tools defined via tool_specs).
-        OpenAI's built-in system tools are not yet supported.
-    """
+    """OpenAI Responses API model provider implementation."""
 
     client: Client
     client_args: dict[str, Any]
@@ -231,8 +240,13 @@ class OpenAIResponsesModel(Model):
                                 if model_state is not None and response_id:
                                     model_state["response_id"] = response_id
 
-                        elif event.type == "response.reasoning_text.delta":
-                            # Reasoning content streaming (for o1/o3 reasoning models)
+                        elif event.type in (
+                            "response.reasoning_text.delta",
+                            "response.reasoning_summary_text.delta",
+                        ):
+                            # Reasoning content streaming:
+                            # - reasoning_text: full chain-of-thought (gpt-oss models)
+                            # - reasoning_summary_text: condensed summary (o-series models)
                             chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
                             for chunk in chunks:
                                 yield chunk
@@ -254,6 +268,22 @@ class OpenAIResponsesModel(Model):
                                 yield self._format_chunk(
                                     {"chunk_type": "content_delta", "data_type": "text", "data": event.delta}
                                 )
+
+                        elif event.type == "response.output_text.annotation.added":
+                            if hasattr(event, "annotation"):
+                                if event.annotation.get("type") == "url_citation":
+                                    yield self._format_chunk(
+                                        {
+                                            "chunk_type": "content_delta",
+                                            "data_type": "citation",
+                                            "data": event.annotation,
+                                        }
+                                    )
+                                else:
+                                    logger.warning(
+                                        "annotation_type=<%s> | unsupported annotation type",
+                                        event.annotation.get("type"),
+                                    )
 
                         elif event.type == "response.output_item.added":
                             # Tool call started
@@ -431,7 +461,8 @@ class OpenAIResponsesModel(Model):
 
         # Add tools if provided
         if tool_specs:
-            request["tools"] = [
+            # Merge with any built-in tools (e.g. web_search) already in the request from params
+            request.setdefault("tools", []).extend(
                 {
                     "type": "function",
                     "name": tool_spec["name"],
@@ -439,8 +470,7 @@ class OpenAIResponsesModel(Model):
                     "parameters": tool_spec["inputSchema"]["json"],
                 }
                 for tool_spec in tool_specs
-            ]
-            # Add tool_choice if provided
+            )
             request.update(self._format_request_tool_choice(tool_choice))
 
         return request
@@ -485,10 +515,15 @@ class OpenAIResponsesModel(Model):
             role = message["role"]
             contents = message["content"]
 
+            if any("reasoningContent" in content for content in contents):
+                logger.warning(
+                    "reasoningContent is not yet supported in multi-turn conversations with the Responses API"
+                )
+
             formatted_contents = [
                 cls._format_request_message_content(content, role=role)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
             ]
 
             formatted_tool_calls = [
@@ -549,6 +584,11 @@ class OpenAIResponsesModel(Model):
         if "text" in content:
             text_type = "output_text" if role == "assistant" else "input_text"
             return {"type": text_type, "text": content["text"]}
+
+        if "citationsContent" in content:
+            text = "".join(c["text"] for c in content["citationsContent"].get("content", []) if "text" in c)
+            text_type = "output_text" if role == "assistant" else "input_text"
+            return {"type": text_type, "text": text}
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
@@ -679,6 +719,19 @@ class OpenAIResponsesModel(Model):
 
                 if event["data_type"] == "reasoning_content":
                     return {"contentBlockDelta": {"delta": {"reasoningContent": {"text": event["data"]}}}}
+
+                if event["data_type"] == "citation":
+                    web_location: WebLocationDict = {"web": {"url": event["data"].get("url", "")}}
+                    return {
+                        "contentBlockDelta": {
+                            "delta": {
+                                "citation": {
+                                    "title": event["data"].get("title", ""),
+                                    "location": web_location,
+                                }
+                            }
+                        }
+                    }
 
                 return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
 

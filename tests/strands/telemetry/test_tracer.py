@@ -128,6 +128,30 @@ def test_end_span_with_error_message(mock_span):
     mock_span.end.assert_called_once()
 
 
+def test_end_span_with_empty_exception_message_uses_exception_name(mock_span):
+    """Test that empty exception messages fall back to the exception type name."""
+    tracer = Tracer()
+    error = Exception()
+
+    tracer.end_span_with_error(mock_span, "", error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "Exception")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
+def test_end_span_with_error_prefers_explicit_message(mock_span):
+    """Test that an explicit error message takes precedence over the exception text."""
+    tracer = Tracer()
+    error = Exception()
+
+    tracer.end_span_with_error(mock_span, "Explicit error message", error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "Explicit error message")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
 def test_start_model_invoke_span(mock_tracer):
     """Test starting a model invoke span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
@@ -321,6 +345,8 @@ def test_end_model_invoke_span(mock_span):
         "gen_ai.choice",
         attributes={"message": json.dumps(message["content"]), "finish_reason": "end_turn"},
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
@@ -360,6 +386,8 @@ def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
                 ),
             },
         )
+        mock_span.set_status.assert_called_once_with(StatusCode.OK)
+        mock_span.end.assert_called_once()
 
 
 def test_start_tool_call_span(mock_tracer):
@@ -760,6 +788,8 @@ def test_end_event_loop_cycle_span(mock_span):
             "tool.result": json.dumps(tool_result_message["content"]),
         },
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
@@ -795,6 +825,8 @@ def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
             )
         },
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_start_agent_span(mock_tracer):
@@ -1028,6 +1060,8 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
             "gen_ai.server.time_to_first_token": 5,
         }
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_agent_span_with_cache_metrics(mock_span):
