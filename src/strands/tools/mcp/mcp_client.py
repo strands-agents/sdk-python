@@ -592,7 +592,9 @@ class MCPClient(ToolProvider):
             async def _call_as_task() -> MCPCallToolResult:
                 # When task-augmented execution is used, use the read_timeout_seconds parameter
                 # (which is a timedelta) for the polling timeout.
-                return await self._call_tool_as_task_and_poll_async(name, arguments, poll_timeout=read_timeout_seconds, meta=meta)
+                return await self._call_tool_as_task_and_poll_async(
+                    name, arguments, poll_timeout=read_timeout_seconds, meta=meta
+                )
 
             return _call_as_task()
         else:
