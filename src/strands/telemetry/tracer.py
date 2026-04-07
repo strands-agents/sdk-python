@@ -83,8 +83,8 @@ class Tracer:
     When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces
     are sent to the OTLP endpoint.
 
-    Both attributes are controlled by including "gen_ai_latest_experimental" or "gen_ai_tool_definitions",
-    respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
+    Both attributes are controlled by including "gen_ai_latest_experimental", "gen_ai_tool_definitions",
+    or "gen_ai_use_latest_invocation_tokens", respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
     """
 
     def __init__(self) -> None:
@@ -100,6 +100,7 @@ class Tracer:
         ## To-do: should not set below attributes directly, use env var instead
         self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
         self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
+        self._use_latest_invocation_tokens = "gen_ai_use_latest_invocation_tokens" in opt_in_values
 
     def _parse_semconv_opt_in(self) -> set[str]:
         """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
@@ -693,8 +694,11 @@ class Tracer:
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
                 if self.is_langfuse:
                     attributes.update({"langfuse.observation.type": "span"})
-                latest_invocation = response.metrics.latest_agent_invocation
-                usage = latest_invocation.usage if latest_invocation else response.metrics.accumulated_usage
+                if self._use_latest_invocation_tokens:
+                    latest_invocation = response.metrics.latest_agent_invocation
+                    usage = latest_invocation.usage if latest_invocation else response.metrics.accumulated_usage
+                else:
+                    usage = response.metrics.accumulated_usage
                 attributes.update(
                     {
                         "gen_ai.usage.prompt_tokens": usage["inputTokens"],
