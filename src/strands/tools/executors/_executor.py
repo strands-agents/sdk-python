@@ -226,6 +226,12 @@ class ToolExecutor(abc.ABC):
                     # ToolStreamEvent and the last event is just the result.
 
                     if isinstance(event, ToolInterruptEvent):
+                        # Register any interrupts not already in the agent's state.
+                        # For normal hooks this is a no-op (already registered by _Interruptible.interrupt()).
+                        # For sub-agent interrupts propagated via _AgentAsTool, this is where they get
+                        # registered so that _interrupt_state.resume() can locate them by ID.
+                        for interrupt in event.interrupts:
+                            agent._interrupt_state.interrupts.setdefault(interrupt.id, interrupt)
                         yield event
                         return
 

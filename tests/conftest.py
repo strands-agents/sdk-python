@@ -26,7 +26,9 @@ def moto_env(monkeypatch):
     monkeypatch.setenv("AWS_SECURITY_TOKEN", "test")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-west-2")
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_HEADERS", raising=False)
+    monkeypatch.delenv("LANGFUSE_BASE_URL", raising=False)
 
 
 @pytest.fixture

@@ -45,7 +45,7 @@ from ..hooks import (
 from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
 from ..models.bedrock import BedrockModel
-from ..models.model import Model
+from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
 from ..session.session_manager import SessionManager
@@ -61,11 +61,14 @@ from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopE
 from ..types.agent import AgentInput, ConcurrentInvocationMode
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
+from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
+from ._agent_as_tool import _AgentAsTool
 from .agent_result import AgentResult
 from .base import AgentBase
 from .conversation_manager import (
     ConversationManager,
+    NullConversationManager,
     SlidingWindowConversationManager,
 )
 from .state import AgentState
@@ -151,7 +154,8 @@ class Agent(AgentBase):
                 - Imported Python modules (e.g., from strands_tools import current_time)
                 - Dictionaries with name/path keys (e.g., {"name": "tool_name", "path": "/path/to/tool.py"})
                 - ToolProvider instances for managed tool collections
-                - Functions decorated with `@strands.tool` decorator.
+                - Functions decorated with `@strands.tool` decorator
+                - Agent instances (auto-wrapped via `agent.as_tool()` with defaults)
 
                 If provided, only these tools will be available. If None, all tools will be available.
             system_prompt: System prompt to guide model behavior.
@@ -226,7 +230,19 @@ class Agent(AgentBase):
         else:
             self.callback_handler = callback_handler
 
-        self.conversation_manager = conversation_manager if conversation_manager else SlidingWindowConversationManager()
+        if self.model.stateful and conversation_manager is not None:
+            raise ValueError(
+                "conversation_manager cannot be used with a stateful model. "
+                "The model manages conversation state server-side."
+            )
+
+        self.conversation_manager: ConversationManager
+        if self.model.stateful:
+            self.conversation_manager = NullConversationManager()
+        elif conversation_manager:
+            self.conversation_manager = conversation_manager
+        else:
+            self.conversation_manager = SlidingWindowConversationManager()
 
         # Process trace attributes to ensure they're of compatible types
         self.trace_attributes: dict[str, AttributeValue] = {}
@@ -279,6 +295,9 @@ class Agent(AgentBase):
 
         self._interrupt_state = _InterruptState()
 
+        # Runtime state for model providers (e.g., server-side response ids)
+        self._model_state: dict[str, Any] = {}
+
         # Initialize lock for guarding concurrent invocations
         # Using threading.Lock instead of asyncio.Lock because run_async() creates
         # separate event loops in different threads, so asyncio.Lock wouldn't work
@@ -323,6 +342,9 @@ class Agent(AgentBase):
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
+
+        # Register built-in plugins
+        self._plugin_registry.add_and_init(_ModelPlugin())
 
         if plugins:
             for plugin in plugins:
@@ -611,6 +633,40 @@ class Agent(AgentBase):
 
             finally:
                 await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self, invocation_state={}))
+
+    def as_tool(
+        self,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        preserve_context: bool = False,
+    ) -> AgentTool:
+        r"""Convert this agent into a tool for use by another agent.
+
+        Args:
+            name: Tool name. Must match the pattern ``[a-zA-Z0-9_\\-]{1,64}``.
+                Defaults to the agent's name.
+            description: Tool description. Defaults to the agent's description, or a
+                generic description if the agent has no description set.
+            preserve_context: Whether to preserve the agent's conversation history across
+                invocations. When False, the agent's messages and state are reset to the
+                values they had at construction time before each call, ensuring every
+                invocation starts from the same baseline regardless of any external
+                interactions with the agent. Defaults to False.
+
+        Returns:
+            A tool wrapping this agent.
+
+        Example:
+            ```python
+            researcher = Agent(name="researcher", description="Finds information")
+            writer = Agent(name="writer", tools=[researcher.as_tool()])
+            writer("Write about AI agents")
+            ```
+        """
+        if not name:
+            name = self.name
+        return _AgentAsTool(self, name=name, description=description, preserve_context=preserve_context)
 
     def cleanup(self) -> None:
         """Clean up resources used by the agent.

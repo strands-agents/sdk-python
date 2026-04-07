@@ -114,6 +114,7 @@ class RepositorySessionManager(SessionManager):
         current_state_version = agent.state._get_version()
         current_interrupt_state_version = agent._interrupt_state._get_version()
         current_conversation_manager_state = agent.conversation_manager.get_state()
+        current_model_state = agent._model_state
 
         # Check if we have a previous state to compare against
         last_synced = self._last_synced_internal_state.get(agent.agent_id)
@@ -126,7 +127,9 @@ class RepositorySessionManager(SessionManager):
             conversation_manager_state_changed = True
         else:
             state_changed = current_state_version != last_synced.get("state_version")
-            internal_state_changed = current_interrupt_state_version != last_synced.get("interrupt_state_version")
+            internal_state_changed = current_interrupt_state_version != last_synced.get(
+                "interrupt_state_version"
+            ) or current_model_state != last_synced.get("model_state")
             conversation_manager_state_changed = current_conversation_manager_state != last_synced.get(
                 "conversation_manager_state"
             )
@@ -160,6 +163,7 @@ class RepositorySessionManager(SessionManager):
             "state_version": current_state_version,
             "interrupt_state_version": current_interrupt_state_version,
             "conversation_manager_state": copy.deepcopy(current_conversation_manager_state),
+            "model_state": copy.deepcopy(current_model_state),
         }
 
     def initialize(self, agent: "Agent", **kwargs: Any) -> None:
@@ -220,11 +224,21 @@ class RepositorySessionManager(SessionManager):
             if len(session_messages) > 0:
                 self._latest_agent_message[agent.agent_id] = session_messages[-1]
 
-            # Restore the agents messages array including the optional prepend messages
-            agent.messages = prepend_messages + [session_message.to_message() for session_message in session_messages]
+            # Skip restoring messages when conversation is managed server-side
+            if agent.model.stateful:
+                logger.debug(
+                    "agent_id=<%s> | session_id=<%s> | skipping message restore for server-managed conversation",
+                    agent.agent_id,
+                    self.session_id,
+                )
+            else:
+                # Restore the agents messages array including the optional prepend messages
+                agent.messages = prepend_messages + [
+                    session_message.to_message() for session_message in session_messages
+                ]
 
-            # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
-            agent.messages = self._fix_broken_tool_use(agent.messages)
+                # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
+                agent.messages = self._fix_broken_tool_use(agent.messages)
 
         self._is_new_session = False
 

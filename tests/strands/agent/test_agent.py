@@ -16,6 +16,7 @@ from pydantic import BaseModel
 import strands
 from strands import Agent, Plugin, ToolContext
 from strands.agent import AgentResult
+from strands.agent._agent_as_tool import _AgentAsTool
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
@@ -57,6 +58,7 @@ def mock_model(request):
     mock = unittest.mock.Mock(spec=getattr(request, "param", None))
     mock.configure_mock(mock_stream=unittest.mock.MagicMock())
     mock.stream.side_effect = stream
+    mock.stateful = False
 
     return mock
 
@@ -357,6 +359,7 @@ def test_agent__call__(
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
                 invocation_state=unittest.mock.ANY,
+                model_state=unittest.mock.ANY,
             ),
             unittest.mock.call(
                 [
@@ -396,6 +399,7 @@ def test_agent__call__(
                 tool_choice=None,
                 system_prompt_content=[{"text": system_prompt}],
                 invocation_state=unittest.mock.ANY,
+                model_state=unittest.mock.ANY,
             ),
         ],
     )
@@ -518,6 +522,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
+        model_state=unittest.mock.ANY,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -666,6 +671,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
+        model_state=unittest.mock.ANY,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
@@ -1306,7 +1312,9 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
 
 @pytest.mark.asyncio
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_tracer, mock_event_loop_cycle, alist):
+async def test_agent_stream_async_creates_and_ends_span_on_success(
+    mock_get_tracer, mock_event_loop_cycle, mock_model, alist
+):
     """Test that stream_async creates and ends a span when the call succeeds."""
     # Setup mock tracer and span
     mock_tracer = unittest.mock.MagicMock()
@@ -2699,3 +2707,52 @@ def test_agent_plugins_can_register_hooks():
 
     agent("test")
     assert len(hook_called) == 1
+
+
+def test_as_tool_returns_agent_tool():
+    """Test that as_tool returns an _AgentAsTool wrapping the agent."""
+    agent = Agent(name="researcher", description="Finds information")
+    tool = agent.as_tool()
+
+    assert isinstance(tool, _AgentAsTool)
+    assert tool.agent is agent
+
+
+def test_as_tool_defaults_name_from_agent():
+    """Test that as_tool defaults the tool name to the agent's name."""
+    agent = Agent(name="researcher")
+    tool = agent.as_tool()
+
+    assert tool.tool_name == "researcher"
+
+
+def test_as_tool_defaults_description_from_agent():
+    """Test that as_tool defaults the description to the agent's description."""
+    agent = Agent(name="researcher", description="Finds information")
+    tool = agent.as_tool()
+
+    assert tool.tool_spec["description"] == "Finds information"
+
+
+def test_as_tool_custom_name():
+    """Test that as_tool accepts a custom name."""
+    agent = Agent(name="researcher")
+    tool = agent.as_tool(name="custom_name")
+
+    assert tool.tool_name == "custom_name"
+
+
+def test_as_tool_custom_description():
+    """Test that as_tool accepts a custom description."""
+    agent = Agent(name="researcher", description="Original")
+    tool = agent.as_tool(description="Custom description")
+
+    assert tool.tool_spec["description"] == "Custom description"
+
+
+def test_as_tool_defaults_description_when_agent_has_none():
+    """Test that as_tool generates a default description when agent has none."""
+    agent = Agent(name="researcher")
+    tool = agent.as_tool()
+
+    assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"

@@ -463,6 +463,7 @@ async def stream_messages(
     tool_choice: Any | None = None,
     system_prompt_content: list[SystemContentBlock] | None = None,
     invocation_state: dict[str, Any] | None = None,
+    model_state: dict[str, Any] | None = None,
     cancel_signal: threading.Event | None = None,
     **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
@@ -477,6 +478,7 @@ async def stream_messages(
         system_prompt_content: The authoritative system prompt content blocks that always contains the
             system prompt data.
         invocation_state: Caller-provided state/context that was passed to the agent when it was invoked.
+        model_state: Runtime state for model providers (e.g., server-side response ids).
         cancel_signal: Optional threading.Event to check for cancellation during streaming.
         **kwargs: Additional keyword arguments for future extensibility.
 
@@ -495,6 +497,7 @@ async def stream_messages(
         tool_choice=tool_choice,
         system_prompt_content=system_prompt_content,
         invocation_state=invocation_state,
+        model_state=model_state,
     )
 
     async for event in process_stream(chunks, start_time, cancel_signal):

@@ -465,6 +465,57 @@ async def test_executor_stream_tool_interrupt_resume(executor, agent, tool_resul
 
 
 @pytest.mark.asyncio
+async def test_executor_stream_tool_interrupt_registers_on_agent(
+    executor, agent, tool_results, invocation_state, alist
+):
+    """ToolInterruptEvent from a tool should register interrupts in the agent's _interrupt_state."""
+    # Create a tool that yields a ToolInterruptEvent with an interrupt NOT pre-registered on the agent
+    # (simulates _AgentAsTool propagating sub-agent interrupts).
+    foreign_interrupt = Interrupt(id="sub-agent-interrupt-1", name="approval", reason="need approval")
+
+    @strands.tool(name="agent_tool")
+    def agent_tool_func():
+        return "unused"
+
+    async def mock_stream(_tool_use, _invocation_state, **_kwargs):
+        yield ToolInterruptEvent(_tool_use, [foreign_interrupt])
+
+    agent_tool_func.stream = mock_stream
+    agent.tool_registry.register_tool(agent_tool_func)
+
+    tool_use: ToolUse = {"name": "agent_tool", "toolUseId": "test_tool_id", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    events = await alist(stream)
+
+    # Should yield the interrupt event
+    assert len(events) == 1
+    assert isinstance(events[0], ToolInterruptEvent)
+
+    # The interrupt should now be registered on the agent's _interrupt_state
+    assert "sub-agent-interrupt-1" in agent._interrupt_state.interrupts
+    assert agent._interrupt_state.interrupts["sub-agent-interrupt-1"] is foreign_interrupt
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_tool_interrupt_does_not_overwrite_existing(
+    executor, agent, tool_results, invocation_state, alist
+):
+    """setdefault should not overwrite interrupts already in the agent's state (normal hook case)."""
+    tool_use = {"name": "interrupt_tool", "toolUseId": "test_tool_id", "input": {}}
+
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    await alist(stream)
+
+    # The interrupt_tool hook registered the interrupt via _Interruptible.interrupt().
+    # The executor's setdefault should have been a no-op for this pre-registered interrupt.
+    registered = agent._interrupt_state.interrupts
+    assert len(registered) == 1
+    interrupt = next(iter(registered.values()))
+    assert interrupt.name == "test_name"
+    assert interrupt.reason == "test reason"
+
+
+@pytest.mark.asyncio
 async def test_executor_stream_updates_invocation_state_with_agent(
     executor, agent, tool_results, invocation_state, weather_tool, alist
 ):

@@ -35,6 +35,15 @@ class AgentResult:
     interrupts: Sequence[Interrupt] | None = None
     structured_output: BaseModel | None = None
 
+    @property
+    def context_size(self) -> int | None:
+        """Most recent context size in tokens from the last LLM call.
+
+        Returns:
+            The input token count from the most recent cycle, or None if no data is available.
+        """
+        return self.metrics.latest_context_size
+
     def __str__(self) -> str:
         """Return a string representation of the agent result.
 
