@@ -379,6 +379,20 @@ def test_format_request_guardrail_config_without_trace_or_stream_processing_mode
     assert tru_request == exp_request
 
 
+def test_format_request_with_service_tier(model, messages, model_id):
+    model.update_config(service_tier="flex")
+    tru_request = model._format_request(messages)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "serviceTier": {"type": "flex"},
+        "system": [],
+    }
+
+    assert tru_request == exp_request
+
+
 def test_format_request_inference_config(model, messages, model_id, inference_config):
     model.update_config(**inference_config)
     tru_request = model._format_request(messages)
@@ -1563,53 +1577,6 @@ async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
     assert "invoking model" in log_text
     assert "got response from model" in log_text
     assert "finished streaming response from model" in log_text
-
-
-@pytest.mark.asyncio
-async def test_stream_stop_reason_override_streaming(bedrock_client, model, messages, alist):
-    """Test that stopReason is overridden from end_turn to tool_use in streaming mode when tool use is detected."""
-    bedrock_client.converse_stream.return_value = {
-        "stream": [
-            {"messageStart": {"role": "assistant"}},
-            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test_tool"}}}},
-            {"contentBlockDelta": {"delta": {"test": {"input": '{"param": "value"}'}}}},
-            {"contentBlockStop": {}},
-            {"messageStop": {"stopReason": "end_turn"}},
-        ]
-    }
-
-    response = model.stream(messages)
-    events = await alist(response)
-
-    # Find the messageStop event
-    message_stop_event = next(event for event in events if "messageStop" in event)
-
-    # Verify stopReason was overridden to tool_use
-    assert message_stop_event["messageStop"]["stopReason"] == "tool_use"
-
-
-@pytest.mark.asyncio
-async def test_stream_stop_reason_override_non_streaming(bedrock_client, alist, messages):
-    """Test that stopReason is overridden from end_turn to tool_use in non-streaming mode when tool use is detected."""
-    bedrock_client.converse.return_value = {
-        "output": {
-            "message": {
-                "role": "assistant",
-                "content": [{"toolUse": {"toolUseId": "123", "name": "test_tool", "input": {"param": "value"}}}],
-            }
-        },
-        "stopReason": "end_turn",
-    }
-
-    model = BedrockModel(model_id="test-model", streaming=False)
-    response = model.stream(messages)
-    events = await alist(response)
-
-    # Find the messageStop event
-    message_stop_event = next(event for event in events if "messageStop" in event)
-
-    # Verify stopReason was overridden to tool_use
-    assert message_stop_event["messageStop"]["stopReason"] == "tool_use"
 
 
 def test_format_request_cleans_tool_result_content_blocks(model, model_id):

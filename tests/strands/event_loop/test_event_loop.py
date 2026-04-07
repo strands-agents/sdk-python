@@ -5,6 +5,9 @@ import unittest.mock
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 import strands
 import strands.telemetry
@@ -19,6 +22,7 @@ from strands.hooks import (
 )
 from strands.interrupt import Interrupt, _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
+from strands.telemetry.tracer import Tracer
 from strands.tools.executors import SequentialToolExecutor
 from strands.tools.registry import ToolRegistry
 from strands.types._events import EventLoopStopEvent
@@ -152,6 +156,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.tool_executor = tool_executor
     mock._interrupt_state = _InterruptState()
     mock._cancel_signal = threading.Event()
+    mock._model_state = {}
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
 
@@ -391,6 +396,7 @@ async def test_event_loop_cycle_tool_result(
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
+        model_state=unittest.mock.ANY,
     )
 
 
@@ -547,6 +553,9 @@ async def test_event_loop_cycle_creates_spans(
     mock_get_tracer.assert_called_once()
     mock_tracer.start_event_loop_cycle_span.assert_called_once()
     mock_tracer.start_model_invoke_span.assert_called_once()
+    call_kwargs = mock_tracer.start_model_invoke_span.call_args[1]
+    assert call_kwargs["system_prompt"] == agent.system_prompt
+    assert call_kwargs["system_prompt_content"] == agent._system_prompt_content
     mock_tracer.end_model_invoke_span.assert_called_once()
     mock_tracer.end_event_loop_cycle_span.assert_called_once()
 
@@ -577,6 +586,14 @@ async def test_event_loop_tracing_with_model_error(
             invocation_state={},
         )
         await alist(stream)
+
+    assert mock_tracer.end_span_with_error.call_count == 2
+    mock_tracer.end_span_with_error.assert_has_calls(
+        [
+            call(model_span, "Input too long", model.stream.side_effect),
+            call(cycle_span, "Input too long", model.stream.side_effect),
+        ]
+    )
 
 
 @pytest.mark.asyncio
@@ -668,6 +685,53 @@ async def test_event_loop_tracing_with_tool_execution(
     assert mock_tracer.end_model_invoke_span.call_count == 2
 
 
+@pytest.mark.asyncio
+async def test_event_loop_cycle_closes_cycle_span_before_recursive_cycle(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    tracer = Tracer()
+    tracer.tracer_provider = provider
+    tracer.tracer = provider.get_tracer(tracer.service_name)
+
+    async def delayed_text_stream():
+        yield {"contentBlockDelta": {"delta": {"text": "test text"}}}
+        await asyncio.sleep(0.05)
+        yield {"contentBlockStop": {}}
+
+    agent.trace_span = None
+    agent._system_prompt_content = None
+    model.config = {"model_id": "test-model"}
+    model.stream.side_effect = [
+        agenerator(tool_stream),
+        delayed_text_stream(),
+    ]
+
+    with patch("strands.event_loop.event_loop.get_tracer", return_value=tracer):
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state={},
+        )
+        await alist(stream)
+
+    provider.force_flush()
+    cycle_spans = sorted(
+        [span for span in exporter.get_finished_spans() if span.name == "execute_event_loop_cycle"],
+        key=lambda span: span.start_time,
+    )
+
+    assert len(cycle_spans) == 2
+    assert cycle_spans[0].end_time <= cycle_spans[1].start_time
+    assert cycle_spans[0].end_time < cycle_spans[1].end_time
+
+
 @patch("strands.event_loop.event_loop.get_tracer")
 @pytest.mark.asyncio
 async def test_event_loop_tracing_with_throttling_exception(
@@ -704,6 +768,7 @@ async def test_event_loop_tracing_with_throttling_exception(
         )
         await alist(stream)
 
+    assert mock_tracer.end_span_with_error.call_count == 1
     # Verify span was created for the successful retry
     assert mock_tracer.start_model_invoke_span.call_count == 2
     assert mock_tracer.end_model_invoke_span.call_count == 1
@@ -1084,3 +1149,51 @@ async def test_invalid_tool_names_adds_tool_uses(agent, model, alist):
         ],
         "role": "user",
     }
+
+
+@pytest.mark.asyncio
+async def test_event_loop_metrics_recorded_before_recursion(
+    agent,
+    model,
+    tool,
+    agenerator,
+    alist,
+):
+    model.stream.side_effect = [
+        agenerator(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": tool.tool_spec["name"],
+                            },
+                        },
+                    },
+                },
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
+    ]
+
+    with unittest.mock.patch.object(agent.event_loop_metrics, "end_cycle") as mock_end_cycle:
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state={"request_state": {}},
+        )
+        events = await alist(stream)
+
+        # Verify end_cycle was called once for tool cycle, once for text cycle
+        assert mock_end_cycle.call_count == 2
+
+        # Verify the event loop completed successfully
+        tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
+        assert tru_stop_reason == "end_turn"

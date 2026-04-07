@@ -26,6 +26,7 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent.state = AgentState()
     agent.messages = []
     agent._interrupt_state = _InterruptState()
+    agent._model_state = {}
 
     if metrics is None:
         metrics = Mock(
@@ -1986,7 +1987,10 @@ async def test_graph_multiagent_no_result_event(mock_strands_tracer, mock_use_sp
 
 @pytest.mark.asyncio
 async def test_graph_persisted(mock_strands_tracer, mock_use_span):
-    """Test graph persistence functionality."""
+    """Test graph persistence functionality with multimodal input containing binary bytes."""
+    import base64
+    import json
+
     # Create mock session manager
     session_manager = Mock(spec=FileSessionManager)
     session_manager.read_multi_agent().return_value = None
@@ -2011,7 +2015,40 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     assert "completed_nodes" in state
     assert "node_results" in state
 
-    # Test apply_state_from_dict with persisted state
+    # Build a multimodal prompt with inline binary PDF bytes (the problematic case)
+    pdf_bytes = b"%PDF-1.4 binary content"
+    multimodal_task = [
+        {"text": "Analyze this PDF"},
+        {
+            "document": {
+                "format": "pdf",
+                "name": "document.pdf",
+                "source": {
+                    "bytes": pdf_bytes,
+                },
+            }
+        },
+    ]
+
+    # Simulate graph having executed with a multimodal task
+    graph.state.task = multimodal_task
+
+    # serialize_state must not raise TypeError for bytes
+    serialized = graph.serialize_state()
+    assert json.dumps(serialized)  # must be JSON-serializable
+
+    # The bytes should be encoded in the serialized form
+    encoded_bytes = serialized["current_task"][1]["document"]["source"]["bytes"]
+    assert encoded_bytes == {"__bytes_encoded__": True, "data": base64.b64encode(pdf_bytes).decode()}
+
+    # deserialize_state must restore bytes back to original
+    serialized["next_nodes_to_execute"] = ["test_node"]
+    serialized["status"] = "executing"
+    graph.deserialize_state(serialized)
+    restored_bytes = graph.state.task[1]["document"]["source"]["bytes"]
+    assert restored_bytes == pdf_bytes
+
+    # Test apply_state_from_dict with plain string persisted state (backward compat)
     persisted_state = {
         "status": "executing",
         "completed_nodes": [],
@@ -2234,6 +2271,7 @@ def test_graph_interrupt_on_agent(agenerator):
         },
         "messages": [],
         "state": {},
+        "model_state": {},
     }
 
     responses = [
@@ -2405,3 +2443,38 @@ async def test_graph_with_agentbase_implementation(mock_strands_tracer, mock_use
     assert result.completed_nodes == 2
     assert "custom_node" in result.results
     assert "regular_node" in result.results
+
+
+def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
+    """Verify _find_newly_ready_nodes only checks destinations of outbound edges from completed batch.
+
+    Previously, it iterated over ALL nodes, which could cause nodes to fire
+    before their actual dependencies completed.
+
+    See: https://github.com/strands-agents/sdk-python/issues/685
+    """
+    # Build a graph: A -> B -> C, D -> E (independent chain)
+    node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+    node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+    node_c = GraphNode(node_id="C", executor=create_mock_agent("C"))
+    node_d = GraphNode(node_id="D", executor=create_mock_agent("D"))
+    node_e = GraphNode(node_id="E", executor=create_mock_agent("E"))
+
+    graph = Graph.__new__(Graph)
+    graph.nodes = {"A": node_a, "B": node_b, "C": node_c, "D": node_d, "E": node_e}
+    graph.edges = [
+        GraphEdge(from_node=node_a, to_node=node_b),
+        GraphEdge(from_node=node_b, to_node=node_c),
+        GraphEdge(from_node=node_d, to_node=node_e),
+    ]
+    graph.state = GraphState()
+
+    # When A completes, only B should be ready (not E)
+    ready = graph._find_newly_ready_nodes([node_a])
+    ready_ids = {n.node_id for n in ready}
+    assert ready_ids == {"B"}, f"Expected only B, got {ready_ids}"
+
+    # When D completes, only E should be ready (not B or C)
+    ready = graph._find_newly_ready_nodes([node_d])
+    ready_ids = {n.node_id for n in ready}
+    assert ready_ids == {"E"}, f"Expected only E, got {ready_ids}"

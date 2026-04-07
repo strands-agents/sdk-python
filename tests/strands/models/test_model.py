@@ -1,7 +1,11 @@
+from unittest.mock import MagicMock
+
 import pytest
 from pydantic import BaseModel
 
+from strands.hooks.events import AfterInvocationEvent
 from strands.models import Model as SAModel
+from strands.models.model import _ModelPlugin
 
 
 class Person(BaseModel):
@@ -65,6 +69,11 @@ def tool_specs():
             },
         },
     ]
+
+
+@pytest.fixture
+def model_plugin():
+    return _ModelPlugin()
 
 
 @pytest.fixture
@@ -173,3 +182,34 @@ async def test_stream_with_tool_choice_parameter(messages, tool_specs, system_pr
     response = model.stream(messages, tool_specs, system_prompt)
     events = await alist(response)
     assert events[1]["contentBlockDelta"]["delta"]["text"] == "No tool choice"
+
+
+def test_stateful_false(model):
+    """Model.stateful defaults to False."""
+    assert not model.stateful
+
+
+def test_model_plugin_clears_messages_when_stateful(model_plugin):
+    """Messages are cleared when model is stateful."""
+    agent = MagicMock()
+    agent.model.stateful = True
+    agent._model_state = {"response_id": "resp_123"}
+    agent.messages = [{"role": "user", "content": [{"text": "hello"}]}]
+
+    event = AfterInvocationEvent(agent=agent, invocation_state={})
+    model_plugin._on_after_invocation(event)
+
+    assert agent.messages == []
+
+
+def test_model_plugin_preserves_messages_when_not_stateful(model_plugin):
+    """Messages are preserved when model is not stateful."""
+    agent = MagicMock()
+    agent.model.stateful = False
+    agent._model_state = {}
+    agent.messages = [{"role": "user", "content": [{"text": "hello"}]}]
+
+    event = AfterInvocationEvent(agent=agent, invocation_state={})
+    model_plugin._on_after_invocation(event)
+
+    assert len(agent.messages) == 1

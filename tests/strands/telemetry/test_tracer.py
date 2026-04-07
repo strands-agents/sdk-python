@@ -128,6 +128,30 @@ def test_end_span_with_error_message(mock_span):
     mock_span.end.assert_called_once()
 
 
+def test_end_span_with_empty_exception_message_uses_exception_name(mock_span):
+    """Test that empty exception messages fall back to the exception type name."""
+    tracer = Tracer()
+    error = Exception()
+
+    tracer.end_span_with_error(mock_span, "", error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "Exception")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
+def test_end_span_with_error_prefers_explicit_message(mock_span):
+    """Test that an explicit error message takes precedence over the exception text."""
+    tracer = Tracer()
+    error = Exception()
+
+    tracer.end_span_with_error(mock_span, "Explicit error message", error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "Explicit error message")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
 def test_start_model_invoke_span(mock_tracer):
     """Test starting a model invoke span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
@@ -140,9 +164,14 @@ def test_start_model_invoke_span(mock_tracer):
         messages = [{"role": "user", "content": [{"text": "Hello"}]}]
         model_id = "test-model"
         custom_attrs = {"custom_key": "custom_value", "user_id": "12345"}
+        system_prompt = "You are a helpful assistant"
 
         span = tracer.start_model_invoke_span(
-            messages=messages, agent_name="TestAgent", model_id=model_id, custom_trace_attributes=custom_attrs
+            messages=messages,
+            agent_name="TestAgent",
+            model_id=model_id,
+            custom_trace_attributes=custom_attrs,
+            system_prompt=system_prompt,
         )
 
         mock_tracer.start_span.assert_called_once()
@@ -158,9 +187,14 @@ def test_start_model_invoke_span(mock_tracer):
                 "agent_name": "TestAgent",
             }
         )
-        mock_span.add_event.assert_called_with(
-            "gen_ai.user.message", attributes={"content": json.dumps(messages[0]["content"])}
+
+        calls = mock_span.add_event.call_args_list
+        assert len(calls) == 2
+        assert calls[0] == mock.call(
+            "gen_ai.system.message",
+            attributes={"content": serialize([{"text": system_prompt}])},
         )
+        assert calls[1] == mock.call("gen_ai.user.message", attributes={"content": json.dumps(messages[0]["content"])})
         assert span is not None
 
 
@@ -184,8 +218,11 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer, monkeypatch):
             },
         ]
         model_id = "test-model"
+        system_prompt = "You are a calculator assistant"
 
-        span = tracer.start_model_invoke_span(messages=messages, agent_name="TestAgent", model_id=model_id)
+        span = tracer.start_model_invoke_span(
+            messages=messages, agent_name="TestAgent", model_id=model_id, system_prompt=system_prompt
+        )
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "chat"
@@ -199,7 +236,16 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer, monkeypatch):
                 "agent_name": "TestAgent",
             }
         )
-        mock_span.add_event.assert_called_with(
+
+        calls = mock_span.add_event.call_args_list
+        assert len(calls) == 2
+        assert calls[0] == mock.call(
+            "gen_ai.client.inference.operation.details",
+            attributes={
+                "gen_ai.system_instructions": serialize([{"type": "text", "content": system_prompt}]),
+            },
+        )
+        assert calls[1] == mock.call(
             "gen_ai.client.inference.operation.details",
             attributes={
                 "gen_ai.input.messages": serialize(
@@ -222,6 +268,54 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer, monkeypatch):
                     ]
                 )
             },
+        )
+        assert span is not None
+
+
+def test_start_model_invoke_span_without_system_prompt(mock_tracer):
+    """Test that no system prompt event is emitted when system_prompt is None."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+
+        span = tracer.start_model_invoke_span(messages=messages, model_id="test-model")
+
+        assert mock_span.add_event.call_count == 1
+        mock_span.add_event.assert_called_once_with(
+            "gen_ai.user.message", attributes={"content": json.dumps(messages[0]["content"])}
+        )
+        assert span is not None
+
+
+def test_start_model_invoke_span_with_system_prompt_content(mock_tracer):
+    """Test that system_prompt_content takes priority over system_prompt string."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+        system_prompt_content = [{"text": "You are helpful"}, {"text": "Be concise"}]
+
+        span = tracer.start_model_invoke_span(
+            messages=messages,
+            model_id="test-model",
+            system_prompt="ignored string",
+            system_prompt_content=system_prompt_content,
+        )
+
+        calls = mock_span.add_event.call_args_list
+        assert len(calls) == 2
+        assert calls[0] == mock.call(
+            "gen_ai.system.message",
+            attributes={"content": serialize(system_prompt_content)},
         )
         assert span is not None
 
@@ -251,6 +345,8 @@ def test_end_model_invoke_span(mock_span):
         "gen_ai.choice",
         attributes={"message": json.dumps(message["content"]), "finish_reason": "end_turn"},
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
@@ -290,6 +386,8 @@ def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
                 ),
             },
         )
+        mock_span.set_status.assert_called_once_with(StatusCode.OK)
+        mock_span.end.assert_called_once()
 
 
 def test_start_tool_call_span(mock_tracer):
@@ -609,6 +707,20 @@ def test_end_tool_call_span_latest_conventions(mock_span, monkeypatch):
     mock_span.end.assert_called_once()
 
 
+def test_end_tool_call_span_with_error(mock_span):
+    """Test ending a tool call span with an explicit error sets StatusCode.ERROR."""
+    tracer = Tracer()
+    error = ValueError("tool exploded")
+    tool_result = {"status": "error", "content": [{"text": "Error: tool exploded"}]}
+
+    tracer.end_tool_call_span(mock_span, tool_result, error=error)
+
+    mock_span.set_attributes.assert_called_once_with({"gen_ai.tool.status": "error"})
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "tool exploded")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
 def test_start_event_loop_cycle_span(mock_tracer):
     """Test starting an event loop cycle span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
@@ -690,6 +802,8 @@ def test_end_event_loop_cycle_span(mock_span):
             "tool.result": json.dumps(tool_result_message["content"]),
         },
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
@@ -725,6 +839,8 @@ def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
             )
         },
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_start_agent_span(mock_tracer):
@@ -958,6 +1074,8 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
             "gen_ai.server.time_to_first_token": 5,
         }
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_agent_span_with_cache_metrics(mock_span):

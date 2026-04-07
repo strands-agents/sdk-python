@@ -185,6 +185,7 @@ class Tracer:
         span: Span,
         attributes: dict[str, AttributeValue] | None = None,
         error: Exception | None = None,
+        error_message: str | None = None,
     ) -> None:
         """Generic helper method to end a span.
 
@@ -192,8 +193,9 @@ class Tracer:
             span: The span to end
             attributes: Optional attributes to set before ending the span
             error: Optional exception if an error occurred
+            error_message: Optional error message to set in the span status
         """
-        if not span:
+        if not span or not span.is_recording():
             return
 
         try:
@@ -206,7 +208,8 @@ class Tracer:
 
             # Handle error if present
             if error:
-                span.set_status(StatusCode.ERROR, str(error))
+                status_description = error_message or str(error) or type(error).__name__
+                span.set_status(StatusCode.ERROR, status_description)
                 span.record_exception(error)
             else:
                 span.set_status(StatusCode.OK)
@@ -229,11 +232,11 @@ class Tracer:
             error_message: Error message to set in the span status.
             exception: Optional exception to record in the span.
         """
-        if not span:
+        if not span or not span.is_recording():
             return
 
         error = exception or Exception(error_message)
-        self._end_span(span, error=error)
+        self._end_span(span, error=error, error_message=error_message)
 
     def _add_event(
         self, span: Span | None, event_name: str, event_attributes: Attributes, to_span_attributes: bool = False
@@ -285,6 +288,8 @@ class Tracer:
         parent_span: Span | None = None,
         model_id: str | None = None,
         custom_trace_attributes: Mapping[str, AttributeValue] | None = None,
+        system_prompt: str | None = None,
+        system_prompt_content: list | None = None,
         **kwargs: Any,
     ) -> Span:
         """Start a new span for a model invocation.
@@ -294,6 +299,8 @@ class Tracer:
             parent_span: Optional parent span to link this span to.
             model_id: Optional identifier for the model being invoked.
             custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
+            system_prompt: Optional system prompt string provided to the model.
+            system_prompt_content: Optional list of system prompt content blocks.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -311,6 +318,7 @@ class Tracer:
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
         span = self._start_span("chat", parent_span, attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL)
+        self._add_system_prompt_event(span, system_prompt, system_prompt_content)
         self._add_event_messages(span, messages)
 
         return span
@@ -325,18 +333,15 @@ class Tracer:
     ) -> None:
         """End a model invocation span with results and metrics.
 
-        Note: The span is automatically closed and exceptions recorded. This method just sets the necessary attributes.
-        Status in the span is automatically set to UNSET (OK) on success or ERROR on exception.
-
         Args:
-            span: The span to set attributes on.
+            span: The span to end.
             message: The message response from the model.
             usage: Token usage information from the model call.
             metrics: Metrics from the model call.
             stop_reason: The reason the model stopped generating.
         """
-        # Set end time attribute
-        span.set_attribute("gen_ai.event.end_time", datetime.now(timezone.utc).isoformat())
+        if not span or not span.is_recording():
+            return
 
         attributes: dict[str, AttributeValue] = {
             "gen_ai.usage.prompt_tokens": usage["inputTokens"],
@@ -373,7 +378,7 @@ class Tracer:
                 event_attributes={"finish_reason": str(stop_reason), "message": serialize(message["content"])},
             )
 
-        span.set_attributes(attributes)
+        self._end_span(span, attributes)
 
     def start_tool_call_span(
         self,
@@ -548,19 +553,13 @@ class Tracer:
     ) -> None:
         """End an event loop cycle span with results.
 
-        Note: The span is automatically closed and exceptions recorded. This method just sets the necessary attributes.
-        Status in the span is automatically set to UNSET (OK) on success or ERROR on exception.
-
         Args:
-            span: The span to set attributes on.
+            span: The span to end.
             message: The message response from this cycle.
             tool_result_message: Optional tool result message if a tool was called.
         """
-        if not span:
+        if not span or not span.is_recording():
             return
-
-        # Set end time attribute
-        span.set_attribute("gen_ai.event.end_time", datetime.now(timezone.utc).isoformat())
 
         event_attributes: dict[str, AttributeValue] = {"message": serialize(message["content"])}
 
@@ -585,6 +584,8 @@ class Tracer:
                 )
             else:
                 self._add_event(span, "gen_ai.choice", event_attributes=event_attributes)
+
+        self._end_span(span)
 
     def start_agent_span(
         self,
@@ -812,6 +813,46 @@ class Tracer:
                 }
             )
         return dict(common_attributes)
+
+    def _add_system_prompt_event(
+        self,
+        span: Span,
+        system_prompt: str | None = None,
+        system_prompt_content: list | None = None,
+    ) -> None:
+        """Emit system prompt as a span event per OTel GenAI semantic conventions.
+
+        In legacy mode (v1.36), emits a ``gen_ai.system.message`` event.
+        In latest experimental mode, emits ``gen_ai.system_instructions`` on the
+        ``gen_ai.client.inference.operation.details`` event, since Strands passes
+        system instructions separately from chat history.
+
+        Args:
+            span: The span to add the event to.
+            system_prompt: Optional system prompt string.
+            system_prompt_content: Optional list of system prompt content blocks.
+        """
+        if system_prompt is None and system_prompt_content is None:
+            return
+
+        content_blocks: list[ContentBlock] = (
+            system_prompt_content if system_prompt_content else [{"text": system_prompt or ""}]
+        )
+
+        if self.use_latest_genai_conventions:
+            parts = self._map_content_blocks_to_otel_parts(content_blocks)
+            self._add_event(
+                span,
+                "gen_ai.client.inference.operation.details",
+                {"gen_ai.system_instructions": serialize(parts)},
+                to_span_attributes=self.is_langfuse,
+            )
+        else:
+            self._add_event(
+                span,
+                "gen_ai.system.message",
+                {"content": serialize(content_blocks)},
+            )
 
     def _add_event_messages(self, span: Span, messages: Messages) -> None:
         """Adds messages as event to the provided span based on the current GenAI conventions.

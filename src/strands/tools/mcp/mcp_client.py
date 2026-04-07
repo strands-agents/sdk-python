@@ -10,6 +10,7 @@ with the MCP service.
 import asyncio
 import base64
 import contextvars
+import json
 import logging
 import threading
 import uuid
@@ -24,8 +25,10 @@ from typing import Any, TypeVar, cast
 import anyio
 from mcp import ClientSession, ListToolsResult
 from mcp.client.session import ElicitationFnT
+from mcp.shared.exceptions import McpError
 from mcp.types import (
     BlobResourceContents,
+    ElicitationRequiredErrorData,
     GetPromptResult,
     ListPromptsResult,
     ListResourcesResult,
@@ -565,6 +568,7 @@ class MCPClient(ToolProvider):
         name: str,
         arguments: dict[str, Any] | None,
         read_timeout_seconds: timedelta | None,
+        meta: dict[str, Any] | None = None,
     ) -> Coroutine[Any, Any, MCPCallToolResult]:
         """Create the appropriate coroutine for calling a tool.
 
@@ -575,6 +579,7 @@ class MCPClient(ToolProvider):
             name: Name of the tool to call.
             arguments: Optional arguments to pass to the tool.
             read_timeout_seconds: Optional timeout for the tool call.
+            meta: Optional metadata to pass to the tool call per MCP spec (_meta).
 
         Returns:
             A coroutine that will execute the tool call.
@@ -595,7 +600,7 @@ class MCPClient(ToolProvider):
 
             async def _call_tool_direct() -> MCPCallToolResult:
                 return await cast(ClientSession, self._background_thread_session).call_tool(
-                    name, arguments, read_timeout_seconds
+                    name, arguments, read_timeout_seconds, meta=meta
                 )
 
             return _call_tool_direct()
@@ -606,6 +611,7 @@ class MCPClient(ToolProvider):
         name: str,
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> MCPToolResult:
         """Synchronously calls a tool on the MCP server.
 
@@ -617,6 +623,7 @@ class MCPClient(ToolProvider):
             name: Name of the tool to call
             arguments: Optional arguments to pass to the tool
             read_timeout_seconds: Optional timeout for the tool call
+            meta: Optional metadata to pass to the tool call per MCP spec (_meta)
 
         Returns:
             MCPToolResult: The result of the tool call
@@ -626,7 +633,7 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         try:
-            coro = self._create_call_tool_coroutine(name, arguments, read_timeout_seconds)
+            coro = self._create_call_tool_coroutine(name, arguments, read_timeout_seconds, meta=meta)
             call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(coro).result()
             return self._handle_tool_result(tool_use_id, call_tool_result)
         except Exception as e:
@@ -639,6 +646,7 @@ class MCPClient(ToolProvider):
         name: str,
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> MCPToolResult:
         """Asynchronously calls a tool on the MCP server.
 
@@ -650,6 +658,7 @@ class MCPClient(ToolProvider):
             name: Name of the tool to call
             arguments: Optional arguments to pass to the tool
             read_timeout_seconds: Optional timeout for the tool call
+            meta: Optional metadata to pass to the tool call per MCP spec (_meta)
 
         Returns:
             MCPToolResult: The result of the tool call
@@ -659,7 +668,7 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         try:
-            coro = self._create_call_tool_coroutine(name, arguments, read_timeout_seconds)
+            coro = self._create_call_tool_coroutine(name, arguments, read_timeout_seconds, meta=meta)
             future = self._invoke_on_background_thread(coro)
             call_tool_result: MCPCallToolResult = await asyncio.wrap_future(future)
             return self._handle_tool_result(tool_use_id, call_tool_result)
@@ -668,7 +677,31 @@ class MCPClient(ToolProvider):
             return self._handle_tool_execution_error(tool_use_id, e)
 
     def _handle_tool_execution_error(self, tool_use_id: str, exception: Exception) -> MCPToolResult:
-        """Create error ToolResult with consistent logging."""
+        """Create error ToolResult with consistent logging and elicitation callback support.
+
+        Args:
+            tool_use_id: Unique identifier for this tool use.
+            exception: The exception that occurred during tool execution.
+
+        Returns:
+            MCPToolResult: Error result containing either the elicitation data or the
+                original exception message.
+        """
+        if isinstance(exception, McpError) and exception.error.code == -32042:
+            try:
+                error_data = ElicitationRequiredErrorData.model_validate(exception.error.data)
+                elicitations = [e.model_dump(exclude_none=True) for e in error_data.elicitations]
+
+                return MCPToolResult(
+                    status="error",
+                    toolUseId=tool_use_id,
+                    content=[
+                        {"text": (f"MCP Elicitation required: [{str(exception)}] with data {json.dumps(elicitations)}")}
+                    ],
+                )
+            except Exception:
+                logger.debug("Failed to parse ElicitationRequiredErrorData from -32042 error", exc_info=True)
+
         return MCPToolResult(
             status="error",
             toolUseId=tool_use_id,

@@ -51,6 +51,7 @@ from ..types._events import (
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
+from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
@@ -169,6 +170,7 @@ class GraphNode:
     execution_time: int = 0
     _initial_messages: Messages = field(default_factory=list, init=False)
     _initial_state: AgentState = field(default_factory=AgentState, init=False)
+    _initial_model_state: dict[str, Any] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         """Capture initial executor state after initialization."""
@@ -178,6 +180,9 @@ class GraphNode:
 
         if hasattr(self.executor, "state") and hasattr(self.executor.state, "get"):
             self._initial_state = AgentState(self.executor.state.get())
+
+        if hasattr(self.executor, "_model_state"):
+            self._initial_model_state = copy.deepcopy(self.executor._model_state)
 
     def reset_executor_state(self) -> None:
         """Reset GraphNode executor state to initial state when graph was created.
@@ -190,6 +195,9 @@ class GraphNode:
 
         if hasattr(self.executor, "state"):
             self.executor.state = AgentState(self._initial_state.get())
+
+        if hasattr(self.executor, "_model_state"):
+            self.executor._model_state = copy.deepcopy(self._initial_model_state)
 
         # Reset execution status
         self.execution_status = Status.PENDING
@@ -638,6 +646,7 @@ class Graph(MultiAgentBase):
                     "interrupt_state": node.executor._interrupt_state.to_dict(),
                     "state": node.executor.state.get(),
                     "messages": node.executor.messages,
+                    "model_state": node.executor._model_state,
                 }
             )
 
@@ -827,9 +836,16 @@ class Graph(MultiAgentBase):
         return timeout_exception
 
     def _find_newly_ready_nodes(self, completed_batch: list["GraphNode"]) -> list["GraphNode"]:
-        """Find nodes that became ready after the last execution."""
+        """Find nodes that became ready after the last execution.
+
+        Only evaluates destination nodes of outbound edges from the completed batch,
+        instead of iterating over all nodes in the graph.
+        """
+        # Collect unique candidate nodes reachable from the completed batch
+        candidates = {edge.to_node for edge in self.edges if edge.from_node in completed_batch}
+
         newly_ready = []
-        for _node_id, node in self.nodes.items():
+        for node in candidates:
             if self._is_node_ready_with_conditions(node, completed_batch):
                 newly_ready.append(node)
         return newly_ready
@@ -1066,6 +1082,7 @@ class Graph(MultiAgentBase):
                         node.executor.messages = node_context["messages"]
                         node.executor.state = AgentState(node_context["state"])
                         node.executor._interrupt_state = _InterruptState.from_dict(node_context["interrupt_state"])
+                        node.executor._model_state = node_context.get("model_state", {})
 
                     return node_responses
 
@@ -1151,7 +1168,7 @@ class Graph(MultiAgentBase):
             "interrupted_nodes": [n.node_id for n in self.state.interrupted_nodes],
             "node_results": {k: v.to_dict() for k, v in (self.state.results or {}).items()},
             "next_nodes_to_execute": next_nodes,
-            "current_task": self.state.task,
+            "current_task": encode_bytes_values(self.state.task),
             "execution_order": [n.node_id for n in self.state.execution_order],
             "_internal_state": {
                 "interrupt_state": self._interrupt_state.to_dict(),
@@ -1241,7 +1258,7 @@ class Graph(MultiAgentBase):
         self.state.execution_order = [self.nodes[node_id] for node_id in order_node_ids if node_id in self.nodes]
 
         # Task
-        self.state.task = payload.get("current_task", self.state.task)
+        self.state.task = decode_bytes_values(payload.get("current_task", self.state.task))
 
         # next nodes to execute
         next_nodes = [self.nodes[nid] for nid in (payload.get("next_nodes_to_execute") or []) if nid in self.nodes]

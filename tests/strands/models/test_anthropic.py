@@ -1,5 +1,6 @@
 import logging
 import unittest.mock
+import warnings
 
 import anthropic
 import pydantic
@@ -811,6 +812,7 @@ async def test_structured_output(anthropic_client, model, test_output_model_cls,
         ),
         unittest.mock.Mock(
             type="message_stop",
+            message=unittest.mock.Mock(stop_reason="tool_use"),
             model_dump=unittest.mock.Mock(
                 return_value={"type": "message_stop", "message": {"stop_reason": "tool_use"}}
             ),
@@ -933,3 +935,57 @@ def test_format_request_filters_location_source_document(model, model_id, max_to
     ]
     assert tru_request["messages"] == exp_messages
     assert "Location sources are not supported by Anthropic" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model, agenerator, alist):
+    """Verify no Pydantic serialization warnings are emitted for message_stop events.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1746.
+    """
+    # Create a mock message_stop event where model_dump() would emit warnings
+    # The key is that the event has a .message attribute with .stop_reason
+    mock_message_stop = unittest.mock.Mock()
+    mock_message_stop.type = "message_stop"
+    mock_message_stop.message = unittest.mock.Mock()
+    mock_message_stop.message.stop_reason = "end_turn"
+
+    # Make model_dump() emit a warning to simulate the problematic behavior
+    def model_dump_with_warning():
+        warnings.warn(
+            "PydanticSerializationUnexpectedValue(Expected `ParsedTextBlock[TypeVar]`)",
+            UserWarning,
+            stacklevel=2,
+        )
+        return {"type": mock_message_stop.type, "message": {"stop_reason": mock_message_stop.message.stop_reason}}
+
+    mock_message_stop.model_dump = model_dump_with_warning
+
+    mock_event_usage = unittest.mock.Mock(
+        message=unittest.mock.Mock(
+            usage=unittest.mock.Mock(
+                model_dump=lambda: {"input_tokens": 1, "output_tokens": 2},
+            )
+        ),
+    )
+
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = agenerator([mock_message_stop, mock_event_usage])
+    anthropic_client.messages.stream.return_value = mock_context
+
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+
+    # Capture warnings during streaming
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always")
+        response = model.stream(messages, None, None)
+        events = await alist(response)
+
+    # Verify no Pydantic serialization warnings were emitted
+    pydantic_warnings = [
+        w for w in caught_warnings if "PydanticSerializationUnexpectedValue" in str(w.message)
+    ]
+    assert len(pydantic_warnings) == 0, f"Unexpected Pydantic warnings: {pydantic_warnings}"
+
+    # Verify the message_stop event was still processed correctly
+    assert {"messageStop": {"stopReason": mock_message_stop.message.stop_reason}} in events

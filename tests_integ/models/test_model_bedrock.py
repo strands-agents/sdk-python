@@ -73,6 +73,27 @@ def test_non_streaming_agent(non_streaming_agent):
     assert len(str(result)) > 0
 
 
+def test_bedrock_service_tier_flex_invocation_succeeds():
+    """Bedrock accepts serviceTier when model and region support Priority/Flex tiers.
+
+    Tier support is model- and region-specific. See:
+    https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html
+
+    CI runs integ tests with AWS_REGION=us-east-1; amazon.nova-pro-v1:0 is listed for
+    that region under Priority and Flex tiers.
+    """
+    model = BedrockModel(
+        model_id="amazon.nova-pro-v1:0",
+        region_name="us-east-1",
+        service_tier="flex",
+    )
+    agent = Agent(model=model, load_tools_from_directory=False)
+    result = agent("Reply with exactly the word: ok")
+
+    assert result.stop_reason == "end_turn"
+    assert len(str(result).strip()) > 0
+
+
 @pytest.mark.asyncio
 async def test_streaming_model_events(streaming_model, alist):
     """Test streaming model events."""

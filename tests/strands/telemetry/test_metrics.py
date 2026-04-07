@@ -566,3 +566,50 @@ def test_reset_usage_metrics(usage, event_loop_metrics, mock_get_meter_provider)
 
     # Verify accumulated_usage is NOT cleared
     assert event_loop_metrics.accumulated_usage["inputTokens"] == 11
+
+
+def test_latest_context_size_no_invocations(event_loop_metrics):
+    assert event_loop_metrics.latest_context_size is None
+
+
+def test_latest_context_size_invocation_with_no_cycles(event_loop_metrics):
+    event_loop_metrics.reset_usage_metrics()
+    assert event_loop_metrics.latest_context_size is None
+
+
+def test_latest_context_size_returns_last_cycle(event_loop_metrics, mock_get_meter_provider):
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
+    event_loop_metrics.update_usage(Usage(inputTokens=100, outputTokens=50, totalTokens=150))
+
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c2"})
+    event_loop_metrics.update_usage(Usage(inputTokens=250, outputTokens=80, totalTokens=330))
+
+    assert event_loop_metrics.latest_context_size == 250
+
+
+def test_latest_context_size_returns_from_latest_invocation(event_loop_metrics, mock_get_meter_provider):
+    # First invocation
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
+    event_loop_metrics.update_usage(Usage(inputTokens=100, outputTokens=50, totalTokens=150))
+
+    # Second invocation
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c2"})
+    event_loop_metrics.update_usage(Usage(inputTokens=500, outputTokens=80, totalTokens=580))
+
+    assert event_loop_metrics.latest_context_size == 500
+
+
+def test_latest_context_size_missing_input_tokens_key(event_loop_metrics):
+    """Returns None when usage dict is missing inputTokens (e.g. provider bug)."""
+    event_loop_metrics.reset_usage_metrics()
+    invocation = event_loop_metrics.agent_invocations[-1]
+    invocation.cycles.append(
+        strands.telemetry.metrics.EventLoopCycleMetric(
+            event_loop_cycle_id="c1",
+            usage={"outputTokens": 50, "totalTokens": 50},
+        )
+    )
+    assert event_loop_metrics.latest_context_size is None
