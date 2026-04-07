@@ -410,10 +410,12 @@ class AnthropicModel(Model):
                         if event.type == "message_stop":
                             # Build dict directly to avoid Pydantic serialization warnings
                             # when the message contains ParsedTextBlock objects (issue #1746)
-                            yield self.format_chunk({
-                                "type": "message_stop",
-                                "message": {"stop_reason": event.message.stop_reason},
-                            })
+                            yield self.format_chunk(
+                                {
+                                    "type": "message_stop",
+                                    "message": {"stop_reason": event.message.stop_reason},
+                                }
+                            )
                         else:
                             yield self.format_chunk(event.model_dump())
 

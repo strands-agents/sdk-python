@@ -1615,10 +1615,15 @@ def test_agent_restored_from_session_management_with_correct_index():
 
 
 def test_agent_with_session_and_conversation_manager():
-    mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    mock_model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "first"}]},
+            {"role": "assistant", "content": [{"text": "second"}]},
+        ]
+    )
     mock_session_repository = MockedSessionRepository()
     session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
-    conversation_manager = SlidingWindowConversationManager(window_size=1)
+    conversation_manager = SlidingWindowConversationManager(window_size=2)
     # Create an agent with a mocked model and session repository
     agent = Agent(
         session_manager=session_manager,
@@ -1633,14 +1638,20 @@ def test_agent_with_session_and_conversation_manager():
 
     agent("Hello!")
 
-    # After invoking, assert that the messages were persisted
+    # After first invocation: [user, assistant] — fits in window, no trimming
     assert len(mock_session_repository.list_messages("123", agent.agent_id)) == 2
-    # Assert conversation manager reduced the messages
-    assert len(agent.messages) == 1
+    assert len(agent.messages) == 2
+
+    agent("Second question")
+
+    # After second invocation: [user, assistant, user, assistant] exceeds window_size=2
+    # Conversation manager trims to 2 messages starting with a user message
+    assert len(agent.messages) == 2
+    assert agent.messages[0]["role"] == "user"
 
     # Initialize another agent using the same session
     session_manager_2 = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
-    conversation_manager_2 = SlidingWindowConversationManager(window_size=1)
+    conversation_manager_2 = SlidingWindowConversationManager(window_size=2)
     agent_2 = Agent(
         session_manager=session_manager_2,
         conversation_manager=conversation_manager_2,
@@ -1648,7 +1659,7 @@ def test_agent_with_session_and_conversation_manager():
     )
     # Assert that the second agent was initialized properly, and that the messages of both agents are equal
     assert agent.messages == agent_2.messages
-    # Asser the conversation manager was initialized properly
+    # Assert the conversation manager was initialized properly
     assert agent.conversation_manager.removed_message_count == agent_2.conversation_manager.removed_message_count
 
 

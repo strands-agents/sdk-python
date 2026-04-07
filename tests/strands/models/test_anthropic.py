@@ -982,9 +982,7 @@ async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model,
         events = await alist(response)
 
     # Verify no Pydantic serialization warnings were emitted
-    pydantic_warnings = [
-        w for w in caught_warnings if "PydanticSerializationUnexpectedValue" in str(w.message)
-    ]
+    pydantic_warnings = [w for w in caught_warnings if "PydanticSerializationUnexpectedValue" in str(w.message)]
     assert len(pydantic_warnings) == 0, f"Unexpected Pydantic warnings: {pydantic_warnings}"
 
     # Verify the message_stop event was still processed correctly
