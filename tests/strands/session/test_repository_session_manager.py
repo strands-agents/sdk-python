@@ -1,5 +1,6 @@
 """Tests for AgentSessionManager."""
 
+import copy
 from unittest.mock import Mock
 
 import pytest
@@ -417,7 +418,12 @@ def test_fix_broken_tool_use_handles_multiple_orphaned_tools(existing_session_ma
 
 
 def test_fix_broken_tool_use_ignores_last_message(session_manager):
-    """Test that orphaned toolUse in the last message is not fixed."""
+    """Test that orphaned toolUse in the last message is not fixed.
+
+    Note: _fix_broken_tool_use mutates and returns the same list object, so
+    we must compare against a deepcopy to detect whether the method actually
+    modified the list.
+    """
     messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
         {
@@ -428,14 +434,75 @@ def test_fix_broken_tool_use_ignores_last_message(session_manager):
         },
     ]
 
+    original = copy.deepcopy(messages)
     fixed_messages = session_manager._fix_broken_tool_use(messages)
 
     # Should remain unchanged since toolUse is in last message
-    assert fixed_messages == messages
+    assert fixed_messages == original
+
+
+def test_fix_broken_tool_use_consecutive_orphaned_not_skipped_by_insert(session_manager):
+    """Test that insert() during iteration doesn't cause a later toolUse to be skipped.
+
+    When _fix_broken_tool_use processes consecutive orphaned toolUse messages,
+    inserting a toolResult for the first one shifts the second into the "last
+    message" position.  Without the else branch (or a two-pass approach), the
+    second toolUse would be silently skipped by the `index + 1 < len(messages)`
+    guard.
+    """
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "A", "name": "tool_a", "input": {}}}],
+        },
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "B", "name": "tool_b", "input": {}}}],
+        },
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(copy.deepcopy(messages))
+
+    # Both toolUse messages should have a corresponding toolResult inserted
+    assert len(fixed_messages) == 4  # toolUse(A), toolResult(A), toolUse(B), toolResult(B)
+
+    assert fixed_messages[0]["role"] == "assistant"
+    assert fixed_messages[0]["content"][0]["toolUse"]["toolUseId"] == "A"
+
+    assert fixed_messages[1]["role"] == "user"
+    assert fixed_messages[1]["content"][0]["toolResult"]["toolUseId"] == "A"
+    assert fixed_messages[1]["content"][0]["toolResult"]["status"] == "error"
+
+    assert fixed_messages[2]["role"] == "assistant"
+    assert fixed_messages[2]["content"][0]["toolUse"]["toolUseId"] == "B"
+
+    assert fixed_messages[3]["role"] == "user"
+    assert fixed_messages[3]["content"][0]["toolResult"]["toolUseId"] == "B"
+    assert fixed_messages[3]["content"][0]["toolResult"]["status"] == "error"
+
+
+def test_fix_broken_tool_use_single_orphaned_tool_use_only(session_manager):
+    """Test fixing a conversation that consists of a single orphaned toolUse message."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "solo-123", "name": "test_tool", "input": {"input": "test"}}}
+            ],
+        },
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(copy.deepcopy(messages))
+
+    assert len(fixed_messages) == 2
+    assert fixed_messages[1]["role"] == "user"
+    assert fixed_messages[1]["content"][0]["toolResult"]["toolUseId"] == "solo-123"
+    assert fixed_messages[1]["content"][0]["toolResult"]["status"] == "error"
+    assert fixed_messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Tool was interrupted."
 
 
 def test_fix_broken_tool_use_does_not_change_valid_message(session_manager):
-    """Test that orphaned toolUse in the last message is not fixed."""
+    """Test that valid tool use/result pairs are not modified."""
     messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
         {
