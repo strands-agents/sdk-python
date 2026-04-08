@@ -79,6 +79,8 @@ class BedrockModel(Model):
             cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
             cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
             cache_tools: Cache point type for tools
+            cache_tools_ttl: Time-to-live for the tools cache point. Supported values are "5m" and "1h".
+                If None, the provider default (5 minutes) is used.
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
             guardrail_version: Version of the guardrail to apply
@@ -109,6 +111,7 @@ class BedrockModel(Model):
         cache_prompt: str | None
         cache_config: CacheConfig | None
         cache_tools: str | None
+        cache_tools_ttl: Literal["5m", "1h"] | None
         guardrail_id: str | None
         guardrail_trace: Literal["enabled", "disabled", "enabled_full"] | None
         guardrail_stream_processing_mode: Literal["sync", "async"] | None
@@ -266,7 +269,18 @@ class BedrockModel(Model):
                                 for tool_spec in tool_specs
                             ],
                             *(
-                                [{"cachePoint": {"type": self.config["cache_tools"]}}]
+                                [
+                                    {
+                                        "cachePoint": {
+                                            "type": self.config["cache_tools"],
+                                            **(
+                                                {"ttl": self.config["cache_tools_ttl"]}
+                                                if self.config.get("cache_tools_ttl")
+                                                else {}
+                                            ),
+                                        }
+                                    }
+                                ]
                                 if self.config.get("cache_tools")
                                 else []
                             ),
@@ -344,11 +358,12 @@ class BedrockModel(Model):
 
         return {"additionalModelRequestFields": additional_fields}
 
-    def _inject_cache_point(self, messages: list[dict[str, Any]]) -> None:
+    def _inject_cache_point(self, messages: list[dict[str, Any]], ttl: str | None = None) -> None:
         """Inject a cache point at the end of the last user message.
 
         Args:
             messages: List of messages to inject cache point into (modified in place).
+            ttl: Optional TTL for the cache point (e.g., "5m", "1h").
         """
         if not messages:
             return
@@ -368,7 +383,10 @@ class BedrockModel(Model):
                 last_user_idx = msg_idx
 
         if last_user_idx is not None and messages[last_user_idx].get("content"):
-            messages[last_user_idx]["content"].append({"cachePoint": {"type": "default"}})
+            cache_point: dict[str, Any] = {"type": "default"}
+            if ttl:
+                cache_point["ttl"] = ttl
+            messages[last_user_idx]["content"].append({"cachePoint": cache_point})
             logger.debug("msg_idx=<%s> | added cache point to last user message", last_user_idx)
 
     def _find_last_user_text_message_index(self, messages: Messages) -> int | None:
@@ -477,7 +495,7 @@ class BedrockModel(Model):
                         self.config.get("model_id"),
                     )
             if strategy == "anthropic":
-                self._inject_cache_point(cleaned_messages)
+                self._inject_cache_point(cleaned_messages, ttl=cache_config.ttl)
 
         return cleaned_messages
 
@@ -521,7 +539,11 @@ class BedrockModel(Model):
         """
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CachePointBlock.html
         if "cachePoint" in content:
-            return {"cachePoint": {"type": content["cachePoint"]["type"]}}
+            cache_point: dict[str, Any] = {"type": content["cachePoint"]["type"]}
+            ttl = content["cachePoint"].get("ttl")
+            if ttl:
+                cache_point["ttl"] = ttl
+            return {"cachePoint": cache_point}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_DocumentBlock.html
         if "document" in content:
