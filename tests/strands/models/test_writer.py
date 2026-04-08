@@ -250,7 +250,6 @@ def test_format_request_with_empty_content(model, model_id, stream_options):
     [
         ({"video": {}}, "video"),
         ({"document": {}}, "document"),
-        ({"reasoningContent": {}}, "reasoningContent"),
         ({"other": {}}, "other"),
     ],
 )
@@ -264,6 +263,44 @@ def test_format_request_with_unsupported_type(model, content, content_type):
 
     with pytest.raises(TypeError, match=f"content_type=<{content_type}> | unsupported type"):
         model.format_request(messages)
+
+
+def test_format_request_strips_reasoning_content(model, model_id, stream_options):
+    """reasoningContent blocks from Gemini are silently dropped when formatting for Writer.
+
+    In multi-provider Swarms a Gemini agent may store reasoningContent blocks in the shared
+    conversation history. These blocks have no Writer equivalent and must be filtered out
+    before the request is sent, otherwise _format_request_message_content raises TypeError.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1993
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "What is AI?"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "reasoningContent": {
+                        "reasoningText": {
+                            "text": "The user asked about AI.",
+                            "signature": "SGVsbG8gV29ybGQ=",
+                        }
+                    }
+                },
+                {"text": "AI is the simulation of human intelligence by machines."},
+            ],
+        },
+    ]
+
+    # Must not raise TypeError
+    tru_request = model.format_request(messages)
+
+    # The reasoningContent block is dropped; only the visible text message survives
+    assistant_messages = [m for m in tru_request["messages"] if m.get("role") == "assistant"]
+    assert len(assistant_messages) == 1
+    assert assistant_messages[0]["content"] == [
+        {"type": "text", "text": "AI is the simulation of human intelligence by machines."}
+    ]
 
 
 class AsyncStreamWrapper:

@@ -116,7 +116,7 @@ class WriterModel(Model):
         return [
             _format_content_vision(content)
             for content in contents
-            if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+            if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
         ]
 
     def _format_request_message_contents(self, contents: list[ContentBlock]) -> str:
@@ -142,7 +142,7 @@ class WriterModel(Model):
         content_blocks = list(
             filter(
                 lambda content: content.get("text")
-                and not any(block_type in content for block_type in ["toolResult", "toolUse"]),
+                and not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"]),
                 contents,
             )
         )
