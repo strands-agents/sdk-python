@@ -5,6 +5,7 @@ MCP (Model Context Protocol) tools and the agent framework's tool interface.
 It allows MCP tools to be seamlessly integrated and used within the agent ecosystem.
 """
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -110,10 +111,22 @@ class MCPAgentTool(AgentTool):
         """
         logger.debug("tool_name=<%s>, tool_use_id=<%s> | streaming", self.tool_name, tool_use["toolUseId"])
 
-        result = await self.mcp_client.call_tool_async(
-            tool_use_id=tool_use["toolUseId"],
-            name=self.mcp_tool.name,  # Use original MCP name for server communication
-            arguments=tool_use["input"],
-            read_timeout_seconds=self.timeout,
-        )
-        yield ToolResultEvent(result)
+        result, exception = await self._invoke_tool(tool_use)
+        yield ToolResultEvent(result, exception=exception)
+
+    async def _invoke_tool(self, tool_use: ToolUse) -> tuple[Any, Exception | None]:
+        """Invoke the MCP tool and return (result, exception).
+
+        Returns both the MCPToolResult and the original exception (if any),
+        so callers can access the exception via ToolResultEvent.exception —
+        matching the pattern used by decorated tools.
+        """
+        try:
+            coro = self.mcp_client._create_call_tool_coroutine(
+                self.mcp_tool.name, tool_use["input"], self.timeout
+            )
+            future = self.mcp_client._invoke_on_background_thread(coro)
+            call_tool_result = await asyncio.wrap_future(future)
+            return self.mcp_client._handle_tool_result(tool_use["toolUseId"], call_tool_result), None
+        except Exception as e:
+            return self.mcp_client._handle_tool_execution_error(tool_use["toolUseId"], e), e
