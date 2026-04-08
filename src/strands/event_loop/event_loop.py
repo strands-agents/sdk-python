@@ -201,25 +201,46 @@ async def event_loop_cycle(
             # End the cycle and return results
             agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
 
-            # Force structured output tool call if LLM didn't use it automatically
+            # Handle structured output when model returns end_turn
             if structured_output_context.is_enabled and stop_reason == "end_turn":
-                if structured_output_context.force_attempted:
+                if structured_output_context.native_mode:
+                    # Native mode: parse text response as structured output
+                    native_result = structured_output_context.extract_native_result(message)
+                    if native_result is not None:
+                        yield StructuredOutputEvent(structured_output=native_result)
+                        tracer.end_event_loop_cycle_span(cycle_span, message)
+                        yield EventLoopStopEvent(
+                            stop_reason,
+                            message,
+                            agent.event_loop_metrics,
+                            invocation_state["request_state"],
+                            structured_output=native_result,
+                        )
+                        return
                     raise StructuredOutputException(
-                        "The model failed to invoke the structured output tool even after it was forced."
+                        "Native structured output mode: no text content found in model response."
                     )
-                structured_output_context.set_forced_mode()
-                logger.debug("Forcing structured output tool")
-                await agent._append_messages(
-                    {"role": "user", "content": [{"text": structured_output_context.structured_output_prompt}]}
-                )
+                else:
+                    # Tool mode: force the model to call the structured output tool
+                    if structured_output_context.force_attempted:
+                        raise StructuredOutputException(
+                            "The model failed to invoke the structured output tool even after it was forced."
+                        )
+                    structured_output_context.set_forced_mode()
+                    logger.debug("Forcing structured output tool")
+                    await agent._append_messages(
+                        {"role": "user", "content": [{"text": structured_output_context.structured_output_prompt}]}
+                    )
 
-                tracer.end_event_loop_cycle_span(cycle_span, message)
-                events = recurse_event_loop(
-                    agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
-                )
-                async for typed_event in events:
-                    yield typed_event
-                return
+                    tracer.end_event_loop_cycle_span(cycle_span, message)
+                    events = recurse_event_loop(
+                        agent=agent,
+                        invocation_state=invocation_state,
+                        structured_output_context=structured_output_context,
+                    )
+                    async for typed_event in events:
+                        yield typed_event
+                    return
 
             tracer.end_event_loop_cycle_span(cycle_span, message)
             yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
@@ -338,6 +359,15 @@ async def _handle_model_execution(
                 else:
                     tool_specs = agent.tool_registry.get_all_tool_specs()
 
+                if structured_output_context.is_enabled:
+                    so_mode = "native" if structured_output_context.native_mode else "tool"
+                    logger.debug(
+                        "structured_output_mode=<%s> | tool_count=<%d> | output_config=<%s>",
+                        so_mode,
+                        len(tool_specs),
+                        bool(structured_output_context.output_config),
+                    )
+
                 async for event in stream_messages(
                     agent.model,
                     agent.system_prompt,
@@ -348,6 +378,7 @@ async def _handle_model_execution(
                     invocation_state=invocation_state,
                     model_state=agent._model_state,
                     cancel_signal=agent._cancel_signal,
+                    output_config=structured_output_context.output_config,
                 ):
                     yield event
 

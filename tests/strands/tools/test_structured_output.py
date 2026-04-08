@@ -1,9 +1,10 @@
+import json
 from typing import Literal, Optional
 
 import pytest
 from pydantic import BaseModel, Field
 
-from strands.tools.structured_output import convert_pydantic_to_tool_spec
+from strands.tools.structured_output import convert_pydantic_to_json_schema, convert_pydantic_to_tool_spec
 from strands.types.tools import ToolSpec
 
 
@@ -423,3 +424,68 @@ def test_convert_pydantic_with_refs():
         "name": "Person",
     }
     assert tool_spec == expected_spec
+
+
+def test_convert_pydantic_to_json_schema_basic():
+    result = convert_pydantic_to_json_schema(User)
+
+    assert result["name"] == "User"
+    assert result["description"] == "User model with name and age."
+    assert isinstance(result["schema"], str)
+
+    schema = json.loads(result["schema"])
+    assert schema["type"] == "object"
+    assert schema["additionalProperties"] is False
+    assert "name" in schema["properties"]
+    assert "age" in schema["properties"]
+    assert schema["required"] == ["name", "age"]
+
+
+def test_convert_pydantic_to_json_schema_nested():
+    """Test nested model has additionalProperties: false at every object level and preserves structure."""
+    result = convert_pydantic_to_json_schema(TwoUsersWithPlanet)
+
+    schema = json.loads(result["schema"])
+    assert schema["additionalProperties"] is False
+    assert "user1" in schema["properties"]
+    assert "user2" in schema["properties"]
+
+    # Required nested object
+    user1 = schema["properties"]["user1"]
+    assert user1.get("additionalProperties") is False
+    assert user1["type"] == "object"
+    assert "name" in user1["properties"]
+    assert "age" in user1["properties"]
+    assert "planet" in user1["properties"]
+
+    # Optional nested object (type includes "null")
+    user2 = schema["properties"]["user2"]
+    assert user2.get("additionalProperties") is False
+    assert "object" in user2["type"]
+    assert "null" in user2["type"]
+
+    # List of objects: additionalProperties: false propagates into array items
+    list_result = convert_pydantic_to_json_schema(ListOfUsersWithPlanet)
+    list_schema = json.loads(list_result["schema"])
+    assert list_schema["additionalProperties"] is False
+
+    users = list_schema["properties"]["users"]
+    assert users["type"] == "array"
+    items = users["items"]
+    assert items.get("additionalProperties") is False
+    assert "name" in items["properties"]
+    assert "age" in items["properties"]
+    assert "planet" in items["properties"]
+
+
+def test_convert_pydantic_to_json_schema_custom_description():
+    result = convert_pydantic_to_json_schema(User, description="Custom desc")
+    assert result["description"] == "Custom desc"
+
+
+def test_convert_pydantic_to_json_schema_no_docstring():
+    class SimpleModel(BaseModel):
+        value: str
+
+    result = convert_pydantic_to_json_schema(SimpleModel)
+    assert result["description"] == "SimpleModel structured output"
