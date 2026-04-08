@@ -490,6 +490,11 @@ async def stream_messages(
     messages = _normalize_messages(messages)
     start_time = time.time()
 
+    # Build optional kwargs for model.stream() - only pass output_config if supported
+    stream_kwargs: dict[str, Any] = {}
+    if kwargs.get("output_config") is not None:
+        stream_kwargs["output_config"] = kwargs["output_config"]
+
     chunks = model.stream(
         messages,
         tool_specs if tool_specs else None,
@@ -498,6 +503,7 @@ async def stream_messages(
         system_prompt_content=system_prompt_content,
         invocation_state=invocation_state,
         model_state=model_state,
+        **stream_kwargs,
     )
 
     async for event in process_stream(chunks, start_time, cancel_signal):

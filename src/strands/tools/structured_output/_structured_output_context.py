@@ -1,12 +1,14 @@
 """Context management for structured output in the event loop."""
 
+import json
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
 from ...types.tools import ToolChoice, ToolSpec, ToolUse
 from .structured_output_tool import StructuredOutputTool
+from .structured_output_utils import convert_pydantic_to_json_schema
 
 if TYPE_CHECKING:
     from ..registry import ToolRegistry
@@ -14,6 +16,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DEFAULT_STRUCTURED_OUTPUT_PROMPT = "You must format the previous response as structured output."
+
+_NATIVE_OUTPUT_CONFIG_CACHE: dict[type[BaseModel], dict[str, Any]] = {}
 
 
 class StructuredOutputContext:
@@ -23,6 +27,7 @@ class StructuredOutputContext:
         self,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        native_mode: bool = False,
     ):
         """Initialize a new structured output context.
 
@@ -30,10 +35,13 @@ class StructuredOutputContext:
             structured_output_model: Optional Pydantic model type for structured output.
             structured_output_prompt: Optional custom prompt message to use when forcing structured output.
                 Defaults to "You must format the previous response as structured output."
+            native_mode: If True, use Bedrock's native outputConfig.textFormat instead of tool-based approach.
         """
         self.results: dict[str, BaseModel] = {}
         self.structured_output_model: type[BaseModel] | None = structured_output_model
         self.structured_output_tool: StructuredOutputTool | None = None
+        self.native_mode: bool = native_mode
+        self.output_config: dict[str, Any] | None = None
         self.forced_mode: bool = False
         self.force_attempted: bool = False
         self.tool_choice: ToolChoice | None = None
@@ -42,8 +50,15 @@ class StructuredOutputContext:
         self.structured_output_prompt: str = structured_output_prompt or DEFAULT_STRUCTURED_OUTPUT_PROMPT
 
         if structured_output_model:
-            self.structured_output_tool = StructuredOutputTool(structured_output_model)
-            self.expected_tool_name = self.structured_output_tool.tool_name
+            if native_mode:
+                if structured_output_model not in _NATIVE_OUTPUT_CONFIG_CACHE:
+                    _NATIVE_OUTPUT_CONFIG_CACHE[structured_output_model] = convert_pydantic_to_json_schema(
+                        structured_output_model
+                    )
+                self.output_config = _NATIVE_OUTPUT_CONFIG_CACHE[structured_output_model]
+            else:
+                self.structured_output_tool = StructuredOutputTool(structured_output_model)
+                self.expected_tool_name = self.structured_output_tool.tool_name
 
     @property
     def is_enabled(self) -> bool:
@@ -129,6 +144,28 @@ class StructuredOutputContext:
                 if result is not None:
                     logger.debug("Extracted structured output for %s", tool_use.get("name"))
                     return result
+        return None
+
+    def extract_native_result(self, message: dict[str, Any]) -> BaseModel | None:
+        """Extract structured output from a native text response.
+
+        Parses the text content of the message as JSON and validates against the Pydantic model.
+
+        Args:
+            message: The assistant message containing the text response.
+
+        Returns:
+            The validated Pydantic model instance, or None if extraction fails.
+        """
+        if not self.structured_output_model or not self.native_mode:
+            return None
+
+        content = message.get("content", [])
+        for block in content:
+            if "text" in block:
+                parsed = json.loads(block["text"])
+                return self.structured_output_model(**parsed)
+
         return None
 
     def register_tool(self, registry: "ToolRegistry") -> None:
