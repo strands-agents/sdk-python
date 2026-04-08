@@ -352,8 +352,13 @@ class Skill:
 
             skills = Skill.from_url("https://github.com/org/my-skill@v1.0.0")
 
+        Also supports GitHub web URLs pointing to subdirectories::
+
+            skills = Skill.from_url("https://github.com/org/repo/tree/main/skills/my-skill")
+
         Args:
-            url: A Git-cloneable URL, optionally with an ``@ref`` suffix.
+            url: A Git-cloneable URL, optionally with an ``@ref`` suffix or
+                a GitHub ``/tree/<ref>/path`` URL.
             cache_dir: Override the default cache directory
                 (``~/.cache/strands/skills/``).
             strict: If True, raise on any validation issue. If False (default),
@@ -371,8 +376,8 @@ class Skill:
         if not is_url(url):
             raise ValueError(f"url=<{url}> | not a valid remote URL")
 
-        clean_url, ref = parse_url_ref(url)
-        repo_path = clone_skill_repo(clean_url, ref=ref, cache_dir=cache_dir)
+        clean_url, ref, subpath = parse_url_ref(url)
+        repo_path = clone_skill_repo(clean_url, ref=ref, subpath=subpath, cache_dir=cache_dir)
 
         # If the repo root is itself a skill, load it directly
         has_skill_md = (repo_path / "SKILL.md").is_file() or (repo_path / "skill.md").is_file()

@@ -560,7 +560,7 @@ class TestSkillFromUrl:
         """Create a mock clone function that creates a skill directory."""
         skill_dir = tmp_path / "cloned"
 
-        def fake_clone(url, *, ref=None, cache_dir=None):
+        def fake_clone(url, *, ref=None, subpath=None, cache_dir=None):
             skill_dir.mkdir(parents=True, exist_ok=True)
             content = f"---\nname: {skill_name}\ndescription: {description}\n---\n{body}\n"
             (skill_dir / "SKILL.md").write_text(content)
@@ -572,7 +572,7 @@ class TestSkillFromUrl:
         """Create a mock clone function that creates a parent dir with multiple skills."""
         parent_dir = tmp_path / "cloned"
 
-        def fake_clone(url, *, ref=None, cache_dir=None):
+        def fake_clone(url, *, ref=None, subpath=None, cache_dir=None):
             parent_dir.mkdir(parents=True, exist_ok=True)
             for name in ("skill-a", "skill-b"):
                 child = parent_dir / name
@@ -590,7 +590,7 @@ class TestSkillFromUrl:
 
         with (
             patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=fake_clone),
-            patch(f"{self._URL_LOADER}.parse_url_ref", return_value=("https://github.com/org/my-skill", None)),
+            patch(f"{self._URL_LOADER}.parse_url_ref", return_value=("https://github.com/org/my-skill", None, None)),
         ):
             skills = Skill.from_url("https://github.com/org/my-skill")
 
@@ -609,7 +609,7 @@ class TestSkillFromUrl:
             patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=fake_clone),
             patch(
                 f"{self._URL_LOADER}.parse_url_ref",
-                return_value=("https://github.com/org/skills-collection", None),
+                return_value=("https://github.com/org/skills-collection", None, None),
             ),
         ):
             skills = Skill.from_url("https://github.com/org/skills-collection")
@@ -625,7 +625,7 @@ class TestSkillFromUrl:
         fake_clone = self._mock_clone(tmp_path)
         captured_ref = []
 
-        def tracking_clone(url, *, ref=None, cache_dir=None):
+        def tracking_clone(url, *, ref=None, subpath=None, cache_dir=None):
             captured_ref.append(ref)
             return fake_clone(url, ref=ref, cache_dir=cache_dir)
 
@@ -633,7 +633,7 @@ class TestSkillFromUrl:
             patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=tracking_clone),
             patch(
                 f"{self._URL_LOADER}.parse_url_ref",
-                return_value=("https://github.com/org/my-skill", "v1.0.0"),
+                return_value=("https://github.com/org/my-skill", "v1.0.0", None),
             ),
         ):
             Skill.from_url("https://github.com/org/my-skill@v1.0.0")
@@ -652,7 +652,7 @@ class TestSkillFromUrl:
         with (
             patch(
                 f"{self._URL_LOADER}.parse_url_ref",
-                return_value=("https://github.com/org/broken", None),
+                return_value=("https://github.com/org/broken", None, None),
             ),
             patch(
                 f"{self._URL_LOADER}.clone_skill_repo",
@@ -669,7 +669,7 @@ class TestSkillFromUrl:
         fake_clone = self._mock_clone(tmp_path)
         captured_cache = []
 
-        def tracking_clone(url, *, ref=None, cache_dir=None):
+        def tracking_clone(url, *, ref=None, subpath=None, cache_dir=None):
             captured_cache.append(cache_dir)
             return fake_clone(url, ref=ref, cache_dir=cache_dir)
 
@@ -679,7 +679,7 @@ class TestSkillFromUrl:
             patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=tracking_clone),
             patch(
                 f"{self._URL_LOADER}.parse_url_ref",
-                return_value=("https://github.com/org/my-skill", None),
+                return_value=("https://github.com/org/my-skill", None, None),
             ),
         ):
             Skill.from_url("https://github.com/org/my-skill", cache_dir=custom_cache)

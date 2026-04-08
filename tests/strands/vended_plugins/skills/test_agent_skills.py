@@ -670,7 +670,7 @@ class TestResolveUrlSkills:
         """Create a mock clone function that creates a skill directory."""
         skill_dir = tmp_path / "cloned"
 
-        def fake_clone(url, *, ref=None, cache_dir=None):
+        def fake_clone(url, *, ref=None, subpath=None, cache_dir=None):
             skill_dir.mkdir(parents=True, exist_ok=True)
             content = f"---\nname: {skill_name}\ndescription: {description}\n---\n# Instructions\n"
             (skill_dir / "SKILL.md").write_text(content)
@@ -688,7 +688,7 @@ class TestResolveUrlSkills:
             patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=fake_clone),
             patch(
                 f"{self._URL_LOADER}.parse_url_ref",
-                return_value=("https://github.com/org/url-skill", None),
+                return_value=("https://github.com/org/url-skill", None, None),
             ),
         ):
             plugin = AgentSkills(skills=["https://github.com/org/url-skill"])
@@ -707,7 +707,7 @@ class TestResolveUrlSkills:
             patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=fake_clone),
             patch(
                 f"{self._URL_LOADER}.parse_url_ref",
-                return_value=("https://github.com/org/url-skill", None),
+                return_value=("https://github.com/org/url-skill", None, None),
             ),
         ):
             plugin = AgentSkills(
@@ -729,7 +729,7 @@ class TestResolveUrlSkills:
         with (
             patch(
                 f"{self._URL_LOADER}.parse_url_ref",
-                return_value=("https://github.com/org/broken", None),
+                return_value=("https://github.com/org/broken", None, None),
             ),
             patch(
                 f"{self._URL_LOADER}.clone_skill_repo",
@@ -749,7 +749,7 @@ class TestResolveUrlSkills:
         fake_clone = self._mock_clone(tmp_path)
         captured_cache = []
 
-        def tracking_clone(url, *, ref=None, cache_dir=None):
+        def tracking_clone(url, *, ref=None, subpath=None, cache_dir=None):
             captured_cache.append(cache_dir)
             return fake_clone(url, ref=ref, cache_dir=cache_dir)
 
@@ -759,7 +759,7 @@ class TestResolveUrlSkills:
             patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=tracking_clone),
             patch(
                 f"{self._URL_LOADER}.parse_url_ref",
-                return_value=("https://github.com/org/url-skill", None),
+                return_value=("https://github.com/org/url-skill", None, None),
             ),
         ):
             AgentSkills(skills=["https://github.com/org/url-skill"], cache_dir=custom_cache)

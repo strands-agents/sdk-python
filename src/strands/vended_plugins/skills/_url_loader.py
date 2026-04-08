@@ -24,6 +24,10 @@ _URL_PREFIXES = ("https://", "http://", "git@", "ssh://")
 # Regex to strip .git suffix from URLs before ref parsing
 _GIT_SUFFIX = re.compile(r"\.git$")
 
+# Matches GitHub /tree/<ref> or /tree/<ref>/<path> (also /blob/)
+# e.g. /owner/repo/tree/main/skills/my-skill -> groups: (/owner/repo, main, skills/my-skill)
+_GITHUB_TREE_PATTERN = re.compile(r"^(/[^/]+/[^/]+)/(?:tree|blob)/([^/]+)(?:/(.+?))?/?$")
+
 
 def is_url(source: str) -> bool:
     """Check whether a skill source string looks like a remote URL.
@@ -37,30 +41,42 @@ def is_url(source: str) -> bool:
     return any(source.startswith(prefix) for prefix in _URL_PREFIXES)
 
 
-def parse_url_ref(url: str) -> tuple[str, str | None]:
-    """Parse a skill URL into a clone URL and an optional Git ref.
+def parse_url_ref(url: str) -> tuple[str, str | None, str | None]:
+    """Parse a skill URL into a clone URL, optional Git ref, and optional subpath.
 
     Supports an ``@ref`` suffix for specifying a branch, tag, or commit::
 
-        https://github.com/org/skill-repo@v1.0.0  -> (https://github.com/org/skill-repo, v1.0.0)
-        https://github.com/org/skill-repo         -> (https://github.com/org/skill-repo, None)
-        https://github.com/org/skill-repo.git@main -> (https://github.com/org/skill-repo.git, main)
-        git@github.com:org/skill-repo.git@v2      -> (git@github.com:org/skill-repo.git, v2)
+        https://github.com/org/skill-repo@v1.0.0  -> (https://github.com/org/skill-repo, v1.0.0, None)
+        https://github.com/org/skill-repo         -> (https://github.com/org/skill-repo, None, None)
+
+    Also supports GitHub web URLs with ``/tree/<ref>/path`` ::
+
+        https://github.com/org/repo/tree/main/skills/my-skill
+            -> (https://github.com/org/repo, main, skills/my-skill)
 
     Args:
-        url: The skill URL, optionally with an ``@ref`` suffix.
+        url: The skill URL, optionally with an ``@ref`` suffix or ``/tree/`` path.
 
     Returns:
-        Tuple of (clone_url, ref_or_none).
+        Tuple of (clone_url, ref_or_none, subpath_or_none).
     """
     if url.startswith(("https://", "http://", "ssh://")):
         # Find the path portion after the host
         scheme_end = url.index("//") + 2
         host_end = url.find("/", scheme_end)
         if host_end == -1:
-            return url, None
+            return url, None, None
 
         path_part = url[host_end:]
+
+        # Handle GitHub /tree/<ref>/path and /blob/<ref>/path URLs
+        tree_match = _GITHUB_TREE_PATTERN.match(path_part)
+        if tree_match:
+            owner_repo = tree_match.group(1)
+            ref = tree_match.group(2)
+            subpath = tree_match.group(3) or None
+            clone_url = url[:host_end] + owner_repo
+            return clone_url, ref, subpath
 
         # Strip .git suffix before looking for @ref so that
         # "repo.git@v1" is handled correctly
@@ -73,9 +89,9 @@ def parse_url_ref(url: str) -> tuple[str, str | None]:
             base_path = clean_path[:at_idx]
             if had_git_suffix:
                 base_path += ".git"
-            return url[:host_end] + base_path, ref
+            return url[:host_end] + base_path, ref, None
 
-        return url, None
+        return url, None, None
 
     if url.startswith("git@"):
         # SSH format: git@host:owner/repo.git@ref
@@ -92,11 +108,11 @@ def parse_url_ref(url: str) -> tuple[str, str | None]:
             base_rest = clean_rest[:at_idx]
             if had_git_suffix:
                 base_rest += ".git"
-            return url[: first_at + 1] + base_rest, ref
+            return url[: first_at + 1] + base_rest, ref, None
 
-        return url, None
+        return url, None, None
 
-    return url, None
+    return url, None, None
 
 
 def cache_key(url: str, ref: str | None) -> str:
@@ -117,6 +133,7 @@ def clone_skill_repo(
     url: str,
     *,
     ref: str | None = None,
+    subpath: str | None = None,
     cache_dir: Path | None = None,
 ) -> Path:
     """Clone a skill repository to a local cache directory.
@@ -125,14 +142,19 @@ def clone_skill_repo(
     is passed as ``--branch`` (works for branches and tags). Repositories are
     cached by a hash of (url, ref) so repeated loads are instant.
 
+    If ``subpath`` is provided, the returned path points to that subdirectory
+    within the cloned repository (useful for mono-repos containing skills in
+    nested directories).
+
     Args:
         url: The Git clone URL.
         ref: Optional branch or tag to check out.
+        subpath: Optional path within the repo to return (e.g. ``skills/my-skill``).
         cache_dir: Override the default cache directory
             (``~/.cache/strands/skills/``).
 
     Returns:
-        Path to the cloned repository root.
+        Path to the cloned repository root, or to ``subpath`` within it.
 
     Raises:
         RuntimeError: If the clone fails or ``git`` is not installed.
@@ -143,32 +165,38 @@ def clone_skill_repo(
     key = cache_key(url, ref)
     target = cache_dir / key
 
-    if target.exists():
+    if not target.exists():
+        logger.info("url=<%s>, ref=<%s> | cloning skill repository", url, ref)
+
+        cmd: list[str] = ["git", "clone", "--depth", "1"]
+        if ref:
+            cmd.extend(["--branch", ref])
+        cmd.extend([url, str(target)])
+
+        try:
+            subprocess.run(  # noqa: S603
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except subprocess.CalledProcessError as e:
+            # Clean up any partial clone
+            if target.exists():
+                shutil.rmtree(target)
+            raise RuntimeError(
+                f"url=<{url}>, ref=<{ref}> | failed to clone skill repository: {e.stderr.strip()}"
+            ) from e
+        except FileNotFoundError as e:
+            raise RuntimeError("git is required to load skills from URLs but was not found on PATH") from e
+    else:
         logger.debug("url=<%s>, ref=<%s> | using cached skill at %s", url, ref, target)
-        return target
 
-    logger.info("url=<%s>, ref=<%s> | cloning skill repository", url, ref)
+    result = target / subpath if subpath else target
 
-    cmd: list[str] = ["git", "clone", "--depth", "1"]
-    if ref:
-        cmd.extend(["--branch", ref])
-    cmd.extend([url, str(target)])
+    if subpath and not result.is_dir():
+        raise RuntimeError(f"url=<{url}>, subpath=<{subpath}> | subdirectory does not exist in cloned repository")
 
-    try:
-        subprocess.run(  # noqa: S603
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except subprocess.CalledProcessError as e:
-        # Clean up any partial clone
-        if target.exists():
-            shutil.rmtree(target)
-        raise RuntimeError(f"url=<{url}>, ref=<{ref}> | failed to clone skill repository: {e.stderr.strip()}") from e
-    except FileNotFoundError as e:
-        raise RuntimeError("git is required to load skills from URLs but was not found on PATH") from e
-
-    logger.debug("url=<%s>, ref=<%s> | cloned to %s", url, ref, target)
-    return target
+    logger.debug("url=<%s>, ref=<%s> | resolved to %s", url, ref, result)
+    return result

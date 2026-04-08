@@ -51,69 +51,123 @@ class TestParseUrlRef:
     """Tests for parse_url_ref."""
 
     def test_https_no_ref(self):
-        url, ref = parse_url_ref("https://github.com/org/skill-repo")
+        url, ref, subpath = parse_url_ref("https://github.com/org/skill-repo")
         assert url == "https://github.com/org/skill-repo"
         assert ref is None
+        assert subpath is None
 
     def test_https_with_tag_ref(self):
-        url, ref = parse_url_ref("https://github.com/org/skill-repo@v1.0.0")
+        url, ref, subpath = parse_url_ref("https://github.com/org/skill-repo@v1.0.0")
         assert url == "https://github.com/org/skill-repo"
         assert ref == "v1.0.0"
+        assert subpath is None
 
     def test_https_with_branch_ref(self):
-        url, ref = parse_url_ref("https://github.com/org/skill-repo@main")
+        url, ref, subpath = parse_url_ref("https://github.com/org/skill-repo@main")
         assert url == "https://github.com/org/skill-repo"
         assert ref == "main"
+        assert subpath is None
 
     def test_https_git_suffix_no_ref(self):
-        url, ref = parse_url_ref("https://github.com/org/skill-repo.git")
+        url, ref, subpath = parse_url_ref("https://github.com/org/skill-repo.git")
         assert url == "https://github.com/org/skill-repo.git"
         assert ref is None
+        assert subpath is None
 
     def test_https_git_suffix_with_ref(self):
-        url, ref = parse_url_ref("https://github.com/org/skill-repo.git@v2.0")
+        url, ref, subpath = parse_url_ref("https://github.com/org/skill-repo.git@v2.0")
         assert url == "https://github.com/org/skill-repo.git"
         assert ref == "v2.0"
+        assert subpath is None
 
     def test_ssh_no_ref(self):
-        url, ref = parse_url_ref("git@github.com:org/skill-repo.git")
+        url, ref, subpath = parse_url_ref("git@github.com:org/skill-repo.git")
         assert url == "git@github.com:org/skill-repo.git"
         assert ref is None
+        assert subpath is None
 
     def test_ssh_with_ref(self):
-        url, ref = parse_url_ref("git@github.com:org/skill-repo.git@v1.0")
+        url, ref, subpath = parse_url_ref("git@github.com:org/skill-repo.git@v1.0")
         assert url == "git@github.com:org/skill-repo.git"
         assert ref == "v1.0"
+        assert subpath is None
 
     def test_ssh_no_git_suffix_with_ref(self):
-        url, ref = parse_url_ref("git@github.com:org/skill-repo@develop")
+        url, ref, subpath = parse_url_ref("git@github.com:org/skill-repo@develop")
         assert url == "git@github.com:org/skill-repo"
         assert ref == "develop"
+        assert subpath is None
 
     def test_ssh_protocol_no_ref(self):
-        url, ref = parse_url_ref("ssh://git@github.com/org/skill-repo")
+        url, ref, subpath = parse_url_ref("ssh://git@github.com/org/skill-repo")
         assert url == "ssh://git@github.com/org/skill-repo"
         assert ref is None
+        assert subpath is None
 
     def test_ssh_protocol_with_ref(self):
-        url, ref = parse_url_ref("ssh://git@github.com/org/skill-repo@v3")
+        url, ref, subpath = parse_url_ref("ssh://git@github.com/org/skill-repo@v3")
         assert url == "ssh://git@github.com/org/skill-repo"
         assert ref == "v3"
+        assert subpath is None
 
     def test_http_with_ref(self):
-        url, ref = parse_url_ref("http://gitlab.com/org/skill@feature-branch")
+        url, ref, subpath = parse_url_ref("http://gitlab.com/org/skill@feature-branch")
         assert url == "http://gitlab.com/org/skill"
         assert ref == "feature-branch"
+        assert subpath is None
 
     def test_url_host_only(self):
-        url, ref = parse_url_ref("https://example.com")
+        url, ref, subpath = parse_url_ref("https://example.com")
         assert url == "https://example.com"
         assert ref is None
+        assert subpath is None
 
     def test_non_url_passthrough(self):
-        url, ref = parse_url_ref("/local/path")
+        url, ref, subpath = parse_url_ref("/local/path")
         assert url == "/local/path"
         assert ref is None
+        assert subpath is None
+
+
+class TestParseUrlRefGitHubTree:
+    """Tests for parse_url_ref with GitHub /tree/ and /blob/ URLs."""
+
+    def test_tree_with_subpath(self):
+        url, ref, subpath = parse_url_ref("https://github.com/org/repo/tree/main/skills/my-skill")
+        assert url == "https://github.com/org/repo"
+        assert ref == "main"
+        assert subpath == "skills/my-skill"
+
+    def test_tree_branch_only(self):
+        url, ref, subpath = parse_url_ref("https://github.com/org/repo/tree/main")
+        assert url == "https://github.com/org/repo"
+        assert ref == "main"
+        assert subpath is None
+
+    def test_tree_with_tag(self):
+        url, ref, subpath = parse_url_ref("https://github.com/org/repo/tree/v1.0.0/skills/brainstorming")
+        assert url == "https://github.com/org/repo"
+        assert ref == "v1.0.0"
+        assert subpath == "skills/brainstorming"
+
+    def test_tree_deep_subpath(self):
+        url, ref, subpath = parse_url_ref("https://github.com/org/repo/tree/develop/a/b/c/d")
+        assert url == "https://github.com/org/repo"
+        assert ref == "develop"
+        assert subpath == "a/b/c/d"
+
+    def test_blob_url(self):
+        """Test that /blob/ URLs are handled like /tree/."""
+        url, ref, subpath = parse_url_ref("https://github.com/org/repo/blob/main/skills/my-skill")
+        assert url == "https://github.com/org/repo"
+        assert ref == "main"
+        assert subpath == "skills/my-skill"
+
+    def test_tree_trailing_slash(self):
+        url, ref, subpath = parse_url_ref("https://github.com/org/repo/tree/main/skills/my-skill/")
+        assert url == "https://github.com/org/repo"
+        assert ref == "main"
+        assert subpath == "skills/my-skill"
 
 
 class TestCacheKey:
@@ -267,6 +321,38 @@ class TestCloneSkillRepo:
             clone_skill_repo("https://github.com/org/skill", cache_dir=cache)
 
         assert cache.exists()
+
+    def test_subpath_returns_subdirectory(self, tmp_path):
+        """Test that subpath parameter returns the subdirectory within the clone."""
+        cache = tmp_path / "cache"
+
+        def fake_clone(cmd, **kwargs):
+            target_dir = Path(cmd[-1])
+            target_dir.mkdir(parents=True, exist_ok=True)
+            # Create a nested skill directory
+            skill_dir = target_dir / "skills" / "my-skill"
+            skill_dir.mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: test\n---\n")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with patch("strands.vended_plugins.skills._url_loader.subprocess.run", side_effect=fake_clone):
+            result = clone_skill_repo("https://github.com/org/repo", subpath="skills/my-skill", cache_dir=cache)
+
+        assert result.name == "my-skill"
+        assert (result / "SKILL.md").exists()
+
+    def test_subpath_nonexistent_raises(self, tmp_path):
+        """Test that a nonexistent subpath raises RuntimeError."""
+        cache = tmp_path / "cache"
+
+        def fake_clone(cmd, **kwargs):
+            target_dir = Path(cmd[-1])
+            target_dir.mkdir(parents=True, exist_ok=True)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with patch("strands.vended_plugins.skills._url_loader.subprocess.run", side_effect=fake_clone):
+            with pytest.raises(RuntimeError, match="subdirectory does not exist"):
+                clone_skill_repo("https://github.com/org/repo", subpath="nonexistent/path", cache_dir=cache)
 
     def test_shallow_clone_depth_one(self, tmp_path):
         """Test that --depth 1 is always passed."""
