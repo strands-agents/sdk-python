@@ -105,6 +105,7 @@ class A2AServer:
             push_sender=push_sender,
         )
         self._agent_skills = skills
+        self._agent_card_url: str | None = None
         logger.info("Strands' integration with A2A is experimental. Be aware of frequent breaking changes.")
 
     def _parse_public_url(self, url: str) -> tuple[str, str]:
@@ -148,7 +149,7 @@ class A2AServer:
         return AgentCard(
             name=self.name,
             description=self.description,
-            url=self.http_url,
+            url=self.agent_card_url,
             version=self.version,
             skills=self.agent_skills,
             default_input_modes=["text"],
@@ -169,6 +170,24 @@ class A2AServer:
             AgentSkill(name=config["name"], id=config["name"], description=config["description"], tags=[])
             for config in self.strands_agent.tool_registry.get_all_tools_config().values()
         ]
+
+    @property
+    def agent_card_url(self) -> str:
+        """Get the URL advertised in the AgentCard.
+
+        Defaults to http_url. Can be overridden to advertise a custom URL
+        (e.g., without trailing slash or with a different base).
+        """
+        return self._agent_card_url if self._agent_card_url is not None else self.http_url
+
+    @agent_card_url.setter
+    def agent_card_url(self, url: str) -> None:
+        """Override the URL advertised in the AgentCard.
+
+        Args:
+            url: The URL to advertise in the AgentCard.
+        """
+        self._agent_card_url = url
 
     @property
     def agent_skills(self) -> list[AgentSkill]:
