@@ -1885,6 +1885,15 @@ def test_agent__call__resume_interrupt_invalid_id():
         agent([{"interruptResponse": {"interruptId": "invalid", "response": None}}])
 
 
+def test_agent__call__resume_interrupt_not_activated():
+    """Passing interrupt responses to an agent not in interrupt state should raise a clear error."""
+    agent = Agent()
+
+    exp_message = r"Received interrupt responses but agent is not in interrupt state"
+    with pytest.raises(ValueError, match=exp_message):
+        agent([{"interruptResponse": {"interruptId": "test-id", "response": "yes"}}])
+
+
 def test_agent_structured_output_interrupt(user):
     agent = Agent()
     agent._interrupt_state.activated = True
