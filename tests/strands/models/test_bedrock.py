@@ -2697,6 +2697,82 @@ def test_inject_cache_point_strips_existing_cache_points(bedrock_client):
     assert "cachePoint" in cleaned_messages[2]["content"][-1]
 
 
+def test_inject_cache_point_before_non_pdf_document(bedrock_client):
+    """Test that cache point is inserted before non-PDF document blocks."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Analyze this file"},
+                {"document": {"format": "md", "name": "readme", "source": {"bytes": b"# Hello"}}},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    content = cleaned_messages[0]["content"]
+    assert len(content) == 3
+    assert content[0] == {"text": "Analyze this file"}
+    assert "cachePoint" in content[1]
+    assert "document" in content[2]
+
+
+def test_inject_cache_point_after_pdf_document(bedrock_client):
+    """Test that cache point is appended at end when only PDF documents are present."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Analyze this PDF"},
+                {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"%PDF-1.4"}}},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    content = cleaned_messages[0]["content"]
+    assert len(content) == 3
+    assert "document" in content[1]
+    assert "cachePoint" in content[2]
+
+
+def test_inject_cache_point_mixed_pdf_and_non_pdf_documents(bedrock_client):
+    """Test that cache point is inserted before the first non-PDF document in mixed content."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_config=CacheConfig(strategy="auto")
+    )
+
+    cleaned_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Analyze these files"},
+                {"document": {"format": "pdf", "name": "report", "source": {"bytes": b"%PDF-1.4"}}},
+                {"document": {"format": "csv", "name": "data", "source": {"bytes": b"a,b,c"}}},
+            ],
+        },
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    content = cleaned_messages[0]["content"]
+    assert len(content) == 4
+    assert "text" in content[0]
+    assert "document" in content[1] and content[1]["document"]["format"] == "pdf"
+    assert "cachePoint" in content[2]
+    assert "document" in content[3] and content[3]["document"]["format"] == "csv"
+
+
 def test_inject_cache_point_anthropic_strategy_skips_model_check(bedrock_client):
     """Test that anthropic strategy injects cache point without model support check."""
     model = BedrockModel(
