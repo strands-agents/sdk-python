@@ -2767,3 +2767,30 @@ def test_as_tool_defaults_description_when_agent_has_none():
     tool = agent.as_tool()
 
     assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"
+
+
+@pytest.mark.asyncio
+async def test_stream_async_emits_context_window_fallback_event(mock_model, agent, agenerator, alist):
+    """stream_async yields contextWindowFallback before reducing context on overflow."""
+    overflow_message = "Input is too long for requested model"
+
+    mock_model.mock_stream.side_effect = [
+        ContextWindowOverflowException(RuntimeError(overflow_message)),
+        agenerator(
+            [
+                {"contentBlockStart": {"contentBlockIndex": 0, "start": {}}},
+                {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "OK"}}},
+                {"contentBlockStop": {"contentBlockIndex": 0}},
+                {"messageStop": {"stopReason": "end_turn"}},
+            ]
+        ),
+    ]
+
+    # Prevent reduce_context from raising when there are no messages to trim.
+    agent.conversation_manager.reduce_context = unittest.mock.Mock()
+
+    events = await alist(agent.stream_async("hello"))
+
+    fallback_events = [e for e in events if "contextWindowFallback" in e]
+    assert len(fallback_events) == 1
+    assert overflow_message in fallback_events[0]["contextWindowFallback"]["message"]
