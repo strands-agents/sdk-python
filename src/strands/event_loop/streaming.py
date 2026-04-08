@@ -82,15 +82,17 @@ def _normalize_messages(messages: Messages) -> Messages:
                         replaced_tool_names = True
 
             if has_tool_use:
-                # Remove blank 'text' items for assistant messages
+                # Remove blank or None 'text' items for assistant messages
                 before_len = len(content)
-                content[:] = [item for item in content if "text" not in item or item["text"].strip()]
+                content[:] = [
+                    item for item in content if "text" not in item or (item["text"] is not None and item["text"].strip())
+                ]
                 if not removed_blank_message_content_text and before_len != len(content):
                     removed_blank_message_content_text = True
             else:
-                # Replace blank 'text' with '[blank text]' for assistant messages
+                # Replace blank or None 'text' with '[blank text]' for assistant messages
                 for item in content:
-                    if "text" in item and not item["text"].strip():
+                    if "text" in item and (item["text"] is None or not item["text"].strip()):
                         replaced_blank_message_content_text = True
                         item["text"] = "[blank text]"
 
@@ -136,15 +138,17 @@ def remove_blank_messages_content_text(messages: Messages) -> Messages:
                 continue
 
             if has_tool_use:
-                # Remove blank 'text' items for assistant messages
+                # Remove blank or None 'text' items for assistant messages
                 before_len = len(content)
-                content[:] = [item for item in content if "text" not in item or item["text"].strip()]
+                content[:] = [
+                    item for item in content if "text" not in item or (item["text"] is not None and item["text"].strip())
+                ]
                 if not removed_blank_message_content_text and before_len != len(content):
                     removed_blank_message_content_text = True
             else:
-                # Replace blank 'text' with '[blank text]' for assistant messages
+                # Replace blank or None 'text' with '[blank text]' for assistant messages
                 for item in content:
-                    if "text" in item and not item["text"].strip():
+                    if "text" in item and (item["text"] is None or not item["text"].strip()):
                         replaced_blank_message_content_text = True
                         item["text"] = "[blank text]"
 
