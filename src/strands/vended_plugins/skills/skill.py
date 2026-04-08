@@ -334,6 +334,55 @@ class Skill:
         return _build_skill_from_frontmatter(frontmatter, body)
 
     @classmethod
+    def from_url(
+        cls,
+        url: str,
+        *,
+        cache_dir: Path | None = None,
+        strict: bool = False,
+    ) -> list[Skill]:
+        """Load skill(s) from a remote Git repository URL.
+
+        Clones the repository (or uses a cached copy) and then loads skills
+        using the standard filesystem methods.  If the repository root contains
+        a ``SKILL.md`` file it is treated as a single skill; otherwise it is
+        scanned for skill subdirectories.
+
+        Supports an optional ``@ref`` suffix for branch or tag pinning::
+
+            skills = Skill.from_url("https://github.com/org/my-skill@v1.0.0")
+
+        Args:
+            url: A Git-cloneable URL, optionally with an ``@ref`` suffix.
+            cache_dir: Override the default cache directory
+                (``~/.cache/strands/skills/``).
+            strict: If True, raise on any validation issue. If False (default),
+                warn and load anyway.
+
+        Returns:
+            List of Skill instances loaded from the repository.
+
+        Raises:
+            RuntimeError: If the repository cannot be cloned or ``git`` is not
+                available.
+        """
+        from ._url_loader import clone_skill_repo, is_url, parse_url_ref
+
+        if not is_url(url):
+            raise ValueError(f"url=<{url}> | not a valid remote URL")
+
+        clean_url, ref = parse_url_ref(url)
+        repo_path = clone_skill_repo(clean_url, ref=ref, cache_dir=cache_dir)
+
+        # If the repo root is itself a skill, load it directly
+        has_skill_md = (repo_path / "SKILL.md").is_file() or (repo_path / "skill.md").is_file()
+
+        if has_skill_md:
+            return [cls.from_file(repo_path, strict=strict)]
+        else:
+            return cls.from_directory(repo_path, strict=strict)
+
+    @classmethod
     def from_directory(cls, skills_dir: str | Path, *, strict: bool = False) -> list[Skill]:
         """Load all skills from a parent directory containing skill subdirectories.
 

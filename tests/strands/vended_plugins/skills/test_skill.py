@@ -551,11 +551,148 @@ class TestSkillFromContent:
             Skill.from_content(content, strict=True)
 
 
+class TestSkillFromUrl:
+    """Tests for Skill.from_url."""
+
+    _URL_LOADER = "strands.vended_plugins.skills._url_loader"
+
+    def _mock_clone(self, tmp_path, skill_name="my-skill", description="A remote skill", body="Remote instructions."):
+        """Create a mock clone function that creates a skill directory."""
+        skill_dir = tmp_path / "cloned"
+
+        def fake_clone(url, *, ref=None, cache_dir=None):
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            content = f"---\nname: {skill_name}\ndescription: {description}\n---\n{body}\n"
+            (skill_dir / "SKILL.md").write_text(content)
+            return skill_dir
+
+        return fake_clone
+
+    def _mock_clone_multi(self, tmp_path):
+        """Create a mock clone function that creates a parent dir with multiple skills."""
+        parent_dir = tmp_path / "cloned"
+
+        def fake_clone(url, *, ref=None, cache_dir=None):
+            parent_dir.mkdir(parents=True, exist_ok=True)
+            for name in ("skill-a", "skill-b"):
+                child = parent_dir / name
+                child.mkdir(exist_ok=True)
+                (child / "SKILL.md").write_text(f"---\nname: {name}\ndescription: Skill {name}\n---\nBody.\n")
+            return parent_dir
+
+        return fake_clone
+
+    def test_from_url_single_skill(self, tmp_path):
+        """Test loading a single skill from a URL."""
+        from unittest.mock import patch
+
+        fake_clone = self._mock_clone(tmp_path)
+
+        with (
+            patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=fake_clone),
+            patch(f"{self._URL_LOADER}.parse_url_ref", return_value=("https://github.com/org/my-skill", None)),
+        ):
+            skills = Skill.from_url("https://github.com/org/my-skill")
+
+        assert len(skills) == 1
+        assert skills[0].name == "my-skill"
+        assert skills[0].description == "A remote skill"
+        assert "Remote instructions." in skills[0].instructions
+
+    def test_from_url_multiple_skills(self, tmp_path):
+        """Test loading multiple skills from a URL pointing to a parent directory."""
+        from unittest.mock import patch
+
+        fake_clone = self._mock_clone_multi(tmp_path)
+
+        with (
+            patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=fake_clone),
+            patch(
+                f"{self._URL_LOADER}.parse_url_ref",
+                return_value=("https://github.com/org/skills-collection", None),
+            ),
+        ):
+            skills = Skill.from_url("https://github.com/org/skills-collection")
+
+        assert len(skills) == 2
+        names = {s.name for s in skills}
+        assert names == {"skill-a", "skill-b"}
+
+    def test_from_url_with_ref(self, tmp_path):
+        """Test that @ref is correctly parsed and forwarded."""
+        from unittest.mock import patch
+
+        fake_clone = self._mock_clone(tmp_path)
+        captured_ref = []
+
+        def tracking_clone(url, *, ref=None, cache_dir=None):
+            captured_ref.append(ref)
+            return fake_clone(url, ref=ref, cache_dir=cache_dir)
+
+        with (
+            patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=tracking_clone),
+            patch(
+                f"{self._URL_LOADER}.parse_url_ref",
+                return_value=("https://github.com/org/my-skill", "v1.0.0"),
+            ),
+        ):
+            Skill.from_url("https://github.com/org/my-skill@v1.0.0")
+
+        assert captured_ref == ["v1.0.0"]
+
+    def test_from_url_invalid_url_raises(self):
+        """Test that a non-URL string raises ValueError."""
+        with pytest.raises(ValueError, match="not a valid remote URL"):
+            Skill.from_url("./local-path")
+
+    def test_from_url_clone_failure_raises(self):
+        """Test that a clone failure propagates as RuntimeError."""
+        from unittest.mock import patch
+
+        with (
+            patch(
+                f"{self._URL_LOADER}.parse_url_ref",
+                return_value=("https://github.com/org/broken", None),
+            ),
+            patch(
+                f"{self._URL_LOADER}.clone_skill_repo",
+                side_effect=RuntimeError("clone failed"),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="clone failed"):
+                Skill.from_url("https://github.com/org/broken")
+
+    def test_from_url_passes_cache_dir(self, tmp_path):
+        """Test that cache_dir is forwarded to clone_skill_repo."""
+        from unittest.mock import patch
+
+        fake_clone = self._mock_clone(tmp_path)
+        captured_cache = []
+
+        def tracking_clone(url, *, ref=None, cache_dir=None):
+            captured_cache.append(cache_dir)
+            return fake_clone(url, ref=ref, cache_dir=cache_dir)
+
+        custom_cache = tmp_path / "custom-cache"
+
+        with (
+            patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=tracking_clone),
+            patch(
+                f"{self._URL_LOADER}.parse_url_ref",
+                return_value=("https://github.com/org/my-skill", None),
+            ),
+        ):
+            Skill.from_url("https://github.com/org/my-skill", cache_dir=custom_cache)
+
+        assert captured_cache == [custom_cache]
+
+
 class TestSkillClassmethods:
     """Tests for Skill classmethod existence."""
 
     def test_skill_classmethods_exist(self):
-        """Test that Skill has from_file, from_content, and from_directory classmethods."""
+        """Test that Skill has from_file, from_content, from_directory, and from_url classmethods."""
         assert callable(getattr(Skill, "from_file", None))
         assert callable(getattr(Skill, "from_content", None))
         assert callable(getattr(Skill, "from_directory", None))
+        assert callable(getattr(Skill, "from_url", None))

@@ -661,6 +661,112 @@ class TestResolveSkills:
         assert len(plugin._skills) == 0
 
 
+class TestResolveUrlSkills:
+    """Tests for _resolve_skills with URL sources."""
+
+    _URL_LOADER = "strands.vended_plugins.skills._url_loader"
+
+    def _mock_clone(self, tmp_path, skill_name="url-skill", description="A URL skill"):
+        """Create a mock clone function that creates a skill directory."""
+        skill_dir = tmp_path / "cloned"
+
+        def fake_clone(url, *, ref=None, cache_dir=None):
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            content = f"---\nname: {skill_name}\ndescription: {description}\n---\n# Instructions\n"
+            (skill_dir / "SKILL.md").write_text(content)
+            return skill_dir
+
+        return fake_clone
+
+    def test_resolve_url_source(self, tmp_path):
+        """Test resolving a URL string as a skill source."""
+        from unittest.mock import patch
+
+        fake_clone = self._mock_clone(tmp_path)
+
+        with (
+            patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=fake_clone),
+            patch(
+                f"{self._URL_LOADER}.parse_url_ref",
+                return_value=("https://github.com/org/url-skill", None),
+            ),
+        ):
+            plugin = AgentSkills(skills=["https://github.com/org/url-skill"])
+
+        assert len(plugin.get_available_skills()) == 1
+        assert plugin.get_available_skills()[0].name == "url-skill"
+
+    def test_resolve_mixed_url_and_local(self, tmp_path):
+        """Test resolving a mix of URL and local filesystem sources."""
+        from unittest.mock import patch
+
+        _make_skill_dir(tmp_path, "local-skill")
+        fake_clone = self._mock_clone(tmp_path)
+
+        with (
+            patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=fake_clone),
+            patch(
+                f"{self._URL_LOADER}.parse_url_ref",
+                return_value=("https://github.com/org/url-skill", None),
+            ),
+        ):
+            plugin = AgentSkills(
+                skills=[
+                    "https://github.com/org/url-skill",
+                    str(tmp_path / "local-skill"),
+                ]
+            )
+
+        assert len(plugin.get_available_skills()) == 2
+        names = {s.name for s in plugin.get_available_skills()}
+        assert names == {"url-skill", "local-skill"}
+
+    def test_resolve_url_failure_skips_gracefully(self, caplog):
+        """Test that a failed URL clone is skipped with a warning."""
+        import logging
+        from unittest.mock import patch
+
+        with (
+            patch(
+                f"{self._URL_LOADER}.parse_url_ref",
+                return_value=("https://github.com/org/broken", None),
+            ),
+            patch(
+                f"{self._URL_LOADER}.clone_skill_repo",
+                side_effect=RuntimeError("clone failed"),
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            plugin = AgentSkills(skills=["https://github.com/org/broken"])
+
+        assert len(plugin.get_available_skills()) == 0
+        assert "failed to load skill from URL" in caplog.text
+
+    def test_cache_dir_forwarded(self, tmp_path):
+        """Test that custom cache_dir is forwarded through to clone."""
+        from unittest.mock import patch
+
+        fake_clone = self._mock_clone(tmp_path)
+        captured_cache = []
+
+        def tracking_clone(url, *, ref=None, cache_dir=None):
+            captured_cache.append(cache_dir)
+            return fake_clone(url, ref=ref, cache_dir=cache_dir)
+
+        custom_cache = tmp_path / "my-cache"
+
+        with (
+            patch(f"{self._URL_LOADER}.clone_skill_repo", side_effect=tracking_clone),
+            patch(
+                f"{self._URL_LOADER}.parse_url_ref",
+                return_value=("https://github.com/org/url-skill", None),
+            ),
+        ):
+            AgentSkills(skills=["https://github.com/org/url-skill"], cache_dir=custom_cache)
+
+        assert captured_cache == [custom_cache]
+
+
 class TestImports:
     """Tests for module imports."""
 
