@@ -995,7 +995,7 @@ def test_format_request_filters_location_source_document(model, model_id, max_to
 
 
 @pytest.mark.asyncio
-async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model, agenerator, alist):
+async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model, alist):
     """Verify no Pydantic serialization warnings are emitted for message_stop events.
 
     Regression test for https://github.com/strands-agents/sdk-python/issues/1746.
@@ -1018,16 +1018,12 @@ async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model,
 
     mock_message_stop.model_dump = model_dump_with_warning
 
-    mock_event_usage = unittest.mock.Mock(
-        message=unittest.mock.Mock(
-            usage=unittest.mock.Mock(
-                model_dump=lambda: {"input_tokens": 1, "output_tokens": 2},
-            )
-        ),
+    final_message = unittest.mock.Mock()
+    final_message.usage = unittest.mock.Mock(
+        model_dump=lambda: {"input_tokens": 1, "output_tokens": 2},
     )
 
-    mock_context = unittest.mock.AsyncMock()
-    mock_context.__aenter__.return_value = agenerator([mock_message_stop, mock_event_usage])
+    mock_context = generate_mock_stream_context([mock_message_stop], final_message=final_message)
     anthropic_client.messages.stream.return_value = mock_context
 
     messages = [{"role": "user", "content": [{"text": "hello"}]}]
