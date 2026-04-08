@@ -464,7 +464,7 @@ class AnthropicModel(Model):
         async for event in process_stream(response):
             yield event
 
-        stop_reason, messages, _, _ = event["stop"]
+        stop_reason, messages, *_ = event["stop"]
 
         if stop_reason != "tool_use":
             raise ValueError(f'Model returned stop_reason: {stop_reason} instead of "tool_use".')

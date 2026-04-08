@@ -412,6 +412,7 @@ async def process_stream(
 
     usage: Usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
     metrics: Metrics = Metrics(latencyMs=0, timeToFirstByteMs=0)
+    cost: float | None = None
 
     async for chunk in chunks:
         # Check for cancellation during stream processing
@@ -448,10 +449,12 @@ async def process_stream(
                 int(1000 * (first_byte_time - start_time)) if (start_time and first_byte_time) else None
             )
             usage, metrics = extract_usage_metrics(chunk["metadata"], time_to_first_byte_ms)
+            if "cost" in chunk["metadata"]:
+                cost = chunk["metadata"]["cost"]
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], state)
 
-    yield ModelStopReason(stop_reason=stop_reason, message=state["message"], usage=usage, metrics=metrics)
+    yield ModelStopReason(stop_reason=stop_reason, message=state["message"], usage=usage, metrics=metrics, cost=cost)
 
 
 async def stream_messages(

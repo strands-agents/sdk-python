@@ -720,6 +720,7 @@ def test_extract_usage_metrics_empty_metadata():
                         },
                         {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
                         {"latencyMs": 1},
+                        None,
                     )
                 },
             ],
@@ -851,6 +852,7 @@ def test_extract_usage_metrics_empty_metadata():
                         },
                         {"inputTokens": 5, "outputTokens": 10, "totalTokens": 15},
                         {"latencyMs": 100},
+                        None,
                     )
                 },
             ],
@@ -871,6 +873,7 @@ def test_extract_usage_metrics_empty_metadata():
                         },
                         {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
                         {"latencyMs": 0, "timeToFirstByteMs": 0},
+                        None,
                     ),
                 },
             ],
@@ -956,6 +959,7 @@ async def test_process_stream(response, exp_events, agenerator, alist):
                         {"role": "assistant", "content": [{"text": "REDACTED."}]},
                         {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
                         {"latencyMs": 1},
+                        None,
                     )
                 },
             ],
@@ -1016,6 +1020,7 @@ async def test_process_stream(response, exp_events, agenerator, alist):
                         },
                         {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
                         {"latencyMs": 1},
+                        None,
                     )
                 },
             ],
@@ -1162,6 +1167,7 @@ async def test_stream_messages(agenerator, alist):
                 {"role": "assistant", "content": [{"text": "test"}]},
                 {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
                 {"latencyMs": 0, "timeToFirstByteMs": 0},
+                None,
             )
         },
     ]

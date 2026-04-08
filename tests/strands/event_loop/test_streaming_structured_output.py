@@ -147,7 +147,7 @@ async def test_stream_messages_with_forced_structured_output(agenerator, alist):
             break
 
     assert stop_event is not None
-    stop_reason, message, usage, metrics = stop_event["stop"]
+    stop_reason, message, usage, metrics, _cost = stop_event["stop"]
 
     assert stop_reason == "tool_use"
     assert message["role"] == "assistant"
