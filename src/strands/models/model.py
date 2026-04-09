@@ -74,7 +74,7 @@ def _count_content_block_tokens(block: ContentBlock, encoding: Any) -> int:
 
     if "guardContent" in block:
         guard = block["guardContent"]
-        if "text" in guard:
+        if "text" in guard and "text" in guard["text"]:
             total += len(encoding.encode(guard["text"]["text"]))
 
     if "citationsContent" in block:
@@ -246,7 +246,7 @@ class Model(abc.ABC):
 
         Used for proactive context management (e.g., triggering compression at a
         threshold). This is a naive approximation using tiktoken's cl100k_base encoding.
-        Accuracy varies by model provider but is typically within 5-10% for most providers.
+        Accuracy varies by model provider but is estimated to be within 5-15% for most providers.
         Not intended for billing or precise quota calculations.
 
         Subclasses may override this method to provide model-specific token counting
