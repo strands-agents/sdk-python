@@ -9,6 +9,7 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
+import copy
 import logging
 import threading
 import warnings
@@ -29,6 +30,13 @@ from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
 from ..tools._tool_helpers import generate_missing_tool_result_content
+from ..types._snapshot import (
+    SNAPSHOT_SCHEMA_VERSION,
+    Snapshot,
+    SnapshotField,
+    SnapshotPreset,
+    resolve_snapshot_fields,
+)
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
@@ -1102,6 +1110,78 @@ class Agent(AgentBase):
         for message in messages:
             self.messages.append(message)
             await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
+
+    def take_snapshot(
+        self,
+        *,
+        preset: SnapshotPreset | None = None,
+        include: list[SnapshotField] | None = None,
+        exclude: list[SnapshotField] | None = None,
+        app_data: dict[str, Any] | None = None,
+    ) -> Snapshot:
+        """Capture current agent state as an in-memory snapshot.
+
+        Args:
+            preset: Named preset of fields to capture. Currently only "session" is supported,
+                which captures messages, state, conversation_manager_state, and interrupt_state.
+            include: Additional fields to capture on top of the preset.
+            exclude: Fields to remove after applying preset and include.
+            app_data: Application-owned arbitrary JSON stored verbatim in the snapshot.
+
+        Returns:
+            A Snapshot containing the captured agent state.
+
+        Raises:
+            SnapshotException: If no fields are resolved or an invalid field name is provided.
+        """
+        fields = resolve_snapshot_fields(preset=preset, include=include, exclude=exclude)
+
+        data: dict[str, Any] = {}
+        if "messages" in fields:
+            data["messages"] = copy.deepcopy(self.messages)
+        if "state" in fields:
+            data["state"] = self.state.get()
+        if "conversation_manager_state" in fields:
+            data["conversation_manager_state"] = self.conversation_manager.get_state()
+        if "interrupt_state" in fields:
+            data["interrupt_state"] = self._interrupt_state.to_dict()
+        if "system_prompt" in fields:
+            # Store the content-block representation so round-trips preserve caching hints and
+            # other block-level metadata.
+            data["system_prompt"] = copy.deepcopy(self._system_prompt_content)
+
+        return Snapshot(
+            scope="agent",
+            schema_version=SNAPSHOT_SCHEMA_VERSION,
+            data=data,
+            app_data=copy.deepcopy(app_data) if app_data else {},
+        )
+
+    def load_snapshot(self, snapshot: Snapshot) -> None:
+        """Restore agent state from a previously captured snapshot.
+
+        Only fields present in snapshot.data are restored; absent fields are left unchanged.
+
+        Args:
+            snapshot: The snapshot to restore from.
+
+        Raises:
+            SnapshotException: If snapshot.schema_version is not "1.0".
+        """
+        snapshot.validate()
+
+        data = snapshot.data
+
+        if "messages" in data:
+            self.messages = copy.deepcopy(data["messages"])
+        if "state" in data:
+            self.state = AgentState(data["state"])
+        if "conversation_manager_state" in data:
+            self.conversation_manager.restore_from_session(data["conversation_manager_state"])
+        if "interrupt_state" in data:
+            self._interrupt_state = _InterruptState.from_dict(data["interrupt_state"])
+        if "system_prompt" in data:
+            self.system_prompt = copy.deepcopy(data["system_prompt"])
 
     def _redact_user_content(self, content: list[ContentBlock], redact_message: str) -> list[ContentBlock]:
         """Redact user content preserving toolResult blocks.
