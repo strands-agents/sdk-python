@@ -53,6 +53,7 @@ class A2AAgent(AgentBase):
             client_config: A2A ``ClientConfig`` for authentication and transport settings.
                 The ``httpx_client`` configured here is used for both card discovery and
                 message sending, enabling authenticated endpoints (SigV4, OAuth, bearer tokens).
+                When providing an ``httpx_client``, you are responsible for configuring its timeout.
             a2a_client_factory: Deprecated. Use ``client_config`` instead.
 
         Raises:
