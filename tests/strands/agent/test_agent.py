@@ -2792,12 +2792,17 @@ async def test_stream_async_fires_before_and_after_reduce_context_hook_events(mo
         ),
     ]
 
+    # Seed messages so SlidingWindowConversationManager.reduce_context() can trim them.
+    agent.messages[:] = [
+        {"role": "user", "content": [{"text": "msg1"}]},
+        {"role": "assistant", "content": [{"text": "resp1"}]},
+        {"role": "user", "content": [{"text": "msg2"}]},
+    ]
+
     before_events = []
     after_events = []
     agent.add_hook(lambda e: before_events.append(e), BeforeReduceContextEvent)
     agent.add_hook(lambda e: after_events.append(e), AfterReduceContextEvent)
-
-    agent.conversation_manager.reduce_context = unittest.mock.Mock()
 
     await alist(agent.stream_async("hello"))
 

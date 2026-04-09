@@ -7,13 +7,13 @@ from typing_extensions import override
 
 from ..._async import run_async
 from ...event_loop.streaming import process_stream
+from ...hooks import AfterReduceContextEvent, BeforeReduceContextEvent
 from ...tools._tool_helpers import noop_tool
 from ...tools.registry import ToolRegistry
 from ...types.content import Message
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import AgentTool
 from .conversation_manager import ConversationManager
-from ...hooks import BeforeReduceContextEvent, AfterReduceContextEvent
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -136,7 +136,6 @@ class SummarizingConversationManager(ConversationManager):
         Raises:
             ContextWindowOverflowException: If the context cannot be summarized.
         """
-        # Fire before event
         agent.hooks.invoke_callbacks(BeforeReduceContextEvent(agent=agent, exception=e))
 
         try:
@@ -175,7 +174,6 @@ class SummarizingConversationManager(ConversationManager):
             # Replace the summarized messages with the summary
             agent.messages[:] = [self._summary_message] + remaining_messages
 
-            # Fire after event
             agent.hooks.invoke_callbacks(AfterReduceContextEvent(agent=agent))
 
         except Exception as summarization_error:

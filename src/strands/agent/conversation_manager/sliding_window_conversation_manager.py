@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
-from ...hooks import BeforeModelCallEvent, BeforeReduceContextEvent, AfterReduceContextEvent, HookRegistry
+from ...hooks import AfterReduceContextEvent, BeforeModelCallEvent, BeforeReduceContextEvent, HookRegistry
 from ...types.content import ContentBlock, Messages
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import ToolResultContent
@@ -171,7 +171,6 @@ class SlidingWindowConversationManager(ConversationManager):
                 error was provided (e is not None). When called during routine window management (e is None),
                 logs a warning and returns without modification.
         """
-        # Fire before event
         agent.hooks.invoke_callbacks(BeforeReduceContextEvent(agent=agent, exception=e))
 
         messages = agent.messages
@@ -185,6 +184,7 @@ class SlidingWindowConversationManager(ConversationManager):
             results_truncated = self._truncate_tool_results(messages, oldest_message_idx_with_tool_results)
             if results_truncated:
                 logger.debug("message_index=<%s> | tool results truncated", oldest_message_idx_with_tool_results)
+                agent.hooks.invoke_callbacks(AfterReduceContextEvent(agent=agent))
                 return
 
         # Try to trim index id when tool result cannot be truncated anymore
@@ -235,7 +235,6 @@ class SlidingWindowConversationManager(ConversationManager):
         # Overwrite message history
         messages[:] = messages[trim_index:]
 
-        # Fire after event
         agent.hooks.invoke_callbacks(AfterReduceContextEvent(agent=agent))
 
     def _truncate_tool_results(self, messages: Messages, msg_idx: int) -> bool:
