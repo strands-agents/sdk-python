@@ -1,6 +1,5 @@
 """Tests for A2AAgent class."""
 
-import asyncio
 import warnings
 from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -107,18 +106,18 @@ def test_init_with_external_a2a_client_factory():
         assert "client_config" in str(w[0].message)
 
 
-def test_init_with_both_client_config_and_factory():
-    """Test initialization with both client_config and factory."""
+def test_init_with_both_client_config_and_factory_raises():
+    """Test that providing both client_config and factory raises ValueError."""
     config = ClientConfig()
     factory = MagicMock()
-    with warnings.catch_warnings(record=True) as w:
-        warnings.simplefilter("always")
-        agent = A2AAgent(endpoint="http://localhost:8000", client_config=config, a2a_client_factory=factory)
-        assert agent._client_config is config
-        assert agent._a2a_client_factory is factory
-        # Deprecation warning should still be emitted for factory
-        assert len(w) == 1
-        assert issubclass(w[0].category, DeprecationWarning)
+    with pytest.raises(ValueError, match="Cannot provide both client_config and a2a_client_factory"):
+        A2AAgent(endpoint="http://localhost:8000", client_config=config, a2a_client_factory=factory)
+
+
+def test_init_no_asyncio_lock():
+    """Test that A2AAgent does not create an asyncio.Lock in __init__."""
+    agent = A2AAgent(endpoint="http://localhost:8000")
+    assert not hasattr(agent, "_card_lock")
 
 
 # === Card Resolution Tests ===
@@ -282,34 +281,25 @@ async def test_get_agent_card_factory_only_uses_default_httpx(mock_httpx_client)
 
 
 @pytest.mark.asyncio
-async def test_get_agent_card_concurrent_calls_use_lock(mock_httpx_client):
-    """Test that concurrent calls to get_agent_card use lock (only one fetch)."""
+async def test_get_agent_card_client_config_without_httpx_uses_default(mock_httpx_client):
+    """Test that client_config without httpx_client falls through to managed httpx (same as no config)."""
     mock_card = MagicMock(spec=AgentCard)
     mock_card.name = "test"
     mock_card.description = "test"
 
-    agent = A2AAgent(endpoint="http://localhost:8000")
-    call_count = 0
+    config = ClientConfig(polling=True)  # No httpx_client
+    agent = A2AAgent(endpoint="http://localhost:8000", client_config=config)
 
-    async def slow_get_agent_card():
-        nonlocal call_count
-        call_count += 1
-        await asyncio.sleep(0.01)
-        return mock_card
-
-    with patch("strands.agent.a2a_agent.httpx.AsyncClient", return_value=mock_httpx_client):
+    with patch("strands.agent.a2a_agent.httpx.AsyncClient", return_value=mock_httpx_client) as mock_httpx_class:
         with patch("strands.agent.a2a_agent.A2ACardResolver") as mock_resolver_class:
             mock_resolver = AsyncMock()
-            mock_resolver.get_agent_card = slow_get_agent_card
+            mock_resolver.get_agent_card = AsyncMock(return_value=mock_card)
             mock_resolver_class.return_value = mock_resolver
 
-            # Launch 10 concurrent calls
-            results = await asyncio.gather(*[agent.get_agent_card() for _ in range(10)])
+            await agent.get_agent_card()
 
-            # All should return the same card
-            assert all(r is mock_card for r in results)
-            # Should only have fetched once due to lock
-            assert call_count == 1
+            # Should use managed httpx with timeout (same as no config path)
+            mock_httpx_class.assert_called_once_with(timeout=300)
 
 
 # === Client Creation Tests ===
@@ -363,6 +353,42 @@ async def test_get_a2a_client_with_client_config_does_not_mutate_original(mock_a
 
     # Original config should NOT be mutated
     assert config.streaming is False
+
+
+@pytest.mark.asyncio
+async def test_get_a2a_client_config_without_httpx_creates_managed_client(mock_agent_card):
+    """Test that _get_a2a_client creates a managed httpx client when config has no httpx_client.
+
+    This ensures consistency with get_agent_card — both paths create managed httpx clients
+    with the same timeout when no httpx_client is provided.
+    """
+    config = ClientConfig(polling=True, supported_transports=["jsonrpc"])
+    agent = A2AAgent(endpoint="http://localhost:8000", client_config=config, timeout=600)
+
+    with patch.object(agent, "get_agent_card", return_value=mock_agent_card):
+        with patch("strands.agent.a2a_agent.httpx.AsyncClient") as mock_httpx_class:
+            mock_httpx = AsyncMock()
+            mock_httpx.__aenter__.return_value = mock_httpx
+            mock_httpx.__aexit__.return_value = None
+            mock_httpx_class.return_value = mock_httpx
+
+            with patch("strands.agent.a2a_agent.ClientFactory") as mock_factory_class:
+                mock_factory = MagicMock()
+                mock_factory.create.return_value = MagicMock()
+                mock_factory_class.return_value = mock_factory
+
+                async with agent._get_a2a_client():
+                    pass
+
+                # Should create managed httpx with agent timeout (consistent with get_agent_card)
+                mock_httpx_class.assert_called_once_with(timeout=600)
+
+                # Should preserve user config settings and inject managed client
+                created_config = mock_factory_class.call_args[0][0]
+                assert created_config.httpx_client is mock_httpx
+                assert created_config.streaming is True
+                assert created_config.polling is True
+                assert created_config.supported_transports == ["jsonrpc"]
 
 
 @pytest.mark.asyncio
@@ -440,31 +466,6 @@ async def test_send_message_creates_per_call_client(a2a_agent, mock_agent_card):
 
             # Verify httpx client was created with timeout
             mock_httpx_class.assert_called_once_with(timeout=300)
-
-
-@pytest.mark.asyncio
-async def test_get_a2a_client_with_factory_takes_precedence_over_client_config(mock_agent_card):
-    """Test that factory is used for client creation when both factory and client_config are provided."""
-    mock_auth_client = MagicMock()
-    config = ClientConfig(httpx_client=mock_auth_client)
-
-    external_factory = MagicMock()
-    mock_a2a_client = MagicMock()
-    external_factory.create.return_value = mock_a2a_client
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", DeprecationWarning)
-        agent = A2AAgent(
-            endpoint="http://localhost:8000",
-            client_config=config,
-            a2a_client_factory=external_factory,
-        )
-
-    with patch.object(agent, "get_agent_card", return_value=mock_agent_card):
-        async with agent._get_a2a_client() as client:
-            # Factory should be used for client creation
-            external_factory.create.assert_called_once_with(mock_agent_card)
-            assert client is mock_a2a_client
 
 
 @pytest.mark.asyncio
