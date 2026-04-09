@@ -696,7 +696,13 @@ class Tracer:
                     attributes.update({"langfuse.observation.type": "span"})
                 if self._use_latest_invocation_tokens:
                     latest_invocation = response.metrics.latest_agent_invocation
-                    usage = latest_invocation.usage if latest_invocation else response.metrics.accumulated_usage
+                    if latest_invocation is None:
+                        logger.warning(
+                            "latest_agent_invocation is None despite _use_latest_invocation_tokens being set"
+                        )
+                        usage: Usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
+                    else:
+                        usage = latest_invocation.usage
                 else:
                     usage = response.metrics.accumulated_usage
                 attributes.update(

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import date, datetime, timezone
 from unittest import mock
@@ -1026,8 +1027,8 @@ def test_end_agent_span_uses_per_invocation_usage_when_opted_in(mock_span, monke
     assert call_args["gen_ai.usage.completion_tokens"] == 50
 
 
-def test_end_agent_span_falls_back_to_accumulated_when_opted_in_but_no_invocations(mock_span, monkeypatch):
-    """Test fallback to accumulated_usage when opted in but no agent invocations exist."""
+def test_end_agent_span_warns_when_opted_in_but_no_invocations(mock_span, monkeypatch, caplog):
+    """Test warning and zero usage when opted in but no agent invocations exist."""
     monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_use_latest_invocation_tokens")
     tracer = Tracer()
 
@@ -1040,12 +1041,14 @@ def test_end_agent_span_falls_back_to_accumulated_when_opted_in_but_no_invocatio
     mock_response.stop_reason = "end_turn"
     mock_response.__str__ = mock.MagicMock(return_value="Agent response")
 
-    tracer.end_agent_span(mock_span, mock_response)
+    with caplog.at_level(logging.WARNING):
+        tracer.end_agent_span(mock_span, mock_response)
 
+    assert "latest_agent_invocation is None" in caplog.text
     call_args = mock_span.set_attributes.call_args[0][0]
-    assert call_args["gen_ai.usage.input_tokens"] == 200
-    assert call_args["gen_ai.usage.output_tokens"] == 100
-    assert call_args["gen_ai.usage.total_tokens"] == 300
+    assert call_args["gen_ai.usage.input_tokens"] == 0
+    assert call_args["gen_ai.usage.output_tokens"] == 0
+    assert call_args["gen_ai.usage.total_tokens"] == 0
 
 
 def test_end_model_invoke_span_with_cache_metrics(mock_span):
