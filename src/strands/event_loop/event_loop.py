@@ -139,25 +139,29 @@ async def event_loop_cycle(
     )
     invocation_state["event_loop_cycle_span"] = cycle_span
 
-    with trace_api.use_span(cycle_span, end_on_exit=True):
-        # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
-        if agent._interrupt_state.activated:
-            stop_reason: StopReason = "tool_use"
-            message = agent._interrupt_state.context["tool_use_message"]
-        # Skip model invocation if the latest message contains ToolUse
-        elif _has_tool_use_in_latest_message(agent.messages):
-            stop_reason = "tool_use"
-            message = agent.messages[-1]
-        else:
-            model_events = _handle_model_execution(
-                agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
-            )
-            async for model_event in model_events:
-                if not isinstance(model_event, ModelStopReason):
-                    yield model_event
+    with trace_api.use_span(cycle_span, end_on_exit=False):
+        try:
+            # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
+            if agent._interrupt_state.activated:
+                stop_reason: StopReason = "tool_use"
+                message = agent._interrupt_state.context["tool_use_message"]
+            # Skip model invocation if the latest message contains ToolUse
+            elif _has_tool_use_in_latest_message(agent.messages):
+                stop_reason = "tool_use"
+                message = agent.messages[-1]
+            else:
+                model_events = _handle_model_execution(
+                    agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
+                )
+                async for model_event in model_events:
+                    if not isinstance(model_event, ModelStopReason):
+                        yield model_event
 
-            stop_reason, message, *_ = model_event["stop"]
-            yield ModelMessageEvent(message=message)
+                stop_reason, message, *_ = model_event["stop"]
+                yield ModelMessageEvent(message=message)
+        except Exception as e:
+            tracer.end_span_with_error(cycle_span, str(e), e)
+            raise
 
         try:
             if stop_reason == "max_tokens":
@@ -196,41 +200,44 @@ async def event_loop_cycle(
 
             # End the cycle and return results
             agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
-            # Set attributes before span auto-closes
+
+            # Force structured output tool call if LLM didn't use it automatically
+            if structured_output_context.is_enabled and stop_reason == "end_turn":
+                if structured_output_context.force_attempted:
+                    raise StructuredOutputException(
+                        "The model failed to invoke the structured output tool even after it was forced."
+                    )
+                structured_output_context.set_forced_mode()
+                logger.debug("Forcing structured output tool")
+                await agent._append_messages(
+                    {"role": "user", "content": [{"text": structured_output_context.structured_output_prompt}]}
+                )
+
+                tracer.end_event_loop_cycle_span(cycle_span, message)
+                events = recurse_event_loop(
+                    agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+                )
+                async for typed_event in events:
+                    yield typed_event
+                return
+
             tracer.end_event_loop_cycle_span(cycle_span, message)
-        except EventLoopException:
-            # Don't yield or log the exception - we already did it when we
-            # raised the exception and we don't need that duplication.
+            yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
+        except (
+            StructuredOutputException,
+            EventLoopException,
+            ContextWindowOverflowException,
+            MaxTokensReachedException,
+        ) as e:
+            # These exceptions should bubble up directly rather than get wrapped in an EventLoopException
+            tracer.end_span_with_error(cycle_span, str(e), e)
             raise
-        except (ContextWindowOverflowException, MaxTokensReachedException) as e:
-            # Special cased exceptions which we want to bubble up rather than get wrapped in an EventLoopException
-            raise e
         except Exception as e:
+            tracer.end_span_with_error(cycle_span, str(e), e)
             # Handle any other exceptions
             yield ForceStopEvent(reason=e)
             logger.exception("cycle failed")
             raise EventLoopException(e, invocation_state["request_state"]) from e
-
-        # Force structured output tool call if LLM didn't use it automatically
-        if structured_output_context.is_enabled and stop_reason == "end_turn":
-            if structured_output_context.force_attempted:
-                raise StructuredOutputException(
-                    "The model failed to invoke the structured output tool even after it was forced."
-                )
-            structured_output_context.set_forced_mode()
-            logger.debug("Forcing structured output tool")
-            await agent._append_messages(
-                {"role": "user", "content": [{"text": structured_output_context.structured_output_prompt}]}
-            )
-
-            events = recurse_event_loop(
-                agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
-            )
-            async for typed_event in events:
-                yield typed_event
-            return
-
-        yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
 
 
 async def recurse_event_loop(
@@ -316,20 +323,21 @@ async def _handle_model_execution(
             system_prompt=agent.system_prompt,
             system_prompt_content=agent._system_prompt_content,
         )
-        with trace_api.use_span(model_invoke_span, end_on_exit=True):
-            await agent.hooks.invoke_callbacks_async(
-                BeforeModelCallEvent(
-                    agent=agent,
-                    invocation_state=invocation_state,
-                )
-            )
-
-            if structured_output_context.forced_mode:
-                tool_spec = structured_output_context.get_tool_spec()
-                tool_specs = [tool_spec] if tool_spec else []
-            else:
-                tool_specs = agent.tool_registry.get_all_tool_specs()
+        with trace_api.use_span(model_invoke_span, end_on_exit=False):
             try:
+                await agent.hooks.invoke_callbacks_async(
+                    BeforeModelCallEvent(
+                        agent=agent,
+                        invocation_state=invocation_state,
+                    )
+                )
+
+                if structured_output_context.forced_mode:
+                    tool_spec = structured_output_context.get_tool_spec()
+                    tool_specs = [tool_spec] if tool_spec else []
+                else:
+                    tool_specs = agent.tool_registry.get_all_tool_specs()
+
                 async for event in stream_messages(
                     agent.model,
                     agent.system_prompt,
@@ -363,17 +371,17 @@ async def _handle_model_execution(
                         "stop_reason=<%s>, retry_requested=<True> | hook requested model retry",
                         stop_reason,
                     )
+                    tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
                     continue  # Retry the model call
 
                 if stop_reason == "max_tokens":
                     message = recover_message_on_max_tokens_reached(message)
 
-                # Set attributes before span auto-closes
                 tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
                 break  # Success! Break out of retry loop
 
             except Exception as e:
-                # Exception is automatically recorded by use_span with end_on_exit=True
+                tracer.end_span_with_error(model_invoke_span, str(e), e)
                 after_model_call_event = AfterModelCallEvent(
                     agent=agent,
                     invocation_state=invocation_state,
@@ -541,7 +549,7 @@ async def _handle_tool_execution(
             interrupts,
             structured_output=structured_output_result,
         )
-        # Set attributes before span auto-closes (span is managed by use_span in event_loop_cycle)
+        # End the cycle span before yielding the recursive cycle.
         if cycle_span:
             tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
 
@@ -559,7 +567,7 @@ async def _handle_tool_execution(
 
     yield ToolResultMessageEvent(message=tool_result_message)
 
-    # Set attributes before span auto-closes (span is managed by use_span in event_loop_cycle)
+    # End the cycle span before yielding the recursive cycle.
     if cycle_span:
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
 

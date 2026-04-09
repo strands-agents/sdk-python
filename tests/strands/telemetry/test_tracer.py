@@ -129,6 +129,30 @@ def test_end_span_with_error_message(mock_span):
     mock_span.end.assert_called_once()
 
 
+def test_end_span_with_empty_exception_message_uses_exception_name(mock_span):
+    """Test that empty exception messages fall back to the exception type name."""
+    tracer = Tracer()
+    error = Exception()
+
+    tracer.end_span_with_error(mock_span, "", error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "Exception")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
+def test_end_span_with_error_prefers_explicit_message(mock_span):
+    """Test that an explicit error message takes precedence over the exception text."""
+    tracer = Tracer()
+    error = Exception()
+
+    tracer.end_span_with_error(mock_span, "Explicit error message", error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "Explicit error message")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
 def test_start_model_invoke_span(mock_tracer):
     """Test starting a model invoke span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
@@ -322,6 +346,8 @@ def test_end_model_invoke_span(mock_span):
         "gen_ai.choice",
         attributes={"message": json.dumps(message["content"]), "finish_reason": "end_turn"},
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
@@ -361,6 +387,8 @@ def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
                 ),
             },
         )
+        mock_span.set_status.assert_called_once_with(StatusCode.OK)
+        mock_span.end.assert_called_once()
 
 
 def test_start_tool_call_span(mock_tracer):
@@ -680,6 +708,20 @@ def test_end_tool_call_span_latest_conventions(mock_span, monkeypatch):
     mock_span.end.assert_called_once()
 
 
+def test_end_tool_call_span_with_error(mock_span):
+    """Test ending a tool call span with an explicit error sets StatusCode.ERROR."""
+    tracer = Tracer()
+    error = ValueError("tool exploded")
+    tool_result = {"status": "error", "content": [{"text": "Error: tool exploded"}]}
+
+    tracer.end_tool_call_span(mock_span, tool_result, error=error)
+
+    mock_span.set_attributes.assert_called_once_with({"gen_ai.tool.status": "error"})
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "tool exploded")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
 def test_start_event_loop_cycle_span(mock_tracer):
     """Test starting an event loop cycle span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
@@ -702,6 +744,8 @@ def test_start_event_loop_cycle_span(mock_tracer):
 
         mock_span.set_attributes.assert_called_once_with(
             {
+                "gen_ai.operation.name": "execute_event_loop_cycle",
+                "gen_ai.system": "strands-agents",
                 "event_loop.cycle_id": "cycle-123",
                 "request_id": "req-456",
                 "trace_level": "debug",
@@ -731,7 +775,13 @@ def test_start_event_loop_cycle_span_latest_conventions(mock_tracer, monkeypatch
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "execute_event_loop_cycle"
 
-        mock_span.set_attributes.assert_called_once_with({"event_loop.cycle_id": "cycle-123"})
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "execute_event_loop_cycle",
+                "gen_ai.provider.name": "strands-agents",
+                "event_loop.cycle_id": "cycle-123",
+            }
+        )
         mock_span.add_event.assert_any_call(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -761,6 +811,8 @@ def test_end_event_loop_cycle_span(mock_span):
             "tool.result": json.dumps(tool_result_message["content"]),
         },
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
@@ -796,6 +848,8 @@ def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
             )
         },
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_start_agent_span(mock_tracer):
@@ -1080,6 +1134,8 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
             "gen_ai.server.time_to_first_token": 5,
         }
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_agent_span_with_cache_metrics(mock_span):

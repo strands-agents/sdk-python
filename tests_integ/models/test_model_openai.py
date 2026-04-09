@@ -1,5 +1,8 @@
 import os
+import tempfile
+import time
 
+import openai as openai_sdk
 import pydantic
 import pytest
 
@@ -78,6 +81,31 @@ def yellow_color():
             return value.lower()
 
     return Color(name="yellow")
+
+
+@pytest.fixture(scope="module")
+def openai_vector_store():
+    """Create a vector store with a test file for file_search tests."""
+    client = openai_sdk.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt") as f:
+        f.write("The secret code is ALPHA-7742.")
+        f.flush()
+        file_obj = client.files.create(file=open(f.name, "rb"), purpose="assistants")
+
+    vector_store = client.vector_stores.create(name="test-builtin-tools")
+    try:
+        client.vector_stores.files.create(vector_store_id=vector_store.id, file_id=file_obj.id)
+
+        for _ in range(30):
+            if client.vector_stores.retrieve(vector_store.id).file_counts.completed > 0:
+                break
+            time.sleep(1)
+
+        yield vector_store.id
+    finally:
+        client.vector_stores.delete(vector_store.id)
+        client.files.delete(file_obj.id)
 
 
 @pytest.fixture(scope="module")
@@ -308,3 +336,67 @@ def test_responses_server_side_conversation():
 
     result = agent("What is my name?")
     assert "alice" in result.message["content"][0]["text"].lower()
+
+
+@pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
+def test_responses_builtin_tool_web_search():
+    """Test that web_search produces text with citation content."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o",
+        params={"tools": [{"type": "web_search"}]},
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+    agent = Agent(model=model, system_prompt="Answer concisely.", callback_handler=None)
+
+    result = agent("Search https://strandsagents.com/ and tell me what Strands Agents is.")
+    content = result.message["content"][0]
+
+    assert "citationsContent" in content
+    citations = content["citationsContent"]["citations"]
+    assert any("strandsagents.com" in c["location"]["web"]["url"] for c in citations)
+
+
+@pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
+def test_responses_builtin_tool_file_search(openai_vector_store):
+    """Test that file_search produces text output from uploaded files."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o",
+        params={"tools": [{"type": "file_search", "vector_store_ids": [openai_vector_store]}]},
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+    agent = Agent(model=model, system_prompt="Answer based on the files.", callback_handler=None)
+
+    result = agent("What is the secret code?")
+    text = result.message["content"][0]["text"]
+    assert "ALPHA-7742" in text
+
+
+@pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
+def test_responses_builtin_tool_code_interpreter():
+    """Test that code_interpreter produces correct results via text output."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o",
+        params={"tools": [{"type": "code_interpreter", "container": {"type": "auto"}}]},
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+    agent = Agent(model=model, system_prompt="Answer concisely.", callback_handler=None)
+
+    # SHA-256 of "strands" requires actual computation
+    result = agent("Compute the SHA-256 hash of the string 'strands'. Return only the hex digest.")
+    text = result.message["content"][0]["text"]
+    assert "11e0e34bd35e12185cfacd5e5a256ab4292bfa3616d8d5b74e20eca36feed228" in text
+
+
+@pytest.mark.skipif(not _openai_responses_available, reason="OpenAI Responses API not available")
+def test_responses_builtin_tool_shell():
+    """Test that the shell built-in tool executes commands in a hosted container."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-5.4-mini",
+        params={"tools": [{"type": "shell", "environment": {"type": "container_auto"}}]},
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+    agent = Agent(model=model, system_prompt="Answer concisely.", callback_handler=None)
+
+    result = agent("Use the shell to compute the md5sum of the string 'strands-test'. Return only the hash.")
+    text = result.message["content"][0]["text"]
+    assert "d82f373f079b00a1db7ef1eec7f15c68" in text

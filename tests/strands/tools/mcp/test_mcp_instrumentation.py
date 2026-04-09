@@ -328,7 +328,7 @@ class MockPydanticParams:
     def __init__(self, **data):
         self._data = data
 
-    def model_dump(self):
+    def model_dump(self, by_alias=False):
         return self._data.copy()
 
     @classmethod
@@ -431,6 +431,32 @@ class TestMCPInstrumentation:
             # Verify the params object is still a MockPydanticParams (or dict if fallback occurred)
             assert hasattr(mock_request.root.params, "model_dump") or isinstance(mock_request.root.params, dict)
 
+    def test_patch_mcp_client_preserves_existing_meta_pydantic(self):
+        """Test that instrumentation preserves existing _meta values in Pydantic models."""
+        mock_request = MagicMock()
+        mock_request.root.method = "tools/call"
+
+        # Pydantic model with existing _meta (returned via by_alias=True)
+        mock_params = MockPydanticParams(_meta={"com.example/request_id": "abc-123"}, name="echo")
+        mock_request.root.params = mock_params
+
+        with patch("strands.tools.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
+            mcp_instrumentation()
+            patch_function = mock_wrap.call_args_list[0][0][2]
+
+        mock_wrapped = MagicMock()
+
+        with patch.object(propagate, "get_global_textmap") as mock_textmap:
+            mock_textmap_instance = MagicMock()
+            mock_textmap.return_value = mock_textmap_instance
+
+            patch_function(mock_wrapped, None, [mock_request], {})
+
+            # Verify the reconstructed params use the key "_meta" (alias) not "meta" (Python name)
+            validated_params = mock_request.root.params.model_dump(by_alias=True)
+            assert "_meta" in validated_params
+            assert validated_params["_meta"]["com.example/request_id"] == "abc-123"
+
     def test_patch_mcp_client_injects_context_dict_params(self):
         """Test that the client patch injects OpenTelemetry context into dict params."""
         # Create a mock request with tools/call method and dict params
@@ -507,7 +533,7 @@ class TestMCPInstrumentation:
             def __init__(self, **data):
                 self._data = data
 
-            def model_dump(self):
+            def model_dump(self, by_alias=False):
                 return self._data.copy()
 
             def model_validate(self, data):

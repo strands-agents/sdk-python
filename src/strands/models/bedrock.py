@@ -93,6 +93,10 @@ class BedrockModel(Model):
             model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
             include_tool_result_status: Flag to include status field in tool results.
                 True includes status, False removes status, "auto" determines based on model_id. Defaults to "auto".
+            service_tier: Service tier for the request, controlling the trade-off between latency and cost.
+                Valid values: "default" (standard), "priority" (faster, premium), "flex" (cheaper, slower).
+                Please check https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html for
+                supported service tiers, models, and regions
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
@@ -117,6 +121,7 @@ class BedrockModel(Model):
         max_tokens: int | None
         model_id: str
         include_tool_result_status: Literal["auto"] | bool | None
+        service_tier: str | None
         stop_sequences: list[str] | None
         streaming: bool | None
         temperature: float | None
@@ -245,6 +250,7 @@ class BedrockModel(Model):
             "modelId": self.config["model_id"],
             "messages": self._format_bedrock_messages(messages),
             "system": system_blocks,
+            **({"serviceTier": {"type": self.config["service_tier"]}} if self.config.get("service_tier") else {}),
             **(
                 {
                     "toolConfig": {
@@ -960,13 +966,15 @@ class BedrockModel(Model):
                     }
 
                 for citation in content["citationsContent"]["citations"]:
-                    # Then emit citation metadata (for structure)
-
-                    citation_metadata: CitationsDelta = {
-                        "title": citation["title"],
-                        "location": citation["location"],
-                        "sourceContent": citation["sourceContent"],
-                    }
+                    # Emit citation metadata, only including fields that are present
+                    # Nova grounding may omit title/sourceContent
+                    citation_metadata: CitationsDelta = {}
+                    if "title" in citation:
+                        citation_metadata["title"] = citation["title"]
+                    if "location" in citation:
+                        citation_metadata["location"] = citation["location"]
+                    if "sourceContent" in citation:
+                        citation_metadata["sourceContent"] = citation["sourceContent"]
                     yield {"contentBlockDelta": {"delta": {"citation": citation_metadata}}}
 
             # Yield contentBlockStop event
