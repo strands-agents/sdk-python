@@ -193,7 +193,7 @@ class GraphNode:
         if hasattr(self.executor, "messages"):
             self.executor.messages = copy.deepcopy(self._initial_messages)
 
-        if hasattr(self.executor, "state"):
+        if hasattr(self.executor, "state") and hasattr(self.executor.state, "get"):
             self.executor.state = AgentState(self._initial_state.get())
 
         if hasattr(self.executor, "_model_state"):
