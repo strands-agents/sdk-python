@@ -304,7 +304,7 @@ class LiteLLMModel(OpenAIModel):
             signature = self._extract_thought_signature(event.get("data"))
             chunk = super().format_chunk(event, **kwargs)
             if signature:
-                tool_use_dict = cast(dict, chunk.get("contentBlockStart", {}).get("start", {}).get("toolUse", {}))
+                tool_use_dict: dict = chunk["contentBlockStart"]["start"]["toolUse"]
                 tool_use_dict["reasoningSignature"] = signature
             return chunk
 
