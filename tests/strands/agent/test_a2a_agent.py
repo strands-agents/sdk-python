@@ -356,39 +356,30 @@ async def test_get_a2a_client_with_client_config_does_not_mutate_original(mock_a
 
 
 @pytest.mark.asyncio
-async def test_get_a2a_client_config_without_httpx_creates_managed_client(mock_agent_card):
-    """Test that _get_a2a_client creates a managed httpx client when config has no httpx_client.
+async def test_get_a2a_client_config_without_httpx_delegates_to_factory(mock_agent_card):
+    """Test that _get_a2a_client delegates to ClientFactory when config has no httpx_client.
 
-    This ensures consistency with get_agent_card — both paths create managed httpx clients
-    with the same timeout when no httpx_client is provided.
+    ClientFactory handles creating a default httpx client internally. We just pass
+    the config with streaming=True and let the factory do its job.
     """
     config = ClientConfig(polling=True, supported_transports=["jsonrpc"])
     agent = A2AAgent(endpoint="http://localhost:8000", client_config=config, timeout=600)
 
     with patch.object(agent, "get_agent_card", return_value=mock_agent_card):
-        with patch("strands.agent.a2a_agent.httpx.AsyncClient") as mock_httpx_class:
-            mock_httpx = AsyncMock()
-            mock_httpx.__aenter__.return_value = mock_httpx
-            mock_httpx.__aexit__.return_value = None
-            mock_httpx_class.return_value = mock_httpx
+        with patch("strands.agent.a2a_agent.ClientFactory") as mock_factory_class:
+            mock_factory = MagicMock()
+            mock_factory.create.return_value = MagicMock()
+            mock_factory_class.return_value = mock_factory
 
-            with patch("strands.agent.a2a_agent.ClientFactory") as mock_factory_class:
-                mock_factory = MagicMock()
-                mock_factory.create.return_value = MagicMock()
-                mock_factory_class.return_value = mock_factory
+            async with agent._get_a2a_client():
+                pass
 
-                async with agent._get_a2a_client():
-                    pass
-
-                # Should create managed httpx with agent timeout (consistent with get_agent_card)
-                mock_httpx_class.assert_called_once_with(timeout=600)
-
-                # Should preserve user config settings and inject managed client
-                created_config = mock_factory_class.call_args[0][0]
-                assert created_config.httpx_client is mock_httpx
-                assert created_config.streaming is True
-                assert created_config.polling is True
-                assert created_config.supported_transports == ["jsonrpc"]
+            # Should pass config directly to ClientFactory — factory handles httpx defaults
+            created_config = mock_factory_class.call_args[0][0]
+            assert created_config.streaming is True
+            assert created_config.polling is True
+            assert created_config.supported_transports == ["jsonrpc"]
+            assert created_config.httpx_client is None  # factory handles default
 
 
 @pytest.mark.asyncio

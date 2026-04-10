@@ -218,8 +218,8 @@ class A2AAgent(AgentBase):
         """Get A2A client for sending messages.
 
         If a deprecated factory was provided, delegates to it for client creation.
-        If client_config was provided with an httpx_client, uses it directly.
-        Otherwise creates a managed httpx client — consistent with get_agent_card().
+        If client_config was provided, uses it directly — ClientFactory handles defaults.
+        Otherwise creates a managed httpx client with the agent's timeout.
 
         Yields:
             Configured A2A client instance.
@@ -230,19 +230,14 @@ class A2AAgent(AgentBase):
             yield self._a2a_client_factory.create(agent_card)
             return
 
-        if self._client_config is not None and self._client_config.httpx_client is not None:
-            # User provided httpx_client — use it directly (same client as card resolution)
+        if self._client_config is not None:
             config = dataclasses.replace(self._client_config, streaming=True)
             yield ClientFactory(config).create(agent_card)
             return
 
-        # No httpx_client — create a managed one, consistent with get_agent_card() path
+        # No client_config — create a managed httpx client, consistent with get_agent_card() path
         async with httpx.AsyncClient(timeout=self.timeout) as httpx_client:
-            if self._client_config is not None:
-                # Preserve user settings (polling, supported_transports, etc.), inject managed client
-                config = dataclasses.replace(self._client_config, httpx_client=httpx_client, streaming=True)
-            else:
-                config = ClientConfig(httpx_client=httpx_client, streaming=True)
+            config = ClientConfig(httpx_client=httpx_client, streaming=True)
             yield ClientFactory(config).create(agent_card)
 
     async def _send_message(self, prompt: AgentInput) -> AsyncIterator[A2AResponse]:
