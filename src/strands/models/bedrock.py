@@ -21,7 +21,7 @@ from strands.types.media import S3Location, SourceLocation
 
 from .._exception_notes import add_exception_note
 from ..event_loop import streaming
-from ..tools import convert_pydantic_to_tool_spec
+from ..tools import convert_pydantic_to_json_schema, convert_pydantic_to_tool_spec
 from ..tools._tool_helpers import noop_tool
 from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import (
@@ -98,6 +98,9 @@ class BedrockModel(Model):
                 Please check https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html for
                 supported service tiers, models, and regions
             stop_sequences: List of sequences that will stop generation when encountered
+            structured_output_mode: Mode for structured output. "tool" (default) uses tool-based approach,
+                "native" uses Bedrock's outputConfig.textFormat for schema-constrained responses.
+                Native mode requires a model that supports structured output.
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
@@ -123,6 +126,7 @@ class BedrockModel(Model):
         include_tool_result_status: Literal["auto"] | bool | None
         service_tier: str | None
         stop_sequences: list[str] | None
+        structured_output_mode: Literal["tool", "native"] | None
         streaming: bool | None
         temperature: float | None
         top_p: float | None
@@ -218,6 +222,7 @@ class BedrockModel(Model):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
+        output_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
 
@@ -226,6 +231,7 @@ class BedrockModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
+            output_config: Output configuration for structured output (JSON schema).
 
         Returns:
             A Bedrock converse stream request.
@@ -251,6 +257,20 @@ class BedrockModel(Model):
             "messages": self._format_bedrock_messages(messages),
             "system": system_blocks,
             **({"serviceTier": {"type": self.config["service_tier"]}} if self.config.get("service_tier") else {}),
+            **(
+                {
+                    "outputConfig": {
+                        "textFormat": {
+                            "type": "json_schema",
+                            "structure": {
+                                "jsonSchema": output_config,
+                            },
+                        },
+                    }
+                }
+                if output_config
+                else {}
+            ),
             **(
                 {
                     "toolConfig": {
@@ -747,6 +767,7 @@ class BedrockModel(Model):
         *,
         tool_choice: ToolChoice | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
+        output_config: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Bedrock model.
@@ -760,6 +781,7 @@ class BedrockModel(Model):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
+            output_config: Output configuration for structured output (JSON schema).
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -782,7 +804,9 @@ class BedrockModel(Model):
         if system_prompt and system_prompt_content is None:
             system_prompt_content = [{"text": system_prompt}]
 
-        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice)
+        thread = asyncio.to_thread(
+            self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice, output_config
+        )
         task = asyncio.create_task(thread)
 
         while True:
@@ -801,6 +825,7 @@ class BedrockModel(Model):
         tool_specs: list[ToolSpec] | None = None,
         system_prompt_content: list[SystemContentBlock] | None = None,
         tool_choice: ToolChoice | None = None,
+        output_config: dict[str, Any] | None = None,
     ) -> None:
         """Stream conversation with the Bedrock model.
 
@@ -813,6 +838,7 @@ class BedrockModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt_content: System prompt content blocks to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            output_config: Output configuration for structured output (JSON schema).
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
@@ -820,7 +846,7 @@ class BedrockModel(Model):
         """
         try:
             logger.debug("formatting request")
-            request = self._format_request(messages, tool_specs, system_prompt_content, tool_choice)
+            request = self._format_request(messages, tool_specs, system_prompt_content, tool_choice, output_config)
             logger.debug("request=<%s>", request)
 
             logger.debug("invoking model")
@@ -1034,6 +1060,10 @@ class BedrockModel(Model):
     ) -> AsyncGenerator[dict[str, T | Any], None]:
         """Get structured output from the model.
 
+        Supports two modes controlled by `structured_output_mode` config:
+        - "tool" (default): Converts the Pydantic model to a tool spec and forces tool use.
+        - "native": Uses Bedrock's outputConfig.textFormat with JSON schema for guaranteed schema compliance.
+
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
@@ -1043,6 +1073,21 @@ class BedrockModel(Model):
         Yields:
             Model events with the last being the structured output.
         """
+        if self.config.get("structured_output_mode") == "native":
+            async for event in self._structured_output_native(output_model, prompt, system_prompt, **kwargs):
+                yield event
+        else:
+            async for event in self._structured_output_tool(output_model, prompt, system_prompt, **kwargs):
+                yield event
+
+    async def _structured_output_tool(
+        self,
+        output_model: type[T],
+        prompt: Messages,
+        system_prompt: str | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
+        """Structured output using tool-based approach."""
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.stream(
@@ -1073,6 +1118,39 @@ class BedrockModel(Model):
         if output_response is None:
             raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
 
+        yield {"output": output_model(**output_response)}
+
+    async def _structured_output_native(
+        self,
+        output_model: type[T],
+        prompt: Messages,
+        system_prompt: str | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[dict[str, T | Any], None]:
+        """Structured output using Bedrock's native outputConfig.textFormat."""
+        output_config = convert_pydantic_to_json_schema(output_model)
+
+        response = self.stream(
+            messages=prompt,
+            system_prompt=system_prompt,
+            output_config=output_config,
+            **kwargs,
+        )
+        async for event in streaming.process_stream(response):
+            yield event
+
+        _, messages, _, _ = event["stop"]
+
+        content = messages["content"]
+        text_content: str | None = None
+        for block in content:
+            if "text" in block and block["text"].strip():
+                text_content = block["text"]
+
+        if text_content is None:
+            raise ValueError("No text content found in the Bedrock response for native structured output.")
+
+        output_response = json.loads(text_content)
         yield {"output": output_model(**output_response)}
 
     @staticmethod

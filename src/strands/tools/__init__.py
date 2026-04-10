@@ -4,7 +4,7 @@ This module provides the core functionality for creating, managing, and executin
 """
 
 from .decorator import tool
-from .structured_output import convert_pydantic_to_tool_spec
+from .structured_output import convert_pydantic_to_json_schema, convert_pydantic_to_tool_spec
 from .tool_provider import ToolProvider
 from .tools import InvalidToolUseNameException, PythonAgentTool, normalize_schema, normalize_tool_spec
 
@@ -14,6 +14,7 @@ __all__ = [
     "InvalidToolUseNameException",
     "normalize_schema",
     "normalize_tool_spec",
+    "convert_pydantic_to_json_schema",
     "convert_pydantic_to_tool_spec",
     "ToolProvider",
 ]

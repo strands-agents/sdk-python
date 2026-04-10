@@ -1,5 +1,6 @@
 """Tools for converting Pydantic models to Bedrock tools."""
 
+import json
 from typing import Any, Union
 
 from pydantic import BaseModel
@@ -257,6 +258,35 @@ def _process_nested_dict(d: dict[str, Any], defs: dict[str, Any]) -> dict[str, A
     return result
 
 
+def _prepare_pydantic_schema(
+    model: type[BaseModel],
+    description: str | None = None,
+) -> tuple[str, str, dict[str, Any]]:
+    """Shared pipeline for converting a Pydantic model to a flattened JSON schema.
+
+    Resolves $refs, expands nested properties, flattens the schema, and resolves the description.
+
+    Args:
+        model: The Pydantic model class to convert.
+        description: Optional description override.
+
+    Returns:
+        Tuple of (name, description, flattened_schema).
+    """
+    name = model.__name__
+
+    input_schema = model.model_json_schema()
+
+    model_description = description
+    if not model_description and model.__doc__:
+        model_description = model.__doc__.strip()
+
+    _process_referenced_models(input_schema, model)
+    _expand_nested_properties(input_schema, model)
+
+    return name, model_description or "", _flatten_schema(input_schema)
+
+
 def convert_pydantic_to_tool_spec(
     model: type[BaseModel],
     description: str | None = None,
@@ -272,33 +302,12 @@ def convert_pydantic_to_tool_spec(
     Returns:
         ToolSpec: Dict containing the Bedrock tool specification
     """
-    name = model.__name__
+    name, model_description, flattened_schema = _prepare_pydantic_schema(model, description)
 
-    # Get the JSON schema
-    input_schema = model.model_json_schema()
-
-    # Get model docstring for description if not provided
-    model_description = description
-    if not model_description and model.__doc__:
-        model_description = model.__doc__.strip()
-
-    # Process all referenced models to ensure proper docstrings
-    # This step is important for gathering descriptions from referenced models
-    _process_referenced_models(input_schema, model)
-
-    # Now, let's fully expand the nested models with all their properties
-    _expand_nested_properties(input_schema, model)
-
-    # Flatten the schema
-    flattened_schema = _flatten_schema(input_schema)
-
-    final_schema = flattened_schema
-
-    # Construct the tool specification
     return ToolSpec(
         name=name,
         description=model_description or f"{name} structured output tool",
-        inputSchema={"json": final_schema},
+        inputSchema={"json": flattened_schema},
     )
 
 
@@ -402,3 +411,52 @@ def _process_properties(schema_def: dict[str, Any], model: type[BaseModel]) -> N
             # Add field description if available and not already set
             if field and field.description and not prop_info.get("description"):
                 prop_info["description"] = field.description
+
+
+def _add_additional_properties_false(schema: dict[str, Any]) -> None:
+    """Recursively add additionalProperties: false to all object types in a JSON schema.
+
+    Bedrock's native structured output requires additionalProperties: false at every object level.
+    Mutates the schema in place.
+
+    Args:
+        schema: The JSON schema to process (modified in place).
+    """
+    schema_type = schema.get("type")
+    if schema_type == "object" or (isinstance(schema_type, list) and "object" in schema_type):
+        schema["additionalProperties"] = False
+
+    if "properties" in schema:
+        for value in schema["properties"].values():
+            if isinstance(value, dict):
+                _add_additional_properties_false(value)
+
+    if "items" in schema and isinstance(schema["items"], dict):
+        _add_additional_properties_false(schema["items"])
+
+
+def convert_pydantic_to_json_schema(
+    model: type[BaseModel],
+    description: str | None = None,
+) -> dict[str, Any]:
+    """Convert a Pydantic model to a JSON schema dict for Bedrock native structured output.
+
+    Returns a dict with "schema" (JSON string), "name", and "description" keys,
+    suitable for use in outputConfig.textFormat.structure.jsonSchema.
+
+    Args:
+        model: The Pydantic model class to convert.
+        description: Optional description override.
+
+    Returns:
+        Dict with "schema" (JSON string), "name", and "description".
+    """
+    name, model_description, flattened_schema = _prepare_pydantic_schema(model, description)
+
+    _add_additional_properties_false(flattened_schema)
+
+    return {
+        "schema": json.dumps(flattened_schema),
+        "name": name,
+        "description": model_description or f"{name} structured output",
+    }

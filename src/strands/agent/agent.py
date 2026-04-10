@@ -894,9 +894,14 @@ class Agent(AgentBase):
 
                 await self._append_messages(*current_messages)
 
+                # Check if the model supports native structured output
+                model_config = self.model.get_config()
+                native_mode = isinstance(model_config, dict) and model_config.get("structured_output_mode") == "native"
+
                 structured_output_context = StructuredOutputContext(
                     structured_output_model or self._default_structured_output_model,
                     structured_output_prompt=structured_output_prompt or self._structured_output_prompt,
+                    native_mode=native_mode,
                 )
 
                 # Execute the event loop cycle with retry logic for context limits
@@ -958,7 +963,7 @@ class Agent(AgentBase):
         # Add `Agent` to invocation_state to keep backwards-compatibility
         invocation_state["agent"] = self
 
-        if structured_output_context:
+        if structured_output_context and not structured_output_context.native_mode:
             structured_output_context.register_tool(self.tool_registry)
 
         try:
