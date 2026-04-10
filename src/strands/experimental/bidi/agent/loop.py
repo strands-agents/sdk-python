@@ -140,7 +140,7 @@ class _BidiAgentLoop:
             await self._send_gate.wait()
 
         if isinstance(event, BidiTextInputEvent):
-            message: Message = {"role": "user", "content": [{"text": event.text}]}
+            message: Message = {"role": event.role, "content": [{"text": event.text}]}
             await self._agent._append_messages(message)
 
         await self._agent.model.send(event)
