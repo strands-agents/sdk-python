@@ -36,7 +36,7 @@ jobs:
             dry_run: 'false'
     steps:
       - name: Validate and process ${{ matrix.label }}
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           LABEL_NAME: ${{ matrix.label }}
           DAYS_TO_WAIT: ${{ matrix.days }}
