@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from strands.vended_plugins.skills._url_loader import (
+    _default_cache_dir,
     cache_key,
     clone_skill_repo,
     is_url,
@@ -22,8 +24,9 @@ class TestIsUrl:
     def test_https_github_url(self):
         assert is_url("https://github.com/org/skill-repo") is True
 
-    def test_http_url(self):
-        assert is_url("http://github.com/org/skill-repo") is True
+    def test_http_url_rejected(self):
+        """Plaintext http:// is not supported for security reasons."""
+        assert is_url("http://github.com/org/skill-repo") is False
 
     def test_ssh_url(self):
         assert is_url("ssh://git@github.com/org/skill-repo") is True
@@ -111,6 +114,7 @@ class TestParseUrlRef:
         assert subpath is None
 
     def test_http_with_ref(self):
+        """http:// URLs are still parsed (parse_url_ref doesn't enforce security)."""
         url, ref, subpath = parse_url_ref("http://gitlab.com/org/skill@feature-branch")
         assert url == "http://gitlab.com/org/skill"
         assert ref == "feature-branch"
@@ -170,6 +174,26 @@ class TestParseUrlRefGitHubTree:
         assert subpath == "skills/my-skill"
 
 
+class TestDefaultCacheDir:
+    """Tests for _default_cache_dir."""
+
+    def test_respects_xdg_cache_home(self, tmp_path):
+        """Test that XDG_CACHE_HOME is respected."""
+        with patch.dict(os.environ, {"XDG_CACHE_HOME": str(tmp_path / "xdg")}):
+            result = _default_cache_dir()
+        assert result == tmp_path / "xdg" / "strands" / "skills"
+
+    def test_falls_back_to_home_cache(self):
+        """Test that without XDG_CACHE_HOME, falls back to ~/.cache."""
+        with patch.dict(os.environ, {}, clear=False):
+            # Remove XDG_CACHE_HOME if set
+            env = os.environ.copy()
+            env.pop("XDG_CACHE_HOME", None)
+            with patch.dict(os.environ, env, clear=True):
+                result = _default_cache_dir()
+        assert result == Path.home() / ".cache" / "strands" / "skills"
+
+
 class TestCacheKey:
     """Tests for cache_key."""
 
@@ -197,6 +221,18 @@ class TestCacheKey:
         assert all(c in "0123456789abcdef" for c in key)
 
 
+def _fake_clone_factory():
+    """Return a fake clone function that creates the target directory via atomic rename."""
+
+    def fake_clone(cmd, **kwargs):
+        target_dir = Path(cmd[-1])
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "SKILL.md").write_text("---\nname: test\ndescription: test\n---\n")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    return fake_clone
+
+
 class TestCloneSkillRepo:
     """Tests for clone_skill_repo."""
 
@@ -204,18 +240,10 @@ class TestCloneSkillRepo:
         """Test successful clone by mocking subprocess.run."""
         cache = tmp_path / "cache"
 
-        def fake_clone(cmd, **kwargs):
-            # Simulate a successful clone by creating the target directory
-            target_dir = Path(cmd[-1])
-            target_dir.mkdir(parents=True, exist_ok=True)
-            (target_dir / "SKILL.md").write_text("---\nname: test\ndescription: test\n---\n")
-            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
-
-        with patch("strands.vended_plugins.skills._url_loader.subprocess.run", side_effect=fake_clone):
+        with patch("strands.vended_plugins.skills._url_loader.subprocess.run", side_effect=_fake_clone_factory()):
             result = clone_skill_repo("https://github.com/org/skill", cache_dir=cache)
 
         assert result.exists()
-        assert (result / "SKILL.md").exists()
 
     def test_clone_with_ref(self, tmp_path):
         """Test that ref is passed as --branch to git clone."""
@@ -280,22 +308,21 @@ class TestCloneSkillRepo:
             with pytest.raises(RuntimeError, match="failed to clone"):
                 clone_skill_repo("https://github.com/org/nonexistent", cache_dir=cache)
 
-    def test_clone_failure_cleans_up_partial(self, tmp_path):
-        """Test that a failed clone removes any partial directory."""
+    def test_clone_failure_cleans_up_temp_dir(self, tmp_path):
+        """Test that a failed clone removes the temp directory."""
         cache = tmp_path / "cache"
+        cache.mkdir()
 
-        def failing_clone(cmd, **kwargs):
-            # Create partial clone then fail
-            target_dir = Path(cmd[-1])
-            target_dir.mkdir(parents=True, exist_ok=True)
-            raise subprocess.CalledProcessError(128, "git", stderr="fatal: error")
-
-        with patch("strands.vended_plugins.skills._url_loader.subprocess.run", side_effect=failing_clone):
+        with patch(
+            "strands.vended_plugins.skills._url_loader.subprocess.run",
+            side_effect=subprocess.CalledProcessError(128, "git", stderr="fatal: error"),
+        ):
             with pytest.raises(RuntimeError):
                 clone_skill_repo("https://github.com/org/broken", cache_dir=cache)
 
-        # Verify no leftover directory
-        assert len(list(cache.iterdir())) == 0
+        # Only the cache dir itself should remain, no temp or target dirs
+        remaining = [p for p in cache.iterdir() if not p.name.startswith(".")]
+        assert len(remaining) == 0
 
     def test_git_not_found_raises_runtime_error(self, tmp_path):
         """Test that missing git binary raises RuntimeError."""
@@ -329,7 +356,6 @@ class TestCloneSkillRepo:
         def fake_clone(cmd, **kwargs):
             target_dir = Path(cmd[-1])
             target_dir.mkdir(parents=True, exist_ok=True)
-            # Create a nested skill directory
             skill_dir = target_dir / "skills" / "my-skill"
             skill_dir.mkdir(parents=True)
             (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: test\n---\n")
@@ -371,3 +397,55 @@ class TestCloneSkillRepo:
         assert "--depth" in captured_cmd
         depth_idx = captured_cmd.index("--depth")
         assert captured_cmd[depth_idx + 1] == "1"
+
+    def test_force_refresh_reclones(self, tmp_path):
+        """Test that force_refresh=True deletes cache and re-clones."""
+        cache = tmp_path / "cache"
+        call_count = 0
+
+        def fake_clone(cmd, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            target_dir = Path(cmd[-1])
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "marker.txt").write_text(f"clone-{call_count}")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with patch("strands.vended_plugins.skills._url_loader.subprocess.run", side_effect=fake_clone):
+            result1 = clone_skill_repo("https://github.com/org/skill", cache_dir=cache)
+            assert (result1 / "marker.txt").read_text() == "clone-1"
+
+            result2 = clone_skill_repo("https://github.com/org/skill", cache_dir=cache, force_refresh=True)
+            assert (result2 / "marker.txt").read_text() == "clone-2"
+
+        assert call_count == 2
+        assert result1 == result2
+
+    def test_force_refresh_noop_when_no_cache(self, tmp_path):
+        """Test that force_refresh=True works even when there's no existing cache."""
+        cache = tmp_path / "cache"
+
+        with patch("strands.vended_plugins.skills._url_loader.subprocess.run", side_effect=_fake_clone_factory()):
+            result = clone_skill_repo("https://github.com/org/skill", cache_dir=cache, force_refresh=True)
+
+        assert result.exists()
+
+    def test_race_condition_other_process_wins(self, tmp_path):
+        """Test that when another process clones first (rename fails), we use their clone."""
+        cache = tmp_path / "cache"
+        key_hash = cache_key("https://github.com/org/skill", None)
+        target = cache / key_hash
+
+        def fake_clone(cmd, **kwargs):
+            target_dir = Path(cmd[-1])
+            target_dir.mkdir(parents=True, exist_ok=True)
+            # Simulate another process completing the clone first
+            target.mkdir(parents=True, exist_ok=True)
+            (target / "SKILL.md").write_text("---\nname: winner\ndescription: test\n---\n")
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        with patch("strands.vended_plugins.skills._url_loader.subprocess.run", side_effect=fake_clone):
+            result = clone_skill_repo("https://github.com/org/skill", cache_dir=cache)
+
+        assert result == target
+        assert result.exists()

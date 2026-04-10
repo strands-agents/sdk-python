@@ -670,7 +670,7 @@ class TestResolveUrlSkills:
         """Create a mock clone function that creates a skill directory."""
         skill_dir = tmp_path / "cloned"
 
-        def fake_clone(url, *, ref=None, subpath=None, cache_dir=None):
+        def fake_clone(url, *, ref=None, subpath=None, cache_dir=None, force_refresh=False):
             skill_dir.mkdir(parents=True, exist_ok=True)
             content = f"---\nname: {skill_name}\ndescription: {description}\n---\n# Instructions\n"
             (skill_dir / "SKILL.md").write_text(content)
@@ -749,7 +749,7 @@ class TestResolveUrlSkills:
         fake_clone = self._mock_clone(tmp_path)
         captured_cache = []
 
-        def tracking_clone(url, *, ref=None, subpath=None, cache_dir=None):
+        def tracking_clone(url, *, ref=None, subpath=None, cache_dir=None, force_refresh=False):
             captured_cache.append(cache_dir)
             return fake_clone(url, ref=ref, cache_dir=cache_dir)
 

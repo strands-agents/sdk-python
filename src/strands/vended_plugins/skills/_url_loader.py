@@ -9,17 +9,20 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_CACHE_DIR = Path.home() / ".cache" / "strands" / "skills"
-
-# Patterns that indicate a string is a URL rather than a local path
-_URL_PREFIXES = ("https://", "http://", "git@", "ssh://")
+# Patterns that indicate a string is a URL rather than a local path.
+# NOTE: http:// is intentionally excluded — plaintext HTTP exposes users to
+# man-in-the-middle attacks where malicious code could be injected into a
+# cloned skill.  Only encrypted transports are supported.
+_URL_PREFIXES = ("https://", "git@", "ssh://")
 
 # Regex to strip .git suffix from URLs before ref parsing
 _GIT_SUFFIX = re.compile(r"\.git$")
@@ -27,6 +30,17 @@ _GIT_SUFFIX = re.compile(r"\.git$")
 # Matches GitHub /tree/<ref> or /tree/<ref>/<path> (also /blob/)
 # e.g. /owner/repo/tree/main/skills/my-skill -> groups: (/owner/repo, main, skills/my-skill)
 _GITHUB_TREE_PATTERN = re.compile(r"^(/[^/]+/[^/]+)/(?:tree|blob)/([^/]+)(?:/(.+?))?/?$")
+
+
+def _default_cache_dir() -> Path:
+    """Return the default cache directory, respecting ``XDG_CACHE_HOME``.
+
+    Evaluated lazily (not at import time) so that ``Path.home()`` is not
+    called in environments where ``HOME`` may be unset (e.g. containers).
+    """
+    xdg = os.environ.get("XDG_CACHE_HOME")
+    base = Path(xdg) if xdg else Path.home() / ".cache"
+    return base / "strands" / "skills"
 
 
 def is_url(source: str) -> bool:
@@ -135,6 +149,7 @@ def clone_skill_repo(
     ref: str | None = None,
     subpath: str | None = None,
     cache_dir: Path | None = None,
+    force_refresh: bool = False,
 ) -> Path:
     """Clone a skill repository to a local cache directory.
 
@@ -146,12 +161,19 @@ def clone_skill_repo(
     within the cloned repository (useful for mono-repos containing skills in
     nested directories).
 
+    **Cache behaviour**: Cloned repos are cached at
+    ``$XDG_CACHE_HOME/strands/skills/`` (or ``~/.cache/strands/skills/``).
+    When no ``ref`` is pinned the default branch is cached; pass
+    ``force_refresh=True`` to re-clone, or pin a specific tag/branch for
+    reproducibility.
+
     Args:
         url: The Git clone URL.
         ref: Optional branch or tag to check out.
         subpath: Optional path within the repo to return (e.g. ``skills/my-skill``).
-        cache_dir: Override the default cache directory
-            (``~/.cache/strands/skills/``).
+        cache_dir: Override the default cache directory.
+        force_refresh: If True, delete any cached clone and re-fetch from the
+            remote.  Useful for unpinned refs that may have been updated.
 
     Returns:
         Path to the cloned repository root, or to ``subpath`` within it.
@@ -159,11 +181,15 @@ def clone_skill_repo(
     Raises:
         RuntimeError: If the clone fails or ``git`` is not installed.
     """
-    cache_dir = cache_dir or _DEFAULT_CACHE_DIR
+    cache_dir = cache_dir or _default_cache_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     key = cache_key(url, ref)
     target = cache_dir / key
+
+    if force_refresh and target.exists():
+        logger.info("url=<%s>, ref=<%s> | force-refreshing cached skill", url, ref)
+        shutil.rmtree(target)
 
     if not target.exists():
         logger.info("url=<%s>, ref=<%s> | cloning skill repository", url, ref)
@@ -171,9 +197,16 @@ def clone_skill_repo(
         cmd: list[str] = ["git", "clone", "--depth", "1"]
         if ref:
             cmd.extend(["--branch", ref])
-        cmd.extend([url, str(target)])
+
+        # Clone into a temporary directory first, then atomically rename to
+        # the target path.  This prevents a race condition where two
+        # concurrent processes both pass the ``not target.exists()`` check
+        # and attempt to clone into the same directory.
+        tmp_dir = tempfile.mkdtemp(dir=cache_dir, prefix=".tmp-clone-")
+        tmp_target = Path(tmp_dir) / "repo"
 
         try:
+            cmd.extend([url, str(tmp_target)])
             subprocess.run(  # noqa: S603
                 cmd,
                 check=True,
@@ -181,15 +214,21 @@ def clone_skill_repo(
                 text=True,
                 timeout=120,
             )
+            try:
+                tmp_target.rename(target)
+            except OSError:
+                # Another process completed the clone first — use theirs
+                logger.debug("url=<%s> | another process already cached this skill, using existing", url)
         except subprocess.CalledProcessError as e:
-            # Clean up any partial clone
-            if target.exists():
-                shutil.rmtree(target)
             raise RuntimeError(
                 f"url=<{url}>, ref=<{ref}> | failed to clone skill repository: {e.stderr.strip()}"
             ) from e
         except FileNotFoundError as e:
             raise RuntimeError("git is required to load skills from URLs but was not found on PATH") from e
+        finally:
+            # Always clean up the temp directory
+            if Path(tmp_dir).exists():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
     else:
         logger.debug("url=<%s>, ref=<%s> | using cached skill at %s", url, ref, target)
 

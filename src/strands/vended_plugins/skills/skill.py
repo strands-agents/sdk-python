@@ -339,6 +339,7 @@ class Skill:
         url: str,
         *,
         cache_dir: Path | None = None,
+        force_refresh: bool = False,
         strict: bool = False,
     ) -> list[Skill]:
         """Load skill(s) from a remote Git repository URL.
@@ -358,9 +359,15 @@ class Skill:
 
         Args:
             url: A Git-cloneable URL, optionally with an ``@ref`` suffix or
-                a GitHub ``/tree/<ref>/path`` URL.
+                a GitHub ``/tree/<ref>/path`` URL.  Only ``https://``,
+                ``ssh://``, and ``git@`` schemes are supported; plaintext
+                ``http://`` is rejected for security.
             cache_dir: Override the default cache directory
-                (``~/.cache/strands/skills/``).
+                (``$XDG_CACHE_HOME/strands/skills/`` or
+                ``~/.cache/strands/skills/``).
+            force_refresh: If True, discard any cached clone and re-fetch from
+                the remote.  Useful when loading unpinned refs (e.g. ``main``)
+                that may have been updated upstream.
             strict: If True, raise on any validation issue. If False (default),
                 warn and load anyway.
 
@@ -368,6 +375,7 @@ class Skill:
             List of Skill instances loaded from the repository.
 
         Raises:
+            ValueError: If ``url`` is not a recognised remote URL scheme.
             RuntimeError: If the repository cannot be cloned or ``git`` is not
                 available.
         """
@@ -377,7 +385,9 @@ class Skill:
             raise ValueError(f"url=<{url}> | not a valid remote URL")
 
         clean_url, ref, subpath = parse_url_ref(url)
-        repo_path = clone_skill_repo(clean_url, ref=ref, subpath=subpath, cache_dir=cache_dir)
+        repo_path = clone_skill_repo(
+            clean_url, ref=ref, subpath=subpath, cache_dir=cache_dir, force_refresh=force_refresh
+        )
 
         # If the repo root is itself a skill, load it directly
         has_skill_md = (repo_path / "SKILL.md").is_file() or (repo_path / "skill.md").is_file()

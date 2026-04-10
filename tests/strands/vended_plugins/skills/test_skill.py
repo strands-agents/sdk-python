@@ -560,7 +560,7 @@ class TestSkillFromUrl:
         """Create a mock clone function that creates a skill directory."""
         skill_dir = tmp_path / "cloned"
 
-        def fake_clone(url, *, ref=None, subpath=None, cache_dir=None):
+        def fake_clone(url, *, ref=None, subpath=None, cache_dir=None, force_refresh=False):
             skill_dir.mkdir(parents=True, exist_ok=True)
             content = f"---\nname: {skill_name}\ndescription: {description}\n---\n{body}\n"
             (skill_dir / "SKILL.md").write_text(content)
@@ -572,7 +572,7 @@ class TestSkillFromUrl:
         """Create a mock clone function that creates a parent dir with multiple skills."""
         parent_dir = tmp_path / "cloned"
 
-        def fake_clone(url, *, ref=None, subpath=None, cache_dir=None):
+        def fake_clone(url, *, ref=None, subpath=None, cache_dir=None, force_refresh=False):
             parent_dir.mkdir(parents=True, exist_ok=True)
             for name in ("skill-a", "skill-b"):
                 child = parent_dir / name
@@ -625,7 +625,7 @@ class TestSkillFromUrl:
         fake_clone = self._mock_clone(tmp_path)
         captured_ref = []
 
-        def tracking_clone(url, *, ref=None, subpath=None, cache_dir=None):
+        def tracking_clone(url, *, ref=None, subpath=None, cache_dir=None, force_refresh=False):
             captured_ref.append(ref)
             return fake_clone(url, ref=ref, cache_dir=cache_dir)
 
@@ -669,7 +669,7 @@ class TestSkillFromUrl:
         fake_clone = self._mock_clone(tmp_path)
         captured_cache = []
 
-        def tracking_clone(url, *, ref=None, subpath=None, cache_dir=None):
+        def tracking_clone(url, *, ref=None, subpath=None, cache_dir=None, force_refresh=False):
             captured_cache.append(cache_dir)
             return fake_clone(url, ref=ref, cache_dir=cache_dir)
 
