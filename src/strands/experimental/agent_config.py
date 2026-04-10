@@ -9,9 +9,33 @@ programmatic approach after creating the agent:
     agent = config_to_agent("config.json")
     # Add tools that need code-based instantiation
     agent.tool_registry.process_tools([ToolWithConfigArg(HttpsConnection("localhost"))])
+
+The ``model`` field supports two formats:
+
+**String format (backward compatible — defaults to Bedrock):**
+    {"model": "us.anthropic.claude-sonnet-4-20250514-v1:0"}
+
+**Object format (supports all providers):**
+    {
+        "model": {
+            "provider": "anthropic",
+            "model_id": "claude-sonnet-4-20250514",
+            "max_tokens": 10000,
+            "client_args": {"api_key": "$ANTHROPIC_API_KEY"}
+        }
+    }
+
+Environment variable references (``$VAR`` or ``${VAR}``) in model config values are resolved
+automatically before provider instantiation.
+
+Note: The following constructor parameters cannot be specified from JSON because they require
+code-based instantiation: ``boto_session`` (Bedrock, SageMaker), ``client`` (OpenAI, Gemini),
+``gemini_tools`` (Gemini). Use ``region_name`` / ``client_args`` as JSON-friendly alternatives.
 """
 
 import json
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -27,8 +51,25 @@ AGENT_CONFIG_SCHEMA = {
     "properties": {
         "name": {"description": "Name of the agent", "type": ["string", "null"], "default": None},
         "model": {
-            "description": "The model ID to use for this agent. If not specified, uses the default model.",
-            "type": ["string", "null"],
+            "description": (
+                "The model to use for this agent. Can be a string (Bedrock model_id) "
+                "or an object with a 'provider' field for any supported provider."
+            ),
+            "oneOf": [
+                {"type": "string"},
+                {"type": "null"},
+                {
+                    "type": "object",
+                    "properties": {
+                        "provider": {
+                            "description": "The model provider name",
+                            "type": "string",
+                        }
+                    },
+                    "required": ["provider"],
+                    "additionalProperties": True,
+                },
+            ],
             "default": None,
         },
         "prompt": {
@@ -49,6 +90,87 @@ AGENT_CONFIG_SCHEMA = {
 
 # Pre-compile validator for better performance
 _VALIDATOR = jsonschema.Draft7Validator(AGENT_CONFIG_SCHEMA)
+
+# Pattern for matching environment variable references
+_ENV_VAR_PATTERN = re.compile(r"^\$\{([^}]+)\}$|^\$([A-Za-z_][A-Za-z0-9_]*)$")
+
+# Provider name to model class name — resolved via strands.models lazy __getattr__
+PROVIDER_MAP: dict[str, str] = {
+    "bedrock": "BedrockModel",
+    "anthropic": "AnthropicModel",
+    "openai": "OpenAIModel",
+    "gemini": "GeminiModel",
+    "ollama": "OllamaModel",
+    "litellm": "LiteLLMModel",
+    "mistral": "MistralModel",
+    "llamaapi": "LlamaAPIModel",
+    "llamacpp": "LlamaCppModel",
+    "sagemaker": "SageMakerAIModel",
+    "writer": "WriterModel",
+    "openai_responses": "OpenAIResponsesModel",
+}
+
+
+def _resolve_env_vars(value: Any) -> Any:
+    """Recursively resolve environment variable references in config values.
+
+    String values matching ``$VAR_NAME`` or ``${VAR_NAME}`` are replaced with the
+    corresponding environment variable value. Dicts and lists are traversed recursively.
+
+    Args:
+        value: The value to resolve. Can be a string, dict, list, or any other type.
+
+    Returns:
+        The resolved value with environment variable references replaced.
+
+    Raises:
+        ValueError: If a referenced environment variable is not set.
+    """
+    if isinstance(value, str):
+        match = _ENV_VAR_PATTERN.match(value)
+        if match:
+            var_name = match.group(1) or match.group(2)
+            env_value = os.environ.get(var_name)
+            if env_value is None:
+                raise ValueError(f"Environment variable '{var_name}' is not set")
+            return env_value
+        return value
+    if isinstance(value, dict):
+        return {k: _resolve_env_vars(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_resolve_env_vars(item) for item in value]
+    return value
+
+
+def _create_model_from_dict(model_config: dict[str, Any]) -> Any:
+    """Create a Model instance from a provider config dict.
+
+    Routes the config to the appropriate model class based on the ``provider`` field,
+    then delegates to the class's ``from_dict`` method. All imports are lazy to avoid
+    requiring optional dependencies that are not installed.
+
+    Args:
+        model_config: Dict containing at least a ``provider`` key and provider-specific params.
+
+    Returns:
+        A configured Model instance for the specified provider.
+
+    Raises:
+        ValueError: If the provider name is not recognized.
+        ImportError: If the provider's optional dependencies are not installed.
+    """
+    config = model_config.copy()
+    provider = config.pop("provider")
+
+    class_name = PROVIDER_MAP.get(provider)
+    if class_name is None:
+        supported = ", ".join(sorted(PROVIDER_MAP.keys()))
+        raise ValueError(f"Unknown model provider: '{provider}'. Supported providers: {supported}")
+
+    from .. import models
+
+    model_cls = getattr(models, class_name)
+    return model_cls.from_dict(config)
 
 
 def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> Any:
@@ -83,6 +205,12 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> A
         Create agent from dictionary:
         >>> config = {"model": "anthropic.claude-3-5-sonnet-20241022-v2:0", "tools": ["calculator"]}
         >>> agent = config_to_agent(config)
+
+        Create agent with object model config:
+        >>> config = {
+        ...     "model": {"provider": "openai", "model_id": "gpt-4o", "client_args": {"api_key": "$OPENAI_API_KEY"}}
+        ... }
+        >>> agent = config_to_agent(config)
     """
     # Parse configuration
     if isinstance(config, str):
@@ -114,11 +242,20 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> A
         raise ValueError(f"Configuration validation error at {error_path}: {e.message}") from e
 
     # Prepare Agent constructor arguments
-    agent_kwargs = {}
+    agent_kwargs: dict[str, Any] = {}
 
-    # Map configuration keys to Agent constructor parameters
+    # Handle model field — string vs object format
+    model_value = config_dict.get("model")
+    if isinstance(model_value, dict):
+        # Object format: resolve env vars and create Model instance via factory
+        resolved_config = _resolve_env_vars(model_value)
+        agent_kwargs["model"] = _create_model_from_dict(resolved_config)
+    elif model_value is not None:
+        # String format (backward compat): pass directly as model_id to Agent
+        agent_kwargs["model"] = model_value
+
+    # Map remaining configuration keys to Agent constructor parameters
     config_mapping = {
-        "model": "model",
         "prompt": "system_prompt",
         "tools": "tools",
         "name": "name",

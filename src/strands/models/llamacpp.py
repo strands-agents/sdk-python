@@ -131,6 +131,26 @@ class LlamaCppModel(Model):
         model_id: str
         params: dict[str, Any] | None
 
+    @classmethod
+    def from_dict(cls, config: dict[str, Any]) -> "LlamaCppModel":
+        """Create a LlamaCppModel from a configuration dictionary.
+
+        Handles extraction of ``base_url`` and ``timeout`` as separate constructor parameters.
+
+        Args:
+            config: Model configuration dictionary.
+
+        Returns:
+            A configured LlamaCppModel instance.
+        """
+        kwargs: dict[str, Any] = {}
+        if "base_url" in config:
+            kwargs["base_url"] = config.pop("base_url")
+        if "timeout" in config:
+            kwargs["timeout"] = config.pop("timeout")
+        kwargs.update(config)
+        return cls(**kwargs)
+
     def __init__(
         self,
         base_url: str = "http://localhost:8080",

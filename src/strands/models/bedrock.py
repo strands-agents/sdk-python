@@ -127,6 +127,32 @@ class BedrockModel(Model):
         temperature: float | None
         top_p: float | None
 
+    @classmethod
+    def from_dict(cls, config: dict[str, Any]) -> "BedrockModel":
+        """Create a BedrockModel from a configuration dictionary.
+
+        Handles extraction of ``region_name``, ``endpoint_url``, and conversion of
+        ``boto_client_config`` from a plain dict to ``botocore.config.Config``.
+
+        Args:
+            config: Model configuration dictionary.
+
+        Returns:
+            A configured BedrockModel instance.
+        """
+        kwargs: dict[str, Any] = {}
+
+        if "region_name" in config:
+            kwargs["region_name"] = config.pop("region_name")
+        if "endpoint_url" in config:
+            kwargs["endpoint_url"] = config.pop("endpoint_url")
+        if "boto_client_config" in config:
+            raw = config.pop("boto_client_config")
+            kwargs["boto_client_config"] = BotocoreConfig(**raw) if isinstance(raw, dict) else raw
+
+        kwargs.update(config)
+        return cls(**kwargs)
+
     def __init__(
         self,
         *,
