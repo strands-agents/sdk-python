@@ -118,8 +118,8 @@ class LiteLLMModel(OpenAIModel):
 
         return super().format_request_message_content(content)
 
-    @classmethod
     @override
+    @classmethod
     def format_request_message_tool_call(cls, tool_use: ToolUse, **kwargs: Any) -> dict[str, Any]:
         """Format a LiteLLM compatible tool call, encoding thought signatures into the tool call ID.
 
@@ -142,6 +142,36 @@ class LiteLLMModel(OpenAIModel):
             tool_call["id"] = f"{tool_call['id']}{_THOUGHT_SIGNATURE_SEPARATOR}{reasoning_signature}"
 
         return tool_call
+
+    @staticmethod
+    def _extract_thought_signature(data: Any) -> str | None:
+        """Extract thought signature from a tool call event data.
+
+        LiteLLM embeds Gemini thought signatures in the tool call ID using the ``__thought__`` separator.
+        The signature may also appear in ``provider_specific_fields`` at the top level or on ``function``.
+
+        Args:
+            data: Tool call event data object.
+
+        Returns:
+            The extracted thought signature, or None if not present.
+        """
+        psf = getattr(data, "provider_specific_fields", None) or {}
+        if isinstance(psf, dict) and psf.get("thought_signature"):
+            return str(psf["thought_signature"])
+
+        func = getattr(data, "function", None)
+        func_psf = getattr(func, "provider_specific_fields", None) or {}
+        if isinstance(func_psf, dict) and func_psf.get("thought_signature"):
+            return str(func_psf["thought_signature"])
+
+        # Extract from encoded ID (lowest priority — used only when provider_specific_fields don't carry it)
+        tool_call_id = getattr(data, "id", None) or ""
+        if isinstance(tool_call_id, str) and _THOUGHT_SIGNATURE_SEPARATOR in tool_call_id:
+            _, signature = tool_call_id.split(_THOUGHT_SIGNATURE_SEPARATOR, 1)
+            return signature
+
+        return None
 
     def _stream_switch_content(self, data_type: str, prev_data_type: str | None) -> tuple[list[StreamEvent], str]:
         """Handle switching to a new content stream.
@@ -269,39 +299,13 @@ class LiteLLMModel(OpenAIModel):
             )
 
         # Extract thought signature from tool call content_start events.
-        # LiteLLM embeds Gemini thought signatures in the tool call ID using the __thought__ separator.
-        # We extract it into reasoningSignature so the streaming layer can preserve it through to
-        # the internal ToolUse representation. The full encoded ID is kept in toolUseId so that
-        # tool result messages (which reference toolUseId) continue to match the assistant message.
+        # The full encoded ID is kept in toolUseId so that tool result messages continue to match.
         if event["chunk_type"] == "content_start" and event.get("data_type") == "tool":
-            data = event.get("data")
-            tool_call_id = getattr(data, "id", None) or ""
-            if not isinstance(tool_call_id, str):
-                tool_call_id = ""
-            # Also check provider_specific_fields for the signature (non-streaming responses)
-            psf = getattr(data, "provider_specific_fields", None) or {}
-            if isinstance(psf, dict):
-                psf_signature = psf.get("thought_signature")
-            else:
-                psf_signature = None
-            # Extract from encoded ID as fallback
-            id_signature = None
-            if _THOUGHT_SIGNATURE_SEPARATOR in tool_call_id:
-                _, id_signature = tool_call_id.split(_THOUGHT_SIGNATURE_SEPARATOR, 1)
-            # Also check function-level provider_specific_fields
-            func = getattr(data, "function", None)
-            func_psf = getattr(func, "provider_specific_fields", None) or {}
-            if isinstance(func_psf, dict):
-                func_signature = func_psf.get("thought_signature")
-            else:
-                func_signature = None
-
-            signature = psf_signature or func_signature or id_signature
-
+            signature = self._extract_thought_signature(event.get("data"))
             chunk = super().format_chunk(event, **kwargs)
             if signature:
-                tool_use = chunk.get("contentBlockStart", {}).get("start", {}).get("toolUse", {})
-                tool_use["reasoningSignature"] = signature
+                tool_use_dict = cast(dict, chunk.get("contentBlockStart", {}).get("start", {}).get("toolUse", {}))
+                tool_use_dict["reasoningSignature"] = signature
             return chunk
 
         # For all other cases, use the parent implementation

@@ -891,6 +891,25 @@ def test_format_chunk_tool_start_extracts_thought_signature_from_provider_specif
     assert tool_use["toolUseId"] == "call_abc123"
 
 
+def test_format_chunk_tool_start_extracts_thought_signature_from_function_provider_specific_fields():
+    """Test that format_chunk extracts thought_signature from function.provider_specific_fields."""
+    model = LiteLLMModel(model_id="test")
+
+    mock_data = unittest.mock.Mock()
+    mock_data.id = "call_abc123"  # No __thought__ in ID
+    mock_data.function = unittest.mock.Mock()
+    mock_data.function.name = "get_weather"
+    mock_data.provider_specific_fields = None
+    mock_data.function.provider_specific_fields = {"thought_signature": "ZnVuYy1zaWc="}
+
+    event = {"chunk_type": "content_start", "data_type": "tool", "data": mock_data}
+    result = model.format_chunk(event)
+
+    tool_use = result["contentBlockStart"]["start"]["toolUse"]
+    assert tool_use["reasoningSignature"] == "ZnVuYy1zaWc="
+    assert tool_use["toolUseId"] == "call_abc123"
+
+
 def test_format_chunk_tool_start_no_thought_signature():
     """Test that format_chunk works normally when no thought_signature is present."""
     model = LiteLLMModel(model_id="test")
