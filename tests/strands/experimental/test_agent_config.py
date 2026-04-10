@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -170,3 +171,75 @@ def test_config_to_agent_with_tool():
     config = {"model": "test-model", "tools": ["tests.fixtures.say_tool:say"]}
     agent = config_to_agent(config)
     assert "say" in agent.tool_names
+
+
+class TestConfigToAgentWithMcpServers:
+    """Tests for config_to_agent with mcp_servers field."""
+
+    @patch("strands.experimental.agent_config.load_mcp_clients_from_config")
+    def test_mcp_servers_creates_clients(self, mock_load_clients):
+        """mcp_servers config should create MCPClient instances and add to tools."""
+        mock_client = MagicMock()
+        mock_load_clients.return_value = {"server1": mock_client}
+
+        config = {
+            "model": "test-model",
+            "mcp_servers": {"server1": {"command": "echo"}},
+        }
+        config_to_agent(config)
+
+        mock_load_clients.assert_called_once_with({"mcpServers": {"server1": {"command": "echo"}}})
+
+    @patch("strands.experimental.agent_config.load_mcp_clients_from_config")
+    def test_mcp_servers_appended_to_existing_tools(self, mock_load_clients):
+        """MCP clients should be appended to existing tool lists."""
+        mock_client = MagicMock()
+        mock_load_clients.return_value = {"server1": mock_client}
+
+        config = {
+            "model": "test-model",
+            "tools": [],
+            "mcp_servers": {"server1": {"command": "echo"}},
+        }
+        config_to_agent(config)
+        mock_load_clients.assert_called_once()
+
+    @patch("strands.experimental.agent_config.load_mcp_clients_from_config")
+    def test_mcp_servers_empty_dict_is_valid(self, mock_load_clients):
+        """Empty mcp_servers dict should not create any clients."""
+        mock_load_clients.return_value = {}
+
+        config = {"model": "test-model", "mcp_servers": {}}
+        agent = config_to_agent(config)
+        # Empty dict is falsy, so load_mcp_clients_from_config should not be called
+        mock_load_clients.assert_not_called()
+        assert agent.model.config["model_id"] == "test-model"
+
+    def test_mcp_servers_schema_validation_rejects_array(self):
+        """mcp_servers should only accept an object, not an array."""
+        config = {"model": "test-model", "mcp_servers": ["not", "an", "object"]}
+        with pytest.raises(ValueError, match="Configuration validation error"):
+            config_to_agent(config)
+
+    def test_mcp_servers_schema_validation_rejects_string(self):
+        """mcp_servers should only accept an object, not a string."""
+        config = {"model": "test-model", "mcp_servers": "not an object"}
+        with pytest.raises(ValueError, match="Configuration validation error"):
+            config_to_agent(config)
+
+    @patch("strands.experimental.agent_config.load_mcp_clients_from_config")
+    def test_multiple_mcp_servers(self, mock_load_clients):
+        """Multiple MCP servers should all be created."""
+        mock_client1 = MagicMock()
+        mock_client2 = MagicMock()
+        mock_load_clients.return_value = {"server1": mock_client1, "server2": mock_client2}
+
+        config = {
+            "model": "test-model",
+            "mcp_servers": {
+                "server1": {"command": "echo"},
+                "server2": {"transport": "sse", "url": "http://localhost:8000/sse"},
+            },
+        }
+        config_to_agent(config)
+        mock_load_clients.assert_called_once()
