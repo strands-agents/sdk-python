@@ -1,5 +1,7 @@
 """Abstract base class for Agent model providers."""
 
+from __future__ import annotations
+
 import abc
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable
@@ -50,6 +52,27 @@ class Model(abc.ABC):
             False by default. Model providers that support server-side state should override this.
         """
         return False
+
+    @classmethod
+    def from_dict(cls, config: dict[str, Any]) -> Model:
+        """Create a Model instance from a configuration dictionary.
+
+        The default implementation extracts ``client_args`` (if present) and passes
+        all remaining keys as keyword arguments to the constructor. Subclasses with
+        non-standard constructor signatures should override this method.
+
+        Args:
+            config: Provider-specific configuration dictionary.
+
+        Returns:
+            A configured Model instance.
+        """
+        client_args = config.pop("client_args", None)
+        kwargs: dict[str, Any] = {}
+        if client_args is not None:
+            kwargs["client_args"] = client_args
+        kwargs.update(config)
+        return cls(**kwargs)
 
     @abc.abstractmethod
     # pragma: no cover

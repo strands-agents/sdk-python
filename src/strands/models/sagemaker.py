@@ -133,6 +133,27 @@ class SageMakerAIModel(OpenAIModel):
         target_variant: str | None | None
         additional_args: dict[str, Any] | None
 
+    @classmethod
+    def from_dict(cls, config: dict[str, Any]) -> "SageMakerAIModel":
+        """Create a SageMakerAIModel from a configuration dictionary.
+
+        Handles extraction of ``endpoint_config``, ``payload_config``, and conversion of
+        ``boto_client_config`` from a plain dict to ``botocore.config.Config``.
+
+        Args:
+            config: Model configuration dictionary.
+
+        Returns:
+            A configured SageMakerAIModel instance.
+        """
+        kwargs: dict[str, Any] = {}
+        kwargs["endpoint_config"] = config.pop("endpoint_config", {})
+        kwargs["payload_config"] = config.pop("payload_config", {})
+        if "boto_client_config" in config:
+            raw = config.pop("boto_client_config")
+            kwargs["boto_client_config"] = BotocoreConfig(**raw) if isinstance(raw, dict) else raw
+        return cls(**kwargs)
+
     def __init__(
         self,
         endpoint_config: SageMakerAIEndpointConfig,

@@ -53,6 +53,28 @@ class MistralModel(Model):
         top_p: float | None
         stream: bool | None
 
+    @classmethod
+    def from_dict(cls, config: dict[str, Any]) -> "MistralModel":
+        """Create a MistralModel from a configuration dictionary.
+
+        Handles extraction of ``api_key`` and ``client_args`` as separate constructor parameters.
+
+        Args:
+            config: Model configuration dictionary.
+
+        Returns:
+            A configured MistralModel instance.
+        """
+        api_key = config.pop("api_key", None)
+        client_args = config.pop("client_args", None)
+        kwargs: dict[str, Any] = {}
+        if api_key is not None:
+            kwargs["api_key"] = api_key
+        if client_args is not None:
+            kwargs["client_args"] = client_args
+        kwargs.update(config)
+        return cls(**kwargs)
+
     def __init__(
         self,
         api_key: str | None = None,
