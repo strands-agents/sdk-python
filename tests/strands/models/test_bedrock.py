@@ -1779,8 +1779,10 @@ def test_format_request_filters_image_content_blocks(model, model_id):
     assert "metadata" not in image_block
 
 
-def test_format_request_image_s3_location_only(model, model_id):
-    """Test that image with only s3Location is properly formatted."""
+def test_format_request_image_s3_location_only(bedrock_client):
+    """Test that image with only s3Location is properly formatted for Nova models."""
+    nova_model_id = "amazon.nova-pro-v1:0"
+    nova_model = BedrockModel(model_id=nova_model_id)
     messages = [
         {
             "role": "user",
@@ -1797,7 +1799,7 @@ def test_format_request_image_s3_location_only(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = nova_model._format_request(messages)
     image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
 
     assert image_source == {"s3Location": {"uri": "s3://my-bucket/image.png"}}
@@ -1825,8 +1827,10 @@ def test_format_request_image_bytes_only(model, model_id):
     assert image_source == {"bytes": b"image_data"}
 
 
-def test_format_request_document_s3_location(model, model_id):
-    """Test that document with s3Location is properly formatted."""
+def test_format_request_document_s3_location(bedrock_client):
+    """Test that document with s3Location is properly formatted for Nova models."""
+    nova_model_id = "amazon.nova-pro-v1:0"
+    nova_model = BedrockModel(model_id=nova_model_id)
     messages = [
         {
             "role": "user",
@@ -1857,7 +1861,7 @@ def test_format_request_document_s3_location(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = nova_model._format_request(messages)
     document = formatted_request["messages"][0]["content"][0]["document"]
     document_with_bucket_owner = formatted_request["messages"][0]["content"][1]["document"]
 
@@ -1918,8 +1922,10 @@ def test_format_request_unsupported_location(model, caplog):
     assert "Non s3 location sources are not supported by Bedrock | skipping content block" in caplog.text
 
 
-def test_format_request_video_s3_location(model, model_id):
-    """Test that video with s3Location is properly formatted."""
+def test_format_request_video_s3_location(bedrock_client):
+    """Test that video with s3Location is properly formatted for Nova models."""
+    nova_model_id = "amazon.nova-pro-v1:0"
+    nova_model = BedrockModel(model_id=nova_model_id)
     messages = [
         {
             "role": "user",
@@ -1936,10 +1942,53 @@ def test_format_request_video_s3_location(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = nova_model._format_request(messages)
     video_source = formatted_request["messages"][0]["content"][0]["video"]["source"]
 
     assert video_source == {"s3Location": {"uri": "s3://my-bucket/video.mp4"}}
+
+
+def test_format_request_s3_location_skipped_for_unsupported_models(bedrock_client, model_id, caplog):
+    """S3 location sources are skipped with a warning for models that do not support them."""
+    caplog.set_level(logging.WARNING, logger="strands.models.bedrock")
+
+    # model_id fixture is "m1" (not an Amazon Nova model)
+    non_nova_model = BedrockModel(model_id=model_id)
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "analyze this"},
+                {
+                    "document": {
+                        "name": "report.pdf",
+                        "format": "pdf",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/report.pdf"}},
+                    }
+                },
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/image.png"}},
+                    }
+                },
+                {
+                    "video": {
+                        "format": "mp4",
+                        "source": {"location": {"type": "s3", "uri": "s3://my-bucket/video.mp4"}},
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = non_nova_model._format_request(messages)
+    content = formatted_request["messages"][0]["content"]
+
+    # Only the text block should remain; all three S3 location blocks are dropped
+    assert len(content) == 1
+    assert content[0] == {"text": "analyze this"}
+    assert "S3 location sources are not supported by this model" in caplog.text
 
 
 def test_format_request_filters_document_content_blocks(model, model_id):
