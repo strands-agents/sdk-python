@@ -1,5 +1,6 @@
 """S3-based session manager for cloud storage."""
 
+import base64
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -24,6 +25,32 @@ SESSION_PREFIX = "session_"
 AGENT_PREFIX = "agent_"
 MESSAGE_PREFIX = "message_"
 MULTI_AGENT_PREFIX = "multi_agent_"
+
+_BYTES_TYPE_TAG = "__bytes_encoded__"
+
+
+class _BytesEncoder(json.JSONEncoder):
+    """JSON encoder that handles bytes objects by base64-encoding them.
+
+    Uses the same tagging convention as :func:`~strands.types.session.encode_bytes_values`
+    (``{"__bytes_encoded__": True, "data": "<base64>"}``), so the data can be
+    decoded by :func:`~strands.types.session.decode_bytes_values` transparently.
+    """
+
+    def default(self, o: Any) -> Any:
+        if isinstance(o, (bytes, bytearray)):
+            return {_BYTES_TYPE_TAG: True, "data": base64.b64encode(o).decode("ascii")}
+        return super().default(o)
+
+
+def _bytes_decoder_hook(obj: dict[str, Any]) -> Any:
+    """``object_hook`` for :func:`json.loads` that restores base64-encoded bytes.
+
+    Matches the tagging convention used by ``encode_bytes_values``.
+    """
+    if obj.get(_BYTES_TYPE_TAG) is True and "data" in obj:
+        return base64.b64decode(obj["data"])
+    return obj
 
 
 class S3SessionManager(RepositorySessionManager, SessionRepository):
@@ -139,7 +166,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         try:
             response = self.client.get_object(Bucket=self.bucket, Key=key)
             content = response["Body"].read().decode("utf-8")
-            return cast(dict[str, Any], json.loads(content))
+            return cast(dict[str, Any], json.loads(content, object_hook=_bytes_decoder_hook))
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 return None
@@ -151,7 +178,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
     def _write_s3_object(self, key: str, data: dict[str, Any]) -> None:
         """Write JSON object to S3."""
         try:
-            content = json.dumps(data, indent=2, ensure_ascii=False)
+            content = json.dumps(data, cls=_BytesEncoder, indent=2, ensure_ascii=False)
             self.client.put_object(
                 Bucket=self.bucket, Key=key, Body=content.encode("utf-8"), ContentType="application/json"
             )
