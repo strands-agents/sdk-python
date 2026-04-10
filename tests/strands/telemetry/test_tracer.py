@@ -722,6 +722,19 @@ def test_end_tool_call_span_with_error(mock_span):
     mock_span.end.assert_called_once()
 
 
+def test_end_tool_call_span_error_result_no_exception(mock_span):
+    """Test that an error result without an exception still sets StatusCode.ERROR."""
+    tracer = Tracer()
+    tool_result = {"status": "error", "content": [{"text": "tool cancelled by user"}]}
+
+    tracer.end_tool_call_span(mock_span, tool_result)
+
+    mock_span.set_attributes.assert_called_once_with({"gen_ai.tool.status": "error"})
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "tool cancelled by user")
+    mock_span.record_exception.assert_not_called()
+    mock_span.end.assert_called_once()
+
+
 def test_start_event_loop_cycle_span(mock_tracer):
     """Test starting an event loop cycle span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):

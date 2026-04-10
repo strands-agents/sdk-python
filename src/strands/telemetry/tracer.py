@@ -212,6 +212,8 @@ class Tracer:
                 status_description = error_message or str(error) or type(error).__name__
                 span.set_status(StatusCode.ERROR, status_description)
                 span.record_exception(error)
+            elif error_message:
+                span.set_status(StatusCode.ERROR, error_message)
             else:
                 span.set_status(StatusCode.OK)
         except Exception as e:
@@ -460,15 +462,13 @@ class Tracer:
             error: Optional exception if the tool call failed.
         """
         attributes: dict[str, AttributeValue] = {}
+        status: str | None = None
+        content: list[Any] = []
+
         if tool_result is not None:
             status = tool_result.get("status")
-            status_str = str(status) if status is not None else ""
-
-            attributes.update(
-                {
-                    "gen_ai.tool.status": status_str,
-                }
-            )
+            content = tool_result.get("content", [])
+            attributes["gen_ai.tool.status"] = str(status) if status is not None else ""
 
             if self.use_latest_genai_conventions:
                 self._add_event(
@@ -483,7 +483,7 @@ class Tracer:
                                         {
                                             "type": "tool_call_response",
                                             "id": tool_result.get("toolUseId", ""),
-                                            "response": tool_result.get("content"),
+                                            "response": content,
                                         }
                                     ],
                                 }
@@ -497,12 +497,16 @@ class Tracer:
                     span,
                     "gen_ai.choice",
                     event_attributes={
-                        "message": serialize(tool_result.get("content")),
+                        "message": serialize(content),
                         "id": tool_result.get("toolUseId", ""),
                     },
                 )
 
-        self._end_span(span, attributes, error)
+        if error is None and status == "error":
+            error_message = next((b["text"] for b in content if "text" in b), "tool returned error status")
+            self._end_span(span, attributes, error_message=error_message)
+        else:
+            self._end_span(span, attributes, error)
 
     def start_event_loop_cycle_span(
         self,
@@ -527,9 +531,7 @@ class Tracer:
         event_loop_cycle_id = str(invocation_state.get("event_loop_cycle_id"))
         parent_span = parent_span if parent_span else invocation_state.get("event_loop_parent_span")
 
-        attributes: dict[str, AttributeValue] = self._get_common_attributes(
-            operation_name="execute_event_loop_cycle"
-        )
+        attributes: dict[str, AttributeValue] = self._get_common_attributes(operation_name="execute_event_loop_cycle")
         attributes["event_loop.cycle_id"] = event_loop_cycle_id
 
         if custom_trace_attributes:

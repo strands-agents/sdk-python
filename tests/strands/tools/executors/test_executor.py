@@ -954,8 +954,8 @@ async def test_executor_stream_unknown_tool_has_exception(executor, agent, tool_
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_cancel_has_exception(executor, agent, tool_results, invocation_state, alist):
-    """Test that _stream yields a ToolResultEvent with exception for cancelled tools."""
+async def test_executor_stream_cancel_no_exception(executor, agent, tool_results, invocation_state, alist):
+    """Test that _stream yields a ToolResultEvent with no exception for cancelled tools."""
 
     def cancel_callback(event):
         event.cancel_tool = True
@@ -969,5 +969,25 @@ async def test_executor_stream_cancel_has_exception(executor, agent, tool_result
     result_event = events[-1]
     assert isinstance(result_event, ToolResultEvent)
     assert result_event.tool_result["status"] == "error"
-    assert result_event.exception is not None
-    assert "cancelled" in str(result_event.exception)
+    assert result_event.exception is None
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_cancel_after_hook_sees_no_exception(
+    executor, agent, tool_results, invocation_state, hook_events, alist
+):
+    """Test that AfterToolCallEvent.exception is None when a tool is cancelled."""
+
+    def cancel_callback(event):
+        event.cancel_tool = "user denied permission"
+        return event
+
+    agent.hooks.add_callback(BeforeToolCallEvent, cancel_callback)
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+    await alist(stream)
+
+    after_event = hook_events[-1]
+    assert isinstance(after_event, AfterToolCallEvent)
+    assert after_event.exception is None
+    assert after_event.cancel_message == "user denied permission"

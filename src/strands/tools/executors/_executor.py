@@ -176,10 +176,9 @@ class ToolExecutor(abc.ABC):
                     tool_use,
                     invocation_state,
                     cancel_result,
-                    exception=Exception(cancel_message),
                     cancel_message=cancel_message,
                 )
-                yield ToolResultEvent(after_event.result, exception=after_event.exception)
+                yield ToolResultEvent(after_event.result)
                 tool_results.append(after_event.result)
                 return
 
