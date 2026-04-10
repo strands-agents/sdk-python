@@ -835,6 +835,9 @@ class MCPClient(ToolProvider):
         This allows for a long-running event loop.
         """
         self._log_debug_with_thread("setting up background task event loop")
+        # Clear any running-loop state leaked by OpenTelemetry's ThreadingInstrumentor, which wraps Thread.run()
+        # and can propagate the parent thread's event loop reference, causing run_until_complete() to fail.
+        asyncio._set_running_loop(None)
         self._background_thread_event_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._background_thread_event_loop)
         self._background_thread_event_loop.run_until_complete(self._async_background_thread())
