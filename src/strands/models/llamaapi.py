@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from ..types.exceptions import ModelThrottledException
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
@@ -70,6 +70,14 @@ class LlamaAPIModel(Model):
             self.client = LlamaAPIClient()
         else:
             self.client = LlamaAPIClient(**client_args)
+
+    OVERFLOW_MESSAGES = {
+        "context length exceeded",
+        "context window",
+        "max context length",
+        "prompt is too long",
+        "token limit",
+    }
 
     @override
     def update_config(self, **model_config: Unpack[LlamaConfig]) -> None:  # type: ignore
@@ -368,6 +376,11 @@ class LlamaAPIModel(Model):
             response = self.client.chat.completions.create(**request)
         except llama_api_client.RateLimitError as e:
             raise ModelThrottledException(str(e)) from e
+        except Exception as error:
+            error_str = str(error).lower()
+            if any(msg in error_str for msg in self.OVERFLOW_MESSAGES):
+                raise ContextWindowOverflowException(str(error)) from error
+            raise
 
         logger.debug("got response from model")
         yield self.format_chunk({"chunk_type": "message_start"})
