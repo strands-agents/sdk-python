@@ -56,6 +56,7 @@ sagemaker = [
     "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0",
     "openai>=1.68.0,<3.0.0",  # SageMaker uses OpenAI-compatible interface
 ]
+deploy = ["bedrock-agentcore-starter-toolkit>=0.3.0"]
 otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
 docs = [
     "sphinx>=5.0.0,<10.0.0",
