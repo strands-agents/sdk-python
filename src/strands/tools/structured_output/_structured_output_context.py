@@ -23,6 +23,7 @@ class StructuredOutputContext:
         self,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        native_mode: bool = False,
     ):
         """Initialize a new structured output context.
 
@@ -30,10 +31,14 @@ class StructuredOutputContext:
             structured_output_model: Optional Pydantic model type for structured output.
             structured_output_prompt: Optional custom prompt message to use when forcing structured output.
                 Defaults to "You must format the previous response as structured output."
+            native_mode: If True, use the model's native structured output for the final formatting step
+                instead of forcing tool use. The agent loop runs normally with tools and thinking;
+                only the final response formatting uses native structured output.
         """
         self.results: dict[str, BaseModel] = {}
         self.structured_output_model: type[BaseModel] | None = structured_output_model
         self.structured_output_tool: StructuredOutputTool | None = None
+        self.native_mode: bool = native_mode
         self.forced_mode: bool = False
         self.force_attempted: bool = False
         self.tool_choice: ToolChoice | None = None
@@ -41,7 +46,7 @@ class StructuredOutputContext:
         self.expected_tool_name: str | None = None
         self.structured_output_prompt: str = structured_output_prompt or DEFAULT_STRUCTURED_OUTPUT_PROMPT
 
-        if structured_output_model:
+        if structured_output_model and not native_mode:
             self.structured_output_tool = StructuredOutputTool(structured_output_model)
             self.expected_tool_name = self.structured_output_tool.tool_name
 
