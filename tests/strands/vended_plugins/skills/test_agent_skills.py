@@ -661,6 +661,58 @@ class TestResolveSkills:
         assert len(plugin._skills) == 0
 
 
+class TestResolveUrlSkills:
+    """Tests for _resolve_skills with URL sources."""
+
+    _URL_LOADER = "strands.vended_plugins.skills._url_loader"
+    _SAMPLE_CONTENT = "---\nname: url-skill\ndescription: A URL skill\n---\n# Instructions\n"
+
+    def test_resolve_url_source(self):
+        """Test resolving a URL string as a skill source."""
+        from unittest.mock import patch
+
+        with patch(f"{self._URL_LOADER}.fetch_skill_content", return_value=self._SAMPLE_CONTENT):
+            plugin = AgentSkills(skills=["https://github.com/org/url-skill"])
+
+        assert len(plugin.get_available_skills()) == 1
+        assert plugin.get_available_skills()[0].name == "url-skill"
+
+    def test_resolve_mixed_url_and_local(self, tmp_path):
+        """Test resolving a mix of URL and local filesystem sources."""
+        from unittest.mock import patch
+
+        _make_skill_dir(tmp_path, "local-skill")
+
+        with patch(f"{self._URL_LOADER}.fetch_skill_content", return_value=self._SAMPLE_CONTENT):
+            plugin = AgentSkills(
+                skills=[
+                    "https://github.com/org/url-skill",
+                    str(tmp_path / "local-skill"),
+                ]
+            )
+
+        assert len(plugin.get_available_skills()) == 2
+        names = {s.name for s in plugin.get_available_skills()}
+        assert names == {"url-skill", "local-skill"}
+
+    def test_resolve_url_failure_skips_gracefully(self, caplog):
+        """Test that a failed URL fetch is skipped with a warning."""
+        import logging
+        from unittest.mock import patch
+
+        with (
+            patch(
+                f"{self._URL_LOADER}.fetch_skill_content",
+                side_effect=RuntimeError("HTTP 404: Not Found"),
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            plugin = AgentSkills(skills=["https://github.com/org/broken"])
+
+        assert len(plugin.get_available_skills()) == 0
+        assert "failed to load skill from URL" in caplog.text
+
+
 class TestImports:
     """Tests for module imports."""
 

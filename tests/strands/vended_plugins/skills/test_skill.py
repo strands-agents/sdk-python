@@ -551,11 +551,82 @@ class TestSkillFromContent:
             Skill.from_content(content, strict=True)
 
 
+class TestSkillFromUrl:
+    """Tests for Skill.from_url."""
+
+    _URL_LOADER = "strands.vended_plugins.skills._url_loader"
+
+    _SAMPLE_CONTENT = "---\nname: my-skill\ndescription: A remote skill\n---\nRemote instructions.\n"
+
+    def test_from_url_returns_skill(self):
+        """Test loading a skill from a URL returns a single Skill."""
+        from unittest.mock import patch
+
+        with patch(f"{self._URL_LOADER}.fetch_skill_content", return_value=self._SAMPLE_CONTENT):
+            skill = Skill.from_url("https://raw.githubusercontent.com/org/repo/main/SKILL.md")
+
+        assert isinstance(skill, Skill)
+        assert skill.name == "my-skill"
+        assert skill.description == "A remote skill"
+        assert "Remote instructions." in skill.instructions
+        assert skill.path is None
+
+    def test_from_url_github_web_url(self):
+        """Test that GitHub web URLs are handled (resolved in fetch_skill_content)."""
+        from unittest.mock import patch
+
+        with patch(f"{self._URL_LOADER}.fetch_skill_content", return_value=self._SAMPLE_CONTENT):
+            skill = Skill.from_url("https://github.com/org/repo/tree/main/skills/my-skill")
+
+        assert skill.name == "my-skill"
+
+    def test_from_url_with_ref(self):
+        """Test URL with @ref suffix."""
+        from unittest.mock import patch
+
+        with patch(f"{self._URL_LOADER}.fetch_skill_content", return_value=self._SAMPLE_CONTENT):
+            skill = Skill.from_url("https://github.com/org/my-skill@v1.0.0")
+
+        assert skill.name == "my-skill"
+
+    def test_from_url_invalid_url_raises(self):
+        """Test that a non-HTTPS URL raises ValueError."""
+        with pytest.raises(ValueError, match="not a valid HTTPS URL"):
+            Skill.from_url("./local-path")
+
+    def test_from_url_http_rejected(self):
+        """Test that http:// URLs are rejected."""
+        with pytest.raises(ValueError, match="not a valid HTTPS URL"):
+            Skill.from_url("http://example.com/SKILL.md")
+
+    def test_from_url_fetch_failure_raises(self):
+        """Test that a fetch failure propagates as RuntimeError."""
+        from unittest.mock import patch
+
+        with patch(
+            f"{self._URL_LOADER}.fetch_skill_content",
+            side_effect=RuntimeError("HTTP 404: Not Found"),
+        ):
+            with pytest.raises(RuntimeError, match="HTTP 404"):
+                Skill.from_url("https://example.com/nonexistent/SKILL.md")
+
+    def test_from_url_strict_mode(self):
+        """Test that strict mode is forwarded to from_content."""
+        from unittest.mock import patch
+
+        bad_content = "---\nname: BAD_NAME\ndescription: Bad\n---\nBody."
+
+        with patch(f"{self._URL_LOADER}.fetch_skill_content", return_value=bad_content):
+            with pytest.raises(ValueError):
+                Skill.from_url("https://example.com/SKILL.md", strict=True)
+
+
 class TestSkillClassmethods:
     """Tests for Skill classmethod existence."""
 
     def test_skill_classmethods_exist(self):
-        """Test that Skill has from_file, from_content, and from_directory classmethods."""
+        """Test that Skill has from_file, from_content, from_directory, and from_url classmethods."""
         assert callable(getattr(Skill, "from_file", None))
         assert callable(getattr(Skill, "from_content", None))
         assert callable(getattr(Skill, "from_directory", None))
+        assert callable(getattr(Skill, "from_url", None))

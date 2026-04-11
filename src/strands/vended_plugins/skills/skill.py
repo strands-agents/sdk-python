@@ -334,6 +334,48 @@ class Skill:
         return _build_skill_from_frontmatter(frontmatter, body)
 
     @classmethod
+    def from_url(cls, url: str, *, strict: bool = False) -> Skill:
+        """Load a skill by fetching its SKILL.md content from an HTTPS URL.
+
+        Fetches the SKILL.md content over HTTPS and parses it using
+        :meth:`from_content`.  GitHub web URLs are automatically resolved
+        to ``raw.githubusercontent.com``::
+
+            # Direct raw URL
+            skill = Skill.from_url(
+                "https://raw.githubusercontent.com/org/repo/main/SKILL.md"
+            )
+
+            # GitHub web URL (auto-resolved)
+            skill = Skill.from_url(
+                "https://github.com/org/repo/tree/main/skills/my-skill"
+            )
+
+            # Repository root with @ref
+            skill = Skill.from_url("https://github.com/org/my-skill@v1.0.0")
+
+        Args:
+            url: An ``https://`` URL pointing to a SKILL.md file, a GitHub
+                repository, or a GitHub ``/tree/<ref>/path`` URL.
+            strict: If True, raise on any validation issue. If False (default),
+                warn and load anyway.
+
+        Returns:
+            A Skill instance populated from the fetched SKILL.md content.
+
+        Raises:
+            ValueError: If ``url`` is not an ``https://`` URL.
+            RuntimeError: If the SKILL.md content cannot be fetched.
+        """
+        from ._url_loader import fetch_skill_content, is_url
+
+        if not is_url(url):
+            raise ValueError(f"url=<{url}> | not a valid HTTPS URL")
+
+        content = fetch_skill_content(url)
+        return cls.from_content(content, strict=strict)
+
+    @classmethod
     def from_directory(cls, skills_dir: str | Path, *, strict: bool = False) -> list[Skill]:
         """Load all skills from a parent directory containing skill subdirectories.
 

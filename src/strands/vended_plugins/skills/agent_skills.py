@@ -86,6 +86,8 @@ class AgentSkills(Plugin):
                 - A ``str`` or ``Path`` to a skill directory (containing SKILL.md)
                 - A ``str`` or ``Path`` to a parent directory (containing skill subdirectories)
                 - A ``Skill`` dataclass instance
+                - An ``https://`` URL pointing to a SKILL.md file or a GitHub
+                  repository/directory URL (auto-resolved to raw content)
             state_key: Key used to store plugin state in ``agent.state``.
             max_resource_files: Maximum number of resource files to list in skill responses.
             strict: If True, raise on skill validation issues. If False (default), warn and load anyway.
@@ -284,7 +286,8 @@ class AgentSkills(Plugin):
         """Resolve a list of skill sources into Skill instances.
 
         Each source can be a Skill instance, a path to a skill directory,
-        or a path to a parent directory containing multiple skills.
+        a path to a parent directory containing multiple skills, or a remote
+        Git URL.
 
         Args:
             sources: List of skill sources to resolve.
@@ -292,6 +295,8 @@ class AgentSkills(Plugin):
         Returns:
             Dict mapping skill names to Skill instances.
         """
+        from ._url_loader import is_url
+
         resolved: dict[str, Skill] = {}
 
         for source in sources:
@@ -299,6 +304,14 @@ class AgentSkills(Plugin):
                 if source.name in resolved:
                     logger.warning("name=<%s> | duplicate skill name, overwriting previous skill", source.name)
                 resolved[source.name] = source
+            elif isinstance(source, str) and is_url(source):
+                try:
+                    skill = Skill.from_url(source, strict=self._strict)
+                    if skill.name in resolved:
+                        logger.warning("name=<%s> | duplicate skill name, overwriting previous skill", skill.name)
+                    resolved[skill.name] = skill
+                except (RuntimeError, ValueError) as e:
+                    logger.warning("url=<%s> | failed to load skill from URL: %s", source, e)
             else:
                 path = Path(source).resolve()
                 if not path.exists():
