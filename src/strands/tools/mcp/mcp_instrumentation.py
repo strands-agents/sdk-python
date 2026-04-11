@@ -90,9 +90,10 @@ def mcp_instrumentation() -> None:
             if hasattr(request.root, "params") and request.root.params:
                 # Handle Pydantic models
                 if hasattr(request.root.params, "model_dump") and hasattr(request.root.params, "model_validate"):
-                    params_dict = request.root.params.model_dump()
+                    params_dict = request.root.params.model_dump(by_alias=True)
                     # Add _meta with tracing context
-                    meta = params_dict.setdefault("_meta", {})
+                    meta = params_dict.get("_meta") if params_dict.get("_meta") is not None else {}
+                    params_dict["_meta"] = meta
                     propagate.get_global_textmap().inject(meta)
 
                     # Recreate the Pydantic model with the updated data

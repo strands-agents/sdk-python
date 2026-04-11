@@ -238,6 +238,74 @@ def test_mcp_client_without_structured_content():
         assert result["content"] == [{"text": "SIMPLE_ECHO_TEST"}]
 
 
+def test_call_tool_sync_with_meta():
+    """Test that call_tool_sync forwards meta to the MCP server."""
+    stdio_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with stdio_mcp_client:
+        result = stdio_mcp_client.call_tool_sync(
+            tool_use_id="test-meta-sync",
+            name="echo_meta",
+            arguments={},
+            meta={"com.example/request_id": "abc-123"},
+        )
+
+        assert result["status"] == "success"
+        received_meta = json.loads(result["content"][0]["text"])
+        assert received_meta["com.example/request_id"] == "abc-123"
+
+
+@pytest.mark.asyncio
+async def test_call_tool_async_with_meta():
+    """Test that call_tool_async forwards meta to the MCP server."""
+    stdio_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with stdio_mcp_client:
+        result = await stdio_mcp_client.call_tool_async(
+            tool_use_id="test-meta-async",
+            name="echo_meta",
+            arguments={},
+            meta={"com.example/request_id": "def-456"},
+        )
+
+        assert result["status"] == "success"
+        received_meta = json.loads(result["content"][0]["text"])
+        assert received_meta["com.example/request_id"] == "def-456"
+
+
+def test_instrumentation_preserves_meta_on_tool_call():
+    """Test that OTel instrumentation sets _meta that reaches the MCP server."""
+    from unittest.mock import MagicMock, patch
+
+    # Mock the propagator to always inject a known value, bypassing the need for
+    # an active span on the background thread where send_request runs
+    mock_textmap = MagicMock()
+    mock_textmap.inject = lambda carrier, **kwargs: carrier.update({"traceparent": "00-abc-def-01"})
+
+    with patch("opentelemetry.propagate.get_global_textmap", return_value=mock_textmap):
+        stdio_mcp_client = MCPClient(
+            lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+        )
+
+        with stdio_mcp_client:
+            result = stdio_mcp_client.call_tool_sync(
+                tool_use_id="test-instrumentation",
+                name="echo_meta",
+                arguments={},
+            )
+
+        assert result["status"] == "success"
+        received_meta = json.loads(result["content"][0]["text"])
+        # OTel instrumentation should have injected _meta with tracing context
+        assert received_meta is not None
+        assert isinstance(received_meta, dict)
+        assert received_meta["traceparent"] == "00-abc-def-01"
+
+
 @pytest.mark.skipif(
     condition=os.environ.get("GITHUB_ACTIONS") == "true",
     reason="streamable transport is failing in GitHub actions, debugging if linux compatibility issue",

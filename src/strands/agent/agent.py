@@ -132,7 +132,7 @@ class Agent(AgentBase):
         description: str | None = None,
         state: AgentState | dict | None = None,
         plugins: list[Plugin] | None = None,
-        hooks: list[HookProvider] | None = None,
+        hooks: list[HookProvider | HookCallback] | None = None,
         session_manager: SessionManager | None = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
@@ -187,7 +187,8 @@ class Agent(AgentBase):
                 Plugins are initialized with the agent instance after construction and can register hooks,
                 modify agent attributes, or perform other setup tasks.
                 Defaults to None.
-            hooks: hooks to be added to the agent hook registry
+            hooks: Hooks to be added to the agent hook registry. Accepts HookProvider instances
+                or plain callable hook callbacks (functions with typed event parameters).
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
@@ -341,7 +342,14 @@ class Agent(AgentBase):
 
         if hooks:
             for hook in hooks:
-                self.hooks.add_hook(hook)
+                if isinstance(hook, HookProvider):
+                    self.hooks.add_hook(hook)
+                elif callable(hook):
+                    self.hooks.add_callback(None, hook)
+                else:
+                    raise ValueError(
+                        f"Invalid hook: {hook!r}. Must be a HookProvider instance or a callable hook callback."
+                    )
 
         # Register built-in plugins
         self._plugin_registry.add_and_init(_ModelPlugin())
