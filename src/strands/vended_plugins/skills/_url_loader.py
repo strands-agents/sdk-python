@@ -1,241 +1,140 @@
-"""Utilities for loading skills from remote Git repository URLs.
+"""Utilities for loading skills from HTTPS URLs.
 
-This module provides functions to detect URL-type skill sources, parse
-optional version references, clone repositories with shallow depth, and
-manage a local cache of cloned skill repositories.
+This module provides functions to detect URL-type skill sources, resolve
+GitHub web URLs to raw content URLs, and fetch SKILL.md content over HTTPS.
+No git dependency or local caching is required.
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import os
 import re
-import shutil
-import subprocess
-import tempfile
-from pathlib import Path
+import urllib.error
+import urllib.request
 
 logger = logging.getLogger(__name__)
 
-# Patterns that indicate a string is a URL rather than a local path.
-# NOTE: http:// is intentionally excluded — plaintext HTTP exposes users to
-# man-in-the-middle attacks where malicious code could be injected into a
-# cloned skill.  Only encrypted transports are supported.
-_URL_PREFIXES = ("https://", "git@", "ssh://")
-
-# Regex to strip .git suffix from URLs before ref parsing
-_GIT_SUFFIX = re.compile(r"\.git$")
-
-# Matches GitHub /tree/<ref> or /tree/<ref>/<path> (also /blob/)
-# e.g. /owner/repo/tree/main/skills/my-skill -> groups: (/owner/repo, main, skills/my-skill)
-_GITHUB_TREE_PATTERN = re.compile(r"^(/[^/]+/[^/]+)/(?:tree|blob)/([^/]+)(?:/(.+?))?/?$")
-
-
-def _default_cache_dir() -> Path:
-    """Return the default cache directory, respecting ``XDG_CACHE_HOME``.
-
-    Evaluated lazily (not at import time) so that ``Path.home()`` is not
-    called in environments where ``HOME`` may be unset (e.g. containers).
-    """
-    xdg = os.environ.get("XDG_CACHE_HOME")
-    base = Path(xdg) if xdg else Path.home() / ".cache"
-    return base / "strands" / "skills"
+# Matches GitHub /tree/<ref>/path and /blob/<ref>/path URLs.
+# e.g. /owner/repo/tree/main/skills/my-skill -> groups: (owner/repo, main, skills/my-skill)
+_GITHUB_TREE_PATTERN = re.compile(r"^/([^/]+/[^/]+)/(?:tree|blob)/([^/]+)(?:/(.+?))?/?$")
 
 
 def is_url(source: str) -> bool:
-    """Check whether a skill source string looks like a remote URL.
+    """Check whether a skill source string looks like an HTTPS URL.
+
+    Only ``https://`` URLs are supported; plaintext ``http://`` is rejected
+    for security (MITM risk).
 
     Args:
         source: The skill source string to check.
 
     Returns:
-        True if the source appears to be a URL.
+        True if the source is an ``https://`` URL.
     """
-    return any(source.startswith(prefix) for prefix in _URL_PREFIXES)
+    return source.startswith("https://")
 
 
-def parse_url_ref(url: str) -> tuple[str, str | None, str | None]:
-    """Parse a skill URL into a clone URL, optional Git ref, and optional subpath.
+def resolve_to_raw_url(url: str) -> str:
+    """Resolve a GitHub web URL to a raw content URL for SKILL.md.
 
-    Supports an ``@ref`` suffix for specifying a branch, tag, or commit::
+    Supports several GitHub URL patterns and converts them to
+    ``raw.githubusercontent.com`` URLs::
 
-        https://github.com/org/skill-repo@v1.0.0  -> (https://github.com/org/skill-repo, v1.0.0, None)
-        https://github.com/org/skill-repo         -> (https://github.com/org/skill-repo, None, None)
+        # Repository root (assumes HEAD and SKILL.md at root)
+        https://github.com/owner/repo
+            -> https://raw.githubusercontent.com/owner/repo/HEAD/SKILL.md
 
-    Also supports GitHub web URLs with ``/tree/<ref>/path`` ::
+        # Repository root with @ref
+        https://github.com/owner/repo@v1.0
+            -> https://raw.githubusercontent.com/owner/repo/v1.0/SKILL.md
 
-        https://github.com/org/repo/tree/main/skills/my-skill
-            -> (https://github.com/org/repo, main, skills/my-skill)
+        # Tree URL pointing to a directory
+        https://github.com/owner/repo/tree/main/skills/my-skill
+            -> https://raw.githubusercontent.com/owner/repo/main/skills/my-skill/SKILL.md
+
+        # Blob URL pointing to SKILL.md directly
+        https://github.com/owner/repo/blob/main/skills/my-skill/SKILL.md
+            -> https://raw.githubusercontent.com/owner/repo/main/skills/my-skill/SKILL.md
+
+    Non-GitHub URLs and ``raw.githubusercontent.com`` URLs are returned as-is.
 
     Args:
-        url: The skill URL, optionally with an ``@ref`` suffix or ``/tree/`` path.
+        url: An HTTPS URL, possibly a GitHub web URL.
 
     Returns:
-        Tuple of (clone_url, ref_or_none, subpath_or_none).
+        A URL that can be fetched directly to obtain SKILL.md content.
     """
-    if url.startswith(("https://", "http://", "ssh://")):
-        # Find the path portion after the host
-        scheme_end = url.index("//") + 2
-        host_end = url.find("/", scheme_end)
-        if host_end == -1:
-            return url, None, None
+    # Already a raw URL — return as-is
+    if "raw.githubusercontent.com" in url:
+        return url
 
-        path_part = url[host_end:]
+    # Not a github.com URL — return as-is (user provides a direct link)
+    if not url.startswith("https://github.com"):
+        return url
 
-        # Handle GitHub /tree/<ref>/path and /blob/<ref>/path URLs
-        tree_match = _GITHUB_TREE_PATTERN.match(path_part)
-        if tree_match:
-            owner_repo = tree_match.group(1)
-            ref = tree_match.group(2)
-            subpath = tree_match.group(3) or None
-            clone_url = url[:host_end] + owner_repo
-            return clone_url, ref, subpath
+    # Parse the path portion
+    path_start = len("https://github.com")
+    path = url[path_start:]
 
-        # Strip .git suffix before looking for @ref so that
-        # "repo.git@v1" is handled correctly
-        clean_path = _GIT_SUFFIX.sub("", path_part)
-        had_git_suffix = clean_path != path_part
+    # Handle /tree/<ref>/path and /blob/<ref>/path
+    tree_match = _GITHUB_TREE_PATTERN.match(path)
+    if tree_match:
+        owner_repo = tree_match.group(1)
+        ref = tree_match.group(2)
+        subpath = tree_match.group(3) or ""
 
-        if "@" in clean_path:
-            at_idx = clean_path.rfind("@")
-            ref = clean_path[at_idx + 1 :]
-            base_path = clean_path[:at_idx]
-            if had_git_suffix:
-                base_path += ".git"
-            return url[:host_end] + base_path, ref, None
+        # If the URL points to a SKILL.md file directly, use it as-is
+        if subpath.lower().endswith("skill.md"):
+            return f"https://raw.githubusercontent.com/{owner_repo}/{ref}/{subpath}"
 
-        return url, None, None
+        # Otherwise, assume it's a directory and append SKILL.md
+        if subpath:
+            return f"https://raw.githubusercontent.com/{owner_repo}/{ref}/{subpath}/SKILL.md"
+        return f"https://raw.githubusercontent.com/{owner_repo}/{ref}/SKILL.md"
 
-    if url.startswith("git@"):
-        # SSH format: git@host:owner/repo.git@ref
-        # The first @ is part of the SSH URL format.
-        first_at = url.index("@")
-        rest = url[first_at + 1 :]
+    # Handle plain repo URL: /owner/repo or /owner/repo@ref
+    # Strip leading slash and any trailing slash
+    clean_path = path.strip("/")
 
-        clean_rest = _GIT_SUFFIX.sub("", rest)
-        had_git_suffix = clean_rest != rest
+    # Check for @ref suffix
+    if "@" in clean_path:
+        at_idx = clean_path.rfind("@")
+        owner_repo = clean_path[:at_idx]
+        ref = clean_path[at_idx + 1 :]
+    else:
+        owner_repo = clean_path
+        ref = "HEAD"
 
-        if "@" in clean_rest:
-            at_idx = clean_rest.rfind("@")
-            ref = clean_rest[at_idx + 1 :]
-            base_rest = clean_rest[:at_idx]
-            if had_git_suffix:
-                base_rest += ".git"
-            return url[: first_at + 1] + base_rest, ref, None
+    # Only match owner/repo (exactly two path segments)
+    if owner_repo.count("/") == 1:
+        return f"https://raw.githubusercontent.com/{owner_repo}/{ref}/SKILL.md"
 
-        return url, None, None
-
-    return url, None, None
+    # Unrecognised GitHub URL pattern — return as-is
+    return url
 
 
-def cache_key(url: str, ref: str | None) -> str:
-    """Generate a deterministic cache directory name from a URL and ref.
+def fetch_skill_content(url: str) -> str:
+    """Fetch SKILL.md content from an HTTPS URL.
+
+    Uses ``urllib.request`` (stdlib) so no additional dependencies are needed.
 
     Args:
-        url: The clone URL.
-        ref: The optional Git ref.
+        url: The HTTPS URL to fetch.
 
     Returns:
-        A short hex digest suitable for use as a directory name.
-    """
-    key_input = f"{url}@{ref}" if ref else url
-    return hashlib.sha256(key_input.encode()).hexdigest()[:16]
-
-
-def clone_skill_repo(
-    url: str,
-    *,
-    ref: str | None = None,
-    subpath: str | None = None,
-    cache_dir: Path | None = None,
-    force_refresh: bool = False,
-) -> Path:
-    """Clone a skill repository to a local cache directory.
-
-    Uses ``git clone --depth 1`` for efficiency. If a ``ref`` is provided it
-    is passed as ``--branch`` (works for branches and tags). Repositories are
-    cached by a hash of (url, ref) so repeated loads are instant.
-
-    If ``subpath`` is provided, the returned path points to that subdirectory
-    within the cloned repository (useful for mono-repos containing skills in
-    nested directories).
-
-    **Cache behaviour**: Cloned repos are cached at
-    ``$XDG_CACHE_HOME/strands/skills/`` (or ``~/.cache/strands/skills/``).
-    When no ``ref`` is pinned the default branch is cached; pass
-    ``force_refresh=True`` to re-clone, or pin a specific tag/branch for
-    reproducibility.
-
-    Args:
-        url: The Git clone URL.
-        ref: Optional branch or tag to check out.
-        subpath: Optional path within the repo to return (e.g. ``skills/my-skill``).
-        cache_dir: Override the default cache directory.
-        force_refresh: If True, delete any cached clone and re-fetch from the
-            remote.  Useful for unpinned refs that may have been updated.
-
-    Returns:
-        Path to the cloned repository root, or to ``subpath`` within it.
+        The response body as a string.
 
     Raises:
-        RuntimeError: If the clone fails or ``git`` is not installed.
+        RuntimeError: If the fetch fails (network error, 404, etc.).
     """
-    cache_dir = cache_dir or _default_cache_dir()
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    resolved = resolve_to_raw_url(url)
+    logger.info("url=<%s> | fetching skill content from %s", url, resolved)
 
-    key = cache_key(url, ref)
-    target = cache_dir / key
-
-    if force_refresh and target.exists():
-        logger.info("url=<%s>, ref=<%s> | force-refreshing cached skill", url, ref)
-        shutil.rmtree(target)
-
-    if not target.exists():
-        logger.info("url=<%s>, ref=<%s> | cloning skill repository", url, ref)
-
-        cmd: list[str] = ["git", "clone", "--depth", "1"]
-        if ref:
-            cmd.extend(["--branch", ref])
-
-        # Clone into a temporary directory first, then atomically rename to
-        # the target path.  This prevents a race condition where two
-        # concurrent processes both pass the ``not target.exists()`` check
-        # and attempt to clone into the same directory.
-        tmp_dir = tempfile.mkdtemp(dir=cache_dir, prefix=".tmp-clone-")
-        tmp_target = Path(tmp_dir) / "repo"
-
-        try:
-            cmd.extend([url, str(tmp_target)])
-            subprocess.run(  # noqa: S603
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            try:
-                tmp_target.rename(target)
-            except OSError:
-                # Another process completed the clone first — use theirs
-                logger.debug("url=<%s> | another process already cached this skill, using existing", url)
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"url=<{url}>, ref=<{ref}> | failed to clone skill repository: {e.stderr.strip()}"
-            ) from e
-        except FileNotFoundError as e:
-            raise RuntimeError("git is required to load skills from URLs but was not found on PATH") from e
-        finally:
-            # Always clean up the temp directory
-            if Path(tmp_dir).exists():
-                shutil.rmtree(tmp_dir, ignore_errors=True)
-    else:
-        logger.debug("url=<%s>, ref=<%s> | using cached skill at %s", url, ref, target)
-
-    result = target / subpath if subpath else target
-
-    if subpath and not result.is_dir():
-        raise RuntimeError(f"url=<{url}>, subpath=<{subpath}> | subdirectory does not exist in cloned repository")
-
-    logger.debug("url=<%s>, ref=<%s> | resolved to %s", url, ref, result)
-    return result
+    try:
+        req = urllib.request.Request(resolved, headers={"User-Agent": "strands-agents-sdk"})  # noqa: S310
+        with urllib.request.urlopen(req, timeout=30) as response:  # noqa: S310
+            return response.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"url=<{resolved}> | HTTP {e.code}: {e.reason}") from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"url=<{resolved}> | failed to fetch skill: {e.reason}") from e

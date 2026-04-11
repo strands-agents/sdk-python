@@ -77,7 +77,6 @@ class AgentSkills(Plugin):
         state_key: str = _DEFAULT_STATE_KEY,
         max_resource_files: int = _DEFAULT_MAX_RESOURCE_FILES,
         strict: bool = False,
-        cache_dir: Path | None = None,
     ) -> None:
         """Initialize the AgentSkills plugin.
 
@@ -87,16 +86,13 @@ class AgentSkills(Plugin):
                 - A ``str`` or ``Path`` to a skill directory (containing SKILL.md)
                 - A ``str`` or ``Path`` to a parent directory (containing skill subdirectories)
                 - A ``Skill`` dataclass instance
-                - A remote Git URL (``https://``, ``git@``, or ``ssh://``)
-                  with optional ``@ref`` suffix for branch/tag pinning
+                - An ``https://`` URL pointing to a SKILL.md file or a GitHub
+                  repository/directory URL (auto-resolved to raw content)
             state_key: Key used to store plugin state in ``agent.state``.
             max_resource_files: Maximum number of resource files to list in skill responses.
             strict: If True, raise on skill validation issues. If False (default), warn and load anyway.
-            cache_dir: Directory for caching cloned skill repositories.
-                Defaults to ``~/.cache/strands/skills/``.
         """
         self._strict = strict
-        self._cache_dir = cache_dir
         self._skills: dict[str, Skill] = self._resolve_skills(_normalize_sources(skills))
         self._state_key = state_key
         self._max_resource_files = max_resource_files
@@ -310,11 +306,10 @@ class AgentSkills(Plugin):
                 resolved[source.name] = source
             elif isinstance(source, str) and is_url(source):
                 try:
-                    url_skills = Skill.from_url(source, cache_dir=self._cache_dir, strict=self._strict)
-                    for skill in url_skills:
-                        if skill.name in resolved:
-                            logger.warning("name=<%s> | duplicate skill name, overwriting previous skill", skill.name)
-                        resolved[skill.name] = skill
+                    skill = Skill.from_url(source, strict=self._strict)
+                    if skill.name in resolved:
+                        logger.warning("name=<%s> | duplicate skill name, overwriting previous skill", skill.name)
+                    resolved[skill.name] = skill
                 except (RuntimeError, ValueError) as e:
                     logger.warning("url=<%s> | failed to load skill from URL: %s", source, e)
             else:
