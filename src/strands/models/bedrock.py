@@ -261,6 +261,7 @@ class BedrockModel(Model):
                                         "name": tool_spec["name"],
                                         "description": tool_spec["description"],
                                         "inputSchema": tool_spec["inputSchema"],
+                                        **({"strict": tool_spec["strict"]} if "strict" in tool_spec else {}),
                                     }
                                 }
                                 for tool_spec in tool_specs
