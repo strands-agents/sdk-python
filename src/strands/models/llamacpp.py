@@ -138,11 +138,13 @@ class LlamaCppModel(Model):
         Handles extraction of ``base_url`` and ``timeout`` as separate constructor parameters.
 
         Args:
-            config: Model configuration dictionary.
+            config: Model configuration dictionary. A copy is made internally;
+                the caller's dict is not modified.
 
         Returns:
             A configured LlamaCppModel instance.
         """
+        config = config.copy()
         kwargs: dict[str, Any] = {}
         if "base_url" in config:
             kwargs["base_url"] = config.pop("base_url")

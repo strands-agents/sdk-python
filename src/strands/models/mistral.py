@@ -60,11 +60,13 @@ class MistralModel(Model):
         Handles extraction of ``api_key`` and ``client_args`` as separate constructor parameters.
 
         Args:
-            config: Model configuration dictionary.
+            config: Model configuration dictionary. A copy is made internally;
+                the caller's dict is not modified.
 
         Returns:
             A configured MistralModel instance.
         """
+        config = config.copy()
         api_key = config.pop("api_key", None)
         client_args = config.pop("client_args", None)
         kwargs: dict[str, Any] = {}

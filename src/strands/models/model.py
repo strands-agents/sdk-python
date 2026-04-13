@@ -62,11 +62,13 @@ class Model(abc.ABC):
         non-standard constructor signatures should override this method.
 
         Args:
-            config: Provider-specific configuration dictionary.
+            config: Provider-specific configuration dictionary. A copy is made internally;
+                the caller's dict is not modified.
 
         Returns:
             A configured Model instance.
         """
+        config = config.copy()
         client_args = config.pop("client_args", None)
         kwargs: dict[str, Any] = {}
         if client_args is not None:

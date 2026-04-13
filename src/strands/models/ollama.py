@@ -64,11 +64,13 @@ class OllamaModel(Model):
         ``client_args`` to the ``ollama_client_args`` constructor parameter.
 
         Args:
-            config: Model configuration dictionary.
+            config: Model configuration dictionary. A copy is made internally;
+                the caller's dict is not modified.
 
         Returns:
             A configured OllamaModel instance.
         """
+        config = config.copy()
         host = config.pop("host", None)
         client_args = config.pop("client_args", None)
         kwargs: dict[str, Any] = {}

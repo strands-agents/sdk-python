@@ -135,11 +135,13 @@ class BedrockModel(Model):
         ``boto_client_config`` from a plain dict to ``botocore.config.Config``.
 
         Args:
-            config: Model configuration dictionary.
+            config: Model configuration dictionary. A copy is made internally;
+                the caller's dict is not modified.
 
         Returns:
             A configured BedrockModel instance.
         """
+        config = config.copy()
         kwargs: dict[str, Any] = {}
 
         if "region_name" in config:

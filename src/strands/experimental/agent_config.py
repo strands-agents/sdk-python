@@ -33,14 +33,19 @@ code-based instantiation: ``boto_session`` (Bedrock, SageMaker), ``client`` (Ope
 ``gemini_tools`` (Gemini). Use ``region_name`` / ``client_args`` as JSON-friendly alternatives.
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import jsonschema
 from jsonschema import ValidationError
+
+if TYPE_CHECKING:
+    from ..models.model import Model
 
 # JSON Schema for agent configuration
 AGENT_CONFIG_SCHEMA = {
@@ -91,7 +96,8 @@ AGENT_CONFIG_SCHEMA = {
 # Pre-compile validator for better performance
 _VALIDATOR = jsonschema.Draft7Validator(AGENT_CONFIG_SCHEMA)
 
-# Pattern for matching environment variable references
+# Only full-string env var references are resolved (no inline interpolation).
+# "prefix-$VAR" is NOT resolved; construct values programmatically instead.
 _ENV_VAR_PATTERN = re.compile(r"^\$\{([^}]+)\}$|^\$([A-Za-z_][A-Za-z0-9_]*)$")
 
 # Provider name to model class name — resolved via strands.models lazy __getattr__
@@ -142,7 +148,7 @@ def _resolve_env_vars(value: Any) -> Any:
     return value
 
 
-def _create_model_from_dict(model_config: dict[str, Any]) -> Any:
+def _create_model_from_dict(model_config: dict[str, Any]) -> "Model":
     """Create a Model instance from a provider config dict.
 
     Routes the config to the appropriate model class based on the ``provider`` field,
@@ -173,7 +179,7 @@ def _create_model_from_dict(model_config: dict[str, Any]) -> Any:
     return model_cls.from_dict(config)
 
 
-def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> Any:
+def config_to_agent(config: str | dict[str, Any], **kwargs: Any) -> Any:
     """Create an Agent from a configuration file or dictionary.
 
     This function supports tools that can be loaded declaratively (file paths, module names,
