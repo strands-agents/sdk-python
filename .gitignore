@@ -15,3 +15,9 @@ repl_state
 uv.lock
 .audio_cache
 CLAUDE.md
+
+# Deploy toolkit artifacts
+.bedrock_agentcore.yaml
+dependencies.hash
+dependencies.zip
+.strands_deploy/
