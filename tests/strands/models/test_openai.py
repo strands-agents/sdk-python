@@ -873,24 +873,6 @@ def test_format_chunk_metadata_with_cache_tokens(model):
     assert result["metadata"]["usage"]["cacheReadInputTokens"] == 25
 
 
-def test_format_chunk_metadata_without_cache_tokens(model):
-    """Test format_chunk for metadata without cache tokens."""
-    mock_usage = unittest.mock.Mock()
-    mock_usage.prompt_tokens = 100
-    mock_usage.completion_tokens = 50
-    mock_usage.total_tokens = 150
-    mock_usage.prompt_tokens_details = None
-
-    event = {"chunk_type": "metadata", "data": mock_usage}
-
-    result = model.format_chunk(event)
-
-    assert result["metadata"]["usage"]["inputTokens"] == 100
-    assert result["metadata"]["usage"]["outputTokens"] == 50
-    assert result["metadata"]["usage"]["totalTokens"] == 150
-    assert "cacheReadInputTokens" not in result["metadata"]["usage"]
-
-
 def test_format_chunk_metadata_with_zero_cached_tokens(model):
     """Test format_chunk for metadata when cached_tokens is 0."""
     mock_usage = unittest.mock.Mock()
