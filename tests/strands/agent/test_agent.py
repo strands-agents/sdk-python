@@ -58,6 +58,7 @@ def mock_model(request):
     mock = unittest.mock.Mock(spec=getattr(request, "param", None))
     mock.configure_mock(mock_stream=unittest.mock.MagicMock())
     mock.stream.side_effect = stream
+    mock.stateful = False
 
     return mock
 
@@ -222,6 +223,8 @@ class SyncEventFailingModel:
 
     Used for testing idempotency behavior when the original invocation fails.
     """
+
+    stateful = False
 
     def __init__(self):
         self.started_event = threading.Event()
@@ -2791,42 +2794,6 @@ def test_as_tool_defaults_description_when_agent_has_none():
     tool = agent.as_tool()
 
     assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"
-
-
-class SyncEventFailingModel:
-    """A mock model that signals when streaming starts, then raises an error.
-
-    Used for testing idempotency behavior when the original invocation fails.
-    """
-
-    def __init__(self):
-        self.started_event = threading.Event()
-        self.proceed_event = threading.Event()
-
-    async def stream(self, *args, **kwargs):
-        self.started_event.set()
-        self.proceed_event.wait()
-        raise RuntimeError("Simulated model failure")
-        yield  # noqa: RET503 - makes this an async generator
-
-
-class IdempotencyTestAgent(Agent):
-    """Agent subclass that signals when a duplicate idempotency token is detected.
-
-    Pairs with SyncEventMockedModel to provide deterministic two-thread synchronization:
-    the model pauses Thread 1 inside stream(), and this class signals when Thread 2
-    has reached _check_idempotency and been identified as a duplicate.
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.duplicate_detected = threading.Event()
-
-    def _check_idempotency(self, idempotency_token):
-        result = super()._check_idempotency(idempotency_token)
-        if result[0] is not None:
-            self.duplicate_detected.set()
-        return result
 
 
 def test_idempotency_duplicate_waits_and_returns_same_result():
