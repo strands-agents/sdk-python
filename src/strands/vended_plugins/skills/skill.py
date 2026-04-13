@@ -337,26 +337,18 @@ class Skill:
     def from_url(cls, url: str, *, strict: bool = False) -> Skill:
         """Load a skill by fetching its SKILL.md content from an HTTPS URL.
 
-        Fetches the SKILL.md content over HTTPS and parses it using
-        :meth:`from_content`.  GitHub web URLs are automatically resolved
-        to ``raw.githubusercontent.com``::
+        Fetches the raw SKILL.md content over HTTPS and parses it using
+        :meth:`from_content`.  The URL must point directly to the raw
+        file content (not an HTML page).
 
-            # Direct raw URL
+        Example::
+
             skill = Skill.from_url(
                 "https://raw.githubusercontent.com/org/repo/main/SKILL.md"
             )
 
-            # GitHub web URL (auto-resolved)
-            skill = Skill.from_url(
-                "https://github.com/org/repo/tree/main/skills/my-skill"
-            )
-
-            # Repository root with @ref
-            skill = Skill.from_url("https://github.com/org/my-skill@v1.0.0")
-
         Args:
-            url: An ``https://`` URL pointing to a SKILL.md file, a GitHub
-                repository, or a GitHub ``/tree/<ref>/path`` URL.
+            url: An ``https://`` URL pointing directly to raw SKILL.md content.
             strict: If True, raise on any validation issue. If False (default),
                 warn and load anyway.
 

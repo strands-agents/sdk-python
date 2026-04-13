@@ -571,24 +571,6 @@ class TestSkillFromUrl:
         assert "Remote instructions." in skill.instructions
         assert skill.path is None
 
-    def test_from_url_github_web_url(self):
-        """Test that GitHub web URLs are handled (resolved in fetch_skill_content)."""
-        from unittest.mock import patch
-
-        with patch(f"{self._URL_LOADER}.fetch_skill_content", return_value=self._SAMPLE_CONTENT):
-            skill = Skill.from_url("https://github.com/org/repo/tree/main/skills/my-skill")
-
-        assert skill.name == "my-skill"
-
-    def test_from_url_with_ref(self):
-        """Test URL with @ref suffix."""
-        from unittest.mock import patch
-
-        with patch(f"{self._URL_LOADER}.fetch_skill_content", return_value=self._SAMPLE_CONTENT):
-            skill = Skill.from_url("https://github.com/org/my-skill@v1.0.0")
-
-        assert skill.name == "my-skill"
-
     def test_from_url_invalid_url_raises(self):
         """Test that a non-HTTPS URL raises ValueError."""
         with pytest.raises(ValueError, match="not a valid HTTPS URL"):
