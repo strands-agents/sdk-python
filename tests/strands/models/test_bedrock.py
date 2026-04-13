@@ -2823,3 +2823,144 @@ def test_guardrail_latest_message_disabled_does_not_wrap(model):
 
     assert "text" in formatted
     assert "guardContent" not in formatted
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_citations_with_missing_optional_fields(bedrock_client, model, alist):
+    """Test that _convert_non_streaming_to_streaming handles citations missing optional fields.
+
+    Nova grounding returns citations with only url/domain but no title field. The conversion
+    should not crash with KeyError when optional fields like title, location, or sourceContent
+    are missing from the citation response.
+    """
+    # Simulate a non-streaming response with citations missing the 'title' field
+    # This is what Nova grounding returns: url+domain in location, no title
+    non_streaming_response = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "citationsContent": {
+                            "content": [{"text": "Top shoe brands include Nike and Adidas."}],
+                            "citations": [
+                                {
+                                    "location": {
+                                        "web": {
+                                            "url": "https://example.com/shoes",
+                                            "domain": "example.com",
+                                        }
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "end_turn",
+        "usage": {"inputTokens": 10, "outputTokens": 20},
+    }
+
+    events = list(model._convert_non_streaming_to_streaming(non_streaming_response))
+
+    # Should have: messageStart, contentBlockDelta (text + citation), contentBlockStop, messageStop, metadata
+    citation_deltas = [
+        e for e in events if "contentBlockDelta" in e and "citation" in e.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    assert len(citation_deltas) == 1
+
+    citation = citation_deltas[0]["contentBlockDelta"]["delta"]["citation"]
+    # title should NOT be present since the source didn't have it
+    assert "title" not in citation
+    # location should be present
+    assert "location" in citation
+    # sourceContent should NOT be present since the source didn't have it
+    assert "sourceContent" not in citation
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_citations_with_all_fields_present(bedrock_client, model, alist):
+    """Test that _convert_non_streaming_to_streaming correctly includes all fields when present."""
+    non_streaming_response = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "citationsContent": {
+                            "content": [{"text": "Nike is a top shoe brand."}],
+                            "citations": [
+                                {
+                                    "title": "Top Shoe Brands",
+                                    "location": {
+                                        "web": {
+                                            "url": "https://example.com/shoes",
+                                            "domain": "example.com",
+                                        }
+                                    },
+                                    "sourceContent": [{"text": "Nike is a leading brand"}],
+                                },
+                            ],
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "end_turn",
+        "usage": {"inputTokens": 10, "outputTokens": 20},
+    }
+
+    events = list(model._convert_non_streaming_to_streaming(non_streaming_response))
+
+    citation_deltas = [
+        e for e in events if "contentBlockDelta" in e and "citation" in e.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    assert len(citation_deltas) == 1
+
+    citation = citation_deltas[0]["contentBlockDelta"]["delta"]["citation"]
+    assert citation["title"] == "Top Shoe Brands"
+    assert citation["location"] == {"web": {"url": "https://example.com/shoes", "domain": "example.com"}}
+    assert citation["sourceContent"] == [{"text": "Nike is a leading brand"}]
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_citations_with_only_location(bedrock_client, model, alist):
+    """Test citations with only location field (no title, no sourceContent)."""
+    non_streaming_response = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "citationsContent": {
+                            "citations": [
+                                {
+                                    "location": {
+                                        "web": {
+                                            "url": "https://example.com",
+                                            "domain": "example.com",
+                                        }
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "end_turn",
+        "usage": {"inputTokens": 5, "outputTokens": 10},
+    }
+
+    events = list(model._convert_non_streaming_to_streaming(non_streaming_response))
+
+    citation_deltas = [
+        e for e in events if "contentBlockDelta" in e and "citation" in e.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    assert len(citation_deltas) == 1
+
+    citation = citation_deltas[0]["contentBlockDelta"]["delta"]["citation"]
+    assert citation["location"] == {"web": {"url": "https://example.com", "domain": "example.com"}}
+    assert "title" not in citation
+    assert "sourceContent" not in citation

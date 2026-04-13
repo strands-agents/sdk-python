@@ -1021,3 +1021,55 @@ def test_after_invocation_resume_interrupt_during_resumed_invocation():
     assert result.stop_reason == "end_turn"
     assert result.message["content"][0]["text"] == "Final response"
     assert agent._interrupt_state.activated is False
+
+
+def test_hooks_param_accepts_callable():
+    """Verify that a plain callable can be passed via hooks parameter."""
+    events_received = []
+
+    def my_callback(event: AgentInitializedEvent) -> None:
+        events_received.append(event)
+
+    agent = Agent(hooks=[my_callback], callback_handler=None)
+
+    assert len(events_received) == 1
+    assert isinstance(events_received[0], AgentInitializedEvent)
+    assert events_received[0].agent is agent
+
+
+def test_hooks_param_accepts_mixed_list():
+    """Verify that a mix of HookProviders and callables can be passed."""
+    callback_events = []
+
+    def my_callback(event: AgentInitializedEvent) -> None:
+        callback_events.append(event)
+
+    provider = MockHookProvider(event_types=[AgentInitializedEvent])
+
+    agent = Agent(hooks=[provider, my_callback], callback_handler=None)
+
+    assert len(callback_events) == 1
+    assert callback_events[0].agent is agent
+    length, _ = provider.get_events()
+    assert length == 1
+
+
+def test_hooks_param_invalid_hook_raises_error():
+    """Verify that passing an invalid hook raises ValueError."""
+    with pytest.raises(ValueError, match="Invalid hook"):
+        Agent(hooks=["not_a_hook"], callback_handler=None)  # type: ignore
+
+
+def test_hooks_param_callable_invoked_during_lifecycle():
+    """Verify callable hooks fire during agent lifecycle."""
+    before_events = []
+
+    def on_before(event: BeforeInvocationEvent) -> None:
+        before_events.append(event)
+
+    mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello!"}]}])
+    agent = Agent(model=mock_model, hooks=[on_before], callback_handler=None)
+    agent("test")
+
+    assert len(before_events) == 1
+    assert isinstance(before_events[0], BeforeInvocationEvent)

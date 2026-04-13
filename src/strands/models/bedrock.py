@@ -966,13 +966,15 @@ class BedrockModel(Model):
                     }
 
                 for citation in content["citationsContent"]["citations"]:
-                    # Then emit citation metadata (for structure)
-
-                    citation_metadata: CitationsDelta = {
-                        "title": citation["title"],
-                        "location": citation["location"],
-                        "sourceContent": citation["sourceContent"],
-                    }
+                    # Emit citation metadata, only including fields that are present
+                    # Nova grounding may omit title/sourceContent
+                    citation_metadata: CitationsDelta = {}
+                    if "title" in citation:
+                        citation_metadata["title"] = citation["title"]
+                    if "location" in citation:
+                        citation_metadata["location"] = citation["location"]
+                    if "sourceContent" in citation:
+                        citation_metadata["sourceContent"] = citation["sourceContent"]
                     yield {"contentBlockDelta": {"delta": {"citation": citation_metadata}}}
 
             # Yield contentBlockStop event
