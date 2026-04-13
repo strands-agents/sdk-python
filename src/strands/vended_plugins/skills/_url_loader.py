@@ -56,7 +56,8 @@ def resolve_to_raw_url(url: str) -> str:
         https://github.com/owner/repo/blob/main/skills/my-skill/SKILL.md
             -> https://raw.githubusercontent.com/owner/repo/main/skills/my-skill/SKILL.md
 
-    Non-GitHub URLs and ``raw.githubusercontent.com`` URLs are returned as-is.
+    Non-GitHub URLs and ``raw.githubusercontent.com`` URLs are returned as-is,
+    so they must point directly to a raw SKILL.md file.
 
     Args:
         url: An HTTPS URL, possibly a GitHub web URL.
@@ -125,15 +126,20 @@ def fetch_skill_content(url: str) -> str:
         The response body as a string.
 
     Raises:
+        ValueError: If ``url`` is not an ``https://`` URL.
         RuntimeError: If the fetch fails (network error, 404, etc.).
     """
+    if not url.startswith("https://"):
+        raise ValueError(f"url=<{url}> | only https:// URLs are supported")
+
     resolved = resolve_to_raw_url(url)
     logger.info("url=<%s> | fetching skill content from %s", url, resolved)
 
     try:
         req = urllib.request.Request(resolved, headers={"User-Agent": "strands-agents-sdk"})  # noqa: S310
         with urllib.request.urlopen(req, timeout=30) as response:  # noqa: S310
-            return response.read().decode("utf-8")
+            content: str = response.read().decode("utf-8")
+            return content
     except urllib.error.HTTPError as e:
         raise RuntimeError(f"url=<{resolved}> | HTTP {e.code}: {e.reason}") from e
     except urllib.error.URLError as e:

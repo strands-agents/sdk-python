@@ -109,6 +109,16 @@ class TestResolveToRawUrl:
             "https://raw.githubusercontent.com/org/repo/main/skills/my-skill/skill.md"
         )
 
+    def test_unrecognized_github_path_passthrough(self):
+        """Unrecognized GitHub URL patterns are returned as-is."""
+        url = "https://github.com/org/repo/wiki/Some-Page"
+        assert resolve_to_raw_url(url) == url
+
+    def test_github_deep_unrecognized_path(self):
+        """GitHub URLs with more than owner/repo segments (not tree/blob) pass through."""
+        url = "https://github.com/org/repo/actions/runs/12345"
+        assert resolve_to_raw_url(url) == url
+
 
 class TestFetchSkillContent:
     """Tests for fetch_skill_content."""
@@ -165,3 +175,8 @@ class TestFetchSkillContent:
         ):
             with pytest.raises(RuntimeError, match="failed to fetch"):
                 fetch_skill_content("https://example.com/SKILL.md")
+
+    def test_fetch_rejects_non_https(self):
+        """Test that non-https URLs are rejected."""
+        with pytest.raises(ValueError, match="only https://"):
+            fetch_skill_content("http://example.com/SKILL.md")

@@ -286,8 +286,8 @@ class AgentSkills(Plugin):
         """Resolve a list of skill sources into Skill instances.
 
         Each source can be a Skill instance, a path to a skill directory,
-        a path to a parent directory containing multiple skills, or a remote
-        Git URL.
+        a path to a parent directory containing multiple skills, or an
+        HTTPS URL pointing to a SKILL.md file.
 
         Args:
             sources: List of skill sources to resolve.
