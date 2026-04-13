@@ -12,7 +12,6 @@ Supported transport types:
 import json
 import logging
 import re
-from pathlib import Path
 from typing import Any
 
 import jsonschema
@@ -26,9 +25,62 @@ from ..tools.mcp.mcp_client import MCPClient, ToolFilters
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_PATH = Path(__file__).parent / "mcp_server_config.schema.json"
-with open(_SCHEMA_PATH) as _f:
-    MCP_SERVER_CONFIG_SCHEMA: dict[str, Any] = json.load(_f)
+MCP_SERVER_CONFIG_SCHEMA: dict[str, Any] = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "MCP Server Configuration",
+    "description": "Configuration for a single MCP server.",
+    "type": "object",
+    "properties": {
+        "transport": {
+            "description": "Transport type. Auto-detected from 'command' (stdio) or 'url' (sse) if omitted.",
+            "type": "string",
+            "enum": ["stdio", "sse", "streamable-http"],
+        },
+        "command": {"description": "Command to run for stdio transport.", "type": "string"},
+        "args": {
+            "description": "Arguments for the stdio command.",
+            "type": "array",
+            "items": {"type": "string"},
+            "default": [],
+        },
+        "env": {
+            "description": "Environment variables for the stdio command.",
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
+        "cwd": {"description": "Working directory for the stdio command.", "type": "string"},
+        "url": {"description": "URL for sse or streamable-http transport.", "type": "string"},
+        "headers": {
+            "description": "HTTP headers for sse or streamable-http transport.",
+            "type": "object",
+            "additionalProperties": {"type": "string"},
+        },
+        "prefix": {"description": "Prefix to apply to tool names from this server.", "type": "string"},
+        "startup_timeout": {
+            "description": "Timeout in seconds for server initialization. Defaults to 30.",
+            "type": "integer",
+            "default": 30,
+        },
+        "tool_filters": {
+            "description": "Filters for controlling which tools are loaded.",
+            "type": "object",
+            "properties": {
+                "allowed": {
+                    "description": "List of regex patterns for tools to include.",
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "rejected": {
+                    "description": "List of regex patterns for tools to exclude.",
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+            "additionalProperties": False,
+        },
+    },
+    "additionalProperties": False,
+}
 
 _SERVER_VALIDATOR = jsonschema.Draft7Validator(MCP_SERVER_CONFIG_SCHEMA)
 
@@ -36,8 +88,9 @@ _SERVER_VALIDATOR = jsonschema.Draft7Validator(MCP_SERVER_CONFIG_SCHEMA)
 def _parse_tool_filters(config: dict[str, Any] | None) -> ToolFilters | None:
     """Parse a tool filter configuration into a ToolFilters instance.
 
-    All filter strings are compiled as regex patterns. Exact-match strings like ``"^echo$"``
-    work correctly as regex since they match themselves.
+    All filter strings are compiled as regex patterns and matched using ``re.match``
+    (prefix match from start of string). Use ``"^echo$"`` for exact matching.
+    ``"echo"`` will match any tool name starting with "echo" (e.g. "echo_extra").
 
     Args:
         config: Tool filter configuration dict with 'allowed' and/or 'rejected' lists,

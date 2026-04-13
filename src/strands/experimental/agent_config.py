@@ -13,7 +13,6 @@ programmatic approach after creating the agent:
 
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 import jsonschema
@@ -23,12 +22,40 @@ from .mcp_config import MCP_SERVER_CONFIG_SCHEMA, load_mcp_clients_from_config
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA_PATH = Path(__file__).parent / "agent_config.schema.json"
-with open(_SCHEMA_PATH) as _f:
-    AGENT_CONFIG_SCHEMA: dict[str, Any] = json.load(_f)
-
-# Resolve the $ref in mcp_servers.additionalProperties to the actual MCP server schema
-AGENT_CONFIG_SCHEMA["properties"]["mcp_servers"]["additionalProperties"] = MCP_SERVER_CONFIG_SCHEMA
+# JSON Schema for agent configuration
+AGENT_CONFIG_SCHEMA: dict[str, Any] = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Agent Configuration",
+    "description": "Configuration schema for creating agents.",
+    "type": "object",
+    "properties": {
+        "name": {"description": "Name of the agent.", "type": ["string", "null"], "default": None},
+        "model": {
+            "description": "The model ID to use for this agent. If not specified, uses the default model.",
+            "type": ["string", "null"],
+            "default": None,
+        },
+        "prompt": {
+            "description": "The system prompt for the agent. Provides high level context to the agent.",
+            "type": ["string", "null"],
+            "default": None,
+        },
+        "tools": {
+            "description": "List of tools the agent can use. Can be file paths, "
+            "Python module names, or @tool annotated functions in files.",
+            "type": "array",
+            "items": {"type": "string"},
+            "default": [],
+        },
+        "mcp_servers": {
+            "description": "MCP server configurations. Each key is a server name and the value is "
+            "a server configuration object with transport-specific settings.",
+            "type": "object",
+            "additionalProperties": MCP_SERVER_CONFIG_SCHEMA,
+        },
+    },
+    "additionalProperties": False,
+}
 
 # Pre-compile validator for better performance
 _VALIDATOR = jsonschema.Draft7Validator(AGENT_CONFIG_SCHEMA)
