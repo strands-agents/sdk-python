@@ -86,8 +86,7 @@ class AgentSkills(Plugin):
                 - A ``str`` or ``Path`` to a skill directory (containing SKILL.md)
                 - A ``str`` or ``Path`` to a parent directory (containing skill subdirectories)
                 - A ``Skill`` dataclass instance
-                - An ``https://`` URL pointing to a SKILL.md file or a GitHub
-                  repository/directory URL (auto-resolved to raw content)
+                - An ``https://`` URL pointing directly to raw SKILL.md content
             state_key: Key used to store plugin state in ``agent.state``.
             max_resource_files: Maximum number of resource files to list in skill responses.
             strict: If True, raise on skill validation issues. If False (default), warn and load anyway.

@@ -627,6 +627,16 @@ class TestSkillFromUrl:
             with pytest.raises(ValueError):
                 Skill.from_url("https://example.com/SKILL.md", strict=True)
 
+    def test_from_url_invalid_content_raises(self):
+        """Test that non-SKILL.md content (e.g. HTML page) raises ValueError."""
+        from unittest.mock import patch
+
+        html_content = "<html><body>Not a SKILL.md</body></html>"
+
+        with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen", return_value=self._mock_urlopen(html_content)):
+            with pytest.raises(ValueError, match="frontmatter"):
+                Skill.from_url("https://example.com/SKILL.md")
+
 
 class TestSkillClassmethods:
     """Tests for Skill classmethod existence."""

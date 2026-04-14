@@ -224,6 +224,9 @@ class Skill:
         # Load all skills from a parent directory
         skills = Skill.from_directory("./skills/")
 
+        # From an HTTPS URL
+        skill = Skill.from_url("https://example.com/SKILL.md")
+
     Attributes:
         name: Unique identifier for the skill (1-64 chars, lowercase alphanumeric + hyphens).
         description: Human-readable description of what the skill does.
