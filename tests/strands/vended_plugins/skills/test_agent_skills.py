@@ -689,3 +689,43 @@ class TestImports:
 
         plugin = AgentSkills(skills=[])
         assert isinstance(plugin, Plugin)
+
+
+class TestSkillsXmlEscaping:
+    """Tests for XML escaping of all 5 special characters."""
+
+    def test_escapes_double_quotes(self):
+        """Test that double quotes in descriptions are escaped."""
+        skill = _make_skill(description='Use "quotes" in text')
+        plugin = AgentSkills(skills=[skill])
+        xml = plugin._generate_skills_xml()
+
+        assert "&quot;" in xml
+        assert '"quotes"' not in xml.split("<description>")[1].split("</description>")[0]
+
+    def test_escapes_single_quotes(self):
+        """Test that single quotes (apostrophes) in descriptions are escaped."""
+        skill = _make_skill(description="It's a skill")
+        plugin = AgentSkills(skills=[skill])
+        xml = plugin._generate_skills_xml()
+
+        # Should escape ' to &apos; or &#x27; or similar
+        desc_content = xml.split("<description>")[1].split("</description>")[0]
+        assert "'" not in desc_content
+
+    def test_escapes_all_five_xml_special_chars(self):
+        """Test that all 5 XML special characters are escaped."""
+        skill = _make_skill(
+            name="test-skill",
+            description="Has & < > \" ' chars",
+        )
+        plugin = AgentSkills(skills=[skill])
+        xml = plugin._generate_skills_xml()
+
+        desc_content = xml.split("<description>")[1].split("</description>")[0]
+        assert "&amp;" in desc_content
+        assert "&lt;" in desc_content
+        assert "&gt;" in desc_content
+        assert "&quot;" in desc_content
+        # ' should be escaped as &apos; or similar entity
+        assert "'" not in desc_content

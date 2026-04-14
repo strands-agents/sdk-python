@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape as _xml_escape
 
 from ...hooks.events import BeforeInvocationEvent
 from ...plugins import Plugin, hook
@@ -26,6 +26,24 @@ logger = logging.getLogger(__name__)
 _DEFAULT_STATE_KEY = "agent_skills"
 _RESOURCE_DIRS = ("scripts", "references", "assets")
 _DEFAULT_MAX_RESOURCE_FILES = 20
+
+_XML_EXTRA_ENTITIES = {'"': "&quot;", "'": "&apos;"}
+
+
+def _escape_xml(text: str) -> str:
+    """Escape all 5 XML special characters in text.
+
+    Extends the standard library's ``xml.sax.saxutils.escape`` to also
+    escape ``"`` and ``'``, which are not covered by default.
+
+    Args:
+        text: The text to escape.
+
+    Returns:
+        The escaped text.
+    """
+    return _xml_escape(text, _XML_EXTRA_ENTITIES)
+
 
 SkillSource: TypeAlias = str | Path | Skill
 """A single skill source: path string, Path object, or Skill instance."""
@@ -271,10 +289,10 @@ class AgentSkills(Plugin):
 
         for skill in self._skills.values():
             lines.append("<skill>")
-            lines.append(f"<name>{escape(skill.name)}</name>")
-            lines.append(f"<description>{escape(skill.description)}</description>")
+            lines.append(f"<name>{_escape_xml(skill.name)}</name>")
+            lines.append(f"<description>{_escape_xml(skill.description)}</description>")
             if skill.path is not None:
-                lines.append(f"<location>{escape(str(skill.path / 'SKILL.md'))}</location>")
+                lines.append(f"<location>{_escape_xml(str(skill.path / 'SKILL.md'))}</location>")
             lines.append("</skill>")
 
         lines.append("</available_skills>")

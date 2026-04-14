@@ -559,3 +559,47 @@ class TestSkillClassmethods:
         assert callable(getattr(Skill, "from_file", None))
         assert callable(getattr(Skill, "from_content", None))
         assert callable(getattr(Skill, "from_directory", None))
+
+
+class TestFixYamlColonsEscaping:
+    """Tests for _fix_yaml_colons escaping edge cases (Bug fix)."""
+
+    def test_escapes_double_quotes_in_value(self):
+        """Test that double quotes in values are escaped before wrapping."""
+        raw = 'description: Use when: user says "hello" and "goodbye"'
+        fixed = _fix_yaml_colons(raw)
+        # Must escape quotes: description: "Use when: user says \"hello\" and \"goodbye\""
+        assert r"\"hello\"" in fixed
+        assert r"\"goodbye\"" in fixed
+        # Verify it produces valid YAML
+        import yaml
+
+        result = yaml.safe_load(fixed)
+        assert result["description"] == 'Use when: user says "hello" and "goodbye"'
+
+    def test_escapes_backslashes_in_value(self):
+        r"""Test that backslashes in values are escaped before wrapping."""
+        raw = r"description: Path C:\Users\test: with colons"
+        fixed = _fix_yaml_colons(raw)
+        # Must escape backslashes before wrapping
+        import yaml
+
+        result = yaml.safe_load(fixed)
+        assert r"C:\Users\test" in result["description"]
+
+    def test_escapes_mixed_quotes_and_backslashes(self):
+        r"""Test that both quotes and backslashes are properly escaped."""
+        raw = r'description: Run "cmd": C:\path\to: file'
+        fixed = _fix_yaml_colons(raw)
+        import yaml
+
+        result = yaml.safe_load(fixed)
+        assert '"cmd"' in result["description"]
+        assert "C:\\path\\to" in result["description"]
+
+    def test_frontmatter_with_quotes_in_colon_value(self):
+        """Test end-to-end: frontmatter with quotes and colons parses correctly."""
+        content = '---\nname: my-skill\ndescription: Use when: user says "hello"\n---\nBody.'
+        frontmatter, body = _parse_frontmatter(content)
+        assert frontmatter["name"] == "my-skill"
+        assert '"hello"' in frontmatter["description"]
