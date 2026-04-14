@@ -295,8 +295,6 @@ class AgentSkills(Plugin):
         Returns:
             Dict mapping skill names to Skill instances.
         """
-        from ._url_loader import is_url
-
         resolved: dict[str, Skill] = {}
 
         for source in sources:
@@ -304,7 +302,7 @@ class AgentSkills(Plugin):
                 if source.name in resolved:
                     logger.warning("name=<%s> | duplicate skill name, overwriting previous skill", source.name)
                 resolved[source.name] = source
-            elif isinstance(source, str) and is_url(source):
+            elif isinstance(source, str) and source.startswith("https://"):
                 try:
                     skill = Skill.from_url(source, strict=self._strict)
                     if skill.name in resolved:

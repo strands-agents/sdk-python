@@ -554,15 +554,25 @@ class TestSkillFromContent:
 class TestSkillFromUrl:
     """Tests for Skill.from_url."""
 
-    _URL_LOADER = "strands.vended_plugins.skills._url_loader"
-
+    _SKILL_MODULE = "strands.vended_plugins.skills.skill"
     _SAMPLE_CONTENT = "---\nname: my-skill\ndescription: A remote skill\n---\nRemote instructions.\n"
+
+    def _mock_urlopen(self, content):
+        """Create a mock urlopen context manager returning the given content."""
+        from unittest.mock import MagicMock
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = content.encode("utf-8")
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        return mock_response
 
     def test_from_url_returns_skill(self):
         """Test loading a skill from a URL returns a single Skill."""
         from unittest.mock import patch
 
-        with patch(f"{self._URL_LOADER}.fetch_skill_content", return_value=self._SAMPLE_CONTENT):
+        mock_response = self._mock_urlopen(self._SAMPLE_CONTENT)
+        with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen", return_value=mock_response):
             skill = Skill.from_url("https://raw.githubusercontent.com/org/repo/main/SKILL.md")
 
         assert isinstance(skill, Skill)
@@ -581,16 +591,31 @@ class TestSkillFromUrl:
         with pytest.raises(ValueError, match="not a valid HTTPS URL"):
             Skill.from_url("http://example.com/SKILL.md")
 
-    def test_from_url_fetch_failure_raises(self):
-        """Test that a fetch failure propagates as RuntimeError."""
+    def test_from_url_http_error_raises(self):
+        """Test that HTTP errors propagate as RuntimeError."""
+        import urllib.error
         from unittest.mock import patch
 
         with patch(
-            f"{self._URL_LOADER}.fetch_skill_content",
-            side_effect=RuntimeError("HTTP 404: Not Found"),
+            f"{self._SKILL_MODULE}.urllib.request.urlopen",
+            side_effect=urllib.error.HTTPError(
+                url="https://example.com", code=404, msg="Not Found", hdrs=None, fp=None
+            ),
         ):
             with pytest.raises(RuntimeError, match="HTTP 404"):
-                Skill.from_url("https://example.com/nonexistent/SKILL.md")
+                Skill.from_url("https://example.com/SKILL.md")
+
+    def test_from_url_network_error_raises(self):
+        """Test that network errors propagate as RuntimeError."""
+        import urllib.error
+        from unittest.mock import patch
+
+        with patch(
+            f"{self._SKILL_MODULE}.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("Connection refused"),
+        ):
+            with pytest.raises(RuntimeError, match="failed to fetch"):
+                Skill.from_url("https://example.com/SKILL.md")
 
     def test_from_url_strict_mode(self):
         """Test that strict mode is forwarded to from_content."""
@@ -598,7 +623,7 @@ class TestSkillFromUrl:
 
         bad_content = "---\nname: BAD_NAME\ndescription: Bad\n---\nBody."
 
-        with patch(f"{self._URL_LOADER}.fetch_skill_content", return_value=bad_content):
+        with patch(f"{self._SKILL_MODULE}.urllib.request.urlopen", return_value=self._mock_urlopen(bad_content)):
             with pytest.raises(ValueError):
                 Skill.from_url("https://example.com/SKILL.md", strict=True)
 

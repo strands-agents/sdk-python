@@ -141,7 +141,6 @@ strands-agents/
 │   │   │   ├── core/                     # Base classes, actions, context
 │   │   │   └── handlers/                 # Handler implementations (e.g., LLM)
 │   │   └── skills/                       # AgentSkills.io integration (Skill, AgentSkills)
-│   │       └── _url_loader.py            # HTTPS skill fetching, GitHub URL resolution
 │   │
 │   ├── experimental/                     # Experimental features (API may change)
 │   │   ├── agent_config.py               # Experimental agent config

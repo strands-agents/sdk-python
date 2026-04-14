@@ -1,15 +1,17 @@
 """Skill data model and loading utilities for AgentSkills.io skills.
 
 This module defines the Skill dataclass and provides classmethods for
-discovering, parsing, and loading skills from the filesystem or raw content.
-Skills are directories containing a SKILL.md file with YAML frontmatter
-metadata and markdown instructions.
+discovering, parsing, and loading skills from the filesystem, raw content,
+or HTTPS URLs. Skills are directories containing a SKILL.md file with YAML
+frontmatter metadata and markdown instructions.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -359,12 +361,20 @@ class Skill:
             ValueError: If ``url`` is not an ``https://`` URL.
             RuntimeError: If the SKILL.md content cannot be fetched.
         """
-        from ._url_loader import fetch_skill_content, is_url
-
-        if not is_url(url):
+        if not url.startswith("https://"):
             raise ValueError(f"url=<{url}> | not a valid HTTPS URL")
 
-        content = fetch_skill_content(url)
+        logger.info("url=<%s> | fetching skill content", url)
+
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "strands-agents-sdk"})  # noqa: S310
+            with urllib.request.urlopen(req, timeout=30) as response:  # noqa: S310
+                content: str = response.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"url=<{url}> | HTTP {e.code}: {e.reason}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"url=<{url}> | failed to fetch skill: {e.reason}") from e
+
         return cls.from_content(content, strict=strict)
 
     @classmethod
