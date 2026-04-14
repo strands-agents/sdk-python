@@ -1164,6 +1164,30 @@ def test_system_prompt_setter_none():
     assert agent._system_prompt_content is None
 
 
+def test_system_prompt_content_property_string():
+    """Test system_prompt_content property returns content blocks when set with string."""
+    agent = Agent(system_prompt="hello world")
+
+    assert agent.system_prompt_content == [{"text": "hello world"}]
+
+
+def test_system_prompt_content_property_list():
+    """Test system_prompt_content property returns content blocks when set with list."""
+    blocks = [{"text": "Instructions"}, {"cachePoint": {"type": "default"}}]
+    agent = Agent(system_prompt=blocks)
+
+    assert agent.system_prompt_content == blocks
+    # Verify the string getter still works
+    assert agent.system_prompt == "Instructions"
+
+
+def test_system_prompt_content_property_none():
+    """Test system_prompt_content property returns None when prompt is None."""
+    agent = Agent(system_prompt=None)
+
+    assert agent.system_prompt_content is None
+
+
 @pytest.mark.asyncio
 async def test_stream_async_passes_invocation_state(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
     mock_model.mock_stream.side_effect = [

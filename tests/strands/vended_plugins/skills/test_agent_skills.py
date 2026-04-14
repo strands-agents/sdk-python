@@ -37,6 +37,9 @@ def _mock_agent():
         lambda self: self._system_prompt,
         lambda self, value: _set_system_prompt(self, value),
     )
+    type(agent).system_prompt_content = property(
+        lambda self: self._system_prompt_content,
+    )
 
     agent.hooks = HookRegistry()
     agent.add_hook = MagicMock(
@@ -59,11 +62,15 @@ def _mock_tool_context(agent: MagicMock) -> ToolContext:
     return ToolContext(tool_use=tool_use, agent=agent, invocation_state={"agent": agent})
 
 
-def _set_system_prompt(agent: MagicMock, value: str | None) -> None:
-    """Simulate the Agent.system_prompt setter."""
+def _set_system_prompt(agent, value) -> None:
+    """Simulate the Agent.system_prompt setter for str, list[SystemContentBlock], or None."""
     if isinstance(value, str):
         agent._system_prompt = value
         agent._system_prompt_content = [{"text": value}]
+    elif isinstance(value, list):
+        text_parts = [block["text"] for block in value if "text" in block]
+        agent._system_prompt = "\n".join(text_parts) if text_parts else None
+        agent._system_prompt_content = value
     elif value is None:
         agent._system_prompt = None
         agent._system_prompt_content = None
@@ -689,3 +696,189 @@ class TestImports:
 
         plugin = AgentSkills(skills=[])
         assert isinstance(plugin, Plugin)
+
+
+class TestContentBlockSystemPrompt:
+    """Tests for system prompt injection with SystemContentBlock[] (content blocks with cache points)."""
+
+    def test_preserves_cache_points(self):
+        """Test that injection preserves cache points in content block prompts."""
+        skill = _make_skill()
+        plugin = AgentSkills(skills=[skill])
+        agent = _mock_agent()
+
+        # Set system prompt as content blocks with a cache point
+        agent.system_prompt = [
+            {"text": "You are an agent."},
+            {"cachePoint": {"type": "default"}},
+            {"text": "More instructions."},
+        ]
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        # Content blocks should be preserved
+        blocks = agent.system_prompt_content
+        assert any("cachePoint" in block for block in blocks), "cache point was lost"
+        # Skills XML should be appended as a text block
+        skills_blocks = [block for block in blocks if "text" in block and "<available_skills>" in block["text"]]
+        assert len(skills_blocks) == 1
+        # Original text blocks still present
+        assert any("text" in block and block["text"] == "You are an agent." for block in blocks)
+        assert any("text" in block and block["text"] == "More instructions." for block in blocks)
+
+    def test_idempotent_with_cache_points(self):
+        """Test that repeated injections with content blocks don't accumulate."""
+        skill = _make_skill()
+        plugin = AgentSkills(skills=[skill])
+        agent = _mock_agent()
+
+        agent.system_prompt = [
+            {"text": "You are an agent."},
+            {"cachePoint": {"type": "default"}},
+        ]
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+        first_blocks = list(agent.system_prompt_content)
+
+        plugin._on_before_invocation(event)
+        second_blocks = list(agent.system_prompt_content)
+
+        # Should have exactly the same number of blocks
+        assert len(first_blocks) == len(second_blocks)
+        # Exactly one skills XML block
+        skills_blocks = [b for b in second_blocks if "text" in b and "<available_skills>" in b["text"]]
+        assert len(skills_blocks) == 1
+
+    def test_cache_point_not_flattened_to_string(self):
+        """Test that content block prompts are NOT converted to a flat string."""
+        skill = _make_skill()
+        plugin = AgentSkills(skills=[skill])
+        agent = _mock_agent()
+
+        agent.system_prompt = [
+            {"text": "Instructions"},
+            {"cachePoint": {"type": "default"}},
+        ]
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        # The result should still be a content block list, not a string
+        blocks = agent.system_prompt_content
+        assert isinstance(blocks, list)
+        assert len(blocks) >= 2  # At least cache point + skills text
+        assert any("cachePoint" in block for block in blocks)
+
+    def test_content_blocks_with_skills_swap(self):
+        """Test that swapping skills updates the XML block in content block prompts."""
+        skill_a = _make_skill(name="skill-a", description="A")
+        skill_b = _make_skill(name="skill-b", description="B")
+        plugin = AgentSkills(skills=[skill_a])
+        agent = _mock_agent()
+
+        agent.system_prompt = [
+            {"text": "Base prompt."},
+            {"cachePoint": {"type": "default"}},
+        ]
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        # Verify skill-a is in the prompt
+        blocks = agent.system_prompt_content
+        skills_text = [b["text"] for b in blocks if "text" in b and "<available_skills>" in b["text"]]
+        assert len(skills_text) == 1
+        assert "skill-a" in skills_text[0]
+
+        # Swap to skill-b
+        plugin.set_available_skills([skill_b])
+        plugin._on_before_invocation(event)
+
+        blocks = agent.system_prompt_content
+        skills_text = [b["text"] for b in blocks if "text" in b and "<available_skills>" in b["text"]]
+        assert len(skills_text) == 1
+        assert "skill-b" in skills_text[0]
+        assert "skill-a" not in skills_text[0]
+        # Cache point still there
+        assert any("cachePoint" in b for b in blocks)
+
+    def test_string_prompt_still_works(self):
+        """Test that plain string prompts still use the string path (regression test)."""
+        skill = _make_skill()
+        plugin = AgentSkills(skills=[skill])
+        agent = _mock_agent()
+
+        agent.system_prompt = "Simple string prompt."
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        # Should still work as a string
+        assert isinstance(agent.system_prompt, str)
+        assert "Simple string prompt." in agent.system_prompt
+        assert "<available_skills>" in agent.system_prompt
+
+    def test_all_text_blocks_use_string_path(self):
+        """Test that content blocks with ONLY text blocks use the string path."""
+        skill = _make_skill()
+        plugin = AgentSkills(skills=[skill])
+        agent = _mock_agent()
+
+        # All-text content blocks — no cache points
+        agent.system_prompt = [
+            {"text": "Part one."},
+            {"text": "Part two."},
+        ]
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        # String path should have been used (concatenated result)
+        prompt = agent.system_prompt
+        assert isinstance(prompt, str)
+        assert "<available_skills>" in prompt
+
+    def test_warns_when_previous_xml_not_found_content_blocks(self, caplog):
+        """Test warning when previous XML is missing from content block prompt."""
+        import logging
+
+        skill = _make_skill()
+        plugin = AgentSkills(skills=[skill])
+        agent = _mock_agent()
+
+        agent.system_prompt = [
+            {"text": "Original."},
+            {"cachePoint": {"type": "default"}},
+        ]
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        # Replace the prompt entirely (removes the skills block)
+        agent.system_prompt = [
+            {"text": "New prompt."},
+            {"cachePoint": {"type": "default"}},
+        ]
+
+        with caplog.at_level(logging.WARNING):
+            plugin._on_before_invocation(event)
+
+        assert "unable to find previously injected skills XML in system prompt" in caplog.text
+        # Skills XML still appended
+        blocks = agent.system_prompt_content
+        assert any("text" in b and "<available_skills>" in b["text"] for b in blocks)
+
+    def test_none_prompt_with_content_blocks_fallback(self):
+        """Test that None prompt works (falls through to string path)."""
+        skill = _make_skill()
+        plugin = AgentSkills(skills=[skill])
+        agent = _mock_agent()
+
+        agent.system_prompt = None
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        assert "<available_skills>" in agent.system_prompt

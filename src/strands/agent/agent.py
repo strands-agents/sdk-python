@@ -429,6 +429,20 @@ class Agent(AgentBase):
         self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(value)
 
     @property
+    def system_prompt_content(self) -> list[SystemContentBlock] | None:
+        """Get the system prompt as a list of content blocks.
+
+        Returns the full content block representation of the system prompt,
+        preserving cache points and other non-text blocks. This is useful for
+        plugins and tools that need to manipulate the system prompt while
+        maintaining its structure.
+
+        Returns:
+            The system prompt as a list of SystemContentBlock, or None if not set.
+        """
+        return self._system_prompt_content
+
+    @property
     def tool(self) -> _ToolCaller:
         """Call tool as a function.
 

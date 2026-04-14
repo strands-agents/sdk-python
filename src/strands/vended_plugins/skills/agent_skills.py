@@ -140,29 +140,53 @@ class AgentSkills(Plugin):
         injected XML per-agent, so a single plugin instance can be shared
         across multiple agents safely.
 
+        Handles two system prompt formats:
+        - ``str | None``: String manipulation (append/replace)
+        - ``list[SystemContentBlock]``: Content block manipulation, preserving
+          cache points and other non-text blocks
+
         Args:
             event: The before-invocation event containing the agent reference.
         """
         agent = event.agent
+        skills_xml = self._generate_skills_xml()
 
-        current_prompt = agent.system_prompt or ""
-
-        # Remove the previously injected XML block by exact match
         state_data = agent.state.get(self._state_key)
         last_injected_xml = state_data.get("last_injected_xml") if isinstance(state_data, dict) else None
-        if last_injected_xml is not None:
-            if last_injected_xml in current_prompt:
-                current_prompt = current_prompt.replace(last_injected_xml, "")
+
+        # Check if the system prompt uses content blocks with non-text elements (cache points etc.)
+        content_blocks = getattr(agent, "system_prompt_content", None)
+        has_structured_blocks = content_blocks is not None and any("text" not in block for block in content_blocks)
+
+        if has_structured_blocks:
+            # Content block path: filter out old skills block, append new one as a text block.
+            # This preserves cache points and other non-text blocks.
+            if last_injected_xml is not None:
+                filtered = [block for block in content_blocks if not ("text" in block and block["text"] == last_injected_xml)]
+                if len(filtered) == len(content_blocks):
+                    logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
             else:
-                logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
+                filtered = list(content_blocks)
 
-        skills_xml = self._generate_skills_xml()
-        injection = f"\n\n{skills_xml}"
-        new_prompt = f"{current_prompt}{injection}" if current_prompt else skills_xml
+            self._set_state_field(agent, "last_injected_xml", skills_xml)
+            filtered.append({"text": skills_xml})
+            agent.system_prompt = filtered
+        else:
+            # String path: existing behavior for simple string prompts
+            current_prompt = agent.system_prompt or ""
 
-        new_injected_xml = injection if current_prompt else skills_xml
-        self._set_state_field(agent, "last_injected_xml", new_injected_xml)
-        agent.system_prompt = new_prompt
+            if last_injected_xml is not None:
+                if last_injected_xml in current_prompt:
+                    current_prompt = current_prompt.replace(last_injected_xml, "")
+                else:
+                    logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
+
+            injection = f"\n\n{skills_xml}"
+            new_prompt = f"{current_prompt}{injection}" if current_prompt else skills_xml
+
+            new_injected_xml = injection if current_prompt else skills_xml
+            self._set_state_field(agent, "last_injected_xml", new_injected_xml)
+            agent.system_prompt = new_prompt
 
     def get_available_skills(self) -> list[Skill]:
         """Get the list of available skills.
