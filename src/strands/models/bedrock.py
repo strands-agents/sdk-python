@@ -438,6 +438,16 @@ class BedrockModel(Model):
                     dropped_deepseek_reasoning_content = True
                     continue
 
+                # Normalize empty toolResult content arrays.
+                # Some model providers (e.g., Nemotron) reject toolResult blocks with
+                # content: [] via the Converse API, while others (e.g., Claude) accept
+                # them. Replace empty content with a minimal text block to ensure
+                # cross-model compatibility. This follows the same pattern as the
+                # TypeScript SDK's _formatMessages in bedrock.ts.
+                if "toolResult" in content_block:
+                    if not content_block["toolResult"].get("content"):
+                        content_block["toolResult"]["content"] = [{"text": ""}]
+
                 # Format content blocks for Bedrock API compatibility
                 formatted_content = self._format_request_message_content(content_block)
                 if formatted_content is None:

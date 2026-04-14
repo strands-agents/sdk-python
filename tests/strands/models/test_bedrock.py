@@ -1607,6 +1607,65 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
     assert "status" not in tool_result
 
 
+def test_format_bedrock_messages_normalizes_empty_tool_result_content(model, model_id):
+    """Test that _format_bedrock_messages replaces empty toolResult content with a minimal text block.
+
+    Some model providers (e.g., Nemotron) reject toolResult blocks with content: [] via the
+    Converse API, while others (e.g., Claude) accept them. The SDK should normalize empty
+    content arrays to ensure cross-model compatibility.
+
+    See: https://github.com/strands-agents/sdk-python/issues/2122
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Querying...\n"},
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": []}},
+            ],
+        },
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
+    assert tool_result["content"] == [{"text": ""}], (
+        "Empty toolResult content should be normalized to [{'text': ''}]"
+    )
+
+
+def test_format_bedrock_messages_preserves_nonempty_tool_result_content(model, model_id):
+    """Test that _format_bedrock_messages does not modify non-empty toolResult content."""
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Querying...\n"},
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": [{"text": "some result"}]}},
+            ],
+        },
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
+    assert tool_result["content"] == [{"text": "some result"}]
+
+
 def test_format_request_removes_status_field_when_configured(model, model_id):
     model.update_config(include_tool_result_status=False)
 
