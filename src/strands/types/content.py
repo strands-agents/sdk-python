@@ -214,5 +214,8 @@ Messages = list[Message]
 
 
 def get_message_metadata(message: Message) -> MessageMetadata:
-    """Get metadata for a message, returning empty dict if not present."""
+    """Get metadata for a message, returning empty dict if not present.
+
+    Individual fields (usage, metrics, custom) may not be present. Use .get() to safely access them.
+    """
     return message.get("metadata", {})
