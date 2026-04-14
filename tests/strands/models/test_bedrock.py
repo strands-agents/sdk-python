@@ -1636,9 +1636,7 @@ def test_format_bedrock_messages_normalizes_empty_tool_result_content(model, mod
     formatted_request = model._format_request(messages)
 
     tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
-    assert tool_result["content"] == [{"text": ""}], (
-        "Empty toolResult content should be normalized to [{'text': ''}]"
-    )
+    assert tool_result["content"] == [{"text": ""}], "Empty toolResult content should be normalized to [{'text': ''}]"
 
 
 def test_format_bedrock_messages_preserves_nonempty_tool_result_content(model, model_id):
