@@ -162,14 +162,12 @@ class AgentSkills(Plugin):
         # who set a list of only text blocks will see them flattened, which is the existing behavior.
         has_structured_blocks = content_blocks is not None and any("text" not in block for block in content_blocks)
 
-        if has_structured_blocks:
+        if has_structured_blocks and content_blocks is not None:
             # Content block path: filter out old skills block, append new one as a text block.
             # This preserves cache points and other non-text blocks.
             if last_injected_xml is not None:
                 filtered = [
-                    block
-                    for block in content_blocks
-                    if not ("text" in block and block["text"] == last_injected_xml)
+                    block for block in content_blocks if not ("text" in block and block["text"] == last_injected_xml)
                 ]
                 if len(filtered) == len(content_blocks):
                     logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
