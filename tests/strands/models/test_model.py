@@ -213,3 +213,46 @@ def test_model_plugin_preserves_messages_when_not_stateful(model_plugin):
     model_plugin._on_after_invocation(event)
 
     assert len(agent.messages) == 1
+
+
+class TestModelFromDict:
+    """Tests for the default Model.from_dict classmethod."""
+
+    def test_from_dict_with_client_args(self):
+        """Test that from_dict extracts client_args and passes remaining kwargs."""
+        from unittest.mock import patch
+
+        from strands.models.bedrock import BedrockModel
+
+        # Use BedrockModel to test from_dict invocation since it is always available;
+        # the base Model.from_dict is tested indirectly via the bedrock override path
+        # not executing (we only verify kwarg routing here).
+        with patch.object(BedrockModel, "__init__", return_value=None) as mock_init:
+            # Invoke the *base* Model.from_dict by calling it on a subclass that
+            # does NOT override from_dict.  BedrockModel overrides it, so we call
+            # the base implementation directly for this test.
+            SAModel.from_dict.__func__(
+                BedrockModel,
+                {
+                    "model_id": "test-model",
+                    "client_args": {"api_key": "test"},
+                    "max_tokens": 4096,
+                },
+            )
+            call_kwargs = mock_init.call_args[1]
+            assert call_kwargs["client_args"] == {"api_key": "test"}
+            assert call_kwargs["model_id"] == "test-model"
+            assert call_kwargs["max_tokens"] == 4096
+
+    def test_from_dict_without_client_args(self):
+        """Test that from_dict works without client_args."""
+        from unittest.mock import patch
+
+        from strands.models.bedrock import BedrockModel
+
+        with patch.object(BedrockModel, "__init__", return_value=None) as mock_init:
+            SAModel.from_dict.__func__(BedrockModel, {"model_id": "test-model", "max_tokens": 1024})
+            call_kwargs = mock_init.call_args[1]
+            assert call_kwargs["model_id"] == "test-model"
+            assert call_kwargs["max_tokens"] == 1024
+            assert "client_args" not in call_kwargs

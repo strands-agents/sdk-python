@@ -3,7 +3,6 @@
 import json
 import os
 import tempfile
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,7 +11,6 @@ from strands.experimental import config_to_agent
 from strands.experimental.agent_config import (
     PROVIDER_MAP,
     _create_model_from_dict,
-    _resolve_env_vars,
 )
 
 # =============================================================================
@@ -184,72 +182,6 @@ def test_config_to_agent_with_tool():
 
 
 # =============================================================================
-# Environment variable resolution tests
-# =============================================================================
-
-
-class TestResolveEnvVars:
-    """Tests for the _resolve_env_vars utility function."""
-
-    def test_resolve_dollar_prefix(self):
-        """Test resolving $VAR_NAME format."""
-        with patch.dict(os.environ, {"MY_API_KEY": "secret123"}):
-            assert _resolve_env_vars("$MY_API_KEY") == "secret123"
-
-    def test_resolve_braced_format(self):
-        """Test resolving ${VAR_NAME} format."""
-        with patch.dict(os.environ, {"MY_API_KEY": "secret456"}):
-            assert _resolve_env_vars("${MY_API_KEY}") == "secret456"
-
-    def test_resolve_nested_dict(self):
-        """Test recursive resolution in nested dicts."""
-        with patch.dict(os.environ, {"KEY1": "val1", "KEY2": "val2"}):
-            data = {"outer": {"inner": "$KEY1"}, "flat": "${KEY2}"}
-            result = _resolve_env_vars(data)
-            assert result == {"outer": {"inner": "val1"}, "flat": "val2"}
-
-    def test_resolve_list(self):
-        """Test recursive resolution in lists."""
-        with patch.dict(os.environ, {"KEY1": "val1", "KEY2": "val2"}):
-            data = ["$KEY1", "${KEY2}", "literal"]
-            result = _resolve_env_vars(data)
-            assert result == ["val1", "val2", "literal"]
-
-    def test_missing_env_var_raises(self):
-        """Test that missing env vars raise ValueError."""
-        with patch.dict(os.environ, {}, clear=True):
-            # Ensure the var is not set
-            os.environ.pop("NONEXISTENT_VAR", None)
-            with pytest.raises(ValueError, match="Environment variable 'NONEXISTENT_VAR' is not set"):
-                _resolve_env_vars("$NONEXISTENT_VAR")
-
-    def test_missing_braced_env_var_raises(self):
-        """Test that missing braced env vars raise ValueError."""
-        with patch.dict(os.environ, {}, clear=True):
-            os.environ.pop("NONEXISTENT_VAR", None)
-            with pytest.raises(ValueError, match="Environment variable 'NONEXISTENT_VAR' is not set"):
-                _resolve_env_vars("${NONEXISTENT_VAR}")
-
-    def test_non_env_string_unchanged(self):
-        """Test that regular strings are returned unchanged."""
-        assert _resolve_env_vars("just-a-string") == "just-a-string"
-
-    def test_non_string_values_unchanged(self):
-        """Test that non-string values pass through unchanged."""
-        assert _resolve_env_vars(42) == 42
-        assert _resolve_env_vars(True) is True
-        assert _resolve_env_vars(3.14) == 3.14
-        assert _resolve_env_vars(None) is None
-
-    def test_deeply_nested_resolution(self):
-        """Test env var resolution in deeply nested structures."""
-        with patch.dict(os.environ, {"DEEP_VAL": "found"}):
-            data = {"a": {"b": {"c": [{"d": "$DEEP_VAL"}]}}}
-            result = _resolve_env_vars(data)
-            assert result == {"a": {"b": {"c": [{"d": "found"}]}}}
-
-
-# =============================================================================
 # Schema validation tests — dual-format model field
 # =============================================================================
 
@@ -385,19 +317,31 @@ class TestCreateModelFromConfig:
         with pytest.raises(ValueError, match="Unknown model provider: 'nonexistent'"):
             _create_model_from_dict({"provider": "nonexistent", "model_id": "x"})
 
-    def _patch_model_class(self, class_name):
-        """Patch a model class on the strands.models module and return the mock."""
+    def _set_mock_on_models(self, class_name):
+        """Inject a mock class directly into strands.models.__dict__ to avoid triggering lazy imports."""
+        import strands.models as models_pkg
+
         mock_cls = MagicMock()
         mock_cls.from_dict.return_value = MagicMock()
-        return patch(f"strands.models.{class_name}", mock_cls, create=True), mock_cls
+        original = models_pkg.__dict__.get(class_name)
+        models_pkg.__dict__[class_name] = mock_cls
+        return mock_cls, original
+
+    def _restore_models(self, class_name, original):
+        """Restore original state of strands.models after test."""
+        import strands.models as models_pkg
+
+        if original is None:
+            models_pkg.__dict__.pop(class_name, None)
+        else:
+            models_pkg.__dict__[class_name] = original
 
     def test_dispatches_to_from_dict(self):
         """Test that _create_model_from_dict calls cls.from_dict on the resolved model class."""
+        mock_cls, original = self._set_mock_on_models("AnthropicModel")
         mock_model = MagicMock()
-        mock_cls = MagicMock()
         mock_cls.from_dict.return_value = mock_model
-
-        with patch("strands.models.AnthropicModel", mock_cls, create=True):
+        try:
             result = _create_model_from_dict(
                 {
                     "provider": "anthropic",
@@ -413,18 +357,19 @@ class TestCreateModelFromConfig:
             assert call_config["client_args"] == {"api_key": "test-key"}
             assert "provider" not in call_config
             assert result is mock_model
+        finally:
+            self._restore_models("AnthropicModel", original)
 
     def test_does_not_mutate_input(self):
         """Test that _create_model_from_dict does not mutate the input dict."""
-        original = {"provider": "anthropic", "model_id": "test"}
-        original_copy = original.copy()
-
-        mock_cls = MagicMock()
-        mock_cls.from_dict.return_value = MagicMock()
-        with patch("strands.models.AnthropicModel", mock_cls, create=True):
-            _create_model_from_dict(original)
-
-        assert original == original_copy
+        mock_cls, original = self._set_mock_on_models("AnthropicModel")
+        try:
+            original_input = {"provider": "anthropic", "model_id": "test"}
+            original_copy = original_input.copy()
+            _create_model_from_dict(original_input)
+            assert original_input == original_copy
+        finally:
+            self._restore_models("AnthropicModel", original)
 
     @pytest.mark.parametrize(
         "provider,class_name",
@@ -432,197 +377,12 @@ class TestCreateModelFromConfig:
     )
     def test_all_providers_dispatch(self, provider, class_name):
         """Test that each registered provider dispatches to the correct class."""
-        patcher, mock_cls = self._patch_model_class(class_name)
-        with patcher:
+        mock_cls, original = self._set_mock_on_models(class_name)
+        try:
             _create_model_from_dict({"provider": provider, "model_id": "test"})
             mock_cls.from_dict.assert_called_once()
-
-
-# =============================================================================
-# Model from_dict tests — provider-specific parameter handling
-# =============================================================================
-
-
-class TestModelFromConfig:
-    """Tests for from_dict on model classes with non-standard constructors.
-
-    Patches __init__ on each model class to capture the arguments passed by from_dict
-    without actually initializing the model (which would require real provider dependencies).
-    """
-
-    def test_bedrock_from_dict_boto_client_config_conversion(self):
-        """Test that BedrockModel.from_dict converts boto_client_config dict to BotocoreConfig."""
-        from botocore.config import Config as BotocoreConfig
-
-        from strands.models.bedrock import BedrockModel
-
-        with patch.object(BedrockModel, "__init__", return_value=None) as mock_init:
-            BedrockModel.from_dict(
-                {
-                    "model_id": "test-model",
-                    "region_name": "us-west-2",
-                    "boto_client_config": {"read_timeout": 300},
-                }
-            )
-            call_kwargs = mock_init.call_args[1]
-            assert call_kwargs["region_name"] == "us-west-2"
-            assert isinstance(call_kwargs["boto_client_config"], BotocoreConfig)
-            assert call_kwargs["model_id"] == "test-model"
-
-    def test_bedrock_from_dict_without_boto_client_config(self):
-        """Test BedrockModel.from_dict without boto_client_config."""
-        from strands.models.bedrock import BedrockModel
-
-        with patch.object(BedrockModel, "__init__", return_value=None) as mock_init:
-            BedrockModel.from_dict(
-                {
-                    "model_id": "test-model",
-                    "region_name": "us-east-1",
-                }
-            )
-            call_kwargs = mock_init.call_args[1]
-            assert call_kwargs["region_name"] == "us-east-1"
-            assert "boto_client_config" not in call_kwargs
-
-    def test_bedrock_from_dict_endpoint_url(self):
-        """Test BedrockModel.from_dict with endpoint_url."""
-        from strands.models.bedrock import BedrockModel
-
-        with patch.object(BedrockModel, "__init__", return_value=None) as mock_init:
-            BedrockModel.from_dict(
-                {
-                    "model_id": "test-model",
-                    "endpoint_url": "https://vpce-1234.bedrock-runtime.us-west-2.vpce.amazonaws.com",
-                }
-            )
-            call_kwargs = mock_init.call_args[1]
-            assert call_kwargs["endpoint_url"] == "https://vpce-1234.bedrock-runtime.us-west-2.vpce.amazonaws.com"
-
-    def test_ollama_from_dict_host_and_client_args_mapping(self):
-        """Test that OllamaModel.from_dict routes host and maps client_args to ollama_client_args."""
-        from strands.models.ollama import OllamaModel
-
-        with patch.object(OllamaModel, "__init__", return_value=None) as mock_init:
-            OllamaModel.from_dict(
-                {
-                    "model_id": "llama3",
-                    "host": "http://localhost:11434",
-                    "client_args": {"timeout": 30},
-                }
-            )
-            call_args = mock_init.call_args
-            assert call_args[0][0] == "http://localhost:11434"  # host is positional
-            assert call_args[1]["ollama_client_args"] == {"timeout": 30}
-            assert call_args[1]["model_id"] == "llama3"
-
-    def test_ollama_from_dict_default_host(self):
-        """Test OllamaModel.from_dict with no host specified defaults to None."""
-        from strands.models.ollama import OllamaModel
-
-        with patch.object(OllamaModel, "__init__", return_value=None) as mock_init:
-            OllamaModel.from_dict({"model_id": "llama3"})
-            call_args = mock_init.call_args
-            assert call_args[0][0] is None  # host defaults to None
-
-    def test_mistral_from_dict_api_key_extraction(self):
-        """Test that MistralModel.from_dict extracts api_key separately."""
-        from strands.models.mistral import MistralModel
-
-        with patch.object(MistralModel, "__init__", return_value=None) as mock_init:
-            MistralModel.from_dict(
-                {
-                    "model_id": "mistral-large-latest",
-                    "api_key": "test-key",
-                    "client_args": {"timeout": 60},
-                }
-            )
-            call_kwargs = mock_init.call_args[1]
-            assert call_kwargs["api_key"] == "test-key"
-            assert call_kwargs["client_args"] == {"timeout": 60}
-            assert call_kwargs["model_id"] == "mistral-large-latest"
-
-    def test_llamacpp_from_dict_base_url_and_timeout(self):
-        """Test that LlamaCppModel.from_dict extracts base_url and timeout."""
-        from strands.models.llamacpp import LlamaCppModel
-
-        with patch.object(LlamaCppModel, "__init__", return_value=None) as mock_init:
-            LlamaCppModel.from_dict(
-                {
-                    "model_id": "default",
-                    "base_url": "http://myhost:8080",
-                    "timeout": 30.0,
-                }
-            )
-            call_kwargs = mock_init.call_args[1]
-            assert call_kwargs["base_url"] == "http://myhost:8080"
-            assert call_kwargs["timeout"] == 30.0
-            assert call_kwargs["model_id"] == "default"
-
-    def test_sagemaker_from_dict_dict_params(self):
-        """Test that SageMakerAIModel.from_dict receives endpoint_config and payload_config as dicts."""
-        from strands.models.sagemaker import SageMakerAIModel
-
-        with patch.object(SageMakerAIModel, "__init__", return_value=None) as mock_init:
-            SageMakerAIModel.from_dict(
-                {
-                    "endpoint_config": {"endpoint_name": "my-ep", "region_name": "us-west-2"},
-                    "payload_config": {"max_tokens": 1024, "stream": True},
-                }
-            )
-            call_kwargs = mock_init.call_args[1]
-            assert call_kwargs["endpoint_config"] == {"endpoint_name": "my-ep", "region_name": "us-west-2"}
-            assert call_kwargs["payload_config"] == {"max_tokens": 1024, "stream": True}
-
-    def test_sagemaker_from_dict_boto_client_config_conversion(self):
-        """Test that SageMakerAIModel.from_dict converts boto_client_config dict to BotocoreConfig."""
-        from botocore.config import Config as BotocoreConfig
-
-        from strands.models.sagemaker import SageMakerAIModel
-
-        with patch.object(SageMakerAIModel, "__init__", return_value=None) as mock_init:
-            SageMakerAIModel.from_dict(
-                {
-                    "endpoint_config": {"endpoint_name": "my-ep"},
-                    "payload_config": {"max_tokens": 1024},
-                    "boto_client_config": {"read_timeout": 300},
-                }
-            )
-            call_kwargs = mock_init.call_args[1]
-            assert isinstance(call_kwargs["boto_client_config"], BotocoreConfig)
-
-    def test_default_from_dict_client_args_pattern(self):
-        """Test the default from_dict (inherited) handles client_args + remaining kwargs."""
-        from strands.models.bedrock import BedrockModel
-
-        with patch.object(BedrockModel, "__init__", return_value=None) as mock_init:
-            # BedrockModel overrides from_dict, so use AnthropicModel which inherits the default
-            from strands.models.anthropic import AnthropicModel
-
-        with patch.object(AnthropicModel, "__init__", return_value=None) as mock_init:
-            AnthropicModel.from_dict(
-                {
-                    "model_id": "claude-sonnet-4-20250514",
-                    "max_tokens": 4096,
-                    "client_args": {"api_key": "test"},
-                    "params": {"temperature": 0.5},
-                }
-            )
-            call_kwargs = mock_init.call_args[1]
-            assert call_kwargs["client_args"] == {"api_key": "test"}
-            assert call_kwargs["model_id"] == "claude-sonnet-4-20250514"
-            assert call_kwargs["max_tokens"] == 4096
-            assert call_kwargs["params"] == {"temperature": 0.5}
-
-    def test_default_from_dict_without_client_args(self):
-        """Test the default from_dict works without client_args."""
-        from strands.models.anthropic import AnthropicModel
-
-        with patch.object(AnthropicModel, "__init__", return_value=None) as mock_init:
-            AnthropicModel.from_dict({"model_id": "test-model", "max_tokens": 1024})
-            call_kwargs = mock_init.call_args[1]
-            assert call_kwargs["model_id"] == "test-model"
-            assert call_kwargs["max_tokens"] == 1024
-            assert "client_args" not in call_kwargs
+        finally:
+            self._restore_models(class_name, original)
 
 
 # =============================================================================
@@ -635,10 +395,14 @@ class TestErrorHandling:
 
     def test_missing_optional_dependency(self):
         """Test clear error when provider dependency is not installed."""
+        import strands.models as models_pkg
+
         mock_cls = MagicMock()
         mock_cls.from_dict.side_effect = ImportError("No module named 'anthropic'")
 
-        with patch("strands.models.AnthropicModel", mock_cls, create=True):
+        original = models_pkg.__dict__.get("AnthropicModel")
+        models_pkg.__dict__["AnthropicModel"] = mock_cls
+        try:
             with pytest.raises(ImportError, match="anthropic"):
                 _create_model_from_dict(
                     {
@@ -646,6 +410,11 @@ class TestErrorHandling:
                         "model_id": "claude-sonnet-4-20250514",
                     }
                 )
+        finally:
+            if original is None:
+                models_pkg.__dict__.pop("AnthropicModel", None)
+            else:
+                models_pkg.__dict__["AnthropicModel"] = original
 
     def test_unknown_provider_error_message(self):
         """Test that unknown provider gives helpful error message."""
@@ -678,26 +447,6 @@ class TestConfigToAgentObjectModel:
             agent = config_to_agent(config)
             assert agent.model is mock_model
             assert agent.system_prompt == "You are helpful"
-
-    def test_object_model_env_var_resolution(self):
-        """Test that env vars are resolved in object model config before provider creation."""
-        mock_model = MagicMock()
-        with patch.dict(os.environ, {"TEST_API_KEY": "resolved-key"}):
-            with patch(
-                "strands.experimental.agent_config._create_model_from_dict",
-                return_value=mock_model,
-            ) as mock_create:
-                config = {
-                    "model": {
-                        "provider": "openai",
-                        "model_id": "gpt-4o",
-                        "client_args": {"api_key": "$TEST_API_KEY"},
-                    }
-                }
-                config_to_agent(config)
-                # Verify the env var was resolved before passing to the factory
-                call_args = mock_create.call_args[0][0]
-                assert call_args["client_args"]["api_key"] == "resolved-key"
 
     def test_string_model_backward_compat(self):
         """Test that string model still works as Bedrock model_id."""

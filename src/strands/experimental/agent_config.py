@@ -21,12 +21,9 @@ The ``model`` field supports two formats:
             "provider": "anthropic",
             "model_id": "claude-sonnet-4-20250514",
             "max_tokens": 10000,
-            "client_args": {"api_key": "$ANTHROPIC_API_KEY"}
+            "client_args": {"api_key": "..."}
         }
     }
-
-Environment variable references (``$VAR`` or ``${VAR}``) in model config values are resolved
-automatically before provider instantiation.
 
 Note: The following constructor parameters cannot be specified from JSON because they require
 code-based instantiation: ``boto_session`` (Bedrock, SageMaker), ``client`` (OpenAI, Gemini),
@@ -36,8 +33,6 @@ code-based instantiation: ``boto_session`` (Bedrock, SageMaker), ``client`` (Ope
 from __future__ import annotations
 
 import json
-import os
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -96,10 +91,6 @@ AGENT_CONFIG_SCHEMA = {
 # Pre-compile validator for better performance
 _VALIDATOR = jsonschema.Draft7Validator(AGENT_CONFIG_SCHEMA)
 
-# Only full-string env var references are resolved (no inline interpolation).
-# "prefix-$VAR" is NOT resolved; construct values programmatically instead.
-_ENV_VAR_PATTERN = re.compile(r"^\$\{([^}]+)\}$|^\$([A-Za-z_][A-Za-z0-9_]*)$")
-
 # Provider name to model class name — resolved via strands.models lazy __getattr__
 PROVIDER_MAP: dict[str, str] = {
     "bedrock": "BedrockModel",
@@ -117,38 +108,7 @@ PROVIDER_MAP: dict[str, str] = {
 }
 
 
-def _resolve_env_vars(value: Any) -> Any:
-    """Recursively resolve environment variable references in config values.
-
-    String values matching ``$VAR_NAME`` or ``${VAR_NAME}`` are replaced with the
-    corresponding environment variable value. Dicts and lists are traversed recursively.
-
-    Args:
-        value: The value to resolve. Can be a string, dict, list, or any other type.
-
-    Returns:
-        The resolved value with environment variable references replaced.
-
-    Raises:
-        ValueError: If a referenced environment variable is not set.
-    """
-    if isinstance(value, str):
-        match = _ENV_VAR_PATTERN.match(value)
-        if match:
-            var_name = match.group(1) or match.group(2)
-            env_value = os.environ.get(var_name)
-            if env_value is None:
-                raise ValueError(f"Environment variable '{var_name}' is not set")
-            return env_value
-        return value
-    if isinstance(value, dict):
-        return {k: _resolve_env_vars(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_resolve_env_vars(item) for item in value]
-    return value
-
-
-def _create_model_from_dict(model_config: dict[str, Any]) -> "Model":
+def _create_model_from_dict(model_config: dict[str, Any]) -> Model:
     """Create a Model instance from a provider config dict.
 
     Routes the config to the appropriate model class based on the ``provider`` field,
@@ -175,7 +135,7 @@ def _create_model_from_dict(model_config: dict[str, Any]) -> "Model":
 
     from .. import models
 
-    model_cls = getattr(models, class_name)
+    model_cls: type[Model] = getattr(models, class_name)
     return model_cls.from_dict(config)
 
 
@@ -214,7 +174,7 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: Any) -> Any:
 
         Create agent with object model config:
         >>> config = {
-        ...     "model": {"provider": "openai", "model_id": "gpt-4o", "client_args": {"api_key": "$OPENAI_API_KEY"}}
+        ...     "model": {"provider": "openai", "model_id": "gpt-4o", "client_args": {"api_key": "..."}}
         ... }
         >>> agent = config_to_agent(config)
     """
@@ -253,9 +213,8 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: Any) -> Any:
     # Handle model field — string vs object format
     model_value = config_dict.get("model")
     if isinstance(model_value, dict):
-        # Object format: resolve env vars and create Model instance via factory
-        resolved_config = _resolve_env_vars(model_value)
-        agent_kwargs["model"] = _create_model_from_dict(resolved_config)
+        # Object format: create Model instance via factory
+        agent_kwargs["model"] = _create_model_from_dict(model_value)
     elif model_value is not None:
         # String format (backward compat): pass directly as model_id to Agent
         agent_kwargs["model"] = model_value

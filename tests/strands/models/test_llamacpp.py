@@ -706,3 +706,24 @@ def test_format_request_filters_location_source_document(caplog) -> None:
     assert len(user_content) == 1
     assert user_content[0]["type"] == "text"
     assert "Location sources are not supported by llama.cpp" in caplog.text
+
+
+class TestLlamaCppFromDict:
+    """Tests for LlamaCppModel.from_dict classmethod."""
+
+    def test_from_dict_base_url_and_timeout(self):
+        """Test that from_dict extracts base_url and timeout."""
+        from strands.models.llamacpp import LlamaCppModel
+
+        with patch.object(LlamaCppModel, "__init__", return_value=None) as mock_init:
+            LlamaCppModel.from_dict(
+                {
+                    "model_id": "default",
+                    "base_url": "http://myhost:8080",
+                    "timeout": 30.0,
+                }
+            )
+            call_kwargs = mock_init.call_args[1]
+            assert call_kwargs["base_url"] == "http://myhost:8080"
+            assert call_kwargs["timeout"] == 30.0
+            assert call_kwargs["model_id"] == "default"

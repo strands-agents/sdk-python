@@ -665,3 +665,44 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert len(captured_warnings) == 1
     assert "Invalid configuration parameters" in str(captured_warnings[0].message)
     assert "wrong_param" in str(captured_warnings[0].message)
+
+
+class TestSageMakerFromDict:
+    """Tests for SageMakerAIModel.from_dict classmethod."""
+
+    def test_from_dict_dict_params(self):
+        """Test that from_dict receives endpoint_config and payload_config as dicts."""
+        with unittest.mock.patch.object(SageMakerAIModel, "__init__", return_value=None) as mock_init:
+            SageMakerAIModel.from_dict(
+                {
+                    "endpoint_config": {"endpoint_name": "my-ep", "region_name": "us-west-2"},
+                    "payload_config": {"max_tokens": 1024, "stream": True},
+                }
+            )
+            call_kwargs = mock_init.call_args[1]
+            assert call_kwargs["endpoint_config"] == {"endpoint_name": "my-ep", "region_name": "us-west-2"}
+            assert call_kwargs["payload_config"] == {"max_tokens": 1024, "stream": True}
+
+    def test_from_dict_boto_client_config_conversion(self):
+        """Test that from_dict converts boto_client_config dict to BotocoreConfig."""
+        with unittest.mock.patch.object(SageMakerAIModel, "__init__", return_value=None) as mock_init:
+            SageMakerAIModel.from_dict(
+                {
+                    "endpoint_config": {"endpoint_name": "my-ep"},
+                    "payload_config": {"max_tokens": 1024},
+                    "boto_client_config": {"read_timeout": 300},
+                }
+            )
+            call_kwargs = mock_init.call_args[1]
+            assert isinstance(call_kwargs["boto_client_config"], BotocoreConfig)
+
+    def test_from_dict_rejects_unexpected_keys(self):
+        """Test that from_dict raises ValueError on unexpected config keys."""
+        with pytest.raises(ValueError, match="Unsupported SageMaker config keys"):
+            SageMakerAIModel.from_dict(
+                {
+                    "endpoint_config": {},
+                    "payload_config": {},
+                    "model_id": "unexpected",
+                }
+            )

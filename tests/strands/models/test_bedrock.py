@@ -2964,3 +2964,47 @@ async def test_non_streaming_citations_with_only_location(bedrock_client, model,
     assert citation["location"] == {"web": {"url": "https://example.com", "domain": "example.com"}}
     assert "title" not in citation
     assert "sourceContent" not in citation
+
+
+class TestBedrockFromDict:
+    """Tests for BedrockModel.from_dict classmethod."""
+
+    def test_from_dict_boto_client_config_conversion(self):
+        """Test that from_dict converts boto_client_config dict to BotocoreConfig."""
+        with unittest.mock.patch.object(BedrockModel, "__init__", return_value=None) as mock_init:
+            BedrockModel.from_dict(
+                {
+                    "model_id": "test-model",
+                    "region_name": "us-west-2",
+                    "boto_client_config": {"read_timeout": 300},
+                }
+            )
+            call_kwargs = mock_init.call_args[1]
+            assert call_kwargs["region_name"] == "us-west-2"
+            assert isinstance(call_kwargs["boto_client_config"], BotocoreConfig)
+            assert call_kwargs["model_id"] == "test-model"
+
+    def test_from_dict_without_boto_client_config(self):
+        """Test from_dict without boto_client_config."""
+        with unittest.mock.patch.object(BedrockModel, "__init__", return_value=None) as mock_init:
+            BedrockModel.from_dict(
+                {
+                    "model_id": "test-model",
+                    "region_name": "us-east-1",
+                }
+            )
+            call_kwargs = mock_init.call_args[1]
+            assert call_kwargs["region_name"] == "us-east-1"
+            assert "boto_client_config" not in call_kwargs
+
+    def test_from_dict_endpoint_url(self):
+        """Test from_dict with endpoint_url."""
+        with unittest.mock.patch.object(BedrockModel, "__init__", return_value=None) as mock_init:
+            BedrockModel.from_dict(
+                {
+                    "model_id": "test-model",
+                    "endpoint_url": "https://vpce-1234.bedrock-runtime.us-west-2.vpce.amazonaws.com",
+                }
+            )
+            call_kwargs = mock_init.call_args[1]
+            assert call_kwargs["endpoint_url"] == "https://vpce-1234.bedrock-runtime.us-west-2.vpce.amazonaws.com"
