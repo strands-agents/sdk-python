@@ -254,10 +254,8 @@ def load_mcp_clients_from_config(config: str | dict[str, Any]) -> dict[str, MCPC
 
         with open(config_path) as f:
             config_dict: dict[str, Any] = json.load(f)
-    elif isinstance(config, dict):
-        config_dict = config
     else:
-        raise ValueError("Config must be a file path string or dictionary")
+        config_dict = config
 
     if "mcpServers" not in config_dict or not isinstance(config_dict["mcpServers"], dict):
         raise ValueError("Config must contain an 'mcpServers' key with a dictionary of server configurations")
