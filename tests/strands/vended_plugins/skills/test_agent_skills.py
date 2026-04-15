@@ -32,11 +32,12 @@ def _mock_agent():
     agent._system_prompt = "You are an agent."
     agent._system_prompt_content = [{"text": "You are an agent."}]
 
-    # Make system_prompt property behave like the real Agent
+    # Make system_prompt and system_prompt_content properties behave like the real Agent
     type(agent).system_prompt = property(
         lambda self: self._system_prompt,
         lambda self, value: _set_system_prompt(self, value),
     )
+    type(agent).system_prompt_content = property(lambda self: self._system_prompt_content)
 
     agent.hooks = HookRegistry()
     agent.add_hook = MagicMock(
@@ -59,11 +60,15 @@ def _mock_tool_context(agent: MagicMock) -> ToolContext:
     return ToolContext(tool_use=tool_use, agent=agent, invocation_state={"agent": agent})
 
 
-def _set_system_prompt(agent: MagicMock, value: str | None) -> None:
+def _set_system_prompt(agent: MagicMock, value: str | list | None) -> None:
     """Simulate the Agent.system_prompt setter."""
     if isinstance(value, str):
         agent._system_prompt = value
         agent._system_prompt_content = [{"text": value}]
+    elif isinstance(value, list):
+        text_parts = [block["text"] for block in value if "text" in block]
+        agent._system_prompt = "\n".join(text_parts) if text_parts else None
+        agent._system_prompt_content = value
     elif value is None:
         agent._system_prompt = None
         agent._system_prompt_content = None
@@ -417,9 +422,41 @@ class TestSystemPromptInjection:
         event = BeforeInvocationEvent(agent=agent)
         plugin._on_before_invocation(event)
 
-        # The public setter should have been used, so _system_prompt_content
-        # should be consistent with _system_prompt
-        assert agent._system_prompt_content == [{"text": agent._system_prompt}]
+        # The public setter should have been used via the content-block path:
+        # original block is preserved and the skills XML is appended as a new block.
+        assert len(agent.system_prompt_content) == 2
+        assert agent.system_prompt_content[0] == {"text": "Original."}
+        assert "<available_skills>" in agent.system_prompt_content[1]["text"]
+
+    def test_preserves_cache_points_in_system_prompt(self):
+        """Test that cachePoint blocks in the system prompt are preserved after injection."""
+        plugin = AgentSkills(skills=[_make_skill()])
+        agent = _mock_agent()
+        agent._system_prompt = "Base instructions."
+        agent._system_prompt_content = [
+            {"text": "Base instructions."},
+            {"cachePoint": {"type": "default"}},
+        ]
+
+        expected_skills_xml = plugin._generate_skills_xml()
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        # Exact block structure: original text, cachePoint, skills XML
+        assert agent.system_prompt_content == [
+            {"text": "Base instructions."},
+            {"cachePoint": {"type": "default"}},
+            {"text": expected_skills_xml},
+        ]
+
+        # Repeated invocation: identical result, no accumulation
+        plugin._on_before_invocation(event)
+        assert agent.system_prompt_content == [
+            {"text": "Base instructions."},
+            {"cachePoint": {"type": "default"}},
+            {"text": expected_skills_xml},
+        ]
 
     def test_warns_when_previous_xml_not_found(self, caplog):
         """Test that a warning is logged when the previously injected XML is missing from the prompt."""

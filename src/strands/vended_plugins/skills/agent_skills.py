@@ -15,6 +15,7 @@ from xml.sax.saxutils import escape
 from ...hooks.events import BeforeInvocationEvent
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
+from ...types.content import SystemContentBlock
 from ...types.tools import ToolContext
 from .skill import Skill
 
@@ -136,34 +137,51 @@ class AgentSkills(Plugin):
     def _on_before_invocation(self, event: BeforeInvocationEvent) -> None:
         """Inject skill metadata into the system prompt before each invocation.
 
-        Removes the previously injected XML block (if any) via exact string
-        replacement, then appends a fresh one. Uses agent state to track the
-        injected XML per-agent, so a single plugin instance can be shared
-        across multiple agents safely.
+        Removes the previously injected XML block (if any) via exact match,
+        then appends a fresh one. Uses agent state to track the injected XML
+        per-agent, so a single plugin instance can be shared across multiple
+        agents safely.
+
+        When the agent has a structured system prompt (list of SystemContentBlock),
+        the injection is done at the block level so that cache points and other
+        structured blocks are preserved. Otherwise falls back to string manipulation.
 
         Args:
             event: The before-invocation event containing the agent reference.
         """
         agent = event.agent
 
-        current_prompt = agent.system_prompt or ""
-
-        # Remove the previously injected XML block by exact match
         state_data = agent.state.get(self._state_key)
         last_injected_xml = state_data.get("last_injected_xml") if isinstance(state_data, dict) else None
-        if last_injected_xml is not None:
-            if last_injected_xml in current_prompt:
-                current_prompt = current_prompt.replace(last_injected_xml, "")
-            else:
-                logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
 
         skills_xml = self._generate_skills_xml()
-        injection = f"\n\n{skills_xml}"
-        new_prompt = f"{current_prompt}{injection}" if current_prompt else skills_xml
+        content = agent.system_prompt_content
 
-        new_injected_xml = injection if current_prompt else skills_xml
-        self._set_state_field(agent, "last_injected_xml", new_injected_xml)
-        agent.system_prompt = new_prompt
+        if content is not None:
+            # Content-block path: preserve cache points and other structured blocks
+            blocks: list[SystemContentBlock] = list(content)
+            if last_injected_xml is not None:
+                injected_block: SystemContentBlock = {"text": last_injected_xml}
+                if injected_block in blocks:
+                    blocks.remove(injected_block)
+                else:
+                    logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
+            blocks.append({"text": skills_xml})
+            self._set_state_field(agent, "last_injected_xml", skills_xml)
+            agent.system_prompt = blocks
+        else:
+            # String path: legacy behaviour for plain-string system prompts
+            current_prompt = agent.system_prompt or ""
+            if last_injected_xml is not None:
+                if last_injected_xml in current_prompt:
+                    current_prompt = current_prompt.replace(last_injected_xml, "")
+                else:
+                    logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
+            injection = f"\n\n{skills_xml}"
+            new_prompt = f"{current_prompt}{injection}" if current_prompt else skills_xml
+            new_injected_xml = injection if current_prompt else skills_xml
+            self._set_state_field(agent, "last_injected_xml", new_injected_xml)
+            agent.system_prompt = new_prompt
 
     def get_available_skills(self) -> list[Skill]:
         """Get the list of available skills.
