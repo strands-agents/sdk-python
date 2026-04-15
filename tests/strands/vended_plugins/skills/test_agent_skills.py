@@ -38,7 +38,7 @@ def _mock_agent():
         lambda self, value: _set_system_prompt(self, value),
     )
     type(agent).system_prompt_content = property(
-        lambda self: self._system_prompt_content,
+        lambda self: list(self._system_prompt_content) if self._system_prompt_content is not None else None,
     )
 
     agent.hooks = HookRegistry()

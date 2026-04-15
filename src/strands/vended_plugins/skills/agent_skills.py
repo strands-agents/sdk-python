@@ -161,9 +161,7 @@ class AgentSkills(Plugin):
         # All-text block lists fall through to the string path for backward compatibility, since the
         # string path handles them correctly and avoids unnecessary list manipulation. This means users
         # who set a list of only text blocks will see them flattened, which is the existing behavior.
-        has_structured_blocks = content_blocks is not None and any("text" not in block for block in content_blocks)
-
-        if has_structured_blocks and content_blocks is not None:
+        if content_blocks is not None and any("text" not in block for block in content_blocks):
             # Content block path: filter out old skills block, append new one as a text block.
             # This preserves cache points and other non-text blocks.
             if last_injected_xml is not None:
