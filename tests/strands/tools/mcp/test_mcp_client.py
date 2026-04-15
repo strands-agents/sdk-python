@@ -132,8 +132,8 @@ def test_call_tool_sync_status(mock_transport, mock_session, is_error, expected_
         assert result["content"][0]["text"] == "Test message"
         # No structured content should be present when not provided by MCP
         assert result.get("structuredContent") is None
-        # isError flag should be True only when the tool reported an application error
-        assert result.get("isError") == (True if is_error else None)
+        # isError mirrors the MCP server's explicit value; absent only for protocol/client exceptions
+        assert result.get("isError") is is_error
 
 
 def test_call_tool_sync_session_not_active():
@@ -263,8 +263,8 @@ async def test_call_tool_async_status(mock_transport, mock_session, is_error, ex
         assert result["toolUseId"] == "test-123"
         assert len(result["content"]) == 1
         assert result["content"][0]["text"] == "Test message"
-        # isError flag should be True only when the tool reported an application error
-        assert result.get("isError") == (True if is_error else None)
+        # isError mirrors the MCP server's explicit value; absent only for protocol/client exceptions
+        assert result.get("isError") is is_error
 
 
 @pytest.mark.asyncio
@@ -413,7 +413,7 @@ def test_mcp_tool_result_type():
     assert result_with_structured["structuredContent"] == {"key": "value"}
 
     # isError is optional — absent by default
-    assert "isError" not in result or result.get("isError") is None
+    assert "isError" not in result
 
     # isError can be set to flag tool-reported application errors
     result_with_is_error = MCPToolResult(

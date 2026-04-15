@@ -744,8 +744,8 @@ class MCPClient(ToolProvider):
             result["structuredContent"] = call_tool_result.structuredContent
         if call_tool_result.meta:
             result["metadata"] = call_tool_result.meta
-        if call_tool_result.isError:
-            result["isError"] = True
+        if call_tool_result.isError is not None:
+            result["isError"] = call_tool_result.isError
 
         return result
 
