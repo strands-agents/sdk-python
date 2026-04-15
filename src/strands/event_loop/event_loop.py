@@ -354,6 +354,13 @@ async def _handle_model_execution(
                 stop_reason, message, usage, metrics = event["stop"]
                 invocation_state.setdefault("request_state", {})
 
+                # Attach metadata to the assistant message immediately so it's
+                # available to all downstream consumers (hooks, events, state).
+                message["metadata"] = {
+                    "usage": usage,
+                    "metrics": metrics,
+                }
+
                 after_model_call_event = AfterModelCallEvent(
                     agent=agent,
                     invocation_state=invocation_state,

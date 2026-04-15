@@ -6,11 +6,12 @@ SDK. These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from typing_extensions import NotRequired, TypedDict
 
 from .citations import CitationsContentBlock
+from .event_loop import Metrics, Usage
 from .media import DocumentContent, ImageContent, VideoContent
 from .tools import ToolResult, ToolUse
 
@@ -177,17 +178,44 @@ Role = Literal["user", "assistant"]
 """
 
 
+class MessageMetadata(TypedDict, total=False):
+    """Optional metadata attached to a message.
+
+    Not sent to model providers — explicitly stripped before model calls.
+    Persisted alongside the message in session storage.
+
+    Attributes:
+        usage: Token usage information from the model response.
+        metrics: Performance metrics from the model response.
+        custom: Arbitrary user/framework metadata (e.g. compression provenance).
+    """
+
+    usage: Usage
+    metrics: Metrics
+    custom: dict[str, Any]
+
+
 class Message(TypedDict):
     """A message in a conversation with the agent.
 
     Attributes:
         content: The message content.
         role: The role of the message sender.
+        metadata: Optional metadata, stripped before model calls.
     """
 
     content: list[ContentBlock]
     role: Role
+    metadata: NotRequired[MessageMetadata]
 
 
 Messages = list[Message]
 """A list of messages representing a conversation."""
+
+
+def get_message_metadata(message: Message) -> MessageMetadata:
+    """Get metadata for a message, returning empty dict if not present.
+
+    Individual fields (usage, metrics, custom) may not be present. Use .get() to safely access them.
+    """
+    return message.get("metadata", {})

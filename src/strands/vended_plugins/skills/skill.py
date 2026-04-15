@@ -1,15 +1,17 @@
 """Skill data model and loading utilities for AgentSkills.io skills.
 
 This module defines the Skill dataclass and provides classmethods for
-discovering, parsing, and loading skills from the filesystem or raw content.
-Skills are directories containing a SKILL.md file with YAML frontmatter
-metadata and markdown instructions.
+discovering, parsing, and loading skills from the filesystem, raw content,
+or HTTPS URLs. Skills are directories containing a SKILL.md file with YAML
+frontmatter metadata and markdown instructions.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -222,6 +224,9 @@ class Skill:
         # Load all skills from a parent directory
         skills = Skill.from_directory("./skills/")
 
+        # From an HTTPS URL
+        skill = Skill.from_url("https://example.com/SKILL.md")
+
     Attributes:
         name: Unique identifier for the skill (1-64 chars, lowercase alphanumeric + hyphens).
         description: Human-readable description of what the skill does.
@@ -332,6 +337,48 @@ class Skill:
         _validate_skill_name(name, strict=strict)
 
         return _build_skill_from_frontmatter(frontmatter, body)
+
+    @classmethod
+    def from_url(cls, url: str, *, strict: bool = False) -> Skill:
+        """Load a skill by fetching its SKILL.md content from an HTTPS URL.
+
+        Fetches the raw SKILL.md content over HTTPS and parses it using
+        :meth:`from_content`.  The URL must point directly to the raw
+        file content (not an HTML page).
+
+        Example::
+
+            skill = Skill.from_url(
+                "https://raw.githubusercontent.com/org/repo/main/SKILL.md"
+            )
+
+        Args:
+            url: An ``https://`` URL pointing directly to raw SKILL.md content.
+            strict: If True, raise on any validation issue. If False (default),
+                warn and load anyway.
+
+        Returns:
+            A Skill instance populated from the fetched SKILL.md content.
+
+        Raises:
+            ValueError: If ``url`` is not an ``https://`` URL.
+            RuntimeError: If the SKILL.md content cannot be fetched.
+        """
+        if not url.startswith("https://"):
+            raise ValueError(f"url=<{url}> | not a valid HTTPS URL")
+
+        logger.info("url=<%s> | fetching skill content", url)
+
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "strands-agents-sdk"})  # noqa: S310
+            with urllib.request.urlopen(req, timeout=30) as response:  # noqa: S310
+                content: str = response.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"url=<{url}> | HTTP {e.code}: {e.reason}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"url=<{url}> | failed to fetch skill: {e.reason}") from e
+
+        return cls.from_content(content, strict=strict)
 
     @classmethod
     def from_directory(cls, skills_dir: str | Path, *, strict: bool = False) -> list[Skill]:
