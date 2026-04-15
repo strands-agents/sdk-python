@@ -144,6 +144,7 @@ strands-agents/
 │   │
 │   ├── experimental/                     # Experimental features (API may change)
 │   │   ├── agent_config.py               # Experimental agent config
+│   │   ├── mcp_config.py                 # MCP config parsing and MCPClient factory
 │   │   ├── bidi/                         # Bidirectional streaming
 │   │   │   ├── agent/                    # Bidi agent implementation
 │   │   │   ├── io/                       # Input/output handling
