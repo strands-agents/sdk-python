@@ -177,8 +177,9 @@ class AgentSkills(Plugin):
         """Set the available skills, replacing any existing ones.
 
         Each element can be a ``Skill`` instance, a ``str`` or ``Path`` to a
-        skill directory (containing SKILL.md), or a ``str`` or ``Path`` to a
-        parent directory containing skill subdirectories.
+        skill directory (containing SKILL.md), a ``str`` or ``Path`` to a
+        parent directory containing skill subdirectories, or an ``https://``
+        URL pointing directly to raw SKILL.md content.
 
         Note: this does not persist state or deactivate skills on any agent.
         Active skill state is managed per-agent and will be reconciled on the

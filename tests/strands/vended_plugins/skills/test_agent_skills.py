@@ -727,6 +727,28 @@ class TestResolveUrlSkills:
         assert len(plugin.get_available_skills()) == 0
         assert "failed to load skill from URL" in caplog.text
 
+    def test_resolve_duplicate_url_skills_warns(self, caplog):
+        """Test that duplicate skill names from URLs log a warning."""
+        import logging
+        from unittest.mock import patch
+
+        with (
+            patch(
+                f"{self._SKILL_MODULE}.urllib.request.urlopen",
+                return_value=self._mock_urlopen(self._SAMPLE_CONTENT),
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            plugin = AgentSkills(
+                skills=[
+                    "https://example.com/a/SKILL.md",
+                    "https://example.com/b/SKILL.md",
+                ]
+            )
+
+        assert len(plugin.get_available_skills()) == 1
+        assert "duplicate skill name" in caplog.text
+
 
 class TestImports:
     """Tests for module imports."""
