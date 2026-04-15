@@ -34,9 +34,6 @@ from strands.types.session import Session, SessionAgent, SessionMessage, Session
 from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
-# For unit testing we will use the the us inference
-FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
-
 
 @pytest.fixture
 def mock_model(request):
@@ -244,7 +241,7 @@ def test_agent__init__with_default_model():
     agent = Agent()
 
     assert isinstance(agent.model, BedrockModel)
-    assert agent.model.config["model_id"] == FORMATTED_DEFAULT_MODEL_ID
+    assert agent.model.config["model_id"] == DEFAULT_BEDROCK_MODEL_ID
 
 
 def test_agent__init__with_explicit_model(mock_model):
@@ -854,7 +851,7 @@ def test_agent_tool_names(tools, agent):
 def test_agent_init_with_no_model_or_model_id():
     agent = Agent()
     assert agent.model is not None
-    assert agent.model.get_config().get("model_id") == FORMATTED_DEFAULT_MODEL_ID
+    assert agent.model.get_config().get("model_id") == DEFAULT_BEDROCK_MODEL_ID
 
 
 def test_agent_with_none_callback_handler_prints_nothing():
