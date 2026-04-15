@@ -440,7 +440,7 @@ class Agent(AgentBase):
         Returns:
             The system prompt as a list of SystemContentBlock, or None if not set.
         """
-        return self._system_prompt_content
+        return list(self._system_prompt_content) if self._system_prompt_content is not None else None
 
     @property
     def tool(self) -> _ToolCaller:

@@ -155,7 +155,11 @@ class AgentSkills(Plugin):
         last_injected_xml = state_data.get("last_injected_xml") if isinstance(state_data, dict) else None
 
         # Check if the system prompt uses content blocks with non-text elements (cache points etc.)
-        content_blocks = getattr(agent, "system_prompt_content", None)
+        content_blocks = agent.system_prompt_content
+        # Design: We use the structured block path only when non-text blocks (e.g. cache points) are present.
+        # All-text block lists fall through to the string path for backward compatibility, since the
+        # string path handles them correctly and avoids unnecessary list manipulation. This means users
+        # who set a list of only text blocks will see them flattened, which is the existing behavior.
         has_structured_blocks = content_blocks is not None and any("text" not in block for block in content_blocks)
 
         if has_structured_blocks:

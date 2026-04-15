@@ -74,6 +74,8 @@ def _set_system_prompt(agent, value) -> None:
     elif value is None:
         agent._system_prompt = None
         agent._system_prompt_content = None
+    else:
+        raise TypeError(f"system_prompt must be str, list[SystemContentBlock], or None, got {type(value).__name__}")
 
 
 class TestSkillsPluginInit:
