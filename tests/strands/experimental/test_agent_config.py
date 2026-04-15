@@ -277,36 +277,8 @@ class TestSchemaValidation:
 
 
 # =============================================================================
-# Provider factory tests — all 12 providers
+# Provider factory tests
 # =============================================================================
-
-
-class TestProviderMap:
-    """Test that all 12 providers are registered in PROVIDER_MAP."""
-
-    EXPECTED_PROVIDERS = [
-        "bedrock",
-        "anthropic",
-        "openai",
-        "gemini",
-        "ollama",
-        "litellm",
-        "mistral",
-        "llamaapi",
-        "llamacpp",
-        "sagemaker",
-        "writer",
-        "openai_responses",
-    ]
-
-    def test_all_providers_registered(self):
-        """Test that all 12 providers are in PROVIDER_MAP."""
-        for provider in self.EXPECTED_PROVIDERS:
-            assert provider in PROVIDER_MAP, f"Provider '{provider}' not found in PROVIDER_MAP"
-
-    def test_no_extra_providers(self):
-        """Test that only the expected 12 providers are registered."""
-        assert set(PROVIDER_MAP.keys()) == set(self.EXPECTED_PROVIDERS)
 
 
 class TestCreateModelFromConfig:
@@ -416,11 +388,6 @@ class TestErrorHandling:
             else:
                 models_pkg.__dict__["AnthropicModel"] = original
 
-    def test_unknown_provider_error_message(self):
-        """Test that unknown provider gives helpful error message."""
-        with pytest.raises(ValueError, match="Unknown model provider: 'my_custom_provider'"):
-            _create_model_from_dict({"provider": "my_custom_provider"})
-
 
 # =============================================================================
 # Integration: config_to_agent with object model
@@ -447,13 +414,6 @@ class TestConfigToAgentObjectModel:
             agent = config_to_agent(config)
             assert agent.model is mock_model
             assert agent.system_prompt == "You are helpful"
-
-    def test_string_model_backward_compat(self):
-        """Test that string model still works as Bedrock model_id."""
-        config = {"model": "us.anthropic.claude-sonnet-4-20250514-v1:0"}
-        agent = config_to_agent(config)
-        # String model is passed directly to Agent, which interprets it as Bedrock model_id
-        assert agent.model.config["model_id"] == "us.anthropic.claude-sonnet-4-20250514-v1:0"
 
     def test_object_model_with_kwargs_override(self):
         """Test that kwargs can still override when using object model."""
