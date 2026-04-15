@@ -848,3 +848,141 @@ def test_format_request_messages_with_tool_calls_no_content():
         },
     ]
     assert tru_result == exp_result
+
+
+# --- Thought Signature Tests ---
+
+
+def test_format_chunk_tool_start_extracts_thought_signature_from_id():
+    """Test that format_chunk extracts thought_signature from LiteLLM-encoded tool call ID."""
+    model = LiteLLMModel(model_id="test")
+
+    mock_data = unittest.mock.Mock()
+    mock_data.id = "call_abc123__thought__dGhpcy1pcy1hLXNpZw=="
+    mock_data.function = unittest.mock.Mock()
+    mock_data.function.name = "get_weather"
+    mock_data.provider_specific_fields = None
+
+    event = {"chunk_type": "content_start", "data_type": "tool", "data": mock_data}
+    result = model.format_chunk(event)
+
+    tool_use = result["contentBlockStart"]["start"]["toolUse"]
+    assert tool_use["reasoningSignature"] == "dGhpcy1pcy1hLXNpZw=="
+    # toolUseId keeps the full encoded string so tool result IDs match
+    assert tool_use["toolUseId"] == "call_abc123__thought__dGhpcy1pcy1hLXNpZw=="
+
+
+def test_format_chunk_tool_start_extracts_thought_signature_from_provider_specific_fields():
+    """Test that format_chunk extracts thought_signature from provider_specific_fields."""
+    model = LiteLLMModel(model_id="test")
+
+    mock_data = unittest.mock.Mock()
+    mock_data.id = "call_abc123"  # No __thought__ in ID
+    mock_data.function = unittest.mock.Mock()
+    mock_data.function.name = "get_weather"
+    mock_data.function.provider_specific_fields = None
+    mock_data.provider_specific_fields = {"thought_signature": "cHNmLXNpZw=="}
+
+    event = {"chunk_type": "content_start", "data_type": "tool", "data": mock_data}
+    result = model.format_chunk(event)
+
+    tool_use = result["contentBlockStart"]["start"]["toolUse"]
+    assert tool_use["reasoningSignature"] == "cHNmLXNpZw=="
+    assert tool_use["toolUseId"] == "call_abc123"
+
+
+def test_format_chunk_tool_start_no_thought_signature():
+    """Test that format_chunk works normally when no thought_signature is present."""
+    model = LiteLLMModel(model_id="test")
+
+    mock_data = unittest.mock.Mock()
+    mock_data.id = "call_plain123"
+    mock_data.function = unittest.mock.Mock()
+    mock_data.function.name = "get_weather"
+    mock_data.provider_specific_fields = None
+    mock_data.function.provider_specific_fields = None
+
+    event = {"chunk_type": "content_start", "data_type": "tool", "data": mock_data}
+    result = model.format_chunk(event)
+
+    tool_use = result["contentBlockStart"]["start"]["toolUse"]
+    assert tool_use["toolUseId"] == "call_plain123"
+    assert "reasoningSignature" not in tool_use
+
+
+def test_format_request_message_tool_call_encodes_thought_signature():
+    """Test that format_request_message_tool_call encodes reasoningSignature into the tool call ID."""
+    tool_use = {
+        "toolUseId": "call_abc123",
+        "name": "get_weather",
+        "input": {"city": "Seattle"},
+        "reasoningSignature": "dGhpcy1pcy1hLXNpZw==",
+    }
+
+    result = LiteLLMModel.format_request_message_tool_call(tool_use)
+
+    assert result["id"] == "call_abc123__thought__dGhpcy1pcy1hLXNpZw=="
+    assert result["function"]["name"] == "get_weather"
+    assert result["function"]["arguments"] == '{"city": "Seattle"}'
+
+
+def test_format_request_message_tool_call_skips_encoding_when_already_present():
+    """Test that format_request_message_tool_call does not double-encode the signature."""
+    tool_use = {
+        "toolUseId": "call_abc123__thought__dGhpcy1pcy1hLXNpZw==",
+        "name": "get_weather",
+        "input": {"city": "Seattle"},
+        "reasoningSignature": "dGhpcy1pcy1hLXNpZw==",
+    }
+
+    result = LiteLLMModel.format_request_message_tool_call(tool_use)
+
+    # Should NOT double-encode
+    assert result["id"] == "call_abc123__thought__dGhpcy1pcy1hLXNpZw=="
+
+
+def test_format_request_message_tool_call_no_reasoning_signature():
+    """Test that format_request_message_tool_call works normally without reasoningSignature."""
+    tool_use = {
+        "toolUseId": "call_plain123",
+        "name": "get_weather",
+        "input": {"city": "Seattle"},
+    }
+
+    result = LiteLLMModel.format_request_message_tool_call(tool_use)
+
+    assert result["id"] == "call_plain123"
+    assert "__thought__" not in result["id"]
+
+
+def test_thought_signature_round_trip():
+    """Test that thought signature is preserved through a full response -> internal -> request cycle."""
+    model = LiteLLMModel(model_id="test")
+    signature = "R2VtaW5pVGhvdWdodFNpZw=="
+    tool_call_id = f"call_xyz789__thought__{signature}"
+
+    # 1. Response path: format_chunk extracts the signature
+    mock_data = unittest.mock.Mock()
+    mock_data.id = tool_call_id
+    mock_data.function = unittest.mock.Mock()
+    mock_data.function.name = "current_time"
+    mock_data.provider_specific_fields = None
+    mock_data.function.provider_specific_fields = None
+
+    event = {"chunk_type": "content_start", "data_type": "tool", "data": mock_data}
+    chunk = model.format_chunk(event)
+    tool_use_data = chunk["contentBlockStart"]["start"]["toolUse"]
+    assert tool_use_data["reasoningSignature"] == signature
+
+    # 2. Simulate internal storage (streaming layer stores reasoningSignature)
+    internal_tool_use = {
+        "toolUseId": tool_use_data["toolUseId"],
+        "name": tool_use_data["name"],
+        "input": {"timezone": "UTC"},
+        "reasoningSignature": tool_use_data["reasoningSignature"],
+    }
+
+    # 3. Request path: format_request_message_tool_call re-encodes the signature
+    tool_call = LiteLLMModel.format_request_message_tool_call(internal_tool_use)
+    assert "__thought__" in tool_call["id"]
+    assert signature in tool_call["id"]

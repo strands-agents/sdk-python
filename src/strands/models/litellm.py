@@ -19,11 +19,15 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import MetadataEvent, StreamEvent
-from ..types.tools import ToolChoice, ToolSpec
+from ..types.tools import ToolChoice, ToolSpec, ToolUse
 from ._validation import validate_config_keys
 from .openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
+
+# Separator used by LiteLLM to embed thought signatures inside tool call IDs.
+# See: https://ai.google.dev/gemini-api/docs/thought-signatures
+_THOUGHT_SIGNATURE_SEPARATOR = "__thought__"
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -114,6 +118,61 @@ class LiteLLMModel(OpenAIModel):
 
         return super().format_request_message_content(content)
 
+    @override
+    @classmethod
+    def format_request_message_tool_call(cls, tool_use: ToolUse, **kwargs: Any) -> dict[str, Any]:
+        """Format a LiteLLM compatible tool call, encoding thought signatures into the tool call ID.
+
+        Gemini thinking models attach a thought_signature to each function call. LiteLLM's OpenAI-compatible
+        interface embeds this signature inside the tool call ID using the ``__thought__`` separator. When
+        ``reasoningSignature`` is present and the tool call ID does not already contain the separator, this
+        method encodes it so LiteLLM can reconstruct the Gemini-native format on the next request.
+
+        Args:
+            tool_use: Tool use requested by the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            LiteLLM compatible tool call dict with thought signature encoded in the ID when present.
+        """
+        tool_call = super().format_request_message_tool_call(tool_use, **kwargs)
+
+        reasoning_signature = tool_use.get("reasoningSignature")
+        if reasoning_signature and _THOUGHT_SIGNATURE_SEPARATOR not in tool_call["id"]:
+            tool_call["id"] = f"{tool_call['id']}{_THOUGHT_SIGNATURE_SEPARATOR}{reasoning_signature}"
+
+        return tool_call
+
+    @staticmethod
+    def _extract_thought_signature(data: Any) -> str | None:
+        """Extract thought signature from a tool call event data.
+
+        LiteLLM surfaces Gemini thought signatures in two ways:
+
+        1. ``provider_specific_fields.thought_signature`` — a structured field set by LiteLLM's Gemini response
+           transformer. Checked first as it doesn't depend on matching an internal string constant.
+        2. ``__thought__`` separator encoded in the tool call ID. Used as fallback since it relies on a copy of
+           LiteLLM's internal ``THOUGHT_SIGNATURE_SEPARATOR`` constant.
+
+        Args:
+            data: Tool call event data object.
+
+        Returns:
+            The extracted thought signature, or None if not present.
+        """
+        # Preferred: structured field that doesn't depend on matching an internal separator string
+        psf = getattr(data, "provider_specific_fields", None) or {}
+        if isinstance(psf, dict) and psf.get("thought_signature"):
+            return str(psf["thought_signature"])
+
+        # Fallback: extract from encoded ID (relies on hardcoded copy of LiteLLM's separator)
+        tool_call_id = getattr(data, "id", None) or ""
+        if isinstance(tool_call_id, str) and _THOUGHT_SIGNATURE_SEPARATOR in tool_call_id:
+            _, signature = tool_call_id.split(_THOUGHT_SIGNATURE_SEPARATOR, 1)
+            return signature
+
+        return None
+
     def _stream_switch_content(self, data_type: str, prev_data_type: str | None) -> tuple[list[StreamEvent], str]:
         """Handle switching to a new content stream.
 
@@ -200,8 +259,9 @@ class LiteLLMModel(OpenAIModel):
     def format_chunk(self, event: dict[str, Any], **kwargs: Any) -> StreamEvent:
         """Format a LiteLLM response event into a standardized message chunk.
 
-        This method overrides OpenAI's format_chunk to handle the metadata case
-        with prompt caching support. All other chunk types use the parent implementation.
+        Extends OpenAI's format_chunk to:
+        1. Handle metadata with prompt caching support.
+        2. Extract thought signatures that LiteLLM embeds in tool call IDs for Gemini thinking models.
 
         Args:
             event: A response event from the LiteLLM model.
@@ -237,6 +297,17 @@ class LiteLLMModel(OpenAIModel):
                     usage=usage_data,
                 )
             )
+
+        # Extract thought signature from tool call content_start events.
+        # The full encoded ID is kept in toolUseId so that tool result messages continue to match.
+        if event["chunk_type"] == "content_start" and event.get("data_type") == "tool":
+            signature = self._extract_thought_signature(event.get("data"))
+            chunk = super().format_chunk(event)
+            if signature:
+                tool_use_dict = cast(dict, chunk["contentBlockStart"]["start"]["toolUse"])
+                tool_use_dict["reasoningSignature"] = signature
+            return chunk
+
         # For all other cases, use the parent implementation
         return super().format_chunk(event)
 

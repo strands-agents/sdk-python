@@ -202,6 +202,7 @@ def _load_api_keys_from_secrets_manager():
 
     required_providers = {
         "ANTHROPIC_API_KEY",
+        "GOOGLE_API_KEY",
         "MISTRAL_API_KEY",
         "OPENAI_API_KEY",
         "WRITER_API_KEY",
