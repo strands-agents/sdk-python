@@ -1,6 +1,7 @@
 """Tests for media type definitions."""
 
 from strands.types.media import (
+    DocumentBlockContent,
     DocumentSource,
     ImageSource,
     S3Location,
@@ -51,6 +52,42 @@ class TestDocumentSource:
         assert "bytes" not in doc_source
         assert doc_source["s3Location"]["uri"] == "s3://my-bucket/docs/report.pdf"
         assert doc_source["s3Location"]["bucketOwner"] == "123456789012"
+
+    def test_document_source_with_text(self):
+        """Test DocumentSource with text content."""
+        doc_source: DocumentSource = {"text": "plain text content"}
+
+        assert doc_source["text"] == "plain text content"
+        assert "bytes" not in doc_source
+        assert "location" not in doc_source
+        assert "content" not in doc_source
+
+    def test_document_source_with_content(self):
+        """Test DocumentSource with content blocks."""
+        doc_source: DocumentSource = {"content": [{"text": "block one"}, {"text": "block two"}]}
+
+        assert len(doc_source["content"]) == 2
+        assert doc_source["content"][0]["text"] == "block one"
+        assert doc_source["content"][1]["text"] == "block two"
+        assert "bytes" not in doc_source
+        assert "location" not in doc_source
+        assert "text" not in doc_source
+
+
+class TestDocumentBlockContent:
+    """Tests for DocumentBlockContent TypedDict."""
+
+    def test_document_block_content_with_text(self):
+        """Test DocumentBlockContent with text field."""
+        block: DocumentBlockContent = {"text": "hello"}
+
+        assert block["text"] == "hello"
+
+    def test_document_block_content_empty(self):
+        """Test DocumentBlockContent with no fields (total=False)."""
+        block: DocumentBlockContent = {}
+
+        assert "text" not in block
 
 
 class TestImageSource:
