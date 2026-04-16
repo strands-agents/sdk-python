@@ -1607,8 +1607,8 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
     assert "status" not in tool_result
 
 
-def test_format_bedrock_messages_normalizes_empty_tool_result_content(model, model_id):
-    """Test that _format_bedrock_messages replaces empty toolResult content with a minimal text block.
+def test_format_request_message_content_normalizes_empty_tool_result_content(model, model_id):
+    """Test that _format_request_message_content replaces empty toolResult content with a minimal text block.
 
     Some model providers (e.g., Nemotron) reject toolResult blocks with content: [] via the
     Converse API, while others (e.g., Claude) accept them. The SDK should normalize empty
@@ -1639,8 +1639,32 @@ def test_format_bedrock_messages_normalizes_empty_tool_result_content(model, mod
     assert tool_result["content"] == [{"text": ""}], "Empty toolResult content should be normalized to [{'text': ''}]"
 
 
-def test_format_bedrock_messages_preserves_nonempty_tool_result_content(model, model_id):
-    """Test that _format_bedrock_messages does not modify non-empty toolResult content."""
+def test_format_request_message_content_does_not_mutate_empty_tool_result(model, model_id):
+    """Test that normalizing empty toolResult content does not mutate the original messages."""
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": []}},
+            ],
+        },
+    ]
+
+    original_content = messages[2]["content"][0]["toolResult"]["content"]
+    model._format_request(messages)
+
+    assert original_content == [], "Original empty content list should not be mutated"
+
+
+def test_format_request_message_content_preserves_nonempty_tool_result_content(model, model_id):
+    """Test that _format_request_message_content does not modify non-empty toolResult content."""
     messages = [
         {"role": "user", "content": [{"text": "List tables"}]},
         {

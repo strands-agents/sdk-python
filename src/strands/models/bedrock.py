@@ -438,16 +438,6 @@ class BedrockModel(Model):
                     dropped_deepseek_reasoning_content = True
                     continue
 
-                # Normalize empty toolResult content arrays.
-                # Some model providers (e.g., Nemotron) reject toolResult blocks with
-                # content: [] via the Converse API, while others (e.g., Claude) accept
-                # them. Replace empty content with a minimal text block to ensure
-                # cross-model compatibility. This follows the same pattern as the
-                # TypeScript SDK's _formatMessages in bedrock.ts.
-                if "toolResult" in content_block:
-                    if not content_block["toolResult"].get("content"):
-                        content_block["toolResult"]["content"] = [{"text": ""}]
-
                 # Format content blocks for Bedrock API compatibility
                 formatted_content = self._format_request_message_content(content_block)
                 if formatted_content is None:
@@ -611,8 +601,15 @@ class BedrockModel(Model):
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
         if "toolResult" in content:
             tool_result = content["toolResult"]
+            # Normalize empty toolResult content arrays.
+            # Some model providers (e.g., Nemotron) reject toolResult blocks with
+            # content: [] via the Converse API, while others (e.g., Claude) accept
+            # them. Replace empty content with a minimal text block to ensure
+            # cross-model compatibility. This follows the same pattern as the
+            # TypeScript SDK's _formatMessages in bedrock.ts.
+            tool_result_content_list = tool_result.get("content") or [{"text": ""}]
             formatted_content: list[dict[str, Any]] = []
-            for tool_result_content in tool_result["content"]:
+            for tool_result_content in tool_result_content_list:
                 if "json" in tool_result_content:
                     # Handle json field since not in ContentBlock but valid in ToolResultContent
                     formatted_content.append({"json": tool_result_content["json"]})
