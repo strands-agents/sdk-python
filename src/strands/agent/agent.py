@@ -998,23 +998,23 @@ class Agent(AgentBase):
         if self._interrupt_state.activated:
             return []
 
+        # Defensive check: if agent.messages ends with a dangling toolUse (e.g. from
+        # a manually constructed message history or session restore), append a dummy
+        # toolResult so the conversation is valid for the model.
+        if len(self.messages) > 0 and any("toolUse" in content for content in self.messages[-1]["content"]):
+            logger.info("Agents latest message is toolUse, appending a toolResult message to have valid conversation.")
+            tool_use_ids = [
+                content["toolUse"]["toolUseId"] for content in self.messages[-1]["content"] if "toolUse" in content
+            ]
+            await self._append_messages(
+                {
+                    "role": "user",
+                    "content": generate_missing_tool_result_content(tool_use_ids),
+                }
+            )
+
         messages: Messages | None = None
         if prompt is not None:
-            # Check if the latest message is toolUse
-            if len(self.messages) > 0 and any("toolUse" in content for content in self.messages[-1]["content"]):
-                # Add toolResult message after to have a valid conversation
-                logger.info(
-                    "Agents latest message is toolUse, appending a toolResult message to have valid conversation."
-                )
-                tool_use_ids = [
-                    content["toolUse"]["toolUseId"] for content in self.messages[-1]["content"] if "toolUse" in content
-                ]
-                await self._append_messages(
-                    {
-                        "role": "user",
-                        "content": generate_missing_tool_result_content(tool_use_ids),
-                    }
-                )
             if isinstance(prompt, str):
                 # String input - convert to user message
                 messages = [{"role": "user", "content": [{"text": prompt}]}]

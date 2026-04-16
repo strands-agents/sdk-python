@@ -1896,7 +1896,9 @@ def test_agent_structured_output_interrupt(user):
         agent.structured_output(type(user), "invalid")
 
 
-def test_latest_message_tool_use_skips_model_invoke(tool_decorated):
+def test_dangling_tool_use_gets_dummy_result_and_model_is_called(tool_decorated):
+    """If messages end with a dangling toolUse (e.g. from session restore), a dummy toolResult
+    is appended and the model is called normally — the tool is NOT executed directly."""
     mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "I see the tool result"}]}])
 
     messages: Messages = [
@@ -1913,7 +1915,8 @@ def test_latest_message_tool_use_skips_model_invoke(tool_decorated):
 
     assert mock_model.index == 1
     assert len(agent.messages) == 3
-    assert agent.messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Hello"
+    assert agent.messages[1]["content"][0]["toolResult"]["status"] == "error"
+    assert agent.messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Tool was interrupted."
     assert agent.messages[2]["content"][0]["text"] == "I see the tool result"
 
 

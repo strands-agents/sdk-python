@@ -32,7 +32,7 @@ from ..types._events import (
     ToolResultMessageEvent,
     TypedEvent,
 )
-from ..types.content import Message, Messages
+from ..types.content import Message
 from ..types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
@@ -53,26 +53,6 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 6
 INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
-
-
-def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
-    """Check if the latest message contains any ToolUse content blocks.
-
-    Args:
-        messages: List of messages in the conversation.
-
-    Returns:
-        True if the latest message contains at least one ToolUse content block, False otherwise.
-    """
-    if len(messages) > 0:
-        latest_message = messages[-1]
-        content_blocks = latest_message.get("content", [])
-
-        for content_block in content_blocks:
-            if "toolUse" in content_block:
-                return True
-
-    return False
 
 
 async def event_loop_cycle(
@@ -145,10 +125,6 @@ async def event_loop_cycle(
             if agent._interrupt_state.activated:
                 stop_reason: StopReason = "tool_use"
                 message = agent._interrupt_state.context["tool_use_message"]
-            # Skip model invocation if the latest message contains ToolUse
-            elif _has_tool_use_in_latest_message(agent.messages):
-                stop_reason = "tool_use"
-                message = agent.messages[-1]
             else:
                 model_events = _handle_model_execution(
                     agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
@@ -172,6 +148,10 @@ async def event_loop_cycle(
                 state where the model's response was truncated. By default, Strands fails hard with an
                 MaxTokensReachedException to maintain consistency with other failure types.
                 """
+                message = recover_message_on_max_tokens_reached(message)
+                agent.messages.append(message)
+                await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=message))
+
                 raise MaxTokensReachedException(
                     message=(
                         "Agent has reached an unrecoverable state due to max_tokens limit. "
@@ -181,7 +161,9 @@ async def event_loop_cycle(
                 )
 
             if stop_reason == "tool_use":
-                # Handle tool execution
+                # Deferred append: assistant message is appended alongside tool results
+                # inside _handle_tool_execution, keeping agent.messages in a valid,
+                # re-invocable state at all times (no dangling toolUse without toolResult).
                 tool_events = _handle_tool_execution(
                     stop_reason,
                     message,
@@ -197,6 +179,10 @@ async def event_loop_cycle(
                     yield tool_event
 
                 return
+
+            # Deferred append: add assistant message now that we know no tool execution is needed
+            agent.messages.append(message)
+            await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=message))
 
             # End the cycle and return results
             agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
@@ -381,9 +367,6 @@ async def _handle_model_execution(
                     tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
                     continue  # Retry the model call
 
-                if stop_reason == "max_tokens":
-                    message = recover_message_on_max_tokens_reached(message)
-
                 tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
                 break  # Success! Break out of retry loop
 
@@ -422,10 +405,6 @@ async def _handle_model_execution(
         # Add message in trace and mark the end of the stream messages trace
         stream_trace.add_message(message)
         stream_trace.end()
-
-        # Add the response message to the conversation
-        agent.messages.append(message)
-        await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=message))
 
         # Update metrics
         agent.event_loop_metrics.update_usage(usage)
@@ -500,7 +479,10 @@ async def _handle_tool_execution(
             }
             tool_results.append(cancel_result)
 
-        # Add tool results message to conversation if any tools were cancelled
+        # Deferred append: add assistant message and tool results together
+        agent.messages.append(message)
+        await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=message))
+
         cancelled_tool_result_message: Message | None = None
         if tool_results:
             _cancelled_msg: Message = {
@@ -563,6 +545,11 @@ async def _handle_tool_execution(
         return
 
     agent._interrupt_state.deactivate()
+
+    # Deferred append: add assistant message and tool results together so that
+    # agent.messages is never left with a dangling toolUse without a matching toolResult.
+    agent.messages.append(message)
+    await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=message))
 
     tool_result_message: Message = {
         "role": "user",
