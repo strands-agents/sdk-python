@@ -303,7 +303,7 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
             content.append({"text": text})
         state["text"] = ""
 
-    elif reasoning_text:
+    elif reasoning_text or "signature" in state:
         content_block: ContentBlock = {
             "reasoningContent": {
                 "reasoningText": {
