@@ -15,8 +15,8 @@ Class hierarchy::
       └── ShellBasedWorkspace (ABC, only execute() abstract — shell-based file ops + execute_code)
 """
 
+import base64
 import logging
-import secrets
 import shlex
 from abc import ABC
 from collections.abc import AsyncGenerator
@@ -68,17 +68,19 @@ class ShellBasedWorkspace(Workspace, ABC):
         Yields:
             str chunks of output, then a final ExecutionResult.
         """
-        async for chunk in self.execute(
-            f"{shlex.quote(language)} -c {shlex.quote(code)}", timeout=timeout
-        ):
+        async for chunk in self.execute(f"{shlex.quote(language)} -c {shlex.quote(code)}", timeout=timeout):
             yield chunk
 
     async def read_file(self, path: str, **kwargs: Any) -> bytes:
         """Read a file from the workspace filesystem as raw bytes.
 
-        Override for native file I/O support. The default implementation
-        uses shell commands. Uses ``cat`` to read the file, which outputs
-        raw bytes.
+        Uses ``base64`` to encode the file content for safe transport
+        through the shell text layer, then decodes on the Python side.
+        This preserves binary content (images, PDFs, compiled files)
+        that would be corrupted by direct ``cat`` through a text pipe.
+
+        Override for native file I/O support if the backend provides
+        a binary-safe channel (e.g., Docker stdin/stdout pipes).
 
         Args:
             path: Path to the file to read.
@@ -90,20 +92,22 @@ class ShellBasedWorkspace(Workspace, ABC):
         Raises:
             FileNotFoundError: If the file does not exist or cannot be read.
         """
-        result = await self._execute_to_result(f"cat {shlex.quote(path)}")
+        result = await self._execute_to_result(f"base64 {shlex.quote(path)}")
         if result.exit_code != 0:
             raise FileNotFoundError(result.stderr)
-        # Shell stdout is captured as str; encode back to bytes
-        return result.stdout.encode("utf-8")
+        # base64 output is ASCII-safe text — decode it back to raw bytes
+        return base64.b64decode(result.stdout)
 
     async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
         """Write bytes to a file in the workspace filesystem.
 
-        Override for native file I/O support. The default implementation
-        uses a shell heredoc with a randomized delimiter to prevent
-        content injection. Note: this shell-based approach works best
-        with text content. For truly binary content, subclasses should
-        override with a native implementation.
+        Uses ``base64`` encoding to safely transport binary content through
+        the shell text layer. The encoded data is piped through ``base64 -d``
+        to decode it back to raw bytes on the remote side.
+
+        This approach handles any content type (text, images, PDFs, compiled
+        files) without corruption. Override for native file I/O if the
+        backend provides a binary-safe channel.
 
         Args:
             path: Path to the file to write.
@@ -113,17 +117,11 @@ class ShellBasedWorkspace(Workspace, ABC):
         Raises:
             IOError: If the file cannot be written.
         """
-        # Decode bytes to text for heredoc-based writing.
-        # For binary content, subclasses should override with native I/O.
-        text_content = content.decode("utf-8")
-        # Use a randomized heredoc delimiter to prevent injection when content
-        # contains the delimiter string.
-        delimiter = f"STRANDS_EOF_{secrets.token_hex(8)}"
-        result = await self._execute_to_result(
-            f"cat > {shlex.quote(path)} << '{delimiter}'\n{text_content}\n{delimiter}"
-        )
+        encoded = base64.b64encode(content).decode("ascii")
+        # Use printf to avoid echo's escape interpretation, pipe through base64 -d
+        result = await self._execute_to_result(f"printf '%s' {shlex.quote(encoded)} | base64 -d > {shlex.quote(path)}")
         if result.exit_code != 0:
-            raise IOError(result.stderr)
+            raise OSError(result.stderr)
 
     async def remove_file(self, path: str, **kwargs: Any) -> None:
         """Remove a file from the workspace filesystem.

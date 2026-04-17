@@ -111,9 +111,7 @@ class TestLocalWorkspaceExecute:
     async def test_execute_long_output_without_newlines(self, tmp_path: object) -> None:
         """Bug 2 fix: long output lines (>64KB) no longer crash."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        result = await workspace._execute_to_result(
-            "python3 -c \"import sys; sys.stdout.write('A' * 131072)\""
-        )
+        result = await workspace._execute_to_result("python3 -c \"import sys; sys.stdout.write('A' * 131072)\"")
         assert result.exit_code == 0
         assert len(result.stdout) == 131072
 

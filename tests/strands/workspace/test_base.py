@@ -31,7 +31,13 @@ class ConcreteShellWorkspace(ShellBasedWorkspace):
         if "fail" in command:
             yield ExecutionResult(exit_code=1, stdout="", stderr="command failed")
             return
-        stdout = f"output of: {command}\n"
+        # For base64 commands (used by read_file), return valid base64 output
+        if command.startswith("base64 "):
+            import base64 as b64
+
+            stdout = b64.b64encode(b"mock file content").decode("ascii") + "\n"
+        else:
+            stdout = f"output of: {command}\n"
         yield stdout
         yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
 
@@ -251,14 +257,18 @@ class TestWorkspaceABC:
         """Test that read_text decodes bytes from read_file."""
 
         class TextWorkspace(Workspace):
-            async def execute(self, command: str, timeout: int | None = None, **kwargs: Any) -> AsyncGenerator[str | ExecutionResult, None]:
+            async def execute(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def execute_code(self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any) -> AsyncGenerator[str | ExecutionResult, None]:
+            async def execute_code(
+                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def read_file(self, path: str, **kwargs: Any) -> bytes:
-                return "hello world".encode("utf-8")
+                return b"hello world"
 
             async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
                 pass
@@ -283,10 +293,14 @@ class TestWorkspaceABC:
                 super().__init__()
                 self.written_content: bytes = b""
 
-            async def execute(self, command: str, timeout: int | None = None, **kwargs: Any) -> AsyncGenerator[str | ExecutionResult, None]:
+            async def execute(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def execute_code(self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any) -> AsyncGenerator[str | ExecutionResult, None]:
+            async def execute_code(
+                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def read_file(self, path: str, **kwargs: Any) -> bytes:
@@ -370,7 +384,8 @@ class TestShellBasedWorkspaceOperations:
         workspace = ConcreteShellWorkspace()
         content = await workspace.read_file("/tmp/test.txt")
         assert isinstance(content, bytes)
-        assert "cat" in workspace.commands[0]
+        assert content == b"mock file content"
+        assert "base64" in workspace.commands[0]
 
     @pytest.mark.asyncio
     async def test_read_file_not_found(self) -> None:
@@ -392,10 +407,11 @@ class TestShellBasedWorkspaceOperations:
             await workspace.write_file("/tmp/fail.txt", b"content")
 
     @pytest.mark.asyncio
-    async def test_write_file_uses_random_delimiter(self) -> None:
+    async def test_write_file_uses_base64(self) -> None:
         workspace = ConcreteShellWorkspace()
         await workspace.write_file("/tmp/test.txt", b"content with STRANDS_EOF inside")
-        assert "STRANDS_EOF_" in workspace.commands[0]
+        assert "base64 -d" in workspace.commands[0]
+        assert "/tmp/test.txt" in workspace.commands[0]
 
     @pytest.mark.asyncio
     async def test_write_file_path_is_shell_quoted(self) -> None:
@@ -406,8 +422,9 @@ class TestShellBasedWorkspaceOperations:
     @pytest.mark.asyncio
     async def test_read_file_path_is_shell_quoted(self) -> None:
         workspace = ConcreteShellWorkspace()
-        content = await workspace.read_file("/tmp/test file.txt")
+        await workspace.read_file("/tmp/test file.txt")
         assert "'/tmp/test file.txt'" in workspace.commands[0]
+        assert "base64" in workspace.commands[0]
 
     @pytest.mark.asyncio
     async def test_remove_file_success(self) -> None:

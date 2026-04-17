@@ -92,9 +92,7 @@ class LocalWorkspace(Workspace):
         """
         working_path = Path(self.working_dir)
         if working_path.exists() and not working_path.is_dir():
-            raise NotADirectoryError(
-                "working_dir is not a directory: %s" % self.working_dir
-            )
+            raise NotADirectoryError(f"working_dir is not a directory: {self.working_dir}")
         working_path.mkdir(parents=True, exist_ok=True)
         logger.debug("working_dir=<%s> | local workspace started", self.working_dir)
         self._started = True
@@ -214,9 +212,7 @@ class LocalWorkspace(Workspace):
         # Validate language to prevent injection via interpreter name.
         # Only allow safe characters (alphanumeric, dots, hyphens, underscores).
         if not _LANGUAGE_PATTERN.match(language):
-            raise ValueError(
-                "language parameter contains unsafe characters: %s" % language
-            )
+            raise ValueError(f"language parameter contains unsafe characters: {language}")
 
         logger.debug(
             "language=<%s>, timeout=<%s> | executing code locally",
@@ -239,7 +235,7 @@ class LocalWorkspace(Workspace):
             yield ExecutionResult(
                 exit_code=127,
                 stdout="",
-                stderr="Language interpreter not found: %s" % language,
+                stderr=f"Language interpreter not found: {language}",
             )
             return
 
@@ -351,7 +347,7 @@ class LocalWorkspace(Workspace):
         """
         full_path = self._resolve_path(path)
         if not full_path.is_dir():
-            raise FileNotFoundError("Directory not found: %s" % full_path)
+            raise FileNotFoundError(f"Directory not found: {full_path}")
         entries = []
         for name in sorted(os.listdir(full_path)):
             entry_path = full_path / name

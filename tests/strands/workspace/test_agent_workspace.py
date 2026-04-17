@@ -1,7 +1,5 @@
 """Tests for Agent + Workspace integration."""
 
-import pytest
-
 from strands.agent.agent import Agent
 from strands.workspace.base import Workspace
 from strands.workspace.local import LocalWorkspace

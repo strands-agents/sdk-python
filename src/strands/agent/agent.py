@@ -29,8 +29,6 @@ from .. import _identifier
 from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
-from ..workspace.base import Workspace
-
 from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types._snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
@@ -39,6 +37,7 @@ from ..types._snapshot import (
     SnapshotPreset,
     resolve_snapshot_fields,
 )
+from ..workspace.base import Workspace
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider

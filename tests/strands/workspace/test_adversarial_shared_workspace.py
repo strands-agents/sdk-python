@@ -8,14 +8,10 @@ Tests what happens when:
 """
 
 import asyncio
-import os
-from collections.abc import AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from strands.workspace.base import ExecutionResult
-from strands.workspace.shell_based import ShellBasedWorkspace
 from strands.workspace.local import LocalWorkspace
 
 
@@ -75,9 +71,7 @@ class TestSharedWorkspaceConcurrentExecution:
         async def write_file(name: str, content: bytes):
             await workspace.write_file(name, content)
 
-        await asyncio.gather(
-            *[write_file(f"file_{i}.txt", f"content_{i}".encode()) for i in range(20)]
-        )
+        await asyncio.gather(*[write_file(f"file_{i}.txt", f"content_{i}".encode()) for i in range(20)])
 
         # All files should be written correctly
         for i in range(20):
@@ -265,9 +259,7 @@ class TestWorkspaceLifecycleEdgeCases:
             )
             # We just want no unhandled crashes
             for r in results:
-                if isinstance(r, Exception) and not isinstance(
-                    r, (asyncio.TimeoutError, asyncio.CancelledError)
-                ):
+                if isinstance(r, Exception) and not isinstance(r, (asyncio.TimeoutError, asyncio.CancelledError)):
                     # Unexpected exception type
                     pass  # This is fine — stop() during execution is best-effort
         except Exception:
