@@ -12,20 +12,25 @@ programmatic approach after creating the agent:
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 import jsonschema
 from jsonschema import ValidationError
 
+from .mcp_config import MCP_SERVER_CONFIG_SCHEMA, load_mcp_clients_from_config
+
+logger = logging.getLogger(__name__)
+
 # JSON Schema for agent configuration
-AGENT_CONFIG_SCHEMA = {
+AGENT_CONFIG_SCHEMA: dict[str, Any] = {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Agent Configuration",
-    "description": "Configuration schema for creating agents",
+    "description": "Configuration schema for creating agents.",
     "type": "object",
     "properties": {
-        "name": {"description": "Name of the agent", "type": ["string", "null"], "default": None},
+        "name": {"description": "Name of the agent.", "type": ["string", "null"], "default": None},
         "model": {
             "description": "The model ID to use for this agent. If not specified, uses the default model.",
             "type": ["string", "null"],
@@ -42,6 +47,12 @@ AGENT_CONFIG_SCHEMA = {
             "type": "array",
             "items": {"type": "string"},
             "default": [],
+        },
+        "mcp_servers": {
+            "description": "MCP server configurations. Each key is a server name and the value is "
+            "a server configuration object with transport-specific settings.",
+            "type": "object",
+            "additionalProperties": MCP_SERVER_CONFIG_SCHEMA,
         },
     },
     "additionalProperties": False,
@@ -128,6 +139,15 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> A
     for config_key, agent_param in config_mapping.items():
         if config_key in config_dict and config_dict[config_key] is not None:
             agent_kwargs[agent_param] = config_dict[config_key]
+
+    # Handle mcp_servers: create MCPClient instances and append to tools
+    if config_dict.get("mcp_servers"):
+        mcp_clients = load_mcp_clients_from_config({"mcpServers": config_dict["mcp_servers"]})
+        tools_list = agent_kwargs.get("tools", [])
+        if not isinstance(tools_list, list):
+            tools_list = list(tools_list)
+        tools_list.extend(mcp_clients)
+        agent_kwargs["tools"] = tools_list
 
     # Override with any additional kwargs provided
     agent_kwargs.update(kwargs)
