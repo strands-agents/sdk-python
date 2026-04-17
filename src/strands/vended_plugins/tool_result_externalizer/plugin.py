@@ -130,6 +130,13 @@ class ToolResultExternalizer(Plugin):
             )
             return
 
+        logger.debug(
+            "tool_use_id=<%s>, total_chars=<%d>, ref=<%s> | tool result externalized",
+            event.tool_use.get("toolUseId"),
+            len(full_text),
+            reference,
+        )
+
         # Build preview
         preview = full_text[: self._preview_chars]
         preview_text = (
