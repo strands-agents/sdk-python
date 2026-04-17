@@ -28,7 +28,9 @@ Example:
 
 from __future__ import annotations
 
+import json
 import logging
+from typing import Any
 
 from ...hooks.events import AfterToolCallEvent
 from ...plugins import Plugin, hook
@@ -43,9 +45,11 @@ class ToolResultExternalizer(Plugin):
 
     When a tool result exceeds the configured character threshold, this plugin:
 
-    1. Persists the full text content to a storage backend
+    1. Persists the full text and JSON content to a storage backend
     2. Replaces the in-context result with a truncated preview plus a reference
-    3. Preserves any non-text content blocks (images, documents, JSON) as-is
+    3. Replaces image blocks with descriptive placeholders (following the
+       ``SlidingWindowConversationManager`` pattern)
+    4. Preserves document content blocks as-is
 
     This operates proactively at tool execution time via ``AfterToolCallEvent``,
     before the result enters the conversation — unlike ``SlidingWindowConversationManager``
@@ -94,18 +98,19 @@ class ToolResultExternalizer(Plugin):
         result = event.result
         content = result["content"]
 
-        # Collect text blocks and measure total size
-        text_blocks: list[str] = []
+        # Collect externalizable content (text + JSON) and measure total size
+        text_parts: list[str] = []
         for block in content:
-            text = block.get("text")
-            if text:
-                text_blocks.append(text)
+            if block.get("text"):
+                text_parts.append(block["text"])
+            elif "json" in block:
+                text_parts.append(json.dumps(block["json"], indent=2))
 
-        total_chars = sum(len(t) for t in text_blocks)
+        total_chars = sum(len(t) for t in text_parts)
         if total_chars <= self._size_threshold_chars:
             return
 
-        full_text = "\n".join(text_blocks)
+        full_text = "\n".join(text_parts)
 
         # Persist full content
         try:
@@ -126,10 +131,16 @@ class ToolResultExternalizer(Plugin):
             f"[Full output stored externally: {reference}]"
         )
 
-        # Build new content: preview text block + any non-text blocks from original
+        # Build new content:
+        #   - Preview text block first
+        #   - Images replaced with placeholders (following SlidingWindowConversationManager)
+        #   - Documents preserved as-is
+        #   - Text and JSON blocks are already captured in the externalized content
         new_content: list[ToolResultContent] = [ToolResultContent(text=preview_text)]
         for block in content:
-            if "text" not in block:
+            if "image" in block:
+                new_content.append(ToolResultContent(text=self._image_placeholder(block["image"])))
+            elif "document" in block:
                 new_content.append(block)
 
         event.result = ToolResult(
@@ -137,3 +148,20 @@ class ToolResultExternalizer(Plugin):
             status=result["status"],
             content=new_content,
         )
+
+    @staticmethod
+    def _image_placeholder(image_block: Any) -> str:
+        """Create a descriptive placeholder for an image block.
+
+        Follows the same pattern as ``SlidingWindowConversationManager``.
+
+        Args:
+            image_block: The image content block.
+
+        Returns:
+            A placeholder string describing the image.
+        """
+        source: Any = image_block.get("source", {})
+        media_type = image_block.get("format", "unknown")
+        data = source.get("bytes", b"")
+        return f"[image: {media_type}, {len(data) if data else 0} bytes]"

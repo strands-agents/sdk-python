@@ -120,7 +120,7 @@ class TestToolResultExternalizer:
 
         assert event.result["content"] is original_content
 
-    def test_non_text_content_passes_through(self, plugin, mock_agent):
+    def test_image_only_content_passes_through(self, plugin, mock_agent):
         content = [{"image": {"format": "png", "source": {"bytes": b"fake"}}}]
         event = _make_event(mock_agent, content)
         original_content = event.result["content"]
@@ -129,21 +129,33 @@ class TestToolResultExternalizer:
 
         assert event.result["content"] is original_content
 
-    def test_mixed_content_preserves_non_text(self, plugin, mock_agent):
-        image_block = {"image": {"format": "png", "source": {"bytes": b"fake"}}}
+    def test_mixed_content_replaces_images_with_placeholders(self, plugin, mock_agent):
         content = [
             {"text": "x" * 200},
-            image_block,
+            {"image": {"format": "png", "source": {"bytes": b"x" * 1024}}},
         ]
         event = _make_event(mock_agent, content)
 
         plugin._handle_tool_result(event)
 
-        # Should have preview text block + original image block
+        # Should have preview text block + image placeholder
         assert len(event.result["content"]) == 2
-        assert "text" in event.result["content"][0]
         assert "[Externalized:" in event.result["content"][0]["text"]
-        assert event.result["content"][1] is image_block
+        assert event.result["content"][1]["text"] == "[image: png, 1024 bytes]"
+
+    def test_document_blocks_preserved_as_is(self, plugin, mock_agent):
+        doc_block = {"document": {"format": "pdf", "name": "report.pdf", "source": {"bytes": b"pdf"}}}
+        content = [
+            {"text": "x" * 200},
+            doc_block,
+        ]
+        event = _make_event(mock_agent, content)
+
+        plugin._handle_tool_result(event)
+
+        assert len(event.result["content"]) == 2
+        assert "[Externalized:" in event.result["content"][0]["text"]
+        assert event.result["content"][1] is doc_block
 
     def test_multiple_text_blocks_concatenated(self, plugin, storage, mock_agent):
         content = [
@@ -162,6 +174,50 @@ class TestToolResultExternalizer:
         ref = result_text.split("ref: ")[1].split("]")[0]
         stored = storage.retrieve(ref)
         assert stored == ("a" * 60 + "\n" + "b" * 60)
+
+    def test_json_content_externalized(self, plugin, storage, mock_agent):
+        large_json = {"data": [{"id": i, "value": "x" * 20} for i in range(10)]}
+        content = [{"json": large_json}]
+        event = _make_event(mock_agent, content)
+
+        plugin._handle_tool_result(event)
+
+        result_text = event.result["content"][0]["text"]
+        assert "[Externalized:" in result_text
+
+        # Verify stored content is the JSON serialized with indent=2
+        import json
+
+        ref = result_text.split("ref: ")[1].split("]")[0]
+        stored = storage.retrieve(ref)
+        assert stored == json.dumps(large_json, indent=2)
+
+    def test_mixed_text_and_json_concatenated(self, plugin, storage, mock_agent):
+        content = [
+            {"text": "a" * 60},
+            {"json": {"key": "b" * 60}},
+        ]
+        event = _make_event(mock_agent, content)
+
+        plugin._handle_tool_result(event)
+
+        result_text = event.result["content"][0]["text"]
+        assert "[Externalized:" in result_text
+
+        # Both text and JSON should be in stored content
+        ref = result_text.split("ref: ")[1].split("]")[0]
+        stored = storage.retrieve(ref)
+        assert "a" * 60 in stored
+        assert "b" * 60 in stored
+
+    def test_small_json_passes_through(self, plugin, mock_agent):
+        content = [{"json": {"key": "value"}}]
+        event = _make_event(mock_agent, content)
+        original_content = event.result["content"]
+
+        plugin._handle_tool_result(event)
+
+        assert event.result["content"] is original_content
 
     def test_error_status_still_externalized(self, plugin, mock_agent):
         large_text = "x" * 200
@@ -205,11 +261,15 @@ class TestToolResultExternalizer:
         # Total is 50 chars <= 100 threshold, should not externalize
         assert event.result["content"] is original_content
 
-    def test_json_only_content_passes_through(self, plugin, mock_agent):
-        content = [{"json": {"key": "value"}}]
+    def test_image_placeholder_format(self, plugin, mock_agent):
+        content = [
+            {"text": "x" * 200},
+            {"image": {"format": "jpeg", "source": {"bytes": b"img" * 100}}},
+            {"image": {"format": "png", "source": {}}},
+        ]
         event = _make_event(mock_agent, content)
-        original_content = event.result["content"]
 
         plugin._handle_tool_result(event)
 
-        assert event.result["content"] is original_content
+        assert event.result["content"][1]["text"] == "[image: jpeg, 300 bytes]"
+        assert event.result["content"][2]["text"] == "[image: png, 0 bytes]"
