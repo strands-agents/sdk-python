@@ -68,12 +68,6 @@ strands-agents/
 │   │   │   ├── _executor.py              # Base executor
 │   │   │   ├── concurrent.py             # Thread/process pool
 │   │   │   └── sequential.py             # Sequential execution
-│   │   ├── mcp/                          # Model Context Protocol
-│   │   │   ├── mcp_client.py             # MCP client implementation
-│   │   │   ├── mcp_agent_tool.py         # MCP tool wrapper
-│   │   │   ├── mcp_types.py              # MCP type definitions
-│   │   │   ├── mcp_tasks.py              # Task-augmented execution config
-│   │   │   └── mcp_instrumentation.py    # MCP telemetry
 │   │   └── structured_output/            # Structured output handling
 │   │       ├── structured_output_tool.py
 │   │       ├── structured_output_utils.py
@@ -109,6 +103,13 @@ strands-agents/
 │   │   ├── _events.py                    # Internal event types
 │   │   ├── a2a.py                        # A2A protocol types
 │   │   └── models/                       # Model-specific types
+│   │
+│   ├── mcp/                              # Model Context Protocol
+│   │   ├── mcp_client.py                 # MCP client implementation
+│   │   ├── mcp_agent_tool.py             # MCP tool wrapper
+│   │   ├── mcp_types.py                  # MCP type definitions
+│   │   ├── mcp_tasks.py                  # Task-augmented execution config
+│   │   └── mcp_instrumentation.py        # MCP telemetry
 │   │
 │   ├── session/                          # Session management
 │   │   ├── session_manager.py            # Base interface
@@ -443,7 +444,7 @@ Enable tasks by passing a `TasksConfig` to `MCPClient`:
 
 ```python
 from datetime import timedelta
-from strands.tools.mcp import MCPClient, TasksConfig
+from strands.mcp import MCPClient, TasksConfig
 
 # Enable with defaults (ttl=1min, poll_timeout=5min)
 client = MCPClient(transport, tasks_config={})
@@ -474,9 +475,9 @@ Task-augmented execution is used when ALL conditions are met:
 
 ### Key Files
 
-- `src/strands/tools/mcp/mcp_tasks.py` - `TasksConfig` and defaults
-- `src/strands/tools/mcp/mcp_client.py` - Task execution logic (`_call_tool_as_task_and_poll_async`)
-- `tests/strands/tools/mcp/test_mcp_client_tasks.py` - Unit tests
+- `src/strands/mcp/mcp_tasks.py` - `TasksConfig` and defaults
+- `src/strands/mcp/mcp_client.py` - Task execution logic (`_call_tool_as_task_and_poll_async`)
+- `tests/strands/mcp/test_mcp_client_tasks.py` - Unit tests
 - `tests_integ/mcp/test_mcp_client_tasks.py` - Integration tests
 - `tests_integ/mcp/task_echo_server.py` - Test server with task support
 

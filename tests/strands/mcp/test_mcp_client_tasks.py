@@ -11,8 +11,8 @@ from mcp.types import TextContent as MCPTextContent
 from mcp.types import Tool as MCPTool
 from mcp.types import ToolExecution
 
-from strands.tools.mcp import MCPClient, TasksConfig
-from strands.tools.mcp.mcp_tasks import DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL
+from strands.mcp import MCPClient, TasksConfig
+from strands.mcp.mcp_tasks import DEFAULT_TASK_POLL_TIMEOUT, DEFAULT_TASK_TTL
 
 from .conftest import create_server_capabilities
 

@@ -7,8 +7,8 @@ import pytest
 from mcp import StdioServerParameters, stdio_client
 
 from strands import Agent
-from strands.tools.mcp import MCPClient
-from strands.tools.mcp.mcp_client import ToolFilters
+from strands.mcp import MCPClient
+from strands.mcp.mcp_client import ToolFilters
 
 logging.basicConfig(level=logging.DEBUG)
 

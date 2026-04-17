@@ -1,14 +1,18 @@
-"""Model Context Protocol (MCP) integration.
+"""Deprecated: MCP integration has moved to ``strands.mcp``.
 
-This package provides integration with the Model Context Protocol (MCP), allowing agents to use tools provided by MCP
-servers.
-
-- Docs: https://www.anthropic.com/news/model-context-protocol
+This module re-exports the public API from its new location and emits a
+``DeprecationWarning`` at import time. Update imports to ``strands.mcp``.
 """
 
-from .mcp_agent_tool import MCPAgentTool
-from .mcp_client import MCPClient, ToolFilters
-from .mcp_tasks import TasksConfig
-from .mcp_types import MCPTransport
+import warnings
+
+from ...mcp import MCPAgentTool, MCPClient, MCPTransport, TasksConfig, ToolFilters
+
+warnings.warn(
+    "strands.tools.mcp has moved to strands.mcp. "
+    "Import from strands.mcp instead; strands.tools.mcp will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = ["MCPAgentTool", "MCPClient", "MCPTransport", "TasksConfig", "ToolFilters"]

@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from mcp.client.streamable_http import streamablehttp_client
 
-from strands.tools.mcp import MCPClient, MCPTransport, TasksConfig
+from strands.mcp import MCPClient, MCPTransport, TasksConfig
 
 
 def _find_available_port() -> int:

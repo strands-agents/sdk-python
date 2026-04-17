@@ -1,33 +1,18 @@
-"""Task-augmented tool execution configuration for MCP.
+"""Deprecated: moved to ``strands.mcp.mcp_tasks``."""
 
-This module provides configuration types and defaults for the experimental MCP Tasks feature.
-"""
+import warnings
 
-from datetime import timedelta
+from ...mcp.mcp_tasks import *  # noqa: F401, F403
+from ...mcp.mcp_tasks import (  # noqa: F401
+    DEFAULT_TASK_CONFIG,
+    DEFAULT_TASK_POLL_TIMEOUT,
+    DEFAULT_TASK_TTL,
+    TasksConfig,
+)
 
-from typing_extensions import TypedDict
-
-
-class TasksConfig(TypedDict, total=False):
-    """Configuration for MCP Tasks (task-augmented tool execution).
-
-    When enabled, supported tool calls use the MCP task workflow:
-    create task -> poll for completion -> get result.
-
-    Warning:
-        This is an experimental feature in the 2025-11-25 MCP specification and
-        both the specification and the Strands Agents implementation of this
-        feature are subject to change.
-
-    Attributes:
-        ttl: Task time-to-live. Defaults to 1 minute.
-        poll_timeout: Timeout for polling task completion. Defaults to 5 minutes.
-    """
-
-    ttl: timedelta
-    poll_timeout: timedelta
-
-
-DEFAULT_TASK_TTL = timedelta(minutes=1)
-DEFAULT_TASK_POLL_TIMEOUT = timedelta(minutes=5)
-DEFAULT_TASK_CONFIG = TasksConfig(ttl=DEFAULT_TASK_TTL, poll_timeout=DEFAULT_TASK_POLL_TIMEOUT)
+warnings.warn(
+    "strands.tools.mcp.mcp_tasks has moved to strands.mcp.mcp_tasks. "
+    "Import from strands.mcp.mcp_tasks instead; strands.tools.mcp will be removed in a future release.",
+    DeprecationWarning,
+    stacklevel=2,
+)

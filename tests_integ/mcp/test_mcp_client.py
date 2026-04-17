@@ -12,8 +12,8 @@ from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import ImageContent as MCPImageContent
 
 from strands import Agent
-from strands.tools.mcp.mcp_client import MCPClient
-from strands.tools.mcp.mcp_types import MCPTransport
+from strands.mcp.mcp_client import MCPClient
+from strands.mcp.mcp_types import MCPTransport
 from strands.types.content import Message
 from strands.types.exceptions import MCPClientInitializationError
 from strands.types.tools import ToolUse
