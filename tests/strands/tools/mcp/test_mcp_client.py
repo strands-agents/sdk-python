@@ -594,6 +594,33 @@ def test_stop_closes_event_loop():
     assert client._background_thread_event_loop is None
 
 
+def test_stop_skips_cleanup_during_interpreter_finalization():
+    """Test that stop() is a no-op when the interpreter is finalizing.
+
+    On Python 3.14+, threading.Thread.join() raises PythonFinalizationError at
+    shutdown. The background thread is a daemon and is reclaimed automatically,
+    so stop() should skip join() and event loop cleanup to avoid noisy
+    tracebacks surfaced via Agent.__del__ during GC. See issue #2143.
+    """
+    client = MCPClient(MagicMock())
+
+    mock_thread = MagicMock()
+    mock_event_loop = MagicMock()
+    client._background_thread = mock_thread
+    client._background_thread_event_loop = mock_event_loop
+
+    with patch("strands.tools.mcp.mcp_client.sys.is_finalizing", return_value=True):
+        # Must not raise, and must not touch the thread or event loop.
+        client.stop(None, None, None)
+
+    mock_thread.join.assert_not_called()
+    mock_event_loop.close.assert_not_called()
+    # State is intentionally left alone during finalization — the interpreter
+    # is going away and cleanup is unnecessary.
+    assert client._background_thread is mock_thread
+    assert client._background_thread_event_loop is mock_event_loop
+
+
 def test_mcp_client_state_reset_after_timeout():
     """Test that all client state is properly reset after timeout."""
 

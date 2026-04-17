@@ -12,6 +12,7 @@ import base64
 import contextvars
 import json
 import logging
+import sys
 import threading
 import uuid
 from asyncio import AbstractEventLoop
@@ -342,6 +343,15 @@ class MCPClient(ToolProvider):
             exc_tb: Exception traceback if an exception was raised in the context
         """
         self._log_debug_with_thread("exiting MCPClient context")
+
+        # Skip cleanup during interpreter finalization. On Python 3.14+, joining a
+        # non-daemon thread at shutdown raises PythonFinalizationError; even though
+        # our background thread is a daemon and will be reclaimed automatically,
+        # the join call itself produces noisy tracebacks on stderr when the GC
+        # reaches Agent.__del__ during finalization. See issue #2143.
+        if sys.is_finalizing():
+            self._log_debug_with_thread("interpreter is finalizing, skipping MCPClient cleanup")
+            return
 
         # Only try to signal close future if we have a background thread
         if self._background_thread is not None:
