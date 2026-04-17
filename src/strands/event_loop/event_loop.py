@@ -138,6 +138,7 @@ async def event_loop_cycle(
         custom_trace_attributes=agent.trace_attributes,
     )
     invocation_state["event_loop_cycle_span"] = cycle_span
+    model_events: AsyncGenerator[TypedEvent, None] | None = None
 
     with trace_api.use_span(cycle_span, end_on_exit=False):
         try:
@@ -153,13 +154,19 @@ async def event_loop_cycle(
                 model_events = _handle_model_execution(
                     agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
                 )
-                async for model_event in model_events:
-                    if not isinstance(model_event, ModelStopReason):
-                        yield model_event
+                try:
+                    async for model_event in model_events:
+                        if not isinstance(model_event, ModelStopReason):
+                            yield model_event
+                finally:
+                    await model_events.aclose()
 
                 stop_reason, message, *_ = model_event["stop"]
                 yield ModelMessageEvent(message=message)
         except Exception as e:
+            tracer.end_span_with_error(cycle_span, str(e), e)
+            raise
+        except BaseException as e:
             tracer.end_span_with_error(cycle_span, str(e), e)
             raise
 
@@ -238,6 +245,9 @@ async def event_loop_cycle(
             yield ForceStopEvent(reason=e)
             logger.exception("cycle failed")
             raise EventLoopException(e, invocation_state["request_state"]) from e
+        except BaseException as e:
+            tracer.end_span_with_error(cycle_span, str(e), e)
+            raise
 
 
 async def recurse_event_loop(
@@ -323,6 +333,7 @@ async def _handle_model_execution(
             system_prompt=agent.system_prompt,
             system_prompt_content=agent._system_prompt_content,
         )
+        streamed_events: AsyncGenerator[TypedEvent, None] | None = None
         with trace_api.use_span(model_invoke_span, end_on_exit=False):
             try:
                 await agent.hooks.invoke_callbacks_async(
@@ -338,7 +349,7 @@ async def _handle_model_execution(
                 else:
                     tool_specs = agent.tool_registry.get_all_tool_specs()
 
-                async for event in stream_messages(
+                streamed_events = stream_messages(
                     agent.model,
                     agent.system_prompt,
                     agent.messages,
@@ -348,8 +359,12 @@ async def _handle_model_execution(
                     invocation_state=invocation_state,
                     model_state=agent._model_state,
                     cancel_signal=agent._cancel_signal,
-                ):
-                    yield event
+                )
+                try:
+                    async for event in streamed_events:
+                        yield event
+                finally:
+                    await streamed_events.aclose()
 
                 stop_reason, message, usage, metrics = event["stop"]
                 invocation_state.setdefault("request_state", {})
@@ -417,6 +432,9 @@ async def _handle_model_execution(
                 # No retry requested, raise the exception
                 yield ForceStopEvent(reason=e)
                 raise e
+            except BaseException as e:
+                tracer.end_span_with_error(model_invoke_span, str(e), e)
+                raise
 
     try:
         # Add message in trace and mark the end of the stream messages trace
