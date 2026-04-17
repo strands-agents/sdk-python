@@ -137,18 +137,12 @@ class TestSharedWorkspaceConcurrentExecution:
         for result in results:
             assert result.exit_code == 0
 
-        # BUG: _started flag has no lock — multiple starts may happen
-        # The current code does `if not self._started: await self.start()`
-        # If two coroutines check _started before either sets it, both will call start()
-        # This is a race condition on the _started flag
-        # Note: We expect this to show start_count > 1 if the race is triggered
-        # If start_count > 1, that's a finding!
-        if start_count > 1:
-            pytest.fail(
-                f"Race condition on _started flag: start() called {start_count} times "
-                f"(expected 1). Multiple coroutines passed the `if not self._started` check "
-                f"before any set _started=True."
-            )
+        # _ensure_started() uses asyncio.Lock with double-checked locking
+        # to prevent multiple starts. Verify exactly one start() was called.
+        assert start_count == 1, (
+            f"Expected exactly 1 start() call but got {start_count}. "
+            f"The asyncio.Lock in _ensure_started() should prevent concurrent starts."
+        )
 
 
 class TestSharedWorkspaceBetweenAgents:

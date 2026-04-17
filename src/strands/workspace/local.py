@@ -29,6 +29,28 @@ _READ_CHUNK_SIZE = 64 * 1024  # 64 KiB
 _LANGUAGE_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
 
 
+async def _read_stream(
+    stream: asyncio.StreamReader | None,
+    collected: list[str],
+) -> None:
+    """Read all chunks from a subprocess stream into a list.
+
+    Reads in chunks of up to ``_READ_CHUNK_SIZE`` bytes to handle
+    binary output and extremely long lines without newlines.
+
+    Args:
+        stream: The subprocess stdout or stderr stream.
+        collected: List to append decoded string chunks to.
+    """
+    if stream is None:
+        return
+    while True:
+        chunk_bytes = await stream.read(_READ_CHUNK_SIZE)
+        if not chunk_bytes:
+            break
+        collected.append(chunk_bytes.decode())
+
+
 class LocalWorkspace(Workspace):
     """Execute code and commands on the local host using native Python methods.
 
@@ -130,48 +152,8 @@ class LocalWorkspace(Workspace):
             stderr=asyncio.subprocess.PIPE,
         )
 
-        stdout_chunks: list[str] = []
-        stderr_chunks: list[str] = []
-
-        async def _read_stream(
-            stream: asyncio.StreamReader | None,
-            collected: list[str],
-        ) -> None:
-            if stream is None:
-                return
-            while True:
-                chunk_bytes = await stream.read(_READ_CHUNK_SIZE)
-                if not chunk_bytes:
-                    break
-                collected.append(chunk_bytes.decode())
-
-        try:
-            read_task = asyncio.gather(
-                _read_stream(proc.stdout, stdout_chunks),
-                _read_stream(proc.stderr, stderr_chunks),
-            )
-            await asyncio.wait_for(read_task, timeout=timeout)
-            await proc.wait()
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.communicate()
-            raise
-
-        stdout_text = "".join(stdout_chunks)
-        stderr_text = "".join(stderr_chunks)
-
-        # Yield each collected chunk as a streaming piece
-        for chunk in stdout_chunks:
-            yield chunk
-        for chunk in stderr_chunks:
-            yield chunk
-
-        # Final yield: the complete ExecutionResult
-        yield ExecutionResult(
-            exit_code=0 if proc.returncode is None else proc.returncode,
-            stdout=stdout_text,
-            stderr=stderr_text,
-        )
+        async for item in self._collect_and_yield(proc, timeout):
+            yield item
 
     async def execute_code(
         self,
@@ -239,20 +221,31 @@ class LocalWorkspace(Workspace):
             )
             return
 
+        async for item in self._collect_and_yield(proc, timeout):
+            yield item
+
+    async def _collect_and_yield(
+        self,
+        proc: asyncio.subprocess.Process,
+        timeout: int | None,
+    ) -> AsyncGenerator[str | ExecutionResult, None]:
+        """Read stdout/stderr from a subprocess, then yield chunks and a final ExecutionResult.
+
+        Shared helper used by both ``execute()`` and ``execute_code()`` to
+        avoid duplicating the stream-reading, timeout-handling, and yielding logic.
+
+        Args:
+            proc: The running subprocess.
+            timeout: Maximum time in seconds to wait for output. None means no timeout.
+
+        Yields:
+            str chunks of output, then a final ExecutionResult.
+
+        Raises:
+            asyncio.TimeoutError: If the process exceeds the timeout.
+        """
         stdout_chunks: list[str] = []
         stderr_chunks: list[str] = []
-
-        async def _read_stream(
-            stream: asyncio.StreamReader | None,
-            collected: list[str],
-        ) -> None:
-            if stream is None:
-                return
-            while True:
-                chunk_bytes = await stream.read(_READ_CHUNK_SIZE)
-                if not chunk_bytes:
-                    break
-                collected.append(chunk_bytes.decode())
 
         try:
             read_task = asyncio.gather(

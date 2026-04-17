@@ -117,6 +117,11 @@ strands-agents/
 │   │   ├── repository_session_manager.py # Repository pattern
 │   │   └── session_repository.py         # Storage interface
 │   │
+│   ├── workspace/                        # Workspace abstraction for code execution
+│   │   ├── base.py                       # Workspace ABC, ExecutionResult, FileInfo, OutputFile
+│   │   ├── local.py                      # LocalWorkspace (native Python, default)
+│   │   └── shell_based.py               # ShellBasedWorkspace (for remote/container envs)
+│   │
 │   ├── telemetry/                        # Observability (OpenTelemetry)
 │   │   ├── tracer.py                     # Tracing
 │   │   ├── metrics.py                    # Metrics collection
@@ -181,6 +186,7 @@ strands-agents/
 │       ├── types/
 │       ├── session/
 │       ├── telemetry/
+│       ├── workspace/
 │       ├── hooks/
 │       ├── plugins/
 │       ├── handlers/

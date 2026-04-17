@@ -210,12 +210,12 @@ print(y)
             assert result.exit_code == code, f"Expected exit code {code}, got {result.exit_code}"
 
     @pytest.mark.asyncio
-    async def test_blocking_file_io_in_async_context(self, tmp_path):
-        """LocalWorkspace uses pathlib (blocking) I/O in async context.
+    async def test_file_io_uses_async_to_thread(self, tmp_path):
+        """LocalWorkspace wraps file I/O with asyncio.to_thread to avoid blocking.
 
-        This is a known design concern: pathlib.read_text()/write_text() are
-        synchronous. In an async context with many concurrent operations,
-        this could block the event loop.
+        All pathlib operations (read_bytes, write_bytes, unlink, listdir) are
+        wrapped in asyncio.to_thread, keeping the event loop responsive during
+        disk I/O.
         """
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         large_content = b"X" * (1024 * 1024)  # 1MB

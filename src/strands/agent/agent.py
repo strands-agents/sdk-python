@@ -38,7 +38,6 @@ from ..types._snapshot import (
     resolve_snapshot_fields,
 )
 from ..workspace.base import Workspace
-from ..workspace.local import LocalWorkspace
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
@@ -307,7 +306,13 @@ class Agent(AgentBase):
         # Initialize workspace for tool execution environment
         # Default to LocalWorkspace() for backwards compatibility — any code that
         # accesses agent.workspace gets a working local execution environment.
-        self.workspace: Workspace = workspace if workspace is not None else LocalWorkspace()
+        # Import is deferred to avoid unconditional coupling to LocalWorkspace.
+        if workspace is not None:
+            self.workspace: Workspace = workspace
+        else:
+            from ..workspace.local import LocalWorkspace
+
+            self.workspace = LocalWorkspace()
 
         self.hooks = HookRegistry()
 
