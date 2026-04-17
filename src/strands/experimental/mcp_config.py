@@ -20,7 +20,7 @@ from jsonschema import ValidationError
 from mcp import StdioServerParameters
 from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
-from mcp.client.streamable_http import streamable_http_client
+from mcp.client.streamable_http import streamablehttp_client
 
 from ..tools.mcp.mcp_client import MCPClient, ToolFilters
 
@@ -109,7 +109,7 @@ def _parse_tool_filters(config: dict[str, Any] | None) -> ToolFilters | None:
     result: ToolFilters = {}
 
     if "allowed" in config:
-        allowed: list[re.Pattern[str]] = []
+        allowed: list[Any] = []
         for pattern_str in config["allowed"]:
             try:
                 allowed.append(re.compile(pattern_str))
@@ -118,7 +118,7 @@ def _parse_tool_filters(config: dict[str, Any] | None) -> ToolFilters | None:
         result["allowed"] = allowed
 
     if "rejected" in config:
-        rejected: list[re.Pattern[str]] = []
+        rejected: list[Any] = []
         for pattern_str in config["rejected"]:
             try:
                 rejected.append(re.compile(pattern_str))
@@ -200,7 +200,7 @@ def _create_mcp_client_from_config(server_name: str, config: dict[str, Any]) -> 
         headers = config.get("headers")
 
         def _streamable_http_transport() -> Any:
-            return streamable_http_client(url=url, headers=headers)
+            return streamablehttp_client(url=url, headers=headers)
 
         transport_callable = _streamable_http_transport
     else:
@@ -220,7 +220,7 @@ def _create_mcp_client_from_config(server_name: str, config: dict[str, Any]) -> 
     )
 
 
-def load_mcp_clients_from_config(config: str | dict[str, Any]) -> dict[str, MCPClient]:
+def load_mcp_clients_from_config(config: str | dict[str, Any]) -> list[MCPClient]:
     """Load MCP client instances from a configuration file or dictionary.
 
     Expects the standard ``mcpServers`` wrapper format used by Claude Desktop, VS Code, etc::
@@ -236,7 +236,7 @@ def load_mcp_clients_from_config(config: str | dict[str, Any]) -> dict[str, MCPC
             or a dictionary with a ``mcpServers`` key mapping server names to configs.
 
     Returns:
-        A dictionary mapping server names to MCPClient instances.
+        A list of MCPClient instances.
 
     Raises:
         FileNotFoundError: If the config file does not exist.
@@ -254,16 +254,18 @@ def load_mcp_clients_from_config(config: str | dict[str, Any]) -> dict[str, MCPC
 
         with open(config_path) as f:
             config_dict: dict[str, Any] = json.load(f)
-    else:
+    elif isinstance(config, dict):
         config_dict = config
+    else:
+        raise ValueError("Config must be a file path string or dictionary")
 
     if "mcpServers" not in config_dict or not isinstance(config_dict["mcpServers"], dict):
         raise ValueError("Config must contain an 'mcpServers' key with a dictionary of server configurations")
 
     servers = config_dict["mcpServers"]
-    clients: dict[str, MCPClient] = {}
+    clients: list[MCPClient] = []
     for server_name, server_config in servers.items():
-        clients[server_name] = _create_mcp_client_from_config(server_name, server_config)
+        clients.append(_create_mcp_client_from_config(server_name, server_config))
 
     logger.debug("loaded_servers=<%d> | MCP clients created from config", len(clients))
 

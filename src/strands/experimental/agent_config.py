@@ -146,7 +146,7 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> A
         tools_list = agent_kwargs.get("tools", [])
         if not isinstance(tools_list, list):
             tools_list = list(tools_list)
-        tools_list.extend(mcp_clients.values())
+        tools_list.extend(mcp_clients)
         agent_kwargs["tools"] = tools_list
 
     # Override with any additional kwargs provided

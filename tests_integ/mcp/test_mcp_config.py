@@ -4,8 +4,6 @@ import json
 import os
 import tempfile
 
-import pytest
-
 from strands import Agent
 from strands.experimental.mcp_config import load_mcp_clients_from_config
 
@@ -24,9 +22,9 @@ def test_load_stdio_server_from_config():
     }
 
     clients = load_mcp_clients_from_config(config)
-    assert "echo" in clients
+    assert len(clients) == 1
 
-    agent = Agent(tools=list(clients.values()))
+    agent = Agent(tools=clients)
     assert "cfg_echo" in agent.tool_names
 
     result = agent.tool.cfg_echo(to_echo="Config Test")
@@ -55,9 +53,9 @@ def test_load_stdio_server_from_json_file():
             temp_path = f.name
 
         clients = load_mcp_clients_from_config(temp_path)
-        assert "echo" in clients
+        assert len(clients) == 1
 
-        agent = Agent(tools=list(clients.values()))
+        agent = Agent(tools=clients)
         assert "file_echo" in agent.tool_names
 
         result = agent.tool.file_echo(to_echo="File Config Test")
@@ -91,7 +89,7 @@ def test_load_multiple_servers_from_config():
     clients = load_mcp_clients_from_config(config)
     assert len(clients) == 2
 
-    agent = Agent(tools=list(clients.values()))
+    agent = Agent(tools=clients)
     assert "s1_echo" in agent.tool_names
     assert "s2_echo" in agent.tool_names
 

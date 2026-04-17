@@ -180,7 +180,7 @@ class TestConfigToAgentWithMcpServers:
     def test_mcp_servers_creates_clients(self, mock_load_clients):
         """mcp_servers config should create MCPClient instances and add to tools."""
         mock_client = MagicMock()
-        mock_load_clients.return_value = {"server1": mock_client}
+        mock_load_clients.return_value = [mock_client]
 
         config = {
             "model": "test-model",
@@ -194,7 +194,7 @@ class TestConfigToAgentWithMcpServers:
     def test_mcp_servers_appended_to_existing_tools(self, mock_load_clients):
         """MCP clients should be appended to existing tool lists."""
         mock_client = MagicMock()
-        mock_load_clients.return_value = {"server1": mock_client}
+        mock_load_clients.return_value = [mock_client]
 
         config = {
             "model": "test-model",
@@ -207,7 +207,7 @@ class TestConfigToAgentWithMcpServers:
     @patch("strands.experimental.agent_config.load_mcp_clients_from_config")
     def test_mcp_servers_empty_dict_is_valid(self, mock_load_clients):
         """Empty mcp_servers dict should not create any clients."""
-        mock_load_clients.return_value = {}
+        mock_load_clients.return_value = []
 
         config = {"model": "test-model", "mcp_servers": {}}
         agent = config_to_agent(config)
@@ -232,7 +232,7 @@ class TestConfigToAgentWithMcpServers:
         """Multiple MCP servers should all be created."""
         mock_client1 = MagicMock()
         mock_client2 = MagicMock()
-        mock_load_clients.return_value = {"server1": mock_client1, "server2": mock_client2}
+        mock_load_clients.return_value = [mock_client1, mock_client2]
 
         config = {
             "model": "test-model",
