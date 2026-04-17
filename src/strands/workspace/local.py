@@ -1,10 +1,10 @@
-"""Local sandbox implementation for host-process execution.
+"""Local workspace implementation for host-process execution.
 
-This module implements the LocalSandbox, which executes commands and code
+This module implements the LocalWorkspace, which executes commands and code
 on the local host using asyncio subprocesses. It overrides read_file,
 write_file, and remove_file with native filesystem calls for encoding safety.
 
-This is the default sandbox used when no explicit sandbox is configured.
+This is the default workspace used when no explicit workspace is configured.
 """
 
 import asyncio
@@ -14,7 +14,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 
 from .base import ExecutionResult
-from .shell_based import ShellBasedSandbox
+from .shell_based import ShellBasedWorkspace
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +23,11 @@ logger = logging.getLogger(__name__)
 _READ_CHUNK_SIZE = 64 * 1024  # 64 KiB
 
 
-class LocalSandbox(ShellBasedSandbox):
+class LocalWorkspace(ShellBasedWorkspace):
     """Execute code and commands on the local host.
 
     Uses asyncio subprocesses for command execution and native filesystem
-    operations for file I/O. This is the default sandbox, providing the
+    operations for file I/O. This is the default workspace, providing the
     same behavior as running commands directly on the host.
 
     Args:
@@ -36,17 +36,17 @@ class LocalSandbox(ShellBasedSandbox):
 
     Example:
         ```python
-        from strands.sandbox import LocalSandbox
+        from strands.workspace import LocalWorkspace
 
-        sandbox = LocalSandbox(working_dir="/tmp/workspace")
-        async for chunk in sandbox.execute("echo hello"):
+        workspace = LocalWorkspace(working_dir="/tmp/my-workspace")
+        async for chunk in workspace.execute("echo hello"):
             if isinstance(chunk, str):
                 print(chunk, end="")
         ```
     """
 
     def __init__(self, working_dir: str | None = None) -> None:
-        """Initialize the LocalSandbox.
+        """Initialize the LocalWorkspace.
 
         Args:
             working_dir: The working directory for command execution.
@@ -56,7 +56,7 @@ class LocalSandbox(ShellBasedSandbox):
         self.working_dir = working_dir or os.getcwd()
 
     async def start(self) -> None:
-        """Initialize the sandbox and ensure the working directory exists.
+        """Initialize the workspace and ensure the working directory exists.
 
         Creates the working directory if it does not exist. Raises a clear
         error if the path exists but is not a directory.
@@ -70,7 +70,7 @@ class LocalSandbox(ShellBasedSandbox):
                 "working_dir is not a directory: %s" % self.working_dir
             )
         working_path.mkdir(parents=True, exist_ok=True)
-        logger.debug("working_dir=<%s> | local sandbox started", self.working_dir)
+        logger.debug("working_dir=<%s> | local workspace started", self.working_dir)
         self._started = True
 
     async def execute(

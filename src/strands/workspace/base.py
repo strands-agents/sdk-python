@@ -1,16 +1,16 @@
-"""Base sandbox interface for agent code execution environments.
+"""Base workspace interface for agent code execution environments.
 
-This module defines the abstract Sandbox class and the ExecutionResult dataclass.
+This module defines the abstract Workspace class and the ExecutionResult dataclass.
 
-Sandbox implementations provide the runtime context where tools execute code, run commands,
-and interact with a filesystem. Multiple tools share the same Sandbox instance, giving them
+Workspace implementations provide the runtime context where tools execute code, run commands,
+and interact with a filesystem. Multiple tools share the same Workspace instance, giving them
 a common working directory, environment variables, and filesystem.
 
 Class hierarchy::
 
-    Sandbox (ABC): All 6 operations are abstract. Implement this for non-shell-based
-        sandboxes (e.g., API-based cloud sandboxes).
-    ShellBasedSandbox (ABC, in shell_based.py): Provides shell-based defaults for file
+    Workspace (ABC): All 6 operations are abstract. Implement this for non-shell-based
+        workspaces (e.g., API-based cloud workspaces).
+    ShellBasedWorkspace (ABC, in shell_based.py): Provides shell-based defaults for file
         operations and code execution. Subclasses only need to implement ``execute()``.
 """
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ExecutionResult:
-    """Result of code or command execution in a sandbox.
+    """Result of code or command execution in a workspace.
 
     Attributes:
         exit_code: The exit code of the command or code execution.
@@ -38,37 +38,37 @@ class ExecutionResult:
     stderr: str
 
 
-class Sandbox(ABC):
+class Workspace(ABC):
     """Abstract execution environment for agent tools.
 
-    A Sandbox provides the runtime context where tools execute code,
+    A Workspace provides the runtime context where tools execute code,
     run commands, and interact with a filesystem. Multiple tools
-    share the same Sandbox instance, giving them a common working
+    share the same Workspace instance, giving them a common working
     directory, environment variables, and filesystem.
 
     All six operations — ``execute``, ``execute_code``, ``read_file``,
     ``write_file``, ``remove_file``, and ``list_files`` — are abstract.
     Implement this directly for non-shell-based backends (e.g., API-driven
-    cloud sandboxes). For shell-based backends, extend
-    :class:`~strands.sandbox.shell_based.ShellBasedSandbox` instead.
+    cloud workspaces). For shell-based backends, extend
+    :class:`~strands.workspace.shell_based.ShellBasedWorkspace` instead.
 
-    The sandbox auto-starts on the first ``execute()`` call if not already
+    The workspace auto-starts on the first ``execute()`` call if not already
     started, so callers do not need to manually call ``start()`` or use
     the async context manager.
 
     Example:
         ```python
-        from strands.sandbox import LocalSandbox
+        from strands.workspace import LocalWorkspace
 
-        sandbox = LocalSandbox(working_dir="/tmp/workspace")
-        async for chunk in sandbox.execute("echo hello"):
+        workspace = LocalWorkspace(working_dir="/tmp/my-workspace")
+        async for chunk in workspace.execute("echo hello"):
             if isinstance(chunk, str):
                 print(chunk, end="")  # stream output
         ```
     """
 
     def __init__(self) -> None:
-        """Initialize base sandbox state."""
+        """Initialize base workspace state."""
         self._started = False
 
     @abstractmethod
@@ -82,7 +82,7 @@ class Sandbox(ABC):
         Yields stdout/stderr lines as they arrive. The final yield
         is an ExecutionResult with the exit code and complete output.
 
-        The sandbox is auto-started on the first call if not already started.
+        The workspace is auto-started on the first call if not already started.
 
         Args:
             command: The shell command to execute.
@@ -103,7 +103,7 @@ class Sandbox(ABC):
         language: str = "python",
         timeout: int | None = None,
     ) -> AsyncGenerator[str | ExecutionResult, None]:
-        """Execute code in the sandbox, streaming output.
+        """Execute code in the workspace, streaming output.
 
         Args:
             code: The source code to execute.
@@ -118,7 +118,7 @@ class Sandbox(ABC):
 
     @abstractmethod
     async def read_file(self, path: str) -> str:
-        """Read a file from the sandbox filesystem.
+        """Read a file from the workspace filesystem.
 
         Args:
             path: Path to the file to read.
@@ -133,7 +133,7 @@ class Sandbox(ABC):
 
     @abstractmethod
     async def write_file(self, path: str, content: str) -> None:
-        """Write a file to the sandbox filesystem.
+        """Write a file to the workspace filesystem.
 
         Args:
             path: Path to the file to write.
@@ -146,7 +146,7 @@ class Sandbox(ABC):
 
     @abstractmethod
     async def remove_file(self, path: str) -> None:
-        """Remove a file from the sandbox filesystem.
+        """Remove a file from the workspace filesystem.
 
         Args:
             path: Path to the file to remove.
@@ -158,7 +158,7 @@ class Sandbox(ABC):
 
     @abstractmethod
     async def list_files(self, path: str = ".") -> list[str]:
-        """List files in a sandbox directory.
+        """List files in a workspace directory.
 
         Args:
             path: Path to the directory to list.
@@ -172,13 +172,13 @@ class Sandbox(ABC):
         ...
 
     async def _ensure_started(self) -> None:
-        """Auto-start the sandbox if it has not been started yet."""
+        """Auto-start the workspace if it has not been started yet."""
         if not self._started:
             await self.start()
             self._started = True
 
     async def start(self) -> None:
-        """Initialize the sandbox.
+        """Initialize the workspace.
 
         Called once before first use. Override to perform setup such as
         starting containers or creating temporary directories.
@@ -186,20 +186,20 @@ class Sandbox(ABC):
         self._started = True
 
     async def stop(self) -> None:
-        """Clean up sandbox resources.
+        """Clean up workspace resources.
 
         Override to perform cleanup such as stopping containers or
         removing temporary directories.
         """
         self._started = False
 
-    async def __aenter__(self) -> "Sandbox":
-        """Enter the async context manager, starting the sandbox."""
+    async def __aenter__(self) -> "Workspace":
+        """Enter the async context manager, starting the workspace."""
         await self.start()
         self._started = True
         return self
 
     async def __aexit__(self, *args: Any) -> None:
-        """Exit the async context manager, stopping the sandbox."""
+        """Exit the async context manager, stopping the workspace."""
         await self.stop()
         self._started = False

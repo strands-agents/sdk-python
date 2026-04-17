@@ -1,0 +1,23 @@
+"""Workspace abstraction for agent code execution environments.
+
+This module provides the Workspace interface that decouples tool logic from where code runs.
+Tools that need to execute code or access a filesystem receive a Workspace instead of managing
+their own execution, enabling portability across local and cloud environments.
+
+Class hierarchy::
+
+    Workspace (ABC, all 6 abstract + lifecycle)
+      └── ShellBasedWorkspace (ABC, only execute() abstract — shell-based file ops + execute_code)
+            └── LocalWorkspace — runs on the host via asyncio subprocesses (default)
+"""
+
+from .base import ExecutionResult, Workspace
+from .local import LocalWorkspace
+from .shell_based import ShellBasedWorkspace
+
+__all__ = [
+    "ExecutionResult",
+    "LocalWorkspace",
+    "ShellBasedWorkspace",
+    "Workspace",
+]

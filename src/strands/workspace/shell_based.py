@@ -1,14 +1,14 @@
-"""Shell-based sandbox with default implementations for file and code operations.
+"""Shell-based workspace with default implementations for file and code operations.
 
-This module defines the ShellBasedSandbox abstract class, which provides
+This module defines the ShellBasedWorkspace abstract class, which provides
 shell-command-based defaults for file operations (read, write, remove, list)
 and code execution. Subclasses only need to implement ``execute()``.
 
 Class hierarchy::
 
-    Sandbox (ABC, all 6 abstract + lifecycle)
-      └── ShellBasedSandbox (ABC, only execute() abstract — shell-based file ops + execute_code)
-            └── LocalSandbox
+    Workspace (ABC, all 6 abstract + lifecycle)
+      └── ShellBasedWorkspace (ABC, only execute() abstract — shell-based file ops + execute_code)
+            └── LocalWorkspace
 """
 
 import logging
@@ -17,13 +17,13 @@ import shlex
 from abc import ABC
 from collections.abc import AsyncGenerator
 
-from .base import ExecutionResult, Sandbox
+from .base import ExecutionResult, Workspace
 
 logger = logging.getLogger(__name__)
 
 
-class ShellBasedSandbox(Sandbox, ABC):
-    """Abstract sandbox that provides shell-based defaults for file and code operations.
+class ShellBasedWorkspace(Workspace, ABC):
+    """Abstract workspace that provides shell-based defaults for file and code operations.
 
     Subclasses only need to implement :meth:`execute`. The remaining five
     operations — ``read_file``, ``write_file``, ``remove_file``,
@@ -31,7 +31,7 @@ class ShellBasedSandbox(Sandbox, ABC):
     commands piped through ``execute()``.
 
     Subclasses may override any method with a native implementation for
-    better performance (e.g., ``LocalSandbox`` overrides ``read_file``,
+    better performance (e.g., ``LocalWorkspace`` overrides ``read_file``,
     ``write_file``, and ``remove_file`` with direct filesystem calls).
     """
 
@@ -41,7 +41,7 @@ class ShellBasedSandbox(Sandbox, ABC):
         language: str = "python",
         timeout: int | None = None,
     ) -> AsyncGenerator[str | ExecutionResult, None]:
-        """Execute code in the sandbox, streaming output.
+        """Execute code in the workspace, streaming output.
 
         The default implementation passes code to the language interpreter
         via ``-c`` with proper shell quoting. Both the ``language`` and
@@ -111,7 +111,7 @@ class ShellBasedSandbox(Sandbox, ABC):
         return result
 
     async def read_file(self, path: str) -> str:
-        """Read a file from the sandbox filesystem.
+        """Read a file from the workspace filesystem.
 
         Override for native file I/O support. The default implementation
         uses shell commands.
@@ -131,7 +131,7 @@ class ShellBasedSandbox(Sandbox, ABC):
         return result.stdout
 
     async def write_file(self, path: str, content: str) -> None:
-        """Write a file to the sandbox filesystem.
+        """Write a file to the workspace filesystem.
 
         Override for native file I/O support. The default implementation
         uses a shell heredoc with a randomized delimiter to prevent
@@ -154,7 +154,7 @@ class ShellBasedSandbox(Sandbox, ABC):
             raise IOError(result.stderr)
 
     async def remove_file(self, path: str) -> None:
-        """Remove a file from the sandbox filesystem.
+        """Remove a file from the workspace filesystem.
 
         Override for native file removal support. The default implementation
         uses ``rm`` via the shell.
@@ -170,7 +170,7 @@ class ShellBasedSandbox(Sandbox, ABC):
             raise FileNotFoundError(result.stderr)
 
     async def list_files(self, path: str = ".") -> list[str]:
-        """List files in a sandbox directory.
+        """List files in a workspace directory.
 
         Override for native directory listing support. The default
         implementation uses shell commands.

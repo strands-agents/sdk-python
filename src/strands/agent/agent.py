@@ -29,8 +29,8 @@ from .. import _identifier
 from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
-from ..sandbox.base import Sandbox
-from ..sandbox.local import LocalSandbox
+from ..workspace.base import Workspace
+from ..workspace.local import LocalWorkspace
 from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types._snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
@@ -148,7 +148,7 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
-        sandbox: Sandbox | None = None,
+        workspace: Workspace | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -217,9 +217,9 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
-            sandbox: Execution environment for agent tools. Tools access the sandbox via
-                tool_context.agent.sandbox to execute commands, code, and filesystem operations.
-                Defaults to LocalSandbox (local host execution) when not specified.
+            workspace: Execution environment for agent tools. Tools access the workspace via
+                tool_context.agent.workspace to execute commands, code, and filesystem operations.
+                Defaults to LocalWorkspace (local host execution) when not specified.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -304,8 +304,8 @@ class Agent(AgentBase):
 
         self.tool_caller = _ToolCaller(self)
 
-        # Initialize sandbox for tool execution environment
-        self.sandbox: Sandbox = sandbox if sandbox is not None else LocalSandbox()
+        # Initialize workspace for tool execution environment
+        self.workspace: Workspace = workspace if workspace is not None else LocalWorkspace()
 
         self.hooks = HookRegistry()
 
