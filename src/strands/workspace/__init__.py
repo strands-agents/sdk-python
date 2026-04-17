@@ -11,13 +11,15 @@ Class hierarchy::
       └── ShellBasedWorkspace (ABC, only execute() abstract — shell-based file ops + execute_code)
 """
 
-from .base import ExecutionResult, Workspace
+from .base import ExecutionResult, FileInfo, OutputFile, Workspace
 from .local import LocalWorkspace
 from .shell_based import ShellBasedWorkspace
 
 __all__ = [
     "ExecutionResult",
+    "FileInfo",
     "LocalWorkspace",
+    "OutputFile",
     "ShellBasedWorkspace",
     "Workspace",
 ]

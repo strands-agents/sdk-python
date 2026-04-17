@@ -5,7 +5,7 @@ from .agent.agent import Agent
 from .agent.base import AgentBase
 from .event_loop._retry import ModelRetryStrategy
 from .plugins import Plugin
-from .workspace.base import ExecutionResult, Workspace
+from .workspace.base import ExecutionResult, FileInfo, OutputFile, Workspace
 from .workspace.local import LocalWorkspace
 from .workspace.shell_based import ShellBasedWorkspace
 from .tools.decorator import tool
@@ -19,10 +19,12 @@ __all__ = [
     "AgentSkills",
     "agent",
     "ExecutionResult",
+    "FileInfo",
     "LocalWorkspace",
     "models",
     "ModelRetryStrategy",
     "Plugin",
+    "OutputFile",
     "workspace",
     "Workspace",
     "ShellBasedWorkspace",

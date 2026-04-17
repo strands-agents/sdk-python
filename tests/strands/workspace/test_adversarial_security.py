@@ -30,7 +30,7 @@ class TestPathTraversal:
 
         relative_path = "../outside_workspace/secret.txt"
         content = await workspace.read_file(relative_path)
-        assert content == "SECRET_DATA", "Path traversal should be documented or blocked"
+        assert content == b"SECRET_DATA", "Path traversal should be documented or blocked"
 
     @pytest.mark.asyncio
     async def test_write_file_path_traversal(self, tmp_path):
@@ -40,8 +40,8 @@ class TestPathTraversal:
         outside_dir.mkdir(exist_ok=True)
 
         relative_path = "../write_escape/pwned.txt"
-        await workspace.write_file(relative_path, "PWNED")
-        assert (outside_dir / "pwned.txt").read_text() == "PWNED"
+        await workspace.write_file(relative_path, b"PWNED")
+        assert (outside_dir / "pwned.txt").read_bytes() == b"PWNED"
 
     @pytest.mark.asyncio
     async def test_execute_can_access_entire_filesystem(self, tmp_path):
@@ -56,9 +56,9 @@ class TestPathTraversal:
         """Absolute paths completely bypass working_dir for LocalWorkspace."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         abs_path = str(tmp_path.parent / "abs_escape.txt")
-        await workspace.write_file(abs_path, "escaped")
+        await workspace.write_file(abs_path, b"escaped")
         content = await workspace.read_file(abs_path)
-        assert content == "escaped"
+        assert content == b"escaped"
 
 
 class TestContentEdgeCases:
@@ -68,7 +68,7 @@ class TestContentEdgeCases:
     async def test_content_with_shell_metacharacters(self, tmp_path):
         """Content with shell metacharacters should be preserved (native Python I/O)."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        content = 'hello $USER `whoami` $(id) && rm -rf / ; echo pwned'
+        content = b'hello $USER `whoami` $(id) && rm -rf / ; echo pwned'
         await workspace.write_file("test.txt", content)
         read_back = await workspace.read_file("test.txt")
         assert read_back == content
@@ -77,7 +77,7 @@ class TestContentEdgeCases:
     async def test_content_with_null_bytes(self, tmp_path):
         """Content with null bytes should be handled by native Python I/O."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        content = "before\x00after"
+        content = b"before\x00after"
         await workspace.write_file("null.txt", content)
         read_back = await workspace.read_file("null.txt")
         assert read_back == content
@@ -86,15 +86,15 @@ class TestContentEdgeCases:
     async def test_empty_content(self, tmp_path):
         """Writing empty content should create an empty file."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("empty.txt", "")
+        await workspace.write_file("empty.txt", b"")
         content = await workspace.read_file("empty.txt")
-        assert content == ""
+        assert content == b""
 
     @pytest.mark.asyncio
     async def test_very_large_content(self, tmp_path):
         """Writing 10MB of content should work."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        large_content = "A" * (10 * 1024 * 1024)
+        large_content = b"A" * (10 * 1024 * 1024)
         await workspace.write_file("large.txt", large_content)
         content = await workspace.read_file("large.txt")
         assert len(content) == len(large_content)
@@ -114,7 +114,7 @@ class TestLocalWorkspaceEdgeCases:
 
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         content = await workspace.read_file("link.txt")
-        assert content == "real content"
+        assert content == b"real content"
 
     @pytest.mark.asyncio
     async def test_symlink_outside_workspace(self, tmp_path):
@@ -129,44 +129,45 @@ class TestLocalWorkspaceEdgeCases:
 
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         content = await workspace.read_file("evil_link.txt")
-        assert content == "escaped via symlink"
+        assert content == b"escaped via symlink"
 
     @pytest.mark.asyncio
     async def test_unicode_filename(self, tmp_path):
         """Unicode filenames should work."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("日本語.txt", "Japanese content")
+        await workspace.write_file("日本語.txt", b"Japanese content")
         content = await workspace.read_file("日本語.txt")
-        assert content == "Japanese content"
+        assert content == b"Japanese content"
 
     @pytest.mark.asyncio
     async def test_filename_with_spaces_and_special_chars(self, tmp_path):
         """Filenames with spaces and special characters should work."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("file with spaces.txt", "spaced")
+        await workspace.write_file("file with spaces.txt", b"spaced")
         content = await workspace.read_file("file with spaces.txt")
-        assert content == "spaced"
+        assert content == b"spaced"
 
     @pytest.mark.asyncio
     async def test_deeply_nested_directory_creation(self, tmp_path):
         """write_file should create deeply nested directories."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         deep_path = "a/b/c/d/e/f/g/h/i/j/deep.txt"
-        await workspace.write_file(deep_path, "deep")
+        await workspace.write_file(deep_path, b"deep")
         content = await workspace.read_file(deep_path)
-        assert content == "deep"
+        assert content == b"deep"
 
     @pytest.mark.asyncio
     async def test_list_files_with_hidden_files(self, tmp_path):
         """list_files should include hidden files (os.listdir includes them)."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("visible.txt", "visible")
-        await workspace.write_file(".hidden", "hidden")
+        await workspace.write_file("visible.txt", b"visible")
+        await workspace.write_file(".hidden", b"hidden")
 
         files = await workspace.list_files(".")
-        assert "visible.txt" in files
+        names = [f.name for f in files]
+        assert "visible.txt" in names
         # Native Python os.listdir includes hidden files!
-        assert ".hidden" in files
+        assert ".hidden" in names
 
     @pytest.mark.asyncio
     async def test_read_nonexistent_with_special_chars_in_path(self, tmp_path):
@@ -216,7 +217,7 @@ print(y)
         this could block the event loop.
         """
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        large_content = "X" * (1024 * 1024)  # 1MB
+        large_content = b"X" * (1024 * 1024)  # 1MB
         await workspace.write_file("blocking_test.txt", large_content)
         content = await workspace.read_file("blocking_test.txt")
         assert len(content) == 1024 * 1024
@@ -232,7 +233,7 @@ print(y)
     async def test_remove_file_then_read(self, tmp_path):
         """Removing a file and then reading it should raise FileNotFoundError."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("to_delete.txt", "content")
+        await workspace.write_file("to_delete.txt", b"content")
         await workspace.remove_file("to_delete.txt")
         with pytest.raises(FileNotFoundError):
             await workspace.read_file("to_delete.txt")
@@ -283,7 +284,7 @@ class TestShellBasedWorkspaceHeredocEdgeCases:
                 super().__init__()
                 self.last_command = ""
 
-            async def execute(self, command, timeout=None):
+            async def execute(self, command, timeout=None, **kwargs):
                 await self._ensure_started()
                 self.last_command = command
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -293,7 +294,7 @@ class TestShellBasedWorkspaceHeredocEdgeCases:
 
         workspace = MockShellWorkspace()
         content = "line1\nline2\nline3"
-        await workspace.write_file("/tmp/test.txt", content)
+        await workspace.write_file("/tmp/test.txt", content.encode())
 
         cmd = workspace.last_command
         assert "STRANDS_EOF_" in cmd
@@ -309,7 +310,7 @@ class TestShellBasedWorkspaceHeredocEdgeCases:
                 super().__init__()
                 self.last_command = ""
 
-            async def execute(self, command, timeout=None):
+            async def execute(self, command, timeout=None, **kwargs):
                 await self._ensure_started()
                 self.last_command = command
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -318,5 +319,5 @@ class TestShellBasedWorkspaceHeredocEdgeCases:
                 self._started = True
 
         workspace = MockShellWorkspace()
-        await workspace.write_file("", "content")
+        await workspace.write_file("", b"content")
         assert "''" in workspace.last_command

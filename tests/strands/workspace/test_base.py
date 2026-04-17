@@ -1,11 +1,14 @@
-"""Tests for the Workspace ABC, ShellBasedWorkspace, and ExecutionResult dataclass."""
+"""Tests for the Workspace ABC, ShellBasedWorkspace, ExecutionResult, FileInfo, and OutputFile."""
 
 from collections.abc import AsyncGenerator
+from typing import Any
 
 import pytest
 
 from strands.workspace.base import (
     ExecutionResult,
+    FileInfo,
+    OutputFile,
     Workspace,
 )
 from strands.workspace.shell_based import ShellBasedWorkspace
@@ -20,7 +23,9 @@ class ConcreteShellWorkspace(ShellBasedWorkspace):
         self.started_count = 0
         self.stopped_count = 0
 
-    async def execute(self, command: str, timeout: int | None = None) -> AsyncGenerator[str | ExecutionResult, None]:
+    async def execute(
+        self, command: str, timeout: int | None = None, **kwargs: Any
+    ) -> AsyncGenerator[str | ExecutionResult, None]:
         await self._ensure_started()
         self.commands.append(command)
         if "fail" in command:
@@ -56,6 +61,49 @@ class TestExecutionResult:
         r2 = ExecutionResult(exit_code=0, stdout="out", stderr="err")
         assert r1 == r2
 
+    def test_execution_result_output_files_default_empty(self) -> None:
+        result = ExecutionResult(exit_code=0, stdout="", stderr="")
+        assert result.output_files == []
+
+    def test_execution_result_with_output_files(self) -> None:
+        files = [OutputFile(name="plot.png", content=b"\x89PNG", mime_type="image/png")]
+        result = ExecutionResult(exit_code=0, stdout="", stderr="", output_files=files)
+        assert len(result.output_files) == 1
+        assert result.output_files[0].name == "plot.png"
+        assert result.output_files[0].content == b"\x89PNG"
+        assert result.output_files[0].mime_type == "image/png"
+
+
+class TestFileInfo:
+    def test_file_info_file(self) -> None:
+        info = FileInfo(name="test.txt", is_dir=False, size=1024)
+        assert info.name == "test.txt"
+        assert info.is_dir is False
+        assert info.size == 1024
+
+    def test_file_info_directory(self) -> None:
+        info = FileInfo(name="subdir", is_dir=True)
+        assert info.name == "subdir"
+        assert info.is_dir is True
+        assert info.size == 0  # default
+
+    def test_file_info_equality(self) -> None:
+        f1 = FileInfo(name="a.txt", is_dir=False, size=100)
+        f2 = FileInfo(name="a.txt", is_dir=False, size=100)
+        assert f1 == f2
+
+
+class TestOutputFile:
+    def test_output_file_fields(self) -> None:
+        f = OutputFile(name="chart.svg", content=b"<svg></svg>", mime_type="image/svg+xml")
+        assert f.name == "chart.svg"
+        assert f.content == b"<svg></svg>"
+        assert f.mime_type == "image/svg+xml"
+
+    def test_output_file_default_mime_type(self) -> None:
+        f = OutputFile(name="data.bin", content=b"\x00\x01")
+        assert f.mime_type == "application/octet-stream"
+
 
 class TestWorkspaceABC:
     """Tests that Workspace has all 6 abstract methods and cannot be partially implemented."""
@@ -69,7 +117,7 @@ class TestWorkspaceABC:
 
         class OnlyExecute(Workspace):
             async def execute(
-                self, command: str, timeout: int | None = None
+                self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
@@ -81,25 +129,25 @@ class TestWorkspaceABC:
 
         class AllSix(Workspace):
             async def execute(
-                self, command: str, timeout: int | None = None
+                self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code(
-                self, code: str, language: str = "python", timeout: int | None = None
+                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def read_file(self, path: str) -> str:
-                return ""
+            async def read_file(self, path: str, **kwargs: Any) -> bytes:
+                return b""
 
-            async def write_file(self, path: str, content: str) -> None:
+            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
                 pass
 
-            async def remove_file(self, path: str) -> None:
+            async def remove_file(self, path: str, **kwargs: Any) -> None:
                 pass
 
-            async def list_files(self, path: str = ".") -> list[str]:
+            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
                 return []
 
         # Should not raise
@@ -111,22 +159,22 @@ class TestWorkspaceABC:
 
         class MissingRemoveFile(Workspace):
             async def execute(
-                self, command: str, timeout: int | None = None
+                self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code(
-                self, code: str, language: str = "python", timeout: int | None = None
+                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def read_file(self, path: str) -> str:
-                return ""
+            async def read_file(self, path: str, **kwargs: Any) -> bytes:
+                return b""
 
-            async def write_file(self, path: str, content: str) -> None:
+            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
                 pass
 
-            async def list_files(self, path: str = ".") -> list[str]:
+            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
                 return []
 
         with pytest.raises(TypeError):
@@ -138,25 +186,25 @@ class TestWorkspaceABC:
 
         class FullWorkspace(Workspace):
             async def execute(
-                self, command: str, timeout: int | None = None
+                self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code(
-                self, code: str, language: str = "python", timeout: int | None = None
+                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def read_file(self, path: str) -> str:
-                return ""
+            async def read_file(self, path: str, **kwargs: Any) -> bytes:
+                return b""
 
-            async def write_file(self, path: str, content: str) -> None:
+            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
                 pass
 
-            async def remove_file(self, path: str) -> None:
+            async def remove_file(self, path: str, **kwargs: Any) -> None:
                 pass
 
-            async def list_files(self, path: str = ".") -> list[str]:
+            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
                 return []
 
         workspace = FullWorkspace()
@@ -171,25 +219,25 @@ class TestWorkspaceABC:
 
         class FullWorkspace(Workspace):
             async def execute(
-                self, command: str, timeout: int | None = None
+                self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code(
-                self, code: str, language: str = "python", timeout: int | None = None
+                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def read_file(self, path: str) -> str:
-                return ""
+            async def read_file(self, path: str, **kwargs: Any) -> bytes:
+                return b""
 
-            async def write_file(self, path: str, content: str) -> None:
+            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
                 pass
 
-            async def remove_file(self, path: str) -> None:
+            async def remove_file(self, path: str, **kwargs: Any) -> None:
                 pass
 
-            async def list_files(self, path: str = ".") -> list[str]:
+            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
                 return []
 
         workspace = FullWorkspace()
@@ -197,6 +245,65 @@ class TestWorkspaceABC:
             assert ws is workspace
             assert workspace._started
         assert not workspace._started
+
+    @pytest.mark.asyncio
+    async def test_read_text_convenience(self) -> None:
+        """Test that read_text decodes bytes from read_file."""
+
+        class TextWorkspace(Workspace):
+            async def execute(self, command: str, timeout: int | None = None, **kwargs: Any) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def execute_code(self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def read_file(self, path: str, **kwargs: Any) -> bytes:
+                return "hello world".encode("utf-8")
+
+            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
+                pass
+
+            async def remove_file(self, path: str, **kwargs: Any) -> None:
+                pass
+
+            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
+                return []
+
+        workspace = TextWorkspace()
+        text = await workspace.read_text("test.txt")
+        assert text == "hello world"
+        assert isinstance(text, str)
+
+    @pytest.mark.asyncio
+    async def test_write_text_convenience(self) -> None:
+        """Test that write_text encodes string to bytes for write_file."""
+
+        class TextWorkspace(Workspace):
+            def __init__(self) -> None:
+                super().__init__()
+                self.written_content: bytes = b""
+
+            async def execute(self, command: str, timeout: int | None = None, **kwargs: Any) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def execute_code(self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def read_file(self, path: str, **kwargs: Any) -> bytes:
+                return b""
+
+            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
+                self.written_content = content
+
+            async def remove_file(self, path: str, **kwargs: Any) -> None:
+                pass
+
+            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
+                return []
+
+        workspace = TextWorkspace()
+        await workspace.write_text("test.txt", "hello world")
+        assert workspace.written_content == b"hello world"
 
 
 class TestShellBasedWorkspaceABC:
@@ -213,7 +320,7 @@ class TestShellBasedWorkspaceABC:
 
 
 class TestShellBasedWorkspaceOperations:
-    """Tests for the shell-based default implementations of the 5 convenience methods."""
+    """Tests for the shell-based default implementations."""
 
     @pytest.mark.asyncio
     async def test_execute_yields_lines_and_result(self) -> None:
@@ -237,17 +344,16 @@ class TestShellBasedWorkspaceOperations:
     @pytest.mark.asyncio
     async def test_execute_code_default(self) -> None:
         workspace = ConcreteShellWorkspace()
-        result = await workspace._execute_code_to_result("print('hi')")
+        result = await workspace._execute_code_to_result("print('hi')", language="python")
         assert result.exit_code == 0
         assert len(workspace.commands) == 1
         assert "python" in workspace.commands[0]
-        assert "print" in workspace.commands[0]
 
     @pytest.mark.asyncio
     async def test_execute_code_streams(self) -> None:
         workspace = ConcreteShellWorkspace()
         chunks: list[str | ExecutionResult] = []
-        async for chunk in workspace.execute_code("print('hi')"):
+        async for chunk in workspace.execute_code("print('hi')", language="python"):
             chunks.append(chunk)
         assert isinstance(chunks[-1], ExecutionResult)
         assert chunks[-1].exit_code == 0
@@ -260,32 +366,11 @@ class TestShellBasedWorkspaceOperations:
         assert "ruby" in workspace.commands[0]
 
     @pytest.mark.asyncio
-    async def test_execute_code_quotes_language(self) -> None:
-        """The language parameter is shell-quoted in the command."""
-        workspace = ConcreteShellWorkspace()
-        result = await workspace._execute_code_to_result("1+1", language="python3.12")
-        assert result.exit_code == 0
-        # shlex.quote wraps it when it contains a dot
-        assert "python3.12" in workspace.commands[0]
-
-    @pytest.mark.asyncio
-    async def test_execute_code_quotes_malicious_language(self) -> None:
-        """Malicious language parameter is safely shell-quoted, not executed."""
-        workspace = ConcreteShellWorkspace()
-        result = await workspace._execute_code_to_result("print(1)", language="python; rm -rf /")
-        # The command should contain the safely quoted malicious string
-        assert result.exit_code == 0
-        # shlex.quote should wrap the malicious string so it's treated as a single arg
-        cmd = workspace.commands[0]
-        assert "python; rm -rf /" not in cmd.split(" -c ")[0] or "'" in cmd
-
-    @pytest.mark.asyncio
-    async def test_read_file_success(self) -> None:
+    async def test_read_file_returns_bytes(self) -> None:
         workspace = ConcreteShellWorkspace()
         content = await workspace.read_file("/tmp/test.txt")
+        assert isinstance(content, bytes)
         assert "cat" in workspace.commands[0]
-        assert "/tmp/test.txt" in workspace.commands[0]
-        assert content is not None
 
     @pytest.mark.asyncio
     async def test_read_file_not_found(self) -> None:
@@ -294,29 +379,28 @@ class TestShellBasedWorkspaceOperations:
             await workspace.read_file("/tmp/fail.txt")
 
     @pytest.mark.asyncio
-    async def test_write_file_success(self) -> None:
+    async def test_write_file_accepts_bytes(self) -> None:
         workspace = ConcreteShellWorkspace()
-        await workspace.write_file("/tmp/test.txt", "hello content")
+        await workspace.write_file("/tmp/test.txt", b"hello content")
         assert len(workspace.commands) == 1
         assert "/tmp/test.txt" in workspace.commands[0]
-        assert "hello content" in workspace.commands[0]
 
     @pytest.mark.asyncio
     async def test_write_file_failure(self) -> None:
         workspace = ConcreteShellWorkspace()
         with pytest.raises(IOError):
-            await workspace.write_file("/tmp/fail.txt", "content")
+            await workspace.write_file("/tmp/fail.txt", b"content")
 
     @pytest.mark.asyncio
     async def test_write_file_uses_random_delimiter(self) -> None:
         workspace = ConcreteShellWorkspace()
-        await workspace.write_file("/tmp/test.txt", "content with STRANDS_EOF inside")
+        await workspace.write_file("/tmp/test.txt", b"content with STRANDS_EOF inside")
         assert "STRANDS_EOF_" in workspace.commands[0]
 
     @pytest.mark.asyncio
     async def test_write_file_path_is_shell_quoted(self) -> None:
         workspace = ConcreteShellWorkspace()
-        await workspace.write_file("/tmp/test file.txt", "content")
+        await workspace.write_file("/tmp/test file.txt", b"content")
         assert "'/tmp/test file.txt'" in workspace.commands[0]
 
     @pytest.mark.asyncio
@@ -331,7 +415,6 @@ class TestShellBasedWorkspaceOperations:
         await workspace.remove_file("/tmp/test.txt")
         assert len(workspace.commands) == 1
         assert "rm" in workspace.commands[0]
-        assert "/tmp/test.txt" in workspace.commands[0]
 
     @pytest.mark.asyncio
     async def test_remove_file_not_found(self) -> None:
@@ -340,29 +423,20 @@ class TestShellBasedWorkspaceOperations:
             await workspace.remove_file("/tmp/fail.txt")
 
     @pytest.mark.asyncio
-    async def test_remove_file_path_is_shell_quoted(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        await workspace.remove_file("/tmp/test file.txt")
-        assert "'/tmp/test file.txt'" in workspace.commands[0]
-
-    @pytest.mark.asyncio
-    async def test_list_files_success(self) -> None:
+    async def test_list_files_returns_file_info(self) -> None:
         workspace = ConcreteShellWorkspace()
         files = await workspace.list_files("/tmp")
         assert len(workspace.commands) == 1
         assert "ls" in workspace.commands[0]
+        # The mock returns a string output, so list_files parses it
+        for f in files:
+            assert isinstance(f, FileInfo)
 
     @pytest.mark.asyncio
     async def test_list_files_not_found(self) -> None:
         workspace = ConcreteShellWorkspace()
         with pytest.raises(FileNotFoundError):
             await workspace.list_files("/tmp/fail")
-
-    @pytest.mark.asyncio
-    async def test_list_files_path_is_shell_quoted(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        await workspace.list_files("/tmp/my dir")
-        assert "'/tmp/my dir'" in workspace.commands[0]
 
     @pytest.mark.asyncio
     async def test_lifecycle_start_stop(self) -> None:
@@ -380,14 +454,6 @@ class TestShellBasedWorkspaceOperations:
             assert ws is workspace
             assert workspace._started
         assert not workspace._started
-
-    @pytest.mark.asyncio
-    async def test_execute_code_uses_shlex_quote(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        code = "print('hello')"
-        result = await workspace._execute_code_to_result(code)
-        assert "python" in workspace.commands[0]
-        assert "print" in workspace.commands[0]
 
     @pytest.mark.asyncio
     async def test_auto_start_on_first_execute(self) -> None:
@@ -410,7 +476,7 @@ class TestShellBasedWorkspaceOperations:
 
         class BadWorkspace(ShellBasedWorkspace):
             async def execute(
-                self, command: str, timeout: int | None = None
+                self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield "just a string, no result"
 

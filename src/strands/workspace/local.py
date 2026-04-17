@@ -14,8 +14,9 @@ import os
 import re
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any
 
-from .base import ExecutionResult, Workspace
+from .base import ExecutionResult, FileInfo, Workspace
 
 logger = logging.getLogger(__name__)
 
@@ -102,17 +103,19 @@ class LocalWorkspace(Workspace):
         self,
         command: str,
         timeout: int | None = None,
+        **kwargs: Any,
     ) -> AsyncGenerator[str | ExecutionResult, None]:
         """Execute a shell command on the local host, streaming output.
 
         Reads stdout and stderr in chunks (up to 64 KiB at a time) to avoid
-        blocking on extremely long lines. Each chunk is yielded as it
-        arrives. The final yield is an ExecutionResult with the exit code
-        and complete captured output.
+        blocking on extremely long lines. Chunks are collected and yielded
+        after the command completes. The final yield is an ExecutionResult
+        with the exit code and complete captured output.
 
         Args:
             command: The shell command to execute.
             timeout: Maximum execution time in seconds. None means no timeout.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
             str chunks of output, then a final ExecutionResult.
@@ -177,6 +180,7 @@ class LocalWorkspace(Workspace):
         code: str,
         language: str = "python",
         timeout: int | None = None,
+        **kwargs: Any,
     ) -> AsyncGenerator[str | ExecutionResult, None]:
         """Execute code on the local host using subprocess_exec (no shell intermediary).
 
@@ -187,13 +191,16 @@ class LocalWorkspace(Workspace):
         shell command string.
 
         The language parameter is validated against a safe pattern to prevent
-        path traversal or binary injection.
+        path traversal or binary injection. If the interpreter is not found
+        on the system, an ExecutionResult with exit code 127 is returned
+        (matching the shell convention for "command not found").
 
         Args:
             code: The source code to execute.
             language: The programming language interpreter to use (e.g.
                 ``"python"``, ``"python3"``, ``"node"``, ``"ruby"``).
             timeout: Maximum execution time in seconds. None means no timeout.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
             str chunks of output, then a final ExecutionResult.
@@ -219,14 +226,22 @@ class LocalWorkspace(Workspace):
 
         # Use create_subprocess_exec (not shell) — the interpreter and arguments
         # are passed directly to execvp, avoiding all shell quoting issues.
-        proc = await asyncio.create_subprocess_exec(
-            language,
-            "-c",
-            code,
-            cwd=self.working_dir,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                language,
+                "-c",
+                code,
+                cwd=self.working_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            yield ExecutionResult(
+                exit_code=127,
+                stdout="",
+                stderr="Language interpreter not found: %s" % language,
+            )
+            return
 
         stdout_chunks: list[str] = []
         stderr_chunks: list[str] = []
@@ -269,42 +284,45 @@ class LocalWorkspace(Workspace):
             stderr=stderr_text,
         )
 
-    async def read_file(self, path: str) -> str:
-        """Read a file from the local filesystem using native Python I/O.
+    async def read_file(self, path: str, **kwargs: Any) -> bytes:
+        """Read a file from the local filesystem as raw bytes.
 
         Args:
             path: Path to the file to read. Relative paths are resolved
                 against the working directory.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
-            The file contents as a string.
+            The file contents as bytes.
 
         Raises:
             FileNotFoundError: If the file does not exist.
         """
         full_path = self._resolve_path(path)
-        return full_path.read_text(encoding="utf-8")
+        return full_path.read_bytes()
 
-    async def write_file(self, path: str, content: str) -> None:
-        """Write a file to the local filesystem using native Python I/O.
+    async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
+        """Write bytes to a file on the local filesystem.
 
         Creates parent directories if they do not exist.
 
         Args:
             path: Path to the file to write. Relative paths are resolved
                 against the working directory.
-            content: The content to write to the file.
+            content: The content to write as bytes.
+            **kwargs: Additional keyword arguments for forward compatibility.
         """
         full_path = self._resolve_path(path)
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_text(content, encoding="utf-8")
+        full_path.write_bytes(content)
 
-    async def remove_file(self, path: str) -> None:
+    async def remove_file(self, path: str, **kwargs: Any) -> None:
         """Remove a file from the local filesystem using native Python methods.
 
         Args:
             path: Path to the file to remove. Relative paths are resolved
                 against the working directory.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Raises:
             FileNotFoundError: If the file does not exist.
@@ -312,19 +330,21 @@ class LocalWorkspace(Workspace):
         full_path = self._resolve_path(path)
         full_path.unlink()
 
-    async def list_files(self, path: str = ".") -> list[str]:
-        """List files in a directory using native Python methods.
+    async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
+        """List files in a directory with structured metadata.
 
-        Uses :func:`os.listdir` which includes hidden files (dotfiles),
-        unlike the shell ``ls -1`` command. Results are sorted for
+        Uses native Python methods (:func:`os.listdir`, :func:`os.stat`)
+        to return :class:`FileInfo` entries with name, is_dir, and size.
+        Results include hidden files (dotfiles) and are sorted for
         deterministic ordering.
 
         Args:
             path: Path to the directory to list. Relative paths are resolved
                 against the working directory.
+            **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
-            A sorted list of filenames in the directory.
+            A sorted list of :class:`FileInfo` entries.
 
         Raises:
             FileNotFoundError: If the directory does not exist.
@@ -332,4 +352,20 @@ class LocalWorkspace(Workspace):
         full_path = self._resolve_path(path)
         if not full_path.is_dir():
             raise FileNotFoundError("Directory not found: %s" % full_path)
-        return sorted(os.listdir(full_path))
+        entries = []
+        for name in sorted(os.listdir(full_path)):
+            entry_path = full_path / name
+            try:
+                stat = entry_path.stat()
+                entries.append(
+                    FileInfo(
+                        name=name,
+                        is_dir=entry_path.is_dir(),
+                        size=stat.st_size,
+                    )
+                )
+            except OSError:
+                # If we can't stat the entry (e.g., broken symlink), include
+                # it with defaults
+                entries.append(FileInfo(name=name, is_dir=False, size=0))
+        return entries

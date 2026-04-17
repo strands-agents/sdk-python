@@ -54,45 +54,45 @@ class TestSharedWorkspaceConcurrentExecution:
         """Two concurrent writes to the same file — last write wins, no crash."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
 
-        async def write_content(content: str):
+        async def write_content(content: bytes):
             await workspace.write_file("shared.txt", content)
 
         # Run concurrent writes
         await asyncio.gather(
-            write_content("content_A"),
-            write_content("content_B"),
+            write_content(b"content_A"),
+            write_content(b"content_B"),
         )
 
         # File should exist and contain one of the values (no corruption)
         content = await workspace.read_file("shared.txt")
-        assert content in ("content_A", "content_B"), f"Corrupted content: {content!r}"
+        assert content in (b"content_A", b"content_B"), f"Corrupted content: {content!r}"
 
     @pytest.mark.asyncio
     async def test_concurrent_file_write_different_files(self, tmp_path):
         """Concurrent writes to different files should all succeed."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
 
-        async def write_file(name: str, content: str):
+        async def write_file(name: str, content: bytes):
             await workspace.write_file(name, content)
 
         await asyncio.gather(
-            *[write_file(f"file_{i}.txt", f"content_{i}") for i in range(20)]
+            *[write_file(f"file_{i}.txt", f"content_{i}".encode()) for i in range(20)]
         )
 
         # All files should be written correctly
         for i in range(20):
             content = await workspace.read_file(f"file_{i}.txt")
-            assert content == f"content_{i}", f"file_{i}.txt has wrong content: {content!r}"
+            assert content == f"content_{i}".encode(), f"file_{i}.txt has wrong content: {content!r}"
 
     @pytest.mark.asyncio
     async def test_concurrent_read_write_same_file(self, tmp_path):
         """Concurrent read + write on same file — should not crash."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("test.txt", "initial")
+        await workspace.write_file("test.txt", b"initial")
 
         async def writer():
             for i in range(10):
-                await workspace.write_file("test.txt", f"version_{i}")
+                await workspace.write_file("test.txt", f"version_{i}".encode())
                 await asyncio.sleep(0.001)
 
         async def reader():
@@ -175,10 +175,10 @@ class TestSharedWorkspaceBetweenAgents:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
 
         # Agent 1 creates a file
-        await workspace.write_file("from_agent1.txt", "hello from 1")
+        await workspace.write_file("from_agent1.txt", b"hello from 1")
         # Agent 2 should see it
         content = await workspace.read_file("from_agent1.txt")
-        assert content == "hello from 1"
+        assert content == b"hello from 1"
 
     @pytest.mark.asyncio
     async def test_shared_workspace_stop_kills_both(self, tmp_path):

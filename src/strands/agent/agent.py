@@ -30,7 +30,7 @@ from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
 from ..workspace.base import Workspace
-from ..workspace.local import LocalWorkspace
+
 from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types._snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
@@ -305,7 +305,7 @@ class Agent(AgentBase):
         self.tool_caller = _ToolCaller(self)
 
         # Initialize workspace for tool execution environment
-        self.workspace: Workspace = workspace if workspace is not None else LocalWorkspace()
+        self.workspace: Workspace | None = workspace
 
         self.hooks = HookRegistry()
 

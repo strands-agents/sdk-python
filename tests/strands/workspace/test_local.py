@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from strands.workspace.base import ExecutionResult, Workspace
+from strands.workspace.base import ExecutionResult, FileInfo, Workspace
 from strands.workspace.local import LocalWorkspace
 
 
@@ -220,17 +220,17 @@ class TestLocalWorkspaceFileOps:
     @pytest.mark.asyncio
     async def test_write_and_read_file(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("test.txt", "hello world")
+        await workspace.write_file("test.txt", b"hello world")
         content = await workspace.read_file("test.txt")
-        assert content == "hello world"
+        assert content == b"hello world"
 
     @pytest.mark.asyncio
     async def test_read_file_absolute_path(self, tmp_path: object) -> None:
         test_file = tmp_path / "abs_test.txt"  # type: ignore[operator]
-        test_file.write_text("absolute content")
+        test_file.write_bytes(b"absolute content")
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         content = await workspace.read_file(str(test_file))
-        assert content == "absolute content"
+        assert content == b"absolute content"
 
     @pytest.mark.asyncio
     async def test_read_file_not_found(self, tmp_path: object) -> None:
@@ -241,23 +241,23 @@ class TestLocalWorkspaceFileOps:
     @pytest.mark.asyncio
     async def test_write_file_creates_directories(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("subdir/nested/test.txt", "nested content")
+        await workspace.write_file("subdir/nested/test.txt", b"nested content")
         content = await workspace.read_file("subdir/nested/test.txt")
-        assert content == "nested content"
+        assert content == b"nested content"
 
     @pytest.mark.asyncio
     async def test_write_file_absolute_path(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         abs_path = str(tmp_path / "abs_write.txt")  # type: ignore[operator]
-        await workspace.write_file(abs_path, "absolute write")
+        await workspace.write_file(abs_path, b"absolute write")
         content = await workspace.read_file(abs_path)
-        assert content == "absolute write"
+        assert content == b"absolute write"
 
     @pytest.mark.asyncio
     async def test_write_file_unicode(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("unicode.txt", "héllo wörld 🌍")
-        content = await workspace.read_file("unicode.txt")
+        await workspace.write_text("unicode.txt", "héllo wörld 🌍")
+        content = await workspace.read_text("unicode.txt")
         assert content == "héllo wörld 🌍"
 
     @pytest.mark.asyncio
@@ -268,29 +268,36 @@ class TestLocalWorkspaceFileOps:
 
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         files = await workspace.list_files(".")
-        assert sorted(files) == ["file1.txt", "file2.txt", "file3.py"]
+        names = sorted([f.name for f in files])
+        assert names == ["file1.txt", "file2.txt", "file3.py"]
+        # All should be FileInfo instances
+        for f in files:
+            assert isinstance(f, FileInfo)
+            assert f.is_dir is False
 
     @pytest.mark.asyncio
     async def test_list_files_includes_hidden_files(self, tmp_path: object) -> None:
         """list_files uses os.listdir which includes hidden files (unlike ls -1)."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("visible.txt", "visible")
-        await workspace.write_file(".hidden", "hidden")
+        await workspace.write_file("visible.txt", b"visible")
+        await workspace.write_file(".hidden", b"hidden")
 
         files = await workspace.list_files(".")
-        assert "visible.txt" in files
-        assert ".hidden" in files  # Native Python includes dotfiles!
+        names = [f.name for f in files]
+        assert "visible.txt" in names
+        assert ".hidden" in names  # Native Python includes dotfiles!
 
     @pytest.mark.asyncio
     async def test_list_files_sorted(self, tmp_path: object) -> None:
         """list_files returns sorted results for deterministic ordering."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("zebra.txt", "z")
-        await workspace.write_file("apple.txt", "a")
-        await workspace.write_file("mango.txt", "m")
+        await workspace.write_file("zebra.txt", b"z")
+        await workspace.write_file("apple.txt", b"a")
+        await workspace.write_file("mango.txt", b"m")
 
         files = await workspace.list_files(".")
-        assert files == ["apple.txt", "mango.txt", "zebra.txt"]
+        names = [f.name for f in files]
+        assert names == ["apple.txt", "mango.txt", "zebra.txt"]
 
     @pytest.mark.asyncio
     async def test_list_files_empty_dir(self, tmp_path: object) -> None:
@@ -298,7 +305,7 @@ class TestLocalWorkspaceFileOps:
         empty_dir.mkdir()
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         files = await workspace.list_files("empty")
-        assert files == []
+        assert files == []  # Empty list of FileInfo
 
     @pytest.mark.asyncio
     async def test_list_files_not_found(self, tmp_path: object) -> None:
@@ -355,3 +362,88 @@ class TestLocalWorkspaceWorkingDirValidation:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         await workspace.start()
         assert workspace._started
+
+
+class TestLocalWorkspaceExecuteCodeErrorHandling:
+    """Tests for execute_code error handling (FileNotFoundError fix)."""
+
+    @pytest.mark.asyncio
+    async def test_execute_code_nonexistent_language_returns_exit_127(self, tmp_path: object) -> None:
+        """execute_code with non-existent language returns exit 127 instead of crashing."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        result = await workspace._execute_code_to_result("1", language="nonexistent-lang-12345")
+        assert result.exit_code == 127
+        assert "not found" in result.stderr.lower()
+
+    @pytest.mark.asyncio
+    async def test_execute_code_nonexistent_language_streams_result(self, tmp_path: object) -> None:
+        """execute_code yields an ExecutionResult even for non-existent languages."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        chunks: list = []
+        async for chunk in workspace.execute_code("1", language="nonexistent-lang-xyz"):
+            chunks.append(chunk)
+        assert len(chunks) == 1
+        assert isinstance(chunks[0], ExecutionResult)
+        assert chunks[0].exit_code == 127
+
+
+class TestLocalWorkspaceBinaryIO:
+    """Tests for binary file I/O (bytes-native read/write)."""
+
+    @pytest.mark.asyncio
+    async def test_write_and_read_binary(self, tmp_path: object) -> None:
+        """Binary content (e.g., PNG header) round-trips correctly."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        binary_content = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+        await workspace.write_file("image.png", binary_content)
+        read_back = await workspace.read_file("image.png")
+        assert read_back == binary_content
+
+    @pytest.mark.asyncio
+    async def test_read_text_convenience(self, tmp_path: object) -> None:
+        """read_text decodes bytes to string."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        await workspace.write_file("test.txt", b"hello world")
+        text = await workspace.read_text("test.txt")
+        assert text == "hello world"
+        assert isinstance(text, str)
+
+    @pytest.mark.asyncio
+    async def test_write_text_convenience(self, tmp_path: object) -> None:
+        """write_text encodes string to bytes."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        await workspace.write_text("test.txt", "hello world")
+        read_back = await workspace.read_file("test.txt")
+        assert read_back == b"hello world"
+
+    @pytest.mark.asyncio
+    async def test_read_text_unicode_decode_error(self, tmp_path: object) -> None:
+        """read_text raises UnicodeDecodeError for binary content."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        await workspace.write_file("binary.bin", b"\x89PNG\xff\xfe")
+        with pytest.raises(UnicodeDecodeError):
+            await workspace.read_text("binary.bin")
+
+
+class TestLocalWorkspaceFileInfoMetadata:
+    """Tests for structured FileInfo returns from list_files."""
+
+    @pytest.mark.asyncio
+    async def test_list_files_directories_have_is_dir_true(self, tmp_path: object) -> None:
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        (tmp_path / "subdir").mkdir()  # type: ignore[operator]
+        (tmp_path / "file.txt").write_bytes(b"content")  # type: ignore[operator]
+        files = await workspace.list_files(".")
+        dir_entry = next(f for f in files if f.name == "subdir")
+        file_entry = next(f for f in files if f.name == "file.txt")
+        assert dir_entry.is_dir is True
+        assert file_entry.is_dir is False
+
+    @pytest.mark.asyncio
+    async def test_list_files_reports_file_size(self, tmp_path: object) -> None:
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        (tmp_path / "sized.txt").write_bytes(b"x" * 42)  # type: ignore[operator]
+        files = await workspace.list_files(".")
+        entry = files[0]
+        assert entry.name == "sized.txt"
+        assert entry.size == 42
