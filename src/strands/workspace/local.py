@@ -95,7 +95,7 @@ class LocalWorkspace(Workspace):
             raise NotADirectoryError(f"working_dir is not a directory: {self.working_dir}")
         working_path.mkdir(parents=True, exist_ok=True)
         logger.debug("working_dir=<%s> | local workspace started", self.working_dir)
-        self._started = True
+        await super().start()
 
     async def execute(
         self,
@@ -176,7 +176,7 @@ class LocalWorkspace(Workspace):
     async def execute_code(
         self,
         code: str,
-        language: str = "python",
+        language: str,
         timeout: int | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[str | ExecutionResult, None]:
@@ -283,6 +283,9 @@ class LocalWorkspace(Workspace):
     async def read_file(self, path: str, **kwargs: Any) -> bytes:
         """Read a file from the local filesystem as raw bytes.
 
+        Uses ``asyncio.to_thread`` to avoid blocking the event loop
+        during disk I/O.
+
         Args:
             path: Path to the file to read. Relative paths are resolved
                 against the working directory.
@@ -295,12 +298,13 @@ class LocalWorkspace(Workspace):
             FileNotFoundError: If the file does not exist.
         """
         full_path = self._resolve_path(path)
-        return full_path.read_bytes()
+        return await asyncio.to_thread(full_path.read_bytes)
 
     async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
         """Write bytes to a file on the local filesystem.
 
-        Creates parent directories if they do not exist.
+        Creates parent directories if they do not exist. Uses
+        ``asyncio.to_thread`` to avoid blocking the event loop.
 
         Args:
             path: Path to the file to write. Relative paths are resolved
@@ -309,11 +313,17 @@ class LocalWorkspace(Workspace):
             **kwargs: Additional keyword arguments for forward compatibility.
         """
         full_path = self._resolve_path(path)
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_bytes(content)
+
+        def _write() -> None:
+            full_path.parent.mkdir(parents=True, exist_ok=True)
+            full_path.write_bytes(content)
+
+        await asyncio.to_thread(_write)
 
     async def remove_file(self, path: str, **kwargs: Any) -> None:
         """Remove a file from the local filesystem using native Python methods.
+
+        Uses ``asyncio.to_thread`` to avoid blocking the event loop.
 
         Args:
             path: Path to the file to remove. Relative paths are resolved
@@ -324,7 +334,7 @@ class LocalWorkspace(Workspace):
             FileNotFoundError: If the file does not exist.
         """
         full_path = self._resolve_path(path)
-        full_path.unlink()
+        await asyncio.to_thread(full_path.unlink)
 
     async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
         """List files in a directory with structured metadata.
@@ -333,6 +343,9 @@ class LocalWorkspace(Workspace):
         to return :class:`FileInfo` entries with name, is_dir, and size.
         Results include hidden files (dotfiles) and are sorted for
         deterministic ordering.
+
+        Uses ``asyncio.to_thread`` to avoid blocking the event loop
+        during disk I/O.
 
         Args:
             path: Path to the directory to list. Relative paths are resolved
@@ -346,22 +359,26 @@ class LocalWorkspace(Workspace):
             FileNotFoundError: If the directory does not exist.
         """
         full_path = self._resolve_path(path)
-        if not full_path.is_dir():
-            raise FileNotFoundError(f"Directory not found: {full_path}")
-        entries = []
-        for name in sorted(os.listdir(full_path)):
-            entry_path = full_path / name
-            try:
-                stat = entry_path.stat()
-                entries.append(
-                    FileInfo(
-                        name=name,
-                        is_dir=entry_path.is_dir(),
-                        size=stat.st_size,
+
+        def _list() -> list[FileInfo]:
+            if not full_path.is_dir():
+                raise FileNotFoundError(f"Directory not found: {full_path}")
+            entries = []
+            for name in sorted(os.listdir(full_path)):
+                entry_path = full_path / name
+                try:
+                    stat = entry_path.stat()
+                    entries.append(
+                        FileInfo(
+                            name=name,
+                            is_dir=entry_path.is_dir(),
+                            size=stat.st_size,
+                        )
                     )
-                )
-            except OSError:
-                # If we can't stat the entry (e.g., broken symlink), include
-                # it with defaults
-                entries.append(FileInfo(name=name, is_dir=False, size=0))
-        return entries
+                except OSError:
+                    # If we can't stat the entry (e.g., broken symlink), include
+                    # it with defaults
+                    entries.append(FileInfo(name=name, is_dir=False, size=0))
+            return entries
+
+        return await asyncio.to_thread(_list)

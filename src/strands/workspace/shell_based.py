@@ -47,7 +47,7 @@ class ShellBasedWorkspace(Workspace, ABC):
     async def execute_code(
         self,
         code: str,
-        language: str = "python",
+        language: str,
         timeout: int | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[str | ExecutionResult, None]:
@@ -67,6 +67,12 @@ class ShellBasedWorkspace(Workspace, ABC):
 
         Yields:
             str chunks of output, then a final ExecutionResult.
+
+        Note:
+            The default implementation assumes the language interpreter
+            accepts code via the ``-c`` flag (e.g., ``python -c "code"``).
+            Override this method for interpreters that require a different
+            invocation pattern (e.g., ``javac``, ``gcc``, ``go run``).
         """
         async for chunk in self.execute(f"{shlex.quote(language)} -c {shlex.quote(code)}", timeout=timeout):
             yield chunk

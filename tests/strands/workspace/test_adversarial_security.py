@@ -184,7 +184,7 @@ y = 'hello "world"'
 print(x)
 print(y)
 """
-        result = await workspace._execute_code_to_result(code)
+        result = await workspace._execute_code_to_result(code, language="python")
         assert result.exit_code == 0
         assert "hello 'world'" in result.stdout
         assert 'hello "world"' in result.stdout
@@ -194,7 +194,7 @@ print(y)
         """execute_code should handle backslashes in code."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         code = 'print("path\\\\to\\\\file")'
-        result = await workspace._execute_code_to_result(code)
+        result = await workspace._execute_code_to_result(code, language="python")
         assert result.exit_code == 0
         assert "path\\to\\file" in result.stdout
 

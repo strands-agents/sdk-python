@@ -18,6 +18,7 @@ Class hierarchy::
         operations and code execution. Subclasses only need to implement ``execute()``.
 """
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
@@ -123,6 +124,7 @@ class Workspace(ABC):
     def __init__(self) -> None:
         """Initialize base workspace state."""
         self._started = False
+        self._start_lock = asyncio.Lock()
 
     @abstractmethod
     async def execute(
@@ -307,9 +309,7 @@ class Workspace(ABC):
             raise RuntimeError("execute() did not yield an ExecutionResult")
         return result
 
-    async def _execute_code_to_result(
-        self, code: str, language: str = "python", timeout: int | None = None
-    ) -> ExecutionResult:
+    async def _execute_code_to_result(self, code: str, language: str, timeout: int | None = None) -> ExecutionResult:
         """Helper: consume the execute_code() stream and return the final ExecutionResult.
 
         Args:
@@ -332,16 +332,27 @@ class Workspace(ABC):
         return result
 
     async def _ensure_started(self) -> None:
-        """Auto-start the workspace if it has not been started yet."""
-        if not self._started:
-            await self.start()
-            self._started = True
+        """Auto-start the workspace if it has not been started yet.
+
+        Uses an asyncio.Lock to prevent double-start when multiple
+        coroutines call this concurrently.
+        """
+        if self._started:
+            return
+        async with self._start_lock:
+            if not self._started:
+                await self.start()
+                self._started = True
 
     async def start(self) -> None:
         """Initialize the workspace.
 
         Called once before first use. Override to perform setup such as
         starting containers or creating temporary directories.
+
+        The base implementation sets ``_started = True``. Subclasses that
+        override this method should call ``super().start()`` or set
+        ``self._started = True`` after their setup completes.
         """
         self._started = True
 
@@ -350,16 +361,17 @@ class Workspace(ABC):
 
         Override to perform cleanup such as stopping containers or
         removing temporary directories.
+
+        The base implementation sets ``_started = False``. Subclasses that
+        override this method should call ``super().stop()`` after cleanup.
         """
         self._started = False
 
     async def __aenter__(self) -> "Workspace":
         """Enter the async context manager, starting the workspace."""
-        await self.start()
-        self._started = True
+        await self._ensure_started()
         return self
 
     async def __aexit__(self, *args: Any) -> None:
         """Exit the async context manager, stopping the workspace."""
         await self.stop()
-        self._started = False

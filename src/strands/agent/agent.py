@@ -216,9 +216,9 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
-            workspace: Execution environment for agent tools. Tools access the workspace via
-                tool_context.agent.workspace to execute commands, code, and filesystem operations.
-                Defaults to LocalWorkspace (local host execution) when not specified.
+            workspace: Optional execution environment for agent tools. Tools access the workspace
+                via tool_context.agent.workspace to execute commands, code, and filesystem operations.
+                Defaults to None (no workspace). Pass a LocalWorkspace for local host execution.
 
         Raises:
             ValueError: If agent id contains path separators.

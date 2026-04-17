@@ -140,7 +140,7 @@ class TestWorkspaceABC:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code(
-                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
+                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
@@ -170,7 +170,7 @@ class TestWorkspaceABC:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code(
-                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
+                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
@@ -197,7 +197,7 @@ class TestWorkspaceABC:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code(
-                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
+                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
@@ -230,7 +230,7 @@ class TestWorkspaceABC:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code(
-                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
+                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
@@ -263,7 +263,7 @@ class TestWorkspaceABC:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code(
-                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
+                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
@@ -299,7 +299,7 @@ class TestWorkspaceABC:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code(
-                self, code: str, language: str = "python", timeout: int | None = None, **kwargs: Any
+                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 

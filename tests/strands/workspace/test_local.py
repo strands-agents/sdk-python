@@ -120,7 +120,7 @@ class TestLocalWorkspaceExecuteCode:
     @pytest.mark.asyncio
     async def test_execute_python_code(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        result = await workspace._execute_code_to_result("print('hello from python')")
+        result = await workspace._execute_code_to_result("print('hello from python')", language="python")
         assert result.exit_code == 0
         assert result.stdout.strip() == "hello from python"
 
@@ -128,7 +128,7 @@ class TestLocalWorkspaceExecuteCode:
     async def test_execute_code_streams(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         chunks: list[str | ExecutionResult] = []
-        async for chunk in workspace.execute_code("print('line1')\nprint('line2')"):
+        async for chunk in workspace.execute_code("print('line1')\nprint('line2')", language="python"):
             chunks.append(chunk)
         assert isinstance(chunks[-1], ExecutionResult)
         combined = "".join(c for c in chunks if isinstance(c, str))
@@ -138,7 +138,7 @@ class TestLocalWorkspaceExecuteCode:
     @pytest.mark.asyncio
     async def test_execute_python_code_error(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        result = await workspace._execute_code_to_result("raise ValueError('test error')")
+        result = await workspace._execute_code_to_result("raise ValueError('test error')", language="python")
         assert result.exit_code != 0
         assert "ValueError" in result.stderr
 
@@ -146,7 +146,7 @@ class TestLocalWorkspaceExecuteCode:
     async def test_execute_python_multiline(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         code = "x = 42\nprint(f'x = {x}')"
-        result = await workspace._execute_code_to_result(code)
+        result = await workspace._execute_code_to_result(code, language="python")
         assert result.exit_code == 0
         assert "x = 42" in result.stdout
 
@@ -178,14 +178,14 @@ class TestLocalWorkspaceExecuteCode:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         # Code with shell metacharacters should be passed literally to python
         code = "import sys; print(sys.argv)"
-        result = await workspace._execute_code_to_result(code)
+        result = await workspace._execute_code_to_result(code, language="python")
         assert result.exit_code == 0
 
     @pytest.mark.asyncio
     async def test_execute_code_uses_working_dir(self, tmp_path: object) -> None:
         """Code execution should use the workspace working directory."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        result = await workspace._execute_code_to_result("import os; print(os.getcwd())")
+        result = await workspace._execute_code_to_result("import os; print(os.getcwd())", language="python")
         assert result.exit_code == 0
         assert result.stdout.strip() == str(tmp_path)
 
@@ -199,7 +199,7 @@ y = 'hello "world"'
 print(x)
 print(y)
 """
-        result = await workspace._execute_code_to_result(code)
+        result = await workspace._execute_code_to_result(code, language="python")
         assert result.exit_code == 0
         assert "hello 'world'" in result.stdout
         assert 'hello "world"' in result.stdout
@@ -209,7 +209,7 @@ print(y)
         """Code with backslashes should work (no shell escaping needed)."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         code = 'print("path\\\\to\\\\file")'
-        result = await workspace._execute_code_to_result(code)
+        result = await workspace._execute_code_to_result(code, language="python")
         assert result.exit_code == 0
         assert "path\\to\\file" in result.stdout
 
