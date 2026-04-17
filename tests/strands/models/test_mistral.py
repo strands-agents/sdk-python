@@ -679,3 +679,22 @@ def test_format_request_filters_location_source_document(model, caplog):
     user_content = formatted_messages[0]["content"]
     assert user_content == "analyze this document"
     assert "Location sources are not supported by Mistral" in caplog.text
+
+
+class TestMistralFromDict:
+    """Tests for MistralModel.from_dict classmethod."""
+
+    def test_from_dict_api_key_extraction(self):
+        """Test that from_dict extracts api_key separately."""
+        with unittest.mock.patch.object(MistralModel, "__init__", return_value=None) as mock_init:
+            MistralModel.from_dict(
+                {
+                    "model_id": "mistral-large-latest",
+                    "api_key": "test-key",
+                    "client_args": {"timeout": 60},
+                }
+            )
+            call_kwargs = mock_init.call_args[1]
+            assert call_kwargs["api_key"] == "test-key"
+            assert call_kwargs["client_args"] == {"timeout": 60}
+            assert call_kwargs["model_id"] == "mistral-large-latest"

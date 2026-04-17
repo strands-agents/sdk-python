@@ -625,3 +625,29 @@ def test_format_request_filters_location_source_document(model, caplog):
     user_message = formatted_messages[0]
     assert user_message["content"] == "analyze this document"
     assert "Location sources are not supported by Ollama" in caplog.text
+
+
+class TestOllamaFromDict:
+    """Tests for OllamaModel.from_dict classmethod."""
+
+    def test_from_dict_host_and_client_args_mapping(self):
+        """Test that from_dict routes host and maps client_args to ollama_client_args."""
+        with unittest.mock.patch.object(OllamaModel, "__init__", return_value=None) as mock_init:
+            OllamaModel.from_dict(
+                {
+                    "model_id": "llama3",
+                    "host": "http://localhost:11434",
+                    "client_args": {"timeout": 30},
+                }
+            )
+            call_args = mock_init.call_args
+            assert call_args[0][0] == "http://localhost:11434"
+            assert call_args[1]["ollama_client_args"] == {"timeout": 30}
+            assert call_args[1]["model_id"] == "llama3"
+
+    def test_from_dict_default_host(self):
+        """Test from_dict with no host specified defaults to None."""
+        with unittest.mock.patch.object(OllamaModel, "__init__", return_value=None) as mock_init:
+            OllamaModel.from_dict({"model_id": "llama3"})
+            call_args = mock_init.call_args
+            assert call_args[0][0] is None

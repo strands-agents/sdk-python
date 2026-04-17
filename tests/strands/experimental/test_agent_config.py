@@ -3,10 +3,19 @@
 import json
 import os
 import tempfile
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from strands.experimental import config_to_agent
+from strands.experimental.agent_config import (
+    PROVIDER_MAP,
+    _create_model_from_dict,
+)
+
+# =============================================================================
+# Backward compatibility tests (existing)
+# =============================================================================
 
 
 def test_config_to_agent_with_dict():
@@ -170,3 +179,252 @@ def test_config_to_agent_with_tool():
     config = {"model": "test-model", "tools": ["tests.fixtures.say_tool:say"]}
     agent = config_to_agent(config)
     assert "say" in agent.tool_names
+
+
+# =============================================================================
+# Schema validation tests — dual-format model field
+# =============================================================================
+
+
+class TestSchemaValidation:
+    """Tests for the updated AGENT_CONFIG_SCHEMA that supports both string and object model formats."""
+
+    def test_string_model_valid(self):
+        """Test that string model format still passes validation."""
+        config = {"model": "us.anthropic.claude-sonnet-4-20250514-v1:0"}
+        agent = config_to_agent(config)
+        assert agent.model.config["model_id"] == "us.anthropic.claude-sonnet-4-20250514-v1:0"
+
+    def test_object_model_valid(self):
+        """Test that object model format passes schema validation."""
+        mock_model = MagicMock()
+        with patch(
+            "strands.experimental.agent_config._create_model_from_dict",
+            return_value=mock_model,
+        ):
+            config = {
+                "model": {
+                    "provider": "anthropic",
+                    "model_id": "claude-sonnet-4-20250514",
+                    "max_tokens": 10000,
+                }
+            }
+            agent = config_to_agent(config)
+            assert agent.model is mock_model
+
+    def test_object_model_missing_provider_raises(self):
+        """Test that object model without provider raises validation error."""
+        config = {"model": {"model_id": "some-model"}}
+        with pytest.raises(ValueError, match="Configuration validation error"):
+            config_to_agent(config)
+
+    def test_object_model_allows_additional_properties(self):
+        """Test that object model format allows provider-specific properties."""
+        mock_model = MagicMock()
+        with patch(
+            "strands.experimental.agent_config._create_model_from_dict",
+            return_value=mock_model,
+        ):
+            config = {
+                "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-4o",
+                    "client_args": {"api_key": "test"},
+                    "custom_field": "allowed",
+                }
+            }
+            # Should not raise
+            config_to_agent(config)
+
+    def test_null_model_still_valid(self):
+        """Test that null model is still accepted for default behavior."""
+        config = {"model": None}
+        agent = config_to_agent(config)
+        # Should use default model
+        assert agent is not None
+
+    def test_model_wrong_type_raises(self):
+        """Test that model field with invalid type raises validation error."""
+        config = {"model": 12345}
+        with pytest.raises(ValueError, match="Configuration validation error"):
+            config_to_agent(config)
+
+    def test_object_model_from_file(self):
+        """Test object model format loaded from a JSON file."""
+        mock_model = MagicMock()
+        config_data = {
+            "model": {
+                "provider": "anthropic",
+                "model_id": "claude-sonnet-4-20250514",
+            }
+        }
+        temp_path = ""
+        try:
+            with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as f:
+                json.dump(config_data, f)
+                f.flush()
+                temp_path = f.name
+
+            with patch(
+                "strands.experimental.agent_config._create_model_from_dict",
+                return_value=mock_model,
+            ):
+                agent = config_to_agent(temp_path)
+                assert agent.model is mock_model
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+
+# =============================================================================
+# Provider factory tests
+# =============================================================================
+
+
+class TestCreateModelFromConfig:
+    """Tests for _create_model_from_dict dispatching to cls.from_dict."""
+
+    def test_unknown_provider_raises(self):
+        """Test that an unknown provider name raises ValueError."""
+        with pytest.raises(ValueError, match="Unknown model provider: 'nonexistent'"):
+            _create_model_from_dict({"provider": "nonexistent", "model_id": "x"})
+
+    def _set_mock_on_models(self, class_name):
+        """Inject a mock class directly into strands.models.__dict__ to avoid triggering lazy imports."""
+        import strands.models as models_pkg
+
+        mock_cls = MagicMock()
+        mock_cls.from_dict.return_value = MagicMock()
+        original = models_pkg.__dict__.get(class_name)
+        models_pkg.__dict__[class_name] = mock_cls
+        return mock_cls, original
+
+    def _restore_models(self, class_name, original):
+        """Restore original state of strands.models after test."""
+        import strands.models as models_pkg
+
+        if original is None:
+            models_pkg.__dict__.pop(class_name, None)
+        else:
+            models_pkg.__dict__[class_name] = original
+
+    def test_dispatches_to_from_dict(self):
+        """Test that _create_model_from_dict calls cls.from_dict on the resolved model class."""
+        mock_cls, original = self._set_mock_on_models("AnthropicModel")
+        mock_model = MagicMock()
+        mock_cls.from_dict.return_value = mock_model
+        try:
+            result = _create_model_from_dict(
+                {
+                    "provider": "anthropic",
+                    "model_id": "claude-sonnet-4-20250514",
+                    "max_tokens": 8192,
+                    "client_args": {"api_key": "test-key"},
+                }
+            )
+            mock_cls.from_dict.assert_called_once()
+            call_config = mock_cls.from_dict.call_args[0][0]
+            assert call_config["model_id"] == "claude-sonnet-4-20250514"
+            assert call_config["max_tokens"] == 8192
+            assert call_config["client_args"] == {"api_key": "test-key"}
+            assert "provider" not in call_config
+            assert result is mock_model
+        finally:
+            self._restore_models("AnthropicModel", original)
+
+    def test_does_not_mutate_input(self):
+        """Test that _create_model_from_dict does not mutate the input dict."""
+        mock_cls, original = self._set_mock_on_models("AnthropicModel")
+        try:
+            original_input = {"provider": "anthropic", "model_id": "test"}
+            original_copy = original_input.copy()
+            _create_model_from_dict(original_input)
+            assert original_input == original_copy
+        finally:
+            self._restore_models("AnthropicModel", original)
+
+    @pytest.mark.parametrize(
+        "provider,class_name",
+        list(PROVIDER_MAP.items()),
+    )
+    def test_all_providers_dispatch(self, provider, class_name):
+        """Test that each registered provider dispatches to the correct class."""
+        mock_cls, original = self._set_mock_on_models(class_name)
+        try:
+            _create_model_from_dict({"provider": provider, "model_id": "test"})
+            mock_cls.from_dict.assert_called_once()
+        finally:
+            self._restore_models(class_name, original)
+
+
+# =============================================================================
+# Error handling tests
+# =============================================================================
+
+
+class TestErrorHandling:
+    """Tests for error handling in model creation."""
+
+    def test_missing_optional_dependency(self):
+        """Test clear error when provider dependency is not installed."""
+        import strands.models as models_pkg
+
+        mock_cls = MagicMock()
+        mock_cls.from_dict.side_effect = ImportError("No module named 'anthropic'")
+
+        original = models_pkg.__dict__.get("AnthropicModel")
+        models_pkg.__dict__["AnthropicModel"] = mock_cls
+        try:
+            with pytest.raises(ImportError, match="anthropic"):
+                _create_model_from_dict(
+                    {
+                        "provider": "anthropic",
+                        "model_id": "claude-sonnet-4-20250514",
+                    }
+                )
+        finally:
+            if original is None:
+                models_pkg.__dict__.pop("AnthropicModel", None)
+            else:
+                models_pkg.__dict__["AnthropicModel"] = original
+
+
+# =============================================================================
+# Integration: config_to_agent with object model
+# =============================================================================
+
+
+class TestConfigToAgentObjectModel:
+    """Tests for config_to_agent using the object model format end-to-end."""
+
+    def test_object_model_creates_agent(self):
+        """Test that object model config creates an agent with the correct model."""
+        mock_model = MagicMock()
+        with patch(
+            "strands.experimental.agent_config._create_model_from_dict",
+            return_value=mock_model,
+        ):
+            config = {
+                "model": {
+                    "provider": "openai",
+                    "model_id": "gpt-4o",
+                },
+                "prompt": "You are helpful",
+            }
+            agent = config_to_agent(config)
+            assert agent.model is mock_model
+            assert agent.system_prompt == "You are helpful"
+
+    def test_object_model_with_kwargs_override(self):
+        """Test that kwargs can still override when using object model."""
+        mock_model = MagicMock()
+        with patch(
+            "strands.experimental.agent_config._create_model_from_dict",
+            return_value=mock_model,
+        ):
+            config = {
+                "model": {"provider": "openai", "model_id": "gpt-4o"},
+                "prompt": "Original prompt",
+            }
+            agent = config_to_agent(config, system_prompt="Override prompt")
+            assert agent.system_prompt == "Override prompt"

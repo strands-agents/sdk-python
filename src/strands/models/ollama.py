@@ -56,6 +56,29 @@ class OllamaModel(Model):
         temperature: float | None
         top_p: float | None
 
+    @classmethod
+    def from_dict(cls, config: dict[str, Any]) -> "OllamaModel":
+        """Create an OllamaModel from a configuration dictionary.
+
+        Handles extraction of ``host`` as a positional argument and mapping of
+        ``client_args`` to the ``ollama_client_args`` constructor parameter.
+
+        Args:
+            config: Model configuration dictionary. A copy is made internally;
+                the caller's dict is not modified.
+
+        Returns:
+            A configured OllamaModel instance.
+        """
+        config = config.copy()
+        host = config.pop("host", None)
+        client_args = config.pop("client_args", None)
+        kwargs: dict[str, Any] = {}
+        if client_args is not None:
+            kwargs["ollama_client_args"] = client_args
+        kwargs.update(config)
+        return cls(host, **kwargs)
+
     def __init__(
         self,
         host: str | None,
