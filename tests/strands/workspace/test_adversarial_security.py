@@ -2,7 +2,7 @@
 
 Tests for:
 - Path traversal attacks in LocalWorkspace
-- Heredoc delimiter collision in ShellBasedWorkspace
+- Content injection edge cases
 - Symlink attacks
 - Binary/special content handling
 """
@@ -23,18 +23,13 @@ class TestPathTraversal:
     async def test_read_file_path_traversal(self, tmp_path):
         """read_file with ../.. should still work (LocalWorkspace uses native I/O)."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        # Create a file outside the working dir
         outside_dir = tmp_path.parent / "outside_workspace"
         outside_dir.mkdir(exist_ok=True)
         outside_file = outside_dir / "secret.txt"
         outside_file.write_text("SECRET_DATA")
 
-        # LocalWorkspace doesn't restrict path traversal — it uses os.path.join
-        # which joins the relative path to working_dir but doesn't prevent ..
-        relative_path = f"../outside_workspace/secret.txt"
+        relative_path = "../outside_workspace/secret.txt"
         content = await workspace.read_file(relative_path)
-        # BUG: LocalWorkspace allows path traversal outside working_dir
-        # This WILL succeed — proving LocalWorkspace doesn't restrict file access
         assert content == "SECRET_DATA", "Path traversal should be documented or blocked"
 
     @pytest.mark.asyncio
@@ -46,8 +41,6 @@ class TestPathTraversal:
 
         relative_path = "../write_escape/pwned.txt"
         await workspace.write_file(relative_path, "PWNED")
-
-        # Verify the file was written outside the workspace
         assert (outside_dir / "pwned.txt").read_text() == "PWNED"
 
     @pytest.mark.asyncio
@@ -56,36 +49,24 @@ class TestPathTraversal:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         result = await workspace._execute_to_result("cat /etc/passwd | head -1")
         assert result.exit_code == 0
-        assert "root" in result.stdout  # LocalWorkspace has no filesystem isolation
+        assert "root" in result.stdout
 
     @pytest.mark.asyncio
     async def test_absolute_path_bypasses_working_dir(self, tmp_path):
         """Absolute paths completely bypass working_dir for LocalWorkspace."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-
-        # Write outside via absolute path
         abs_path = str(tmp_path.parent / "abs_escape.txt")
         await workspace.write_file(abs_path, "escaped")
         content = await workspace.read_file(abs_path)
         assert content == "escaped"
 
 
-class TestHeredocInjection:
-    """Can content that matches the delimiter break write_file?"""
-
-    @pytest.mark.asyncio
-    async def test_content_containing_strands_eof(self, tmp_path):
-        """Content containing STRANDS_EOF_ prefix should not break heredoc."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        # This content tries to end the heredoc early
-        malicious_content = "line1\nSTRANDS_EOF_deadbeef\nline3"
-        await workspace.write_file("test.txt", malicious_content)
-        content = await workspace.read_file("test.txt")
-        assert content == malicious_content, f"Heredoc injection: got {content!r}"
+class TestContentEdgeCases:
+    """Can content with special characters break file operations?"""
 
     @pytest.mark.asyncio
     async def test_content_with_shell_metacharacters(self, tmp_path):
-        """Content with shell metacharacters should be preserved."""
+        """Content with shell metacharacters should be preserved (native Python I/O)."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         content = 'hello $USER `whoami` $(id) && rm -rf / ; echo pwned'
         await workspace.write_file("test.txt", content)
@@ -94,10 +75,9 @@ class TestHeredocInjection:
 
     @pytest.mark.asyncio
     async def test_content_with_null_bytes(self, tmp_path):
-        """Content with null bytes should be handled or raise a clear error."""
+        """Content with null bytes should be handled by native Python I/O."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         content = "before\x00after"
-        # Native file I/O can handle null bytes in text mode
         await workspace.write_file("null.txt", content)
         read_back = await workspace.read_file("null.txt")
         assert read_back == content
@@ -114,7 +94,7 @@ class TestHeredocInjection:
     async def test_very_large_content(self, tmp_path):
         """Writing 10MB of content should work."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        large_content = "A" * (10 * 1024 * 1024)  # 10 MB
+        large_content = "A" * (10 * 1024 * 1024)
         await workspace.write_file("large.txt", large_content)
         content = await workspace.read_file("large.txt")
         assert len(content) == len(large_content)
@@ -149,7 +129,6 @@ class TestLocalWorkspaceEdgeCases:
 
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         content = await workspace.read_file("evil_link.txt")
-        # BUG: Symlink escape — reads file outside workspace
         assert content == "escaped via symlink"
 
     @pytest.mark.asyncio
@@ -179,17 +158,15 @@ class TestLocalWorkspaceEdgeCases:
 
     @pytest.mark.asyncio
     async def test_list_files_with_hidden_files(self, tmp_path):
-        """list_files should include hidden files (ls -1 shows them by default? No, it doesn't)."""
+        """list_files should include hidden files (os.listdir includes them)."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         await workspace.write_file("visible.txt", "visible")
         await workspace.write_file(".hidden", "hidden")
 
         files = await workspace.list_files(".")
-        # ls -1 does NOT show hidden files by default
         assert "visible.txt" in files
-        # BUG: Hidden files are invisible to list_files because it uses `ls -1`
-        # which doesn't include hidden files. Should it use `ls -1a` instead?
-        assert ".hidden" not in files  # This is a design limitation
+        # Native Python os.listdir includes hidden files!
+        assert ".hidden" in files
 
     @pytest.mark.asyncio
     async def test_read_nonexistent_with_special_chars_in_path(self, tmp_path):
@@ -217,7 +194,7 @@ print(y)
     async def test_execute_code_with_backslashes(self, tmp_path):
         """execute_code should handle backslashes in code."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        code = r'print("path\\to\\file")'
+        code = 'print("path\\\\to\\\\file")'
         result = await workspace._execute_code_to_result(code)
         assert result.exit_code == 0
         assert "path\\to\\file" in result.stdout
@@ -232,19 +209,17 @@ print(y)
 
     @pytest.mark.asyncio
     async def test_blocking_file_io_in_async_context(self, tmp_path):
-        """LocalWorkspace.read_file/write_file use BLOCKING file I/O in async context.
+        """LocalWorkspace uses pathlib (blocking) I/O in async context.
 
-        This is a design concern: open() and f.read()/f.write() are synchronous
-        blocking calls. In an async context with many concurrent operations,
+        This is a known design concern: pathlib.read_text()/write_text() are
+        synchronous. In an async context with many concurrent operations,
         this could block the event loop.
         """
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        # Write a large file synchronously inside async
         large_content = "X" * (1024 * 1024)  # 1MB
         await workspace.write_file("blocking_test.txt", large_content)
         content = await workspace.read_file("blocking_test.txt")
         assert len(content) == 1024 * 1024
-        # This works but blocks the event loop during I/O
 
     @pytest.mark.asyncio
     async def test_remove_file_nonexistent(self, tmp_path):
@@ -274,6 +249,27 @@ print(y)
         await workspace.remove_file(str(outside_file))
         assert not outside_file.exists()
 
+    @pytest.mark.asyncio
+    async def test_execute_code_rejects_unsafe_language(self, tmp_path):
+        """execute_code validates language parameter against unsafe characters."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        with pytest.raises(ValueError, match="unsafe characters"):
+            await workspace._execute_code_to_result("print(1)", language="python; rm -rf /")
+
+    @pytest.mark.asyncio
+    async def test_execute_code_rejects_path_traversal_language(self, tmp_path):
+        """execute_code rejects language with path separators."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        with pytest.raises(ValueError, match="unsafe characters"):
+            await workspace._execute_code_to_result("1", language="../../../bin/sh")
+
+    @pytest.mark.asyncio
+    async def test_execute_code_rejects_space_injection(self, tmp_path):
+        """execute_code rejects language with spaces."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        with pytest.raises(ValueError, match="unsafe characters"):
+            await workspace._execute_code_to_result("1", language="python -m http.server")
+
 
 class TestShellBasedWorkspaceHeredocEdgeCases:
     """Edge cases in the ShellBasedWorkspace heredoc implementation."""
@@ -299,7 +295,6 @@ class TestShellBasedWorkspaceHeredocEdgeCases:
         content = "line1\nline2\nline3"
         await workspace.write_file("/tmp/test.txt", content)
 
-        # Verify the heredoc command is well-formed
         cmd = workspace.last_command
         assert "STRANDS_EOF_" in cmd
         assert "/tmp/test.txt" in cmd
@@ -324,5 +319,4 @@ class TestShellBasedWorkspaceHeredocEdgeCases:
 
         workspace = MockShellWorkspace()
         await workspace.write_file("", "content")
-        # Empty path gets quoted as '' by shlex.quote
         assert "''" in workspace.last_command

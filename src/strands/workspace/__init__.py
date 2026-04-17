@@ -6,9 +6,9 @@ their own execution, enabling portability across local and cloud environments.
 
 Class hierarchy::
 
-    Workspace (ABC, all 6 abstract + lifecycle)
+    Workspace (ABC, all 6 abstract + lifecycle + helpers)
+      ├── LocalWorkspace — native Python methods for host execution (default)
       └── ShellBasedWorkspace (ABC, only execute() abstract — shell-based file ops + execute_code)
-            └── LocalWorkspace — runs on the host via asyncio subprocesses (default)
 """
 
 from .base import ExecutionResult, Workspace

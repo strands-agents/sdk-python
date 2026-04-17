@@ -171,6 +171,54 @@ class Workspace(ABC):
         """
         ...
 
+    async def _execute_to_result(self, command: str, timeout: int | None = None) -> ExecutionResult:
+        """Helper: consume the execute() stream and return the final ExecutionResult.
+
+        Convenience methods use this to get just the final result without
+        dealing with the stream.
+
+        Args:
+            command: The shell command to execute.
+            timeout: Maximum execution time in seconds.
+
+        Returns:
+            The final ExecutionResult from the stream.
+
+        Raises:
+            RuntimeError: If execute() did not yield an ExecutionResult.
+        """
+        result = None
+        async for chunk in self.execute(command, timeout=timeout):
+            if isinstance(chunk, ExecutionResult):
+                result = chunk
+        if result is None:
+            raise RuntimeError("execute() did not yield an ExecutionResult")
+        return result
+
+    async def _execute_code_to_result(
+        self, code: str, language: str = "python", timeout: int | None = None
+    ) -> ExecutionResult:
+        """Helper: consume the execute_code() stream and return the final ExecutionResult.
+
+        Args:
+            code: The source code to execute.
+            language: The programming language interpreter to use.
+            timeout: Maximum execution time in seconds.
+
+        Returns:
+            The final ExecutionResult from the stream.
+
+        Raises:
+            RuntimeError: If execute_code() did not yield an ExecutionResult.
+        """
+        result = None
+        async for chunk in self.execute_code(code, language=language, timeout=timeout):
+            if isinstance(chunk, ExecutionResult):
+                result = chunk
+        if result is None:
+            raise RuntimeError("execute_code() did not yield an ExecutionResult")
+        return result
+
     async def _ensure_started(self) -> None:
         """Auto-start the workspace if it has not been started yet."""
         if not self._started:

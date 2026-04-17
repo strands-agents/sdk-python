@@ -4,7 +4,6 @@ import pytest
 
 from strands import Agent
 from strands.workspace.base import ExecutionResult, Workspace
-from strands.workspace.shell_based import ShellBasedWorkspace
 from strands.workspace.local import LocalWorkspace
 
 
@@ -50,7 +49,6 @@ class TestAgentWorkspace:
         """Verify workspace is accessible via agent.workspace (tool_context.agent.workspace path)."""
         custom = CustomWorkspace()
         agent = Agent(workspace=custom)
-        # Tools access via tool_context.agent.workspace
         assert agent.workspace is custom
 
     def test_multiple_agents_independent_workspaces(self) -> None:
@@ -62,8 +60,10 @@ class TestAgentWorkspace:
         agent = Agent(workspace=None)
         assert isinstance(agent.workspace, LocalWorkspace)
 
-    def test_local_workspace_is_shell_based(self) -> None:
-        """Verify LocalWorkspace inherits from ShellBasedWorkspace."""
+    def test_local_workspace_extends_workspace_not_shell_based(self) -> None:
+        """Verify LocalWorkspace extends Workspace directly, not ShellBasedWorkspace."""
+        from strands.workspace.shell_based import ShellBasedWorkspace
+
         agent = Agent()
-        assert isinstance(agent.workspace, ShellBasedWorkspace)
         assert isinstance(agent.workspace, Workspace)
+        assert not isinstance(agent.workspace, ShellBasedWorkspace)

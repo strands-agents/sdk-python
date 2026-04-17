@@ -4,11 +4,15 @@ This module defines the ShellBasedWorkspace abstract class, which provides
 shell-command-based defaults for file operations (read, write, remove, list)
 and code execution. Subclasses only need to implement ``execute()``.
 
+Use this for remote environments where only shell access is available
+(e.g., Docker containers, SSH connections). For local execution, use
+:class:`~strands.workspace.local.LocalWorkspace` which uses native
+Python methods instead.
+
 Class hierarchy::
 
     Workspace (ABC, all 6 abstract + lifecycle)
       └── ShellBasedWorkspace (ABC, only execute() abstract — shell-based file ops + execute_code)
-            └── LocalWorkspace
 """
 
 import logging
@@ -30,9 +34,13 @@ class ShellBasedWorkspace(Workspace, ABC):
     ``list_files``, and ``execute_code`` — are implemented via shell
     commands piped through ``execute()``.
 
+    This class is intended for remote execution environments where only
+    shell access is available (e.g., Docker containers, SSH connections).
+    For local execution, use :class:`~strands.workspace.local.LocalWorkspace`
+    which uses native Python methods for better safety and reliability.
+
     Subclasses may override any method with a native implementation for
-    better performance (e.g., ``LocalWorkspace`` overrides ``read_file``,
-    ``write_file``, and ``remove_file`` with direct filesystem calls).
+    better performance.
     """
 
     async def execute_code(
@@ -61,54 +69,6 @@ class ShellBasedWorkspace(Workspace, ABC):
             f"{shlex.quote(language)} -c {shlex.quote(code)}", timeout=timeout
         ):
             yield chunk
-
-    async def _execute_to_result(self, command: str, timeout: int | None = None) -> ExecutionResult:
-        """Helper: consume the execute() stream and return the final ExecutionResult.
-
-        Convenience methods like read_file, write_file, and list_files use
-        this to get just the final result without dealing with the stream.
-
-        Args:
-            command: The shell command to execute.
-            timeout: Maximum execution time in seconds.
-
-        Returns:
-            The final ExecutionResult from the stream.
-
-        Raises:
-            RuntimeError: If execute() did not yield an ExecutionResult.
-        """
-        result = None
-        async for chunk in self.execute(command, timeout=timeout):
-            if isinstance(chunk, ExecutionResult):
-                result = chunk
-        if result is None:
-            raise RuntimeError("execute() did not yield an ExecutionResult")
-        return result
-
-    async def _execute_code_to_result(
-        self, code: str, language: str = "python", timeout: int | None = None
-    ) -> ExecutionResult:
-        """Helper: consume the execute_code() stream and return the final ExecutionResult.
-
-        Args:
-            code: The source code to execute.
-            language: The programming language interpreter to use.
-            timeout: Maximum execution time in seconds.
-
-        Returns:
-            The final ExecutionResult from the stream.
-
-        Raises:
-            RuntimeError: If execute_code() did not yield an ExecutionResult.
-        """
-        result = None
-        async for chunk in self.execute_code(code, language=language, timeout=timeout):
-            if isinstance(chunk, ExecutionResult):
-                result = chunk
-        if result is None:
-            raise RuntimeError("execute_code() did not yield an ExecutionResult")
-        return result
 
     async def read_file(self, path: str) -> str:
         """Read a file from the workspace filesystem.

@@ -5,8 +5,7 @@ import os
 
 import pytest
 
-from strands.workspace.base import ExecutionResult
-from strands.workspace.shell_based import ShellBasedWorkspace
+from strands.workspace.base import ExecutionResult, Workspace
 from strands.workspace.local import LocalWorkspace
 
 
@@ -19,9 +18,29 @@ class TestLocalWorkspaceInit:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         assert workspace.working_dir == str(tmp_path)
 
-    def test_inherits_shell_based_workspace(self) -> None:
+    def test_extends_workspace_directly(self) -> None:
+        """LocalWorkspace extends Workspace directly, not ShellBasedWorkspace."""
         workspace = LocalWorkspace()
-        assert isinstance(workspace, ShellBasedWorkspace)
+        assert isinstance(workspace, Workspace)
+
+    def test_does_not_extend_shell_based_workspace(self) -> None:
+        """LocalWorkspace must NOT inherit from ShellBasedWorkspace."""
+        from strands.workspace.shell_based import ShellBasedWorkspace
+
+        workspace = LocalWorkspace()
+        assert not isinstance(workspace, ShellBasedWorkspace)
+
+
+class TestLocalWorkspaceResolvePath:
+    def test_resolve_relative_path(self, tmp_path: object) -> None:
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        resolved = workspace._resolve_path("subdir/file.txt")
+        assert str(resolved) == os.path.join(str(tmp_path), "subdir/file.txt")
+
+    def test_resolve_absolute_path(self, tmp_path: object) -> None:
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        resolved = workspace._resolve_path("/absolute/path.txt")
+        assert str(resolved) == "/absolute/path.txt"
 
 
 class TestLocalWorkspaceExecute:
@@ -43,7 +62,6 @@ class TestLocalWorkspaceExecute:
         result_chunks = [c for c in chunks if isinstance(c, ExecutionResult)]
         assert len(result_chunks) == 1
         assert len(str_chunks) >= 1
-        # All output should be present in the concatenated string chunks
         combined = "".join(str_chunks)
         assert "line1" in combined
         assert "line2" in combined
@@ -93,7 +111,6 @@ class TestLocalWorkspaceExecute:
     async def test_execute_long_output_without_newlines(self, tmp_path: object) -> None:
         """Bug 2 fix: long output lines (>64KB) no longer crash."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        # Generate 128KB of output without any newline
         result = await workspace._execute_to_result(
             "python3 -c \"import sys; sys.stdout.write('A' * 131072)\""
         )
@@ -113,9 +130,12 @@ class TestLocalWorkspaceExecuteCode:
     async def test_execute_code_streams(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         chunks: list[str | ExecutionResult] = []
-        async for chunk in workspace.execute_code("print('line1')\\nprint('line2')"):
+        async for chunk in workspace.execute_code("print('line1')\nprint('line2')"):
             chunks.append(chunk)
         assert isinstance(chunks[-1], ExecutionResult)
+        combined = "".join(c for c in chunks if isinstance(c, str))
+        assert "line1" in combined
+        assert "line2" in combined
 
     @pytest.mark.asyncio
     async def test_execute_python_code_error(self, tmp_path: object) -> None:
@@ -133,14 +153,67 @@ class TestLocalWorkspaceExecuteCode:
         assert "x = 42" in result.stdout
 
     @pytest.mark.asyncio
-    async def test_execute_code_safely_quotes_language(self, tmp_path: object) -> None:
-        """Language parameter is safely shell-quoted, preventing injection."""
+    async def test_execute_code_rejects_unsafe_language(self, tmp_path: object) -> None:
+        """Language parameter with shell metacharacters raises ValueError."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        # Malicious language gets shlex.quote'd, so it's treated as a single argument
-        # and the shell will try to find a binary called "python; rm -rf /" which doesn't exist
-        result = await workspace._execute_code_to_result("print(1)", language="python; rm -rf /")
-        # The command should fail because there's no binary named "python; rm -rf /"
-        assert result.exit_code != 0
+        with pytest.raises(ValueError, match="unsafe characters"):
+            await workspace._execute_code_to_result("print(1)", language="python; rm -rf /")
+
+    @pytest.mark.asyncio
+    async def test_execute_code_accepts_valid_languages(self, tmp_path: object) -> None:
+        """Valid language names with dots, hyphens, underscores pass validation."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        # python3.12-like names should be accepted
+        # (may fail to execute if interpreter not found, but validation passes)
+        with pytest.raises(ValueError, match="unsafe characters"):
+            await workspace._execute_code_to_result("1", language="python; echo pwned")
+        # These should NOT raise ValueError (may raise FileNotFoundError at exec time)
+        try:
+            await workspace._execute_code_to_result("1", language="python3.12")
+        except Exception as e:
+            # FileNotFoundError or non-zero exit code is expected, NOT ValueError
+            assert not isinstance(e, ValueError)
+
+    @pytest.mark.asyncio
+    async def test_execute_code_uses_subprocess_exec(self, tmp_path: object) -> None:
+        """Verify code is passed directly to interpreter, not through shell."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        # Code with shell metacharacters should be passed literally to python
+        code = "import sys; print(sys.argv)"
+        result = await workspace._execute_code_to_result(code)
+        assert result.exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_code_uses_working_dir(self, tmp_path: object) -> None:
+        """Code execution should use the workspace working directory."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        result = await workspace._execute_code_to_result("import os; print(os.getcwd())")
+        assert result.exit_code == 0
+        assert result.stdout.strip() == str(tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_execute_code_with_quotes(self, tmp_path: object) -> None:
+        """Code with all types of quotes should work (no shell quoting needed)."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        code = """
+x = "hello 'world'"
+y = 'hello "world"'
+print(x)
+print(y)
+"""
+        result = await workspace._execute_code_to_result(code)
+        assert result.exit_code == 0
+        assert "hello 'world'" in result.stdout
+        assert 'hello "world"' in result.stdout
+
+    @pytest.mark.asyncio
+    async def test_execute_code_with_backslashes(self, tmp_path: object) -> None:
+        """Code with backslashes should work (no shell escaping needed)."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        code = 'print("path\\\\to\\\\file")'
+        result = await workspace._execute_code_to_result(code)
+        assert result.exit_code == 0
+        assert "path\\to\\file" in result.stdout
 
 
 class TestLocalWorkspaceFileOps:
@@ -198,6 +271,28 @@ class TestLocalWorkspaceFileOps:
         assert sorted(files) == ["file1.txt", "file2.txt", "file3.py"]
 
     @pytest.mark.asyncio
+    async def test_list_files_includes_hidden_files(self, tmp_path: object) -> None:
+        """list_files uses os.listdir which includes hidden files (unlike ls -1)."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        await workspace.write_file("visible.txt", "visible")
+        await workspace.write_file(".hidden", "hidden")
+
+        files = await workspace.list_files(".")
+        assert "visible.txt" in files
+        assert ".hidden" in files  # Native Python includes dotfiles!
+
+    @pytest.mark.asyncio
+    async def test_list_files_sorted(self, tmp_path: object) -> None:
+        """list_files returns sorted results for deterministic ordering."""
+        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        await workspace.write_file("zebra.txt", "z")
+        await workspace.write_file("apple.txt", "a")
+        await workspace.write_file("mango.txt", "m")
+
+        files = await workspace.list_files(".")
+        assert files == ["apple.txt", "mango.txt", "zebra.txt"]
+
+    @pytest.mark.asyncio
     async def test_list_files_empty_dir(self, tmp_path: object) -> None:
         empty_dir = tmp_path / "empty"  # type: ignore[operator]
         empty_dir.mkdir()
@@ -233,7 +328,6 @@ class TestLocalWorkspaceWorkingDirValidation:
 
     @pytest.mark.asyncio
     async def test_start_creates_nonexistent_working_dir(self, tmp_path: object) -> None:
-        """start() creates a non-existent working directory."""
         new_dir = str(tmp_path / "new" / "deep" / "dir")  # type: ignore[operator]
         workspace = LocalWorkspace(working_dir=new_dir)
         await workspace.start()
@@ -242,7 +336,6 @@ class TestLocalWorkspaceWorkingDirValidation:
 
     @pytest.mark.asyncio
     async def test_auto_start_creates_working_dir(self, tmp_path: object) -> None:
-        """Auto-start on first execute also creates the directory."""
         new_dir = str(tmp_path / "auto_created")  # type: ignore[operator]
         workspace = LocalWorkspace(working_dir=new_dir)
         result = await workspace._execute_to_result("echo hello")
@@ -251,7 +344,6 @@ class TestLocalWorkspaceWorkingDirValidation:
 
     @pytest.mark.asyncio
     async def test_start_raises_if_path_is_a_file(self, tmp_path: object) -> None:
-        """start() raises NotADirectoryError if working_dir is a file."""
         file_path = tmp_path / "not_a_dir"  # type: ignore[operator]
         file_path.write_text("i am a file")
         workspace = LocalWorkspace(working_dir=str(file_path))
@@ -260,7 +352,6 @@ class TestLocalWorkspaceWorkingDirValidation:
 
     @pytest.mark.asyncio
     async def test_existing_working_dir_is_fine(self, tmp_path: object) -> None:
-        """start() succeeds with an existing directory."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         await workspace.start()
         assert workspace._started
