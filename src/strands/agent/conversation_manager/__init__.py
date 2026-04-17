@@ -8,11 +8,13 @@ It includes:
   size while preserving conversation coherence
 - SummarizingConversationManager: An implementation that summarizes older context instead
   of simply trimming it
+- estimate_tokens: Lightweight token estimation utility (chars/4 heuristic) for conversation managers
 
 Conversation managers help control memory usage and context length while maintaining relevant conversation state, which
 is critical for effective agent interactions.
 """
 
+from ._token_utils import TokenCounter, estimate_tokens
 from .conversation_manager import ConversationManager
 from .null_conversation_manager import NullConversationManager
 from .sliding_window_conversation_manager import SlidingWindowConversationManager
@@ -23,4 +25,6 @@ __all__ = [
     "NullConversationManager",
     "SlidingWindowConversationManager",
     "SummarizingConversationManager",
+    "TokenCounter",
+    "estimate_tokens",
 ]

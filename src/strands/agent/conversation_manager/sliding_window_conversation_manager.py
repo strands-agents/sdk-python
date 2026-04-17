@@ -10,6 +10,7 @@ from ...hooks import BeforeModelCallEvent, HookRegistry
 from ...types.content import ContentBlock, Messages
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import ToolResultContent
+from ._token_utils import TokenCounter, estimate_tokens
 from .conversation_manager import ConversationManager
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,9 @@ class SlidingWindowConversationManager(ConversationManager):
         should_truncate_results: bool = True,
         *,
         per_turn: bool | int = False,
+        max_context_tokens: int | None = None,
+        token_counter: TokenCounter | None = None,
+        compactable_after_messages: int | None = None,
     ):
         """Initialize the sliding window conversation manager.
 
@@ -54,19 +58,45 @@ class SlidingWindowConversationManager(ConversationManager):
                 manage message history and prevent the agent loop from slowing down. Start with
                 per_turn=True and adjust to a specific frequency (e.g., per_turn=5) if needed
                 for performance tuning.
+            max_context_tokens: Optional maximum token budget for the conversation context.
+                When set, the manager checks both message count and estimated token count,
+                trimming oldest messages when the budget is exceeded. Uses the configured
+                ``token_counter`` heuristic (chars/4 by default). Note: when both
+                ``max_context_tokens`` and ``window_size`` are set, either limit can
+                independently trigger context reduction.
+            token_counter: Optional custom token counting function. Takes a Messages list
+                and returns an integer token count. When not provided, the built-in
+                ``estimate_tokens`` heuristic (chars/4) is used.
+            compactable_after_messages: Optional message age after which tool results are
+                replaced with a short stub (``[Tool result cleared — re-run if needed]``).
+                This reclaims token budget from stale, re-runnable tool output while
+                preserving the toolUse/toolResult pair structure required by model APIs.
 
         Raises:
-            ValueError: If per_turn is 0 or a negative integer.
+            ValueError: If per_turn is 0 or a negative integer, or if compactable_after_messages
+                is not a positive integer.
         """
         if isinstance(per_turn, int) and not isinstance(per_turn, bool) and per_turn <= 0:
             raise ValueError(f"per_turn must be a positive integer, True, or False, got {per_turn}")
+
+        if max_context_tokens is not None and max_context_tokens <= 0:
+            raise ValueError(f"max_context_tokens must be a positive integer, got {max_context_tokens}")
+
+        if compactable_after_messages is not None and compactable_after_messages <= 0:
+            raise ValueError(
+                f"compactable_after_messages must be a positive integer, got {compactable_after_messages}"
+            )
 
         super().__init__()
 
         self.window_size = window_size
         self.should_truncate_results = should_truncate_results
         self.per_turn = per_turn
+        self.max_context_tokens = max_context_tokens
+        self.token_counter: TokenCounter = token_counter or estimate_tokens
+        self.compactable_after_messages = compactable_after_messages
         self._model_call_count = 0
+        self._last_compacted_index = 0
 
     def register_hooks(self, registry: "HookRegistry", **kwargs: Any) -> None:
         """Register hook callbacks for per-turn conversation management.
@@ -77,18 +107,35 @@ class SlidingWindowConversationManager(ConversationManager):
         """
         super().register_hooks(registry, **kwargs)
 
-        # Always register the callback - per_turn check happens in the callback
+        # Always register — per_turn and max_context_tokens checks happen in the callback
         registry.add_callback(BeforeModelCallEvent, self._on_before_model_call)
 
     def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
-        """Handle before model call event for per-turn management.
+        """Handle before model call event for per-turn management and token budget enforcement.
 
-        This callback is invoked before each model call. It tracks the model call count and applies message management
-        based on the per_turn configuration.
+        This callback is invoked before each model call. When ``max_context_tokens`` is set,
+        it checks the token budget and triggers ``apply_management`` (which includes
+        micro-compaction) if the budget is exceeded. It also tracks the model call count
+        and applies per-turn management when configured.
 
         Args:
             event: The before model call event containing the agent and model execution details.
         """
+        # Token-budget check runs independently of per_turn.
+        # NOTE (H1): When both max_context_tokens and per_turn are set, this may call
+        # apply_management twice in one hook invocation. The second call is a safe no-op
+        # (limits already satisfied after the first reduction) but adds a redundant scan.
+        # If profiling shows this matters, add an early return after the apply_management below.
+        if self.max_context_tokens is not None:
+            current_tokens = self._get_current_token_count(event.agent)
+            if current_tokens > self.max_context_tokens:
+                logger.debug(
+                    "current_tokens=<%d>, max_context_tokens=<%d> | token budget exceeded, reducing context",
+                    current_tokens,
+                    self.max_context_tokens,
+                )
+                self.apply_management(event.agent)
+
         # Check if per_turn is enabled
         if self.per_turn is False:
             return
@@ -118,6 +165,7 @@ class SlidingWindowConversationManager(ConversationManager):
         """
         state = super().get_state()
         state["model_call_count"] = self._model_call_count
+        state["last_compacted_index"] = self._last_compacted_index
         return state
 
     def restore_from_session(self, state: dict[str, Any]) -> list | None:
@@ -131,13 +179,15 @@ class SlidingWindowConversationManager(ConversationManager):
         """
         result = super().restore_from_session(state)
         self._model_call_count = state.get("model_call_count", 0)
+        self._last_compacted_index = state.get("last_compacted_index", 0)
         return result
 
     def apply_management(self, agent: "Agent", **kwargs: Any) -> None:
         """Apply the sliding window to the agent's messages array to maintain a manageable history size.
 
-        This method is called after every event loop cycle to apply a sliding window if the message count
-        exceeds the window size.
+        This method is called after every event loop cycle. It applies micro-compaction for stale tool
+        results (if configured), then checks both message count and token budget limits to decide
+        whether to reduce context.
 
         Args:
             agent: The agent whose messages will be managed.
@@ -146,7 +196,16 @@ class SlidingWindowConversationManager(ConversationManager):
         """
         messages = agent.messages
 
-        if len(messages) <= self.window_size:
+        # Micro-compact stale tool results before checking limits
+        if self.compactable_after_messages is not None:
+            self._micro_compact(messages)
+
+        over_message_limit = len(messages) > self.window_size
+        over_token_limit = (
+            self.max_context_tokens is not None and self._get_current_token_count(agent) > self.max_context_tokens
+        )
+
+        if not over_message_limit and not over_token_limit:
             logger.debug(
                 "message_count=<%s>, window_size=<%s> | skipping context reduction", len(messages), self.window_size
             )
@@ -229,8 +288,75 @@ class SlidingWindowConversationManager(ConversationManager):
         # trim_index represents the number of messages being removed from the agents messages array
         self.removed_message_count += trim_index
 
+        # Adjust compaction tracking index
+        self._last_compacted_index = max(0, self._last_compacted_index - trim_index)
+
         # Overwrite message history
         messages[:] = messages[trim_index:]
+
+    def _get_current_token_count(self, agent: "Agent") -> int:
+        """Estimate the current token count for the conversation context.
+
+        Always uses the configured ``token_counter`` heuristic rather than model-reported
+        ``latest_context_size``, because the model-reported value reflects the *previous*
+        cycle and becomes stale after any reduction — leading to over-reduction spirals.
+
+        Args:
+            agent: The agent whose context size is being measured.
+
+        Returns:
+            The estimated token count.
+        """
+        return self.token_counter(agent.messages)
+
+    _COMPACT_STUB = "[Tool result cleared — re-run if needed]"
+
+    def _micro_compact(self, messages: Messages) -> int:
+        """Replace old tool results with compact stubs to reclaim token budget.
+
+        Tool results older than ``compactable_after_messages`` messages from the end of the
+        conversation are replaced with a short stub. The toolUse/toolResult pair structure
+        is preserved — only the content within toolResult blocks is replaced.
+
+        Tracks ``_last_compacted_index`` to skip already-processed messages on subsequent calls.
+
+        Args:
+            messages: The conversation message history (modified in-place).
+
+        Returns:
+            Estimated number of tokens reclaimed.
+        """
+        if self.compactable_after_messages is None:
+            return 0
+
+        # NOTE (M1): Clamp index in case messages were externally replaced or shortened
+        # between calls (e.g., manual agent.messages reset, session restore mismatch).
+        self._last_compacted_index = min(self._last_compacted_index, len(messages))
+
+        reclaimed_chars = 0
+        cutoff = len(messages) - self.compactable_after_messages
+
+        # NOTE (M2): reclaimed_chars may overcount if text was already truncated by
+        # _truncate_tool_results — the return value is an estimate, not used for decisions.
+        for i in range(self._last_compacted_index, max(0, cutoff)):
+            msg = messages[i]
+            for block in msg.get("content", []):
+                if "toolResult" not in block:
+                    continue
+                result = block["toolResult"]
+                items = result.get("content", [])
+                for j, item in enumerate(items):
+                    if "text" in item and item["text"] != self._COMPACT_STUB:
+                        reclaimed_chars += len(item["text"])
+                        items[j] = {"text": self._COMPACT_STUB}
+                    elif "image" in item:
+                        reclaimed_chars += 200
+                        items[j] = {"text": self._COMPACT_STUB}
+
+        if cutoff > 0:
+            self._last_compacted_index = max(self._last_compacted_index, cutoff)
+
+        return reclaimed_chars // 4
 
     def _truncate_tool_results(self, messages: Messages, msg_idx: int) -> bool:
         """Truncate tool results and replace image blocks in a message to reduce context size.
