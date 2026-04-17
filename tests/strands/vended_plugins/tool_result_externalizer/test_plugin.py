@@ -143,11 +143,10 @@ class TestToolResultExternalizer:
         assert "[Externalized:" in event.result["content"][0]["text"]
         assert event.result["content"][1]["text"] == "[image: png, 1024 bytes]"
 
-    def test_document_blocks_preserved_as_is(self, plugin, mock_agent):
-        doc_block = {"document": {"format": "pdf", "name": "report.pdf", "source": {"bytes": b"pdf"}}}
+    def test_document_blocks_replaced_with_placeholder(self, plugin, mock_agent):
         content = [
             {"text": "x" * 200},
-            doc_block,
+            {"document": {"format": "pdf", "name": "report.pdf", "source": {"bytes": b"pdf" * 100}}},
         ]
         event = _make_event(mock_agent, content)
 
@@ -155,7 +154,7 @@ class TestToolResultExternalizer:
 
         assert len(event.result["content"]) == 2
         assert "[Externalized:" in event.result["content"][0]["text"]
-        assert event.result["content"][1] is doc_block
+        assert event.result["content"][1]["text"] == "[document: pdf, report.pdf, 300 bytes]"
 
     def test_multiple_text_blocks_concatenated(self, plugin, storage, mock_agent):
         content = [

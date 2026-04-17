@@ -47,9 +47,8 @@ class ToolResultExternalizer(Plugin):
 
     1. Persists the full text and JSON content to a storage backend
     2. Replaces the in-context result with a truncated preview plus a reference
-    3. Replaces image blocks with descriptive placeholders (following the
-       ``SlidingWindowConversationManager`` pattern)
-    4. Preserves document content blocks as-is
+    3. Replaces image and document blocks with descriptive placeholders (following the
+       ``SlidingWindowConversationManager`` pattern for images)
 
     This operates proactively at tool execution time via ``AfterToolCallEvent``,
     before the result enters the conversation — unlike ``SlidingWindowConversationManager``
@@ -134,14 +133,14 @@ class ToolResultExternalizer(Plugin):
         # Build new content:
         #   - Preview text block first
         #   - Images replaced with placeholders (following SlidingWindowConversationManager)
-        #   - Documents preserved as-is
+        #   - Documents replaced with placeholders
         #   - Text and JSON blocks are already captured in the externalized content
         new_content: list[ToolResultContent] = [ToolResultContent(text=preview_text)]
         for block in content:
             if "image" in block:
                 new_content.append(ToolResultContent(text=self._image_placeholder(block["image"])))
             elif "document" in block:
-                new_content.append(block)
+                new_content.append(ToolResultContent(text=self._document_placeholder(block["document"])))
 
         event.result = ToolResult(
             toolUseId=result["toolUseId"],
@@ -165,3 +164,19 @@ class ToolResultExternalizer(Plugin):
         media_type = image_block.get("format", "unknown")
         data = source.get("bytes", b"")
         return f"[image: {media_type}, {len(data) if data else 0} bytes]"
+
+    @staticmethod
+    def _document_placeholder(document_block: Any) -> str:
+        """Create a descriptive placeholder for a document block.
+
+        Args:
+            document_block: The document content block.
+
+        Returns:
+            A placeholder string describing the document.
+        """
+        name = document_block.get("name", "unknown")
+        doc_format = document_block.get("format", "unknown")
+        source: Any = document_block.get("source", {})
+        data = source.get("bytes", b"")
+        return f"[document: {doc_format}, {name}, {len(data) if data else 0} bytes]"
