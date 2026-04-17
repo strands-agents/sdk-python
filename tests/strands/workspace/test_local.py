@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from pathlib import Path
 
 import pytest
 
@@ -35,12 +36,14 @@ class TestLocalWorkspaceResolvePath:
     def test_resolve_relative_path(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         resolved = workspace._resolve_path("subdir/file.txt")
-        assert str(resolved) == os.path.join(str(tmp_path), "subdir/file.txt")
+        expected = Path(str(tmp_path)) / "subdir" / "file.txt"
+        assert resolved == expected
 
     def test_resolve_absolute_path(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        resolved = workspace._resolve_path("/absolute/path.txt")
-        assert str(resolved) == "/absolute/path.txt"
+        abs_path = str(Path(str(tmp_path)) / "absolute" / "path.txt")
+        resolved = workspace._resolve_path(abs_path)
+        assert str(resolved) == abs_path
 
 
 class TestLocalWorkspaceExecute:

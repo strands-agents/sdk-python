@@ -169,9 +169,12 @@ class TestLocalWorkspaceEdgeCases:
 
     @pytest.mark.asyncio
     async def test_read_nonexistent_with_special_chars_in_path(self, tmp_path):
-        """read_file with special chars in path should raise FileNotFoundError."""
+        """read_file with special chars in path should raise FileNotFoundError.
+
+        On Windows, ' and " are invalid in file paths, raising OSError instead.
+        """
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        with pytest.raises(FileNotFoundError):
+        with pytest.raises((FileNotFoundError, OSError)):
             await workspace.read_file("nonexistent 'file\".txt")
 
     @pytest.mark.asyncio
