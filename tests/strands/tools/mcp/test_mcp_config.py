@@ -26,7 +26,8 @@ class TestDetectTransport:
         assert _detect_transport({"transport": "sse", "url": "http://localhost:8000/sse"}) == "sse"
 
     def test_explicit_streamable_http(self):
-        assert _detect_transport({"transport": "streamable-http", "url": "http://localhost:8000/mcp"}) == "streamable-http"
+        config = {"transport": "streamable-http", "url": "http://localhost:8000/mcp"}
+        assert _detect_transport(config) == "streamable-http"
 
     def test_infer_stdio_from_command(self):
         assert _detect_transport({"command": "uvx"}) == "stdio"

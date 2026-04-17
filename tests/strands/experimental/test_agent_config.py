@@ -202,7 +202,7 @@ def test_config_to_agent_mcp_servers_appended_to_tools(mock_load_mcp):
             "test_server": {"command": "echo"},
         },
     }
-    agent = config_to_agent(config)
+    config_to_agent(config)
 
     # The MCP client should be in the agent's tools
     mock_load_mcp.assert_called_once()
@@ -225,7 +225,7 @@ def test_config_to_agent_multiple_mcp_servers(mock_load_mcp):
             "server_b": {"transport": "sse", "url": "http://localhost:8000/sse"},
         },
     }
-    agent = config_to_agent(config)
+    config_to_agent(config)
 
     mock_load_mcp.assert_called_once_with(config["mcp_servers"])
 
