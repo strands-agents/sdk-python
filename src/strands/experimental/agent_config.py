@@ -18,6 +18,8 @@ from typing import Any
 import jsonschema
 from jsonschema import ValidationError
 
+from ..tools.mcp.mcp_config import MCP_SERVER_CONFIG_SCHEMA
+
 # JSON Schema for agent configuration
 AGENT_CONFIG_SCHEMA = {
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -43,6 +45,7 @@ AGENT_CONFIG_SCHEMA = {
             "items": {"type": "string"},
             "default": [],
         },
+        "mcp_servers": MCP_SERVER_CONFIG_SCHEMA,
     },
     "additionalProperties": False,
 }
@@ -54,12 +57,27 @@ _VALIDATOR = jsonschema.Draft7Validator(AGENT_CONFIG_SCHEMA)
 def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> Any:
     """Create an Agent from a configuration file or dictionary.
 
-    This function supports tools that can be loaded declaratively (file paths, module names,
-    or @tool annotated functions). For tools requiring code-based instantiation with constructor
-    arguments, add them programmatically after creating the agent:
+    This function supports tools that can be loaded declaratively (file paths,
+    module names, or @tool annotated functions). For tools requiring code-based
+    instantiation with constructor arguments, add them programmatically after
+    creating the agent:
 
         agent = config_to_agent("config.json")
         agent.process_tools([ToolWithConfigArg(HttpsConnection("localhost"))])
+
+    MCP servers can be configured declaratively in the config under the
+    ``mcp_servers`` key. The format is compatible with the Claude Desktop /
+    Cursor / VS Code mcpServers convention::
+
+        {
+            "model": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+            "mcp_servers": {
+                "aws_docs": {
+                    "command": "uvx",
+                    "args": ["awslabs.aws-documentation-mcp-server@latest"]
+                }
+            }
+        }
 
     Args:
         config: Either a file path (with optional file:// prefix) or a configuration dictionary
@@ -75,20 +93,32 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> A
 
     Examples:
         Create agent from file:
+
         >>> agent = config_to_agent("/path/to/config.json")
 
         Create agent from file with file:// prefix:
+
         >>> agent = config_to_agent("file:///path/to/config.json")
 
         Create agent from dictionary:
+
         >>> config = {"model": "anthropic.claude-3-5-sonnet-20241022-v2:0", "tools": ["calculator"]}
+        >>> agent = config_to_agent(config)
+
+        Create agent with MCP servers:
+
+        >>> config = {
+        ...     "model": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        ...     "mcp_servers": {
+        ...         "my_server": {"command": "uvx", "args": ["my-mcp-server"]}
+        ...     }
+        ... }
         >>> agent = config_to_agent(config)
     """
     # Parse configuration
     if isinstance(config, str):
         # Handle file path
         file_path = config
-
         # Remove file:// prefix if present
         if file_path.startswith("file://"):
             file_path = file_path[7:]
@@ -128,6 +158,17 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> A
     for config_key, agent_param in config_mapping.items():
         if config_key in config_dict and config_dict[config_key] is not None:
             agent_kwargs[agent_param] = config_dict[config_key]
+
+    # Process mcp_servers configuration
+    if "mcp_servers" in config_dict and config_dict["mcp_servers"]:
+        from ..tools.mcp.mcp_config import load_mcp_clients_from_config
+
+        mcp_clients = load_mcp_clients_from_config(config_dict["mcp_servers"])
+
+        # Append MCP clients to the tools list
+        tools = list(agent_kwargs.get("tools", []))
+        tools.extend(mcp_clients.values())
+        agent_kwargs["tools"] = tools
 
     # Override with any additional kwargs provided
     agent_kwargs.update(kwargs)

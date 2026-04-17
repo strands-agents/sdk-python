@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -45,14 +46,12 @@ def test_config_to_agent_file_prefix_required():
 
     config_data = {"model": "test-model"}
     temp_path = ""
-
     # We need to create files like this for windows compatibility
     try:
         with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as f:
             json.dump(config_data, f)
             f.flush()
             temp_path = f.name
-
         agent = config_to_agent(temp_path)
         assert agent.model.config["model_id"] == "test-model"
     finally:
@@ -65,13 +64,11 @@ def test_config_to_agent_file_prefix_valid():
     """Test that file:// prefix is properly handled."""
     config_data = {"model": "test-model", "prompt": "Test prompt"}
     temp_path = ""
-
     try:
         with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as f:
             json.dump(config_data, f)
             f.flush()
             temp_path = f.name
-
         agent = config_to_agent(f"file://{temp_path}")
         assert agent.model.config["model_id"] == "test-model"
         assert agent.system_prompt == "Test prompt"
@@ -93,7 +90,6 @@ def test_config_to_agent_invalid_json():
         with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as f:
             f.write("invalid json content")
             temp_path = f.name
-
         with pytest.raises(json.JSONDecodeError):
             config_to_agent(temp_path)
     finally:
@@ -170,3 +166,111 @@ def test_config_to_agent_with_tool():
     config = {"model": "test-model", "tools": ["tests.fixtures.say_tool:say"]}
     agent = config_to_agent(config)
     assert "say" in agent.tool_names
+
+
+# === MCP Server Configuration Tests ===
+
+
+@patch("strands.tools.mcp.mcp_config.load_mcp_clients_from_config")
+def test_config_to_agent_with_mcp_servers(mock_load_mcp):
+    """Test config_to_agent creates MCP clients from mcp_servers config."""
+    mock_client = MagicMock()
+    mock_load_mcp.return_value = {"test_server": mock_client}
+
+    config = {
+        "model": "test-model",
+        "mcp_servers": {
+            "test_server": {"command": "echo", "args": ["hello"]},
+        },
+    }
+    agent = config_to_agent(config)
+
+    mock_load_mcp.assert_called_once_with(config["mcp_servers"])
+    assert agent.model.config["model_id"] == "test-model"
+
+
+@patch("strands.tools.mcp.mcp_config.load_mcp_clients_from_config")
+def test_config_to_agent_mcp_servers_appended_to_tools(mock_load_mcp):
+    """Test that MCP clients are appended to existing tools list."""
+    mock_client = MagicMock()
+    mock_load_mcp.return_value = {"test_server": mock_client}
+
+    config = {
+        "model": "test-model",
+        "tools": [],
+        "mcp_servers": {
+            "test_server": {"command": "echo"},
+        },
+    }
+    agent = config_to_agent(config)
+
+    # The MCP client should be in the agent's tools
+    mock_load_mcp.assert_called_once()
+
+
+@patch("strands.tools.mcp.mcp_config.load_mcp_clients_from_config")
+def test_config_to_agent_multiple_mcp_servers(mock_load_mcp):
+    """Test config_to_agent handles multiple MCP servers."""
+    mock_client_a = MagicMock()
+    mock_client_b = MagicMock()
+    mock_load_mcp.return_value = {
+        "server_a": mock_client_a,
+        "server_b": mock_client_b,
+    }
+
+    config = {
+        "model": "test-model",
+        "mcp_servers": {
+            "server_a": {"command": "echo"},
+            "server_b": {"transport": "sse", "url": "http://localhost:8000/sse"},
+        },
+    }
+    agent = config_to_agent(config)
+
+    mock_load_mcp.assert_called_once_with(config["mcp_servers"])
+
+
+def test_config_to_agent_empty_mcp_servers():
+    """Test config_to_agent handles empty mcp_servers gracefully."""
+    config = {"model": "test-model", "mcp_servers": {}}
+    agent = config_to_agent(config)
+    assert agent.model.config["model_id"] == "test-model"
+
+
+def test_config_to_agent_mcp_servers_validation_error():
+    """Test that invalid mcp_servers config raises validation errors."""
+    config = {
+        "model": "test-model",
+        "mcp_servers": {
+            "bad_server": {"invalid_field": "value"},
+        },
+    }
+    with pytest.raises(ValueError, match="Configuration validation error"):
+        config_to_agent(config)
+
+
+@patch("strands.tools.mcp.mcp_config.load_mcp_clients_from_config")
+def test_config_to_agent_mcp_servers_from_file(mock_load_mcp):
+    """Test loading mcp_servers from a config file."""
+    mock_client = MagicMock()
+    mock_load_mcp.return_value = {"test_server": mock_client}
+
+    config_data = {
+        "model": "test-model",
+        "mcp_servers": {
+            "test_server": {"command": "echo"},
+        },
+    }
+    temp_path = ""
+    try:
+        with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as f:
+            json.dump(config_data, f)
+            f.flush()
+            temp_path = f.name
+
+        agent = config_to_agent(temp_path)
+        mock_load_mcp.assert_called_once()
+        assert agent.model.config["model_id"] == "test-model"
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
