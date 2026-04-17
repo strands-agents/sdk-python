@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Any
 from mcp.types import Tool as MCPTool
 from typing_extensions import override
 
-from ...types._events import ToolResultEvent
-from ...types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
+from ..types._events import ToolResultEvent
+from ..types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
     from .mcp_client import MCPClient
