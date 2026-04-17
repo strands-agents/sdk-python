@@ -19,7 +19,7 @@ Example:
     agent = Agent(plugins=[
         ToolResultExternalizer(
             storage=FileExternalizationStorage("./artifacts"),
-            size_threshold_chars=20_000,
+            max_result_chars=20_000,
             preview_chars=8_000,
         )
     ])
@@ -39,6 +39,12 @@ from .storage import ExternalizationStorage, InMemoryExternalizationStorage
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_MAX_RESULT_CHARS = 10_000
+"""Default character threshold above which tool results are externalized."""
+
+_DEFAULT_PREVIEW_CHARS = 4_000
+"""Default number of characters to keep as a preview in context."""
+
 
 class ToolResultExternalizer(Plugin):
     """Plugin that externalizes oversized tool results to reduce context consumption.
@@ -56,7 +62,7 @@ class ToolResultExternalizer(Plugin):
 
     Args:
         storage: Backend for storing externalized content. Defaults to in-memory storage.
-        size_threshold_chars: Externalize text results exceeding this many characters.
+        max_result_chars: Externalize text results exceeding this many characters.
         preview_chars: Number of characters to keep as a preview in context.
 
     Example:
@@ -73,18 +79,20 @@ class ToolResultExternalizer(Plugin):
     def __init__(
         self,
         storage: ExternalizationStorage | None = None,
-        size_threshold_chars: int = 10_000,
-        preview_chars: int = 4_000,
+        max_result_chars: int = _DEFAULT_MAX_RESULT_CHARS,
+        preview_chars: int = _DEFAULT_PREVIEW_CHARS,
     ) -> None:
         """Initialize the ToolResultExternalizer plugin.
 
         Args:
             storage: Backend for storing externalized content. Defaults to in-memory storage.
-            size_threshold_chars: Externalize text results exceeding this many characters.
+            max_result_chars: Externalize text results exceeding this many characters.
+                Defaults to ``_DEFAULT_MAX_RESULT_CHARS`` (10,000).
             preview_chars: Number of characters to keep as a preview in context.
+                Defaults to ``_DEFAULT_PREVIEW_CHARS`` (4,000).
         """
         self._storage: ExternalizationStorage = storage or InMemoryExternalizationStorage()
-        self._size_threshold_chars = size_threshold_chars
+        self._max_result_chars = max_result_chars
         self._preview_chars = preview_chars
         super().__init__()
 
@@ -106,7 +114,7 @@ class ToolResultExternalizer(Plugin):
                 text_parts.append(json.dumps(block["json"], indent=2))
 
         total_chars = sum(len(t) for t in text_parts)
-        if total_chars <= self._size_threshold_chars:
+        if total_chars <= self._max_result_chars:
             return
 
         full_text = "\n".join(text_parts)

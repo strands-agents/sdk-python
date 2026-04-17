@@ -35,11 +35,30 @@ from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 
 
+def _sanitize_id(tool_use_id: str) -> str:
+    """Sanitize a tool use ID for safe use in filenames and object keys.
+
+    Replaces path separators, parent directory references, and other
+    unsafe characters with underscores.
+
+    Args:
+        tool_use_id: The raw tool use ID.
+
+    Returns:
+        A sanitized string safe for use in filenames.
+    """
+    sanitized = tool_use_id.replace("..", "_").replace("/", "_").replace("\\", "_")
+    sanitized = re.sub(r"[^\w\-.]", "_", sanitized)
+    return sanitized
+
+
 @runtime_checkable
 class ExternalizationStorage(Protocol):
     """Backend for storing and retrieving externalized tool results.
 
-    Implement this protocol to create custom storage backends (e.g., S3, Redis).
+    The SDK ships three built-in implementations: ``InMemoryExternalizationStorage``,
+    ``FileExternalizationStorage``, and ``S3ExternalizationStorage``. Implement this
+    protocol to create custom storage backends (e.g., Redis, DynamoDB).
     """
 
     def store(self, tool_use_id: str, content: str) -> str:
@@ -101,7 +120,7 @@ class FileExternalizationStorage:
         """
         self._artifact_dir.mkdir(parents=True, exist_ok=True)
 
-        sanitized_id = self._sanitize_id(tool_use_id)
+        sanitized_id = _sanitize_id(tool_use_id)
         timestamp_ms = int(time.time() * 1000)
         with self._lock:
             self._counter += 1
@@ -131,23 +150,6 @@ class FileExternalizationStorage:
         if not file_path.is_file():
             raise KeyError(f"Reference not found: {reference}")
         return file_path.read_text(encoding="utf-8")
-
-    @staticmethod
-    def _sanitize_id(tool_use_id: str) -> str:
-        """Sanitize a tool use ID for safe use in filenames.
-
-        Replaces path separators, parent directory references, and other
-        unsafe characters with underscores.
-
-        Args:
-            tool_use_id: The raw tool use ID.
-
-        Returns:
-            A sanitized string safe for use in filenames.
-        """
-        sanitized = tool_use_id.replace("..", "_").replace("/", "_").replace("\\", "_")
-        sanitized = re.sub(r"[^\w\-.]", "_", sanitized)
-        return sanitized
 
 
 class InMemoryExternalizationStorage:
@@ -268,7 +270,7 @@ class S3ExternalizationStorage:
         Returns:
             The S3 object key used as the reference.
         """
-        sanitized_id = FileExternalizationStorage._sanitize_id(tool_use_id)
+        sanitized_id = _sanitize_id(tool_use_id)
         timestamp_ms = int(time.time() * 1000)
         with self._lock:
             self._counter += 1

@@ -21,7 +21,7 @@ def storage():
 def plugin(storage):
     return ToolResultExternalizer(
         storage=storage,
-        size_threshold_chars=100,
+        max_result_chars=100,
         preview_chars=50,
     )
 
@@ -233,7 +233,7 @@ class TestToolResultExternalizer:
 
         plugin = ToolResultExternalizer(
             storage=failing_storage,
-            size_threshold_chars=100,
+            max_result_chars=100,
             preview_chars=50,
         )
 
@@ -272,3 +272,52 @@ class TestToolResultExternalizer:
 
         assert event.result["content"][1]["text"] == "[image: jpeg, 300 bytes]"
         assert event.result["content"][2]["text"] == "[image: png, 0 bytes]"
+
+    def test_document_only_content_passes_through(self, plugin, mock_agent):
+        content = [{"document": {"format": "pdf", "name": "report.pdf", "source": {"bytes": b"pdf"}}}]
+        event = _make_event(mock_agent, content)
+        original_content = event.result["content"]
+
+        plugin._handle_tool_result(event)
+
+        assert event.result["content"] is original_content
+
+    def test_document_placeholder_format(self, plugin, mock_agent):
+        content = [
+            {"text": "x" * 200},
+            {"document": {"format": "csv", "name": "data.csv", "source": {"bytes": b"a,b\n1,2" * 50}}},
+            {"document": {"format": "unknown", "name": "unknown", "source": {}}},
+        ]
+        event = _make_event(mock_agent, content)
+
+        plugin._handle_tool_result(event)
+
+        assert event.result["content"][1]["text"] == "[document: csv, data.csv, 350 bytes]"
+        assert event.result["content"][2]["text"] == "[document: unknown, unknown, 0 bytes]"
+
+    def test_all_content_types_mixed(self, plugin, storage, mock_agent):
+        import json
+
+        large_json = {"rows": [{"id": i} for i in range(20)]}
+        content = [
+            {"text": "a" * 60},
+            {"json": large_json},
+            {"image": {"format": "png", "source": {"bytes": b"img" * 500}}},
+            {"document": {"format": "pdf", "name": "report.pdf", "source": {"bytes": b"pdf" * 200}}},
+        ]
+        event = _make_event(mock_agent, content)
+
+        plugin._handle_tool_result(event)
+
+        result_content = event.result["content"]
+        # Preview + image placeholder + document placeholder = 3 blocks
+        assert len(result_content) == 3
+        assert "[Externalized:" in result_content[0]["text"]
+        assert result_content[1]["text"] == "[image: png, 1500 bytes]"
+        assert result_content[2]["text"] == "[document: pdf, report.pdf, 600 bytes]"
+
+        # Verify stored content has both text and JSON
+        ref = result_content[0]["text"].split("ref: ")[1].split("]")[0]
+        stored = storage.retrieve(ref)
+        assert "a" * 60 in stored
+        assert json.dumps(large_json, indent=2) in stored

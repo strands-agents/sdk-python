@@ -19,7 +19,7 @@ Example Usage:
     agent = Agent(plugins=[
         ToolResultExternalizer(
             storage=FileExternalizationStorage("./artifacts"),
-            size_threshold_chars=20_000,
+            max_result_chars=20_000,
             preview_chars=8_000,
         )
     ])
