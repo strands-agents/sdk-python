@@ -85,9 +85,12 @@ class TestLocalWorkspaceExecute:
     @pytest.mark.asyncio
     async def test_execute_uses_working_dir(self, tmp_path: object) -> None:
         workspace = LocalWorkspace(working_dir=str(tmp_path))
-        result = await workspace._execute_to_result("pwd")
+        # Use python to print cwd instead of 'pwd' for cross-platform compatibility.
+        # On Windows, 'pwd' (via Git Bash) returns MSYS-style paths (/c/Users/...)
+        # which don't match the native Windows path (C:\Users\...).
+        result = await workspace._execute_to_result('python -c "import os; print(os.getcwd())"')
         assert result.exit_code == 0
-        assert result.stdout.strip() == str(tmp_path)
+        assert os.path.normpath(result.stdout.strip()) == os.path.normpath(str(tmp_path))
 
     @pytest.mark.asyncio
     async def test_execute_timeout(self, tmp_path: object) -> None:

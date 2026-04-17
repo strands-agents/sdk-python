@@ -38,6 +38,7 @@ from ..types._snapshot import (
     resolve_snapshot_fields,
 )
 from ..workspace.base import Workspace
+from ..workspace.local import LocalWorkspace
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
@@ -216,9 +217,9 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
-            workspace: Optional execution environment for agent tools. Tools access the workspace
+            workspace: Execution environment for agent tools. Tools access the workspace
                 via tool_context.agent.workspace to execute commands, code, and filesystem operations.
-                Defaults to None (no workspace). Pass a LocalWorkspace for local host execution.
+                Defaults to LocalWorkspace() for local host execution when not specified.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -304,7 +305,9 @@ class Agent(AgentBase):
         self.tool_caller = _ToolCaller(self)
 
         # Initialize workspace for tool execution environment
-        self.workspace: Workspace | None = workspace
+        # Default to LocalWorkspace() for backwards compatibility — any code that
+        # accesses agent.workspace gets a working local execution environment.
+        self.workspace: Workspace = workspace if workspace is not None else LocalWorkspace()
 
         self.hooks = HookRegistry()
 
