@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from mcp.types import Tool as MCPTool
 
-from strands.tools.mcp import MCPAgentTool, MCPClient
+from strands.mcp import MCPAgentTool, MCPClient
 from strands.types._events import ToolResultEvent
 
 

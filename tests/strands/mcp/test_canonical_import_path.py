@@ -1,25 +1,33 @@
-"""Tests for the canonical ``strands.mcp`` import path.
+"""Tests that ``strands.mcp`` is the canonical home of the MCP API.
 
-The implementation currently lives in ``strands.tools.mcp``. This test
-locks in the contract that ``strands.mcp`` re-exports the same objects so
-that users can migrate imports ahead of the follow-up refactor that
-moves the implementation.
+The implementation lives under ``strands.mcp`` and ``strands.tools.mcp``
+is a backwards-compatibility alias that re-exports the same classes and
+registers ``sys.modules`` aliases for its submodule paths. Object
+identity must be preserved for migrating code to remain correct.
 """
 
+import warnings
 
-def test_strands_mcp_reexports_public_api() -> None:
-    import strands.mcp as new
-    import strands.tools.mcp as old
 
-    assert new.MCPClient is old.MCPClient
-    assert new.MCPAgentTool is old.MCPAgentTool
-    assert new.MCPTransport is old.MCPTransport
-    assert new.TasksConfig is old.TasksConfig
-    assert new.ToolFilters is old.ToolFilters
+def test_strands_tools_mcp_aliases_strands_mcp() -> None:
+    import strands.mcp as canonical
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        import strands.tools.mcp as legacy
+
+    assert legacy.MCPClient is canonical.MCPClient
+    assert legacy.MCPAgentTool is canonical.MCPAgentTool
+    assert legacy.MCPTransport is canonical.MCPTransport
+    assert legacy.TasksConfig is canonical.TasksConfig
+    assert legacy.ToolFilters is canonical.ToolFilters
 
 
 def test_strands_mcp_all_matches_tools_mcp_all() -> None:
-    import strands.mcp as new
-    import strands.tools.mcp as old
+    import strands.mcp as canonical
 
-    assert sorted(new.__all__) == sorted(old.__all__)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        import strands.tools.mcp as legacy
+
+    assert sorted(canonical.__all__) == sorted(legacy.__all__)

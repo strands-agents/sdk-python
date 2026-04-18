@@ -10,7 +10,7 @@ from mcp import StdioServerParameters, stdio_client
 
 from strands import Agent
 from strands.hooks import AfterToolCallEvent, HookProvider, HookRegistry
-from strands.tools.mcp.mcp_client import MCPClient
+from strands.mcp.mcp_client import MCPClient
 
 
 class ToolResultCapture(HookProvider):

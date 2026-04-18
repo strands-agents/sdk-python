@@ -2,7 +2,7 @@
 
 from mcp import StdioServerParameters, stdio_client
 
-from strands.tools.mcp.mcp_client import MCPClient
+from strands.mcp.mcp_client import MCPClient
 
 from .echo_server import EchoResponse
 

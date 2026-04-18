@@ -446,7 +446,7 @@ Enable tasks by passing a `TasksConfig` to `MCPClient`:
 
 ```python
 from datetime import timedelta
-from strands.tools.mcp import MCPClient, TasksConfig
+from strands.mcp import MCPClient, TasksConfig
 
 # Enable with defaults (ttl=1min, poll_timeout=5min)
 client = MCPClient(transport, tasks_config={})
