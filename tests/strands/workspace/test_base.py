@@ -500,3 +500,272 @@ class TestShellBasedWorkspaceOperations:
         workspace = BadWorkspace()
         with pytest.raises(RuntimeError, match="did not yield an ExecutionResult"):
             await workspace._execute_to_result("anything")
+
+
+class TestExecuteCodeToResultRuntimeError:
+    """Major: _execute_code_to_result RuntimeError path must be tested separately."""
+
+    @pytest.mark.asyncio
+    async def test_execute_code_to_result_raises_on_missing_result(self) -> None:
+        """_execute_code_to_result raises RuntimeError if execute_code yields no ExecutionResult."""
+
+        class BadCodeWorkspace(ShellBasedWorkspace):
+            async def execute(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                # Override execute to also return no result when called via execute_code
+                yield "just a string, no ExecutionResult"
+
+        workspace = BadCodeWorkspace()
+        with pytest.raises(RuntimeError, match="did not yield an ExecutionResult"):
+            await workspace._execute_code_to_result("print(1)", language="python")
+
+
+class TestContextManagerExceptionCleanup:
+    """Major: __aexit__ must call stop() even when an exception occurs inside the context."""
+
+    @pytest.mark.asyncio
+    async def test_aexit_calls_stop_on_exception(self) -> None:
+        """stop() must be called when an exception is raised inside 'async with'."""
+
+        class TrackingWorkspace(ShellBasedWorkspace):
+            def __init__(self) -> None:
+                super().__init__()
+                self.stop_called = False
+
+            async def execute(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def start(self) -> None:
+                self._started = True
+
+            async def stop(self) -> None:
+                self.stop_called = True
+                self._started = False
+
+        workspace = TrackingWorkspace()
+
+        with pytest.raises(ValueError, match="deliberate"):
+            async with workspace:
+                assert workspace._started
+                raise ValueError("deliberate error inside context manager")
+
+        # stop() MUST have been called even though an exception was raised
+        assert workspace.stop_called
+        assert not workspace._started
+
+    @pytest.mark.asyncio
+    async def test_aexit_calls_stop_on_runtime_error(self) -> None:
+        """stop() must be called for RuntimeError too (not just ValueError)."""
+
+        class TrackingWorkspace(ShellBasedWorkspace):
+            def __init__(self) -> None:
+                super().__init__()
+                self.stop_called = False
+
+            async def execute(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def start(self) -> None:
+                self._started = True
+
+            async def stop(self) -> None:
+                self.stop_called = True
+                self._started = False
+
+        workspace = TrackingWorkspace()
+
+        with pytest.raises(RuntimeError, match="crash"):
+            async with workspace:
+                raise RuntimeError("crash inside context")
+
+        assert workspace.stop_called
+        assert not workspace._started
+
+
+class TestShellBasedListFilesRealisticOutput:
+    """Major: list_files parsing must be tested with realistic ls -1aF output."""
+
+    @pytest.mark.asyncio
+    async def test_list_files_parses_directory_indicator(self) -> None:
+        """ls -1aF appends / for directories — parser should detect is_dir=True."""
+
+        class RealisticLsWorkspace(ShellBasedWorkspace):
+            async def execute(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                await self._ensure_started()
+                # Realistic ls -1aF output with directory indicators
+                stdout = ".\n..\nsubdir/\n.hidden_dir/\nfile.txt\nscript.py*\nlink.txt@\npipe_file|\n"
+                yield stdout
+                yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
+
+            async def start(self) -> None:
+                self._started = True
+
+        workspace = RealisticLsWorkspace()
+        files = await workspace.list_files("/some/path")
+
+        names = [f.name for f in files]
+        is_dir_map = {f.name: f.is_dir for f in files}
+
+        # Directories (trailing /) should have is_dir=True
+        assert "subdir" in names
+        assert is_dir_map["subdir"] is True
+        assert ".hidden_dir" in names
+        assert is_dir_map[".hidden_dir"] is True
+
+        # Regular files should have is_dir=False
+        assert "file.txt" in names
+        assert is_dir_map["file.txt"] is False
+
+        # Executables (trailing *) should have is_dir=False, indicator stripped
+        assert "script.py" in names
+        assert is_dir_map["script.py"] is False
+
+        # Symlinks (trailing @) should have is_dir=False, indicator stripped
+        assert "link.txt" in names
+        assert is_dir_map["link.txt"] is False
+
+        # Pipe/FIFO (trailing |) should have is_dir=False, indicator stripped
+        assert "pipe_file" in names
+        assert is_dir_map["pipe_file"] is False
+
+        # . and .. should be filtered out
+        assert "." not in names
+        assert ".." not in names
+
+    @pytest.mark.asyncio
+    async def test_list_files_empty_directory(self) -> None:
+        """ls -1aF on an empty directory returns only . and .. which are filtered."""
+
+        class EmptyLsWorkspace(ShellBasedWorkspace):
+            async def execute(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                await self._ensure_started()
+                stdout = "./\n../\n"
+                yield stdout
+                yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
+
+            async def start(self) -> None:
+                self._started = True
+
+        workspace = EmptyLsWorkspace()
+        files = await workspace.list_files("/empty")
+        assert files == []
+
+    @pytest.mark.asyncio
+    async def test_list_files_files_only_no_indicators(self) -> None:
+        """Regular files without indicators should parse cleanly."""
+
+        class PlainLsWorkspace(ShellBasedWorkspace):
+            async def execute(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                await self._ensure_started()
+                stdout = "readme.md\nsetup.py\nrequirements.txt\n"
+                yield stdout
+                yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
+
+            async def start(self) -> None:
+                self._started = True
+
+        workspace = PlainLsWorkspace()
+        files = await workspace.list_files("/project")
+        names = [f.name for f in files]
+        assert names == ["readme.md", "setup.py", "requirements.txt"]
+        assert all(not f.is_dir for f in files)
+        assert all(f.size == 0 for f in files)  # shell-based listing has no size info
+
+
+class TestShellBasedWriteFileParentDirs:
+    """Verify ShellBasedWorkspace.write_file creates parent directories."""
+
+    @pytest.mark.asyncio
+    async def test_write_file_command_includes_mkdir(self) -> None:
+        """write_file should include mkdir -p for parent directory creation."""
+
+        class CommandCapture(ShellBasedWorkspace):
+            def __init__(self) -> None:
+                super().__init__()
+                self.commands: list[str] = []
+
+            async def execute(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                await self._ensure_started()
+                self.commands.append(command)
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def start(self) -> None:
+                self._started = True
+
+        workspace = CommandCapture()
+        await workspace.write_file("/tmp/deep/nested/file.txt", b"content")
+
+        assert len(workspace.commands) == 1
+        cmd = workspace.commands[0]
+        assert "mkdir -p" in cmd
+        assert "base64 -d" in cmd
+        assert "/tmp/deep/nested/file.txt" in cmd
+
+
+class TestShellBasedBase64Encoding:
+    """Verify that ShellBasedWorkspace correctly encodes content for base64 transport."""
+
+    @pytest.mark.asyncio
+    async def test_write_file_encodes_exact_base64(self) -> None:
+        """Verify the exact base64-encoded string appears in the shell command."""
+        import base64 as b64
+
+        class CommandCapture(ShellBasedWorkspace):
+            def __init__(self) -> None:
+                super().__init__()
+                self.commands: list[str] = []
+
+            async def execute(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                await self._ensure_started()
+                self.commands.append(command)
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def start(self) -> None:
+                self._started = True
+
+        workspace = CommandCapture()
+        original_content = b"hello world with special chars: \x00\xff\n\t"
+        await workspace.write_file("/tmp/test.bin", original_content)
+
+        expected_b64 = b64.b64encode(original_content).decode("ascii")
+        cmd = workspace.commands[0]
+        # The exact base64 string should be in the command (shell-quoted)
+        assert expected_b64 in cmd
+
+    @pytest.mark.asyncio
+    async def test_read_file_decodes_base64_correctly(self) -> None:
+        """Verify base64 decode pipeline produces correct bytes."""
+        import base64 as b64
+
+        original_content = b"\x89PNG\r\n\x1a\n\x00\x00binary"
+
+        class Base64Workspace(ShellBasedWorkspace):
+            async def execute(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                await self._ensure_started()
+                stdout = b64.b64encode(original_content).decode("ascii") + "\n"
+                yield stdout
+                yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
+
+            async def start(self) -> None:
+                self._started = True
+
+        workspace = Base64Workspace()
+        content = await workspace.read_file("/tmp/image.png")
+        assert content == original_content

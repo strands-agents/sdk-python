@@ -14,12 +14,20 @@ from strands.workspace.local import LocalWorkspace
 from strands.workspace.shell_based import ShellBasedWorkspace
 
 
-class TestPathTraversal:
-    """Can we escape the working directory via path traversal?"""
+class TestLocalWorkspaceDoesNotConfineFilesystemAccess:
+    """Documents that LocalWorkspace does NOT confine file access to working_dir.
+
+    LocalWorkspace is a local execution environment with no sandboxing.
+    Path traversal, absolute paths, and symlinks all work as they would
+    in any Python program. For confined execution, use a Workspace
+    implementation that provides actual isolation (e.g., Docker, cloud sandbox).
+
+    These tests verify the LACK of isolation — they are NOT security tests.
+    """
 
     @pytest.mark.asyncio
-    async def test_read_file_path_traversal(self, tmp_path):
-        """read_file with ../.. should still work (LocalWorkspace uses native I/O)."""
+    async def test_read_file_allows_path_traversal(self, tmp_path):
+        """read_file with ../.. reads outside working_dir (no confinement)."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         outside_dir = tmp_path.parent / "outside_workspace"
         outside_dir.mkdir(exist_ok=True)
@@ -28,11 +36,11 @@ class TestPathTraversal:
 
         relative_path = "../outside_workspace/secret.txt"
         content = await workspace.read_file(relative_path)
-        assert content == b"SECRET_DATA", "Path traversal should be documented or blocked"
+        assert content == b"SECRET_DATA"
 
     @pytest.mark.asyncio
-    async def test_write_file_path_traversal(self, tmp_path):
-        """write_file with ../.. can write outside working directory."""
+    async def test_write_file_allows_path_traversal(self, tmp_path):
+        """write_file with ../.. writes outside working_dir (no confinement)."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         outside_dir = tmp_path.parent / "write_escape"
         outside_dir.mkdir(exist_ok=True)
@@ -42,8 +50,8 @@ class TestPathTraversal:
         assert (outside_dir / "pwned.txt").read_bytes() == b"PWNED"
 
     @pytest.mark.asyncio
-    async def test_execute_can_access_entire_filesystem(self, tmp_path):
-        """execute() runs arbitrary shell commands — it can access paths outside working_dir."""
+    async def test_execute_accesses_entire_filesystem(self, tmp_path):
+        """execute() runs arbitrary shell commands with no filesystem confinement."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         result = await workspace._execute_to_result("echo hello_from_shell")
         assert result.exit_code == 0
@@ -51,7 +59,7 @@ class TestPathTraversal:
 
     @pytest.mark.asyncio
     async def test_absolute_path_bypasses_working_dir(self, tmp_path):
-        """Absolute paths completely bypass working_dir for LocalWorkspace."""
+        """Absolute paths bypass working_dir — LocalWorkspace has no path confinement."""
         workspace = LocalWorkspace(working_dir=str(tmp_path))
         abs_path = str(tmp_path.parent / "abs_escape.txt")
         await workspace.write_file(abs_path, b"escaped")

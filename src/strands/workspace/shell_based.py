@@ -109,11 +109,20 @@ class ShellBasedWorkspace(Workspace, ABC):
 
         Uses ``base64`` encoding to safely transport binary content through
         the shell text layer. The encoded data is piped through ``base64 -d``
-        to decode it back to raw bytes on the remote side.
+        to decode it back to raw bytes on the remote side. Parent directories
+        are created automatically via ``mkdir -p``.
 
         This approach handles any content type (text, images, PDFs, compiled
         files) without corruption. Override for native file I/O if the
         backend provides a binary-safe channel.
+
+        Note:
+            The base64-encoded content is passed as a shell argument to
+            ``printf``. For very large files (roughly >1.5 MB of original
+            content, which becomes ~2 MB after base64 encoding), this may
+            exceed the shell's ``ARG_MAX`` limit on some systems. For large
+            binary files, override this method with a stdin-piping approach
+            or use a binary-safe channel.
 
         Args:
             path: Path to the file to write.
@@ -124,8 +133,10 @@ class ShellBasedWorkspace(Workspace, ABC):
             IOError: If the file cannot be written.
         """
         encoded = base64.b64encode(content).decode("ascii")
-        # Use printf to avoid echo's escape interpretation, pipe through base64 -d
-        result = await self._execute_to_result(f"printf '%s' {shlex.quote(encoded)} | base64 -d > {shlex.quote(path)}")
+        quoted_path = shlex.quote(path)
+        # Create parent directories, then write content via base64 decode
+        cmd = f"mkdir -p $(dirname {quoted_path}) && printf '%s' {shlex.quote(encoded)} | base64 -d > {quoted_path}"
+        result = await self._execute_to_result(cmd)
         if result.exit_code != 0:
             raise OSError(result.stderr)
 

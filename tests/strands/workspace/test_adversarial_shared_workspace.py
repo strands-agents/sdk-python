@@ -233,7 +233,12 @@ class TestWorkspaceLifecycleEdgeCases:
 
     @pytest.mark.asyncio
     async def test_stop_during_execution(self, tmp_path):
-        """What happens if stop() is called while a command is running?"""
+        """stop() during execution should not crash or corrupt workspace state.
+
+        After the concurrent stop + execute settle, the workspace should be
+        in a consistent state: either stopped (and auto-restartable) or
+        still running. No corruption.
+        """
         workspace = LocalWorkspace(working_dir=str(tmp_path))
 
         async def long_running():
@@ -243,18 +248,23 @@ class TestWorkspaceLifecycleEdgeCases:
             await asyncio.sleep(0.1)
             await workspace.stop()
 
-        # Both tasks run concurrently — stop() should not crash
-        # The execution may or may not complete depending on timing
-        try:
-            results = await asyncio.gather(
-                long_running(),
-                stopper(),
-                return_exceptions=True,
-            )
-            # We just want no unhandled crashes
-            for r in results:
-                if isinstance(r, Exception) and not isinstance(r, (asyncio.TimeoutError, asyncio.CancelledError)):
-                    # Unexpected exception type
-                    pass  # This is fine — stop() during execution is best-effort
-        except Exception:
-            pass  # Expected — stop during execution is inherently racy
+        # Both tasks run concurrently — gather with return_exceptions
+        results = await asyncio.gather(
+            long_running(),
+            stopper(),
+            return_exceptions=True,
+        )
+
+        # Verify no unexpected exception types
+        for r in results:
+            if isinstance(r, Exception):
+                assert isinstance(r, (asyncio.TimeoutError, asyncio.CancelledError, ProcessLookupError, OSError)), (
+                    f"Unexpected exception during concurrent stop: {type(r).__name__}: {r}"
+                )
+
+        # After the dust settles, workspace must be in a usable state:
+        # auto-start should recover it for the next command
+        recovery_result = await workspace._execute_to_result("echo recovered")
+        assert recovery_result.exit_code == 0
+        assert recovery_result.stdout.strip() == "recovered"
+        assert workspace._started

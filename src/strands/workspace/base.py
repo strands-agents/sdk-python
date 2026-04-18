@@ -203,6 +203,11 @@ class Workspace(ABC):
         Accepts raw bytes to support both text and binary content. Use
         :meth:`write_text` for a convenience wrapper that encodes a string.
 
+        Implementations should create parent directories if they do not exist.
+        :class:`~strands.workspace.local.LocalWorkspace` does this natively
+        via :func:`pathlib.Path.mkdir`. Shell-based implementations should
+        include a ``mkdir -p`` before writing.
+
         Args:
             path: Path to the file to write.
             content: The content to write as bytes.
