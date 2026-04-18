@@ -18,7 +18,7 @@ from mcp.shared.exceptions import McpError
 from mcp.types import BlobResourceContents, TextResourceContents
 from pydantic import AnyUrl
 
-from strands.tools.mcp.mcp_client import MCPClient
+from strands.mcp.mcp_client import MCPClient
 
 
 def test_mcp_resources_list_and_read():

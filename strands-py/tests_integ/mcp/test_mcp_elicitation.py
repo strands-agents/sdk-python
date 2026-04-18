@@ -5,7 +5,7 @@ from mcp import StdioServerParameters, stdio_client
 from mcp.types import ElicitResult
 
 from strands import Agent
-from strands.tools.mcp import MCPClient
+from strands.mcp import MCPClient
 
 
 @pytest.fixture
