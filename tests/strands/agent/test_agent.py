@@ -773,6 +773,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             request_state={},
         ),
         unittest.mock.call(event={"contentBlockStop": {}}),
+        unittest.mock.call(complete=True),
         unittest.mock.call(
             message={
                 "role": "assistant",
