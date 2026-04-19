@@ -418,6 +418,56 @@ def test_format_request_with_cache_point(model, model_id, max_tokens):
     assert tru_request == exp_request
 
 
+def test_format_request_with_system_prompt_content_cache_point(model, messages, model_id, max_tokens):
+    """cachePoint in system_prompt_content emits Anthropic list-form system with cache_control."""
+    system_prompt_content = [
+        {"text": "static prefix"},
+        {"cachePoint": {"type": "default"}},
+        {"text": "dynamic suffix"},
+    ]
+
+    tru_request = model.format_request(messages, system_prompt_content=system_prompt_content)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "system": [
+            {"type": "text", "text": "static prefix", "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": "dynamic suffix"},
+        ],
+        "tools": [],
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_with_system_prompt_content_no_cache_point(model, messages, model_id, max_tokens):
+    """system_prompt_content with only text blocks emits list-form system without cache_control."""
+    system_prompt_content = [{"text": "plain system"}]
+
+    tru_request = model.format_request(messages, system_prompt_content=system_prompt_content)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "system": [{"type": "text", "text": "plain system"}],
+        "tools": [],
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_system_prompt_content_precedes_system_prompt(model, messages, model_id, max_tokens):
+    """system_prompt_content takes precedence over system_prompt when both are supplied."""
+    tru_request = model.format_request(
+        messages,
+        system_prompt="ignored",
+        system_prompt_content=[{"text": "used"}],
+    )
+
+    assert tru_request["system"] == [{"type": "text", "text": "used"}]
+
+
 def test_format_request_with_empty_content(model, model_id, max_tokens):
     messages = [
         {
@@ -701,6 +751,54 @@ def test_format_chunk_metadata(model):
     }
 
     assert tru_chunk == exp_chunk
+
+
+def test_format_chunk_metadata_with_cache_tokens(model):
+    event = {
+        "type": "metadata",
+        "usage": {
+            "input_tokens": 10,
+            "output_tokens": 5,
+            "cache_read_input_tokens": 100,
+            "cache_creation_input_tokens": 200,
+        },
+    }
+
+    tru_chunk = model.format_chunk(event)
+    exp_chunk = {
+        "metadata": {
+            "usage": {
+                "inputTokens": 10,
+                "outputTokens": 5,
+                "totalTokens": 15,
+                "cacheReadInputTokens": 100,
+                "cacheWriteInputTokens": 200,
+            },
+            "metrics": {
+                "latencyMs": 0,
+            },
+        },
+    }
+
+    assert tru_chunk == exp_chunk
+
+
+def test_format_chunk_metadata_without_cache_tokens_unchanged(model):
+    """When cache fields are absent or zero the usage shape is unchanged."""
+    event = {
+        "type": "metadata",
+        "usage": {
+            "input_tokens": 1,
+            "output_tokens": 2,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+        },
+    }
+
+    tru_chunk = model.format_chunk(event)
+
+    assert "cacheReadInputTokens" not in tru_chunk["metadata"]["usage"]
+    assert "cacheWriteInputTokens" not in tru_chunk["metadata"]["usage"]
 
 
 def test_format_chunk_unknown(model):

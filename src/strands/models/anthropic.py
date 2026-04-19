@@ -16,7 +16,8 @@ from typing_extensions import Required, Unpack, override
 
 from ..event_loop.streaming import process_stream
 from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
@@ -201,12 +202,38 @@ class AnthropicModel(Model):
 
         return formatted_messages
 
+    @staticmethod
+    def _format_system_prompt_content(
+        system_prompt_content: list[SystemContentBlock],
+    ) -> list[dict[str, Any]]:
+        """Convert system prompt content blocks to Anthropic list-form system array.
+
+        A ``cachePoint`` block attaches ``cache_control: {"type": "ephemeral"}`` to
+        the immediately preceding text block, mirroring the convention already used
+        by ``_format_request_messages``. This lets callers mark the static prefix of
+        the system prompt as cacheable while leaving dynamic suffixes uncached.
+
+        Args:
+            system_prompt_content: System prompt content blocks.
+
+        Returns:
+            Anthropic list-form system array.
+        """
+        formatted: list[dict[str, Any]] = []
+        for block in system_prompt_content:
+            if "text" in block:
+                formatted.append({"type": "text", "text": block["text"]})
+            elif "cachePoint" in block and formatted and formatted[-1].get("type") == "text":
+                formatted[-1]["cache_control"] = {"type": "ephemeral"}
+        return formatted
+
     def format_request(
         self,
         messages: Messages,
         tool_specs: list[ToolSpec] | None = None,
         system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
     ) -> dict[str, Any]:
         """Format an Anthropic streaming request.
 
@@ -215,6 +242,9 @@ class AnthropicModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            system_prompt_content: System prompt content blocks. When provided, takes
+                precedence over ``system_prompt`` and enables prompt caching via
+                ``cachePoint`` blocks translated to ``cache_control: ephemeral``.
 
         Returns:
             An Anthropic streaming request.
@@ -223,6 +253,12 @@ class AnthropicModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an Anthropic-compatible
                 format.
         """
+        system_field: str | list[dict[str, Any]] | None = None
+        if system_prompt_content:
+            system_field = self._format_system_prompt_content(system_prompt_content) or None
+        elif system_prompt:
+            system_field = system_prompt
+
         return {
             "max_tokens": self.config["max_tokens"],
             "messages": self._format_request_messages(messages),
@@ -236,7 +272,7 @@ class AnthropicModel(Model):
                 for tool_spec in tool_specs or []
             ],
             **(self._format_tool_choice(tool_choice)),
-            **({"system": system_prompt} if system_prompt else {}),
+            **({"system": system_field} if system_field else {}),
             **(self.config.get("params") or {}),
         }
 
@@ -354,14 +390,20 @@ class AnthropicModel(Model):
 
             case "metadata":
                 usage = event["usage"]
+                usage_out: Usage = {
+                    "inputTokens": usage["input_tokens"],
+                    "outputTokens": usage["output_tokens"],
+                    "totalTokens": usage["input_tokens"] + usage["output_tokens"],
+                }
+                cache_read = usage.get("cache_read_input_tokens") or 0
+                cache_write = usage.get("cache_creation_input_tokens") or 0
+                if cache_read or cache_write:
+                    usage_out["cacheReadInputTokens"] = cache_read
+                    usage_out["cacheWriteInputTokens"] = cache_write
 
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": usage["input_tokens"],
-                            "outputTokens": usage["output_tokens"],
-                            "totalTokens": usage["input_tokens"] + usage["output_tokens"],
-                        },
+                        "usage": usage_out,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },
@@ -379,6 +421,7 @@ class AnthropicModel(Model):
         system_prompt: str | None = None,
         *,
         tool_choice: ToolChoice | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Anthropic model.
@@ -388,6 +431,9 @@ class AnthropicModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            system_prompt_content: System prompt content blocks. When provided, takes
+                precedence over ``system_prompt`` and enables prompt caching via
+                ``cachePoint`` blocks translated to ``cache_control: ephemeral``.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -398,7 +444,13 @@ class AnthropicModel(Model):
             ModelThrottledException: If the request is throttled by Anthropic.
         """
         logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
+        request = self.format_request(
+            messages,
+            tool_specs,
+            system_prompt,
+            tool_choice,
+            system_prompt_content=system_prompt_content,
+        )
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
