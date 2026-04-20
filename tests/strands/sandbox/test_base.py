@@ -11,7 +11,6 @@ from strands.sandbox.base import (
     OutputFile,
     Sandbox,
     StreamChunk,
-    StreamType,
 )
 from strands.sandbox.shell_based import ShellBasedSandbox
 
@@ -23,7 +22,7 @@ class ConcreteShellSandbox(ShellBasedSandbox):
         self.commands: list[str] = []
 
     async def execute_streaming(
-        self, command: str, timeout: int | None = None, **kwargs: Any
+        self, command: str, timeout: int | None = None, cwd: str | None = None, **kwargs: Any
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         self.commands.append(command)
         if "fail" in command:
@@ -38,8 +37,6 @@ class ConcreteShellSandbox(ShellBasedSandbox):
             stdout = f"output of: {command}\n"
         yield StreamChunk(data=stdout)
         yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
-
-
 
 
 class TestExecutionResult:
@@ -192,8 +189,6 @@ class TestSandboxABC:
             MissingRemoveFile()  # type: ignore
 
     @pytest.mark.asyncio
-
-
     async def test_read_text_convenience(self) -> None:
         """Test that read_text decodes bytes from read_file."""
 
@@ -534,7 +529,6 @@ class TestShellBasedSandboxOperations:
             assert f.size is None
 
 
-
 class TestShellBasedListFilesRealisticOutput:
     @pytest.mark.asyncio
     async def test_list_files_parses_directory_indicator(self) -> None:
@@ -545,7 +539,6 @@ class TestShellBasedListFilesRealisticOutput:
                 stdout = ".\n..\nsubdir/\n.hidden_dir/\nfile.txt\nscript.py*\nlink.txt@\npipe_file|\n"
                 yield StreamChunk(data=stdout)
                 yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
-
 
         sandbox = RealisticLsSandbox()
         files = await sandbox.list_files("/some/path")
@@ -578,7 +571,6 @@ class TestShellBasedListFilesRealisticOutput:
                 yield StreamChunk(data=stdout)
                 yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
 
-
         sandbox = EmptyLsSandbox()
         files = await sandbox.list_files("/empty")
         assert files == []
@@ -592,7 +584,6 @@ class TestShellBasedListFilesRealisticOutput:
                 stdout = "readme.md\nsetup.py\nrequirements.txt\n"
                 yield StreamChunk(data=stdout)
                 yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
-
 
         sandbox = PlainLsSandbox()
         files = await sandbox.list_files("/project")
@@ -614,7 +605,6 @@ class TestShellBasedWriteFileParentDirs:
             ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 self.commands.append(command)
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
-
 
         sandbox = CommandCapture()
         await sandbox.write_file("/tmp/deep/nested/file.txt", b"content")
@@ -638,7 +628,6 @@ class TestShellBasedBase64Encoding:
                 self.commands.append(command)
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-
         sandbox = CommandCapture()
         original_content = b"hello world with special chars: \x00\xff\n\t"
         await sandbox.write_file("/tmp/test.bin", original_content)
@@ -659,7 +648,88 @@ class TestShellBasedBase64Encoding:
                 yield StreamChunk(data=stdout)
                 yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
 
-
         sandbox = Base64Sandbox()
         content = await sandbox.read_file("/tmp/image.png")
         assert content == original_content
+
+
+class TestShellBasedSandboxCwdPassthrough:
+    """Test that ShellBasedSandbox passes cwd through to execute_streaming."""
+
+    @pytest.mark.asyncio
+    async def test_execute_code_streaming_passes_cwd(self) -> None:
+        """execute_code_streaming should forward cwd to execute_streaming."""
+
+        class CwdTrackingSandbox(ShellBasedSandbox):
+            def __init__(self) -> None:
+                self.received_cwds: list[str | None] = []
+
+            async def execute_streaming(
+                self, command: str, timeout: int | None = None, cwd: str | None = None, **kwargs: Any
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+                self.received_cwds.append(cwd)
+                yield ExecutionResult(exit_code=0, stdout="ok", stderr="")
+
+        sandbox = CwdTrackingSandbox()
+        await sandbox.execute_code("print(1)", language="python", cwd="/custom/dir")
+        assert sandbox.received_cwds == ["/custom/dir"]
+
+    @pytest.mark.asyncio
+    async def test_execute_code_streaming_passes_none_cwd_by_default(self) -> None:
+        """When no cwd is provided, None should be passed through."""
+
+        class CwdTrackingSandbox(ShellBasedSandbox):
+            def __init__(self) -> None:
+                self.received_cwds: list[str | None] = []
+
+            async def execute_streaming(
+                self, command: str, timeout: int | None = None, cwd: str | None = None, **kwargs: Any
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+                self.received_cwds.append(cwd)
+                yield ExecutionResult(exit_code=0, stdout="ok", stderr="")
+
+        sandbox = CwdTrackingSandbox()
+        await sandbox.execute_code("print(1)", language="python")
+        assert sandbox.received_cwds == [None]
+
+
+class TestNonStreamingConveniencePassesCwd:
+    """Test that non-streaming execute/execute_code pass cwd to streaming methods."""
+
+    @pytest.mark.asyncio
+    async def test_execute_passes_cwd_to_streaming(self) -> None:
+        """The non-streaming execute() should forward cwd to execute_streaming()."""
+
+        class CwdTrackingSandbox(ShellBasedSandbox):
+            def __init__(self) -> None:
+                self.received_cwds: list[str | None] = []
+
+            async def execute_streaming(
+                self, command: str, timeout: int | None = None, cwd: str | None = None, **kwargs: Any
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+                self.received_cwds.append(cwd)
+                yield ExecutionResult(exit_code=0, stdout="ok", stderr="")
+
+        sandbox = CwdTrackingSandbox()
+        result = await sandbox.execute("echo hi", cwd="/some/path")
+        assert sandbox.received_cwds == ["/some/path"]
+        assert result.exit_code == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_code_passes_cwd_to_streaming(self) -> None:
+        """The non-streaming execute_code() should forward cwd to execute_code_streaming()."""
+
+        class CwdTrackingSandbox(ShellBasedSandbox):
+            def __init__(self) -> None:
+                self.received_cwds: list[str | None] = []
+
+            async def execute_streaming(
+                self, command: str, timeout: int | None = None, cwd: str | None = None, **kwargs: Any
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+                self.received_cwds.append(cwd)
+                yield ExecutionResult(exit_code=0, stdout="ok", stderr="")
+
+        sandbox = CwdTrackingSandbox()
+        result = await sandbox.execute_code("print(1)", language="python", cwd="/code/dir")
+        assert sandbox.received_cwds == ["/code/dir"]
+        assert result.exit_code == 0

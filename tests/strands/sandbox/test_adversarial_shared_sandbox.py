@@ -11,7 +11,7 @@ import asyncio
 
 import pytest
 
-from strands.sandbox.base import ExecutionResult, StreamChunk, StreamType
+from strands.sandbox.base import ExecutionResult
 from strands.sandbox.local import LocalSandbox
 
 
@@ -110,6 +110,8 @@ class TestSharedSandboxConcurrentExecution:
         # At least some reads should succeed
         successful_reads = [r for r in results if r != "FILE_NOT_FOUND"]
         assert len(successful_reads) > 0
+
+
 class TestSharedSandboxBetweenAgents:
     """What happens when two Agent instances share the same sandbox?"""
 

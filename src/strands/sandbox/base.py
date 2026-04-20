@@ -57,10 +57,6 @@ class StreamChunk:
     data: str
     stream_type: StreamType = StreamType.STDOUT
 
-    def __str__(self) -> str:
-        """Return the chunk data as a string for backwards-compatible consumers."""
-        return self.data
-
 
 @dataclass
 class FileInfo:
@@ -164,6 +160,10 @@ class Sandbox(ABC):
                         print(f"[stderr] {chunk.data}", end="")
                 elif isinstance(chunk, ExecutionResult):
                     print(f"Exit code: {chunk.exit_code}")
+
+        With custom working directory::
+
+            result = await sandbox.execute("ls -la", cwd="/tmp/other-dir")
     """
 
     # ---- Streaming methods (abstract primitives) ----
@@ -173,6 +173,7 @@ class Sandbox(ABC):
         self,
         command: str,
         timeout: int | None = None,
+        cwd: str | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Execute a shell command, streaming output.
@@ -184,6 +185,8 @@ class Sandbox(ABC):
         Args:
             command: The shell command to execute.
             timeout: Maximum execution time in seconds. ``None`` means no timeout.
+            cwd: Working directory for command execution. ``None`` means use the
+                sandbox's default working directory.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
@@ -200,6 +203,7 @@ class Sandbox(ABC):
         code: str,
         language: str,
         timeout: int | None = None,
+        cwd: str | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Execute code in the sandbox, streaming output.
@@ -208,6 +212,8 @@ class Sandbox(ABC):
             code: The source code to execute.
             language: The programming language interpreter to use.
             timeout: Maximum execution time in seconds. ``None`` means no timeout.
+            cwd: Working directory for code execution. ``None`` means use the
+                sandbox's default working directory.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
@@ -298,6 +304,7 @@ class Sandbox(ABC):
         self,
         command: str,
         timeout: int | None = None,
+        cwd: str | None = None,
         **kwargs: Any,
     ) -> ExecutionResult:
         """Execute a shell command and return the result.
@@ -313,6 +320,8 @@ class Sandbox(ABC):
         Args:
             command: The shell command to execute.
             timeout: Maximum execution time in seconds. ``None`` means no timeout.
+            cwd: Working directory for command execution. ``None`` means use the
+                sandbox's default working directory.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
@@ -322,7 +331,7 @@ class Sandbox(ABC):
             RuntimeError: If execute_streaming() did not yield an ExecutionResult.
         """
         result = None
-        async for chunk in self.execute_streaming(command, timeout=timeout, **kwargs):
+        async for chunk in self.execute_streaming(command, timeout=timeout, cwd=cwd, **kwargs):
             if isinstance(chunk, ExecutionResult):
                 result = chunk
         if result is None:
@@ -334,6 +343,7 @@ class Sandbox(ABC):
         code: str,
         language: str,
         timeout: int | None = None,
+        cwd: str | None = None,
         **kwargs: Any,
     ) -> ExecutionResult:
         """Execute code and return the result.
@@ -350,6 +360,8 @@ class Sandbox(ABC):
             code: The source code to execute.
             language: The programming language interpreter to use.
             timeout: Maximum execution time in seconds. ``None`` means no timeout.
+            cwd: Working directory for code execution. ``None`` means use the
+                sandbox's default working directory.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
@@ -359,7 +371,7 @@ class Sandbox(ABC):
             RuntimeError: If execute_code_streaming() did not yield an ExecutionResult.
         """
         result = None
-        async for chunk in self.execute_code_streaming(code, language=language, timeout=timeout, **kwargs):
+        async for chunk in self.execute_code_streaming(code, language=language, timeout=timeout, cwd=cwd, **kwargs):
             if isinstance(chunk, ExecutionResult):
                 result = chunk
         if result is None:

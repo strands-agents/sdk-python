@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from strands.sandbox.base import ExecutionResult, StreamChunk, StreamType, FileInfo, Sandbox
+from strands.sandbox.base import ExecutionResult, FileInfo, Sandbox, StreamChunk
 from strands.sandbox.local import LocalSandbox
 
 
@@ -104,6 +104,7 @@ class TestLocalSandboxExecute:
         result = await sandbox.execute("echo fast", timeout=None)
         assert result.exit_code == 0
         assert result.stdout.strip() == "fast"
+
     @pytest.mark.asyncio
     async def test_execute_long_output_without_newlines(self, tmp_path: object) -> None:
         """Bug 2 fix: long output lines (>64KB) no longer crash."""
@@ -307,6 +308,8 @@ class TestLocalSandboxFileOps:
         sandbox = LocalSandbox(working_dir=str(tmp_path))
         with pytest.raises(FileNotFoundError):
             await sandbox.list_files("nonexistent")
+
+
 class TestLocalSandboxExecuteCodeErrorHandling:
     """Tests for execute_code error handling (FileNotFoundError fix)."""
 
@@ -390,3 +393,81 @@ class TestLocalSandboxFileInfoMetadata:
         entry = files[0]
         assert entry.name == "sized.txt"
         assert entry.size == 42
+
+
+class TestLocalSandboxCwd:
+    """Test cwd parameter on LocalSandbox execution methods."""
+
+    @pytest.mark.asyncio
+    async def test_execute_with_cwd_overrides_working_dir(self, tmp_path: object) -> None:
+        """execute() with cwd should run in the specified directory, not working_dir."""
+        base_dir = Path(str(tmp_path))
+        sandbox_dir = base_dir / "sandbox_default"
+        sandbox_dir.mkdir()
+        custom_dir = base_dir / "custom_cwd"
+        custom_dir.mkdir()
+
+        sandbox = LocalSandbox(working_dir=str(sandbox_dir))
+        result = await sandbox.execute(
+            'python3 -c "import os; print(os.getcwd())"',
+            cwd=str(custom_dir),
+        )
+        assert os.path.normpath(result.stdout.strip()) == os.path.normpath(str(custom_dir))
+
+    @pytest.mark.asyncio
+    async def test_execute_without_cwd_uses_working_dir(self, tmp_path: object) -> None:
+        """execute() without cwd should use the sandbox's working_dir."""
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        result = await sandbox.execute(
+            'python3 -c "import os; print(os.getcwd())"',
+        )
+        assert os.path.normpath(result.stdout.strip()) == os.path.normpath(str(tmp_path))
+
+    @pytest.mark.asyncio
+    async def test_execute_code_with_cwd(self, tmp_path: object) -> None:
+        """execute_code() with cwd should run in the specified directory."""
+        base_dir = Path(str(tmp_path))
+        sandbox_dir = base_dir / "sandbox_default"
+        sandbox_dir.mkdir()
+        custom_dir = base_dir / "code_cwd"
+        custom_dir.mkdir()
+
+        sandbox = LocalSandbox(working_dir=str(sandbox_dir))
+        result = await sandbox.execute_code(
+            "import os; print(os.getcwd())",
+            language="python3",
+            cwd=str(custom_dir),
+        )
+        assert os.path.normpath(result.stdout.strip()) == os.path.normpath(str(custom_dir))
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_with_cwd(self, tmp_path: object) -> None:
+        """execute_streaming() with cwd should run in the specified directory."""
+
+        base_dir = Path(str(tmp_path))
+        custom_dir = base_dir / "stream_cwd"
+        custom_dir.mkdir()
+
+        sandbox = LocalSandbox(working_dir=str(base_dir))
+        chunks = []
+        async for chunk in sandbox.execute_streaming(
+            'python3 -c "import os; print(os.getcwd())"',
+            cwd=str(custom_dir),
+        ):
+            chunks.append(chunk)
+
+        # Find the ExecutionResult
+        result = next(c for c in chunks if isinstance(c, ExecutionResult))
+        assert os.path.normpath(result.stdout.strip()) == os.path.normpath(str(custom_dir))
+
+    @pytest.mark.asyncio
+    async def test_cwd_creates_directory_if_not_exists(self, tmp_path: object) -> None:
+        """cwd directory should be created if it doesn't exist."""
+        base_dir = Path(str(tmp_path))
+        new_dir = base_dir / "brand_new_dir"
+        assert not new_dir.exists()
+
+        sandbox = LocalSandbox(working_dir=str(base_dir))
+        result = await sandbox.execute("echo ok", cwd=str(new_dir))
+        assert result.exit_code == 0
+        assert new_dir.exists()

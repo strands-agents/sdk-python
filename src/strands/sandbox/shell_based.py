@@ -49,6 +49,7 @@ class ShellBasedSandbox(Sandbox, ABC):
         code: str,
         language: str,
         timeout: int | None = None,
+        cwd: str | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Execute code in the sandbox, streaming output.
@@ -63,6 +64,8 @@ class ShellBasedSandbox(Sandbox, ABC):
             language: The programming language interpreter to use (e.g.
                 ``"python"``, ``"node"``, ``"ruby"``).
             timeout: Maximum execution time in seconds. ``None`` means no timeout.
+            cwd: Working directory for code execution. ``None`` means use the
+                sandbox's default working directory.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
@@ -74,7 +77,9 @@ class ShellBasedSandbox(Sandbox, ABC):
             Override this method for interpreters that require a different
             invocation pattern (e.g., ``javac``, ``gcc``, ``go run``).
         """
-        async for chunk in self.execute_streaming(f"{shlex.quote(language)} -c {shlex.quote(code)}", timeout=timeout):
+        async for chunk in self.execute_streaming(
+            f"{shlex.quote(language)} -c {shlex.quote(code)}", timeout=timeout, cwd=cwd
+        ):
             yield chunk
 
     async def read_file(self, path: str, **kwargs: Any) -> bytes:

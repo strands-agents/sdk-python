@@ -9,7 +9,7 @@ Tests for:
 
 import pytest
 
-from strands.sandbox.base import ExecutionResult, StreamChunk, StreamType
+from strands.sandbox.base import ExecutionResult
 from strands.sandbox.local import LocalSandbox
 from strands.sandbox.shell_based import ShellBasedSandbox
 

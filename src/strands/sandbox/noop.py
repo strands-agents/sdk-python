@@ -37,6 +37,7 @@ class NoOpSandbox(Sandbox):
         self,
         command: str,
         timeout: int | None = None,
+        cwd: str | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Raise NotImplementedError — sandbox is disabled."""
@@ -48,6 +49,7 @@ class NoOpSandbox(Sandbox):
         code: str,
         language: str,
         timeout: int | None = None,
+        cwd: str | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Raise NotImplementedError — sandbox is disabled."""

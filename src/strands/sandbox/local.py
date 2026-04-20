@@ -111,6 +111,7 @@ class LocalSandbox(Sandbox):
         self,
         command: str,
         timeout: int | None = None,
+        cwd: str | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Execute a shell command on the local host, streaming output.
@@ -123,6 +124,8 @@ class LocalSandbox(Sandbox):
         Args:
             command: The shell command to execute.
             timeout: Maximum execution time in seconds. ``None`` means no timeout.
+            cwd: Working directory for this command. ``None`` means use the
+                sandbox's default ``working_dir``.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
@@ -131,14 +134,15 @@ class LocalSandbox(Sandbox):
         Raises:
             asyncio.TimeoutError: If the command exceeds the timeout.
         """
-        logger.debug("command=<%s>, timeout=<%s> | executing local command", command, timeout)
+        effective_cwd = cwd or self.working_dir
+        logger.debug("command=<%s>, timeout=<%s>, cwd=<%s> | executing local command", command, timeout, effective_cwd)
 
-        working_path = Path(self.working_dir)
+        working_path = Path(effective_cwd)
         working_path.mkdir(parents=True, exist_ok=True)
 
         proc = await asyncio.create_subprocess_shell(
             command,
-            cwd=self.working_dir,
+            cwd=effective_cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -151,6 +155,7 @@ class LocalSandbox(Sandbox):
         code: str,
         language: str,
         timeout: int | None = None,
+        cwd: str | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Execute code on the local host using subprocess_exec (no shell intermediary).
@@ -171,6 +176,8 @@ class LocalSandbox(Sandbox):
             language: The programming language interpreter to use (e.g.
                 ``"python"``, ``"python3"``, ``"node"``, ``"ruby"``).
             timeout: Maximum execution time in seconds. ``None`` means no timeout.
+            cwd: Working directory for code execution. ``None`` means use the
+                sandbox's default ``working_dir``.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
@@ -185,13 +192,15 @@ class LocalSandbox(Sandbox):
         if not _LANGUAGE_PATTERN.match(language):
             raise ValueError(f"language parameter contains unsafe characters: {language}")
 
+        effective_cwd = cwd or self.working_dir
         logger.debug(
-            "language=<%s>, timeout=<%s> | executing code locally",
+            "language=<%s>, timeout=<%s>, cwd=<%s> | executing code locally",
             language,
             timeout,
+            effective_cwd,
         )
 
-        working_path = Path(self.working_dir)
+        working_path = Path(effective_cwd)
         working_path.mkdir(parents=True, exist_ok=True)
 
         # Use create_subprocess_exec (not shell) — the interpreter and arguments
@@ -201,7 +210,7 @@ class LocalSandbox(Sandbox):
                 language,
                 "-c",
                 code,
-                cwd=self.working_dir,
+                cwd=effective_cwd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
