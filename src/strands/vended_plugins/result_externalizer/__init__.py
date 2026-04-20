@@ -7,15 +7,18 @@ in-context result with a truncated preview and reference.
 Example Usage:
     ```python
     from strands import Agent
-    from strands.vended_plugins.tool_result_externalizer import (
+    from strands.vended_plugins.result_externalizer import (
         ToolResultExternalizer,
+        InMemoryExternalizationStorage,
         FileExternalizationStorage,
     )
 
-    # Simple — in-memory storage, default thresholds
-    agent = Agent(plugins=[ToolResultExternalizer()])
+    # In-memory storage
+    agent = Agent(plugins=[
+        ToolResultExternalizer(storage=InMemoryExternalizationStorage())
+    ])
 
-    # Customized — file storage with custom thresholds
+    # File storage with custom thresholds
     agent = Agent(plugins=[
         ToolResultExternalizer(
             storage=FileExternalizationStorage("./artifacts"),

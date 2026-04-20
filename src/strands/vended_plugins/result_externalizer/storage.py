@@ -5,7 +5,7 @@ built-in implementations: file-based, in-memory, and S3 storage.
 
 Example:
     ```python
-    from strands.vended_plugins.tool_result_externalizer import (
+    from strands.vended_plugins.result_externalizer import (
         FileExternalizationStorage,
         InMemoryExternalizationStorage,
         S3ExternalizationStorage,
@@ -59,6 +59,13 @@ class ExternalizationStorage(Protocol):
     The SDK ships three built-in implementations: ``InMemoryExternalizationStorage``,
     ``FileExternalizationStorage``, and ``S3ExternalizationStorage``. Implement this
     protocol to create custom storage backends (e.g., Redis, DynamoDB).
+
+    Lifecycle:
+        This protocol intentionally does not include eviction or deletion methods.
+        Stored content accumulates for the lifetime of the storage instance. For
+        long-running agents, create a new storage instance per session or use a
+        backend with built-in lifecycle management (e.g., S3 lifecycle policies).
+        See #2168 for ongoing work on eviction strategies.
     """
 
     def store(self, tool_use_id: str, content: str) -> str:
@@ -157,6 +164,12 @@ class InMemoryExternalizationStorage:
 
     Useful for testing and serverless environments where disk access
     is not available or not desired. Thread-safe.
+
+    Note:
+        Content accumulates for the lifetime of this instance. For long-running
+        agents, consider creating a new instance per session or switching to
+        ``FileExternalizationStorage`` or ``S3ExternalizationStorage`` for
+        persistent storage with external lifecycle management.
     """
 
     def __init__(self) -> None:
@@ -198,6 +211,15 @@ class InMemoryExternalizationStorage:
                 raise KeyError(f"Reference not found: {reference}")
             return self._store[reference]
 
+    def clear(self) -> None:
+        """Remove all stored content.
+
+        Call this to free memory when externalized results are no longer needed,
+        e.g., between sessions or after an invocation completes.
+        """
+        with self._lock:
+            self._store.clear()
+
 
 class S3ExternalizationStorage:
     """Store externalized tool results in Amazon S3.
@@ -215,7 +237,7 @@ class S3ExternalizationStorage:
 
     Example:
         ```python
-        from strands.vended_plugins.tool_result_externalizer import S3ExternalizationStorage
+        from strands.vended_plugins.result_externalizer import S3ExternalizationStorage
 
         storage = S3ExternalizationStorage(
             bucket="my-agent-artifacts",
@@ -269,6 +291,10 @@ class S3ExternalizationStorage:
 
         Returns:
             The S3 object key used as the reference.
+
+        Raises:
+            botocore.exceptions.ClientError: If the S3 operation fails (e.g., bucket
+                does not exist, permission denied).
         """
         sanitized_id = _sanitize_id(tool_use_id)
         timestamp_ms = int(time.time() * 1000)

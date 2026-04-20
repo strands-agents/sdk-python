@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from botocore.exceptions import ClientError
 
-from strands.vended_plugins.tool_result_externalizer import (
+from strands.vended_plugins.result_externalizer import (
     FileExternalizationStorage,
     InMemoryExternalizationStorage,
     S3ExternalizationStorage,
@@ -69,6 +69,17 @@ class TestInMemoryExternalizationStorage:
         content = "Hello \u2603 \U0001f600 \u4e16\u754c"
         ref = storage.store("tool_123", content)
         assert storage.retrieve(ref) == content
+
+    def test_clear(self):
+        storage = InMemoryExternalizationStorage()
+        ref = storage.store("tool_123", "content")
+        storage.clear()
+        with pytest.raises(KeyError):
+            storage.retrieve(ref)
+
+    def test_clear_empty_storage(self):
+        storage = InMemoryExternalizationStorage()
+        storage.clear()
 
 
 class TestFileExternalizationStorage:

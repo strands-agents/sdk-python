@@ -141,7 +141,8 @@ strands-agents/
 │   │   │   ├── context_providers/        # Context data providers (e.g., ledger)
 │   │   │   ├── core/                     # Base classes, actions, context
 │   │   │   └── handlers/                 # Handler implementations (e.g., LLM)
-│   │   └── skills/                       # AgentSkills.io integration (Skill, AgentSkills)
+│   │   ├── skills/                       # AgentSkills.io integration (Skill, AgentSkills)
+│   │   └── result_externalizer/     # Large tool result externalization plugin
 │   │
 │   ├── experimental/                     # Experimental features (API may change)
 │   │   ├── agent_config.py               # Experimental agent config

@@ -7,15 +7,18 @@ in-context result with a truncated preview and reference.
 Example:
     ```python
     from strands import Agent
-    from strands.vended_plugins.tool_result_externalizer import (
+    from strands.vended_plugins.result_externalizer import (
         ToolResultExternalizer,
+        InMemoryExternalizationStorage,
         FileExternalizationStorage,
     )
 
-    # Simple — in-memory storage, default thresholds
-    agent = Agent(plugins=[ToolResultExternalizer()])
+    # In-memory storage
+    agent = Agent(plugins=[
+        ToolResultExternalizer(storage=InMemoryExternalizationStorage())
+    ])
 
-    # Customized — file storage with custom thresholds
+    # File storage with custom thresholds
     agent = Agent(plugins=[
         ToolResultExternalizer(
             storage=FileExternalizationStorage("./artifacts"),
@@ -35,7 +38,7 @@ from typing import Any
 from ...hooks.events import AfterToolCallEvent
 from ...plugins import Plugin, hook
 from ...types.tools import ToolResult, ToolResultContent
-from .storage import ExternalizationStorage, InMemoryExternalizationStorage
+from .storage import ExternalizationStorage
 
 logger = logging.getLogger(__name__)
 
@@ -68,30 +71,46 @@ class ToolResultExternalizer(Plugin):
     Example:
         ```python
         from strands import Agent
-        from strands.vended_plugins.tool_result_externalizer import ToolResultExternalizer
+        from strands.vended_plugins.result_externalizer import (
+            ToolResultExternalizer,
+            InMemoryExternalizationStorage,
+        )
 
-        agent = Agent(plugins=[ToolResultExternalizer()])
+        agent = Agent(plugins=[
+            ToolResultExternalizer(storage=InMemoryExternalizationStorage())
+        ])
         ```
     """
 
-    name = "tool_result_externalizer"
+    name = "result_externalizer"
 
     def __init__(
         self,
-        storage: ExternalizationStorage | None = None,
+        storage: ExternalizationStorage,
         max_result_chars: int = _DEFAULT_MAX_RESULT_CHARS,
         preview_chars: int = _DEFAULT_PREVIEW_CHARS,
     ) -> None:
         """Initialize the ToolResultExternalizer plugin.
 
         Args:
-            storage: Backend for storing externalized content. Defaults to in-memory storage.
+            storage: Backend for storing externalized content.
             max_result_chars: Externalize text results exceeding this many characters.
                 Defaults to ``_DEFAULT_MAX_RESULT_CHARS`` (10,000).
             preview_chars: Number of characters to keep as a preview in context.
                 Defaults to ``_DEFAULT_PREVIEW_CHARS`` (4,000).
+
+        Raises:
+            ValueError: If max_result_chars is not positive, preview_chars is negative,
+                or preview_chars >= max_result_chars.
         """
-        self._storage: ExternalizationStorage = storage or InMemoryExternalizationStorage()
+        if max_result_chars <= 0:
+            raise ValueError("max_result_chars must be positive")
+        if preview_chars < 0:
+            raise ValueError("preview_chars must be non-negative")
+        if preview_chars >= max_result_chars:
+            raise ValueError("preview_chars must be less than max_result_chars")
+
+        self._storage = storage
         self._max_result_chars = max_result_chars
         self._preview_chars = preview_chars
         super().__init__()
@@ -105,7 +124,8 @@ class ToolResultExternalizer(Plugin):
         result = event.result
         content = result["content"]
 
-        # Collect externalizable content (text + JSON) and measure total size
+        # Collect externalizable content (text + JSON) and measure total size.
+        # Empty text blocks are intentionally excluded — they add no content value.
         text_parts: list[str] = []
         for block in content:
             if block.get("text"):

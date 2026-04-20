@@ -1,12 +1,13 @@
 """Tests for the ToolResultExternalizer plugin."""
 
+import json
 import logging
 from unittest.mock import MagicMock
 
 import pytest
 
 from strands.hooks.events import AfterToolCallEvent
-from strands.vended_plugins.tool_result_externalizer import (
+from strands.vended_plugins.result_externalizer import (
     InMemoryExternalizationStorage,
     ToolResultExternalizer,
 )
@@ -57,15 +58,27 @@ def _make_event(agent, text_content, status="success", tool_use_id="tool_123", c
 
 class TestToolResultExternalizer:
     def test_plugin_name(self, plugin):
-        assert plugin.name == "tool_result_externalizer"
+        assert plugin.name == "result_externalizer"
 
     def test_hook_auto_discovered(self, plugin):
         assert len(plugin.hooks) == 1
         assert plugin.hooks[0].__name__ == "_handle_tool_result"
 
-    def test_default_storage_is_in_memory(self):
-        plugin = ToolResultExternalizer()
-        assert isinstance(plugin._storage, InMemoryExternalizationStorage)
+    def test_raises_on_non_positive_max_result_chars(self):
+        with pytest.raises(ValueError, match="max_result_chars must be positive"):
+            ToolResultExternalizer(storage=InMemoryExternalizationStorage(), max_result_chars=0)
+        with pytest.raises(ValueError, match="max_result_chars must be positive"):
+            ToolResultExternalizer(storage=InMemoryExternalizationStorage(), max_result_chars=-1)
+
+    def test_raises_on_negative_preview_chars(self):
+        with pytest.raises(ValueError, match="preview_chars must be non-negative"):
+            ToolResultExternalizer(storage=InMemoryExternalizationStorage(), preview_chars=-1)
+
+    def test_raises_on_preview_chars_gte_max_result_chars(self):
+        with pytest.raises(ValueError, match="preview_chars must be less than max_result_chars"):
+            ToolResultExternalizer(storage=InMemoryExternalizationStorage(), max_result_chars=100, preview_chars=100)
+        with pytest.raises(ValueError, match="preview_chars must be less than max_result_chars"):
+            ToolResultExternalizer(storage=InMemoryExternalizationStorage(), max_result_chars=100, preview_chars=200)
 
     def test_externalizes_oversized_text(self, plugin, storage, mock_agent):
         large_text = "a" * 200
@@ -185,8 +198,6 @@ class TestToolResultExternalizer:
         assert "[Externalized:" in result_text
 
         # Verify stored content is the JSON serialized with indent=2
-        import json
-
         ref = result_text.split("ref: ")[1].split("]")[0]
         stored = storage.retrieve(ref)
         assert stored == json.dumps(large_json, indent=2)
@@ -296,8 +307,6 @@ class TestToolResultExternalizer:
         assert event.result["content"][2]["text"] == "[document: unknown, unknown, 0 bytes]"
 
     def test_all_content_types_mixed(self, plugin, storage, mock_agent):
-        import json
-
         large_json = {"rows": [{"id": i} for i in range(20)]}
         content = [
             {"text": "a" * 60},
