@@ -15,7 +15,7 @@ Example::
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from .base import ExecutionResult, FileInfo, Sandbox
+from .base import ExecutionResult, FileInfo, Sandbox, StreamChunk
 
 
 class NoOpSandbox(Sandbox):
@@ -38,7 +38,7 @@ class NoOpSandbox(Sandbox):
         command: str,
         timeout: int | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[str | ExecutionResult, None]:
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Raise NotImplementedError — sandbox is disabled."""
         raise NotImplementedError("Sandbox is disabled (NoOpSandbox). Cannot execute commands.")
         yield  # type: ignore[unreachable]  # pragma: no cover
@@ -49,7 +49,7 @@ class NoOpSandbox(Sandbox):
         language: str,
         timeout: int | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[str | ExecutionResult, None]:
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Raise NotImplementedError — sandbox is disabled."""
         raise NotImplementedError("Sandbox is disabled (NoOpSandbox). Cannot execute code.")
         yield  # type: ignore[unreachable]  # pragma: no cover

@@ -10,6 +10,8 @@ from strands.sandbox.base import (
     FileInfo,
     OutputFile,
     Sandbox,
+    StreamChunk,
+    StreamType,
 )
 from strands.sandbox.shell_based import ShellBasedSandbox
 
@@ -18,15 +20,11 @@ class ConcreteShellSandbox(ShellBasedSandbox):
     """Minimal concrete ShellBasedSandbox implementation for testing."""
 
     def __init__(self) -> None:
-        super().__init__()
         self.commands: list[str] = []
-        self.started_count = 0
-        self.stopped_count = 0
 
     async def execute_streaming(
         self, command: str, timeout: int | None = None, **kwargs: Any
-    ) -> AsyncGenerator[str | ExecutionResult, None]:
-        await self._ensure_started()
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         self.commands.append(command)
         if "fail" in command:
             yield ExecutionResult(exit_code=1, stdout="", stderr="command failed")
@@ -38,16 +36,10 @@ class ConcreteShellSandbox(ShellBasedSandbox):
             stdout = b64.b64encode(b"mock file content").decode("ascii") + "\n"
         else:
             stdout = f"output of: {command}\n"
-        yield stdout
+        yield StreamChunk(data=stdout)
         yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
 
-    async def start(self) -> None:
-        self.started_count += 1
-        self._started = True
 
-    async def stop(self) -> None:
-        self.stopped_count += 1
-        self._started = False
 
 
 class TestExecutionResult:
@@ -137,7 +129,7 @@ class TestSandboxABC:
         class OnlyExecute(Sandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
         with pytest.raises(TypeError):
@@ -149,12 +141,12 @@ class TestSandboxABC:
         class AllMethods(Sandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def read_file(self, path: str, **kwargs: Any) -> bytes:
@@ -179,12 +171,12 @@ class TestSandboxABC:
         class MissingRemoveFile(Sandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def read_file(self, path: str, **kwargs: Any) -> bytes:
@@ -200,84 +192,20 @@ class TestSandboxABC:
             MissingRemoveFile()  # type: ignore
 
     @pytest.mark.asyncio
-    async def test_default_start_stop_work(self) -> None:
-        """Test that the base class default start/stop work correctly."""
 
-        class FullSandbox(Sandbox):
-            async def execute_streaming(
-                self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def execute_code_streaming(
-                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                yield ExecutionResult(exit_code=0, stdout="", stderr="")
-
-            async def read_file(self, path: str, **kwargs: Any) -> bytes:
-                return b""
-
-            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
-                pass
-
-            async def remove_file(self, path: str, **kwargs: Any) -> None:
-                pass
-
-            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
-                return []
-
-        sandbox = FullSandbox()
-        await sandbox.start()
-        assert sandbox._started
-        await sandbox.stop()
-        assert not sandbox._started
-
-    @pytest.mark.asyncio
-    async def test_async_context_manager(self) -> None:
-        """Test async context manager on the base Sandbox class."""
-
-        class FullSandbox(Sandbox):
-            async def execute_streaming(
-                self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                yield ExecutionResult(exit_code=0, stdout="", stderr="")
-
-            async def execute_code_streaming(
-                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                yield ExecutionResult(exit_code=0, stdout="", stderr="")
-
-            async def read_file(self, path: str, **kwargs: Any) -> bytes:
-                return b""
-
-            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
-                pass
-
-            async def remove_file(self, path: str, **kwargs: Any) -> None:
-                pass
-
-            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
-                return []
-
-        sandbox = FullSandbox()
-        async with sandbox as s:
-            assert s is sandbox
-            assert sandbox._started
-        assert not sandbox._started
-
-    @pytest.mark.asyncio
     async def test_read_text_convenience(self) -> None:
         """Test that read_text decodes bytes from read_file."""
 
         class TextSandbox(Sandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def read_file(self, path: str, **kwargs: Any) -> bytes:
@@ -303,17 +231,16 @@ class TestSandboxABC:
 
         class TextSandbox(Sandbox):
             def __init__(self) -> None:
-                super().__init__()
                 self.written_content: bytes = b""
 
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def read_file(self, path: str, **kwargs: Any) -> bytes:
@@ -339,13 +266,13 @@ class TestSandboxABC:
         class SimpleSandbox(Sandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                yield "output\n"
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+                yield StreamChunk(data="output\n")
                 yield ExecutionResult(exit_code=0, stdout="output\n", stderr="")
 
             async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def read_file(self, path: str, **kwargs: Any) -> bytes:
@@ -373,13 +300,13 @@ class TestSandboxABC:
         class SimpleSandbox(Sandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
             async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                yield "code output\n"
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+                yield StreamChunk(data="code output\n")
                 yield ExecutionResult(exit_code=0, stdout="code output\n", stderr="")
 
             async def read_file(self, path: str, **kwargs: Any) -> bytes:
@@ -407,12 +334,12 @@ class TestSandboxABC:
         class BadSandbox(Sandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield "just a string"
 
             async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield "just a string"
 
             async def read_file(self, path: str, **kwargs: Any) -> bytes:
@@ -438,12 +365,12 @@ class TestSandboxABC:
         class BadSandbox(Sandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield "just a string"
 
             async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 yield "just a string"
 
             async def read_file(self, path: str, **kwargs: Any) -> bytes:
@@ -482,12 +409,12 @@ class TestShellBasedSandboxOperations:
     @pytest.mark.asyncio
     async def test_execute_streaming_yields_lines_and_result(self) -> None:
         sandbox = ConcreteShellSandbox()
-        chunks: list[str | ExecutionResult] = []
+        chunks: list[StreamChunk | ExecutionResult] = []
         async for chunk in sandbox.execute_streaming("echo hello"):
             chunks.append(chunk)
         assert isinstance(chunks[-1], ExecutionResult)
         assert chunks[-1].exit_code == 0
-        assert any(isinstance(c, str) for c in chunks[:-1])
+        assert any(isinstance(c, StreamChunk) for c in chunks[:-1])
         assert sandbox.commands == ["echo hello"]
 
     @pytest.mark.asyncio
@@ -501,7 +428,7 @@ class TestShellBasedSandboxOperations:
     @pytest.mark.asyncio
     async def test_execute_code_streaming_default(self) -> None:
         sandbox = ConcreteShellSandbox()
-        chunks: list[str | ExecutionResult] = []
+        chunks: list[StreamChunk | ExecutionResult] = []
         async for chunk in sandbox.execute_code_streaming("print('hi')", language="python"):
             chunks.append(chunk)
         assert isinstance(chunks[-1], ExecutionResult)
@@ -606,96 +533,6 @@ class TestShellBasedSandboxOperations:
         for f in files:
             assert f.size is None
 
-    @pytest.mark.asyncio
-    async def test_lifecycle_start_stop(self) -> None:
-        sandbox = ConcreteShellSandbox()
-        assert not sandbox._started
-        await sandbox.start()
-        assert sandbox._started
-        await sandbox.stop()
-        assert not sandbox._started
-
-    @pytest.mark.asyncio
-    async def test_async_context_manager(self) -> None:
-        sandbox = ConcreteShellSandbox()
-        async with sandbox as s:
-            assert s is sandbox
-            assert sandbox._started
-        assert not sandbox._started
-
-    @pytest.mark.asyncio
-    async def test_auto_start_on_first_execute(self) -> None:
-        sandbox = ConcreteShellSandbox()
-        assert not sandbox._started
-        result = await sandbox.execute("echo hello")
-        assert sandbox._started
-        assert result.exit_code == 0
-
-    @pytest.mark.asyncio
-    async def test_auto_start_only_once(self) -> None:
-        sandbox = ConcreteShellSandbox()
-        await sandbox.execute("echo 1")
-        await sandbox.execute("echo 2")
-        assert sandbox.started_count == 1
-
-
-class TestContextManagerExceptionCleanup:
-    """__aexit__ must call stop() even when an exception occurs inside the context."""
-
-    @pytest.mark.asyncio
-    async def test_aexit_calls_stop_on_exception(self) -> None:
-        class TrackingSandbox(ShellBasedSandbox):
-            def __init__(self) -> None:
-                super().__init__()
-                self.stop_called = False
-
-            async def execute_streaming(
-                self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                yield ExecutionResult(exit_code=0, stdout="", stderr="")
-
-            async def start(self) -> None:
-                self._started = True
-
-            async def stop(self) -> None:
-                self.stop_called = True
-                self._started = False
-
-        sandbox = TrackingSandbox()
-        with pytest.raises(ValueError, match="deliberate"):
-            async with sandbox:
-                assert sandbox._started
-                raise ValueError("deliberate error inside context manager")
-
-        assert sandbox.stop_called
-        assert not sandbox._started
-
-    @pytest.mark.asyncio
-    async def test_aexit_calls_stop_on_runtime_error(self) -> None:
-        class TrackingSandbox(ShellBasedSandbox):
-            def __init__(self) -> None:
-                super().__init__()
-                self.stop_called = False
-
-            async def execute_streaming(
-                self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                yield ExecutionResult(exit_code=0, stdout="", stderr="")
-
-            async def start(self) -> None:
-                self._started = True
-
-            async def stop(self) -> None:
-                self.stop_called = True
-                self._started = False
-
-        sandbox = TrackingSandbox()
-        with pytest.raises(RuntimeError, match="crash"):
-            async with sandbox:
-                raise RuntimeError("crash inside context")
-
-        assert sandbox.stop_called
-        assert not sandbox._started
 
 
 class TestShellBasedListFilesRealisticOutput:
@@ -704,14 +541,11 @@ class TestShellBasedListFilesRealisticOutput:
         class RealisticLsSandbox(ShellBasedSandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                await self._ensure_started()
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 stdout = ".\n..\nsubdir/\n.hidden_dir/\nfile.txt\nscript.py*\nlink.txt@\npipe_file|\n"
-                yield stdout
+                yield StreamChunk(data=stdout)
                 yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
 
-            async def start(self) -> None:
-                self._started = True
 
         sandbox = RealisticLsSandbox()
         files = await sandbox.list_files("/some/path")
@@ -739,14 +573,11 @@ class TestShellBasedListFilesRealisticOutput:
         class EmptyLsSandbox(ShellBasedSandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                await self._ensure_started()
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 stdout = "./\n../\n"
-                yield stdout
+                yield StreamChunk(data=stdout)
                 yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
 
-            async def start(self) -> None:
-                self._started = True
 
         sandbox = EmptyLsSandbox()
         files = await sandbox.list_files("/empty")
@@ -757,14 +588,11 @@ class TestShellBasedListFilesRealisticOutput:
         class PlainLsSandbox(ShellBasedSandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                await self._ensure_started()
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 stdout = "readme.md\nsetup.py\nrequirements.txt\n"
-                yield stdout
+                yield StreamChunk(data=stdout)
                 yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
 
-            async def start(self) -> None:
-                self._started = True
 
         sandbox = PlainLsSandbox()
         files = await sandbox.list_files("/project")
@@ -779,18 +607,14 @@ class TestShellBasedWriteFileParentDirs:
     async def test_write_file_command_includes_mkdir(self) -> None:
         class CommandCapture(ShellBasedSandbox):
             def __init__(self) -> None:
-                super().__init__()
                 self.commands: list[str] = []
 
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                await self._ensure_started()
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 self.commands.append(command)
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def start(self) -> None:
-                self._started = True
 
         sandbox = CommandCapture()
         await sandbox.write_file("/tmp/deep/nested/file.txt", b"content")
@@ -806,18 +630,14 @@ class TestShellBasedBase64Encoding:
 
         class CommandCapture(ShellBasedSandbox):
             def __init__(self) -> None:
-                super().__init__()
                 self.commands: list[str] = []
 
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                await self._ensure_started()
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 self.commands.append(command)
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def start(self) -> None:
-                self._started = True
 
         sandbox = CommandCapture()
         original_content = b"hello world with special chars: \x00\xff\n\t"
@@ -834,14 +654,11 @@ class TestShellBasedBase64Encoding:
         class Base64Sandbox(ShellBasedSandbox):
             async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                await self._ensure_started()
+            ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
                 stdout = b64.b64encode(original_content).decode("ascii") + "\n"
-                yield stdout
+                yield StreamChunk(data=stdout)
                 yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
 
-            async def start(self) -> None:
-                self._started = True
 
         sandbox = Base64Sandbox()
         content = await sandbox.read_file("/tmp/image.png")

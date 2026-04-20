@@ -9,7 +9,7 @@ Tests for:
 
 import pytest
 
-from strands.sandbox.base import ExecutionResult
+from strands.sandbox.base import ExecutionResult, StreamChunk, StreamType
 from strands.sandbox.local import LocalSandbox
 from strands.sandbox.shell_based import ShellBasedSandbox
 
@@ -294,7 +294,6 @@ class TestShellBasedSandboxHeredocEdgeCases:
                 self.last_command = ""
 
             async def execute_streaming(self, command, timeout=None, **kwargs):
-                await self._ensure_started()
                 self.last_command = command
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
@@ -319,7 +318,6 @@ class TestShellBasedSandboxHeredocEdgeCases:
                 self.last_command = ""
 
             async def execute_streaming(self, command, timeout=None, **kwargs):
-                await self._ensure_started()
                 self.last_command = command
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 

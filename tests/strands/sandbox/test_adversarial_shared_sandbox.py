@@ -11,7 +11,7 @@ import asyncio
 
 import pytest
 
-from strands.sandbox.base import ExecutionResult
+from strands.sandbox.base import ExecutionResult, StreamChunk, StreamType
 from strands.sandbox.local import LocalSandbox
 
 
@@ -110,41 +110,6 @@ class TestSharedSandboxConcurrentExecution:
         # At least some reads should succeed
         successful_reads = [r for r in results if r != "FILE_NOT_FOUND"]
         assert len(successful_reads) > 0
-
-    @pytest.mark.asyncio
-    async def test_concurrent_auto_start_race(self, tmp_path):
-        """Multiple concurrent execute() calls race to auto-start — only one start() should happen."""
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
-        start_count = 0
-        original_start = sandbox.start
-
-        async def counting_start():
-            nonlocal start_count
-            start_count += 1
-            await original_start()
-
-        sandbox.start = counting_start  # type: ignore
-
-        # Trigger 5 concurrent executes, all racing to auto-start
-        results = await asyncio.gather(
-            sandbox.execute("echo 0"),
-            sandbox.execute("echo 1"),
-            sandbox.execute("echo 2"),
-            sandbox.execute("echo 3"),
-            sandbox.execute("echo 4"),
-        )
-
-        for result in results:
-            assert result.exit_code == 0
-
-        # _ensure_started() uses asyncio.Lock with double-checked locking
-        # to prevent multiple starts. Verify exactly one start() was called.
-        assert start_count == 1, (
-            f"Expected exactly 1 start() call but got {start_count}. "
-            f"The asyncio.Lock in _ensure_started() should prevent concurrent starts."
-        )
-
-
 class TestSharedSandboxBetweenAgents:
     """What happens when two Agent instances share the same sandbox?"""
 
@@ -167,104 +132,3 @@ class TestSharedSandboxBetweenAgents:
         # Agent 2 should see it
         content = await sandbox.read_file("from_agent1.txt")
         assert content == b"hello from 1"
-
-    @pytest.mark.asyncio
-    async def test_shared_sandbox_stop_kills_both(self, tmp_path):
-        """Stopping shared sandbox affects all agents using it."""
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
-        await sandbox.start()
-        assert sandbox._started
-
-        await sandbox.stop()
-        assert not sandbox._started
-
-        # Next call should auto-start again
-        result = await sandbox.execute("echo recovered")
-        assert result.exit_code == 0
-        assert sandbox._started
-
-
-class TestSandboxLifecycleEdgeCases:
-    """Edge cases in start/stop lifecycle."""
-
-    @pytest.mark.asyncio
-    async def test_double_start(self, tmp_path):
-        """Calling start() twice should be safe."""
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
-        await sandbox.start()
-        await sandbox.start()  # Should not raise
-        assert sandbox._started
-
-    @pytest.mark.asyncio
-    async def test_double_stop(self, tmp_path):
-        """Calling stop() twice should be safe."""
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
-        await sandbox.start()
-        await sandbox.stop()
-        await sandbox.stop()  # Should not raise
-        assert not sandbox._started
-
-    @pytest.mark.asyncio
-    async def test_stop_then_execute(self, tmp_path):
-        """Executing after stop should auto-restart."""
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
-        await sandbox.start()
-        await sandbox.stop()
-
-        # Should auto-start
-        result = await sandbox.execute("echo after_stop")
-        assert result.exit_code == 0
-        assert result.stdout.strip() == "after_stop"
-
-    @pytest.mark.asyncio
-    async def test_context_manager_reentry(self, tmp_path):
-        """Using context manager twice should work."""
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
-
-        async with sandbox:
-            result = await sandbox.execute("echo first")
-            assert result.stdout.strip() == "first"
-
-        assert not sandbox._started
-
-        async with sandbox:
-            result = await sandbox.execute("echo second")
-            assert result.stdout.strip() == "second"
-
-    @pytest.mark.asyncio
-    async def test_stop_during_execution(self, tmp_path):
-        """stop() during execution should not crash or corrupt sandbox state.
-
-        After the concurrent stop + execute settle, the sandbox should be
-        in a consistent state: either stopped (and auto-restartable) or
-        still running. No corruption.
-        """
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
-
-        async def long_running():
-            return await sandbox.execute("sleep 5", timeout=10)
-
-        async def stopper():
-            await asyncio.sleep(0.1)
-            await sandbox.stop()
-
-        # Both tasks run concurrently — gather with return_exceptions
-        results = await asyncio.gather(
-            long_running(),
-            stopper(),
-            return_exceptions=True,
-        )
-
-        # Verify no unexpected exception types
-        for r in results:
-            if isinstance(r, Exception):
-                assert isinstance(r, (asyncio.TimeoutError, asyncio.CancelledError, ProcessLookupError, OSError)), (
-                    f"Unexpected exception during concurrent stop: {type(r).__name__}: {r}"
-                )
-
-        # After the dust settles, sandbox must be in a usable state:
-        # auto-start should recover it for the next command
-        recovery_result = await sandbox.execute("echo recovered")
-        assert recovery_result.exit_code == 0
-        assert recovery_result.stdout.strip() == "recovered"
-        assert sandbox._started

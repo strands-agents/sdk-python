@@ -5,6 +5,7 @@ This module defines the abstract Sandbox class and supporting dataclasses:
 - :class:`ExecutionResult` — result of command/code execution
 - :class:`FileInfo` — metadata about a file in the sandbox
 - :class:`OutputFile` — a file produced as output by code execution
+- :class:`StreamChunk` — a typed chunk of streaming output (stdout or stderr)
 
 Sandbox implementations provide the runtime context where tools execute code, run commands,
 and interact with a filesystem. Multiple tools share the same Sandbox instance, giving them
@@ -20,14 +21,45 @@ Class hierarchy::
         for all operations. Use to disable sandbox functionality entirely.
 """
 
-import asyncio
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+class StreamType(Enum):
+    """Type of a streaming output chunk.
+
+    Used by :class:`StreamChunk` to distinguish stdout from stderr output
+    during streaming execution.
+    """
+
+    STDOUT = "stdout"
+    STDERR = "stderr"
+
+
+@dataclass
+class StreamChunk:
+    """A typed chunk of streaming output from command or code execution.
+
+    Allows consumers to distinguish stdout from stderr during streaming,
+    enabling richer UIs and more precise output handling.
+
+    Attributes:
+        data: The text content of the chunk.
+        stream_type: Whether this chunk is from stdout or stderr.
+    """
+
+    data: str
+    stream_type: StreamType = StreamType.STDOUT
+
+    def __str__(self) -> str:
+        """Return the chunk data as a string for backwards-compatible consumers."""
+        return self.data
 
 
 @dataclass
@@ -104,13 +136,14 @@ class Sandbox(ABC):
     Non-streaming convenience methods (``execute``, ``execute_code``) consume
     the stream and return the final ``ExecutionResult``.
 
+    Streaming methods yield :class:`StreamChunk` objects that carry both
+    the text data and the stream type (stdout or stderr), followed by a
+    final :class:`ExecutionResult`. This allows consumers to distinguish
+    between stdout and stderr during streaming.
+
     All abstract methods accept ``**kwargs`` for forward compatibility —
     new parameters with defaults can be added in future versions without
     breaking existing implementations.
-
-    The sandbox auto-starts on the first operation if not already
-    started, so callers do not need to manually call ``start()`` or use
-    the async context manager.
 
     Example:
         Non-streaming (common case)::
@@ -121,17 +154,17 @@ class Sandbox(ABC):
             result = await sandbox.execute("echo hello")
             print(result.stdout)
 
-        Streaming::
+        Streaming with stdout/stderr distinction::
 
             async for chunk in sandbox.execute_streaming("echo hello"):
-                if isinstance(chunk, str):
-                    print(chunk, end="")  # stream output
+                if isinstance(chunk, StreamChunk):
+                    if chunk.stream_type == StreamType.STDOUT:
+                        print(f"[stdout] {chunk.data}", end="")
+                    else:
+                        print(f"[stderr] {chunk.data}", end="")
+                elif isinstance(chunk, ExecutionResult):
+                    print(f"Exit code: {chunk.exit_code}")
     """
-
-    def __init__(self) -> None:
-        """Initialize base sandbox state."""
-        self._started = False
-        self._start_lock = asyncio.Lock()
 
     # ---- Streaming methods (abstract primitives) ----
 
@@ -141,21 +174,20 @@ class Sandbox(ABC):
         command: str,
         timeout: int | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[str | ExecutionResult, None]:
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Execute a shell command, streaming output.
 
-        Yields collected stdout/stderr chunks. The final yield is an
-        ExecutionResult with the exit code and complete output.
-
-        The sandbox is auto-started on the first call if not already started.
+        Yields :class:`StreamChunk` objects for stdout and stderr output
+        as it arrives. The final yield is an :class:`ExecutionResult` with
+        the exit code and complete output.
 
         Args:
             command: The shell command to execute.
-            timeout: Maximum execution time in seconds. None means no timeout.
+            timeout: Maximum execution time in seconds. ``None`` means no timeout.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
-            str chunks of output, then a final ExecutionResult.
+            :class:`StreamChunk` objects for output, then a final :class:`ExecutionResult`.
         """
         ...
         # Make the method signature an async generator for type checkers.
@@ -169,17 +201,17 @@ class Sandbox(ABC):
         language: str,
         timeout: int | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[str | ExecutionResult, None]:
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Execute code in the sandbox, streaming output.
 
         Args:
             code: The source code to execute.
             language: The programming language interpreter to use.
-            timeout: Maximum execution time in seconds. None means no timeout.
+            timeout: Maximum execution time in seconds. ``None`` means no timeout.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
-            str chunks of output, then a final ExecutionResult.
+            :class:`StreamChunk` objects for output, then a final :class:`ExecutionResult`.
         """
         ...
         yield  # type: ignore[misc]  # pragma: no cover
@@ -280,7 +312,7 @@ class Sandbox(ABC):
 
         Args:
             command: The shell command to execute.
-            timeout: Maximum execution time in seconds. None means no timeout.
+            timeout: Maximum execution time in seconds. ``None`` means no timeout.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
@@ -317,7 +349,7 @@ class Sandbox(ABC):
         Args:
             code: The source code to execute.
             language: The programming language interpreter to use.
-            timeout: Maximum execution time in seconds. None means no timeout.
+            timeout: Maximum execution time in seconds. ``None`` means no timeout.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Returns:
@@ -373,50 +405,3 @@ class Sandbox(ABC):
             IOError: If the file cannot be written.
         """
         await self.write_file(path, content.encode(encoding), **kwargs)
-
-    # ---- Lifecycle ----
-
-    async def _ensure_started(self) -> None:
-        """Auto-start the sandbox if it has not been started yet.
-
-        Uses an asyncio.Lock to prevent double-start when multiple
-        coroutines call this concurrently.
-        """
-        if self._started:
-            return
-        async with self._start_lock:
-            if not self._started:
-                await self.start()
-                self._started = True
-
-    async def start(self) -> None:
-        """Initialize the sandbox.
-
-        Called once before first use. Override to perform setup such as
-        starting containers or creating temporary directories.
-
-        The base implementation sets ``_started = True``. Subclasses that
-        override this method should call ``super().start()`` or set
-        ``self._started = True`` after their setup completes.
-        """
-        self._started = True
-
-    async def stop(self) -> None:
-        """Clean up sandbox resources.
-
-        Override to perform cleanup such as stopping containers or
-        removing temporary directories.
-
-        The base implementation sets ``_started = False``. Subclasses that
-        override this method should call ``super().stop()`` after cleanup.
-        """
-        self._started = False
-
-    async def __aenter__(self) -> "Sandbox":
-        """Enter the async context manager, starting the sandbox."""
-        await self._ensure_started()
-        return self
-
-    async def __aexit__(self, *args: Any) -> None:
-        """Exit the async context manager, stopping the sandbox."""
-        await self.stop()

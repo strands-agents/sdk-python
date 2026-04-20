@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from strands.sandbox.base import ExecutionResult, FileInfo, Sandbox
+from strands.sandbox.base import ExecutionResult, StreamChunk, StreamType, FileInfo, Sandbox
 from strands.sandbox.local import LocalSandbox
 
 
@@ -58,10 +58,10 @@ class TestLocalSandboxExecute:
     @pytest.mark.asyncio
     async def test_execute_streams_chunks(self, tmp_path: object) -> None:
         sandbox = LocalSandbox(working_dir=str(tmp_path))
-        chunks: list[str | ExecutionResult] = []
+        chunks: list[StreamChunk | ExecutionResult] = []
         async for chunk in sandbox.execute_streaming("echo line1 && echo line2"):
             chunks.append(chunk)
-        str_chunks = [c for c in chunks if isinstance(c, str)]
+        str_chunks = [c.data for c in chunks if isinstance(c, StreamChunk)]
         result_chunks = [c for c in chunks if isinstance(c, ExecutionResult)]
         assert len(result_chunks) == 1
         assert len(str_chunks) >= 1
@@ -104,15 +104,6 @@ class TestLocalSandboxExecute:
         result = await sandbox.execute("echo fast", timeout=None)
         assert result.exit_code == 0
         assert result.stdout.strip() == "fast"
-
-    @pytest.mark.asyncio
-    async def test_auto_start(self, tmp_path: object) -> None:
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
-        assert not sandbox._started
-        result = await sandbox.execute("echo hello")
-        assert sandbox._started
-        assert result.exit_code == 0
-
     @pytest.mark.asyncio
     async def test_execute_long_output_without_newlines(self, tmp_path: object) -> None:
         """Bug 2 fix: long output lines (>64KB) no longer crash."""
@@ -133,11 +124,11 @@ class TestLocalSandboxExecuteCode:
     @pytest.mark.asyncio
     async def test_execute_code_streams(self, tmp_path: object) -> None:
         sandbox = LocalSandbox(working_dir=str(tmp_path))
-        chunks: list[str | ExecutionResult] = []
+        chunks: list[StreamChunk | ExecutionResult] = []
         async for chunk in sandbox.execute_code_streaming("print('line1')\nprint('line2')", language="python"):
             chunks.append(chunk)
         assert isinstance(chunks[-1], ExecutionResult)
-        combined = "".join(c for c in chunks if isinstance(c, str))
+        combined = "".join(c.data for c in chunks if isinstance(c, StreamChunk))
         assert "line1" in combined
         assert "line2" in combined
 
@@ -316,58 +307,6 @@ class TestLocalSandboxFileOps:
         sandbox = LocalSandbox(working_dir=str(tmp_path))
         with pytest.raises(FileNotFoundError):
             await sandbox.list_files("nonexistent")
-
-
-class TestLocalSandboxLifecycle:
-    @pytest.mark.asyncio
-    async def test_start_stop(self, tmp_path: object) -> None:
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
-        await sandbox.start()
-        assert sandbox._started
-        await sandbox.stop()
-        assert not sandbox._started
-
-    @pytest.mark.asyncio
-    async def test_context_manager(self, tmp_path: object) -> None:
-        async with LocalSandbox(working_dir=str(tmp_path)) as sandbox:
-            result = await sandbox.execute("echo context")
-            assert result.stdout.strip() == "context"
-
-
-class TestLocalSandboxWorkingDirValidation:
-    """Tests for Bug 3 fix: non-existent working directory handling."""
-
-    @pytest.mark.asyncio
-    async def test_start_creates_nonexistent_working_dir(self, tmp_path: object) -> None:
-        new_dir = str(tmp_path / "new" / "deep" / "dir")  # type: ignore[operator]
-        sandbox = LocalSandbox(working_dir=new_dir)
-        await sandbox.start()
-        assert os.path.isdir(new_dir)
-        assert sandbox._started
-
-    @pytest.mark.asyncio
-    async def test_auto_start_creates_working_dir(self, tmp_path: object) -> None:
-        new_dir = str(tmp_path / "auto_created")  # type: ignore[operator]
-        sandbox = LocalSandbox(working_dir=new_dir)
-        result = await sandbox.execute("echo hello")
-        assert result.exit_code == 0
-        assert os.path.isdir(new_dir)
-
-    @pytest.mark.asyncio
-    async def test_start_raises_if_path_is_a_file(self, tmp_path: object) -> None:
-        file_path = tmp_path / "not_a_dir"  # type: ignore[operator]
-        file_path.write_text("i am a file")
-        sandbox = LocalSandbox(working_dir=str(file_path))
-        with pytest.raises(NotADirectoryError, match="not a directory"):
-            await sandbox.start()
-
-    @pytest.mark.asyncio
-    async def test_existing_working_dir_is_fine(self, tmp_path: object) -> None:
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
-        await sandbox.start()
-        assert sandbox._started
-
-
 class TestLocalSandboxExecuteCodeErrorHandling:
     """Tests for execute_code error handling (FileNotFoundError fix)."""
 

@@ -16,7 +16,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
-from .base import ExecutionResult, FileInfo, Sandbox
+from .base import ExecutionResult, FileInfo, Sandbox, StreamChunk, StreamType
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +78,8 @@ class LocalSandbox(Sandbox):
         Streaming::
 
             async for chunk in sandbox.execute_streaming("echo hello"):
-                if isinstance(chunk, str):
-                    print(chunk, end="")
+                if isinstance(chunk, StreamChunk):
+                    print(chunk.data, end="")
     """
 
     def __init__(self, working_dir: str | None = None) -> None:
@@ -89,7 +89,6 @@ class LocalSandbox(Sandbox):
             working_dir: The working directory for command execution.
                 Defaults to the current working directory at construction time.
         """
-        super().__init__()
         self.working_dir = working_dir or os.getcwd()
 
     def _resolve_path(self, path: str) -> Path:
@@ -108,28 +107,12 @@ class LocalSandbox(Sandbox):
             return Path(path)
         return Path(self.working_dir) / path
 
-    async def start(self) -> None:
-        """Initialize the sandbox and ensure the working directory exists.
-
-        Creates the working directory if it does not exist. Raises a clear
-        error if the path exists but is not a directory.
-
-        Raises:
-            NotADirectoryError: If the working_dir path exists but is not a directory.
-        """
-        working_path = Path(self.working_dir)
-        if working_path.exists() and not working_path.is_dir():
-            raise NotADirectoryError(f"working_dir is not a directory: {self.working_dir}")
-        working_path.mkdir(parents=True, exist_ok=True)
-        logger.debug("working_dir=<%s> | local sandbox started", self.working_dir)
-        await super().start()
-
     async def execute_streaming(
         self,
         command: str,
         timeout: int | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[str | ExecutionResult, None]:
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Execute a shell command on the local host, streaming output.
 
         Reads stdout and stderr in chunks (up to 64 KiB at a time) to avoid
@@ -139,17 +122,20 @@ class LocalSandbox(Sandbox):
 
         Args:
             command: The shell command to execute.
-            timeout: Maximum execution time in seconds. None means no timeout.
+            timeout: Maximum execution time in seconds. ``None`` means no timeout.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
-            str chunks of output, then a final ExecutionResult.
+            :class:`StreamChunk` objects for stdout/stderr, then a final :class:`ExecutionResult`.
 
         Raises:
             asyncio.TimeoutError: If the command exceeds the timeout.
         """
-        await self._ensure_started()
         logger.debug("command=<%s>, timeout=<%s> | executing local command", command, timeout)
+
+        working_path = Path(self.working_dir)
+        working_path.mkdir(parents=True, exist_ok=True)
+
         proc = await asyncio.create_subprocess_shell(
             command,
             cwd=self.working_dir,
@@ -166,7 +152,7 @@ class LocalSandbox(Sandbox):
         language: str,
         timeout: int | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[str | ExecutionResult, None]:
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Execute code on the local host using subprocess_exec (no shell intermediary).
 
         Uses :func:`asyncio.create_subprocess_exec` to invoke the language
@@ -184,18 +170,16 @@ class LocalSandbox(Sandbox):
             code: The source code to execute.
             language: The programming language interpreter to use (e.g.
                 ``"python"``, ``"python3"``, ``"node"``, ``"ruby"``).
-            timeout: Maximum execution time in seconds. None means no timeout.
+            timeout: Maximum execution time in seconds. ``None`` means no timeout.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
-            str chunks of output, then a final ExecutionResult.
+            :class:`StreamChunk` objects for stdout/stderr, then a final :class:`ExecutionResult`.
 
         Raises:
             asyncio.TimeoutError: If the code execution exceeds the timeout.
             ValueError: If the language parameter contains unsafe characters.
         """
-        await self._ensure_started()
-
         # Validate language to prevent injection via interpreter name.
         # Only allow safe characters (alphanumeric, dots, hyphens, underscores).
         if not _LANGUAGE_PATTERN.match(language):
@@ -206,6 +190,9 @@ class LocalSandbox(Sandbox):
             language,
             timeout,
         )
+
+        working_path = Path(self.working_dir)
+        working_path.mkdir(parents=True, exist_ok=True)
 
         # Use create_subprocess_exec (not shell) — the interpreter and arguments
         # are passed directly to execvp, avoiding all shell quoting issues.
@@ -233,18 +220,18 @@ class LocalSandbox(Sandbox):
         self,
         proc: asyncio.subprocess.Process,
         timeout: int | None,
-    ) -> AsyncGenerator[str | ExecutionResult, None]:
-        """Read stdout/stderr from a subprocess, then yield chunks and a final ExecutionResult.
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+        """Read stdout/stderr from a subprocess, then yield typed chunks and a final ExecutionResult.
 
         Shared helper used by both ``execute_streaming()`` and ``execute_code_streaming()`` to
         avoid duplicating the stream-reading, timeout-handling, and yielding logic.
 
         Args:
             proc: The running subprocess.
-            timeout: Maximum time in seconds to wait for output. None means no timeout.
+            timeout: Maximum time in seconds to wait for output. ``None`` means no timeout.
 
         Yields:
-            str chunks of output, then a final ExecutionResult.
+            :class:`StreamChunk` objects for stdout/stderr, then a final :class:`ExecutionResult`.
 
         Raises:
             asyncio.TimeoutError: If the process exceeds the timeout.
@@ -268,9 +255,9 @@ class LocalSandbox(Sandbox):
         stderr_text = "".join(stderr_chunks)
 
         for chunk in stdout_chunks:
-            yield chunk
+            yield StreamChunk(data=chunk, stream_type=StreamType.STDOUT)
         for chunk in stderr_chunks:
-            yield chunk
+            yield StreamChunk(data=chunk, stream_type=StreamType.STDERR)
 
         yield ExecutionResult(
             exit_code=0 if proc.returncode is None else proc.returncode,

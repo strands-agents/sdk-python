@@ -5,7 +5,7 @@ from .agent.agent import Agent
 from .agent.base import AgentBase
 from .event_loop._retry import ModelRetryStrategy
 from .plugins import Plugin
-from .sandbox.base import ExecutionResult, FileInfo, OutputFile, Sandbox
+from .sandbox.base import ExecutionResult, FileInfo, OutputFile, Sandbox, StreamChunk, StreamType
 from .sandbox.local import LocalSandbox
 from .sandbox.noop import NoOpSandbox
 from .sandbox.shell_based import ShellBasedSandbox

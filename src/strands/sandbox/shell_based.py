@@ -11,7 +11,7 @@ Python methods instead.
 
 Class hierarchy::
 
-    Sandbox (ABC, all abstract + lifecycle)
+    Sandbox (ABC, all abstract)
       └── ShellBasedSandbox (ABC, only execute_streaming() abstract — shell-based file ops + execute_code)
 """
 
@@ -22,7 +22,7 @@ from abc import ABC
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from .base import ExecutionResult, FileInfo, Sandbox
+from .base import ExecutionResult, FileInfo, Sandbox, StreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class ShellBasedSandbox(Sandbox, ABC):
         language: str,
         timeout: int | None = None,
         **kwargs: Any,
-    ) -> AsyncGenerator[str | ExecutionResult, None]:
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         """Execute code in the sandbox, streaming output.
 
         The default implementation passes code to the language interpreter
@@ -62,11 +62,11 @@ class ShellBasedSandbox(Sandbox, ABC):
             code: The source code to execute.
             language: The programming language interpreter to use (e.g.
                 ``"python"``, ``"node"``, ``"ruby"``).
-            timeout: Maximum execution time in seconds. None means no timeout.
+            timeout: Maximum execution time in seconds. ``None`` means no timeout.
             **kwargs: Additional keyword arguments for forward compatibility.
 
         Yields:
-            str chunks of output, then a final ExecutionResult.
+            :class:`StreamChunk` objects for output, then a final :class:`ExecutionResult`.
 
         Note:
             The default implementation assumes the language interpreter
