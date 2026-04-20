@@ -32,6 +32,8 @@ __all__ = [
     "ShellBasedSandbox",
     "Skill",
     "Snapshot",
+    "StreamChunk",
+    "StreamType",
     "tool",
     "ToolContext",
     "types",
