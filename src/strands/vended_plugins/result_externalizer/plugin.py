@@ -64,7 +64,7 @@ class ToolResultExternalizer(Plugin):
     which truncates reactively after context overflow.
 
     Args:
-        storage: Backend for storing externalized content. Defaults to in-memory storage.
+        storage: Backend for storing externalized content (required).
         max_result_chars: Externalize text results exceeding this many characters.
         preview_chars: Number of characters to keep as a preview in context.
 
@@ -133,11 +133,12 @@ class ToolResultExternalizer(Plugin):
             elif "json" in block:
                 text_parts.append(json.dumps(block["json"], indent=2))
 
-        total_chars = sum(len(t) for t in text_parts)
-        if total_chars <= self._max_result_chars:
+        if not text_parts:
             return
 
         full_text = "\n".join(text_parts)
+        if len(full_text) <= self._max_result_chars:
+            return
 
         # Persist full content
         try:
