@@ -1,7 +1,7 @@
 """Adversarial tests: Security, path traversal, injection, and edge cases.
 
 Tests for:
-- Path traversal attacks in LocalWorkspace
+- Path traversal attacks in LocalSandbox
 - Content injection edge cases
 - Symlink attacks
 - Binary/special content handling
@@ -9,17 +9,17 @@ Tests for:
 
 import pytest
 
-from strands.workspace.base import ExecutionResult
-from strands.workspace.local import LocalWorkspace
-from strands.workspace.shell_based import ShellBasedWorkspace
+from strands.sandbox.base import ExecutionResult
+from strands.sandbox.local import LocalSandbox
+from strands.sandbox.shell_based import ShellBasedSandbox
 
 
-class TestLocalWorkspaceDoesNotConfineFilesystemAccess:
-    """Documents that LocalWorkspace does NOT confine file access to working_dir.
+class TestLocalSandboxDoesNotConfineFilesystemAccess:
+    """Documents that LocalSandbox does NOT confine file access to working_dir.
 
-    LocalWorkspace is a local execution environment with no sandboxing.
+    LocalSandbox is a local execution environment with no sandboxing.
     Path traversal, absolute paths, and symlinks all work as they would
-    in any Python program. For confined execution, use a Workspace
+    in any Python program. For confined execution, use a Sandbox
     implementation that provides actual isolation (e.g., Docker, cloud sandbox).
 
     These tests verify the LACK of isolation — they are NOT security tests.
@@ -28,42 +28,42 @@ class TestLocalWorkspaceDoesNotConfineFilesystemAccess:
     @pytest.mark.asyncio
     async def test_read_file_allows_path_traversal(self, tmp_path):
         """read_file with ../.. reads outside working_dir (no confinement)."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        outside_dir = tmp_path.parent / "outside_workspace"
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        outside_dir = tmp_path.parent / "outside_sandbox"
         outside_dir.mkdir(exist_ok=True)
         outside_file = outside_dir / "secret.txt"
         outside_file.write_text("SECRET_DATA")
 
-        relative_path = "../outside_workspace/secret.txt"
-        content = await workspace.read_file(relative_path)
+        relative_path = "../outside_sandbox/secret.txt"
+        content = await sandbox.read_file(relative_path)
         assert content == b"SECRET_DATA"
 
     @pytest.mark.asyncio
     async def test_write_file_allows_path_traversal(self, tmp_path):
         """write_file with ../.. writes outside working_dir (no confinement)."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         outside_dir = tmp_path.parent / "write_escape"
         outside_dir.mkdir(exist_ok=True)
 
         relative_path = "../write_escape/pwned.txt"
-        await workspace.write_file(relative_path, b"PWNED")
+        await sandbox.write_file(relative_path, b"PWNED")
         assert (outside_dir / "pwned.txt").read_bytes() == b"PWNED"
 
     @pytest.mark.asyncio
     async def test_execute_accesses_entire_filesystem(self, tmp_path):
         """execute() runs arbitrary shell commands with no filesystem confinement."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        result = await workspace._execute_to_result("echo hello_from_shell")
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        result = await sandbox.execute("echo hello_from_shell")
         assert result.exit_code == 0
         assert "hello_from_shell" in result.stdout
 
     @pytest.mark.asyncio
     async def test_absolute_path_bypasses_working_dir(self, tmp_path):
-        """Absolute paths bypass working_dir — LocalWorkspace has no path confinement."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        """Absolute paths bypass working_dir — LocalSandbox has no path confinement."""
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         abs_path = str(tmp_path.parent / "abs_escape.txt")
-        await workspace.write_file(abs_path, b"escaped")
-        content = await workspace.read_file(abs_path)
+        await sandbox.write_file(abs_path, b"escaped")
+        content = await sandbox.read_file(abs_path)
         assert content == b"escaped"
 
 
@@ -73,42 +73,42 @@ class TestContentEdgeCases:
     @pytest.mark.asyncio
     async def test_content_with_shell_metacharacters(self, tmp_path):
         """Content with shell metacharacters should be preserved (native Python I/O)."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         content = b"hello $USER `whoami` $(id) && rm -rf / ; echo pwned"
-        await workspace.write_file("test.txt", content)
-        read_back = await workspace.read_file("test.txt")
+        await sandbox.write_file("test.txt", content)
+        read_back = await sandbox.read_file("test.txt")
         assert read_back == content
 
     @pytest.mark.asyncio
     async def test_content_with_null_bytes(self, tmp_path):
         """Content with null bytes should be handled by native Python I/O."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         content = b"before\x00after"
-        await workspace.write_file("null.txt", content)
-        read_back = await workspace.read_file("null.txt")
+        await sandbox.write_file("null.txt", content)
+        read_back = await sandbox.read_file("null.txt")
         assert read_back == content
 
     @pytest.mark.asyncio
     async def test_empty_content(self, tmp_path):
         """Writing empty content should create an empty file."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("empty.txt", b"")
-        content = await workspace.read_file("empty.txt")
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        await sandbox.write_file("empty.txt", b"")
+        content = await sandbox.read_file("empty.txt")
         assert content == b""
 
     @pytest.mark.asyncio
     async def test_very_large_content(self, tmp_path):
         """Writing 10MB of content should work."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         large_content = b"A" * (10 * 1024 * 1024)
-        await workspace.write_file("large.txt", large_content)
-        content = await workspace.read_file("large.txt")
+        await sandbox.write_file("large.txt", large_content)
+        content = await sandbox.read_file("large.txt")
         assert len(content) == len(large_content)
         assert content == large_content
 
 
-class TestLocalWorkspaceEdgeCases:
-    """Edge cases specific to LocalWorkspace."""
+class TestLocalSandboxEdgeCases:
+    """Edge cases specific to LocalSandbox."""
 
     @pytest.mark.asyncio
     async def test_symlink_read(self, tmp_path):
@@ -118,13 +118,13 @@ class TestLocalWorkspaceEdgeCases:
         symlink = tmp_path / "link.txt"
         symlink.symlink_to(real_file)
 
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        content = await workspace.read_file("link.txt")
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        content = await sandbox.read_file("link.txt")
         assert content == b"real content"
 
     @pytest.mark.asyncio
-    async def test_symlink_outside_workspace(self, tmp_path):
-        """Symlink pointing outside working_dir — LocalWorkspace follows it."""
+    async def test_symlink_outside_sandbox(self, tmp_path):
+        """Symlink pointing outside working_dir — LocalSandbox follows it."""
         outside_dir = tmp_path.parent / "symlink_escape"
         outside_dir.mkdir(exist_ok=True)
         outside_file = outside_dir / "target.txt"
@@ -133,43 +133,43 @@ class TestLocalWorkspaceEdgeCases:
         symlink = tmp_path / "evil_link.txt"
         symlink.symlink_to(outside_file)
 
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        content = await workspace.read_file("evil_link.txt")
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        content = await sandbox.read_file("evil_link.txt")
         assert content == b"escaped via symlink"
 
     @pytest.mark.asyncio
     async def test_unicode_filename(self, tmp_path):
         """Unicode filenames should work."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("日本語.txt", b"Japanese content")
-        content = await workspace.read_file("日本語.txt")
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        await sandbox.write_file("日本語.txt", b"Japanese content")
+        content = await sandbox.read_file("日本語.txt")
         assert content == b"Japanese content"
 
     @pytest.mark.asyncio
     async def test_filename_with_spaces_and_special_chars(self, tmp_path):
         """Filenames with spaces and special characters should work."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("file with spaces.txt", b"spaced")
-        content = await workspace.read_file("file with spaces.txt")
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        await sandbox.write_file("file with spaces.txt", b"spaced")
+        content = await sandbox.read_file("file with spaces.txt")
         assert content == b"spaced"
 
     @pytest.mark.asyncio
     async def test_deeply_nested_directory_creation(self, tmp_path):
         """write_file should create deeply nested directories."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         deep_path = "a/b/c/d/e/f/g/h/i/j/deep.txt"
-        await workspace.write_file(deep_path, b"deep")
-        content = await workspace.read_file(deep_path)
+        await sandbox.write_file(deep_path, b"deep")
+        content = await sandbox.read_file(deep_path)
         assert content == b"deep"
 
     @pytest.mark.asyncio
     async def test_list_files_with_hidden_files(self, tmp_path):
         """list_files should include hidden files (os.listdir includes them)."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("visible.txt", b"visible")
-        await workspace.write_file(".hidden", b"hidden")
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        await sandbox.write_file("visible.txt", b"visible")
+        await sandbox.write_file(".hidden", b"hidden")
 
-        files = await workspace.list_files(".")
+        files = await sandbox.list_files(".")
         names = [f.name for f in files]
         assert "visible.txt" in names
         # Native Python os.listdir includes hidden files!
@@ -181,21 +181,21 @@ class TestLocalWorkspaceEdgeCases:
 
         On Windows, ' and " are invalid in file paths, raising OSError instead.
         """
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         with pytest.raises((FileNotFoundError, OSError)):
-            await workspace.read_file("nonexistent 'file\".txt")
+            await sandbox.read_file("nonexistent 'file\".txt")
 
     @pytest.mark.asyncio
     async def test_execute_code_with_multiline_and_quotes(self, tmp_path):
         """execute_code should handle code with all types of quotes."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         code = """
 x = "hello 'world'"
 y = 'hello "world"'
 print(x)
 print(y)
 """
-        result = await workspace._execute_code_to_result(code, language="python")
+        result = await sandbox.execute_code(code, language="python")
         assert result.exit_code == 0
         assert "hello 'world'" in result.stdout
         assert 'hello "world"' in result.stdout
@@ -203,97 +203,97 @@ print(y)
     @pytest.mark.asyncio
     async def test_execute_code_with_backslashes(self, tmp_path):
         """execute_code should handle backslashes in code."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         code = 'print("path\\\\to\\\\file")'
-        result = await workspace._execute_code_to_result(code, language="python")
+        result = await sandbox.execute_code(code, language="python")
         assert result.exit_code == 0
         assert "path\\to\\file" in result.stdout
 
     @pytest.mark.asyncio
     async def test_execute_returns_correct_exit_codes(self, tmp_path):
         """Various exit codes should be preserved."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         for code in [0, 1, 2, 127, 255]:
-            result = await workspace._execute_to_result(f"exit {code}")
+            result = await sandbox.execute(f"exit {code}")
             assert result.exit_code == code, f"Expected exit code {code}, got {result.exit_code}"
 
     @pytest.mark.asyncio
     async def test_file_io_uses_async_to_thread(self, tmp_path):
-        """LocalWorkspace wraps file I/O with asyncio.to_thread to avoid blocking.
+        """LocalSandbox wraps file I/O with asyncio.to_thread to avoid blocking.
 
         All pathlib operations (read_bytes, write_bytes, unlink, listdir) are
         wrapped in asyncio.to_thread, keeping the event loop responsive during
         disk I/O.
         """
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         large_content = b"X" * (1024 * 1024)  # 1MB
-        await workspace.write_file("blocking_test.txt", large_content)
-        content = await workspace.read_file("blocking_test.txt")
+        await sandbox.write_file("blocking_test.txt", large_content)
+        content = await sandbox.read_file("blocking_test.txt")
         assert len(content) == 1024 * 1024
 
     @pytest.mark.asyncio
     async def test_remove_file_nonexistent(self, tmp_path):
         """remove_file should raise FileNotFoundError for missing files."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         with pytest.raises(FileNotFoundError):
-            await workspace.remove_file("nonexistent.txt")
+            await sandbox.remove_file("nonexistent.txt")
 
     @pytest.mark.asyncio
     async def test_remove_file_then_read(self, tmp_path):
         """Removing a file and then reading it should raise FileNotFoundError."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("to_delete.txt", b"content")
-        await workspace.remove_file("to_delete.txt")
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        await sandbox.write_file("to_delete.txt", b"content")
+        await sandbox.remove_file("to_delete.txt")
         with pytest.raises(FileNotFoundError):
-            await workspace.read_file("to_delete.txt")
+            await sandbox.read_file("to_delete.txt")
 
     @pytest.mark.asyncio
-    async def test_remove_file_outside_workspace(self, tmp_path):
-        """remove_file with absolute path can delete files outside workspace."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+    async def test_remove_file_outside_sandbox(self, tmp_path):
+        """remove_file with absolute path can delete files outside sandbox."""
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         outside_dir = tmp_path.parent / "remove_escape"
         outside_dir.mkdir(exist_ok=True)
         outside_file = outside_dir / "target.txt"
         outside_file.write_text("will be deleted")
 
-        await workspace.remove_file(str(outside_file))
+        await sandbox.remove_file(str(outside_file))
         assert not outside_file.exists()
 
     @pytest.mark.asyncio
     async def test_execute_code_rejects_unsafe_language(self, tmp_path):
         """execute_code validates language parameter against unsafe characters."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         with pytest.raises(ValueError, match="unsafe characters"):
-            await workspace._execute_code_to_result("print(1)", language="python; rm -rf /")
+            await sandbox.execute_code("print(1)", language="python; rm -rf /")
 
     @pytest.mark.asyncio
     async def test_execute_code_rejects_path_traversal_language(self, tmp_path):
         """execute_code rejects language with path separators."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         with pytest.raises(ValueError, match="unsafe characters"):
-            await workspace._execute_code_to_result("1", language="../../../bin/sh")
+            await sandbox.execute_code("1", language="../../../bin/sh")
 
     @pytest.mark.asyncio
     async def test_execute_code_rejects_space_injection(self, tmp_path):
         """execute_code rejects language with spaces."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         with pytest.raises(ValueError, match="unsafe characters"):
-            await workspace._execute_code_to_result("1", language="python -m http.server")
+            await sandbox.execute_code("1", language="python -m http.server")
 
 
-class TestShellBasedWorkspaceHeredocEdgeCases:
-    """Edge cases in the ShellBasedWorkspace heredoc implementation."""
+class TestShellBasedSandboxHeredocEdgeCases:
+    """Edge cases in the ShellBasedSandbox heredoc implementation."""
 
     @pytest.mark.asyncio
     async def test_write_file_content_with_single_quotes(self):
         """Content with single quotes is safely transported via base64."""
 
-        class MockShellWorkspace(ShellBasedWorkspace):
+        class MockShellSandbox(ShellBasedSandbox):
             def __init__(self):
                 super().__init__()
                 self.last_command = ""
 
-            async def execute(self, command, timeout=None, **kwargs):
+            async def execute_streaming(self, command, timeout=None, **kwargs):
                 await self._ensure_started()
                 self.last_command = command
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -301,11 +301,11 @@ class TestShellBasedWorkspaceHeredocEdgeCases:
             async def start(self):
                 self._started = True
 
-        workspace = MockShellWorkspace()
+        sandbox = MockShellSandbox()
         content = "line1\nline2\nline3"
-        await workspace.write_file("/tmp/test.txt", content.encode())
+        await sandbox.write_file("/tmp/test.txt", content.encode())
 
-        cmd = workspace.last_command
+        cmd = sandbox.last_command
         assert "base64 -d" in cmd
         assert "/tmp/test.txt" in cmd
 
@@ -313,12 +313,12 @@ class TestShellBasedWorkspaceHeredocEdgeCases:
     async def test_write_file_empty_path(self):
         """Empty path should still be quoted."""
 
-        class MockShellWorkspace(ShellBasedWorkspace):
+        class MockShellSandbox(ShellBasedSandbox):
             def __init__(self):
                 super().__init__()
                 self.last_command = ""
 
-            async def execute(self, command, timeout=None, **kwargs):
+            async def execute_streaming(self, command, timeout=None, **kwargs):
                 await self._ensure_started()
                 self.last_command = command
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -326,6 +326,6 @@ class TestShellBasedWorkspaceHeredocEdgeCases:
             async def start(self):
                 self._started = True
 
-        workspace = MockShellWorkspace()
-        await workspace.write_file("", b"content")
-        assert "''" in workspace.last_command
+        sandbox = MockShellSandbox()
+        await sandbox.write_file("", b"content")
+        assert "''" in sandbox.last_command

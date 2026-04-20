@@ -1,11 +1,11 @@
-"""Local workspace implementation for host-process execution.
+"""Local sandbox implementation for host-process execution.
 
-This module implements the LocalWorkspace, which executes commands and code
+This module implements the LocalSandbox, which executes commands and code
 on the local host using asyncio subprocesses and native Python filesystem
-operations. It extends Workspace directly — all file and code operations
+operations. It extends Sandbox directly — all file and code operations
 use proper Python methods (pathlib, os, subprocess) instead of shell commands.
 
-This is the default workspace used when no explicit workspace is configured.
+This is the default sandbox used when no explicit sandbox is configured.
 """
 
 import asyncio
@@ -16,7 +16,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
-from .base import ExecutionResult, FileInfo, Workspace
+from .base import ExecutionResult, FileInfo, Sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -51,15 +51,15 @@ async def _read_stream(
         collected.append(chunk_bytes.decode())
 
 
-class LocalWorkspace(Workspace):
+class LocalSandbox(Sandbox):
     """Execute code and commands on the local host using native Python methods.
 
     Uses asyncio subprocesses for command execution, ``subprocess_exec`` for
     code execution (avoiding shell intermediaries), and native filesystem
     operations (``pathlib``, ``os``) for all file I/O.
 
-    This workspace extends :class:`Workspace` directly — it does **not**
-    inherit from :class:`ShellBasedWorkspace`. All operations use proper,
+    This sandbox extends :class:`Sandbox` directly — it does **not**
+    inherit from :class:`ShellBasedSandbox`. All operations use proper,
     safe Python methods instead of piping through shell commands.
 
     Args:
@@ -67,18 +67,23 @@ class LocalWorkspace(Workspace):
             Defaults to the current working directory.
 
     Example:
-        ```python
-        from strands.workspace import LocalWorkspace
+        Non-streaming (common case)::
 
-        workspace = LocalWorkspace(working_dir="/tmp/my-workspace")
-        async for chunk in workspace.execute("echo hello"):
-            if isinstance(chunk, str):
-                print(chunk, end="")
-        ```
+            from strands.sandbox import LocalSandbox
+
+            sandbox = LocalSandbox(working_dir="/tmp/my-sandbox")
+            result = await sandbox.execute("echo hello")
+            print(result.stdout)
+
+        Streaming::
+
+            async for chunk in sandbox.execute_streaming("echo hello"):
+                if isinstance(chunk, str):
+                    print(chunk, end="")
     """
 
     def __init__(self, working_dir: str | None = None) -> None:
-        """Initialize the LocalWorkspace.
+        """Initialize the LocalSandbox.
 
         Args:
             working_dir: The working directory for command execution.
@@ -104,7 +109,7 @@ class LocalWorkspace(Workspace):
         return Path(self.working_dir) / path
 
     async def start(self) -> None:
-        """Initialize the workspace and ensure the working directory exists.
+        """Initialize the sandbox and ensure the working directory exists.
 
         Creates the working directory if it does not exist. Raises a clear
         error if the path exists but is not a directory.
@@ -116,10 +121,10 @@ class LocalWorkspace(Workspace):
         if working_path.exists() and not working_path.is_dir():
             raise NotADirectoryError(f"working_dir is not a directory: {self.working_dir}")
         working_path.mkdir(parents=True, exist_ok=True)
-        logger.debug("working_dir=<%s> | local workspace started", self.working_dir)
+        logger.debug("working_dir=<%s> | local sandbox started", self.working_dir)
         await super().start()
 
-    async def execute(
+    async def execute_streaming(
         self,
         command: str,
         timeout: int | None = None,
@@ -155,7 +160,7 @@ class LocalWorkspace(Workspace):
         async for item in self._collect_and_yield(proc, timeout):
             yield item
 
-    async def execute_code(
+    async def execute_code_streaming(
         self,
         code: str,
         language: str,
@@ -231,7 +236,7 @@ class LocalWorkspace(Workspace):
     ) -> AsyncGenerator[str | ExecutionResult, None]:
         """Read stdout/stderr from a subprocess, then yield chunks and a final ExecutionResult.
 
-        Shared helper used by both ``execute()`` and ``execute_code()`` to
+        Shared helper used by both ``execute_streaming()`` and ``execute_code_streaming()`` to
         avoid duplicating the stream-reading, timeout-handling, and yielding logic.
 
         Args:
@@ -371,7 +376,7 @@ class LocalWorkspace(Workspace):
                 except OSError:
                     # If we can't stat the entry (e.g., broken symlink), include
                     # it with defaults
-                    entries.append(FileInfo(name=name, is_dir=False, size=0))
+                    entries.append(FileInfo(name=name))
             return entries
 
         return await asyncio.to_thread(_list)

@@ -1,8 +1,8 @@
-"""Adversarial tests: Shared workspaces and concurrent tool calls.
+"""Adversarial tests: Shared sandboxs and concurrent tool calls.
 
 Tests what happens when:
-- Multiple agents share the same workspace instance
-- Multiple concurrent execute() calls hit the same workspace
+- Multiple agents share the same sandbox instance
+- Multiple concurrent execute() calls hit the same sandbox
 - File operations overlap (write/read races)
 - Lifecycle races (start/stop during execution)
 """
@@ -11,20 +11,20 @@ import asyncio
 
 import pytest
 
-from strands.workspace.base import ExecutionResult
-from strands.workspace.local import LocalWorkspace
+from strands.sandbox.base import ExecutionResult
+from strands.sandbox.local import LocalSandbox
 
 
-class TestSharedWorkspaceConcurrentExecution:
-    """What happens when multiple coroutines call execute() on the same workspace concurrently?"""
+class TestSharedSandboxConcurrentExecution:
+    """What happens when multiple coroutines call execute() on the same sandbox concurrently?"""
 
     @pytest.mark.asyncio
-    async def test_concurrent_executes_same_workspace(self, tmp_path):
-        """Multiple concurrent execute() calls on same workspace should not corrupt each other."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+    async def test_concurrent_executes_same_sandbox(self, tmp_path):
+        """Multiple concurrent execute() calls on same sandbox should not corrupt each other."""
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
 
         async def run_command(cmd: str) -> ExecutionResult:
-            return await workspace._execute_to_result(cmd)
+            return await sandbox.execute(cmd)
 
         # Run 10 concurrent commands
         results = await asyncio.gather(
@@ -48,10 +48,10 @@ class TestSharedWorkspaceConcurrentExecution:
     @pytest.mark.asyncio
     async def test_concurrent_file_write_same_file(self, tmp_path):
         """Two concurrent writes to the same file — last write wins, no crash."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
 
         async def write_content(content: bytes):
-            await workspace.write_file("shared.txt", content)
+            await sandbox.write_file("shared.txt", content)
 
         # Run concurrent writes
         await asyncio.gather(
@@ -60,40 +60,40 @@ class TestSharedWorkspaceConcurrentExecution:
         )
 
         # File should exist and contain one of the values (no corruption)
-        content = await workspace.read_file("shared.txt")
+        content = await sandbox.read_file("shared.txt")
         assert content in (b"content_A", b"content_B"), f"Corrupted content: {content!r}"
 
     @pytest.mark.asyncio
     async def test_concurrent_file_write_different_files(self, tmp_path):
         """Concurrent writes to different files should all succeed."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
 
         async def write_file(name: str, content: bytes):
-            await workspace.write_file(name, content)
+            await sandbox.write_file(name, content)
 
         await asyncio.gather(*[write_file(f"file_{i}.txt", f"content_{i}".encode()) for i in range(20)])
 
         # All files should be written correctly
         for i in range(20):
-            content = await workspace.read_file(f"file_{i}.txt")
+            content = await sandbox.read_file(f"file_{i}.txt")
             assert content == f"content_{i}".encode(), f"file_{i}.txt has wrong content: {content!r}"
 
     @pytest.mark.asyncio
     async def test_concurrent_read_write_same_file(self, tmp_path):
         """Concurrent read + write on same file — should not crash."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.write_file("test.txt", b"initial")
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        await sandbox.write_file("test.txt", b"initial")
 
         async def writer():
             for i in range(10):
-                await workspace.write_file("test.txt", f"version_{i}".encode())
+                await sandbox.write_file("test.txt", f"version_{i}".encode())
                 await asyncio.sleep(0.001)
 
         async def reader():
             results = []
             for _ in range(10):
                 try:
-                    content = await workspace.read_file("test.txt")
+                    content = await sandbox.read_file("test.txt")
                     results.append(content)
                 except FileNotFoundError:
                     # File might be in the middle of being overwritten
@@ -114,24 +114,24 @@ class TestSharedWorkspaceConcurrentExecution:
     @pytest.mark.asyncio
     async def test_concurrent_auto_start_race(self, tmp_path):
         """Multiple concurrent execute() calls race to auto-start — only one start() should happen."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
         start_count = 0
-        original_start = workspace.start
+        original_start = sandbox.start
 
         async def counting_start():
             nonlocal start_count
             start_count += 1
             await original_start()
 
-        workspace.start = counting_start  # type: ignore
+        sandbox.start = counting_start  # type: ignore
 
         # Trigger 5 concurrent executes, all racing to auto-start
         results = await asyncio.gather(
-            workspace._execute_to_result("echo 0"),
-            workspace._execute_to_result("echo 1"),
-            workspace._execute_to_result("echo 2"),
-            workspace._execute_to_result("echo 3"),
-            workspace._execute_to_result("echo 4"),
+            sandbox.execute("echo 0"),
+            sandbox.execute("echo 1"),
+            sandbox.execute("echo 2"),
+            sandbox.execute("echo 3"),
+            sandbox.execute("echo 4"),
         )
 
         for result in results:
@@ -145,108 +145,108 @@ class TestSharedWorkspaceConcurrentExecution:
         )
 
 
-class TestSharedWorkspaceBetweenAgents:
-    """What happens when two Agent instances share the same workspace?"""
+class TestSharedSandboxBetweenAgents:
+    """What happens when two Agent instances share the same sandbox?"""
 
-    def test_two_agents_same_workspace_instance(self):
-        """Two agents sharing the same workspace should reference the same object."""
+    def test_two_agents_same_sandbox_instance(self):
+        """Two agents sharing the same sandbox should reference the same object."""
         from strands import Agent
 
-        workspace = LocalWorkspace(working_dir="/tmp/shared")
-        agent1 = Agent(workspace=workspace)
-        agent2 = Agent(workspace=workspace)
-        assert agent1.workspace is agent2.workspace
+        sandbox = LocalSandbox(working_dir="/tmp/shared")
+        agent1 = Agent(sandbox=sandbox)
+        agent2 = Agent(sandbox=sandbox)
+        assert agent1.sandbox is agent2.sandbox
 
     @pytest.mark.asyncio
-    async def test_shared_workspace_working_dir_isolation(self, tmp_path):
+    async def test_shared_sandbox_working_dir_isolation(self, tmp_path):
         """Commands from both agents should execute in the same working directory."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
 
         # Agent 1 creates a file
-        await workspace.write_file("from_agent1.txt", b"hello from 1")
+        await sandbox.write_file("from_agent1.txt", b"hello from 1")
         # Agent 2 should see it
-        content = await workspace.read_file("from_agent1.txt")
+        content = await sandbox.read_file("from_agent1.txt")
         assert content == b"hello from 1"
 
     @pytest.mark.asyncio
-    async def test_shared_workspace_stop_kills_both(self, tmp_path):
-        """Stopping shared workspace affects all agents using it."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.start()
-        assert workspace._started
+    async def test_shared_sandbox_stop_kills_both(self, tmp_path):
+        """Stopping shared sandbox affects all agents using it."""
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        await sandbox.start()
+        assert sandbox._started
 
-        await workspace.stop()
-        assert not workspace._started
+        await sandbox.stop()
+        assert not sandbox._started
 
         # Next call should auto-start again
-        result = await workspace._execute_to_result("echo recovered")
+        result = await sandbox.execute("echo recovered")
         assert result.exit_code == 0
-        assert workspace._started
+        assert sandbox._started
 
 
-class TestWorkspaceLifecycleEdgeCases:
+class TestSandboxLifecycleEdgeCases:
     """Edge cases in start/stop lifecycle."""
 
     @pytest.mark.asyncio
     async def test_double_start(self, tmp_path):
         """Calling start() twice should be safe."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.start()
-        await workspace.start()  # Should not raise
-        assert workspace._started
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        await sandbox.start()
+        await sandbox.start()  # Should not raise
+        assert sandbox._started
 
     @pytest.mark.asyncio
     async def test_double_stop(self, tmp_path):
         """Calling stop() twice should be safe."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.start()
-        await workspace.stop()
-        await workspace.stop()  # Should not raise
-        assert not workspace._started
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        await sandbox.start()
+        await sandbox.stop()
+        await sandbox.stop()  # Should not raise
+        assert not sandbox._started
 
     @pytest.mark.asyncio
     async def test_stop_then_execute(self, tmp_path):
         """Executing after stop should auto-restart."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
-        await workspace.start()
-        await workspace.stop()
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        await sandbox.start()
+        await sandbox.stop()
 
         # Should auto-start
-        result = await workspace._execute_to_result("echo after_stop")
+        result = await sandbox.execute("echo after_stop")
         assert result.exit_code == 0
         assert result.stdout.strip() == "after_stop"
 
     @pytest.mark.asyncio
     async def test_context_manager_reentry(self, tmp_path):
         """Using context manager twice should work."""
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
 
-        async with workspace:
-            result = await workspace._execute_to_result("echo first")
+        async with sandbox:
+            result = await sandbox.execute("echo first")
             assert result.stdout.strip() == "first"
 
-        assert not workspace._started
+        assert not sandbox._started
 
-        async with workspace:
-            result = await workspace._execute_to_result("echo second")
+        async with sandbox:
+            result = await sandbox.execute("echo second")
             assert result.stdout.strip() == "second"
 
     @pytest.mark.asyncio
     async def test_stop_during_execution(self, tmp_path):
-        """stop() during execution should not crash or corrupt workspace state.
+        """stop() during execution should not crash or corrupt sandbox state.
 
-        After the concurrent stop + execute settle, the workspace should be
+        After the concurrent stop + execute settle, the sandbox should be
         in a consistent state: either stopped (and auto-restartable) or
         still running. No corruption.
         """
-        workspace = LocalWorkspace(working_dir=str(tmp_path))
+        sandbox = LocalSandbox(working_dir=str(tmp_path))
 
         async def long_running():
-            return await workspace._execute_to_result("sleep 5", timeout=10)
+            return await sandbox.execute("sleep 5", timeout=10)
 
         async def stopper():
             await asyncio.sleep(0.1)
-            await workspace.stop()
+            await sandbox.stop()
 
         # Both tasks run concurrently — gather with return_exceptions
         results = await asyncio.gather(
@@ -262,9 +262,9 @@ class TestWorkspaceLifecycleEdgeCases:
                     f"Unexpected exception during concurrent stop: {type(r).__name__}: {r}"
                 )
 
-        # After the dust settles, workspace must be in a usable state:
+        # After the dust settles, sandbox must be in a usable state:
         # auto-start should recover it for the next command
-        recovery_result = await workspace._execute_to_result("echo recovered")
+        recovery_result = await sandbox.execute("echo recovered")
         assert recovery_result.exit_code == 0
         assert recovery_result.stdout.strip() == "recovered"
-        assert workspace._started
+        assert sandbox._started

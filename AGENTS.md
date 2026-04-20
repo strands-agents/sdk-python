@@ -117,7 +117,7 @@ strands-agents/
 │   │   ├── repository_session_manager.py # Repository pattern
 │   │   └── session_repository.py         # Storage interface
 │   │
-│   ├── workspace/                        # Workspace abstraction for code execution
+│   ├── sandbox/                        # Sandbox abstraction for code execution
 │   │   ├── base.py                       # Workspace ABC, ExecutionResult, FileInfo, OutputFile
 │   │   ├── local.py                      # LocalWorkspace (native Python, default)
 │   │   └── shell_based.py               # ShellBasedWorkspace (for remote/container envs)
@@ -186,7 +186,7 @@ strands-agents/
 │       ├── types/
 │       ├── session/
 │       ├── telemetry/
-│       ├── workspace/
+│       ├── sandbox/
 │       ├── hooks/
 │       ├── plugins/
 │       ├── handlers/

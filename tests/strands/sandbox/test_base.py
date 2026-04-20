@@ -1,21 +1,21 @@
-"""Tests for the Workspace ABC, ShellBasedWorkspace, ExecutionResult, FileInfo, and OutputFile."""
+"""Tests for the Sandbox ABC, ShellBasedSandbox, ExecutionResult, FileInfo, and OutputFile."""
 
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import pytest
 
-from strands.workspace.base import (
+from strands.sandbox.base import (
     ExecutionResult,
     FileInfo,
     OutputFile,
-    Workspace,
+    Sandbox,
 )
-from strands.workspace.shell_based import ShellBasedWorkspace
+from strands.sandbox.shell_based import ShellBasedSandbox
 
 
-class ConcreteShellWorkspace(ShellBasedWorkspace):
-    """Minimal concrete ShellBasedWorkspace implementation for testing."""
+class ConcreteShellSandbox(ShellBasedSandbox):
+    """Minimal concrete ShellBasedSandbox implementation for testing."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -23,7 +23,7 @@ class ConcreteShellWorkspace(ShellBasedWorkspace):
         self.started_count = 0
         self.stopped_count = 0
 
-    async def execute(
+    async def execute_streaming(
         self, command: str, timeout: int | None = None, **kwargs: Any
     ) -> AsyncGenerator[str | ExecutionResult, None]:
         await self._ensure_started()
@@ -91,12 +91,25 @@ class TestFileInfo:
         info = FileInfo(name="subdir", is_dir=True)
         assert info.name == "subdir"
         assert info.is_dir is True
-        assert info.size == 0  # default
+        assert info.size is None  # default is None now
 
     def test_file_info_equality(self) -> None:
         f1 = FileInfo(name="a.txt", is_dir=False, size=100)
         f2 = FileInfo(name="a.txt", is_dir=False, size=100)
         assert f1 == f2
+
+    def test_file_info_optional_fields_default_none(self) -> None:
+        """is_dir and size default to None when not provided."""
+        info = FileInfo(name="unknown.txt")
+        assert info.name == "unknown.txt"
+        assert info.is_dir is None
+        assert info.size is None
+
+    def test_file_info_with_only_name(self) -> None:
+        """FileInfo with only name is valid — unknown metadata."""
+        info = FileInfo(name="mystery")
+        assert info.is_dir is None
+        assert info.size is None
 
 
 class TestOutputFile:
@@ -111,18 +124,18 @@ class TestOutputFile:
         assert f.mime_type == "application/octet-stream"
 
 
-class TestWorkspaceABC:
-    """Tests that Workspace has all 6 abstract methods and cannot be partially implemented."""
+class TestSandboxABC:
+    """Tests that Sandbox has all abstract methods and cannot be partially implemented."""
 
     def test_cannot_instantiate_abstract(self) -> None:
         with pytest.raises(TypeError):
-            Workspace()  # type: ignore
+            Sandbox()  # type: ignore
 
-    def test_cannot_instantiate_with_only_execute(self) -> None:
-        """A class implementing only execute() is still abstract."""
+    def test_cannot_instantiate_with_only_execute_streaming(self) -> None:
+        """A class implementing only execute_streaming() is still abstract."""
 
-        class OnlyExecute(Workspace):
-            async def execute(
+        class OnlyExecute(Sandbox):
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -130,16 +143,16 @@ class TestWorkspaceABC:
         with pytest.raises(TypeError):
             OnlyExecute()  # type: ignore
 
-    def test_all_six_methods_required(self) -> None:
-        """A class must implement all 6 abstract methods to be concrete."""
+    def test_all_abstract_methods_required(self) -> None:
+        """A class must implement all abstract methods to be concrete."""
 
-        class AllSix(Workspace):
-            async def execute(
+        class AllMethods(Sandbox):
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def execute_code(
+            async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -157,19 +170,19 @@ class TestWorkspaceABC:
                 return []
 
         # Should not raise
-        workspace = AllSix()
-        assert workspace is not None
+        sandbox = AllMethods()
+        assert sandbox is not None
 
     def test_missing_remove_file_is_abstract(self) -> None:
         """A class missing remove_file() is still abstract."""
 
-        class MissingRemoveFile(Workspace):
-            async def execute(
+        class MissingRemoveFile(Sandbox):
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def execute_code(
+            async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -190,13 +203,13 @@ class TestWorkspaceABC:
     async def test_default_start_stop_work(self) -> None:
         """Test that the base class default start/stop work correctly."""
 
-        class FullWorkspace(Workspace):
-            async def execute(
+        class FullSandbox(Sandbox):
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def execute_code(
+            async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -213,23 +226,23 @@ class TestWorkspaceABC:
             async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
                 return []
 
-        workspace = FullWorkspace()
-        await workspace.start()
-        assert workspace._started
-        await workspace.stop()
-        assert not workspace._started
+        sandbox = FullSandbox()
+        await sandbox.start()
+        assert sandbox._started
+        await sandbox.stop()
+        assert not sandbox._started
 
     @pytest.mark.asyncio
     async def test_async_context_manager(self) -> None:
-        """Test async context manager on the base Workspace class."""
+        """Test async context manager on the base Sandbox class."""
 
-        class FullWorkspace(Workspace):
-            async def execute(
+        class FullSandbox(Sandbox):
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def execute_code(
+            async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -246,23 +259,23 @@ class TestWorkspaceABC:
             async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
                 return []
 
-        workspace = FullWorkspace()
-        async with workspace as ws:
-            assert ws is workspace
-            assert workspace._started
-        assert not workspace._started
+        sandbox = FullSandbox()
+        async with sandbox as s:
+            assert s is sandbox
+            assert sandbox._started
+        assert not sandbox._started
 
     @pytest.mark.asyncio
     async def test_read_text_convenience(self) -> None:
         """Test that read_text decodes bytes from read_file."""
 
-        class TextWorkspace(Workspace):
-            async def execute(
+        class TextSandbox(Sandbox):
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def execute_code(
+            async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -279,8 +292,8 @@ class TestWorkspaceABC:
             async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
                 return []
 
-        workspace = TextWorkspace()
-        text = await workspace.read_text("test.txt")
+        sandbox = TextSandbox()
+        text = await sandbox.read_text("test.txt")
         assert text == "hello world"
         assert isinstance(text, str)
 
@@ -288,17 +301,17 @@ class TestWorkspaceABC:
     async def test_write_text_convenience(self) -> None:
         """Test that write_text encodes string to bytes for write_file."""
 
-        class TextWorkspace(Workspace):
+        class TextSandbox(Sandbox):
             def __init__(self) -> None:
                 super().__init__()
                 self.written_content: bytes = b""
 
-            async def execute(
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
 
-            async def execute_code(
+            async def execute_code_streaming(
                 self, code: str, language: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -315,225 +328,328 @@ class TestWorkspaceABC:
             async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
                 return []
 
-        workspace = TextWorkspace()
-        await workspace.write_text("test.txt", "hello world")
-        assert workspace.written_content == b"hello world"
+        sandbox = TextSandbox()
+        await sandbox.write_text("test.txt", "hello world")
+        assert sandbox.written_content == b"hello world"
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_execute_convenience(self) -> None:
+        """Test that execute() returns ExecutionResult directly."""
+
+        class SimpleSandbox(Sandbox):
+            async def execute_streaming(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield "output\n"
+                yield ExecutionResult(exit_code=0, stdout="output\n", stderr="")
+
+            async def execute_code_streaming(
+                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def read_file(self, path: str, **kwargs: Any) -> bytes:
+                return b""
+
+            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
+                pass
+
+            async def remove_file(self, path: str, **kwargs: Any) -> None:
+                pass
+
+            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
+                return []
+
+        sandbox = SimpleSandbox()
+        result = await sandbox.execute("echo hello")
+        assert isinstance(result, ExecutionResult)
+        assert result.exit_code == 0
+        assert result.stdout == "output\n"
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_execute_code_convenience(self) -> None:
+        """Test that execute_code() returns ExecutionResult directly."""
+
+        class SimpleSandbox(Sandbox):
+            async def execute_streaming(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield ExecutionResult(exit_code=0, stdout="", stderr="")
+
+            async def execute_code_streaming(
+                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield "code output\n"
+                yield ExecutionResult(exit_code=0, stdout="code output\n", stderr="")
+
+            async def read_file(self, path: str, **kwargs: Any) -> bytes:
+                return b""
+
+            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
+                pass
+
+            async def remove_file(self, path: str, **kwargs: Any) -> None:
+                pass
+
+            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
+                return []
+
+        sandbox = SimpleSandbox()
+        result = await sandbox.execute_code("print(1)", language="python")
+        assert isinstance(result, ExecutionResult)
+        assert result.exit_code == 0
+        assert result.stdout == "code output\n"
+
+    @pytest.mark.asyncio
+    async def test_execute_raises_on_missing_result(self) -> None:
+        """execute() raises RuntimeError if execute_streaming yields no ExecutionResult."""
+
+        class BadSandbox(Sandbox):
+            async def execute_streaming(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield "just a string"
+
+            async def execute_code_streaming(
+                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield "just a string"
+
+            async def read_file(self, path: str, **kwargs: Any) -> bytes:
+                return b""
+
+            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
+                pass
+
+            async def remove_file(self, path: str, **kwargs: Any) -> None:
+                pass
+
+            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
+                return []
+
+        sandbox = BadSandbox()
+        with pytest.raises(RuntimeError, match="did not yield an ExecutionResult"):
+            await sandbox.execute("anything")
+
+    @pytest.mark.asyncio
+    async def test_execute_code_raises_on_missing_result(self) -> None:
+        """execute_code() raises RuntimeError if execute_code_streaming yields no ExecutionResult."""
+
+        class BadSandbox(Sandbox):
+            async def execute_streaming(
+                self, command: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield "just a string"
+
+            async def execute_code_streaming(
+                self, code: str, language: str, timeout: int | None = None, **kwargs: Any
+            ) -> AsyncGenerator[str | ExecutionResult, None]:
+                yield "just a string"
+
+            async def read_file(self, path: str, **kwargs: Any) -> bytes:
+                return b""
+
+            async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
+                pass
+
+            async def remove_file(self, path: str, **kwargs: Any) -> None:
+                pass
+
+            async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
+                return []
+
+        sandbox = BadSandbox()
+        with pytest.raises(RuntimeError, match="did not yield an ExecutionResult"):
+            await sandbox.execute_code("print(1)", language="python")
 
 
-class TestShellBasedWorkspaceABC:
-    """Tests that ShellBasedWorkspace is still abstract (execute() not implemented)."""
+class TestShellBasedSandboxABC:
+    """Tests that ShellBasedSandbox is still abstract (execute_streaming() not implemented)."""
 
-    def test_cannot_instantiate_shell_based_workspace(self) -> None:
+    def test_cannot_instantiate_shell_based_sandbox(self) -> None:
         with pytest.raises(TypeError):
-            ShellBasedWorkspace()  # type: ignore
+            ShellBasedSandbox()  # type: ignore
 
-    def test_shell_based_workspace_only_needs_execute(self) -> None:
-        """ShellBasedWorkspace requires only execute() to be concrete."""
-        workspace = ConcreteShellWorkspace()
-        assert workspace is not None
+    def test_shell_based_sandbox_only_needs_execute_streaming(self) -> None:
+        """ShellBasedSandbox requires only execute_streaming() to be concrete."""
+        sandbox = ConcreteShellSandbox()
+        assert sandbox is not None
 
 
-class TestShellBasedWorkspaceOperations:
+class TestShellBasedSandboxOperations:
     """Tests for the shell-based default implementations."""
 
     @pytest.mark.asyncio
-    async def test_execute_yields_lines_and_result(self) -> None:
-        workspace = ConcreteShellWorkspace()
+    async def test_execute_streaming_yields_lines_and_result(self) -> None:
+        sandbox = ConcreteShellSandbox()
         chunks: list[str | ExecutionResult] = []
-        async for chunk in workspace.execute("echo hello"):
+        async for chunk in sandbox.execute_streaming("echo hello"):
             chunks.append(chunk)
         assert isinstance(chunks[-1], ExecutionResult)
         assert chunks[-1].exit_code == 0
         assert any(isinstance(c, str) for c in chunks[:-1])
-        assert workspace.commands == ["echo hello"]
+        assert sandbox.commands == ["echo hello"]
 
     @pytest.mark.asyncio
-    async def test_execute_to_result_helper(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        result = await workspace._execute_to_result("echo hello")
+    async def test_non_streaming_execute(self) -> None:
+        sandbox = ConcreteShellSandbox()
+        result = await sandbox.execute("echo hello")
         assert isinstance(result, ExecutionResult)
         assert result.exit_code == 0
         assert "echo hello" in result.stdout
 
     @pytest.mark.asyncio
-    async def test_execute_code_default(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        result = await workspace._execute_code_to_result("print('hi')", language="python")
-        assert result.exit_code == 0
-        assert len(workspace.commands) == 1
-        assert "python" in workspace.commands[0]
-
-    @pytest.mark.asyncio
-    async def test_execute_code_streams(self) -> None:
-        workspace = ConcreteShellWorkspace()
+    async def test_execute_code_streaming_default(self) -> None:
+        sandbox = ConcreteShellSandbox()
         chunks: list[str | ExecutionResult] = []
-        async for chunk in workspace.execute_code("print('hi')", language="python"):
+        async for chunk in sandbox.execute_code_streaming("print('hi')", language="python"):
             chunks.append(chunk)
         assert isinstance(chunks[-1], ExecutionResult)
         assert chunks[-1].exit_code == 0
 
     @pytest.mark.asyncio
-    async def test_execute_code_custom_language(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        result = await workspace._execute_code_to_result("puts 'hi'", language="ruby")
+    async def test_non_streaming_execute_code(self) -> None:
+        sandbox = ConcreteShellSandbox()
+        result = await sandbox.execute_code("print('hi')", language="python")
         assert result.exit_code == 0
-        assert "ruby" in workspace.commands[0]
+        assert len(sandbox.commands) == 1
+        assert "python" in sandbox.commands[0]
+
+    @pytest.mark.asyncio
+    async def test_execute_code_custom_language(self) -> None:
+        sandbox = ConcreteShellSandbox()
+        result = await sandbox.execute_code("puts 'hi'", language="ruby")
+        assert result.exit_code == 0
+        assert "ruby" in sandbox.commands[0]
 
     @pytest.mark.asyncio
     async def test_read_file_returns_bytes(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        content = await workspace.read_file("/tmp/test.txt")
+        sandbox = ConcreteShellSandbox()
+        content = await sandbox.read_file("/tmp/test.txt")
         assert isinstance(content, bytes)
         assert content == b"mock file content"
-        assert "base64" in workspace.commands[0]
+        assert "base64" in sandbox.commands[0]
 
     @pytest.mark.asyncio
     async def test_read_file_not_found(self) -> None:
-        workspace = ConcreteShellWorkspace()
+        sandbox = ConcreteShellSandbox()
         with pytest.raises(FileNotFoundError):
-            await workspace.read_file("/tmp/fail.txt")
+            await sandbox.read_file("/tmp/fail.txt")
 
     @pytest.mark.asyncio
     async def test_write_file_accepts_bytes(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        await workspace.write_file("/tmp/test.txt", b"hello content")
-        assert len(workspace.commands) == 1
-        assert "/tmp/test.txt" in workspace.commands[0]
+        sandbox = ConcreteShellSandbox()
+        await sandbox.write_file("/tmp/test.txt", b"hello content")
+        assert len(sandbox.commands) == 1
+        assert "/tmp/test.txt" in sandbox.commands[0]
 
     @pytest.mark.asyncio
     async def test_write_file_failure(self) -> None:
-        workspace = ConcreteShellWorkspace()
+        sandbox = ConcreteShellSandbox()
         with pytest.raises(IOError):
-            await workspace.write_file("/tmp/fail.txt", b"content")
+            await sandbox.write_file("/tmp/fail.txt", b"content")
 
     @pytest.mark.asyncio
     async def test_write_file_uses_base64(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        await workspace.write_file("/tmp/test.txt", b"content with STRANDS_EOF inside")
-        assert "base64 -d" in workspace.commands[0]
-        assert "/tmp/test.txt" in workspace.commands[0]
+        sandbox = ConcreteShellSandbox()
+        await sandbox.write_file("/tmp/test.txt", b"content with STRANDS_EOF inside")
+        assert "base64 -d" in sandbox.commands[0]
+        assert "/tmp/test.txt" in sandbox.commands[0]
 
     @pytest.mark.asyncio
     async def test_write_file_path_is_shell_quoted(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        await workspace.write_file("/tmp/test file.txt", b"content")
-        assert "'/tmp/test file.txt'" in workspace.commands[0]
+        sandbox = ConcreteShellSandbox()
+        await sandbox.write_file("/tmp/test file.txt", b"content")
+        assert "'/tmp/test file.txt'" in sandbox.commands[0]
 
     @pytest.mark.asyncio
     async def test_read_file_path_is_shell_quoted(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        await workspace.read_file("/tmp/test file.txt")
-        assert "'/tmp/test file.txt'" in workspace.commands[0]
-        assert "base64" in workspace.commands[0]
+        sandbox = ConcreteShellSandbox()
+        await sandbox.read_file("/tmp/test file.txt")
+        assert "'/tmp/test file.txt'" in sandbox.commands[0]
+        assert "base64" in sandbox.commands[0]
 
     @pytest.mark.asyncio
     async def test_remove_file_success(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        await workspace.remove_file("/tmp/test.txt")
-        assert len(workspace.commands) == 1
-        assert "rm" in workspace.commands[0]
+        sandbox = ConcreteShellSandbox()
+        await sandbox.remove_file("/tmp/test.txt")
+        assert len(sandbox.commands) == 1
+        assert "rm" in sandbox.commands[0]
 
     @pytest.mark.asyncio
     async def test_remove_file_not_found(self) -> None:
-        workspace = ConcreteShellWorkspace()
+        sandbox = ConcreteShellSandbox()
         with pytest.raises(FileNotFoundError):
-            await workspace.remove_file("/tmp/fail.txt")
+            await sandbox.remove_file("/tmp/fail.txt")
 
     @pytest.mark.asyncio
     async def test_list_files_returns_file_info(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        files = await workspace.list_files("/tmp")
-        assert len(workspace.commands) == 1
-        assert "ls" in workspace.commands[0]
+        sandbox = ConcreteShellSandbox()
+        files = await sandbox.list_files("/tmp")
+        assert len(sandbox.commands) == 1
+        assert "ls" in sandbox.commands[0]
         # The mock returns a string output, so list_files parses it
         for f in files:
             assert isinstance(f, FileInfo)
 
     @pytest.mark.asyncio
     async def test_list_files_not_found(self) -> None:
-        workspace = ConcreteShellWorkspace()
+        sandbox = ConcreteShellSandbox()
         with pytest.raises(FileNotFoundError):
-            await workspace.list_files("/tmp/fail")
+            await sandbox.list_files("/tmp/fail")
+
+    @pytest.mark.asyncio
+    async def test_list_files_size_is_none(self) -> None:
+        """ShellBasedSandbox.list_files returns size=None (cannot determine from ls)."""
+        sandbox = ConcreteShellSandbox()
+        files = await sandbox.list_files("/tmp")
+        for f in files:
+            assert f.size is None
 
     @pytest.mark.asyncio
     async def test_lifecycle_start_stop(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        assert not workspace._started
-        await workspace.start()
-        assert workspace._started
-        await workspace.stop()
-        assert not workspace._started
+        sandbox = ConcreteShellSandbox()
+        assert not sandbox._started
+        await sandbox.start()
+        assert sandbox._started
+        await sandbox.stop()
+        assert not sandbox._started
 
     @pytest.mark.asyncio
     async def test_async_context_manager(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        async with workspace as ws:
-            assert ws is workspace
-            assert workspace._started
-        assert not workspace._started
+        sandbox = ConcreteShellSandbox()
+        async with sandbox as s:
+            assert s is sandbox
+            assert sandbox._started
+        assert not sandbox._started
 
     @pytest.mark.asyncio
     async def test_auto_start_on_first_execute(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        assert not workspace._started
-        result = await workspace._execute_to_result("echo hello")
-        assert workspace._started
+        sandbox = ConcreteShellSandbox()
+        assert not sandbox._started
+        result = await sandbox.execute("echo hello")
+        assert sandbox._started
         assert result.exit_code == 0
 
     @pytest.mark.asyncio
     async def test_auto_start_only_once(self) -> None:
-        workspace = ConcreteShellWorkspace()
-        await workspace._execute_to_result("echo 1")
-        await workspace._execute_to_result("echo 2")
-        assert workspace.started_count == 1
-
-    @pytest.mark.asyncio
-    async def test_execute_to_result_raises_on_missing_result(self) -> None:
-        """_execute_to_result raises if execute() yields no ExecutionResult."""
-
-        class BadWorkspace(ShellBasedWorkspace):
-            async def execute(
-                self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                yield "just a string, no result"
-
-        workspace = BadWorkspace()
-        with pytest.raises(RuntimeError, match="did not yield an ExecutionResult"):
-            await workspace._execute_to_result("anything")
-
-
-class TestExecuteCodeToResultRuntimeError:
-    """Major: _execute_code_to_result RuntimeError path must be tested separately."""
-
-    @pytest.mark.asyncio
-    async def test_execute_code_to_result_raises_on_missing_result(self) -> None:
-        """_execute_code_to_result raises RuntimeError if execute_code yields no ExecutionResult."""
-
-        class BadCodeWorkspace(ShellBasedWorkspace):
-            async def execute(
-                self, command: str, timeout: int | None = None, **kwargs: Any
-            ) -> AsyncGenerator[str | ExecutionResult, None]:
-                # Override execute to also return no result when called via execute_code
-                yield "just a string, no ExecutionResult"
-
-        workspace = BadCodeWorkspace()
-        with pytest.raises(RuntimeError, match="did not yield an ExecutionResult"):
-            await workspace._execute_code_to_result("print(1)", language="python")
+        sandbox = ConcreteShellSandbox()
+        await sandbox.execute("echo 1")
+        await sandbox.execute("echo 2")
+        assert sandbox.started_count == 1
 
 
 class TestContextManagerExceptionCleanup:
-    """Major: __aexit__ must call stop() even when an exception occurs inside the context."""
+    """__aexit__ must call stop() even when an exception occurs inside the context."""
 
     @pytest.mark.asyncio
     async def test_aexit_calls_stop_on_exception(self) -> None:
-        """stop() must be called when an exception is raised inside 'async with'."""
-
-        class TrackingWorkspace(ShellBasedWorkspace):
+        class TrackingSandbox(ShellBasedSandbox):
             def __init__(self) -> None:
                 super().__init__()
                 self.stop_called = False
 
-            async def execute(
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -545,27 +661,23 @@ class TestContextManagerExceptionCleanup:
                 self.stop_called = True
                 self._started = False
 
-        workspace = TrackingWorkspace()
-
+        sandbox = TrackingSandbox()
         with pytest.raises(ValueError, match="deliberate"):
-            async with workspace:
-                assert workspace._started
+            async with sandbox:
+                assert sandbox._started
                 raise ValueError("deliberate error inside context manager")
 
-        # stop() MUST have been called even though an exception was raised
-        assert workspace.stop_called
-        assert not workspace._started
+        assert sandbox.stop_called
+        assert not sandbox._started
 
     @pytest.mark.asyncio
     async def test_aexit_calls_stop_on_runtime_error(self) -> None:
-        """stop() must be called for RuntimeError too (not just ValueError)."""
-
-        class TrackingWorkspace(ShellBasedWorkspace):
+        class TrackingSandbox(ShellBasedSandbox):
             def __init__(self) -> None:
                 super().__init__()
                 self.stop_called = False
 
-            async def execute(
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 yield ExecutionResult(exit_code=0, stdout="", stderr="")
@@ -577,29 +689,23 @@ class TestContextManagerExceptionCleanup:
                 self.stop_called = True
                 self._started = False
 
-        workspace = TrackingWorkspace()
-
+        sandbox = TrackingSandbox()
         with pytest.raises(RuntimeError, match="crash"):
-            async with workspace:
+            async with sandbox:
                 raise RuntimeError("crash inside context")
 
-        assert workspace.stop_called
-        assert not workspace._started
+        assert sandbox.stop_called
+        assert not sandbox._started
 
 
 class TestShellBasedListFilesRealisticOutput:
-    """Major: list_files parsing must be tested with realistic ls -1aF output."""
-
     @pytest.mark.asyncio
     async def test_list_files_parses_directory_indicator(self) -> None:
-        """ls -1aF appends / for directories — parser should detect is_dir=True."""
-
-        class RealisticLsWorkspace(ShellBasedWorkspace):
-            async def execute(
+        class RealisticLsSandbox(ShellBasedSandbox):
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 await self._ensure_started()
-                # Realistic ls -1aF output with directory indicators
                 stdout = ".\n..\nsubdir/\n.hidden_dir/\nfile.txt\nscript.py*\nlink.txt@\npipe_file|\n"
                 yield stdout
                 yield ExecutionResult(exit_code=0, stdout=stdout, stderr="")
@@ -607,44 +713,31 @@ class TestShellBasedListFilesRealisticOutput:
             async def start(self) -> None:
                 self._started = True
 
-        workspace = RealisticLsWorkspace()
-        files = await workspace.list_files("/some/path")
+        sandbox = RealisticLsSandbox()
+        files = await sandbox.list_files("/some/path")
 
         names = [f.name for f in files]
         is_dir_map = {f.name: f.is_dir for f in files}
 
-        # Directories (trailing /) should have is_dir=True
         assert "subdir" in names
         assert is_dir_map["subdir"] is True
         assert ".hidden_dir" in names
         assert is_dir_map[".hidden_dir"] is True
-
-        # Regular files should have is_dir=False
         assert "file.txt" in names
         assert is_dir_map["file.txt"] is False
-
-        # Executables (trailing *) should have is_dir=False, indicator stripped
         assert "script.py" in names
         assert is_dir_map["script.py"] is False
-
-        # Symlinks (trailing @) should have is_dir=False, indicator stripped
         assert "link.txt" in names
         assert is_dir_map["link.txt"] is False
-
-        # Pipe/FIFO (trailing |) should have is_dir=False, indicator stripped
         assert "pipe_file" in names
         assert is_dir_map["pipe_file"] is False
-
-        # . and .. should be filtered out
         assert "." not in names
         assert ".." not in names
 
     @pytest.mark.asyncio
     async def test_list_files_empty_directory(self) -> None:
-        """ls -1aF on an empty directory returns only . and .. which are filtered."""
-
-        class EmptyLsWorkspace(ShellBasedWorkspace):
-            async def execute(
+        class EmptyLsSandbox(ShellBasedSandbox):
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 await self._ensure_started()
@@ -655,16 +748,14 @@ class TestShellBasedListFilesRealisticOutput:
             async def start(self) -> None:
                 self._started = True
 
-        workspace = EmptyLsWorkspace()
-        files = await workspace.list_files("/empty")
+        sandbox = EmptyLsSandbox()
+        files = await sandbox.list_files("/empty")
         assert files == []
 
     @pytest.mark.asyncio
     async def test_list_files_files_only_no_indicators(self) -> None:
-        """Regular files without indicators should parse cleanly."""
-
-        class PlainLsWorkspace(ShellBasedWorkspace):
-            async def execute(
+        class PlainLsSandbox(ShellBasedSandbox):
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 await self._ensure_started()
@@ -675,27 +766,23 @@ class TestShellBasedListFilesRealisticOutput:
             async def start(self) -> None:
                 self._started = True
 
-        workspace = PlainLsWorkspace()
-        files = await workspace.list_files("/project")
+        sandbox = PlainLsSandbox()
+        files = await sandbox.list_files("/project")
         names = [f.name for f in files]
         assert names == ["readme.md", "setup.py", "requirements.txt"]
         assert all(not f.is_dir for f in files)
-        assert all(f.size == 0 for f in files)  # shell-based listing has no size info
+        assert all(f.size is None for f in files)  # shell-based has no size info
 
 
 class TestShellBasedWriteFileParentDirs:
-    """Verify ShellBasedWorkspace.write_file creates parent directories."""
-
     @pytest.mark.asyncio
     async def test_write_file_command_includes_mkdir(self) -> None:
-        """write_file should include mkdir -p for parent directory creation."""
-
-        class CommandCapture(ShellBasedWorkspace):
+        class CommandCapture(ShellBasedSandbox):
             def __init__(self) -> None:
                 super().__init__()
                 self.commands: list[str] = []
 
-            async def execute(
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 await self._ensure_started()
@@ -705,30 +792,24 @@ class TestShellBasedWriteFileParentDirs:
             async def start(self) -> None:
                 self._started = True
 
-        workspace = CommandCapture()
-        await workspace.write_file("/tmp/deep/nested/file.txt", b"content")
-
-        assert len(workspace.commands) == 1
-        cmd = workspace.commands[0]
-        assert "mkdir -p" in cmd
-        assert "base64 -d" in cmd
-        assert "/tmp/deep/nested/file.txt" in cmd
+        sandbox = CommandCapture()
+        await sandbox.write_file("/tmp/deep/nested/file.txt", b"content")
+        assert len(sandbox.commands) == 1
+        assert "mkdir -p" in sandbox.commands[0]
+        assert "base64 -d" in sandbox.commands[0]
 
 
 class TestShellBasedBase64Encoding:
-    """Verify that ShellBasedWorkspace correctly encodes content for base64 transport."""
-
     @pytest.mark.asyncio
     async def test_write_file_encodes_exact_base64(self) -> None:
-        """Verify the exact base64-encoded string appears in the shell command."""
         import base64 as b64
 
-        class CommandCapture(ShellBasedWorkspace):
+        class CommandCapture(ShellBasedSandbox):
             def __init__(self) -> None:
                 super().__init__()
                 self.commands: list[str] = []
 
-            async def execute(
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 await self._ensure_started()
@@ -738,24 +819,20 @@ class TestShellBasedBase64Encoding:
             async def start(self) -> None:
                 self._started = True
 
-        workspace = CommandCapture()
+        sandbox = CommandCapture()
         original_content = b"hello world with special chars: \x00\xff\n\t"
-        await workspace.write_file("/tmp/test.bin", original_content)
-
+        await sandbox.write_file("/tmp/test.bin", original_content)
         expected_b64 = b64.b64encode(original_content).decode("ascii")
-        cmd = workspace.commands[0]
-        # The exact base64 string should be in the command (shell-quoted)
-        assert expected_b64 in cmd
+        assert expected_b64 in sandbox.commands[0]
 
     @pytest.mark.asyncio
     async def test_read_file_decodes_base64_correctly(self) -> None:
-        """Verify base64 decode pipeline produces correct bytes."""
         import base64 as b64
 
         original_content = b"\x89PNG\r\n\x1a\n\x00\x00binary"
 
-        class Base64Workspace(ShellBasedWorkspace):
-            async def execute(
+        class Base64Sandbox(ShellBasedSandbox):
+            async def execute_streaming(
                 self, command: str, timeout: int | None = None, **kwargs: Any
             ) -> AsyncGenerator[str | ExecutionResult, None]:
                 await self._ensure_started()
@@ -766,6 +843,6 @@ class TestShellBasedBase64Encoding:
             async def start(self) -> None:
                 self._started = True
 
-        workspace = Base64Workspace()
-        content = await workspace.read_file("/tmp/image.png")
+        sandbox = Base64Sandbox()
+        content = await sandbox.read_file("/tmp/image.png")
         assert content == original_content

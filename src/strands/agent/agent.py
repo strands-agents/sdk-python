@@ -29,6 +29,7 @@ from .. import _identifier
 from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
+from ..sandbox.base import Sandbox
 from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types._snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
@@ -37,7 +38,6 @@ from ..types._snapshot import (
     SnapshotPreset,
     resolve_snapshot_fields,
 )
-from ..workspace.base import Workspace
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
@@ -147,7 +147,7 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
-        workspace: Workspace | None = None,
+        sandbox: Sandbox | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -216,8 +216,8 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
-            workspace: Execution environment for agent tools. Tools access the workspace
-                via tool_context.agent.workspace to execute commands, code, and filesystem operations.
+            sandbox: Execution environment for agent tools. Tools access the sandbox
+                via tool_context.agent.sandbox to execute commands, code, and filesystem operations.
                 Defaults to LocalWorkspace() for local host execution when not specified.
 
         Raises:
@@ -303,16 +303,16 @@ class Agent(AgentBase):
 
         self.tool_caller = _ToolCaller(self)
 
-        # Initialize workspace for tool execution environment
+        # Initialize sandbox for tool execution environment
         # Default to LocalWorkspace() for backwards compatibility — any code that
-        # accesses agent.workspace gets a working local execution environment.
+        # accesses agent.sandbox gets a working local execution environment.
         # Import is deferred to avoid unconditional coupling to LocalWorkspace.
-        if workspace is not None:
-            self.workspace: Workspace = workspace
+        if sandbox is not None:
+            self.sandbox: Sandbox = sandbox
         else:
-            from ..workspace.local import LocalWorkspace
+            from ..sandbox.local import LocalSandbox
 
-            self.workspace = LocalWorkspace()
+            self.sandbox = LocalSandbox()
 
         self.hooks = HookRegistry()
 

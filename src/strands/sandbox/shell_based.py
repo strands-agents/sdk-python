@@ -1,18 +1,18 @@
-"""Shell-based workspace with default implementations for file and code operations.
+"""Shell-based sandbox with default implementations for file and code operations.
 
-This module defines the ShellBasedWorkspace abstract class, which provides
+This module defines the ShellBasedSandbox abstract class, which provides
 shell-command-based defaults for file operations (read, write, remove, list)
-and code execution. Subclasses only need to implement ``execute()``.
+and code execution. Subclasses only need to implement ``execute_streaming()``.
 
 Use this for remote environments where only shell access is available
 (e.g., Docker containers, SSH connections). For local execution, use
-:class:`~strands.workspace.local.LocalWorkspace` which uses native
+:class:`~strands.sandbox.local.LocalSandbox` which uses native
 Python methods instead.
 
 Class hierarchy::
 
-    Workspace (ABC, all 6 abstract + lifecycle)
-      └── ShellBasedWorkspace (ABC, only execute() abstract — shell-based file ops + execute_code)
+    Sandbox (ABC, all abstract + lifecycle)
+      └── ShellBasedSandbox (ABC, only execute_streaming() abstract — shell-based file ops + execute_code)
 """
 
 import base64
@@ -22,36 +22,36 @@ from abc import ABC
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from .base import ExecutionResult, FileInfo, Workspace
+from .base import ExecutionResult, FileInfo, Sandbox
 
 logger = logging.getLogger(__name__)
 
 
-class ShellBasedWorkspace(Workspace, ABC):
-    """Abstract workspace that provides shell-based defaults for file and code operations.
+class ShellBasedSandbox(Sandbox, ABC):
+    """Abstract sandbox that provides shell-based defaults for file and code operations.
 
-    Subclasses only need to implement :meth:`execute`. The remaining five
-    operations — ``read_file``, ``write_file``, ``remove_file``,
-    ``list_files``, and ``execute_code`` — are implemented via shell
-    commands piped through ``execute()``.
+    Subclasses only need to implement :meth:`execute_streaming`. The remaining
+    operations — ``execute_code_streaming``, ``read_file``, ``write_file``,
+    ``remove_file``, and ``list_files`` — are implemented via shell commands
+    piped through ``execute_streaming()``.
 
     This class is intended for remote execution environments where only
     shell access is available (e.g., Docker containers, SSH connections).
-    For local execution, use :class:`~strands.workspace.local.LocalWorkspace`
+    For local execution, use :class:`~strands.sandbox.local.LocalSandbox`
     which uses native Python methods for better safety and reliability.
 
     Subclasses may override any method with a native implementation for
     better performance.
     """
 
-    async def execute_code(
+    async def execute_code_streaming(
         self,
         code: str,
         language: str,
         timeout: int | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[str | ExecutionResult, None]:
-        """Execute code in the workspace, streaming output.
+        """Execute code in the sandbox, streaming output.
 
         The default implementation passes code to the language interpreter
         via ``-c`` with proper shell quoting. Both the ``language`` and
@@ -74,11 +74,11 @@ class ShellBasedWorkspace(Workspace, ABC):
             Override this method for interpreters that require a different
             invocation pattern (e.g., ``javac``, ``gcc``, ``go run``).
         """
-        async for chunk in self.execute(f"{shlex.quote(language)} -c {shlex.quote(code)}", timeout=timeout):
+        async for chunk in self.execute_streaming(f"{shlex.quote(language)} -c {shlex.quote(code)}", timeout=timeout):
             yield chunk
 
     async def read_file(self, path: str, **kwargs: Any) -> bytes:
-        """Read a file from the workspace filesystem as raw bytes.
+        """Read a file from the sandbox filesystem as raw bytes.
 
         Uses ``base64`` to encode the file content for safe transport
         through the shell text layer, then decodes on the Python side.
@@ -98,14 +98,14 @@ class ShellBasedWorkspace(Workspace, ABC):
         Raises:
             FileNotFoundError: If the file does not exist or cannot be read.
         """
-        result = await self._execute_to_result(f"base64 {shlex.quote(path)}")
+        result = await self.execute(f"base64 {shlex.quote(path)}")
         if result.exit_code != 0:
             raise FileNotFoundError(result.stderr)
         # base64 output is ASCII-safe text — decode it back to raw bytes
         return base64.b64decode(result.stdout)
 
     async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
-        """Write bytes to a file in the workspace filesystem.
+        """Write bytes to a file in the sandbox filesystem.
 
         Uses ``base64`` encoding to safely transport binary content through
         the shell text layer. The encoded data is piped through ``base64 -d``
@@ -136,12 +136,12 @@ class ShellBasedWorkspace(Workspace, ABC):
         quoted_path = shlex.quote(path)
         # Create parent directories, then write content via base64 decode
         cmd = f"mkdir -p $(dirname {quoted_path}) && printf '%s' {shlex.quote(encoded)} | base64 -d > {quoted_path}"
-        result = await self._execute_to_result(cmd)
+        result = await self.execute(cmd)
         if result.exit_code != 0:
             raise OSError(result.stderr)
 
     async def remove_file(self, path: str, **kwargs: Any) -> None:
-        """Remove a file from the workspace filesystem.
+        """Remove a file from the sandbox filesystem.
 
         Override for native file removal support. The default implementation
         uses ``rm`` via the shell.
@@ -153,16 +153,17 @@ class ShellBasedWorkspace(Workspace, ABC):
         Raises:
             FileNotFoundError: If the file does not exist.
         """
-        result = await self._execute_to_result(f"rm {shlex.quote(path)}")
+        result = await self.execute(f"rm {shlex.quote(path)}")
         if result.exit_code != 0:
             raise FileNotFoundError(result.stderr)
 
     async def list_files(self, path: str, **kwargs: Any) -> list[FileInfo]:
-        """List files in a workspace directory with structured metadata.
+        """List files in a sandbox directory with structured metadata.
 
         Uses ``ls -1aF`` to include hidden files (dotfiles) and identify
-        directories. Returns :class:`FileInfo` entries with name, is_dir,
-        and size (size defaults to 0 for shell-based listing).
+        directories. Returns :class:`FileInfo` entries with name and is_dir.
+        Size is ``None`` for shell-based listing (cannot be determined
+        reliably from ``ls -1aF`` output alone).
 
         Override for native directory listing support.
 
@@ -176,7 +177,7 @@ class ShellBasedWorkspace(Workspace, ABC):
         Raises:
             FileNotFoundError: If the directory does not exist.
         """
-        result = await self._execute_to_result(f"ls -1aF {shlex.quote(path)}")
+        result = await self.execute(f"ls -1aF {shlex.quote(path)}")
         if result.exit_code != 0:
             raise FileNotFoundError(result.stderr)
 
@@ -190,5 +191,5 @@ class ShellBasedWorkspace(Workspace, ABC):
             # Strip the type indicator from the name
             name = line.rstrip("/@*=|")
             if name:
-                entries.append(FileInfo(name=name, is_dir=is_dir, size=0))
+                entries.append(FileInfo(name=name, is_dir=is_dir))
         return entries
