@@ -2160,25 +2160,25 @@ def test_get_default_model_with_warning_supported_regions_shows_no_warning(captu
     """Test get_model_prefix_with_warning doesn't warn for supported region prefixes."""
     BedrockModel._get_default_model_with_warning("us-west-2")
     BedrockModel._get_default_model_with_warning("eu-west-2")
-    assert len(captured_warnings) == 0
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_get_default_model_for_supported_eu_region_returns_correct_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("eu-west-1")
     assert model_id == "eu.anthropic.claude-sonnet-4-20250514-v1:0"
-    assert len(captured_warnings) == 0
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_get_default_model_for_supported_us_region_returns_correct_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("us-east-1")
     assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
-    assert len(captured_warnings) == 0
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_get_default_model_for_supported_gov_region_returns_correct_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("us-gov-west-1")
     assert model_id == "us-gov.anthropic.claude-sonnet-4-20250514-v1:0"
-    assert len(captured_warnings) == 0
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_get_model_prefix_for_ap_region_converts_to_apac_endpoint(captured_warnings):
@@ -2190,9 +2190,10 @@ def test_get_model_prefix_for_ap_region_converts_to_apac_endpoint(captured_warni
 def test_get_default_model_with_warning_unsupported_region_warns(captured_warnings):
     """Test _get_default_model_with_warning warns for unsupported regions."""
     BedrockModel._get_default_model_with_warning("ca-central-1")
-    assert len(captured_warnings) == 1
-    assert "This region ca-central-1 does not support" in str(captured_warnings[0].message)
-    assert "our default inference endpoint" in str(captured_warnings[0].message)
+    region_warnings = [w for w in captured_warnings if "does not support" in str(w.message)]
+    assert len(region_warnings) == 1
+    assert "This region ca-central-1 does not support" in str(region_warnings[0].message)
+    assert "our default inference endpoint" in str(region_warnings[0].message)
 
 
 def test_get_default_model_with_warning_no_warning_with_custom_model_id(captured_warnings):
@@ -2208,8 +2209,9 @@ def test_init_with_unsupported_region_warns(session_cls, captured_warnings):
     """Test BedrockModel initialization warns for unsupported regions."""
     BedrockModel(region_name="ca-central-1")
 
-    assert len(captured_warnings) == 1
-    assert "This region ca-central-1 does not support" in str(captured_warnings[0].message)
+    region_warnings = [w for w in captured_warnings if "does not support" in str(w.message)]
+    assert len(region_warnings) == 1
+    assert "This region ca-central-1 does not support" in str(region_warnings[0].message)
 
 
 def test_init_with_unsupported_region_custom_model_no_warning(session_cls, captured_warnings):
@@ -2228,7 +2230,7 @@ def test_no_override_uses_formatted_default_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("us-east-1")
     assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
     assert model_id != _DEFAULT_BEDROCK_MODEL_ID
-    assert len(captured_warnings) == 0
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_custom_model_id_not_overridden_by_region_formatting(session_cls):

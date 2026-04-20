@@ -1123,4 +1123,10 @@ class BedrockModel(Model):
                 stacklevel=2,
             )
 
-        return _DEFAULT_BEDROCK_MODEL_ID.format(prefix_inference_map.get(prefix, prefix))
+        default_model_id = _DEFAULT_BEDROCK_MODEL_ID.format(prefix_inference_map.get(prefix, prefix))
+        warnings.warn(
+            f"You're using default model '{default_model_id}', which is subject to change. "
+            "Specify a model explicitly to pin the model target.",
+            stacklevel=2,
+        )
+        return default_model_id
