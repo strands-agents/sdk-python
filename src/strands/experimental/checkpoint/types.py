@@ -21,6 +21,7 @@ Known limitations (V1):
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -62,7 +63,7 @@ class Checkpoint:
 
     position: CheckpointPosition
     stop_reason: StopReason
-    schema_version: str = CHECKPOINT_SCHEMA_VERSION
+    schema_version: str = field(init=False, default=CHECKPOINT_SCHEMA_VERSION)
     cycle_index: int = 0
     tool_index: int = 0
     completed_tool_results: list[ToolResult] = field(default_factory=list)
@@ -71,16 +72,7 @@ class Checkpoint:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for persistence (e.g. Temporal Event History)."""
-        return {
-            "schema_version": self.schema_version,
-            "position": self.position,
-            "stop_reason": self.stop_reason,
-            "cycle_index": self.cycle_index,
-            "tool_index": self.tool_index,
-            "completed_tool_results": self.completed_tool_results,
-            "snapshot": self.snapshot,
-            "app_data": self.app_data,
-        }
+        return dataclasses.asdict(self)
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Checkpoint:
@@ -96,4 +88,4 @@ class Checkpoint:
                 f"Current version: {CHECKPOINT_SCHEMA_VERSION}. "
                 f"Checkpoints from a different SDK version cannot be resumed."
             )
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__ and k != "schema_version"})

@@ -423,21 +423,29 @@ class TestEdgeCases:
             await invoke_with_checkpoint(agent, checkpoint=cp)
 
     @pytest.mark.asyncio
+    async def test_prompt_and_checkpoint_raises(self):
+        """Cannot provide both prompt and checkpoint."""
+        cp = Checkpoint(position="after_tools", stop_reason="tool_use")
+        agent = Agent(model=MockedModelProvider([_end_turn("x")]), callback_handler=None)
+        with pytest.raises(ValueError, match="Cannot provide both"):
+            await invoke_with_checkpoint(agent, "Hello", checkpoint=cp)
+
+    @pytest.mark.asyncio
     async def test_valid_position_wrong_stop_reason_raises(self):
-        """after_model with stop_reason != 'tool_use' falls through to ValueError."""
+        """after_model with stop_reason != 'tool_use' raises specific error."""
         cp = Checkpoint(
             position="after_model",
             stop_reason="end_turn",
             snapshot={
                 "scope": "agent",
-                "schema_version": "1.0",
+                "schema_version": CHECKPOINT_SCHEMA_VERSION,
                 "created_at": "2025-01-01T00:00:00Z",
                 "data": {"messages": [{"role": "user", "content": [{"text": "hi"}]}]},
                 "app_data": {},
             },
         )
         agent = Agent(model=MockedModelProvider([_end_turn("x")]), callback_handler=None)
-        with pytest.raises(ValueError, match="Unknown checkpoint position"):
+        with pytest.raises(ValueError, match="requires stop_reason='tool_use'"):
             await invoke_with_checkpoint(agent, checkpoint=cp)
 
     @pytest.mark.asyncio

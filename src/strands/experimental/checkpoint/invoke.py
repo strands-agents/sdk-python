@@ -19,6 +19,7 @@ See types.py module docstring for the full list of known limitations.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import TYPE_CHECKING
 
@@ -30,6 +31,8 @@ from ...types.content import Message
 from ...types.streaming import Metrics, StopReason, Usage
 from ...types.tools import ToolResult, ToolUse
 from .types import Checkpoint
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -73,8 +76,16 @@ async def invoke_with_checkpoint(
         Checkpoint if the loop should continue, AgentResult if done.
 
     Raises:
+        ValueError: If both prompt and checkpoint are provided, or if the
+            checkpoint has an invalid position/stop_reason combination.
         Exception: Model or infrastructure errors propagate directly.
     """
+    if prompt is not None and checkpoint is not None:
+        raise ValueError(
+            "Cannot provide both 'prompt' and 'checkpoint'. "
+            "Use 'prompt' for a fresh invocation or 'checkpoint' to resume."
+        )
+
     # Fresh invocation
     if checkpoint is None:
         agent.event_loop_metrics.reset_usage_metrics()
@@ -93,7 +104,13 @@ async def invoke_with_checkpoint(
     if checkpoint.position == "after_tools":
         return await _run_model_and_checkpoint(agent, checkpoint.cycle_index + 1)
 
-    raise ValueError(f"Unknown checkpoint position: {checkpoint.position}")
+    if checkpoint.position in ("after_model", "after_tool"):
+        raise ValueError(
+            f"Checkpoint at position={checkpoint.position!r} requires stop_reason='tool_use', "
+            f"got {checkpoint.stop_reason!r}"
+        )
+
+    raise ValueError(f"Unknown checkpoint position: {checkpoint.position!r}")
 
 
 async def _run_model_and_checkpoint(agent: Agent, cycle_index: int) -> Checkpoint | AgentResult:
@@ -214,6 +231,7 @@ async def _consume_model_stream(agent: Agent) -> tuple[StopReason, Message, Usag
         tool_specs,
         system_prompt_content=agent._system_prompt_content,
         model_state=agent._model_state,
+        invocation_state={"agent": agent},
     ):
         if "stop" in event:
             result = event["stop"]
@@ -232,6 +250,8 @@ async def _execute_single_tool(agent: Agent, tool_use: ToolUse) -> ToolResult:
     subclasses (which may yield raw dicts with toolUseId).
     """
     tool_name = tool_use.get("name", "")
+    # NOTE: ToolRegistry does not expose a public get_tool(name) method.
+    # This reaches into internals (registry + dynamic_tools dicts).
     tool_func = agent.tool_registry.registry.get(tool_name) or agent.tool_registry.dynamic_tools.get(tool_name)
 
     if tool_func is None:
@@ -265,6 +285,7 @@ async def _execute_single_tool(agent: Agent, tool_use: ToolUse) -> ToolResult:
         return result
 
     except Exception as e:
+        logger.warning("tool_name=<%s> | tool execution failed: %s", tool_name, e, exc_info=True)
         return ToolResult(
             toolUseId=tool_use["toolUseId"],
             status="error",
