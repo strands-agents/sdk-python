@@ -349,18 +349,18 @@ async def _handle_model_execution(
                 else:
                     tool_specs = agent.tool_registry.get_all_tool_specs()
 
-                streamed_events = stream_messages(
-                    agent.model,
-                    agent.system_prompt,
-                    agent.messages,
-                    tool_specs,
-                    system_prompt_content=agent._system_prompt_content,
-                    tool_choice=structured_output_context.tool_choice,
-                    invocation_state=invocation_state,
-                    model_state=agent._model_state,
-                    cancel_signal=agent._cancel_signal,
-                )
                 try:
+                    streamed_events = stream_messages(
+                        agent.model,
+                        agent.system_prompt,
+                        agent.messages,
+                        tool_specs,
+                        system_prompt_content=agent._system_prompt_content,
+                        tool_choice=structured_output_context.tool_choice,
+                        invocation_state=invocation_state,
+                        model_state=agent._model_state,
+                        cancel_signal=agent._cancel_signal,
+                    )
                     async for event in streamed_events:
                         yield event
                 finally:
