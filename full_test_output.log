@@ -1,0 +1,146 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.13, pytest-9.0.3, pluggy-1.6.0
+rootdir: /home/runner/work/sdk-python/sdk-python
+configfile: pyproject.toml
+plugins: asyncio-1.3.0, cov-7.1.0, timeout-2.4.0, xdist-3.8.0, anyio-4.13.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+timeout: 120.0s
+timeout method: signal
+timeout func_only: False
+collected 1953 items / 10 errors
+
+==================================== ERRORS ====================================
+___________ ERROR collecting tests/strands/models/test_anthropic.py ____________
+ImportError while importing test module '/home/runner/work/sdk-python/sdk-python/tests/strands/models/test_anthropic.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/strands/models/test_anthropic.py:5: in <module>
+    import anthropic
+E   ModuleNotFoundError: No module named 'anthropic'
+_____________ ERROR collecting tests/strands/models/test_gemini.py _____________
+ImportError while importing test module '/home/runner/work/sdk-python/sdk-python/tests/strands/models/test_gemini.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/strands/models/test_gemini.py:7: in <module>
+    from google import genai
+E   ImportError: cannot import name 'genai' from 'google' (unknown location)
+____________ ERROR collecting tests/strands/models/test_litellm.py _____________
+ImportError while importing test module '/home/runner/work/sdk-python/sdk-python/tests/strands/models/test_litellm.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/strands/models/test_litellm.py:6: in <module>
+    from litellm.exceptions import ContextWindowExceededError
+E   ModuleNotFoundError: No module named 'litellm'
+____________ ERROR collecting tests/strands/models/test_llamaapi.py ____________
+ImportError while importing test module '/home/runner/work/sdk-python/sdk-python/tests/strands/models/test_llamaapi.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/strands/models/test_llamaapi.py:8: in <module>
+    from strands.models.llamaapi import LlamaAPIModel
+src/strands/models/llamaapi.py:14: in <module>
+    import llama_api_client
+E   ModuleNotFoundError: No module named 'llama_api_client'
+____________ ERROR collecting tests/strands/models/test_mistral.py _____________
+ImportError while importing test module '/home/runner/work/sdk-python/sdk-python/tests/strands/models/test_mistral.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/strands/models/test_mistral.py:8: in <module>
+    from strands.models.mistral import MistralModel
+src/strands/models/mistral.py:12: in <module>
+    import mistralai
+E   ModuleNotFoundError: No module named 'mistralai'
+_____________ ERROR collecting tests/strands/models/test_ollama.py _____________
+ImportError while importing test module '/home/runner/work/sdk-python/sdk-python/tests/strands/models/test_ollama.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/strands/models/test_ollama.py:9: in <module>
+    from strands.models.ollama import OllamaModel
+src/strands/models/ollama.py:11: in <module>
+    import ollama
+E   ModuleNotFoundError: No module named 'ollama'
+_____________ ERROR collecting tests/strands/models/test_openai.py _____________
+ImportError while importing test module '/home/runner/work/sdk-python/sdk-python/tests/strands/models/test_openai.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/strands/models/test_openai.py:4: in <module>
+    import openai
+E   ModuleNotFoundError: No module named 'openai'
+________ ERROR collecting tests/strands/models/test_openai_responses.py ________
+ImportError while importing test module '/home/runner/work/sdk-python/sdk-python/tests/strands/models/test_openai_responses.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/strands/models/test_openai_responses.py:3: in <module>
+    import openai
+E   ModuleNotFoundError: No module named 'openai'
+___________ ERROR collecting tests/strands/models/test_sagemaker.py ____________
+ImportError while importing test module '/home/runner/work/sdk-python/sdk-python/tests/strands/models/test_sagemaker.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/strands/models/test_sagemaker.py:11: in <module>
+    from strands.models.sagemaker import (
+src/strands/models/sagemaker.py:12: in <module>
+    from mypy_boto3_sagemaker_runtime import SageMakerRuntimeClient
+E   ModuleNotFoundError: No module named 'mypy_boto3_sagemaker_runtime'
+_____________ ERROR collecting tests/strands/models/test_writer.py _____________
+ImportError while importing test module '/home/runner/work/sdk-python/sdk-python/tests/strands/models/test_writer.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/strands/models/test_writer.py:8: in <module>
+    from strands.models.writer import WriterModel
+src/strands/models/writer.py:13: in <module>
+    import writerai
+E   ModuleNotFoundError: No module named 'writerai'
+=============================== warnings summary ===============================
+tests/strands/vended_plugins/steering/core/test_handler.py:20
+  /home/runner/work/sdk-python/sdk-python/tests/strands/vended_plugins/steering/core/test_handler.py:20: PytestCollectionWarning: cannot collect test class 'TestSteeringHandler' because it has a __init__ constructor (from: tests/strands/vended_plugins/steering/core/test_handler.py)
+    class TestSteeringHandler(SteeringHandler):
+
+tests/strands/vended_plugins/steering/core/test_handler.py:224
+  /home/runner/work/sdk-python/sdk-python/tests/strands/vended_plugins/steering/core/test_handler.py:224: PytestCollectionWarning: cannot collect test class 'TestSteeringHandlerWithProvider' because it has a __init__ constructor (from: tests/strands/vended_plugins/steering/core/test_handler.py)
+    class TestSteeringHandlerWithProvider(SteeringHandler):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/runner/work/sdk-python/sdk-python/build/test-results.xml -
+=========================== short test summary info ============================
+ERROR tests/strands/models/test_anthropic.py
+ERROR tests/strands/models/test_gemini.py
+ERROR tests/strands/models/test_litellm.py
+ERROR tests/strands/models/test_llamaapi.py
+ERROR tests/strands/models/test_mistral.py
+ERROR tests/strands/models/test_ollama.py
+ERROR tests/strands/models/test_openai.py
+ERROR tests/strands/models/test_openai_responses.py
+ERROR tests/strands/models/test_sagemaker.py
+ERROR tests/strands/models/test_writer.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 10 errors during collection !!!!!!!!!!!!!!!!!!!
+======================== 2 warnings, 10 errors in 4.18s ========================
