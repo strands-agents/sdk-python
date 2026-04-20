@@ -13,7 +13,8 @@ Known limitations (V1):
 5. Streaming: Token-by-token events are not re-emitted on replay.
    Use callback_handler=None for durable agents.
 6. MCP: Remote servers (HTTP/SSE) work. Stdio servers do not survive worker crashes.
-7. invocation_state is not supported in checkpoint mode.
+7. invocation_state: User-provided invocation_state (request_state, custom data) is not
+   carried through in checkpoint mode. Only {"agent": agent} is passed internally.
 8. Stateful models: OpenAIResponsesModel(stateful=True) is not supported.
    The server-side response_id is not preserved across checkpoints.
    Use stateful=False or OpenAIModel (Chat Completions) for durable execution.

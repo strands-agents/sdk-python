@@ -416,6 +416,22 @@ class TestAgentMethod:
 
 class TestEdgeCases:
     @pytest.mark.asyncio
+    async def test_tool_index_out_of_range_raises(self):
+        """Corrupted checkpoint with tool_index >= number of tool blocks."""
+        agent = Agent(
+            model=MockedModelProvider([_tool_use("echo"), _end_turn("x")]),
+            tools=[echo_tool],
+            callback_handler=None,
+        )
+        # Get a valid after_model checkpoint
+        r = await invoke_with_checkpoint(agent, "Go")
+        assert isinstance(r, Checkpoint)
+        # Tamper with tool_index
+        r.tool_index = 99
+        with pytest.raises(ValueError, match="tool_index=99 is out of range"):
+            await invoke_with_checkpoint(agent, checkpoint=r)
+
+    @pytest.mark.asyncio
     async def test_invalid_position_raises(self):
         cp = Checkpoint(position="invalid", stop_reason="end_turn")
         agent = Agent(model=MockedModelProvider([_end_turn("x")]), callback_handler=None)

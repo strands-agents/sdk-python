@@ -178,6 +178,11 @@ async def _resume_tool_execution(agent: Agent, checkpoint: Checkpoint) -> Checkp
         )
 
     tool_index = checkpoint.tool_index
+    if tool_index >= len(tool_use_blocks):
+        raise ValueError(
+            f"Checkpoint tool_index={tool_index} is out of range "
+            f"for {len(tool_use_blocks)} tool use blocks"
+        )
     completed = list(checkpoint.completed_tool_results)
 
     tool_use = tool_use_blocks[tool_index]
