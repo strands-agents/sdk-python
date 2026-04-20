@@ -39,6 +39,7 @@ from ..types._snapshot import (
 )
 
 if TYPE_CHECKING:
+    from ..experimental.checkpoint.types import Checkpoint as _Checkpoint
     from ..tools import ToolProvider
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
@@ -1182,6 +1183,50 @@ class Agent(AgentBase):
             self._interrupt_state = _InterruptState.from_dict(data["interrupt_state"])
         if "system_prompt" in data:
             self.system_prompt = copy.deepcopy(data["system_prompt"])
+
+    async def invoke_with_checkpoint(
+        self,
+        prompt: str | None = None,
+        *,
+        checkpoint: "_Checkpoint | None" = None,
+    ) -> "_Checkpoint | AgentResult":
+        """Run one step of the agent loop.
+
+        ⚠️ Experimental — API may change in future releases.
+
+        Each call does exactly one unit of I/O: a model call or a single tool
+        execution. Returns a
+        :class:`~strands.experimental.checkpoint.Checkpoint` if there's more
+        work to do, or an :class:`AgentResult` if done.
+
+        This per-tool granularity ensures that on crash recovery, only the
+        incomplete tool re-executes. Completed tools are cached by the
+        durability provider.
+
+        The following invoke() features are NOT supported in checkpoint mode.
+        See :mod:`strands.experimental.checkpoint.types` for the full list of
+        known limitations.
+
+        Usage::
+
+            from strands.experimental.checkpoint import Checkpoint
+
+            result = await agent.invoke_with_checkpoint("Hello")
+            while isinstance(result, Checkpoint):
+                result = await agent.invoke_with_checkpoint(checkpoint=result)
+            # result is AgentResult
+
+        Args:
+            prompt: User prompt for the first call.
+            checkpoint: Checkpoint from a previous call to continue from.
+                Must be a :class:`~strands.experimental.checkpoint.Checkpoint` instance.
+
+        Returns:
+            :class:`~strands.experimental.checkpoint.Checkpoint` | :class:`AgentResult`
+        """
+        from ..experimental.checkpoint import invoke_with_checkpoint as _invoke
+
+        return await _invoke(self, prompt, checkpoint=checkpoint)
 
     def _redact_user_content(self, content: list[ContentBlock], redact_message: str) -> list[ContentBlock]:
         """Redact user content preserving toolResult blocks.
