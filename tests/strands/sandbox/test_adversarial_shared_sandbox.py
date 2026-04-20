@@ -1,4 +1,4 @@
-"""Adversarial tests: Shared sandboxs and concurrent tool calls.
+"""Adversarial tests: Shared sandboxes and concurrent tool calls.
 
 Tests what happens when:
 - Multiple agents share the same sandbox instance

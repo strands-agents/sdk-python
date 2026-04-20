@@ -218,7 +218,7 @@ class Agent(AgentBase):
                 only for advanced use cases where the caller understands the risks.
             sandbox: Execution environment for agent tools. Tools access the sandbox
                 via tool_context.agent.sandbox to execute commands, code, and filesystem operations.
-                Defaults to LocalWorkspace() for local host execution when not specified.
+                Defaults to LocalSandbox() for local host execution when not specified.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -304,9 +304,9 @@ class Agent(AgentBase):
         self.tool_caller = _ToolCaller(self)
 
         # Initialize sandbox for tool execution environment
-        # Default to LocalWorkspace() for backwards compatibility — any code that
+        # Default to LocalSandbox() for backwards compatibility — any code that
         # accesses agent.sandbox gets a working local execution environment.
-        # Import is deferred to avoid unconditional coupling to LocalWorkspace.
+        # Import is deferred to avoid unconditional coupling to LocalSandbox.
         if sandbox is not None:
             self.sandbox: Sandbox = sandbox
         else:

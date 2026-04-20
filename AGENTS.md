@@ -118,9 +118,10 @@ strands-agents/
 │   │   └── session_repository.py         # Storage interface
 │   │
 │   ├── sandbox/                        # Sandbox abstraction for code execution
-│   │   ├── base.py                       # Workspace ABC, ExecutionResult, FileInfo, OutputFile
-│   │   ├── local.py                      # LocalWorkspace (native Python, default)
-│   │   └── shell_based.py               # ShellBasedWorkspace (for remote/container envs)
+│   │   ├── base.py                       # Sandbox ABC, ExecutionResult, FileInfo, OutputFile
+│   │   ├── local.py                      # LocalSandbox (native Python, default)
+│   │   ├── shell_based.py               # ShellBasedSandbox (for remote/container envs)
+│   │   └── noop.py                      # NoOpSandbox (raises NotImplementedError for all ops)
 │   │
 │   ├── telemetry/                        # Observability (OpenTelemetry)
 │   │   ├── tracer.py                     # Tracing
