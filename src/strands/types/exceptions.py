@@ -1,6 +1,9 @@
 """Exception-related type definitions for the SDK."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .content import Message
 
 
 class EventLoopException(Exception):
@@ -24,15 +27,24 @@ class MaxTokensReachedException(Exception):
     This exception is raised when the model stops generating tokens because it has reached the maximum number of
     tokens allowed for output generation. This can occur when the model's max_tokens parameter is set too low for
     the complexity of the response, or when the model naturally reaches its configured output limit during generation.
+
+    The agent instance remains usable after this exception is raised. Callers can catch the exception and continue
+    invoking the same agent with new prompts.
+
+    Attributes:
+        last_message: The recovered message from the model at the time the token limit was reached, if available.
+            Tool use blocks are replaced with explanatory text. May be None if no message was available.
     """
 
-    def __init__(self, message: str):
-        """Initialize the exception with an error message and the incomplete message object.
+    def __init__(self, message: str, *, last_message: "Message | None" = None):
+        """Initialize the exception with an error message and optional partial output.
 
         Args:
-            message: The error message describing the token limit issue
+            message: The error message describing the token limit issue.
+            last_message: The recovered message from the model, with incomplete tool uses replaced by error text.
         """
         super().__init__(message)
+        self.last_message = last_message
 
 
 class ContextWindowOverflowException(Exception):

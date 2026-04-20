@@ -627,7 +627,7 @@ async def test_event_loop_cycle_max_tokens_exception(
 
     # Call event_loop_cycle, expecting it to raise MaxTokensReachedException
     expected_message = (
-        "Agent has reached an unrecoverable state due to max_tokens limit. "
+        "Agent loop stopped: max_tokens limit reached. "
         "For more information see: "
         "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
     )
@@ -641,6 +641,38 @@ async def test_event_loop_cycle_max_tokens_exception(
     # Verify the exception message contains the expected content
     assert len(agent.messages) == 2
     assert "tool use was incomplete due" in agent.messages[1]["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_max_tokens_exception_includes_last_message(
+    agent,
+    model,
+    agenerator,
+    alist,
+):
+    """Test that MaxTokensReachedException includes the recovered message as last_message."""
+
+    model.stream.side_effect = [
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "partial response text"}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "max_tokens"}},
+            ]
+        ),
+    ]
+
+    with pytest.raises(MaxTokensReachedException) as exc_info:
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state={},
+        )
+        await alist(stream)
+
+    # Verify the exception contains the last message
+    assert exc_info.value.last_message is not None
+    assert exc_info.value.last_message["role"] == "assistant"
+    assert any("text" in block for block in exc_info.value.last_message["content"])
 
 
 @patch("strands.event_loop.event_loop.get_tracer")

@@ -99,6 +99,30 @@ class TestMaxTokensReachedException:
 
         assert str(exc_info.value) == "Token limit exceeded"
 
+    def test_initialization_with_last_message(self):
+        """Test MaxTokensReachedException initialization with last_message."""
+        last_message = {"role": "assistant", "content": [{"text": "partial response"}]}
+        exception = MaxTokensReachedException("Token limit exceeded", last_message=last_message)
+
+        assert exception.last_message == last_message
+        assert str(exception) == "Token limit exceeded"
+
+    def test_initialization_without_last_message_defaults_to_none(self):
+        """Test MaxTokensReachedException defaults last_message to None when not provided."""
+        exception = MaxTokensReachedException("Token limit exceeded")
+
+        assert exception.last_message is None
+
+    def test_last_message_accessible_from_caught_exception(self):
+        """Test that last_message is accessible when exception is caught."""
+        last_message = {"role": "assistant", "content": [{"text": "partial output"}]}
+
+        with pytest.raises(MaxTokensReachedException) as exc_info:
+            raise MaxTokensReachedException("Token limit exceeded", last_message=last_message)
+
+        assert exc_info.value.last_message == last_message
+        assert exc_info.value.last_message["content"][0]["text"] == "partial output"
+
 
 class TestContextWindowOverflowException:
     """Tests for ContextWindowOverflowException class."""

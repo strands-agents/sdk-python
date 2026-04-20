@@ -174,10 +174,11 @@ async def event_loop_cycle(
                 """
                 raise MaxTokensReachedException(
                     message=(
-                        "Agent has reached an unrecoverable state due to max_tokens limit. "
+                        "Agent loop stopped: max_tokens limit reached. "
                         "For more information see: "
                         "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
-                    )
+                    ),
+                    last_message=message,
                 )
 
             if stop_reason == "tool_use":
