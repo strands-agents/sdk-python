@@ -416,7 +416,7 @@ class TestAgentMethod:
 
 class TestEdgeCases:
     @pytest.mark.asyncio
-    async def test_tool_index_out_of_range_raises(self):
+    async def test_tool_index_out_of_range_raises(self, echo_tool):
         """Corrupted checkpoint with tool_index >= number of tool blocks."""
         agent = Agent(
             model=MockedModelProvider([_tool_use("echo"), _end_turn("x")]),

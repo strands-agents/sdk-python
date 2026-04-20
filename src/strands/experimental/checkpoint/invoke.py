@@ -88,6 +88,7 @@ async def invoke_with_checkpoint(
 
     # Fresh invocation
     if checkpoint is None:
+        logger.debug("starting fresh invocation")
         agent.event_loop_metrics.reset_usage_metrics()
         if prompt is not None:
             messages = await agent._convert_prompt_to_messages(prompt)
@@ -95,6 +96,12 @@ async def invoke_with_checkpoint(
         return await _run_model_and_checkpoint(agent, cycle_index=0)
 
     # Resuming — restore agent state, then dispatch on position
+    logger.debug(
+        "resuming from checkpoint position=%s cycle=%d tool_index=%d",
+        checkpoint.position,
+        checkpoint.cycle_index,
+        checkpoint.tool_index,
+    )
     if checkpoint.snapshot:
         agent.load_snapshot(Snapshot.from_dict(checkpoint.snapshot))
 
@@ -125,7 +132,9 @@ async def _run_model_and_checkpoint(agent: Agent, cycle_index: int) -> Checkpoin
         agent.event_loop_metrics.reset_usage_metrics()
 
     agent.event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": str(uuid.uuid4())})
+    logger.debug("cycle_index=%d | calling model", cycle_index)
     stop_reason, message, usage, metrics = await _consume_model_stream(agent)
+    logger.debug("cycle_index=%d | model returned stop_reason=%s", cycle_index, stop_reason)
 
     agent.event_loop_metrics.update_usage(usage)
     agent.event_loop_metrics.update_metrics(metrics)
@@ -180,12 +189,19 @@ async def _resume_tool_execution(agent: Agent, checkpoint: Checkpoint) -> Checkp
     tool_index = checkpoint.tool_index
     if tool_index >= len(tool_use_blocks):
         raise ValueError(
-            f"Checkpoint tool_index={tool_index} is out of range "
-            f"for {len(tool_use_blocks)} tool use blocks"
+            f"Checkpoint tool_index={tool_index} is out of range for {len(tool_use_blocks)} tool use blocks"
         )
     completed = list(checkpoint.completed_tool_results)
 
     tool_use = tool_use_blocks[tool_index]
+    tool_name = tool_use.get("name", "")
+    logger.debug(
+        "cycle=%d tool_index=%d/%d | executing tool=%s",
+        checkpoint.cycle_index,
+        tool_index,
+        len(tool_use_blocks),
+        tool_name,
+    )
     result = await _execute_single_tool(agent, tool_use)
     completed.append(result)
 
