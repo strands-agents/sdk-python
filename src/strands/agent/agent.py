@@ -805,10 +805,20 @@ class Agent(AgentBase):
             Exception: Any exceptions from the agent invocation will be propagated to the caller.
 
         Example:
+            Stream all events (default behavior):
+
             ```python
             async for event in agent.stream_async("Analyze this data"):
                 if "data" in event:
                     yield event["data"]
+            ```
+
+            Stream only the final answer (skip intermediate tool-use turns):
+
+            ```python
+            async for event in agent.stream_async("Analyze this data", stream_final_turn_only=True):
+                if "data" in event:
+                    yield event["data"]  # Only receives final turn text
             ```
         """
         # Conditionally acquire lock based on concurrent_invocation_mode
