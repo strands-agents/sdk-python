@@ -215,40 +215,47 @@ def test_model_plugin_preserves_messages_when_not_stateful(model_plugin):
     assert len(agent.messages) == 1
 
 
-def test_estimate_tokens_empty_messages(model):
-    assert model._estimate_tokens(messages=[]) == 0
+@pytest.mark.asyncio
+async def test_estimate_tokens_empty_messages(model):
+    assert await model._estimate_tokens(messages=[]) == 0
 
 
-def test_estimate_tokens_system_prompt_only(model):
-    result = model._estimate_tokens(messages=[], system_prompt="You are a helpful assistant.")
+@pytest.mark.asyncio
+async def test_estimate_tokens_system_prompt_only(model):
+    result = await model._estimate_tokens(messages=[], system_prompt="You are a helpful assistant.")
     assert result == 6
 
 
-def test_estimate_tokens_text_messages(model, messages):
-    result = model._estimate_tokens(messages=messages)
+@pytest.mark.asyncio
+async def test_estimate_tokens_text_messages(model, messages):
+    result = await model._estimate_tokens(messages=messages)
     assert result == 1  # "hello"
 
 
-def test_estimate_tokens_with_tool_specs(model, messages, tool_specs):
-    without_tools = model._estimate_tokens(messages=messages)
-    with_tools = model._estimate_tokens(messages=messages, tool_specs=tool_specs)
+@pytest.mark.asyncio
+async def test_estimate_tokens_with_tool_specs(model, messages, tool_specs):
+    without_tools = await model._estimate_tokens(messages=messages)
+    with_tools = await model._estimate_tokens(messages=messages, tool_specs=tool_specs)
     assert without_tools == 1  # "hello"
     assert with_tools == 49  # "hello" (1) + tool_spec (48)
 
 
-def test_estimate_tokens_with_system_prompt(model, messages, system_prompt):
-    without_prompt = model._estimate_tokens(messages=messages)
-    with_prompt = model._estimate_tokens(messages=messages, system_prompt=system_prompt)
+@pytest.mark.asyncio
+async def test_estimate_tokens_with_system_prompt(model, messages, system_prompt):
+    without_prompt = await model._estimate_tokens(messages=messages)
+    with_prompt = await model._estimate_tokens(messages=messages, system_prompt=system_prompt)
     assert without_prompt == 1  # "hello"
     assert with_prompt == 3  # "hello" (1) + "s1" (2)
 
 
-def test_estimate_tokens_combined(model, messages, tool_specs, system_prompt):
-    result = model._estimate_tokens(messages=messages, tool_specs=tool_specs, system_prompt=system_prompt)
+@pytest.mark.asyncio
+async def test_estimate_tokens_combined(model, messages, tool_specs, system_prompt):
+    result = await model._estimate_tokens(messages=messages, tool_specs=tool_specs, system_prompt=system_prompt)
     assert result == 51  # "hello" (1) + tool_spec (48) + "s1" (2)
 
 
-def test_estimate_tokens_tool_use_block(model):
+@pytest.mark.asyncio
+async def test_estimate_tokens_tool_use_block(model):
     messages = [
         {
             "role": "assistant",
@@ -263,12 +270,13 @@ def test_estimate_tokens_tool_use_block(model):
             ],
         }
     ]
-    result = model._estimate_tokens(messages=messages)
+    result = await model._estimate_tokens(messages=messages)
     # name "my_tool" (2) + json.dumps(input) (6) = 8
     assert result == 8
 
 
-def test_estimate_tokens_tool_result_block(model):
+@pytest.mark.asyncio
+async def test_estimate_tokens_tool_result_block(model):
     messages = [
         {
             "role": "user",
@@ -283,11 +291,12 @@ def test_estimate_tokens_tool_result_block(model):
             ],
         }
     ]
-    result = model._estimate_tokens(messages=messages)
+    result = await model._estimate_tokens(messages=messages)
     assert result == 3  # "tool output here"
 
 
-def test_estimate_tokens_reasoning_block(model):
+@pytest.mark.asyncio
+async def test_estimate_tokens_reasoning_block(model):
     messages = [
         {
             "role": "assistant",
@@ -302,21 +311,23 @@ def test_estimate_tokens_reasoning_block(model):
             ],
         }
     ]
-    result = model._estimate_tokens(messages=messages)
+    result = await model._estimate_tokens(messages=messages)
     assert result == 9  # "Let me think about this step by step."
 
 
-def test_estimate_tokens_skips_binary_content(model):
+@pytest.mark.asyncio
+async def test_estimate_tokens_skips_binary_content(model):
     messages = [
         {
             "role": "user",
             "content": [{"image": {"format": "png", "source": {"bytes": b"fake image data"}}}],
         }
     ]
-    assert model._estimate_tokens(messages=messages) == 0
+    assert await model._estimate_tokens(messages=messages) == 0
 
 
-def test_estimate_tokens_tool_result_with_bytes_only(model):
+@pytest.mark.asyncio
+async def test_estimate_tokens_tool_result_with_bytes_only(model):
     messages = [
         {
             "role": "user",
@@ -331,11 +342,12 @@ def test_estimate_tokens_tool_result_with_bytes_only(model):
             ],
         }
     ]
-    result = model._estimate_tokens(messages=messages)
+    result = await model._estimate_tokens(messages=messages)
     assert result == 0
 
 
-def test_estimate_tokens_tool_result_with_text_and_bytes(model):
+@pytest.mark.asyncio
+async def test_estimate_tokens_tool_result_with_text_and_bytes(model):
     messages = [
         {
             "role": "user",
@@ -353,22 +365,24 @@ def test_estimate_tokens_tool_result_with_text_and_bytes(model):
             ],
         }
     ]
-    result = model._estimate_tokens(messages=messages)
+    result = await model._estimate_tokens(messages=messages)
     assert result > 0
 
 
-def test_estimate_tokens_guard_content_block(model):
+@pytest.mark.asyncio
+async def test_estimate_tokens_guard_content_block(model):
     messages = [
         {
             "role": "assistant",
             "content": [{"guardContent": {"text": {"text": "This content was filtered by guardrails."}}}],
         }
     ]
-    result = model._estimate_tokens(messages=messages)
+    result = await model._estimate_tokens(messages=messages)
     assert result == 8  # "This content was filtered by guardrails."
 
 
-def test_estimate_tokens_tool_use_with_bytes(model):
+@pytest.mark.asyncio
+async def test_estimate_tokens_tool_use_with_bytes(model):
     messages = [
         {
             "role": "assistant",
@@ -383,12 +397,13 @@ def test_estimate_tokens_tool_use_with_bytes(model):
             ],
         }
     ]
-    result = model._estimate_tokens(messages=messages)
+    result = await model._estimate_tokens(messages=messages)
     # Should still count the tool name even though input has non-serializable bytes
     assert result == 2  # "my_tool" name only
 
 
-def test_estimate_tokens_non_serializable_tool_spec(model, messages):
+@pytest.mark.asyncio
+async def test_estimate_tokens_non_serializable_tool_spec(model, messages):
     tool_specs = [
         {
             "name": "test",
@@ -396,12 +411,13 @@ def test_estimate_tokens_non_serializable_tool_spec(model, messages):
             "inputSchema": {"json": {"default": b"bytes"}},
         }
     ]
-    result = model._estimate_tokens(messages=messages, tool_specs=tool_specs)
+    result = await model._estimate_tokens(messages=messages, tool_specs=tool_specs)
     # Should still count the message tokens even though tool spec fails
     assert result == 1  # "hello" only, tool spec skipped
 
 
-def test_estimate_tokens_citations_block(model):
+@pytest.mark.asyncio
+async def test_estimate_tokens_citations_block(model):
     messages = [
         {
             "role": "assistant",
@@ -415,20 +431,22 @@ def test_estimate_tokens_citations_block(model):
             ],
         }
     ]
-    result = model._estimate_tokens(messages=messages)
+    result = await model._estimate_tokens(messages=messages)
     assert result == 11  # "According to the document, the answer is 42."
 
 
-def test_estimate_tokens_system_prompt_content(model):
-    result = model._estimate_tokens(
+@pytest.mark.asyncio
+async def test_estimate_tokens_system_prompt_content(model):
+    result = await model._estimate_tokens(
         messages=[],
         system_prompt_content=[{"text": "You are a helpful assistant."}],
     )
     assert result == 6  # "You are a helpful assistant."
 
 
-def test_estimate_tokens_system_prompt_content_with_cache_point(model):
-    result = model._estimate_tokens(
+@pytest.mark.asyncio
+async def test_estimate_tokens_system_prompt_content_with_cache_point(model):
+    result = await model._estimate_tokens(
         messages=[],
         system_prompt_content=[
             {"text": "You are a helpful assistant."},
@@ -438,13 +456,14 @@ def test_estimate_tokens_system_prompt_content_with_cache_point(model):
     assert result == 6  # "You are a helpful assistant.", cachePoint adds 0
 
 
-def test_estimate_tokens_system_prompt_content_takes_priority(model):
-    content_only = model._estimate_tokens(
+@pytest.mark.asyncio
+async def test_estimate_tokens_system_prompt_content_takes_priority(model):
+    content_only = await model._estimate_tokens(
         messages=[],
         system_prompt_content=[{"text": "Short."}],
     )
     # When both are provided, system_prompt_content wins — system_prompt is ignored
-    both = model._estimate_tokens(
+    both = await model._estimate_tokens(
         messages=[],
         system_prompt="This is a much longer system prompt that should have more tokens.",
         system_prompt_content=[{"text": "Short."}],
@@ -453,12 +472,13 @@ def test_estimate_tokens_system_prompt_content_takes_priority(model):
     assert content_only == both
 
 
-def test_estimate_tokens_all_inputs(model):
+@pytest.mark.asyncio
+async def test_estimate_tokens_all_inputs(model):
     messages = [
         {"role": "user", "content": [{"text": "hello world"}]},
         {"role": "assistant", "content": [{"text": "hi there"}]},
     ]
-    result = model._estimate_tokens(
+    result = await model._estimate_tokens(
         messages=messages,
         tool_specs=[{"name": "test", "description": "a test tool", "inputSchema": {"json": {}}}],
         system_prompt="Be helpful.",
@@ -539,12 +559,13 @@ class TestHeuristicEstimation:
         )
         assert result == 2  # only tool name counted: ceil(len("my_tool") / 4)
 
-    def test_model_falls_back_to_heuristic(self, monkeypatch, model):
+    @pytest.mark.asyncio
+    async def test_model_falls_back_to_heuristic(self, monkeypatch, model):
         """Model._estimate_tokens falls back to heuristic when tiktoken unavailable."""
         import strands.models.model as model_module
 
         monkeypatch.setattr(model_module, "_cached_encoding", None)
         monkeypatch.setattr(model_module, "_tiktoken_available", False)
 
-        result = model._estimate_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
+        result = await model._estimate_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
         assert result == 3  # ceil(12 / 4)
