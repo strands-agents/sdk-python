@@ -39,6 +39,7 @@ from ..types._snapshot import (
 )
 
 if TYPE_CHECKING:
+    from ..checkpoint import Checkpoint
     from ..tools import ToolProvider
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
@@ -310,8 +311,7 @@ class Agent(AgentBase):
 
         # Checkpointing: when True, event loop pauses at cycle boundaries
         self._checkpointing = checkpointing
-        self._checkpoint_resume_position: str | None = None
-        self._checkpoint_resumed_cycle_index: int | None = None
+        self._checkpoint_resume_context: Checkpoint | None = None
 
         # Runtime state for model providers (e.g., server-side response ids)
         self._model_state: dict[str, Any] = {}
@@ -1020,8 +1020,7 @@ class Agent(AgentBase):
                 invalid = [k for c in prompt if isinstance(c, dict) for k in c if k != "checkpointResume"]
                 if invalid:
                     raise TypeError(
-                        f"content_types={invalid} | "
-                        f"checkpointResume cannot be mixed with other content types"
+                        f"content_types={invalid} | checkpointResume cannot be mixed with other content types"
                     )
                 if len(prompt) != 1:
                     raise TypeError("Only one checkpointResume block permitted per prompt")
@@ -1037,12 +1036,7 @@ class Agent(AgentBase):
                 checkpoint_data = resume_block["checkpoint"]
                 checkpoint = Checkpoint.from_dict(checkpoint_data)
                 self.load_snapshot(Snapshot.from_dict(checkpoint.snapshot))
-                self._checkpoint_resume_position = checkpoint.position
-                # after_tools completed that cycle, so next cycle is +1
-                if checkpoint.position == "after_tools":
-                    self._checkpoint_resumed_cycle_index = checkpoint.cycle_index + 1
-                else:
-                    self._checkpoint_resumed_cycle_index = checkpoint.cycle_index
+                self._checkpoint_resume_context = checkpoint
                 return []
 
         messages: Messages | None = None

@@ -157,6 +157,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock._interrupt_state = _InterruptState()
     mock._cancel_signal = threading.Event()
     mock._model_state = {}
+    mock._checkpointing = False
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
 
