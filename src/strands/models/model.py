@@ -3,7 +3,8 @@
 import abc
 import json
 import logging
-from collections.abc import AsyncGenerator, AsyncIterable
+import math
+from collections.abc import AsyncGenerator, AsyncIterable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
@@ -24,65 +25,88 @@ T = TypeVar("T", bound=BaseModel)
 
 _DEFAULT_ENCODING = "cl100k_base"
 _cached_encoding: Any = None
+_tiktoken_available: bool | None = None
+
+
+def _heuristic_estimate_text(text: str) -> int:
+    """Estimate token count from text using characters / 4 heuristic."""
+    return math.ceil(len(text) / 4)
+
+
+def _heuristic_estimate_json(obj: Any) -> int:
+    """Estimate token count from a JSON-serializable object using characters / 2 heuristic."""
+    try:
+        return math.ceil(len(json.dumps(obj)) / 2)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _get_encoding() -> Any:
-    """Get the default tiktoken encoding, caching to avoid repeated lookups."""
-    global _cached_encoding
+    """Get the default tiktoken encoding, caching to avoid repeated lookups.
+
+    Returns:
+        The tiktoken encoding, or None if tiktoken is not installed.
+    """
+    global _cached_encoding, _tiktoken_available
+    if _tiktoken_available is False:
+        return None
     if _cached_encoding is None:
         try:
             import tiktoken
-        except ImportError as err:
-            raise ImportError(
-                "tiktoken is required for token estimation. "
-                "Install it with: pip install strands-agents[token-estimation]"
-            ) from err
-        _cached_encoding = tiktoken.get_encoding(_DEFAULT_ENCODING)
+
+            _cached_encoding = tiktoken.get_encoding(_DEFAULT_ENCODING)
+            _tiktoken_available = True
+        except ImportError:
+            logger.debug("tiktoken not available, falling back to heuristic token estimation")
+            _tiktoken_available = False
+            return None
     return _cached_encoding
 
 
-def _count_content_block_tokens(block: ContentBlock, encoding: Any) -> int:
-    """Count tokens for a single content block."""
+def _count_content_block_tokens(
+    block: ContentBlock, count_text: Callable[[str], int], count_json: Callable[[Any], int]
+) -> int:
+    """Count tokens for a single content block.
+
+    Args:
+        block: The content block to count tokens for.
+        count_text: Function that returns token count for a text string.
+        count_json: Function that returns token count for a JSON-serializable object.
+    """
     total = 0
 
     if "text" in block:
-        total += len(encoding.encode(block["text"]))
+        total += count_text(block["text"])
 
     if "toolUse" in block:
         tool_use = block["toolUse"]
-        total += len(encoding.encode(tool_use.get("name", "")))
-        try:
-            total += len(encoding.encode(json.dumps(tool_use.get("input", {}))))
-        except (TypeError, ValueError):
-            logger.debug(
-                "tool_name=<%s> | skipping non-serializable toolUse input for token estimation",
-                tool_use.get("name", "unknown"),
-            )
+        total += count_text(tool_use.get("name", ""))
+        total += count_json(tool_use.get("input", {}))
 
     if "toolResult" in block:
         tool_result = block["toolResult"]
         for item in tool_result.get("content", []):
             if "text" in item:
-                total += len(encoding.encode(item["text"]))
+                total += count_text(item["text"])
 
     if "reasoningContent" in block:
         reasoning = block["reasoningContent"]
         if "reasoningText" in reasoning:
             reasoning_text = reasoning["reasoningText"]
             if "text" in reasoning_text:
-                total += len(encoding.encode(reasoning_text["text"]))
+                total += count_text(reasoning_text["text"])
 
     if "guardContent" in block:
         guard = block["guardContent"]
         if "text" in guard and "text" in guard["text"]:
-            total += len(encoding.encode(guard["text"]["text"]))
+            total += count_text(guard["text"]["text"])
 
     if "citationsContent" in block:
         citations = block["citationsContent"]
         if "content" in citations:
             for citation_item in citations["content"]:
                 if "text" in citation_item:
-                    total += len(encoding.encode(citation_item["text"]))
+                    total += count_text(citation_item["text"])
 
     return total
 
@@ -97,8 +121,23 @@ def _estimate_tokens_with_tiktoken(
 
     This is a best-effort fallback for providers that don't expose native counting.
     Accuracy varies by model but is sufficient for threshold-based decisions.
+
+    Raises:
+        ImportError: If tiktoken is not installed.
     """
     encoding = _get_encoding()
+    if encoding is None:
+        raise ImportError("tiktoken is not available")
+
+    def count_text(text: str) -> int:
+        return len(encoding.encode(text))
+
+    def count_json(obj: Any) -> int:
+        try:
+            return len(encoding.encode(json.dumps(obj)))
+        except (TypeError, ValueError):
+            return 0
+
     total = 0
 
     # Prefer system_prompt_content (structured) over system_prompt (plain string) to avoid double-counting,
@@ -106,23 +145,47 @@ def _estimate_tokens_with_tiktoken(
     if system_prompt_content:
         for block in system_prompt_content:
             if "text" in block:
-                total += len(encoding.encode(block["text"]))
+                total += count_text(block["text"])
     elif system_prompt:
-        total += len(encoding.encode(system_prompt))
+        total += count_text(system_prompt)
 
     for message in messages:
         for block in message["content"]:
-            total += _count_content_block_tokens(block, encoding)
+            total += _count_content_block_tokens(block, count_text, count_json)
 
     if tool_specs:
         for spec in tool_specs:
-            try:
-                total += len(encoding.encode(json.dumps(spec)))
-            except (TypeError, ValueError):
-                logger.debug(
-                    "tool_name=<%s> | skipping non-serializable tool spec for token estimation",
-                    spec.get("name", "unknown"),
-                )
+            total += count_json(spec)
+
+    return total
+
+
+def _estimate_tokens_with_heuristic(
+    messages: Messages,
+    tool_specs: list[ToolSpec] | None = None,
+    system_prompt: str | None = None,
+    system_prompt_content: list[SystemContentBlock] | None = None,
+) -> int:
+    """Estimate tokens using character-based heuristics (text: chars/4, JSON: chars/2).
+
+    Dependency-free fallback when tiktoken is not installed.
+    """
+    total = 0
+
+    if system_prompt_content:
+        for block in system_prompt_content:
+            if "text" in block:
+                total += _heuristic_estimate_text(block["text"])
+    elif system_prompt:
+        total += _heuristic_estimate_text(system_prompt)
+
+    for message in messages:
+        for block in message["content"]:
+            total += _count_content_block_tokens(block, _heuristic_estimate_text, _heuristic_estimate_json)
+
+    if tool_specs:
+        for spec in tool_specs:
+            total += _heuristic_estimate_json(spec)
 
     return total
 
@@ -244,10 +307,10 @@ class Model(abc.ABC):
     ) -> int:
         """Estimate token count for the given input before sending to the model.
 
-        Used for proactive context management (e.g., triggering compression at a
-        threshold). This is a naive approximation using tiktoken's cl100k_base encoding.
-        Accuracy varies by model provider but is estimated to be within 5-15% for most providers.
-        Not intended for billing or precise quota calculations.
+        Used for proactive context management (e.g., triggering compression at a threshold).
+        Uses tiktoken's cl100k_base encoding when available, otherwise falls back to a
+        heuristic (characters / 4 for text, characters / 2 for JSON). Accuracy varies by
+        model provider. Not intended for billing or precise quota calculations.
 
         Subclasses may override this method to provide model-specific token counting
         using native APIs for improved accuracy.
@@ -261,7 +324,10 @@ class Model(abc.ABC):
         Returns:
             Estimated total input tokens.
         """
-        return _estimate_tokens_with_tiktoken(messages, tool_specs, system_prompt, system_prompt_content)
+        try:
+            return _estimate_tokens_with_tiktoken(messages, tool_specs, system_prompt, system_prompt_content)
+        except ImportError:
+            return _estimate_tokens_with_heuristic(messages, tool_specs, system_prompt, system_prompt_content)
 
 
 class _ModelPlugin(Plugin):

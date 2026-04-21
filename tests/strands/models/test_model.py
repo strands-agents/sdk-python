@@ -468,11 +468,12 @@ def test_estimate_tokens_all_inputs(model):
     assert result == 31
 
 
-def test_get_encoding_raises_without_tiktoken(monkeypatch):
-    """Test that _get_encoding raises ImportError with install instructions when tiktoken is missing."""
+def test_get_encoding_falls_back_without_tiktoken(monkeypatch):
+    """Test that _get_encoding returns None and _estimate_tokens falls back to heuristic."""
     import strands.models.model as model_module
 
     monkeypatch.setattr(model_module, "_cached_encoding", None)
+    monkeypatch.setattr(model_module, "_tiktoken_available", None)
     original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
 
     def _block_tiktoken(name, *args, **kwargs):
@@ -482,5 +483,16 @@ def test_get_encoding_raises_without_tiktoken(monkeypatch):
 
     monkeypatch.setattr("builtins.__import__", _block_tiktoken)
 
-    with pytest.raises(ImportError, match="pip install strands-agents\\[token-estimation\\]"):
-        model_module._get_encoding()
+    assert model_module._get_encoding() is None
+
+    # _estimate_tokens_with_tiktoken should raise when tiktoken is unavailable
+    with pytest.raises(ImportError):
+        model_module._estimate_tokens_with_tiktoken(
+            messages=[{"role": "user", "content": [{"text": "hello world!"}]}],
+        )
+
+    # _estimate_tokens_with_heuristic uses chars/4 for text
+    result = model_module._estimate_tokens_with_heuristic(
+        messages=[{"role": "user", "content": [{"text": "hello world!"}]}],
+    )
+    assert result == 3  # ceil(12 / 4)
