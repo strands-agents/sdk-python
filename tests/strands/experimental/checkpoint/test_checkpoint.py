@@ -31,7 +31,7 @@ class TestCheckpoint:
     def test_schema_version_mismatch_raises(self):
         data = Checkpoint(position="after_model").to_dict()
         data["schema_version"] = "0.0"
-        with pytest.raises(ValueError, match="Incompatible checkpoint schema version"):
+        with pytest.raises(ValueError, match="not compatible with current version"):
             Checkpoint.from_dict(data)
 
     def test_defaults(self):
@@ -49,5 +49,5 @@ class TestCheckpoint:
 
     def test_from_dict_missing_schema_version_raises(self):
         data = {"position": "after_model", "cycle_index": 0, "snapshot": {}, "app_data": {}}
-        with pytest.raises(ValueError, match="Incompatible checkpoint schema version"):
+        with pytest.raises(ValueError, match="not compatible with current version"):
             Checkpoint.from_dict(data)
