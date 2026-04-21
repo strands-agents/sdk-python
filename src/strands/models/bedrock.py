@@ -15,7 +15,7 @@ import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 from pydantic import BaseModel
-from typing_extensions import TypedDict, Unpack, override
+from typing_extensions import Unpack, override
 
 from strands.types.media import S3Location, SourceLocation
 
@@ -31,7 +31,7 @@ from ..types.exceptions import (
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
-from .model import CacheConfig, Model
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class BedrockModel(Model):
     - Context window overflow detection
     """
 
-    class BedrockConfig(TypedDict, total=False):
+    class BedrockConfig(BaseModelConfig, total=False):
         """Configuration options for Bedrock models.
 
         Attributes:

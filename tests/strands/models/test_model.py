@@ -184,6 +184,27 @@ async def test_stream_with_tool_choice_parameter(messages, tool_specs, system_pr
     assert events[1]["contentBlockDelta"]["delta"]["text"] == "No tool choice"
 
 
+def test_context_window_limit_from_dict_config():
+    class DictConfigModel(SAModel):
+        def update_config(self, **model_config):
+            pass
+
+        def get_config(self):
+            return {"context_window_limit": 200_000}
+
+        async def structured_output(self, output_model, prompt=None, system_prompt=None, **kwargs):
+            yield {}
+
+        async def stream(self, messages, tool_specs=None, system_prompt=None):
+            yield {}
+
+    assert DictConfigModel().context_window_limit == 200_000
+
+
+def test_context_window_limit_none_when_not_configured(model):
+    assert model.context_window_limit is None
+
+
 def test_stateful_false(model):
     """Model.stateful defaults to False."""
     assert not model.stateful

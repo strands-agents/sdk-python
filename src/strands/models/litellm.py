@@ -6,7 +6,7 @@
 import json
 import logging
 from collections.abc import AsyncGenerator
-from typing import Any, TypedDict, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import litellm
 from litellm.exceptions import ContextWindowExceededError
@@ -21,6 +21,7 @@ from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import MetadataEvent, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec, ToolUse
 from ._validation import validate_config_keys
+from .model import BaseModelConfig
 from .openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ T = TypeVar("T", bound=BaseModel)
 class LiteLLMModel(OpenAIModel):
     """LiteLLM model provider implementation."""
 
-    class LiteLLMConfig(TypedDict, total=False):
+    class LiteLLMConfig(BaseModelConfig, total=False):
         """Configuration options for LiteLLM models.
 
         Attributes:

@@ -288,6 +288,15 @@ def test__init__model_config(bedrock_client):
     assert tru_max_tokens == exp_max_tokens
 
 
+def test__init__context_window_limit(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(context_window_limit=200_000)
+
+    assert model.get_config().get("context_window_limit") == 200_000
+    assert model.context_window_limit == 200_000
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 

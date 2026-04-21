@@ -70,6 +70,15 @@ def test__init__model_configs(gemini_client, model_id):
     assert tru_temperature == exp_temperature
 
 
+def test__init__context_window_limit(gemini_client):
+    _ = gemini_client
+
+    model = GeminiModel(model_id="gemini-2.5-flash", context_window_limit=1_048_576)
+
+    assert model.get_config().get("context_window_limit") == 1_048_576
+    assert model.context_window_limit == 1_048_576
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 

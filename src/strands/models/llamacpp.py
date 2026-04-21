@@ -17,7 +17,6 @@ import time
 from collections.abc import AsyncGenerator
 from typing import (
     Any,
-    TypedDict,
     TypeVar,
     cast,
 )
@@ -31,7 +30,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
-from .model import Model
+from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +85,7 @@ class LlamaCppModel(Model):
         >>> response = agent(image_content)
     """
 
-    class LlamaCppConfig(TypedDict, total=False):
+    class LlamaCppConfig(BaseModelConfig, total=False):
         """Configuration options for llama.cpp models.
 
         Attributes:

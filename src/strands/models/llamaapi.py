@@ -14,14 +14,14 @@ from typing import Any, TypeVar, cast
 import llama_api_client
 from llama_api_client import LlamaAPIClient
 from pydantic import BaseModel
-from typing_extensions import TypedDict, Unpack, override
+from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
-from .model import Model
+from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ T = TypeVar("T", bound=BaseModel)
 class LlamaAPIModel(Model):
     """Llama API model provider implementation."""
 
-    class LlamaConfig(TypedDict, total=False):
+    class LlamaConfig(BaseModelConfig, total=False):
         """Configuration options for Llama API models.
 
         Attributes:

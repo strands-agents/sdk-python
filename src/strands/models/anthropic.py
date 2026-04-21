@@ -8,7 +8,7 @@ import json
 import logging
 import mimetypes
 from collections.abc import AsyncGenerator
-from typing import Any, TypedDict, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import anthropic
 from pydantic import BaseModel
@@ -21,7 +21,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from ._validation import _has_location_source, validate_config_keys
-from .model import Model
+from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class AnthropicModel(Model):
         "input and output tokens exceed your context limit",
     }
 
-    class AnthropicConfig(TypedDict, total=False):
+    class AnthropicConfig(BaseModelConfig, total=False):
         """Configuration options for Anthropic models.
 
         Attributes:

@@ -4,7 +4,7 @@ import abc
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, TypeVar
 
 from pydantic import BaseModel
 
@@ -20,6 +20,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+
+class BaseModelConfig(TypedDict, total=False):
+    """Base configuration shared by all model providers.
+
+    Attributes:
+        context_window_limit: Maximum context window size in tokens for the model.
+            This value represents the total token capacity shared between input and output.
+    """
+
+    context_window_limit: int | None
 
 
 @dataclass
@@ -50,6 +61,16 @@ class Model(abc.ABC):
             False by default. Model providers that support server-side state should override this.
         """
         return False
+
+    @property
+    def context_window_limit(self) -> int | None:
+        """Maximum context window size in tokens, or None if not configured."""
+        config = self.get_config()
+        return (
+            config.get("context_window_limit")
+            if isinstance(config, dict)
+            else getattr(config, "context_window_limit", None)
+        )
 
     @abc.abstractmethod
     # pragma: no cover

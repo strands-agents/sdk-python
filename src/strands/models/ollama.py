@@ -10,13 +10,13 @@ from typing import Any, TypeVar, cast
 
 import ollama
 from pydantic import BaseModel
-from typing_extensions import TypedDict, Unpack, override
+from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
-from .model import Model
+from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class OllamaModel(Model):
     - Tool/function calling
     """
 
-    class OllamaConfig(TypedDict, total=False):
+    class OllamaConfig(BaseModelConfig, total=False):
         """Configuration parameters for Ollama models.
 
         Attributes:
