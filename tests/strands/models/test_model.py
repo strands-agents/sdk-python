@@ -492,8 +492,7 @@ def test_get_encoding_falls_back_without_tiktoken(monkeypatch):
     """Test that _get_encoding returns None and _estimate_tokens falls back to heuristic."""
     import strands.models.model as model_module
 
-    monkeypatch.setattr(model_module, "_cached_encoding", None)
-    monkeypatch.setattr(model_module, "_tiktoken_available", None)
+    model_module._get_encoding.cache_clear()
     original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
 
     def _block_tiktoken(name, *args, **kwargs):
@@ -503,19 +502,22 @@ def test_get_encoding_falls_back_without_tiktoken(monkeypatch):
 
     monkeypatch.setattr("builtins.__import__", _block_tiktoken)
 
-    assert model_module._get_encoding() is None
+    try:
+        assert model_module._get_encoding() is None
 
-    # _estimate_tokens_with_tiktoken should raise when tiktoken is unavailable
-    with pytest.raises(ImportError):
-        model_module._estimate_tokens_with_tiktoken(
+        # _estimate_tokens_with_tiktoken should raise when tiktoken is unavailable
+        with pytest.raises(ImportError):
+            model_module._estimate_tokens_with_tiktoken(
+                messages=[{"role": "user", "content": [{"text": "hello world!"}]}],
+            )
+
+        # _estimate_tokens_with_heuristic uses chars/4 for text
+        result = model_module._estimate_tokens_with_heuristic(
             messages=[{"role": "user", "content": [{"text": "hello world!"}]}],
         )
-
-    # _estimate_tokens_with_heuristic uses chars/4 for text
-    result = model_module._estimate_tokens_with_heuristic(
-        messages=[{"role": "user", "content": [{"text": "hello world!"}]}],
-    )
-    assert result == 3  # ceil(12 / 4)
+        assert result == 3  # ceil(12 / 4)
+    finally:
+        model_module._get_encoding.cache_clear()
 
 
 class TestHeuristicEstimation:
@@ -564,8 +566,20 @@ class TestHeuristicEstimation:
         """Model._estimate_tokens falls back to heuristic when tiktoken unavailable."""
         import strands.models.model as model_module
 
-        monkeypatch.setattr(model_module, "_cached_encoding", None)
-        monkeypatch.setattr(model_module, "_tiktoken_available", False)
+        model_module._get_encoding.cache_clear()
+        original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
 
-        result = await model._estimate_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
-        assert result == 3  # ceil(12 / 4)
+        def _block_tiktoken(name, *args, **kwargs):
+            if name == "tiktoken":
+                raise ImportError("No module named 'tiktoken'")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", _block_tiktoken)
+
+        try:
+            result = await model._estimate_tokens(
+                messages=[{"role": "user", "content": [{"text": "hello world!"}]}]
+            )
+            assert result == 3  # ceil(12 / 4)
+        finally:
+            model_module._get_encoding.cache_clear()

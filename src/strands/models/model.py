@@ -1,6 +1,7 @@
 """Abstract base class for Agent model providers."""
 
 import abc
+import functools
 import json
 import logging
 import math
@@ -24,8 +25,6 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 _DEFAULT_ENCODING = "cl100k_base"
-_cached_encoding: Any = None
-_tiktoken_available: bool | None = None
 
 
 def _heuristic_estimate_text(text: str) -> int:
@@ -41,26 +40,20 @@ def _heuristic_estimate_json(obj: Any) -> int:
         return 0
 
 
+@functools.lru_cache(maxsize=1)
 def _get_encoding() -> Any:
     """Get the default tiktoken encoding, caching to avoid repeated lookups.
 
     Returns:
         The tiktoken encoding, or None if tiktoken is not installed.
     """
-    global _cached_encoding, _tiktoken_available
-    if _tiktoken_available is False:
-        return None
-    if _cached_encoding is None:
-        try:
-            import tiktoken
+    try:
+        import tiktoken
 
-            _cached_encoding = tiktoken.get_encoding(_DEFAULT_ENCODING)
-            _tiktoken_available = True
-        except ImportError:
-            logger.debug("tiktoken not available, falling back to heuristic token estimation")
-            _tiktoken_available = False
-            return None
-    return _cached_encoding
+        return tiktoken.get_encoding(_DEFAULT_ENCODING)
+    except ImportError:
+        logger.debug("tiktoken not available, falling back to heuristic token estimation")
+        return None
 
 
 def _count_content_block_tokens(
