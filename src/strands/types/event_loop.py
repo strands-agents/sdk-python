@@ -38,6 +38,7 @@ class Metrics(TypedDict, total=False):
 
 StopReason = Literal[
     "cancelled",
+    "checkpoint",
     "content_filtered",
     "end_turn",
     "guardrail_intervened",
@@ -49,6 +50,7 @@ StopReason = Literal[
 """Reason for the model ending its response generation.
 
 - "cancelled": Agent execution was cancelled via agent.cancel()
+- "checkpoint": Agent paused for durable checkpoint persistence
 - "content_filtered": Content was filtered due to policy violation
 - "end_turn": Normal completion of the response
 - "guardrail_intervened": Guardrail system intervened
