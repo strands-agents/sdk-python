@@ -115,6 +115,7 @@ class SummarizingConversationManager(ConversationManager):
         self.proactive_threshold = max(0.1, min(1.0, proactive_threshold))
         self.token_counter: TokenCounter = token_counter or estimate_tokens
         self._summary_message: Message | None = None
+        self._last_summarized_msg_count: int | None = None
 
     def register_hooks(self, registry: "HookRegistry", **kwargs: Any) -> None:
         """Register hook callbacks for proactive token-budget management.
@@ -131,9 +132,9 @@ class SummarizingConversationManager(ConversationManager):
 
     def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
         """Check token budget before each model call and trigger proactive summarization if needed."""
-        # NOTE (M5): safe because register_hooks only registers this callback when
-        # max_context_tokens is not None — if that guard is removed, this will fail at runtime.
-        assert self.max_context_tokens is not None
+        if self.max_context_tokens is None:
+            return
+
         current_tokens = self._get_current_token_count(event.agent)
         threshold = int(self.max_context_tokens * self.proactive_threshold)
 
@@ -143,10 +144,7 @@ class SummarizingConversationManager(ConversationManager):
                 current_tokens,
                 threshold,
             )
-            try:
-                self.reduce_context(event.agent)
-            except Exception:
-                logger.warning("proactive summarization failed", exc_info=True)
+            self._do_proactive_summarization(event.agent)
 
     def _get_current_token_count(self, agent: "Agent") -> int:
         """Estimate the current token count using the configured heuristic.
@@ -176,22 +174,49 @@ class SummarizingConversationManager(ConversationManager):
         return {"summary_message": self._summary_message, **super().get_state()}
 
     def apply_management(self, agent: "Agent", **kwargs: Any) -> None:
-        """No-op for the summarizing manager.
+        """Apply token-budget management to the conversation history.
 
-        Proactive summarization is handled exclusively by the ``_on_before_model_call`` hook
-        to avoid double-summarization (the hook fires before model calls, and ``apply_management``
-        is called in the agent's finally block after each cycle). Reactive summarization is
-        triggered by ``ContextWindowOverflowException`` which calls ``reduce_context`` directly.
-
-        NOTE (M4): When ``max_context_tokens`` is not set, no hook is registered and this
-        method is a no-op — the only context reduction path is the
-        ``ContextWindowOverflowException`` retry in ``agent._execute_event_loop_cycle``.
-        Set ``max_context_tokens`` to enable proactive summarization.
+        When ``max_context_tokens`` is configured, checks the current token usage against the
+        proactive threshold and triggers summarization if exceeded. Skips if summarization
+        already ran this cycle (e.g., from the ``_on_before_model_call`` hook). Without
+        ``max_context_tokens``, this is a no-op — context reduction only happens reactively
+        via ``ContextWindowOverflowException``.
 
         Args:
             agent: The agent whose conversation history will be managed.
             **kwargs: Additional keyword arguments for future extensibility.
         """
+        if self.max_context_tokens is None:
+            return
+
+        current_tokens = self._get_current_token_count(agent)
+        threshold = int(self.max_context_tokens * self.proactive_threshold)
+
+        if current_tokens > threshold:
+            logger.debug(
+                "current_tokens=<%d>, threshold=<%d> | apply_management triggering summarization",
+                current_tokens,
+                threshold,
+            )
+            self._do_proactive_summarization(agent)
+
+    def _do_proactive_summarization(self, agent: "Agent") -> None:
+        """Run reduce_context with a guard against double-summarization in the same cycle.
+
+        The before-model-call hook and apply_management (called in the agent's finally block)
+        can both trigger summarization in the same agent cycle. This method skips the second
+        call if the message count hasn't changed since the last summarization.
+        """
+        msg_count = len(agent.messages)
+        if self._last_summarized_msg_count == msg_count:
+            logger.debug("skipping summarization — already summarized at message_count=<%d>", msg_count)
+            return
+
+        try:
+            self.reduce_context(agent)
+            self._last_summarized_msg_count = len(agent.messages)
+        except Exception:
+            logger.warning("proactive summarization failed", exc_info=True)
 
     def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Reduce context using summarization.

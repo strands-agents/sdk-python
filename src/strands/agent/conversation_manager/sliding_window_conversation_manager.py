@@ -10,7 +10,7 @@ from ...hooks import BeforeModelCallEvent, HookRegistry
 from ...types.content import ContentBlock, Messages
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import ToolResultContent
-from ._token_utils import TokenCounter, estimate_tokens
+from ._token_utils import IMAGE_CHAR_ESTIMATE, TokenCounter, estimate_tokens
 from .conversation_manager import ConversationManager
 
 logger = logging.getLogger(__name__)
@@ -113,45 +113,38 @@ class SlidingWindowConversationManager(ConversationManager):
     def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
         """Handle before model call event for per-turn management and token budget enforcement.
 
-        This callback is invoked before each model call. When ``max_context_tokens`` is set,
-        it checks the token budget and triggers ``apply_management`` (which includes
-        micro-compaction) if the budget is exceeded. It also tracks the model call count
-        and applies per-turn management when configured.
+        This callback is invoked before each model call. It applies management when either
+        the token budget is exceeded or per-turn management is due. A single
+        ``apply_management`` call handles both token budget and message count limits, so
+        at most one call is made per hook invocation.
 
         Args:
             event: The before model call event containing the agent and model execution details.
         """
-        # Token-budget check runs independently of per_turn.
-        # NOTE (H1): When both max_context_tokens and per_turn are set, this may call
-        # apply_management twice in one hook invocation. The second call is a safe no-op
-        # (limits already satisfied after the first reduction) but adds a redundant scan.
-        # If profiling shows this matters, add an early return after the apply_management below.
+        needs_apply = False
+
         if self.max_context_tokens is not None:
             current_tokens = self._get_current_token_count(event.agent)
             if current_tokens > self.max_context_tokens:
                 logger.debug(
-                    "current_tokens=<%d>, max_context_tokens=<%d> | token budget exceeded, reducing context",
+                    "current_tokens=<%d>, max_context_tokens=<%d> | token budget exceeded",
                     current_tokens,
                     self.max_context_tokens,
                 )
-                self.apply_management(event.agent)
+                needs_apply = True
 
-        # Check if per_turn is enabled
-        if self.per_turn is False:
-            return
+        if self.per_turn is not False:
+            self._model_call_count += 1
 
-        self._model_call_count += 1
+            if self.per_turn is True:
+                needs_apply = True
+            elif isinstance(self.per_turn, int) and self.per_turn > 0:
+                if self._model_call_count % self.per_turn == 0:
+                    needs_apply = True
 
-        # Determine if we should apply management
-        should_apply = False
-        if self.per_turn is True:
-            should_apply = True
-        elif isinstance(self.per_turn, int) and self.per_turn > 0:
-            should_apply = self._model_call_count % self.per_turn == 0
-
-        if should_apply:
+        if needs_apply:
             logger.debug(
-                "model_call_count=<%d>, per_turn=<%s> | applying per-turn conversation management",
+                "model_call_count=<%d>, per_turn=<%s> | applying conversation management",
                 self._model_call_count,
                 self.per_turn,
             )
@@ -186,8 +179,8 @@ class SlidingWindowConversationManager(ConversationManager):
         """Apply the sliding window to the agent's messages array to maintain a manageable history size.
 
         This method is called after every event loop cycle. It applies micro-compaction for stale tool
-        results (if configured), then checks both message count and token budget limits to decide
-        whether to reduce context.
+        results (if configured), then loops ``reduce_context`` until both message count and token budget
+        limits are satisfied (or no further reduction is possible).
 
         Args:
             agent: The agent whose messages will be managed.
@@ -200,17 +193,32 @@ class SlidingWindowConversationManager(ConversationManager):
         if self.compactable_after_messages is not None:
             self._micro_compact(messages)
 
-        over_message_limit = len(messages) > self.window_size
-        over_token_limit = (
-            self.max_context_tokens is not None and self._get_current_token_count(agent) > self.max_context_tokens
-        )
-
-        if not over_message_limit and not over_token_limit:
-            logger.debug(
-                "message_count=<%s>, window_size=<%s> | skipping context reduction", len(messages), self.window_size
+        # Bound by len(messages) — each iteration must remove at least one message or
+        # tool-result truncation, and the no-progress guard below catches stalls.
+        max_iterations = len(messages)
+        for _ in range(max_iterations):
+            over_message_limit = len(messages) > self.window_size
+            over_token_limit = (
+                self.max_context_tokens is not None and self._get_current_token_count(agent) > self.max_context_tokens
             )
-            return
-        self.reduce_context(agent)
+
+            if not over_message_limit and not over_token_limit:
+                logger.debug(
+                    "message_count=<%s>, window_size=<%s> | context within limits",
+                    len(messages),
+                    self.window_size,
+                )
+                return
+
+            prev_len = len(messages)
+            self.reduce_context(agent)
+            if len(messages) >= prev_len:
+                logger.warning(
+                    "message_count=<%s>, window_size=<%s> | reduce_context made no progress, stopping",
+                    len(messages),
+                    self.window_size,
+                )
+                return
 
     def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Trim the oldest messages to reduce the conversation context size.
@@ -338,6 +346,7 @@ class SlidingWindowConversationManager(ConversationManager):
 
         # NOTE (M2): reclaimed_chars may overcount if text was already truncated by
         # _truncate_tool_results — the return value is an estimate, not used for decisions.
+        stub_len = len(self._COMPACT_STUB)
         for i in range(self._last_compacted_index, max(0, cutoff)):
             msg = messages[i]
             for block in msg.get("content", []):
@@ -347,10 +356,10 @@ class SlidingWindowConversationManager(ConversationManager):
                 items = result.get("content", [])
                 for j, item in enumerate(items):
                     if "text" in item and item["text"] != self._COMPACT_STUB:
-                        reclaimed_chars += len(item["text"])
+                        reclaimed_chars += max(0, len(item["text"]) - stub_len)
                         items[j] = {"text": self._COMPACT_STUB}
                     elif "image" in item:
-                        reclaimed_chars += 200
+                        reclaimed_chars += IMAGE_CHAR_ESTIMATE
                         items[j] = {"text": self._COMPACT_STUB}
 
         if cutoff > 0:

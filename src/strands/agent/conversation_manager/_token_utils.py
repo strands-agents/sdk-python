@@ -6,7 +6,7 @@ from typing import Any
 
 from ...types.content import Messages
 
-_IMAGE_CHAR_ESTIMATE = 4000
+IMAGE_CHAR_ESTIMATE = 4000
 
 TokenCounter = Callable[[Messages], int]
 
@@ -42,7 +42,7 @@ def _estimate_block_chars(block: Any) -> int:
             if "text" in item:
                 chars += len(item["text"])
             elif "image" in item:
-                chars += _IMAGE_CHAR_ESTIMATE
+                chars += IMAGE_CHAR_ESTIMATE
         return chars
 
     if "toolUse" in block:
@@ -56,7 +56,7 @@ def _estimate_block_chars(block: Any) -> int:
         return chars
 
     if "image" in block:
-        return _IMAGE_CHAR_ESTIMATE
+        return IMAGE_CHAR_ESTIMATE
 
     # NOTE (M3): len(bytes) returns raw binary size, not extractable text length.
     # A 100KB PDF may contain only 5KB of text — this overestimates for binary
@@ -70,7 +70,7 @@ def _estimate_block_chars(block: Any) -> int:
     # NOTE (L1): Rough placeholder — actual video token cost varies enormously by
     # duration/resolution. Treat as an order-of-magnitude estimate.
     if "video" in block:
-        return _IMAGE_CHAR_ESTIMATE * 10
+        return IMAGE_CHAR_ESTIMATE * 10
 
     if "reasoningContent" in block:
         rc = block["reasoningContent"]

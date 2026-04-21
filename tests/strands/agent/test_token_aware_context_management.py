@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from strands.agent.agent import Agent
-from strands.agent.conversation_manager._token_utils import _IMAGE_CHAR_ESTIMATE, estimate_tokens
+from strands.agent.conversation_manager._token_utils import IMAGE_CHAR_ESTIMATE, estimate_tokens
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
 from strands.hooks.events import BeforeModelCallEvent
@@ -89,7 +89,7 @@ class TestEstimateTokens:
             }
         ]
         result = estimate_tokens(messages)
-        assert result == _IMAGE_CHAR_ESTIMATE // 4
+        assert result == IMAGE_CHAR_ESTIMATE // 4
 
     def test_standalone_image_block(self):
         messages: Messages = [
@@ -99,7 +99,7 @@ class TestEstimateTokens:
             }
         ]
         result = estimate_tokens(messages)
-        assert result == _IMAGE_CHAR_ESTIMATE // 4
+        assert result == IMAGE_CHAR_ESTIMATE // 4
 
     def test_document_block(self):
         messages: Messages = [
@@ -127,7 +127,7 @@ class TestEstimateTokens:
             }
         ]
         result = estimate_tokens(messages)
-        assert result == (_IMAGE_CHAR_ESTIMATE * 10) // 4
+        assert result == (IMAGE_CHAR_ESTIMATE * 10) // 4
 
     def test_cache_point_block_zero_tokens(self):
         messages: Messages = [
@@ -501,8 +501,34 @@ class TestMicroCompaction:
             {"role": "user", "content": [{"text": "Recent"}]},
         ]
         reclaimed = manager._micro_compact(messages)
-        assert reclaimed > 0
+        assert reclaimed == IMAGE_CHAR_ESTIMATE // 4
         assert messages[0]["content"][0]["toolResult"]["content"][0]["text"] == manager._COMPACT_STUB
+
+    def test_micro_compact_reclaimed_subtracts_stub_length(self):
+        manager = SlidingWindowConversationManager(
+            window_size=100,
+            compactable_after_messages=1,
+            should_truncate_results=False,
+        )
+        original_text = "A" * 200
+        messages: Messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": "1",
+                            "content": [{"text": original_text}],
+                            "status": "success",
+                        }
+                    }
+                ],
+            },
+            {"role": "user", "content": [{"text": "Recent"}]},
+        ]
+        reclaimed = manager._micro_compact(messages)
+        stub_len = len(manager._COMPACT_STUB)
+        assert reclaimed == (len(original_text) - stub_len) // 4
 
     def test_micro_compact_skips_already_processed_messages(self):
         """Issue #9: _last_compacted_index prevents re-scanning already compacted messages."""
@@ -515,14 +541,14 @@ class TestMicroCompaction:
             {
                 "role": "user",
                 "content": [
-                    {"toolResult": {"toolUseId": "1", "content": [{"text": "old data"}], "status": "success"}}
+                    {"toolResult": {"toolUseId": "1", "content": [{"text": "X" * 5000}], "status": "success"}}
                 ],
             },
             {"role": "user", "content": [{"text": "msg2"}]},
             {
                 "role": "user",
                 "content": [
-                    {"toolResult": {"toolUseId": "2", "content": [{"text": "newer data"}], "status": "success"}}
+                    {"toolResult": {"toolUseId": "2", "content": [{"text": "Y" * 5000}], "status": "success"}}
                 ],
             },
             {"role": "user", "content": [{"text": "msg4"}]},
@@ -538,7 +564,7 @@ class TestMicroCompaction:
             {
                 "role": "user",
                 "content": [
-                    {"toolResult": {"toolUseId": "3", "content": [{"text": "even newer"}], "status": "success"}}
+                    {"toolResult": {"toolUseId": "3", "content": [{"text": "Z" * 5000}], "status": "success"}}
                 ],
             }
         )
@@ -652,11 +678,12 @@ class TestSummarizingTokenBudget:
         manager = SummarizingConversationManager(max_context_tokens=1000, proactive_threshold=1.5)
         assert manager.proactive_threshold == 1.0
 
-    def test_apply_management_is_noop(self):
-        """Issue #6: apply_management is no-op to prevent double-summarization."""
+    def test_apply_management_triggers_when_over_budget(self):
+        """apply_management checks token budget and triggers summarization when exceeded."""
         manager = SummarizingConversationManager(
             max_context_tokens=100,
             proactive_threshold=0.5,
+            preserve_recent_messages=1,
         )
         mock_agent = create_mock_agent()
         mock_agent.messages = [
@@ -666,9 +693,9 @@ class TestSummarizingTokenBudget:
         mock_agent.event_loop_metrics = MagicMock()
         mock_agent.event_loop_metrics.latest_context_size = None
 
-        original = mock_agent.messages.copy()
-        manager.apply_management(mock_agent)
-        assert mock_agent.messages == original
+        with patch.object(manager, "reduce_context") as mock_reduce:
+            manager.apply_management(mock_agent)
+            mock_reduce.assert_called_once()
 
     def test_apply_management_noop_without_token_budget(self):
         manager = SummarizingConversationManager()
@@ -949,3 +976,257 @@ class TestIntegrationHookFlow:
         trimmed_count = original_len - len(messages)
         assert trimmed_count > 0
         assert manager._last_compacted_index == max(0, initial_index - trimmed_count)
+
+
+# ==============================================================================
+# Token budget convergence tests
+# ==============================================================================
+
+
+class TestTokenBudgetConvergence:
+    """Bug #1: apply_management must loop reduce_context until under token budget."""
+
+    def test_converges_when_under_window_size_but_over_token_budget(self):
+        """Messages under window_size but over max_context_tokens — must reduce repeatedly.
+
+        5 messages x 400 chars = 2000 chars / 4 = 500 tokens, budget = 100.
+        Each reduce_context trims 2 messages (default when under window_size).
+        After 1st: 3 msgs, 300 tokens. After 2nd: 1 msg, 100 tokens. Converges.
+        """
+        manager = SlidingWindowConversationManager(
+            window_size=100,
+            max_context_tokens=100,
+            should_truncate_results=False,
+        )
+        messages: Messages = [
+            {"role": "user", "content": [{"text": "A" * 400}]},
+            {"role": "assistant", "content": [{"text": "B" * 400}]},
+            {"role": "user", "content": [{"text": "C" * 400}]},
+            {"role": "assistant", "content": [{"text": "D" * 400}]},
+            {"role": "user", "content": [{"text": "E" * 400}]},
+        ]
+        agent = Agent(messages=messages)
+        manager.apply_management(agent)
+        current_tokens = manager.token_counter(agent.messages)
+        assert current_tokens <= 100
+        assert len(messages) < 5
+
+    def test_stops_when_no_progress(self):
+        """If reduce_context can't shrink further, apply_management should not loop forever."""
+        manager = SlidingWindowConversationManager(
+            window_size=100,
+            max_context_tokens=1,
+            should_truncate_results=False,
+        )
+        messages: Messages = [
+            {"role": "user", "content": [{"text": "A" * 400}]},
+        ]
+        agent = Agent(messages=messages)
+        manager.apply_management(agent)
+        assert len(messages) >= 1
+
+    def test_loop_terminates_when_reduce_makes_no_progress(self):
+        """apply_management stops looping when reduce_context can't shrink further.
+
+        Patches reduce_context to never actually remove messages, simulating a stuck state.
+        The loop must detect no-progress and break rather than spinning.
+        """
+        reduce_call_count = 0
+
+        def noop_reduce(agent, **kwargs):
+            nonlocal reduce_call_count
+            reduce_call_count += 1
+
+        manager = SlidingWindowConversationManager(
+            window_size=100,
+            max_context_tokens=1,
+            should_truncate_results=False,
+        )
+        messages: Messages = [
+            {"role": "user", "content": [{"text": "A" * 400}]},
+            {"role": "assistant", "content": [{"text": "B" * 400}]},
+            {"role": "user", "content": [{"text": "C" * 400}]},
+        ]
+        agent = Agent(messages=messages)
+
+        with patch.object(manager, "reduce_context", side_effect=noop_reduce):
+            manager.apply_management(agent)
+
+        assert reduce_call_count == 1
+
+
+# ==============================================================================
+# State round-trip tests
+# ==============================================================================
+
+
+class TestStateRoundTrip:
+    """Test gap #13: get_state / restore_from_session round-trip for new fields."""
+
+    def test_sliding_window_state_round_trip(self):
+        manager = SlidingWindowConversationManager(
+            window_size=40,
+            compactable_after_messages=5,
+            per_turn=3,
+        )
+        manager._model_call_count = 7
+        manager._last_compacted_index = 12
+        manager.removed_message_count = 3
+
+        state = manager.get_state()
+        assert state["model_call_count"] == 7
+        assert state["last_compacted_index"] == 12
+        assert state["removed_message_count"] == 3
+
+        new_manager = SlidingWindowConversationManager(
+            window_size=40,
+            compactable_after_messages=5,
+            per_turn=3,
+        )
+        new_manager.restore_from_session(state)
+
+        assert new_manager._model_call_count == 7
+        assert new_manager._last_compacted_index == 12
+        assert new_manager.removed_message_count == 3
+
+    def test_sliding_window_state_defaults_for_missing_keys(self):
+        """Backward compat: old session state without new keys should use defaults."""
+        manager = SlidingWindowConversationManager(window_size=40)
+        state = {
+            "__name__": "SlidingWindowConversationManager",
+            "removed_message_count": 5,
+        }
+        manager.restore_from_session(state)
+        assert manager._model_call_count == 0
+        assert manager._last_compacted_index == 0
+        assert manager.removed_message_count == 5
+
+
+# ==============================================================================
+# SummarizingConversationManager — apply_management contract tests
+# ==============================================================================
+
+
+class TestSummarizingApplyManagement:
+    """Design #5: apply_management should honor the token budget contract."""
+
+    def test_apply_management_triggers_summarization_when_over_budget(self):
+        manager = SummarizingConversationManager(
+            max_context_tokens=100,
+            proactive_threshold=0.5,
+            preserve_recent_messages=1,
+        )
+        mock_agent = create_mock_agent()
+        mock_agent.messages = [
+            {"role": "user", "content": [{"text": "A" * 10000}]},
+            {"role": "assistant", "content": [{"text": "B" * 10000}]},
+        ]
+
+        with patch.object(manager, "reduce_context") as mock_reduce:
+            manager.apply_management(mock_agent)
+            mock_reduce.assert_called_once()
+
+    def test_apply_management_noop_when_under_budget(self):
+        manager = SummarizingConversationManager(
+            max_context_tokens=100000,
+            proactive_threshold=0.8,
+        )
+        mock_agent = create_mock_agent()
+        mock_agent.messages = [
+            {"role": "user", "content": [{"text": "short"}]},
+        ]
+
+        with patch.object(manager, "reduce_context") as mock_reduce:
+            manager.apply_management(mock_agent)
+            mock_reduce.assert_not_called()
+
+    def test_apply_management_noop_without_max_context_tokens(self):
+        manager = SummarizingConversationManager()
+        mock_agent = create_mock_agent()
+        mock_agent.messages = [
+            {"role": "user", "content": [{"text": "A" * 10000}]},
+        ]
+
+        with patch.object(manager, "reduce_context") as mock_reduce:
+            manager.apply_management(mock_agent)
+            mock_reduce.assert_not_called()
+
+    def test_apply_management_catches_exceptions(self):
+        manager = SummarizingConversationManager(
+            max_context_tokens=10,
+            proactive_threshold=0.5,
+            preserve_recent_messages=1,
+        )
+        mock_agent = create_mock_agent()
+        mock_agent.messages = [
+            {"role": "user", "content": [{"text": "A" * 400}]},
+        ]
+
+        with patch.object(manager, "reduce_context", side_effect=RuntimeError("model timeout")):
+            manager.apply_management(mock_agent)
+
+    def test_no_double_summarization_in_same_cycle(self):
+        """Hook and apply_management in same cycle should not both call reduce_context."""
+        reduce_count = 0
+
+        def counting_reduce(agent, **kwargs):
+            nonlocal reduce_count
+            reduce_count += 1
+            # Simulate successful summarization by shrinking messages
+            agent.messages[:] = agent.messages[-1:]
+
+        manager = SummarizingConversationManager(
+            max_context_tokens=10,
+            proactive_threshold=0.5,
+            preserve_recent_messages=1,
+        )
+        registry = HookRegistry()
+        manager.register_hooks(registry)
+
+        mock_agent = MagicMock()
+        mock_agent.messages = [
+            {"role": "user", "content": [{"text": "A" * 400}]},
+            {"role": "assistant", "content": [{"text": "B" * 400}]},
+        ]
+        event = BeforeModelCallEvent(agent=mock_agent, invocation_state={})
+
+        with patch.object(manager, "reduce_context", side_effect=counting_reduce):
+            # Hook fires — triggers first summarization
+            registry.invoke_callbacks(event)
+            assert reduce_count == 1
+
+            # apply_management fires (as agent's finally block would) — should skip
+            manager.apply_management(mock_agent)
+            assert reduce_count == 1
+
+    def test_summarization_runs_again_after_new_messages(self):
+        """After new messages arrive, summarization should fire again."""
+        reduce_count = 0
+
+        def counting_reduce(agent, **kwargs):
+            nonlocal reduce_count
+            reduce_count += 1
+            agent.messages[:] = agent.messages[-1:]
+
+        manager = SummarizingConversationManager(
+            max_context_tokens=10,
+            proactive_threshold=0.5,
+            preserve_recent_messages=1,
+        )
+
+        mock_agent = MagicMock()
+        mock_agent.messages = [
+            {"role": "user", "content": [{"text": "A" * 400}]},
+            {"role": "assistant", "content": [{"text": "B" * 400}]},
+        ]
+
+        with patch.object(manager, "reduce_context", side_effect=counting_reduce):
+            manager.apply_management(mock_agent)
+            assert reduce_count == 1
+
+            # Simulate new messages arriving
+            mock_agent.messages.append({"role": "user", "content": [{"text": "C" * 400}]})
+            mock_agent.messages.append({"role": "assistant", "content": [{"text": "D" * 400}]})
+
+            manager.apply_management(mock_agent)
+            assert reduce_count == 2
