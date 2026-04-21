@@ -6,7 +6,7 @@ from .agent.base import AgentBase
 from .event_loop._retry import ModelRetryStrategy
 from .plugins import Plugin
 from .sandbox.base import ExecutionResult, FileInfo, OutputFile, Sandbox, StreamChunk, StreamType
-from .sandbox.local import LocalSandbox
+from .sandbox.host import HostSandbox
 from .sandbox.noop import NoOpSandbox
 from .sandbox.shell_based import ShellBasedSandbox
 from .tools.decorator import tool
@@ -21,7 +21,7 @@ __all__ = [
     "agent",
     "ExecutionResult",
     "FileInfo",
-    "LocalSandbox",
+    "HostSandbox",
     "models",
     "ModelRetryStrategy",
     "Plugin",

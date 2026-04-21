@@ -12,7 +12,7 @@ import asyncio
 import pytest
 
 from strands.sandbox.base import ExecutionResult
-from strands.sandbox.local import LocalSandbox
+from strands.sandbox.host import HostSandbox
 
 
 class TestSharedSandboxConcurrentExecution:
@@ -21,7 +21,7 @@ class TestSharedSandboxConcurrentExecution:
     @pytest.mark.asyncio
     async def test_concurrent_executes_same_sandbox(self, tmp_path):
         """Multiple concurrent execute() calls on same sandbox should not corrupt each other."""
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        sandbox = HostSandbox(working_dir=str(tmp_path))
 
         async def run_command(cmd: str) -> ExecutionResult:
             return await sandbox.execute(cmd)
@@ -48,7 +48,7 @@ class TestSharedSandboxConcurrentExecution:
     @pytest.mark.asyncio
     async def test_concurrent_file_write_same_file(self, tmp_path):
         """Two concurrent writes to the same file — last write wins, no crash."""
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        sandbox = HostSandbox(working_dir=str(tmp_path))
 
         async def write_content(content: bytes):
             await sandbox.write_file("shared.txt", content)
@@ -66,7 +66,7 @@ class TestSharedSandboxConcurrentExecution:
     @pytest.mark.asyncio
     async def test_concurrent_file_write_different_files(self, tmp_path):
         """Concurrent writes to different files should all succeed."""
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        sandbox = HostSandbox(working_dir=str(tmp_path))
 
         async def write_file(name: str, content: bytes):
             await sandbox.write_file(name, content)
@@ -81,7 +81,7 @@ class TestSharedSandboxConcurrentExecution:
     @pytest.mark.asyncio
     async def test_concurrent_read_write_same_file(self, tmp_path):
         """Concurrent read + write on same file — should not crash."""
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        sandbox = HostSandbox(working_dir=str(tmp_path))
         await sandbox.write_file("test.txt", b"initial")
 
         async def writer():
@@ -119,7 +119,7 @@ class TestSharedSandboxBetweenAgents:
         """Two agents sharing the same sandbox should reference the same object."""
         from strands import Agent
 
-        sandbox = LocalSandbox(working_dir="/tmp/shared")
+        sandbox = HostSandbox(working_dir="/tmp/shared")
         agent1 = Agent(sandbox=sandbox)
         agent2 = Agent(sandbox=sandbox)
         assert agent1.sandbox is agent2.sandbox
@@ -127,7 +127,7 @@ class TestSharedSandboxBetweenAgents:
     @pytest.mark.asyncio
     async def test_shared_sandbox_working_dir_isolation(self, tmp_path):
         """Commands from both agents should execute in the same working directory."""
-        sandbox = LocalSandbox(working_dir=str(tmp_path))
+        sandbox = HostSandbox(working_dir=str(tmp_path))
 
         # Agent 1 creates a file
         await sandbox.write_file("from_agent1.txt", b"hello from 1")

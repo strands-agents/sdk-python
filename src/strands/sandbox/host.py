@@ -1,6 +1,6 @@
-"""Local sandbox implementation for host-process execution.
+"""Host sandbox implementation for host-process execution.
 
-This module implements the LocalSandbox, which executes commands and code
+This module implements the HostSandbox, which executes commands and code
 on the local host using asyncio subprocesses and native Python filesystem
 operations. It extends Sandbox directly — all file and code operations
 use proper Python methods (pathlib, os, subprocess) instead of shell commands.
@@ -51,7 +51,7 @@ async def _read_stream(
         collected.append(chunk_bytes.decode())
 
 
-class LocalSandbox(Sandbox):
+class HostSandbox(Sandbox):
     """Execute code and commands on the local host using native Python methods.
 
     Uses asyncio subprocesses for command execution, ``subprocess_exec`` for
@@ -69,9 +69,9 @@ class LocalSandbox(Sandbox):
     Example:
         Non-streaming (common case)::
 
-            from strands.sandbox import LocalSandbox
+            from strands.sandbox import HostSandbox
 
-            sandbox = LocalSandbox(working_dir="/tmp/my-sandbox")
+            sandbox = HostSandbox(working_dir="/tmp/my-sandbox")
             result = await sandbox.execute("echo hello")
             print(result.stdout)
 
@@ -83,7 +83,7 @@ class LocalSandbox(Sandbox):
     """
 
     def __init__(self, working_dir: str | None = None) -> None:
-        """Initialize the LocalSandbox.
+        """Initialize the HostSandbox.
 
         Args:
             working_dir: The working directory for command execution.

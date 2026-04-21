@@ -143,9 +143,9 @@ class Sandbox(ABC):
     Example:
         Non-streaming (common case)::
 
-            from strands.sandbox import LocalSandbox
+            from strands.sandbox import HostSandbox
 
-            sandbox = LocalSandbox(working_dir="/tmp/my-sandbox")
+            sandbox = HostSandbox(working_dir="/tmp/my-sandbox")
             result = await sandbox.execute("echo hello")
             print(result.stdout)
 
@@ -249,7 +249,7 @@ class Sandbox(ABC):
         :meth:`write_text` for a convenience wrapper that encodes a string.
 
         Implementations should create parent directories if they do not exist.
-        :class:`~strands.sandbox.local.LocalSandbox` does this natively
+        :class:`~strands.sandbox.host.HostSandbox` does this natively
         via :func:`pathlib.Path.mkdir`. Shell-based implementations should
         include a ``mkdir -p`` before writing.
 

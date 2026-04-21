@@ -6,7 +6,7 @@ and code execution. Subclasses only need to implement ``execute_streaming()``.
 
 Use this for remote environments where only shell access is available
 (e.g., Docker containers, SSH connections). For local execution, use
-:class:`~strands.sandbox.local.LocalSandbox` which uses native
+:class:`~strands.sandbox.host.HostSandbox` which uses native
 Python methods instead.
 
 Class hierarchy::
@@ -37,7 +37,7 @@ class ShellBasedSandbox(Sandbox, ABC):
 
     This class is intended for remote execution environments where only
     shell access is available (e.g., Docker containers, SSH connections).
-    For local execution, use :class:`~strands.sandbox.local.LocalSandbox`
+    For local execution, use :class:`~strands.sandbox.host.HostSandbox`
     which uses native Python methods for better safety and reliability.
 
     Subclasses may override any method with a native implementation for
