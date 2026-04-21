@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
+from ..checkpoint import Checkpoint
 from ..interrupt import Interrupt
 from ..telemetry.metrics import EventLoopMetrics
 from ..types.content import Message
@@ -34,6 +35,7 @@ class AgentResult:
     state: Any
     interrupts: Sequence[Interrupt] | None = None
     structured_output: BaseModel | None = None
+    checkpoint: Checkpoint | None = None
 
     @property
     def context_size(self) -> int | None:

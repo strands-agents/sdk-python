@@ -3,6 +3,7 @@
 from . import agent, models, telemetry, types
 from .agent.agent import Agent
 from .agent.base import AgentBase
+from .checkpoint import Checkpoint
 from .event_loop._retry import ModelRetryStrategy
 from .plugins import Plugin
 from .tools.decorator import tool
@@ -15,6 +16,7 @@ __all__ = [
     "AgentBase",
     "AgentSkills",
     "agent",
+    "Checkpoint",
     "models",
     "ModelRetryStrategy",
     "Plugin",

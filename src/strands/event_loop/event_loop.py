@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace as trace_api
 
+from ..checkpoint import Checkpoint
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
@@ -122,6 +123,13 @@ async def event_loop_cycle(
     # Initialize state and get cycle trace
     if "request_state" not in invocation_state:
         invocation_state["request_state"] = {}
+
+    # Prime cycle_index from resumed checkpoint (Bug 3 fix: survives cross-process resume)
+    if "_checkpoint_cycle_index" not in invocation_state:
+        resumed_idx = getattr(agent, "_checkpoint_resumed_cycle_index", None)
+        if resumed_idx is not None:
+            invocation_state["_checkpoint_cycle_index"] = resumed_idx
+            agent._checkpoint_resumed_cycle_index = None
     attributes = {"event_loop_cycle_id": str(invocation_state.get("event_loop_cycle_id"))}
     cycle_start_time, cycle_trace = agent.event_loop_metrics.start_cycle(attributes=attributes)
     invocation_state["event_loop_cycle_trace"] = cycle_trace
@@ -181,6 +189,33 @@ async def event_loop_cycle(
                 )
 
             if stop_reason == "tool_use":
+                # Checkpoint after model call, before tool execution
+                if getattr(agent, "_checkpointing", False) is True:
+                    # Consume resume position (one-shot: cleared after reading)
+                    resume_pos = getattr(agent, "_checkpoint_resume_position", None)
+                    if resume_pos is not None:
+                        agent._checkpoint_resume_position = None
+                    if resume_pos == "after_model":
+                        pass  # Skip checkpoint — we just resumed here
+                    else:
+                        cycle_index = invocation_state.get("_checkpoint_cycle_index", 0)
+                        checkpoint = Checkpoint(
+                            position="after_model",
+                            cycle_index=cycle_index,
+                            snapshot=agent.take_snapshot(preset="session").to_dict(),
+                        )
+                        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+                        if cycle_span:
+                            tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
+                        yield EventLoopStopEvent(
+                            "checkpoint",
+                            message,
+                            agent.event_loop_metrics,
+                            invocation_state["request_state"],
+                            checkpoint=checkpoint,
+                        )
+                        return
+
                 # Handle tool execution
                 tool_events = _handle_tool_execution(
                     stop_reason,
@@ -587,6 +622,24 @@ async def _handle_tool_execution(
             agent.event_loop_metrics,
             invocation_state["request_state"],
             structured_output=structured_output_result,
+        )
+        return
+
+    # Checkpoint after all tools complete, before next model call
+    if getattr(agent, "_checkpointing", False) is True:
+        cycle_index = invocation_state.get("_checkpoint_cycle_index", 0)
+        invocation_state["_checkpoint_cycle_index"] = cycle_index + 1
+        checkpoint = Checkpoint(
+            position="after_tools",
+            cycle_index=cycle_index,
+            snapshot=agent.take_snapshot(preset="session").to_dict(),
+        )
+        yield EventLoopStopEvent(
+            "checkpoint",
+            message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+            checkpoint=checkpoint,
         )
         return
 

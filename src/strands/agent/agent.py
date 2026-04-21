@@ -146,6 +146,7 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
+        checkpointing: bool = False,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -214,6 +215,9 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
+            checkpointing: When True, the event loop pauses at cycle boundaries (after model call,
+                after tool execution) and returns a checkpoint that can be persisted and resumed later.
+                Defaults to False.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -303,6 +307,11 @@ class Agent(AgentBase):
         self._plugin_registry = _PluginRegistry(self)
 
         self._interrupt_state = _InterruptState()
+
+        # Checkpointing: when True, event loop pauses at cycle boundaries
+        self._checkpointing = checkpointing
+        self._checkpoint_resume_position: str | None = None
+        self._checkpoint_resumed_cycle_index: int | None = None
 
         # Runtime state for model providers (e.g., server-side response ids)
         self._model_state: dict[str, Any] = {}
@@ -997,6 +1006,44 @@ class Agent(AgentBase):
     async def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         if self._interrupt_state.activated:
             return []
+
+        # Detect checkpointResume blocks early — validate before processing
+        if isinstance(prompt, list) and prompt:
+            has_checkpoint_resume = any(isinstance(c, dict) and "checkpointResume" in c for c in prompt)
+            if has_checkpoint_resume:
+                if not self._checkpointing:
+                    raise ValueError(
+                        "Received checkpointResume block but agent was created with checkpointing=False. "
+                        "Pass checkpointing=True when constructing the Agent to enable durable execution."
+                    )
+                # Reject mixed content (mirror interrupt validation)
+                invalid = [k for c in prompt if isinstance(c, dict) for k in c if k != "checkpointResume"]
+                if invalid:
+                    raise TypeError(
+                        f"content_types={invalid} | "
+                        f"checkpointResume cannot be mixed with other content types"
+                    )
+                if len(prompt) != 1:
+                    raise TypeError("Only one checkpointResume block permitted per prompt")
+
+                from ..checkpoint import Checkpoint
+                from ..types._snapshot import Snapshot
+
+                resume_block = prompt[0].get("checkpointResume", {})
+                if "checkpoint" not in resume_block:
+                    raise ValueError(
+                        "checkpointResume block must contain a 'checkpoint' key with serialized checkpoint data."
+                    )
+                checkpoint_data = resume_block["checkpoint"]
+                checkpoint = Checkpoint.from_dict(checkpoint_data)
+                self.load_snapshot(Snapshot.from_dict(checkpoint.snapshot))
+                self._checkpoint_resume_position = checkpoint.position
+                # after_tools completed that cycle, so next cycle is +1
+                if checkpoint.position == "after_tools":
+                    self._checkpoint_resumed_cycle_index = checkpoint.cycle_index + 1
+                else:
+                    self._checkpoint_resumed_cycle_index = checkpoint.cycle_index
+                return []
 
         messages: Messages | None = None
         if prompt is not None:
