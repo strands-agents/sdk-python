@@ -146,6 +146,8 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
+        max_turns: int | None = None,
+        max_token_budget: int | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -214,6 +216,10 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
+            max_turns: Maximum number of event-loop cycles per invocation. Raises MaxTurnsReachedException
+                when exceeded. Must be a positive integer or None (no limit). Defaults to None.
+            max_token_budget: Maximum cumulative tokens per invocation. Raises MaxTokenBudgetReachedException
+                when exceeded. Must be a positive integer or None (no limit). Defaults to None.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -312,6 +318,16 @@ class Agent(AgentBase):
         # separate event loops in different threads, so asyncio.Lock wouldn't work
         self._invocation_lock = threading.Lock()
         self._concurrent_invocation_mode = concurrent_invocation_mode
+
+        if max_turns is not None and max_turns < 1:
+            raise ValueError("max_turns must be a positive integer")
+        if max_token_budget is not None and max_token_budget < 1:
+            raise ValueError("max_token_budget must be a positive integer")
+
+        self.max_turns = max_turns
+        self.max_token_budget = max_token_budget
+        self._invocation_turn_count: int = 0
+        self._invocation_token_count: int = 0
 
         # In the future, we'll have a RetryStrategy base class but until
         # that API is determined we only allow ModelRetryStrategy
@@ -819,6 +835,8 @@ class Agent(AgentBase):
             self._interrupt_state.resume(prompt)
 
             self.event_loop_metrics.reset_usage_metrics()
+            self._invocation_turn_count = 0
+            self._invocation_token_count = 0
 
             merged_state = {}
             if kwargs:

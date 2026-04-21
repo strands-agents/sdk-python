@@ -36,7 +36,9 @@ from ..types.content import Message, Messages
 from ..types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
+    MaxTokenBudgetReachedException,
     MaxTokensReachedException,
+    MaxTurnsReachedException,
     StructuredOutputException,
 )
 from ..types.streaming import StopReason
@@ -141,6 +143,14 @@ async def event_loop_cycle(
 
     with trace_api.use_span(cycle_span, end_on_exit=False):
         try:
+            if agent.max_turns is not None and agent._invocation_turn_count >= agent.max_turns:
+                raise MaxTurnsReachedException(
+                    f"Agent has reached the max_turns limit of {agent.max_turns}."
+                )
+            if agent.max_token_budget is not None and agent._invocation_token_count >= agent.max_token_budget:
+                raise MaxTokenBudgetReachedException(
+                    f"Agent has reached the max_token_budget limit of {agent.max_token_budget} tokens."
+                )
             # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
             if agent._interrupt_state.activated:
                 stop_reason: StopReason = "tool_use"
@@ -158,6 +168,10 @@ async def event_loop_cycle(
                         yield model_event
 
                 stop_reason, message, *_ = model_event["stop"]
+                agent._invocation_turn_count += 1
+                agent._invocation_token_count += (
+                    message.get("metadata", {}).get("usage", {}).get("totalTokens", 0)
+                )
                 yield ModelMessageEvent(message=message)
         except Exception as e:
             tracer.end_span_with_error(cycle_span, str(e), e)
@@ -224,6 +238,8 @@ async def event_loop_cycle(
             tracer.end_event_loop_cycle_span(cycle_span, message)
             yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
         except (
+            MaxTurnsReachedException,
+            MaxTokenBudgetReachedException,
             StructuredOutputException,
             EventLoopException,
             ContextWindowOverflowException,
