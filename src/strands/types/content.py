@@ -8,7 +8,7 @@ SDK. These types are modeled after the Bedrock API.
 
 from typing import Any, Literal
 
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import NotRequired, Required, TypedDict
 
 from .citations import CitationsContentBlock
 from .event_loop import Metrics, Usage
@@ -62,14 +62,17 @@ class ReasoningContentBlock(TypedDict, total=False):
     redactedContent: bytes
 
 
-class CachePoint(TypedDict):
+class CachePoint(TypedDict, total=False):
     """A cache point configuration for optimizing conversation history.
 
     Attributes:
         type: The type of cache point, typically "default".
+        ttl: Optional cache TTL duration (e.g. "5m", "1h"). Supported by providers
+            that accept Anthropic-compatible cache_control fields.
     """
 
-    type: str
+    type: Required[str]
+    ttl: str
 
 
 class ContentBlock(TypedDict, total=False):

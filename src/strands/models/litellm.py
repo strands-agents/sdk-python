@@ -220,7 +220,7 @@ class LiteLLMModel(OpenAIModel):
         for block in system_prompt_content or []:
             if "text" in block:
                 system_content.append({"type": "text", "text": block["text"]})
-            elif "cachePoint" in block and block["cachePoint"].get("type") == "default":
+            elif "cachePoint" in block and block["cachePoint"]["type"] == "default":
                 # Apply cache control to the immediately preceding content block
                 # for LiteLLM/Anthropic compatibility
                 if system_content:
