@@ -192,9 +192,24 @@ class SlidingWindowConversationManager(ConversationManager):
         # 1. Starts with a user message (required by most model providers)
         # 2. Does not start with an orphaned toolResult
         # 3. Does not start with a toolUse unless its toolResult immediately follows
+        # Falls back to an assistant(toolUse) + user(toolResult) boundary if no plain user message exists.
+        # This is acceptable because providers treat a complete toolUse/toolResult pair as a valid
+        # conversation continuation, and without this fallback tool-heavy conversations cannot be trimmed.
+        fallback_trim_index = None
+
         while trim_index < len(messages):
-            # Must start with a user message
+            # Prefer starting with a user message
             if messages[trim_index]["role"] != "user":
+                # Track first valid assistant(toolUse) + user(toolResult) pair as fallback
+                if (
+                    fallback_trim_index is None
+                    and any("toolUse" in content for content in messages[trim_index]["content"])
+                    and trim_index + 1 < len(messages)
+                    and messages[trim_index + 1]["role"] == "user"
+                    and any("toolResult" in content for content in messages[trim_index + 1]["content"])
+                ):
+                    fallback_trim_index = trim_index
+
                 trim_index += 1
                 continue
 
@@ -216,15 +231,24 @@ class SlidingWindowConversationManager(ConversationManager):
             else:
                 break
         else:
-            # If we didn't find a valid trim_index
-            if e is not None:
+            # No plain user message found — use assistant+toolResult fallback if available
+            if fallback_trim_index is not None:
+                logger.debug(
+                    "trim_index=<%s> | no plain user message trim point found, "
+                    "falling back to assistant(toolUse) + user(toolResult) boundary",
+                    fallback_trim_index,
+                )
+                trim_index = fallback_trim_index
+            elif e is not None:
                 raise ContextWindowOverflowException("Unable to trim conversation context!") from e
-            logger.warning(
-                "window_size=<%s>, message_count=<%s> | unable to trim conversation context, no valid trim point found",
-                self.window_size,
-                len(messages),
-            )
-            return
+            else:
+                logger.warning(
+                    "window_size=<%s>, message_count=<%s> | unable to trim conversation context, "
+                    "no valid trim point found",
+                    self.window_size,
+                    len(messages),
+                )
+                return
 
         # trim_index represents the number of messages being removed from the agents messages array
         self.removed_message_count += trim_index

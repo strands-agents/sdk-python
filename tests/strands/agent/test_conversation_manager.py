@@ -230,6 +230,64 @@ def test_sliding_window_no_valid_trim_point_without_error_does_not_raise():
     assert messages == original_messages
 
 
+def test_sliding_window_tool_heavy_conversation_falls_back_to_tool_pair_boundary():
+    """Tool-heavy conversations trim to assistant(toolUse) + user(toolResult) boundary."""
+    manager = SlidingWindowConversationManager(window_size=4, should_truncate_results=False)
+    messages = [
+        {"role": "user", "content": [{"text": "Review this PR"}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "1", "name": "get_diff", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "1", "content": [{"text": "diff"}], "status": "success"}}],
+        },
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "2", "name": "get_file", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "2", "content": [{"text": "file"}], "status": "success"}}],
+        },
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "3", "name": "get_tree", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "3", "content": [{"text": "tree"}], "status": "success"}}],
+        },
+        {"role": "assistant", "content": [{"text": "Here is my review"}]},
+    ]
+    test_agent = Agent(messages=messages)
+
+    manager.reduce_context(test_agent, e=Exception("context window overflow"))
+
+    # Should trim to first assistant(toolUse) + user(toolResult) pair after trim_index
+    # With 8 messages and window_size=4, trim_index starts at 4. First fallback at index 5 (toolUseId "3").
+    assert len(messages) == 3
+    assert messages[0]["role"] == "assistant"
+    assert messages[0]["content"][0]["toolUse"]["toolUseId"] == "3"
+    assert messages[1]["role"] == "user"
+    assert any("toolResult" in content for content in messages[1]["content"])
+
+
+def test_sliding_window_prefers_plain_user_message_over_tool_pair_fallback():
+    """Plain user messages are preferred over assistant+toolResult fallback when both exist."""
+    manager = SlidingWindowConversationManager(window_size=2, should_truncate_results=False)
+    messages = [
+        {"role": "user", "content": [{"text": "First"}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "1", "name": "tool1", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "1", "content": [{"text": "result"}], "status": "success"}}],
+        },
+        {"role": "assistant", "content": [{"text": "Response"}]},
+        {"role": "user", "content": [{"text": "Plain user message"}]},
+        {"role": "assistant", "content": [{"text": "Final response"}]},
+    ]
+    test_agent = Agent(messages=messages)
+
+    manager.apply_management(test_agent)
+
+    # Should prefer the plain user message, not the assistant+toolResult fallback
+    assert messages[0]["role"] == "user"
+    assert messages[0]["content"] == [{"text": "Plain user message"}]
+
+
 def test_sliding_window_conversation_manager_with_tool_results_truncated():
     large_text = "A" * 300 + "B" * 300 + "C" * 300
     manager = SlidingWindowConversationManager(1)
