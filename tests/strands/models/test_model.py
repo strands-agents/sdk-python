@@ -496,3 +496,55 @@ def test_get_encoding_falls_back_without_tiktoken(monkeypatch):
         messages=[{"role": "user", "content": [{"text": "hello world!"}]}],
     )
     assert result == 3  # ceil(12 / 4)
+
+
+class TestHeuristicEstimation:
+    """Tests for _estimate_tokens_with_heuristic."""
+
+    def test_all_content_types(self):
+        """One call covering text, toolUse, toolResult, reasoning, guard, citations, system prompt, tool specs."""
+        from strands.models.model import _estimate_tokens_with_heuristic
+
+        messages = [
+            {"role": "user", "content": [{"text": "hello world!"}]},
+            {"role": "assistant", "content": [
+                {"toolUse": {"toolUseId": "1", "name": "my_tool", "input": {"q": "test"}}},
+                {"reasoningContent": {"reasoningText": {"text": "Let me think."}}},
+                {"guardContent": {"text": {"text": "Filtered."}}},
+                {"citationsContent": {"content": [{"text": "Citation."}]}},
+            ]},
+            {"role": "user", "content": [
+                {"toolResult": {"toolUseId": "1", "content": [{"text": "tool output here"}]}},
+            ]},
+        ]
+        result = _estimate_tokens_with_heuristic(
+            messages=messages,
+            tool_specs=[{"name": "test", "description": "a tool"}],
+            system_prompt="ignored",
+            system_prompt_content=[{"text": "Be helpful."}],
+        )
+        assert result > 0
+
+    def test_non_serializable_inputs(self):
+        """Heuristic gracefully handles non-serializable tool input and tool specs."""
+        from strands.models.model import _estimate_tokens_with_heuristic
+
+        result = _estimate_tokens_with_heuristic(
+            messages=[
+                {"role": "assistant", "content": [
+                    {"toolUse": {"toolUseId": "1", "name": "my_tool", "input": {"data": b"bytes"}}},
+                ]},
+            ],
+            tool_specs=[{"name": "t", "inputSchema": {"json": {"default": b"bytes"}}}],
+        )
+        assert result == 2  # only tool name counted: ceil(len("my_tool") / 4)
+
+    def test_model_falls_back_to_heuristic(self, monkeypatch, model):
+        """Model._estimate_tokens falls back to heuristic when tiktoken unavailable."""
+        import strands.models.model as model_module
+
+        monkeypatch.setattr(model_module, "_cached_encoding", None)
+        monkeypatch.setattr(model_module, "_tiktoken_available", False)
+
+        result = model._estimate_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
+        assert result == 3  # ceil(12 / 4)
