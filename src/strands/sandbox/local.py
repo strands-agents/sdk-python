@@ -16,7 +16,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
-from .base import ExecutionResult, FileInfo, Sandbox, StreamChunk, StreamType
+from .base import ExecutionResult, FileInfo, Sandbox, StreamChunk
 
 logger = logging.getLogger(__name__)
 
@@ -264,9 +264,9 @@ class LocalSandbox(Sandbox):
         stderr_text = "".join(stderr_chunks)
 
         for chunk in stdout_chunks:
-            yield StreamChunk(data=chunk, stream_type=StreamType.STDOUT)
+            yield StreamChunk(data=chunk, stream_type="stdout")
         for chunk in stderr_chunks:
-            yield StreamChunk(data=chunk, stream_type=StreamType.STDERR)
+            yield StreamChunk(data=chunk, stream_type="stderr")
 
         yield ExecutionResult(
             exit_code=0 if proc.returncode is None else proc.returncode,

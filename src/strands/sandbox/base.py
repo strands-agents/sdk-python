@@ -25,21 +25,20 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
 
-class StreamType(Enum):
-    """Type of a streaming output chunk.
+StreamType = Literal["stdout", "stderr"]
+"""Type of a streaming output chunk.
 
-    Used by :class:`StreamChunk` to distinguish stdout from stderr output
-    during streaming execution.
-    """
+Used by :class:`StreamChunk` to distinguish stdout from stderr output
+during streaming execution.
 
-    STDOUT = "stdout"
-    STDERR = "stderr"
+- ``"stdout"``: Standard output from the command or code.
+- ``"stderr"``: Standard error from the command or code.
+"""
 
 
 @dataclass
@@ -55,7 +54,7 @@ class StreamChunk:
     """
 
     data: str
-    stream_type: StreamType = StreamType.STDOUT
+    stream_type: StreamType = "stdout"
 
 
 @dataclass
@@ -154,7 +153,7 @@ class Sandbox(ABC):
 
             async for chunk in sandbox.execute_streaming("echo hello"):
                 if isinstance(chunk, StreamChunk):
-                    if chunk.stream_type == StreamType.STDOUT:
+                    if chunk.stream_type == "stdout":
                         print(f"[stdout] {chunk.data}", end="")
                     else:
                         print(f"[stderr] {chunk.data}", end="")
