@@ -978,6 +978,16 @@ def test_format_system_messages_cache_point_without_ttl():
     assert "ttl" not in result[0]["content"][0]["cache_control"]
 
 
+def test_format_system_messages_cache_point_with_no_preceding_content():
+    """CachePoint with no preceding text block should be silently ignored."""
+    result = LiteLLMModel._format_system_messages(
+        system_prompt_content=[
+            {"cachePoint": {"type": "default", "ttl": "1h"}},
+        ]
+    )
+    assert result == []
+
+
 def test_thought_signature_round_trip():
     """Test that thought signature is preserved through a full response -> internal -> request cycle."""
     model = LiteLLMModel(model_id="test")
