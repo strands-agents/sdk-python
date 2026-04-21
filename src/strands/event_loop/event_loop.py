@@ -125,12 +125,12 @@ async def event_loop_cycle(
         invocation_state["request_state"] = {}
 
     # Consume checkpoint resume context (one-shot: cleared after reading)
-    resume_ctx = getattr(agent, "_checkpoint_resume_context", None)
+    resume_ctx = agent._checkpoint_resume_context
     if resume_ctx is not None:
         agent._checkpoint_resume_context = None
         # after_tools completed that cycle, so next cycle starts at +1
         next_cycle = resume_ctx.cycle_index + 1 if resume_ctx.position == "after_tools" else resume_ctx.cycle_index
-        invocation_state.setdefault("_checkpoint_cycle_index", next_cycle)
+        invocation_state["_checkpoint_cycle_index"] = next_cycle
         invocation_state["_checkpoint_resume_position"] = resume_ctx.position
     attributes = {"event_loop_cycle_id": str(invocation_state.get("event_loop_cycle_id"))}
     cycle_start_time, cycle_trace = agent.event_loop_metrics.start_cycle(attributes=attributes)
