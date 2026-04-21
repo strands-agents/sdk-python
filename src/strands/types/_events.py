@@ -22,6 +22,7 @@ from .tools import ToolResult, ToolUse
 if TYPE_CHECKING:
     from ..agent import AgentResult
     from ..agent._agent_as_tool import _AgentAsTool
+    from ..hooks.registry import BaseHookEvent
     from ..multiagent.base import MultiAgentResult, NodeResult
 
 
@@ -373,11 +374,25 @@ class ToolCancelEvent(TypedEvent):
 
 
 class ToolInterruptEvent(TypedEvent):
-    """Event emitted when a tool is interrupted."""
+    """Event emitted when a tool is interrupted.
 
-    def __init__(self, tool_use: ToolUse, interrupts: list[Interrupt]) -> None:
+    Attributes:
+        source_event: The hook event that raised the interrupt, if available. For interrupts
+            raised from AfterToolCallEvent, this preserves the original event so the after-hook
+            can be replayed on resume without re-executing the tool.
+    """
+
+    def __init__(
+        self, tool_use: ToolUse, interrupts: list[Interrupt], source_event: "BaseHookEvent | None" = None
+    ) -> None:
         """Set interrupt in the event payload."""
         super().__init__({"tool_interrupt_event": {"tool_use": tool_use, "interrupts": interrupts}})
+        self._source_event = source_event
+
+    @property
+    def source_event(self) -> "BaseHookEvent | None":
+        """The hook event that raised the interrupt."""
+        return self._source_event
 
     @property
     def tool_use_id(self) -> str:

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace as trace_api
 
-from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
+from ..hooks import AfterModelCallEvent, AfterToolCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -476,14 +476,47 @@ async def _handle_tool_execution(
     validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
 
+    interrupts = []
+
     if agent._interrupt_state.activated:
         tool_results.extend(agent._interrupt_state.context["tool_results"])
+
+        # Replay after-tool-call hooks for tools that were interrupted after execution.
+        # The tool result is already preserved in tool_results; we re-fire the hook so
+        # the callback receives the human response via event.interrupt() return value.
+        after_tool_snapshots: list[dict[str, Any]] = agent._interrupt_state.context.get("after_tool_events", [])
+        for snapshot in after_tool_snapshots:
+            tool_name = snapshot["tool_use"]["name"]
+            tool_func = agent.tool_registry.dynamic_tools.get(tool_name) or agent.tool_registry.registry.get(tool_name)
+            original_exception = Exception(snapshot["exception"]) if snapshot.get("exception") else None
+            original_event = AfterToolCallEvent(
+                agent=agent,
+                selected_tool=tool_func,
+                tool_use=snapshot["tool_use"],
+                invocation_state=invocation_state,
+                result=snapshot["result"],
+                exception=original_exception,
+                cancel_message=snapshot.get("cancel_message"),
+            )
+            replayed, new_interrupts = await agent.hooks.invoke_callbacks_async(original_event)
+            if new_interrupts:
+                interrupts.extend(new_interrupts)
+                continue
+            tool_use_id = original_event.tool_use["toolUseId"]
+            if getattr(replayed, "retry", False):
+                # Hook wants to re-execute the tool — remove preserved result and re-queue
+                tool_results[:] = [tr for tr in tool_results if tr["toolUseId"] != tool_use_id]
+                tool_uses.append(original_event.tool_use)
+            else:
+                # Update result in case the hook modified it
+                for i, tr in enumerate(tool_results):
+                    if tr["toolUseId"] == tool_use_id:
+                        tool_results[i] = replayed.result
+                        break
 
         # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
         tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
         tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
-
-    interrupts = []
 
     # Check for cancellation before tool execution
     # Add tool_result for each tool_use to maintain valid conversation state
@@ -528,9 +561,20 @@ async def _handle_tool_execution(
     tool_events = agent.tool_executor._execute(
         agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
     )
+    after_tool_interrupt_events: list[dict[str, Any]] = []
     async for tool_event in tool_events:
         if isinstance(tool_event, ToolInterruptEvent):
             interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
+            if isinstance(tool_event.source_event, AfterToolCallEvent):
+                evt = tool_event.source_event
+                after_tool_interrupt_events.append(
+                    {
+                        "tool_use": evt.tool_use,
+                        "result": evt.result,
+                        "cancel_message": evt.cancel_message,
+                        "exception": str(evt.exception) if evt.exception else None,
+                    }
+                )
 
         yield tool_event
 
@@ -544,7 +588,11 @@ async def _handle_tool_execution(
 
     if interrupts:
         # Session state stored on AfterInvocationEvent.
-        agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+        agent._interrupt_state.context = {
+            "tool_use_message": message,
+            "tool_results": tool_results,
+            "after_tool_events": after_tool_interrupt_events,
+        }
         agent._interrupt_state.activate()
 
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
