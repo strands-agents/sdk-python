@@ -918,12 +918,20 @@ class Agent(AgentBase):
                         and event.chunk.get("redactContent")
                         and event.chunk["redactContent"].get("redactUserContentMessage")
                     ):
-                        self.messages[-1]["content"] = self._redact_user_content(
-                            self.messages[-1]["content"],
-                            str(event.chunk["redactContent"]["redactUserContentMessage"]),
+                        # Find the last user message — not necessarily messages[-1],
+                        # because session managers (e.g. AgentCoreMemorySessionManager)
+                        # may append non-user messages (LTM context) after the user turn.
+                        last_user_msg = next(
+                            (m for m in reversed(self.messages) if m["role"] == "user"),
+                            None,
                         )
-                        if self._session_manager:
-                            self._session_manager.redact_latest_message(self.messages[-1], self)
+                        if last_user_msg is not None:
+                            last_user_msg["content"] = self._redact_user_content(
+                                last_user_msg["content"],
+                                str(event.chunk["redactContent"]["redactUserContentMessage"]),
+                            )
+                            if self._session_manager:
+                                self._session_manager.redact_latest_message(last_user_msg, self)
                     yield event
 
                 # Capture the result from the final event if available
