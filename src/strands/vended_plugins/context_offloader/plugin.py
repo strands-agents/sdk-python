@@ -141,7 +141,7 @@ class ContextOffloader(Plugin):
         super().__init__()
 
     @tool(context=True)
-    def retrieve_offloaded_content(  # noqa: D417
+    def retrieve_offloaded_content(
         self,
         reference: str,
         tool_context: ToolContext,
@@ -156,6 +156,7 @@ class ContextOffloader(Plugin):
 
         Args:
             reference: The reference string from the offload placeholder.
+            tool_context: Injected by the framework. Not user-facing.
             offset: Byte offset to start reading from (default: 0).
             limit: Maximum bytes to return (default: 10000).
         """

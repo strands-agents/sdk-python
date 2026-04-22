@@ -25,6 +25,7 @@ Example:
     ```
 """
 
+import json as json_module
 import re
 import threading
 import time
@@ -122,11 +123,14 @@ class FileStorage:
     """Store offloaded content as files on disk.
 
     Files are written to the configured artifact directory with unique names.
-    File extensions are derived from the content type.
+    File extensions are derived from the content type. A ``.metadata.json``
+    sidecar file tracks content types so they survive process restarts.
 
     Args:
         artifact_dir: Directory path where artifact files will be stored.
     """
+
+    _METADATA_FILE = ".metadata.json"
 
     def __init__(self, artifact_dir: str = "./artifacts") -> None:
         """Initialize file-based storage.
@@ -137,7 +141,7 @@ class FileStorage:
         self._artifact_dir = Path(artifact_dir)
         self._counter: int = 0
         self._lock = threading.Lock()
-        self._content_types: dict[str, str] = {}
+        self._content_types: dict[str, str] = self._load_metadata()
 
     def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content as a file and return the filename as reference.
@@ -160,6 +164,7 @@ class FileStorage:
             counter = self._counter
             filename = f"{timestamp_ms}_{counter}_{sanitized_key}{ext}"
             self._content_types[filename] = content_type
+            self._save_metadata()
 
         file_path = self._artifact_dir / filename
         file_path.write_bytes(content)
@@ -185,6 +190,21 @@ class FileStorage:
             raise KeyError(f"Reference not found: {reference}")
         content_type = self._content_types.get(reference, "application/octet-stream")
         return file_path.read_bytes(), content_type
+
+    def _load_metadata(self) -> dict[str, str]:
+        """Load content type metadata from the sidecar file."""
+        metadata_path = self._artifact_dir / self._METADATA_FILE
+        if metadata_path.is_file():
+            try:
+                return json_module.loads(metadata_path.read_text(encoding="utf-8"))
+            except (json_module.JSONDecodeError, OSError):
+                return {}
+        return {}
+
+    def _save_metadata(self) -> None:
+        """Save content type metadata to the sidecar file."""
+        metadata_path = self._artifact_dir / self._METADATA_FILE
+        metadata_path.write_text(json_module.dumps(self._content_types), encoding="utf-8")
 
 
 class InMemoryStorage:
