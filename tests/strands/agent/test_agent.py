@@ -731,6 +731,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             agent=agent,
             current_tool_use={"toolUseId": "123", "name": "test", "input": {}},
             delta={"toolUse": {"input": '{"value"}'}},
+            event_loop_cycle_count=unittest.mock.ANY,
             event_loop_cycle_id=unittest.mock.ANY,
             event_loop_cycle_span=unittest.mock.ANY,
             event_loop_cycle_trace=unittest.mock.ANY,
@@ -742,6 +743,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
         unittest.mock.call(
             agent=agent,
             delta={"reasoningContent": {"text": "value"}},
+            event_loop_cycle_count=unittest.mock.ANY,
             event_loop_cycle_id=unittest.mock.ANY,
             event_loop_cycle_span=unittest.mock.ANY,
             event_loop_cycle_trace=unittest.mock.ANY,
@@ -753,6 +755,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
         unittest.mock.call(
             agent=agent,
             delta={"reasoningContent": {"signature": "value"}},
+            event_loop_cycle_count=unittest.mock.ANY,
             event_loop_cycle_id=unittest.mock.ANY,
             event_loop_cycle_span=unittest.mock.ANY,
             event_loop_cycle_trace=unittest.mock.ANY,
@@ -767,6 +770,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             agent=agent,
             data="value",
             delta={"text": "value"},
+            event_loop_cycle_count=unittest.mock.ANY,
             event_loop_cycle_id=unittest.mock.ANY,
             event_loop_cycle_span=unittest.mock.ANY,
             event_loop_cycle_trace=unittest.mock.ANY,

@@ -146,6 +146,7 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
+        max_iterations: int = 25,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -214,6 +215,17 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
+            max_iterations: Maximum number of event-loop cycles (model + tool round trips) per
+                invocation. When the agent would exceed this many cycles, the loop halts,
+                appends a synthetic assistant message noting the cap was reached, and returns
+                an AgentResult with stop_reason='max_iterations'. No further model invocation
+                is made after the cap trips. The synthetic halt message carries
+                ``metadata = {"usage": Usage(0,0,0), "metrics": Metrics(latencyMs=0),
+                "synthetic": True}`` — the ``"synthetic": True`` marker lets downstream
+                token-budgeting / analytics code filter out this terminal (it is NOT a real
+                model call; zeros reflect that but the marker makes the distinction
+                unambiguous). Defaults to 25. Precedent: LangChain AgentExecutor defaults
+                to 15; OpenAI Agents SDK defaults to 10.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -312,6 +324,13 @@ class Agent(AgentBase):
         # separate event loops in different threads, so asyncio.Lock wouldn't work
         self._invocation_lock = threading.Lock()
         self._concurrent_invocation_mode = concurrent_invocation_mode
+
+        # Reject bool explicitly — `isinstance(True, int)` is True in Python,
+        # so `Agent(max_iterations=True)` would otherwise silently set the cap
+        # to 1. Catch this before the int check.
+        if isinstance(max_iterations, bool) or not isinstance(max_iterations, int) or max_iterations < 1:
+            raise ValueError(f"max_iterations must be a positive integer, got {max_iterations!r}")
+        self._max_iterations = max_iterations
 
         # In the future, we'll have a RetryStrategy base class but until
         # that API is determined we only allow ModelRetryStrategy
@@ -889,6 +908,26 @@ class Agent(AgentBase):
         current_messages: Messages | None = messages
 
         while current_messages is not None:
+            # Reset the per-invocation cycle counter at the top of each loop
+            # iteration. Two cases this handles:
+            #   (1) Fresh top-level invocation with a caller-supplied
+            #       `invocation_state` dict that still carries a counter from
+            #       a previous invoke_async call — that counter must not leak
+            #       across invocations.
+            #   (2) Hook-driven resume: `AfterInvocationEvent` handlers may set
+            #       `resume=<messages>` to drive another leg of the loop. Each
+            #       resume leg is logically a fresh invocation from the cap's
+            #       perspective and must get a fresh `max_iterations` budget —
+            #       otherwise the first leg's cycles consume the budget for
+            #       every subsequent leg.
+            # We `pop` (rather than set to 0) so the key is absent in the
+            # `InitEventLoopEvent` payload — downstream consumers that emit
+            # initial-state telemetry shouldn't see a pre-loop "cycle 0".
+            # The ContextWindowOverflowException retry path in
+            # `_execute_event_loop_cycle` also resets the counter — `max_iterations`
+            # caps tool-call cycles, not model-retry cycles.
+            invocation_state.pop("event_loop_cycle_count", None)
+
             before_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
                 BeforeInvocationEvent(agent=self, invocation_state=invocation_state, messages=current_messages)
             )
@@ -985,6 +1024,13 @@ class Agent(AgentBase):
             # Sync agent after reduce_context to keep conversation_manager_state up to date in the session
             if self._session_manager:
                 self._session_manager.sync_agent(self)
+
+            # Reset the cycle counter before the retry so context-overflow
+            # recovery doesn't silently consume the user's `max_iterations`
+            # budget. `max_iterations` caps tool-call cycles, not model-retry
+            # cycles — a successful `reduce_context` means the prior cycle
+            # never produced a usable turn, so it shouldn't count.
+            invocation_state.pop("event_loop_cycle_count", None)
 
             events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
             async for event in events:
