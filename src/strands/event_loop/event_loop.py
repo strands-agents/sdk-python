@@ -144,9 +144,7 @@ async def event_loop_cycle(
     with trace_api.use_span(cycle_span, end_on_exit=False):
         try:
             if agent.max_turns is not None and agent._invocation_turn_count >= agent.max_turns:
-                raise MaxTurnsReachedException(
-                    f"Agent has reached the max_turns limit of {agent.max_turns}."
-                )
+                raise MaxTurnsReachedException(f"Agent has reached the max_turns limit of {agent.max_turns}.")
             if agent.max_token_budget is not None and agent._invocation_token_count >= agent.max_token_budget:
                 raise MaxTokenBudgetReachedException(
                     f"Agent has reached the max_token_budget limit of {agent.max_token_budget} tokens."
@@ -172,9 +170,7 @@ async def event_loop_cycle(
                 # metadata is attached to message inside _handle_model_execution before the
                 # stop event is the last item yielded, so it is populated by the time the
                 # async-for loop above finishes and we read model_event["stop"] here.
-                agent._invocation_token_count += (
-                    message.get("metadata", {}).get("usage", {}).get("totalTokens", 0)
-                )
+                agent._invocation_token_count += message.get("metadata", {}).get("usage", {}).get("totalTokens", 0)
                 yield ModelMessageEvent(message=message)
         except Exception as e:
             tracer.end_span_with_error(cycle_span, str(e), e)
