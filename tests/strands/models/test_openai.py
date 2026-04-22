@@ -1008,9 +1008,7 @@ async def test_stream_vllm_reasoning_field(openai_client, model_id, model, agene
     """vLLM >=0.19.1 emits delta.reasoning instead of delta.reasoning_content."""
     mock_delta_1 = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None, reasoning="thinking...")
     mock_delta_2 = unittest.mock.Mock(content="done", tool_calls=None, reasoning_content=None, reasoning=None)
-    mock_usage = unittest.mock.Mock(
-        prompt_tokens=5, completion_tokens=5, total_tokens=10, prompt_tokens_details=None
-    )
+    mock_usage = unittest.mock.Mock(prompt_tokens=5, completion_tokens=5, total_tokens=10, prompt_tokens_details=None)
 
     mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
     mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_2)])
@@ -1042,6 +1040,34 @@ async def test_stream_vllm_reasoning_field(openai_client, model_id, model, agene
     ]
 
     assert tru_events == exp_events
+
+
+@pytest.mark.asyncio
+async def test_stream_reasoning_content_takes_priority_over_reasoning(openai_client, model_id, model, agenerator, alist):
+    """reasoning_content takes priority when both fields are present (backward compat)."""
+    mock_delta_1 = unittest.mock.Mock(
+        content=None, tool_calls=None, reasoning_content="from_reasoning_content", reasoning="from_reasoning"
+    )
+    mock_delta_2 = unittest.mock.Mock(content="done", tool_calls=None, reasoning_content=None, reasoning=None)
+    mock_usage = unittest.mock.Mock(prompt_tokens=5, completion_tokens=5, total_tokens=10, prompt_tokens_details=None)
+
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
+    mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_2)])
+    mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta_2)])
+    mock_event_4 = unittest.mock.Mock(usage=mock_usage)
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "hi"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    reasoning_deltas = [
+        e for e in tru_events if "contentBlockDelta" in e and "reasoningContent" in e["contentBlockDelta"]["delta"]
+    ]
+    assert len(reasoning_deltas) == 1
+    assert reasoning_deltas[0]["contentBlockDelta"]["delta"]["reasoningContent"]["text"] == "from_reasoning_content"
 
 
 @pytest.mark.asyncio
