@@ -906,25 +906,33 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
     mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
         reasoning_content="",
+        reasoning=None,
         content=None,
         tool_calls=None,
     )
     mock_delta_2 = unittest.mock.Mock(
         reasoning_content="\nI'm thinking",
+        reasoning=None,
         content=None,
         tool_calls=None,
     )
     mock_delta_3 = unittest.mock.Mock(
-        content="I'll calculate", tool_calls=[mock_tool_call_1_part_1, mock_tool_call_2_part_1], reasoning_content=None
+        content="I'll calculate",
+        tool_calls=[mock_tool_call_1_part_1, mock_tool_call_2_part_1],
+        reasoning_content=None,
+        reasoning=None,
     )
 
     mock_tool_call_1_part_2 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_2 = unittest.mock.Mock(index=1)
     mock_delta_4 = unittest.mock.Mock(
-        content="that for you", tool_calls=[mock_tool_call_1_part_2, mock_tool_call_2_part_2], reasoning_content=None
+        content="that for you",
+        tool_calls=[mock_tool_call_1_part_2, mock_tool_call_2_part_2],
+        reasoning_content=None,
+        reasoning=None,
     )
 
-    mock_delta_5 = unittest.mock.Mock(content="", tool_calls=None, reasoning_content=None)
+    mock_delta_5 = unittest.mock.Mock(content="", tool_calls=None, reasoning_content=None, reasoning=None)
 
     mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
     mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_2)])
@@ -996,8 +1004,49 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_vllm_reasoning_field(openai_client, model_id, model, agenerator, alist):
+    """vLLM >=0.19.1 emits delta.reasoning instead of delta.reasoning_content."""
+    mock_delta_1 = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None, reasoning="thinking...")
+    mock_delta_2 = unittest.mock.Mock(content="done", tool_calls=None, reasoning_content=None, reasoning=None)
+    mock_usage = unittest.mock.Mock(
+        prompt_tokens=5, completion_tokens=5, total_tokens=10, prompt_tokens_details=None
+    )
+
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
+    mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_2)])
+    mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta_2)])
+    mock_event_4 = unittest.mock.Mock(usage=mock_usage)
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "hi"}]}]
+    tru_events = await alist(model.stream(messages))
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "thinking..."}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "done"}}},
+        {"contentBlockDelta": {"delta": {"text": "done"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 5, "outputTokens": 5, "totalTokens": 10},
+                "metrics": {"latencyMs": 0},
+            }
+        },
+    ]
+
+    assert tru_events == exp_events
+
+
+@pytest.mark.asyncio
 async def test_stream_empty(openai_client, model_id, model, agenerator, alist):
-    mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
+    mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None, reasoning=None)
 
     mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
     mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
@@ -1031,7 +1080,7 @@ async def test_stream_empty(openai_client, model_id, model, agenerator, alist):
 
 @pytest.mark.asyncio
 async def test_stream_with_empty_choices(openai_client, model, agenerator, alist):
-    mock_delta = unittest.mock.Mock(content="content", tool_calls=None, reasoning_content=None)
+    mock_delta = unittest.mock.Mock(content="content", tool_calls=None, reasoning_content=None, reasoning=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
     # Event with no choices attribute
@@ -1462,7 +1511,7 @@ async def test_stream_with_injected_client(model_id, agenerator, alist):
     mock_injected_client = unittest.mock.AsyncMock()
     mock_injected_client.close = unittest.mock.AsyncMock()
 
-    mock_delta = unittest.mock.Mock(content="Hello", tool_calls=None, reasoning_content=None)
+    mock_delta = unittest.mock.Mock(content="Hello", tool_calls=None, reasoning_content=None, reasoning=None)
     mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
     mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
     mock_event_3 = unittest.mock.Mock()
