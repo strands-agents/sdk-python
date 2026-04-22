@@ -27,6 +27,7 @@ import anyio
 from mcp import ClientSession, ListToolsResult
 from mcp.client.session import ElicitationFnT
 from mcp.shared.exceptions import McpError
+from mcp.shared.session import ProgressFnT
 from mcp.types import (
     BlobResourceContents,
     ElicitationRequiredErrorData,
@@ -579,6 +580,7 @@ class MCPClient(ToolProvider):
         arguments: dict[str, Any] | None,
         read_timeout_seconds: timedelta | None,
         meta: dict[str, Any] | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> Coroutine[Any, Any, MCPCallToolResult]:
         """Create the appropriate coroutine for calling a tool.
 
@@ -590,6 +592,7 @@ class MCPClient(ToolProvider):
             arguments: Optional arguments to pass to the tool.
             read_timeout_seconds: Optional timeout for the tool call.
             meta: Optional metadata to pass to the tool call per MCP spec (_meta).
+            progress_callback: Optional callback for receiving progress notifications from the server.
 
         Returns:
             A coroutine that will execute the tool call.
@@ -612,7 +615,7 @@ class MCPClient(ToolProvider):
 
             async def _call_tool_direct() -> MCPCallToolResult:
                 return await cast(ClientSession, self._background_thread_session).call_tool(
-                    name, arguments, read_timeout_seconds, meta=meta
+                    name, arguments, read_timeout_seconds, progress_callback=progress_callback, meta=meta
                 )
 
             return _call_tool_direct()
@@ -624,6 +627,7 @@ class MCPClient(ToolProvider):
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
         meta: dict[str, Any] | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> MCPToolResult:
         """Synchronously calls a tool on the MCP server.
 
@@ -636,6 +640,9 @@ class MCPClient(ToolProvider):
             arguments: Optional arguments to pass to the tool
             read_timeout_seconds: Optional timeout for the tool call
             meta: Optional metadata to pass to the tool call per MCP spec (_meta)
+            progress_callback: Optional callback for receiving progress notifications from the server.
+                When provided, a progressToken is automatically included in the request,
+                enabling the server to send progress updates via ctx.report_progress().
 
         Returns:
             MCPToolResult: The result of the tool call
@@ -645,7 +652,9 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         try:
-            coro = self._create_call_tool_coroutine(name, arguments, read_timeout_seconds, meta=meta)
+            coro = self._create_call_tool_coroutine(
+                name, arguments, read_timeout_seconds, meta=meta, progress_callback=progress_callback
+            )
             call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(coro).result()
             return self._handle_tool_result(tool_use_id, call_tool_result)
         except Exception as e:
@@ -659,6 +668,7 @@ class MCPClient(ToolProvider):
         arguments: dict[str, Any] | None = None,
         read_timeout_seconds: timedelta | None = None,
         meta: dict[str, Any] | None = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> MCPToolResult:
         """Asynchronously calls a tool on the MCP server.
 
@@ -671,6 +681,9 @@ class MCPClient(ToolProvider):
             arguments: Optional arguments to pass to the tool
             read_timeout_seconds: Optional timeout for the tool call
             meta: Optional metadata to pass to the tool call per MCP spec (_meta)
+            progress_callback: Optional callback for receiving progress notifications from the server.
+                When provided, a progressToken is automatically included in the request,
+                enabling the server to send progress updates via ctx.report_progress().
 
         Returns:
             MCPToolResult: The result of the tool call
@@ -680,7 +693,9 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         try:
-            coro = self._create_call_tool_coroutine(name, arguments, read_timeout_seconds, meta=meta)
+            coro = self._create_call_tool_coroutine(
+                name, arguments, read_timeout_seconds, meta=meta, progress_callback=progress_callback
+            )
             future = self._invoke_on_background_thread(coro)
             call_tool_result: MCPCallToolResult = await asyncio.wrap_future(future)
             return self._handle_tool_result(tool_use_id, call_tool_result)
