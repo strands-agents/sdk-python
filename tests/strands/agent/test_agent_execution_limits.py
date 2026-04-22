@@ -89,6 +89,30 @@ def test_max_turns_stops_after_limit():
         agent("do something")
 
 
+def test_max_turns_allows_exactly_n_cycles():
+    """max_turns=2 allows a tool call (turn 1) followed by a final response (turn 2)."""
+    from strands import tool as tool_decorator
+
+    @tool_decorator
+    def noop() -> str:
+        """No-op tool."""
+        return "ok"
+
+    agent = Agent(
+        model=MockedModelProvider(
+            [
+                _tool_call_response(tool_name="noop"),
+                _text_response(),
+            ]
+        ),
+        tools=[noop],
+        max_turns=2,
+        load_tools_from_directory=False,
+    )
+    result = agent("do something")
+    assert result.stop_reason == "end_turn"
+
+
 def test_max_turns_resets_between_invocations():
     """Counter should reset to 0 at the start of each invocation."""
     agent = Agent(
