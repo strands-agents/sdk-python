@@ -403,22 +403,11 @@ class TestRetrievalTool:
         result = plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
         assert result == '{"key": "value"}'
 
-    def test_retrieve_with_pagination(self, plugin, storage, tool_context):
-        ref = storage.store("key_1", b"a" * 200, "text/plain")
-
-        # First page
-        result = plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context, offset=0, limit=50)
-        assert "a" * 50 in result
-        assert "Showing chars 0-50 of 200" in result
-        assert "offset=50" in result
-
-        # Second page
-        result = plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context, offset=50, limit=50)
-        assert "Showing chars 50-100 of 200" in result
-
-        # Last page (no continuation prompt)
-        result = plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context, offset=150, limit=100)
-        assert "offset=" not in result
+    def test_retrieve_large_text_returns_full_content(self, plugin, storage, tool_context):
+        large_text = "a" * 50_000
+        ref = storage.store("key_1", large_text.encode("utf-8"), "text/plain")
+        result = plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
+        assert result == large_text
 
     def test_retrieve_missing_reference(self, plugin, tool_context):
         result = plugin.retrieve_offloaded_content(reference="nonexistent", tool_context=tool_context)

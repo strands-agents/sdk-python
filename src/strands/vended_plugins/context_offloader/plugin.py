@@ -54,9 +54,6 @@ _DEFAULT_MAX_RESULT_CHARS = 10_000
 _DEFAULT_PREVIEW_CHARS = 4_000
 """Default number of characters to keep as a preview in context."""
 
-_DEFAULT_RETRIEVE_LIMIT_BYTES = 10_000
-"""Default maximum bytes returned per retrieval call."""
-
 _STATE_KEY = "context_offloader"
 
 _SYSTEM_PROMPT_INJECTION = (
@@ -64,7 +61,6 @@ _SYSTEM_PROMPT_INJECTION = (
     "When tool results are too large for the context window, they are offloaded to storage.\n"
     "You will see placeholders like [Offloaded: N blocks, M text chars] with references.\n"
     "To retrieve offloaded content, use the retrieve_offloaded_content tool with the reference.\n"
-    "You can paginate large content using the offset and limit parameters.\n"
     "</context_offloader>"
 )
 
@@ -145,40 +141,24 @@ class ContextOffloader(Plugin):
         self,
         reference: str,
         tool_context: ToolContext,
-        offset: int = 0,
-        limit: int = _DEFAULT_RETRIEVE_LIMIT_BYTES,
     ) -> str:
         """Retrieve offloaded content by reference.
 
         Use this tool when you see a placeholder with a reference (ref: ...)
-        and need the full content. Supports pagination via offset and limit
-        for reading large content in chunks.
+        and need the full content.
 
         Args:
             reference: The reference string from the offload placeholder.
             tool_context: Injected by the framework. Not user-facing.
-            offset: Byte offset to start reading from (default: 0).
-            limit: Maximum bytes to return (default: 10000).
         """
         try:
             content_bytes, content_type = self._storage.retrieve(reference)
         except KeyError:
             return f"Error: reference not found: {reference}"
 
-        # For text-based content, decode and paginate
         if content_type.startswith("text/") or content_type == "application/json":
-            text = content_bytes.decode("utf-8")
-            total = len(text)
-            chunk = text[offset : offset + limit]
-            if offset + limit < total:
-                return (
-                    f"[Showing chars {offset}-{offset + len(chunk)} of {total}]\n\n"
-                    f"{chunk}\n\n"
-                    f"[Use offset={offset + limit} to continue reading]"
-                )
-            return chunk
+            return content_bytes.decode("utf-8")
 
-        # For binary content, return metadata
         return (
             f"[Binary content: {content_type}, {len(content_bytes):,} bytes]\n"
             f"Binary content cannot be displayed as text. "
