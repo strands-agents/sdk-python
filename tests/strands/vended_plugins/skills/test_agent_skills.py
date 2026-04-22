@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from strands.hooks.events import BeforeInvocationEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins.registry import _PluginRegistry
@@ -155,12 +157,13 @@ class TestSkillsPluginInitAgent:
 
         assert agent.hooks.has_callbacks()
 
-    def test_does_not_store_agent_reference(self):
+    @pytest.mark.asyncio
+    async def test_does_not_store_agent_reference(self):
         """Test that init_agent does not store the agent on the plugin."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
 
-        plugin.init_agent(agent)
+        await plugin.init_agent(agent)
 
         assert not hasattr(plugin, "_agent")
 
