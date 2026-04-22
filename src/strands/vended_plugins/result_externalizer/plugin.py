@@ -171,12 +171,17 @@ class ToolResultExternalizer(Plugin):
         #   - Images replaced with placeholders (following SlidingWindowConversationManager)
         #   - Documents replaced with placeholders
         #   - Text and JSON blocks are already captured in the externalized content
+        #   - Unknown content types passed through unchanged
         new_content: list[ToolResultContent] = [ToolResultContent(text=preview_text)]
         for block in content:
-            if "image" in block:
+            if "text" in block or "json" in block:
+                continue
+            elif "image" in block:
                 new_content.append(ToolResultContent(text=self._image_placeholder(block["image"])))
             elif "document" in block:
                 new_content.append(ToolResultContent(text=self._document_placeholder(block["document"])))
+            else:
+                new_content.append(block)
 
         event.result = ToolResult(
             toolUseId=result["toolUseId"],
