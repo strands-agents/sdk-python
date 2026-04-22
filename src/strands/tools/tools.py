@@ -240,6 +240,24 @@ class PythonAgentTool(AgentTool):
         """
         return "python"
 
+    @property
+    @override
+    def is_read_only(self) -> bool:
+        """Whether this tool only reads state, derived from its ToolSpec."""
+        return self._tool_spec.get("readOnly") is True
+
+    @property
+    @override
+    def is_destructive(self) -> bool:
+        """Whether this tool performs irreversible actions, derived from its ToolSpec."""
+        return self._tool_spec.get("destructive") is True
+
+    @property
+    @override
+    def requires_confirmation(self) -> bool:
+        """Whether this tool requires user confirmation, derived from its ToolSpec."""
+        return self._tool_spec.get("requiresConfirmation") is True
+
     @override
     async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
         """Stream the Python function with the given tool use request.
