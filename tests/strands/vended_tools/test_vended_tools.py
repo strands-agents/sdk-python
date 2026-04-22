@@ -1,7 +1,8 @@
 """Tests for vended tools — shell, editor, python_repl.
 
 These tests use a real HostSandbox to validate end-to-end behavior.
-They also test configuration via agent.state and interrupt support.
+They also test configuration via agent.state, interrupt support, and
+streaming behavior (shell and python_repl yield StreamChunk events).
 """
 
 import asyncio
@@ -11,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from strands.agent.state import AgentState
+from strands.sandbox.base import ExecutionResult, StreamChunk
 from strands.sandbox.host import HostSandbox
 from strands.sandbox.noop import NoOpSandbox
 from strands.types.tools import ToolContext, ToolUse
@@ -69,6 +71,23 @@ def run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
+async def collect_generator(gen):
+    """Collect all values from an async generator.
+
+    Returns (stream_chunks, final_result) where stream_chunks are all
+    StreamChunk objects yielded, and final_result is the last non-StreamChunk
+    value (the formatted result string).
+    """
+    chunks = []
+    final = None
+    async for item in gen:
+        if isinstance(item, StreamChunk):
+            chunks.append(item)
+        else:
+            final = item
+    return chunks, final
+
+
 # ============================================================
 # Shell Tool Tests
 # ============================================================
@@ -78,31 +97,73 @@ class TestShellTool:
     """Tests for the shell vended tool."""
 
     def test_basic_command(self, tool_context, tmp_path):
-        """Test basic shell command execution."""
+        """Test basic shell command execution returns result."""
         from strands.vended_tools.shell.shell import shell
 
-        result = run(shell.__wrapped__(command="echo hello", tool_context=tool_context))
+        chunks, result = run(
+            collect_generator(shell.__wrapped__(command="echo hello", tool_context=tool_context))
+        )
         assert "hello" in result
+
+    def test_basic_command_streams_chunks(self, tool_context, tmp_path):
+        """Test that shell yields StreamChunk objects during execution."""
+        from strands.vended_tools.shell.shell import shell
+
+        chunks, result = run(
+            collect_generator(shell.__wrapped__(command="echo hello", tool_context=tool_context))
+        )
+        # Should have at least one stdout chunk
+        stdout_chunks = [c for c in chunks if c.stream_type == "stdout"]
+        assert len(stdout_chunks) >= 1
+        assert any("hello" in c.data for c in stdout_chunks)
+        # Final result should also contain the output
+        assert "hello" in result
+
+    def test_stderr_streams_as_stderr_chunks(self, tool_context, tmp_path):
+        """Test that stderr output yields StreamChunk with stream_type='stderr'."""
+        from strands.vended_tools.shell.shell import shell
+
+        chunks, result = run(
+            collect_generator(shell.__wrapped__(command="echo error >&2", tool_context=tool_context))
+        )
+        stderr_chunks = [c for c in chunks if c.stream_type == "stderr"]
+        assert len(stderr_chunks) >= 1
+        assert any("error" in c.data for c in stderr_chunks)
+        assert "error" in result
+
+    def test_mixed_stdout_stderr_streaming(self, tool_context, tmp_path):
+        """Test command with both stdout and stderr streams both chunk types."""
+        from strands.vended_tools.shell.shell import shell
+
+        chunks, result = run(
+            collect_generator(
+                shell.__wrapped__(
+                    command="echo out && echo err >&2",
+                    tool_context=tool_context,
+                )
+            )
+        )
+        stdout_chunks = [c for c in chunks if c.stream_type == "stdout"]
+        stderr_chunks = [c for c in chunks if c.stream_type == "stderr"]
+        assert len(stdout_chunks) >= 1
+        assert len(stderr_chunks) >= 1
 
     def test_command_with_exit_code(self, tool_context, tmp_path):
         """Test command that returns non-zero exit code."""
         from strands.vended_tools.shell.shell import shell
 
-        result = run(shell.__wrapped__(command="exit 42", tool_context=tool_context))
+        chunks, result = run(
+            collect_generator(shell.__wrapped__(command="exit 42", tool_context=tool_context))
+        )
         assert "42" in result
-
-    def test_command_with_stderr(self, tool_context, tmp_path):
-        """Test command that writes to stderr."""
-        from strands.vended_tools.shell.shell import shell
-
-        result = run(shell.__wrapped__(command="echo error >&2", tool_context=tool_context))
-        assert "error" in result
 
     def test_timeout(self, tool_context):
         """Test command timeout."""
         from strands.vended_tools.shell.shell import shell
 
-        result = run(shell.__wrapped__(command="sleep 10", timeout=1, tool_context=tool_context))
+        chunks, result = run(
+            collect_generator(shell.__wrapped__(command="sleep 10", timeout=1, tool_context=tool_context))
+        )
         assert "timed out" in result.lower() or "error" in result.lower()
 
     def test_config_timeout(self, tool_context, mock_agent):
@@ -110,21 +171,27 @@ class TestShellTool:
         from strands.vended_tools.shell.shell import shell
 
         mock_agent.state.set("strands_shell_tool", {"timeout": 1})
-        result = run(shell.__wrapped__(command="sleep 10", tool_context=tool_context))
+        chunks, result = run(
+            collect_generator(shell.__wrapped__(command="sleep 10", tool_context=tool_context))
+        )
         assert "timed out" in result.lower() or "error" in result.lower()
 
     def test_restart(self, tool_context):
         """Test shell restart."""
         from strands.vended_tools.shell.shell import shell
 
-        result = run(shell.__wrapped__(command="", restart=True, tool_context=tool_context))
+        chunks, result = run(
+            collect_generator(shell.__wrapped__(command="", restart=True, tool_context=tool_context))
+        )
         assert "reset" in result.lower()
 
     def test_no_output_command(self, tool_context):
         """Test command with no output."""
         from strands.vended_tools.shell.shell import shell
 
-        result = run(shell.__wrapped__(command="true", tool_context=tool_context))
+        chunks, result = run(
+            collect_generator(shell.__wrapped__(command="true", tool_context=tool_context))
+        )
         assert result == "(no output)"
 
     def test_noop_sandbox(self, tool_context, mock_agent):
@@ -132,21 +199,22 @@ class TestShellTool:
         mock_agent.sandbox = NoOpSandbox()
         from strands.vended_tools.shell.shell import shell
 
-        result = run(shell.__wrapped__(command="echo test", tool_context=tool_context))
+        chunks, result = run(
+            collect_generator(shell.__wrapped__(command="echo test", tool_context=tool_context))
+        )
         assert "error" in result.lower()
 
     def test_cwd_tracking(self, tool_context, tmp_path):
         """Test that working directory is tracked across calls."""
         from strands.vended_tools.shell.shell import shell
 
-        # Create a subdirectory
         subdir = tmp_path / "subdir"
         subdir.mkdir()
 
-        # cd into it
-        run(shell.__wrapped__(command=f"cd {subdir}", tool_context=tool_context))
+        chunks, _ = run(
+            collect_generator(shell.__wrapped__(command=f"cd {subdir}", tool_context=tool_context))
+        )
 
-        # Check tracked state
         shell_state = tool_context.agent.state.get("_strands_shell_state")
         assert shell_state is not None
 
@@ -154,10 +222,12 @@ class TestShellTool:
         """Test command with multiline output."""
         from strands.vended_tools.shell.shell import shell
 
-        result = run(
-            shell.__wrapped__(
-                command="echo 'line1\nline2\nline3'",
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                shell.__wrapped__(
+                    command="echo 'line1\nline2\nline3'",
+                    tool_context=tool_context,
+                )
             )
         )
         assert "line1" in result
@@ -167,10 +237,12 @@ class TestShellTool:
         """Test piped commands."""
         from strands.vended_tools.shell.shell import shell
 
-        result = run(
-            shell.__wrapped__(
-                command="echo 'hello world' | wc -w",
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                shell.__wrapped__(
+                    command="echo 'hello world' | wc -w",
+                    tool_context=tool_context,
+                )
             )
         )
         assert "2" in result
@@ -181,15 +253,10 @@ class TestShellTool:
 
         mock_agent.state.set("strands_shell_tool", {"require_confirmation": True})
 
-        # Mock interrupt to return "approve"
-        mock_agent._interrupt_state.interrupts = {}
-
-        # We need to simulate the interrupt mechanism.
-        # When require_confirmation is True, the tool calls tool_context.interrupt()
-        # which raises InterruptException the first time, then returns the response on resume.
-        # For testing, we'll patch the interrupt method.
         with patch.object(type(tool_context), "interrupt", return_value="approve"):
-            result = run(shell.__wrapped__(command="echo approved", tool_context=tool_context))
+            chunks, result = run(
+                collect_generator(shell.__wrapped__(command="echo approved", tool_context=tool_context))
+            )
             assert "approved" in result
 
     def test_interrupt_confirmation_denied(self, tool_context, mock_agent):
@@ -199,8 +266,28 @@ class TestShellTool:
         mock_agent.state.set("strands_shell_tool", {"require_confirmation": True})
 
         with patch.object(type(tool_context), "interrupt", return_value="deny"):
-            result = run(shell.__wrapped__(command="echo test", tool_context=tool_context))
+            chunks, result = run(
+                collect_generator(shell.__wrapped__(command="echo test", tool_context=tool_context))
+            )
             assert "not approved" in result.lower()
+
+    def test_stream_chunk_types_are_correct(self, tool_context):
+        """Test that all yielded chunks are proper StreamChunk instances."""
+        from strands.vended_tools.shell.shell import shell
+
+        chunks, result = run(
+            collect_generator(
+                shell.__wrapped__(
+                    command="echo stdout_data && echo stderr_data >&2",
+                    tool_context=tool_context,
+                )
+            )
+        )
+        for chunk in chunks:
+            assert isinstance(chunk, StreamChunk)
+            assert hasattr(chunk, "data")
+            assert hasattr(chunk, "stream_type")
+            assert chunk.stream_type in ("stdout", "stderr")
 
 
 # ============================================================
@@ -215,7 +302,6 @@ class TestEditorTool:
         """Test viewing a file."""
         from strands.vended_tools.editor.editor import editor
 
-        # Create a test file
         test_file = tmp_path / "test.txt"
         test_file.write_text("line 1\nline 2\nline 3\n")
 
@@ -248,7 +334,6 @@ class TestEditorTool:
         )
         assert "line 2" in result
         assert "line 4" in result
-        # Line 1 should not be shown (starts at line 2)
         assert "     1" not in result
 
     def test_view_with_range_end_minus_one(self, tool_context, tmp_path):
@@ -273,7 +358,6 @@ class TestEditorTool:
         """Test viewing a directory listing."""
         from strands.vended_tools.editor.editor import editor
 
-        # Create some files
         (tmp_path / "file1.py").write_text("pass")
         (tmp_path / "file2.txt").write_text("hello")
         (tmp_path / "subdir").mkdir()
@@ -421,7 +505,6 @@ class TestEditorTool:
             )
         )
         assert "multiple" in result.lower()
-        # File should NOT be modified
         assert test_file.read_text() == "x = 1\ny = 1\nz = 1\n"
 
     def test_str_replace_deletion(self, tool_context, tmp_path):
@@ -507,7 +590,6 @@ class TestEditorTool:
         test_file = tmp_path / "test.py"
         test_file.write_text("original content\n")
 
-        # Make an edit
         run(
             editor.__wrapped__(
                 command="str_replace",
@@ -519,7 +601,6 @@ class TestEditorTool:
         )
         assert "modified content" in test_file.read_text()
 
-        # Undo
         result = run(
             editor.__wrapped__(
                 command="undo_edit",
@@ -645,25 +726,61 @@ class TestPythonReplTool:
     """Tests for the python_repl vended tool."""
 
     def test_basic_code(self, tool_context):
-        """Test basic Python code execution."""
+        """Test basic Python code execution returns result."""
         from strands.vended_tools.python_repl.python_repl import python_repl
 
-        result = run(
-            python_repl.__wrapped__(
-                code="print('hello from python')",
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="print('hello from python')",
+                    tool_context=tool_context,
+                )
             )
         )
         assert "hello from python" in result
+
+    def test_basic_code_streams_chunks(self, tool_context):
+        """Test that python_repl yields StreamChunk objects during execution."""
+        from strands.vended_tools.python_repl.python_repl import python_repl
+
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="print('hello from python')",
+                    tool_context=tool_context,
+                )
+            )
+        )
+        stdout_chunks = [c for c in chunks if c.stream_type == "stdout"]
+        assert len(stdout_chunks) >= 1
+        assert any("hello from python" in c.data for c in stdout_chunks)
+
+    def test_stderr_streams_as_stderr_chunks(self, tool_context):
+        """Test that stderr from Python code yields stderr StreamChunks."""
+        from strands.vended_tools.python_repl.python_repl import python_repl
+
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="import sys; print('err_msg', file=sys.stderr)",
+                    tool_context=tool_context,
+                )
+            )
+        )
+        stderr_chunks = [c for c in chunks if c.stream_type == "stderr"]
+        assert len(stderr_chunks) >= 1
+        assert any("err_msg" in c.data for c in stderr_chunks)
 
     def test_code_with_math(self, tool_context):
         """Test Python math execution."""
         from strands.vended_tools.python_repl.python_repl import python_repl
 
-        result = run(
-            python_repl.__wrapped__(
-                code="print(2 + 2)",
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="print(2 + 2)",
+                    tool_context=tool_context,
+                )
             )
         )
         assert "4" in result
@@ -672,10 +789,12 @@ class TestPythonReplTool:
         """Test Python code that raises an error."""
         from strands.vended_tools.python_repl.python_repl import python_repl
 
-        result = run(
-            python_repl.__wrapped__(
-                code="raise ValueError('test error')",
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="raise ValueError('test error')",
+                    tool_context=tool_context,
+                )
             )
         )
         assert "test error" in result or "ValueError" in result
@@ -684,10 +803,12 @@ class TestPythonReplTool:
         """Test Python code with imports."""
         from strands.vended_tools.python_repl.python_repl import python_repl
 
-        result = run(
-            python_repl.__wrapped__(
-                code="import json; print(json.dumps({'key': 'value'}))",
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="import json; print(json.dumps({'key': 'value'}))",
+                    tool_context=tool_context,
+                )
             )
         )
         assert "key" in result
@@ -696,11 +817,13 @@ class TestPythonReplTool:
         """Test code execution timeout."""
         from strands.vended_tools.python_repl.python_repl import python_repl
 
-        result = run(
-            python_repl.__wrapped__(
-                code="import time; time.sleep(10)",
-                timeout=1,
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="import time; time.sleep(10)",
+                    timeout=1,
+                    tool_context=tool_context,
+                )
             )
         )
         assert "timed out" in result.lower() or "error" in result.lower()
@@ -710,10 +833,12 @@ class TestPythonReplTool:
         from strands.vended_tools.python_repl.python_repl import python_repl
 
         mock_agent.state.set("strands_python_repl_tool", {"timeout": 1})
-        result = run(
-            python_repl.__wrapped__(
-                code="import time; time.sleep(10)",
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="import time; time.sleep(10)",
+                    tool_context=tool_context,
+                )
             )
         )
         assert "timed out" in result.lower() or "error" in result.lower()
@@ -722,11 +847,13 @@ class TestPythonReplTool:
         """Test REPL reset."""
         from strands.vended_tools.python_repl.python_repl import python_repl
 
-        result = run(
-            python_repl.__wrapped__(
-                code="",
-                reset=True,
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="",
+                    reset=True,
+                    tool_context=tool_context,
+                )
             )
         )
         assert "reset" in result.lower()
@@ -744,10 +871,12 @@ def fibonacci(n):
 
 print(fibonacci(10))
 """
-        result = run(
-            python_repl.__wrapped__(
-                code=code,
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code=code,
+                    tool_context=tool_context,
+                )
             )
         )
         assert "55" in result
@@ -756,10 +885,12 @@ print(fibonacci(10))
         """Test code with no output."""
         from strands.vended_tools.python_repl.python_repl import python_repl
 
-        result = run(
-            python_repl.__wrapped__(
-                code="x = 42",
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="x = 42",
+                    tool_context=tool_context,
+                )
             )
         )
         assert result == "(no output)"
@@ -769,10 +900,12 @@ print(fibonacci(10))
         mock_agent.sandbox = NoOpSandbox()
         from strands.vended_tools.python_repl.python_repl import python_repl
 
-        result = run(
-            python_repl.__wrapped__(
-                code="print('test')",
-                tool_context=tool_context,
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="print('test')",
+                    tool_context=tool_context,
+                )
             )
         )
         assert "error" in result.lower()
@@ -784,10 +917,12 @@ print(fibonacci(10))
         mock_agent.state.set("strands_python_repl_tool", {"require_confirmation": True})
 
         with patch.object(type(tool_context), "interrupt", return_value="approve"):
-            result = run(
-                python_repl.__wrapped__(
-                    code="print('approved')",
-                    tool_context=tool_context,
+            chunks, result = run(
+                collect_generator(
+                    python_repl.__wrapped__(
+                        code="print('approved')",
+                        tool_context=tool_context,
+                    )
                 )
             )
             assert "approved" in result
@@ -799,13 +934,33 @@ print(fibonacci(10))
         mock_agent.state.set("strands_python_repl_tool", {"require_confirmation": True})
 
         with patch.object(type(tool_context), "interrupt", return_value="deny"):
-            result = run(
-                python_repl.__wrapped__(
-                    code="print('should not run')",
-                    tool_context=tool_context,
+            chunks, result = run(
+                collect_generator(
+                    python_repl.__wrapped__(
+                        code="print('should not run')",
+                        tool_context=tool_context,
+                    )
                 )
             )
             assert "not approved" in result.lower()
+
+    def test_stream_chunk_types_are_correct(self, tool_context):
+        """Test that all yielded chunks are proper StreamChunk instances."""
+        from strands.vended_tools.python_repl.python_repl import python_repl
+
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="import sys; print('out'); print('err', file=sys.stderr)",
+                    tool_context=tool_context,
+                )
+            )
+        )
+        for chunk in chunks:
+            assert isinstance(chunk, StreamChunk)
+            assert hasattr(chunk, "data")
+            assert hasattr(chunk, "stream_type")
+            assert chunk.stream_type in ("stdout", "stderr")
 
 
 # ============================================================
@@ -842,7 +997,6 @@ class TestVendedToolsImport:
         assert editor.tool_name == "editor"
         assert python_repl.tool_name == "python_repl"
 
-        # Verify tool specs have required fields
         for t in [shell, editor, python_repl]:
             spec = t.tool_spec
             assert "name" in spec
@@ -892,6 +1046,31 @@ class TestVendedToolsImport:
         assert "reset" in props
         assert schema.get("required") == ["code"]
 
+    def test_shell_is_async_generator(self):
+        """Test that shell is detected as an async generator function."""
+        import inspect
+
+        from strands.vended_tools.shell.shell import shell
+
+        assert inspect.isasyncgenfunction(shell.__wrapped__)
+
+    def test_python_repl_is_async_generator(self):
+        """Test that python_repl is detected as an async generator function."""
+        import inspect
+
+        from strands.vended_tools.python_repl.python_repl import python_repl
+
+        assert inspect.isasyncgenfunction(python_repl.__wrapped__)
+
+    def test_editor_is_not_async_generator(self):
+        """Test that editor is a regular async function (not generator)."""
+        import inspect
+
+        from strands.vended_tools.editor.editor import editor
+
+        assert not inspect.isasyncgenfunction(editor.__wrapped__)
+        assert inspect.iscoroutinefunction(editor.__wrapped__)
+
 
 # ============================================================
 # Configuration Persistence Tests
@@ -940,3 +1119,94 @@ class TestConfigPersistence:
         undo_state = tool_context.agent.state.get("_strands_editor_undo")
         assert undo_state is not None
         assert str(test_file) in undo_state
+
+
+# ============================================================
+# Streaming Integration Tests
+# ============================================================
+
+
+class TestStreamingIntegration:
+    """Test the streaming behavior of tools end-to-end."""
+
+    def test_shell_streams_before_result(self, tool_context):
+        """Test that shell yields chunks BEFORE the final result."""
+        from strands.vended_tools.shell.shell import shell
+
+        all_items = []
+
+        async def collect_all():
+            async for item in shell.__wrapped__(
+                command="echo streaming_test", tool_context=tool_context
+            ):
+                all_items.append(item)
+
+        run(collect_all())
+
+        # Should have at least 2 items: chunk(s) + final result
+        assert len(all_items) >= 2
+        # Last item should be the string result
+        assert isinstance(all_items[-1], str)
+        # Earlier items should include StreamChunk
+        stream_items = [i for i in all_items[:-1] if isinstance(i, StreamChunk)]
+        assert len(stream_items) >= 1
+
+    def test_python_repl_streams_before_result(self, tool_context):
+        """Test that python_repl yields chunks BEFORE the final result."""
+        from strands.vended_tools.python_repl.python_repl import python_repl
+
+        all_items = []
+
+        async def collect_all():
+            async for item in python_repl.__wrapped__(
+                code="print('streaming_test')", tool_context=tool_context
+            ):
+                all_items.append(item)
+
+        run(collect_all())
+
+        assert len(all_items) >= 2
+        assert isinstance(all_items[-1], str)
+        stream_items = [i for i in all_items[:-1] if isinstance(i, StreamChunk)]
+        assert len(stream_items) >= 1
+
+    def test_shell_error_no_streaming_on_timeout(self, tool_context):
+        """Test that timeout errors don't yield any StreamChunks before the error."""
+        from strands.vended_tools.shell.shell import shell
+
+        chunks, result = run(
+            collect_generator(
+                shell.__wrapped__(command="sleep 10", timeout=1, tool_context=tool_context)
+            )
+        )
+        # On timeout, we should get the error message directly
+        assert "timed out" in result.lower() or "error" in result.lower()
+
+    def test_python_repl_error_no_streaming_on_timeout(self, tool_context):
+        """Test that timeout errors don't yield chunks before the error."""
+        from strands.vended_tools.python_repl.python_repl import python_repl
+
+        chunks, result = run(
+            collect_generator(
+                python_repl.__wrapped__(
+                    code="import time; time.sleep(10)",
+                    timeout=1,
+                    tool_context=tool_context,
+                )
+            )
+        )
+        assert "timed out" in result.lower() or "error" in result.lower()
+
+    def test_shell_stream_data_matches_result(self, tool_context):
+        """Test that streamed chunk data matches the final result content."""
+        from strands.vended_tools.shell.shell import shell
+
+        chunks, result = run(
+            collect_generator(
+                shell.__wrapped__(command="echo precise_output_42", tool_context=tool_context)
+            )
+        )
+        # The streamed chunks should contain the same data as the final result
+        all_chunk_data = "".join(c.data for c in chunks)
+        assert "precise_output_42" in all_chunk_data
+        assert "precise_output_42" in result

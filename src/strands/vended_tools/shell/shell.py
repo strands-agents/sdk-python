@@ -1,8 +1,13 @@
-"""Shell tool implementation.
+"""Shell tool implementation with streaming support.
 
 Executes shell commands in the agent's sandbox with persistent state tracking.
-The tool delegates execution to ``tool_context.agent.sandbox.execute()`` and
-reads configuration from ``tool_context.agent.state.get("strands_shell_tool")``.
+The tool uses ``sandbox.execute_streaming()`` so that stdout/stderr chunks are
+yielded as ``ToolStreamEvent``s in real time. This allows UI consumers to display
+live output from sandbox execution.
+
+The tool is an **async generator**: each ``StreamChunk`` from the sandbox is
+yielded directly (the SDK decorator wraps it in a ``ToolStreamEvent``), and the
+final yield is the formatted result string (which becomes the ``ToolResult``).
 
 Configuration keys (set via ``agent.state.set("strands_shell_tool", {...})``):
 
@@ -14,8 +19,10 @@ Configuration keys (set via ``agent.state.set("strands_shell_tool", {...})``):
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
 from typing import Any
 
+from ...sandbox.base import ExecutionResult, StreamChunk
 from ...tools.decorator import tool
 from ...types.tools import ToolContext
 
@@ -46,17 +53,17 @@ async def shell(
     timeout: int | None = None,
     restart: bool = False,
     tool_context: ToolContext = None,  # type: ignore[assignment]
-) -> str:
-    """Execute a shell command in the agent's sandbox.
+) -> AsyncGenerator[Any, None]:
+    """Execute a shell command in the agent's sandbox with live output streaming.
 
     The sandbox preserves working directory and environment variables across
     calls when using a persistent sandbox implementation. Use ``restart=True``
     to reset the shell state.
 
     Commands are executed via the agent's sandbox
-    (``tool_context.agent.sandbox.execute()``). The sandbox may be a local
-    host sandbox, a Docker container, a remote cloud sandbox, or any other
-    implementation of the Sandbox interface.
+    (``sandbox.execute_streaming()``). Each chunk of stdout/stderr is yielded
+    as a streaming event that UI consumers can display in real time. The final
+    yield is the formatted result string.
 
     Configuration is read from ``agent.state.get("strands_shell_tool")``:
 
@@ -69,18 +76,19 @@ async def shell(
         restart: If True, reset shell state by clearing tracked working directory.
         tool_context: Framework-injected tool context.
 
-    Returns:
-        Command output. Includes stderr and exit code when non-zero.
+    Yields:
+        :class:`~strands.sandbox.base.StreamChunk` objects during execution (wrapped as
+        ``ToolStreamEvent`` by the SDK), then a final string result.
     """
     config = _get_config(tool_context)
     sandbox = tool_context.agent.sandbox
 
     # Handle restart
     if restart:
-        # Clear any tracked state
         _clear_shell_state(tool_context)
         if not command or not command.strip():
-            return "Shell state reset."
+            yield "Shell state reset."
+            return
 
     # Resolve timeout: per-call > config > default
     effective_timeout: int | None = timeout
@@ -94,28 +102,41 @@ async def shell(
             reason={"command": command, "message": "Approve this shell command?"},
         )
         if approval != "approve":
-            return f"Command not approved. Received: {approval}"
+            yield f"Command not approved. Received: {approval}"
+            return
 
     # Get tracked working directory from state (for session continuity)
     shell_state = tool_context.agent.state.get("_strands_shell_state") or {}
     cwd = shell_state.get("cwd")
 
-    # Execute via sandbox
+    # Execute via sandbox streaming
+    result: ExecutionResult | None = None
     try:
-        result = await sandbox.execute(
+        async for chunk in sandbox.execute_streaming(
             command,
             timeout=effective_timeout,
             cwd=cwd,
-        )
+        ):
+            if isinstance(chunk, StreamChunk):
+                # Yield each chunk — the decorator wraps it as ToolStreamEvent
+                yield chunk
+            elif isinstance(chunk, ExecutionResult):
+                result = chunk
     except asyncio.TimeoutError:
-        return f"Error: Command timed out after {effective_timeout} seconds."
+        yield f"Error: Command timed out after {effective_timeout} seconds."
+        return
     except NotImplementedError:
-        return "Error: Sandbox does not support command execution (NoOpSandbox)."
+        yield "Error: Sandbox does not support command execution (NoOpSandbox)."
+        return
     except Exception as e:
-        return f"Error: {e}"
+        yield f"Error: {e}"
+        return
+
+    if result is None:
+        yield "Error: Sandbox did not return an execution result."
+        return
 
     # Track working directory changes
-    # After each command, query the sandbox for cwd so cd persists
     try:
         cwd_result = await sandbox.execute("pwd", timeout=5, cwd=cwd)
         if cwd_result.exit_code == 0:
@@ -126,7 +147,7 @@ async def shell(
     except Exception:
         pass  # Best-effort cwd tracking
 
-    # Format output
+    # Format final output (becomes the ToolResult)
     output_parts = []
     if result.stdout:
         output_parts.append(result.stdout)
@@ -141,7 +162,7 @@ async def shell(
         else:
             output = f"Command failed with exit code: {result.exit_code}"
 
-    return output if output else "(no output)"
+    yield output if output else "(no output)"
 
 
 def _clear_shell_state(tool_context: ToolContext) -> None:

@@ -1,8 +1,13 @@
-"""Python REPL tool implementation.
+"""Python REPL tool implementation with streaming support.
 
 Executes Python code in the agent's sandbox using
-``sandbox.execute_code(code, language="python")``. Maintains state across
-calls by tracking the sandbox session.
+``sandbox.execute_code_streaming(code, language="python")``. Each chunk of
+stdout/stderr is yielded as a ``ToolStreamEvent`` in real time, allowing UI
+consumers to display live output from code execution.
+
+The tool is an **async generator**: ``StreamChunk`` objects from the sandbox
+are yielded during execution, and the final yield is the formatted result
+string that becomes the ``ToolResult``.
 
 Configuration keys (set via ``agent.state.set("strands_python_repl_tool", {...})``):
 
@@ -14,8 +19,10 @@ Configuration keys (set via ``agent.state.set("strands_python_repl_tool", {...})
 
 import asyncio
 import logging
+from collections.abc import AsyncGenerator
 from typing import Any
 
+from ...sandbox.base import ExecutionResult, StreamChunk
 from ...tools.decorator import tool
 from ...types.tools import ToolContext
 
@@ -39,13 +46,13 @@ async def python_repl(
     timeout: int | None = None,
     reset: bool = False,
     tool_context: ToolContext = None,  # type: ignore[assignment]
-) -> str:
-    """Execute Python code in the agent's sandbox.
+) -> AsyncGenerator[Any, None]:
+    """Execute Python code in the agent's sandbox with live output streaming.
 
     Code is executed via the agent's sandbox using
-    ``sandbox.execute_code(code, language="python")``. The sandbox determines
-    the execution environment — it may be a local Python interpreter, a Docker
-    container, or a remote cloud sandbox.
+    ``sandbox.execute_code_streaming(code, language="python")``. Each chunk
+    of stdout/stderr is yielded as a streaming event that UI consumers can
+    display in real time. The final yield is the formatted result string.
 
     Use ``reset=True`` to clear any sandbox-level state (e.g., restart the
     interpreter session if the sandbox supports it).
@@ -61,21 +68,22 @@ async def python_repl(
         reset: If True, signal the sandbox to reset execution state.
         tool_context: Framework-injected tool context.
 
-    Returns:
-        Code output (stdout + stderr). Includes exit code when non-zero.
+    Yields:
+        :class:`~strands.sandbox.base.StreamChunk` objects during execution (wrapped as
+        ``ToolStreamEvent`` by the SDK), then a final string result.
     """
     config = _get_config(tool_context)
     sandbox = tool_context.agent.sandbox
 
     # Handle reset
     if reset:
-        # Clear any tracked state
         try:
             tool_context.agent.state.delete("_strands_python_repl_state")
         except Exception:
             pass
         if not code or not code.strip():
-            return "Python REPL state reset."
+            yield "Python REPL state reset."
+            return
 
     # Resolve timeout: per-call > config > default
     effective_timeout: int | None = timeout
@@ -84,32 +92,44 @@ async def python_repl(
 
     # Interrupt for confirmation if configured
     if config.get("require_confirmation"):
-        # Show a preview of the code (truncated for readability)
         code_preview = code[:500] + ("..." if len(code) > 500 else "")
         approval = tool_context.interrupt(
             "python_repl_confirmation",
             reason={"code": code_preview, "message": "Approve this Python code execution?"},
         )
         if approval != "approve":
-            return f"Code execution not approved. Received: {approval}"
+            yield f"Code execution not approved. Received: {approval}"
+            return
 
-    # Execute via sandbox
+    # Execute via sandbox streaming
+    result: ExecutionResult | None = None
     try:
-        result = await sandbox.execute_code(
+        async for chunk in sandbox.execute_code_streaming(
             code,
             language="python",
             timeout=effective_timeout,
-        )
+        ):
+            if isinstance(chunk, StreamChunk):
+                # Yield each chunk — the decorator wraps it as ToolStreamEvent
+                yield chunk
+            elif isinstance(chunk, ExecutionResult):
+                result = chunk
     except asyncio.TimeoutError:
-        return f"Error: Code execution timed out after {effective_timeout} seconds."
+        yield f"Error: Code execution timed out after {effective_timeout} seconds."
+        return
     except NotImplementedError:
-        return "Error: Sandbox does not support code execution (NoOpSandbox)."
+        yield "Error: Sandbox does not support code execution (NoOpSandbox)."
+        return
     except Exception as e:
-        return f"Error: {e}"
+        yield f"Error: {e}"
+        return
+
+    if result is None:
+        yield "Error: Sandbox did not return an execution result."
+        return
 
     # Format output
     output_parts = []
-
     if result.stdout:
         output_parts.append(result.stdout)
     if result.stderr:
@@ -126,6 +146,9 @@ async def python_repl(
     # Handle output files (images, charts, etc.)
     if result.output_files:
         file_names = [f.name for f in result.output_files]
-        output += f"\n\nGenerated files: {', '.join(file_names)}"
+        if output:
+            output += f"\n\nGenerated files: {', '.join(file_names)}"
+        else:
+            output = f"Generated files: {', '.join(file_names)}"
 
-    return output if output else "(no output)"
+    yield output if output else "(no output)"
