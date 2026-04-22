@@ -7,6 +7,7 @@ from .event_loop._retry import ModelRetryStrategy
 from .plugins import Plugin
 from .tools.decorator import tool
 from .types._snapshot import Snapshot
+from .types.exceptions import MaxTokenBudgetReachedException, MaxTurnsReachedException
 from .types.tools import ToolContext
 from .vended_plugins.skills import AgentSkills, Skill
 
@@ -16,6 +17,8 @@ __all__ = [
     "AgentSkills",
     "agent",
     "models",
+    "MaxTokenBudgetReachedException",
+    "MaxTurnsReachedException",
     "ModelRetryStrategy",
     "Plugin",
     "Skill",

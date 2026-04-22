@@ -169,6 +169,9 @@ async def event_loop_cycle(
 
                 stop_reason, message, *_ = model_event["stop"]
                 agent._invocation_turn_count += 1
+                # metadata is attached to message inside _handle_model_execution before the
+                # stop event is the last item yielded, so it is populated by the time the
+                # async-for loop above finishes and we read model_event["stop"] here.
                 agent._invocation_token_count += (
                     message.get("metadata", {}).get("usage", {}).get("totalTokens", 0)
                 )

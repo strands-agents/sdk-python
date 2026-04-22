@@ -147,7 +147,7 @@ async def test_max_token_budget_stops_when_counter_already_at_limit():
     mock_agent._cancel_signal = threading.Event()
     mock_agent._model_state = {}
     mock_agent.trace_attributes = {}
-    mock_agent.retry_strategy = ModelRetryStrategy()
+    mock_agent._retry_strategy = ModelRetryStrategy()
     mock_agent.max_turns = None
     mock_agent.max_token_budget = 500
     mock_agent._invocation_turn_count = 0
@@ -184,3 +184,43 @@ def test_max_token_budget_resets_between_invocations():
 
     result = agent("second")
     assert result.stop_reason == "end_turn"
+
+
+@pytest.mark.asyncio
+async def test_max_token_budget_accumulates_from_message_metadata():
+    """Token accumulation reads totalTokens from the message metadata after each model call."""
+    mock_agent = unittest.mock.MagicMock()
+    mock_agent.__class__ = Agent
+    mock_agent.messages = []
+    mock_agent.tool_registry = ToolRegistry()
+    mock_agent.event_loop_metrics = EventLoopMetrics()
+    mock_agent.event_loop_metrics.reset_usage_metrics()
+    mock_agent.hooks.invoke_callbacks_async = unittest.mock.AsyncMock()
+    mock_agent._interrupt_state = _InterruptState()
+    mock_agent._cancel_signal = threading.Event()
+    mock_agent._model_state = {}
+    mock_agent.trace_attributes = {}
+    mock_agent._retry_strategy = ModelRetryStrategy()
+    mock_agent.max_turns = None
+    mock_agent.max_token_budget = None
+    mock_agent._invocation_turn_count = 0
+    mock_agent._invocation_token_count = 0
+
+    async def _stream_with_metadata(*args, **kwargs):
+        yield {"contentBlockStart": {"start": {"text": ""}}}
+        yield {"contentBlockDelta": {"delta": {"text": "hello"}}}
+        yield {"contentBlockStop": {}}
+        yield {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 150},
+                "metrics": {"latencyMs": 100},
+            }
+        }
+
+    mock_agent.model.stream = _stream_with_metadata
+
+    events = []
+    async for event in event_loop_cycle(agent=mock_agent, invocation_state={}):
+        events.append(event)
+
+    assert mock_agent._invocation_token_count == 150

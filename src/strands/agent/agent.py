@@ -216,10 +216,14 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
-            max_turns: Maximum number of event-loop cycles per invocation. Raises MaxTurnsReachedException
-                when exceeded. Must be a positive integer or None (no limit). Defaults to None.
-            max_token_budget: Maximum cumulative tokens per invocation. Raises MaxTokenBudgetReachedException
-                when exceeded. Must be a positive integer or None (no limit). Defaults to None.
+            max_turns: Maximum number of model calls per invocation. Raises MaxTurnsReachedException
+                when the limit is reached. Only model calls count; interrupt-resumed cycles and
+                forced structured-output retries each consume an additional turn, so combining
+                max_turns with structured output may cause an unexpected MaxTurnsReachedException
+                on the retry cycle. Must be a positive integer or None (no limit). Defaults to None.
+            max_token_budget: Maximum cumulative tokens (totalTokens) per invocation. Raises
+                MaxTokenBudgetReachedException when the limit is reached. Must be a positive
+                integer or None (no limit). Defaults to None.
 
         Raises:
             ValueError: If agent id contains path separators.
