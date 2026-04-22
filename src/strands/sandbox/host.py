@@ -37,6 +37,8 @@ async def _read_stream(
 
     Reads in chunks of up to ``_READ_CHUNK_SIZE`` bytes to handle
     binary output and extremely long lines without newlines.
+    Non-UTF-8 bytes are replaced with the Unicode replacement character
+    to prevent ``UnicodeDecodeError`` from crashing the sandbox.
 
     Args:
         stream: The subprocess stdout or stderr stream.
@@ -48,7 +50,7 @@ async def _read_stream(
         chunk_bytes = await stream.read(_READ_CHUNK_SIZE)
         if not chunk_bytes:
             break
-        collected.append(chunk_bytes.decode())
+        collected.append(chunk_bytes.decode(errors="replace"))
 
 
 class HostSandbox(Sandbox):
@@ -252,9 +254,9 @@ class HostSandbox(Sandbox):
             read_task = asyncio.gather(
                 _read_stream(proc.stdout, stdout_chunks),
                 _read_stream(proc.stderr, stderr_chunks),
+                proc.wait(),
             )
             await asyncio.wait_for(read_task, timeout=timeout)
-            await proc.wait()
         except asyncio.TimeoutError:
             proc.kill()
             await proc.communicate()

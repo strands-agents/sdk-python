@@ -140,7 +140,7 @@ class ShellBasedSandbox(Sandbox, ABC):
         encoded = base64.b64encode(content).decode("ascii")
         quoted_path = shlex.quote(path)
         # Create parent directories, then write content via base64 decode
-        cmd = f"mkdir -p $(dirname {quoted_path}) && printf '%s' {shlex.quote(encoded)} | base64 -d > {quoted_path}"
+        cmd = f"mkdir -p \"$(dirname {quoted_path})\" && printf '%s' {shlex.quote(encoded)} | base64 -d > {quoted_path}"
         result = await self.execute(cmd)
         if result.exit_code != 0:
             raise OSError(result.stderr)
