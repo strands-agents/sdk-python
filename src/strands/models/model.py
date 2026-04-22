@@ -291,7 +291,7 @@ class Model(abc.ABC):
         """
         pass
 
-    async def _estimate_tokens(
+    async def count_tokens(
         self,
         messages: Messages,
         tool_specs: list[ToolSpec] | None = None,
