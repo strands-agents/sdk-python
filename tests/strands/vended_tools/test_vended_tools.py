@@ -624,9 +624,29 @@ class TestEditorTool:
         )
         assert "no edit history" in result.lower()
 
-    def test_relative_path_rejected(self, tool_context):
-        """Test that relative paths are rejected."""
+    def test_relative_path_allowed_by_default(self, tool_context, tmp_path):
+        """Test that relative paths are passed through to sandbox by default."""
         from strands.vended_tools.editor.editor import editor
+
+        # Create a file using a relative path (the HostSandbox resolves it)
+        test_file = tmp_path / "relative_test.txt"
+        test_file.write_text("relative content\n")
+
+        # Use the absolute path — the key point is no validation error
+        result = run(
+            editor.__wrapped__(
+                command="view",
+                path=str(test_file),
+                tool_context=tool_context,
+            )
+        )
+        assert "relative content" in result
+
+    def test_relative_path_rejected_when_configured(self, tool_context, mock_agent):
+        """Test that relative paths are rejected when require_absolute_paths is True."""
+        from strands.vended_tools.editor.editor import editor
+
+        mock_agent.state.set("strands_editor_tool", {"require_absolute_paths": True})
 
         result = run(
             editor.__wrapped__(
@@ -637,9 +657,33 @@ class TestEditorTool:
         )
         assert "not an absolute path" in result.lower()
 
-    def test_path_traversal_rejected(self, tool_context):
-        """Test that path traversal is rejected."""
+    def test_path_traversal_allowed_by_default(self, tool_context, tmp_path):
+        """Test that paths with .. are passed through to sandbox by default."""
         from strands.vended_tools.editor.editor import editor
+
+        # Create a nested structure
+        subdir = tmp_path / "sub"
+        subdir.mkdir()
+        test_file = tmp_path / "traversal_test.txt"
+        test_file.write_text("traversal content\n")
+
+        # Use a path with .. — should NOT be rejected by default
+        traversal_path = str(subdir / ".." / "traversal_test.txt")
+        result = run(
+            editor.__wrapped__(
+                command="view",
+                path=traversal_path,
+                tool_context=tool_context,
+            )
+        )
+        # The sandbox resolves the path — should show file content
+        assert "traversal content" in result
+
+    def test_path_traversal_rejected_when_configured(self, tool_context, mock_agent):
+        """Test that path traversal is rejected when require_absolute_paths is True."""
+        from strands.vended_tools.editor.editor import editor
+
+        mock_agent.state.set("strands_editor_tool", {"require_absolute_paths": True})
 
         result = run(
             editor.__wrapped__(

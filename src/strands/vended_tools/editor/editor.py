@@ -14,10 +14,13 @@ Configuration keys (set via ``agent.state.set("strands_editor_tool", {...})``):
   before write operations (create, str_replace, insert). Default: False.
 - ``max_file_size`` (int): Maximum file size in bytes for read operations.
   Default: 1048576 (1 MB).
+- ``require_absolute_paths`` (bool): When True, rejects relative paths and
+  paths containing ``..``. When False (the default), paths are passed through
+  to the sandbox without filesystem-level validation — the sandbox decides
+  what a path means. Default: False.
 """
 
 import logging
-import os
 from typing import Any, Literal
 
 from ...tools.decorator import tool
@@ -118,16 +121,20 @@ async def editor(
     - **insert**: Insert ``new_str`` at ``insert_line`` (0-indexed line number).
     - **undo_edit**: Revert the last edit to the file at ``path``.
 
-    All paths must be absolute. File operations go through the agent's sandbox.
+    File operations go through the agent's sandbox. By default, paths are passed
+    through to the sandbox as-is — the sandbox decides what a path means. Set
+    ``require_absolute_paths: true`` in ``strands_editor_tool`` config to enforce
+    absolute paths and block directory traversal.
 
     Configuration is read from ``agent.state.get("strands_editor_tool")``:
 
     - ``require_confirmation``: Interrupt before write operations.
     - ``max_file_size``: Maximum file size in bytes (default: 1 MB).
+    - ``require_absolute_paths``: Reject relative paths and ``..`` (default: False).
 
     Args:
         command: The operation to perform.
-        path: Absolute path to the file or directory.
+        path: Path to the file or directory.
         file_text: Content for new file (required for ``create``).
         old_str: String to find and replace (required for ``str_replace``).
             Must appear exactly once in the file.
@@ -143,16 +150,17 @@ async def editor(
     config = _get_config(tool_context)
     sandbox = tool_context.agent.sandbox
 
-    # Validate absolute path
-    if not os.path.isabs(path):
-        suggested = os.path.abspath(path)
-        return f"Error: The path {path} is not an absolute path. Maybe you meant {suggested}?"
+    # Path validation is opt-in. By default, paths are passed straight through
+    # to the sandbox without filesystem-level validation. This allows sandboxes
+    # like S3Sandbox to use relative keys (e.g., "hello.txt") as paths.
+    if config.get("require_absolute_paths"):
+        import os
 
-    # Check for directory traversal
-    # Compare the user's path against the normalized version.
-    # If ".." was used, the normpath result will differ from the original.
-    if ".." in path:
-        return "Error: Path traversal (..) is not allowed."
+        if not os.path.isabs(path):
+            suggested = os.path.abspath(path)
+            return f"Error: The path {path} is not an absolute path. Maybe you meant {suggested}?"
+        if ".." in path:
+            return "Error: Path traversal (..) is not allowed."
 
     try:
         if command == "view":
