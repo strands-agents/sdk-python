@@ -434,8 +434,11 @@ class Agent(AgentBase):
 
         Returns the structured content block representation, preserving cache points
         and other non-text blocks. Returns None if no system prompt is set.
+
+        Returns:
+            The system prompt as a list of content blocks, or None if no system prompt is set.
         """
-        return self._system_prompt_content
+        return list(self._system_prompt_content) if self._system_prompt_content is not None else None
 
     @property
     def tool(self) -> _ToolCaller:
