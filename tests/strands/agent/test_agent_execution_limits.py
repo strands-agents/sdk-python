@@ -13,6 +13,7 @@ from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.registry import ToolRegistry
 from strands.types.exceptions import MaxTokenBudgetReachedException, MaxTurnsReachedException
 from tests.fixtures.mocked_model_provider import MockedModelProvider
+from tests.strands.event_loop.helpers import apply_execution_limit_defaults
 
 
 def _text_response(text="done"):
@@ -201,10 +202,7 @@ async def test_max_token_budget_accumulates_from_message_metadata():
     mock_agent._model_state = {}
     mock_agent.trace_attributes = {}
     mock_agent._retry_strategy = ModelRetryStrategy()
-    mock_agent.max_turns = None
-    mock_agent.max_token_budget = None
-    mock_agent._invocation_turn_count = 0
-    mock_agent._invocation_token_count = 0
+    apply_execution_limit_defaults(mock_agent)
 
     async def _stream_with_metadata(*args, **kwargs):
         yield {"contentBlockStart": {"start": {"text": ""}}}
