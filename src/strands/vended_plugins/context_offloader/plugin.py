@@ -59,13 +59,14 @@ _DEFAULT_RETRIEVE_LIMIT_BYTES = 10_000
 
 _STATE_KEY = "context_offloader"
 
-_SYSTEM_PROMPT_INJECTION = """
-<context_offloader>
-When tool results are too large for the context window, they are offloaded to storage.
-You will see placeholders like [Offloaded: N blocks, M text chars] with references.
-To retrieve offloaded content, use the retrieve_offloaded_content tool with the reference.
-You can paginate large content using the offset and limit parameters.
-</context_offloader>"""
+_SYSTEM_PROMPT_INJECTION = (
+    "\n\n<context_offloader>\n"
+    "When tool results are too large for the context window, they are offloaded to storage.\n"
+    "You will see placeholders like [Offloaded: N blocks, M text chars] with references.\n"
+    "To retrieve offloaded content, use the retrieve_offloaded_content tool with the reference.\n"
+    "You can paginate large content using the offset and limit parameters.\n"
+    "</context_offloader>"
+)
 
 
 class ContextOffloader(Plugin):
@@ -243,9 +244,7 @@ class ContextOffloader(Plugin):
                     img_bytes = image.get("source", {}).get("bytes", b"")
                     if img_bytes:
                         ref = self._storage.store(key, img_bytes, f"image/{img_format}")
-                        references.append(
-                            (ref, f"image/{img_format}", f"image/{img_format}, {len(img_bytes):,} bytes")
-                        )
+                        references.append((ref, f"image/{img_format}", f"image/{img_format}, {len(img_bytes):,} bytes"))
                     else:
                         references.append(("", f"image/{img_format}", f"image/{img_format}, 0 bytes"))
                 elif "document" in block:
@@ -255,9 +254,7 @@ class ContextOffloader(Plugin):
                     doc_bytes = doc.get("source", {}).get("bytes", b"")
                     if doc_bytes:
                         ref = self._storage.store(key, doc_bytes, f"application/{doc_format}")
-                        references.append(
-                            (ref, f"application/{doc_format}", f"{doc_name}, {len(doc_bytes):,} bytes")
-                        )
+                        references.append((ref, f"application/{doc_format}", f"{doc_name}, {len(doc_bytes):,} bytes"))
                     else:
                         references.append(("", f"application/{doc_format}", f"{doc_name}, 0 bytes"))
         except Exception:
@@ -327,9 +324,7 @@ class ContextOffloader(Plugin):
             value: The value to set.
         """
         state_data = agent.state.get(_STATE_KEY)
-        if state_data is not None and not isinstance(state_data, dict):
-            state_data = {}
-        if state_data is None:
+        if not isinstance(state_data, dict):
             state_data = {}
         state_data[key] = value
         agent.state.set(_STATE_KEY, state_data)

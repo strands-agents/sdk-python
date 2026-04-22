@@ -268,6 +268,35 @@ class TestContextOffloader:
         assert event.result["content"][0]["text"] == large_text
         assert "failed to offload" in caplog.text
 
+    def test_partial_storage_failure_keeps_original(self, mock_agent, caplog):
+        storage = MagicMock()
+        call_count = 0
+
+        def store_then_fail(key, content, content_type="text/plain"):
+            nonlocal call_count
+            call_count += 1
+            if call_count > 1:
+                raise RuntimeError("disk full on second block")
+            return f"ref_{call_count}"
+
+        storage.store.side_effect = store_then_fail
+
+        plugin = ContextOffloader(storage=storage, max_result_chars=100, preview_chars=50)
+
+        content = [
+            {"text": "a" * 60},
+            {"text": "b" * 60},
+        ]
+        event = _make_event(mock_agent, content)
+
+        with caplog.at_level(logging.WARNING):
+            plugin._handle_tool_result(event)
+
+        # Original result should be preserved despite first block being stored
+        assert event.result["content"][0]["text"] == "a" * 60
+        assert event.result["content"][1]["text"] == "b" * 60
+        assert "failed to offload" in caplog.text
+
     def test_empty_text_blocks_ignored_in_size_calculation(self, plugin, mock_agent):
         content = [
             {"text": ""},
@@ -431,9 +460,7 @@ class TestSystemPromptInjection:
     def test_does_not_double_inject(self, plugin, mock_agent):
         # Simulate already-injected state
         mock_agent.system_prompt = "You are a helper.\n\n<context_offloader>\nstuff\n</context_offloader>"
-        mock_agent.state.get.return_value = {
-            "last_injection": "\n\n<context_offloader>\nstuff\n</context_offloader>"
-        }
+        mock_agent.state.get.return_value = {"last_injection": "\n\n<context_offloader>\nstuff\n</context_offloader>"}
 
         event = BeforeInvocationEvent(agent=mock_agent)
         plugin._on_before_invocation(event)
