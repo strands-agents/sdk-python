@@ -10,8 +10,6 @@ well with this tool out of the box.
 
 Configuration keys (set via ``agent.state.set("strands_editor_tool", {...})``):
 
-- ``require_confirmation`` (bool): When True, the tool raises an interrupt
-  before write operations (create, str_replace, insert). Default: False.
 - ``max_file_size`` (int): Maximum file size in bytes for read operations.
   Default: 1048576 (1 MB).
 - ``require_absolute_paths`` (bool): When True, rejects relative paths and
@@ -128,7 +126,6 @@ async def editor(
 
     Configuration is read from ``agent.state.get("strands_editor_tool")``:
 
-    - ``require_confirmation``: Interrupt before write operations.
     - ``max_file_size``: Maximum file size in bytes (default: 1 MB).
     - ``require_absolute_paths``: Reject relative paths and ``..`` (default: False).
 
@@ -168,43 +165,16 @@ async def editor(
         elif command == "create":
             if file_text is None:
                 return "Error: Parameter `file_text` is required for command: create"
-            # Interrupt for confirmation if configured
-            if config.get("require_confirmation"):
-                approval = tool_context.interrupt(
-                    "editor_confirmation",
-                    reason={"command": "create", "path": path, "message": "Approve file creation?"},
-                )
-                if approval != "approve":
-                    return f"File creation not approved. Received: {approval}"
             return await _handle_create(sandbox, tool_context, path, file_text)
         elif command == "str_replace":
             if old_str is None:
                 return "Error: Parameter `old_str` is required for command: str_replace"
-            if config.get("require_confirmation"):
-                approval = tool_context.interrupt(
-                    "editor_confirmation",
-                    reason={
-                        "command": "str_replace",
-                        "path": path,
-                        "old_str": old_str[:200],
-                        "message": "Approve file edit?",
-                    },
-                )
-                if approval != "approve":
-                    return f"File edit not approved. Received: {approval}"
             return await _handle_str_replace(sandbox, tool_context, config, path, old_str, new_str or "")
         elif command == "insert":
             if insert_line is None:
                 return "Error: Parameter `insert_line` is required for command: insert"
             if new_str is None:
                 return "Error: Parameter `new_str` is required for command: insert"
-            if config.get("require_confirmation"):
-                approval = tool_context.interrupt(
-                    "editor_confirmation",
-                    reason={"command": "insert", "path": path, "message": "Approve file edit?"},
-                )
-                if approval != "approve":
-                    return f"File edit not approved. Received: {approval}"
             return await _handle_insert(sandbox, tool_context, config, path, insert_line, new_str)
         elif command == "undo_edit":
             return await _handle_undo(sandbox, tool_context, path)

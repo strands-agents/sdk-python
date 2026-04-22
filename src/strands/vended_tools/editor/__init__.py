@@ -11,8 +11,7 @@ Example::
 Configuration via agent state::
 
     agent.state.set("strands_editor_tool", {
-        "require_confirmation": True,  # Enable interrupt before write operations
-        "max_file_size": 1048576,      # Maximum file size in bytes (default: 1MB)
+        "max_file_size": 1048576,  # Maximum file size in bytes (default: 1MB)
     })
 """
 

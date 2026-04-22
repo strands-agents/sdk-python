@@ -11,8 +11,7 @@ Example::
 Configuration via agent state::
 
     agent.state.set("strands_python_repl_tool", {
-        "require_confirmation": True,  # Enable interrupt before execution
-        "timeout": 30,                 # Default timeout in seconds
+        "timeout": 30,  # Default timeout in seconds
     })
 """
 

@@ -24,7 +24,6 @@ Example::
 
     # Configure tools via agent state (persists across calls)
     agent.state.set("strands_shell_tool", {
-        "require_confirmation": True,
         "timeout": 60,
     })
 """

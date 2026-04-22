@@ -1,13 +1,13 @@
 """Tests for vended tools — shell, editor, python_repl.
 
 These tests use a real HostSandbox to validate end-to-end behavior.
-They also test configuration via agent.state, interrupt support, and
-streaming behavior (shell and python_repl yield StreamChunk events).
+They also test configuration via agent.state and streaming behavior
+(shell and python_repl yield StreamChunk events).
 """
 
 import asyncio
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -40,8 +40,6 @@ def mock_agent(sandbox, agent_state):
     agent = MagicMock()
     agent.sandbox = sandbox
     agent.state = agent_state
-    agent._interrupt_state = MagicMock()
-    agent._interrupt_state.interrupts = {}
     return agent
 
 
@@ -246,30 +244,6 @@ class TestShellTool:
             )
         )
         assert "2" in result
-
-    def test_interrupt_confirmation_approved(self, tool_context, mock_agent):
-        """Test interrupt confirmation when approved."""
-        from strands.vended_tools.shell.shell import shell
-
-        mock_agent.state.set("strands_shell_tool", {"require_confirmation": True})
-
-        with patch.object(type(tool_context), "interrupt", return_value="approve"):
-            chunks, result = run(
-                collect_generator(shell.__wrapped__(command="echo approved", tool_context=tool_context))
-            )
-            assert "approved" in result
-
-    def test_interrupt_confirmation_denied(self, tool_context, mock_agent):
-        """Test interrupt confirmation when denied."""
-        from strands.vended_tools.shell.shell import shell
-
-        mock_agent.state.set("strands_shell_tool", {"require_confirmation": True})
-
-        with patch.object(type(tool_context), "interrupt", return_value="deny"):
-            chunks, result = run(
-                collect_generator(shell.__wrapped__(command="echo test", tool_context=tool_context))
-            )
-            assert "not approved" in result.lower()
 
     def test_stream_chunk_types_are_correct(self, tool_context):
         """Test that all yielded chunks are proper StreamChunk instances."""
@@ -694,40 +668,6 @@ class TestEditorTool:
         )
         assert "not allowed" in result.lower()
 
-    def test_interrupt_confirmation(self, tool_context, mock_agent, tmp_path):
-        """Test interrupt for write operations."""
-        from strands.vended_tools.editor.editor import editor
-
-        mock_agent.state.set("strands_editor_tool", {"require_confirmation": True})
-
-        with patch.object(type(tool_context), "interrupt", return_value="approve"):
-            result = run(
-                editor.__wrapped__(
-                    command="create",
-                    path=str(tmp_path / "approved.py"),
-                    file_text="approved content",
-                    tool_context=tool_context,
-                )
-            )
-            assert "created" in result.lower()
-
-    def test_interrupt_denied(self, tool_context, mock_agent, tmp_path):
-        """Test interrupt denial for write operations."""
-        from strands.vended_tools.editor.editor import editor
-
-        mock_agent.state.set("strands_editor_tool", {"require_confirmation": True})
-
-        with patch.object(type(tool_context), "interrupt", return_value="deny"):
-            result = run(
-                editor.__wrapped__(
-                    command="create",
-                    path=str(tmp_path / "denied.py"),
-                    file_text="content",
-                    tool_context=tool_context,
-                )
-            )
-            assert "not approved" in result.lower()
-
     def test_noop_sandbox(self, tool_context, mock_agent, tmp_path):
         """Test editor with NoOpSandbox."""
         mock_agent.sandbox = NoOpSandbox()
@@ -954,40 +894,6 @@ print(fibonacci(10))
         )
         assert "error" in result.lower()
 
-    def test_interrupt_confirmation(self, tool_context, mock_agent):
-        """Test interrupt confirmation for code execution."""
-        from strands.vended_tools.python_repl.python_repl import python_repl
-
-        mock_agent.state.set("strands_python_repl_tool", {"require_confirmation": True})
-
-        with patch.object(type(tool_context), "interrupt", return_value="approve"):
-            chunks, result = run(
-                collect_generator(
-                    python_repl.__wrapped__(
-                        code="print('approved')",
-                        tool_context=tool_context,
-                    )
-                )
-            )
-            assert "approved" in result
-
-    def test_interrupt_denied(self, tool_context, mock_agent):
-        """Test interrupt denial for code execution."""
-        from strands.vended_tools.python_repl.python_repl import python_repl
-
-        mock_agent.state.set("strands_python_repl_tool", {"require_confirmation": True})
-
-        with patch.object(type(tool_context), "interrupt", return_value="deny"):
-            chunks, result = run(
-                collect_generator(
-                    python_repl.__wrapped__(
-                        code="print('should not run')",
-                        tool_context=tool_context,
-                    )
-                )
-            )
-            assert "not approved" in result.lower()
-
     def test_stream_chunk_types_are_correct(self, tool_context):
         """Test that all yielded chunks are proper StreamChunk instances."""
         from strands.vended_tools.python_repl.python_repl import python_repl
@@ -1126,10 +1032,9 @@ class TestConfigPersistence:
 
     def test_shell_config_persists(self, mock_agent, agent_state):
         """Test shell config is read from agent state."""
-        agent_state.set("strands_shell_tool", {"timeout": 300, "require_confirmation": False})
+        agent_state.set("strands_shell_tool", {"timeout": 300})
         config = agent_state.get("strands_shell_tool")
         assert config["timeout"] == 300
-        assert config["require_confirmation"] is False
 
     def test_editor_config_persists(self, mock_agent, agent_state):
         """Test editor config is read from agent state."""

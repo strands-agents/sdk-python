@@ -11,8 +11,6 @@ string that becomes the ``ToolResult``.
 
 Configuration keys (set via ``agent.state.set("strands_python_repl_tool", {...})``):
 
-- ``require_confirmation`` (bool): When True, the tool raises an interrupt
-  before executing code, requiring human approval. Default: False.
 - ``timeout`` (int): Default timeout in seconds for code execution.
   Overridden by the per-call ``timeout`` parameter. Default: 30.
 """
@@ -59,7 +57,6 @@ async def python_repl(
 
     Configuration is read from ``agent.state.get("strands_python_repl_tool")``:
 
-    - ``require_confirmation``: Interrupt before execution for human approval.
     - ``timeout``: Default timeout in seconds (overridden by per-call timeout).
 
     Args:
@@ -89,17 +86,6 @@ async def python_repl(
     effective_timeout: int | None = timeout
     if effective_timeout is None:
         effective_timeout = config.get("timeout", DEFAULT_TIMEOUT)
-
-    # Interrupt for confirmation if configured
-    if config.get("require_confirmation"):
-        code_preview = code[:500] + ("..." if len(code) > 500 else "")
-        approval = tool_context.interrupt(
-            "python_repl_confirmation",
-            reason={"code": code_preview, "message": "Approve this Python code execution?"},
-        )
-        if approval != "approve":
-            yield f"Code execution not approved. Received: {approval}"
-            return
 
     # Execute via sandbox streaming
     result: ExecutionResult | None = None

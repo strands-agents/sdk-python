@@ -11,8 +11,6 @@ final yield is the formatted result string (which becomes the ``ToolResult``).
 
 Configuration keys (set via ``agent.state.set("strands_shell_tool", {...})``):
 
-- ``require_confirmation`` (bool): When True, the tool raises an interrupt
-  before executing each command, requiring human approval. Default: False.
 - ``timeout`` (int): Default timeout in seconds. Overridden by the per-call
   ``timeout`` parameter. Default: 120.
 """
@@ -67,7 +65,6 @@ async def shell(
 
     Configuration is read from ``agent.state.get("strands_shell_tool")``:
 
-    - ``require_confirmation``: Interrupt before execution for human approval.
     - ``timeout``: Default timeout in seconds (overridden by per-call timeout).
 
     Args:
@@ -94,16 +91,6 @@ async def shell(
     effective_timeout: int | None = timeout
     if effective_timeout is None:
         effective_timeout = config.get("timeout", DEFAULT_TIMEOUT)
-
-    # Interrupt for confirmation if configured
-    if config.get("require_confirmation"):
-        approval = tool_context.interrupt(
-            "shell_confirmation",
-            reason={"command": command, "message": "Approve this shell command?"},
-        )
-        if approval != "approve":
-            yield f"Command not approved. Received: {approval}"
-            return
 
     # Get tracked working directory from state (for session continuity)
     shell_state = tool_context.agent.state.get("_strands_shell_state") or {}

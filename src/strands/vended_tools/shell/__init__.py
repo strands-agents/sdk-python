@@ -11,8 +11,7 @@ Example::
 Configuration via agent state::
 
     agent.state.set("strands_shell_tool", {
-        "require_confirmation": True,  # Enable interrupt before execution
-        "timeout": 120,                # Default timeout in seconds
+        "timeout": 120,  # Default timeout in seconds
     })
 """
 
