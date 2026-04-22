@@ -29,6 +29,7 @@ from .. import _identifier
 from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
+from ..experimental.checkpoint import Checkpoint
 from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types._snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
@@ -146,6 +147,7 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
+        checkpointing: bool = False,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -214,6 +216,11 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
+            checkpointing: When True, the event loop pauses at cycle boundaries (after model call,
+                after all tools execute) and returns an AgentResult with stop_reason="checkpoint"
+                and a populated ``checkpoint`` field. Persist the checkpoint and resume by passing a
+                ``CheckpointResumeContent`` block as the next prompt. Defaults to False.
+                See :mod:`strands.experimental.checkpoint` for usage and limitations.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -303,6 +310,10 @@ class Agent(AgentBase):
         self._plugin_registry = _PluginRegistry(self)
 
         self._interrupt_state = _InterruptState()
+
+        # Checkpointing: when True, event loop pauses at cycle boundaries
+        self._checkpointing: bool = checkpointing
+        self._checkpoint_resume_context: Checkpoint | None = None
 
         # Runtime state for model providers (e.g., server-side response ids)
         self._model_state: dict[str, Any] = {}
@@ -997,6 +1008,46 @@ class Agent(AgentBase):
     async def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         if self._interrupt_state.activated:
             return []
+
+        # Resume detection — must run before existing shape handling so checkpointResume
+        # blocks aren't misinterpreted as content blocks. Mirrors _InterruptState.resume()
+        # conventions (TypeError for shape, KeyError for lookup, ValueError for misconfig;
+        # error messages use the SDK's key=<value> | message format).
+        if isinstance(prompt, list) and prompt:
+            has_checkpoint_resume = any(isinstance(c, dict) and "checkpointResume" in c for c in prompt)
+            if has_checkpoint_resume:
+                if not self._checkpointing:
+                    raise ValueError(
+                        "Received checkpointResume block but agent was created with "
+                        "checkpointing=False. Pass checkpointing=True when constructing "
+                        "the Agent to enable durable execution."
+                    )
+
+                invalid_types = [
+                    key
+                    for content in prompt
+                    if isinstance(content, dict)
+                    for key in content
+                    if key != "checkpointResume"
+                ]
+                if invalid_types:
+                    raise TypeError(
+                        f"content_types=<{invalid_types}> | checkpointResume cannot be mixed with other content types"
+                    )
+
+                if len(prompt) != 1:
+                    raise TypeError(
+                        f"block_count=<{len(prompt)}> | only one checkpointResume block permitted per prompt"
+                    )
+
+                resume_block = prompt[0].get("checkpointResume", {})
+                if not isinstance(resume_block, dict) or "checkpoint" not in resume_block:
+                    raise KeyError("checkpoint | missing required key in checkpointResume block")
+
+                checkpoint = Checkpoint.from_dict(resume_block["checkpoint"])
+                self.load_snapshot(Snapshot.from_dict(checkpoint.snapshot))
+                self._checkpoint_resume_context = checkpoint
+                return []
 
         messages: Messages | None = None
         if prompt is not None:

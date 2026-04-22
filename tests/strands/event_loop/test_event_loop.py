@@ -13,6 +13,7 @@ import strands
 import strands.telemetry
 from strands import Agent
 from strands.event_loop._retry import ModelRetryStrategy
+from strands.experimental.checkpoint import Checkpoint
 from strands.hooks import (
     AfterModelCallEvent,
     BeforeModelCallEvent,
@@ -157,6 +158,8 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock._interrupt_state = _InterruptState()
     mock._cancel_signal = threading.Event()
     mock._model_state = {}
+    mock._checkpointing = False
+    mock._checkpoint_resume_context = None
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
 
@@ -190,7 +193,7 @@ async def test_event_loop_cycle_text_response(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
@@ -222,7 +225,7 @@ async def test_event_loop_cycle_text_response_throttling(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
@@ -260,7 +263,7 @@ async def test_event_loop_cycle_exponential_backoff(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     # Verify the final response
     assert tru_stop_reason == "end_turn"
@@ -351,7 +354,7 @@ async def test_event_loop_cycle_tool_result(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
@@ -469,7 +472,7 @@ async def test_event_loop_cycle_stop(
         invocation_state={"request_state": {"stop_event_loop": True}},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "tool_use"
     exp_message = {
@@ -833,7 +836,7 @@ async def test_request_state_initialization(alist):
         invocation_state={},
     )
     events = await alist(stream)
-    _, _, _, tru_request_state, _, _ = events[-1]["stop"]
+    _, _, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     # Verify request_state was initialized to empty dict
     assert tru_request_state == {}
@@ -845,7 +848,7 @@ async def test_request_state_initialization(alist):
         invocation_state={"request_state": initial_request_state},
     )
     events = await alist(stream)
-    _, _, _, tru_request_state, _, _ = events[-1]["stop"]
+    _, _, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     # Verify existing request_state was preserved
     assert tru_request_state == initial_request_state
@@ -969,7 +972,7 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
     stream = strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={})
     events = await alist(stream)
 
-    tru_stop_reason, _, _, _, tru_interrupts, _ = events[-1]["stop"]
+    tru_stop_reason, _, _, _, tru_interrupts, _, _ = events[-1]["stop"]
     exp_stop_reason = "interrupt"
     exp_interrupts = [
         Interrupt(
@@ -1064,7 +1067,7 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
     stream = strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={})
     events = await alist(stream)
 
-    tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
+    tru_stop_reason, _, _, _, _, _, _ = events[-1]["stop"]
     exp_stop_reason = "end_turn"
     assert tru_stop_reason == exp_stop_reason
 
@@ -1196,5 +1199,99 @@ async def test_event_loop_metrics_recorded_before_recursion(
         assert mock_end_cycle.call_count == 2
 
         # Verify the event loop completed successfully
-        tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
+        tru_stop_reason, _, _, _, _, _, _ = events[-1]["stop"]
         assert tru_stop_reason == "end_turn"
+
+
+# --- Checkpoint event loop integration (Tasks 9-10) ---
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_checkpoint_after_model(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    """With checkpointing=True, tool_use stop_reason yields after_model checkpoint instead of running tools."""
+    agent._checkpointing = True
+    agent._checkpoint_resume_context = None
+    agent.take_snapshot = unittest.mock.Mock(
+        return_value=unittest.mock.Mock(to_dict=lambda: {"data": {"messages": []}})
+    )
+
+    model.stream.return_value = agenerator(tool_stream)
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state={},
+    )
+    events = await alist(stream)
+    stop = events[-1]["stop"]
+    tru_stop_reason, _, _, _, _, _, tru_checkpoint = stop
+
+    assert tru_stop_reason == "checkpoint"
+    assert tru_checkpoint is not None
+    assert tru_checkpoint.position == "after_model"
+    assert tru_checkpoint.cycle_index == 0
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_checkpoint_after_tools(
+    agent,
+    model,
+    tool,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    """With checkpointing=True and resume from after_model, tools execute then yield after_tools checkpoint."""
+    agent._checkpointing = True
+    agent.take_snapshot = unittest.mock.Mock(
+        return_value=unittest.mock.Mock(to_dict=lambda: {"data": {"messages": []}})
+    )
+    agent._checkpoint_resume_context = Checkpoint(position="after_model", cycle_index=0)
+
+    model.stream.return_value = agenerator(tool_stream)
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state={},
+    )
+    events = await alist(stream)
+    tru_stop_reason, _, _, _, _, _, tru_checkpoint = events[-1]["stop"]
+
+    assert tru_stop_reason == "checkpoint"
+    assert tru_checkpoint is not None
+    assert tru_checkpoint.position == "after_tools"
+    assert tru_checkpoint.cycle_index == 0
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_checkpoint_resume_after_tools_increments_cycle(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    """Resuming from after_tools sets cycle_index to previous + 1 for the next after_model checkpoint."""
+    agent._checkpointing = True
+    agent._checkpoint_resume_context = Checkpoint(position="after_tools", cycle_index=2)
+    agent.take_snapshot = unittest.mock.Mock(
+        return_value=unittest.mock.Mock(to_dict=lambda: {"data": {"messages": []}})
+    )
+
+    model.stream.return_value = agenerator(tool_stream)
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state={},
+    )
+    events = await alist(stream)
+    tru_stop_reason, _, _, _, _, _, tru_checkpoint = events[-1]["stop"]
+
+    assert tru_stop_reason == "checkpoint"
+    assert tru_checkpoint.position == "after_model"
+    assert tru_checkpoint.cycle_index == 3

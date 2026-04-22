@@ -17,6 +17,14 @@ User-facing pattern (same as interrupts):
 - State via AgentResult.checkpoint field
 - Resume via checkpointResume content block in next agent() call
 
+Interaction with interrupts:
+- Interrupts take priority over checkpoints. If a tool raises an Interrupt
+  during a checkpointing=True cycle, the event loop returns
+  stop_reason="interrupt" (not "checkpoint"). The after_tools checkpoint
+  is never reached because the interrupt path returns early.
+- This is intentional: interrupts require human input, checkpoints are
+  for worker-level durability. Different semantics, different priorities.
+
 V0 Known Limitations:
 - Metrics reset on each resume call. The caller is responsible for aggregating
   metrics across a durable run. EventLoopMetrics reflects only the current call.
@@ -34,6 +42,8 @@ V0 Known Limitations:
 import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
+
+from ...types.exceptions import CheckpointException
 
 logger = logging.getLogger(__name__)
 
@@ -79,11 +89,11 @@ class Checkpoint:
             data: Serialized checkpoint data.
 
         Raises:
-            ValueError: If schema_version doesn't match the current version.
+            CheckpointException: If schema_version doesn't match the current version.
         """
         version = data.get("schema_version", "")
         if version != CHECKPOINT_SCHEMA_VERSION:
-            raise ValueError(
+            raise CheckpointException(
                 f"Checkpoints with schema version {version!r} are not compatible "
                 f"with current version {CHECKPOINT_SCHEMA_VERSION}."
             )

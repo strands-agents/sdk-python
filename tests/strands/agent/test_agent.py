@@ -29,7 +29,12 @@ from strands.telemetry.tracer import serialize
 from strands.types._events import EventLoopStopEvent, ModelStreamEvent
 from strands.types.agent import ConcurrentInvocationMode
 from strands.types.content import Messages
-from strands.types.exceptions import ConcurrencyException, ContextWindowOverflowException, EventLoopException
+from strands.types.exceptions import (
+    CheckpointException,
+    ConcurrencyException,
+    ContextWindowOverflowException,
+    EventLoopException,
+)
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -2773,3 +2778,66 @@ def test_as_tool_defaults_description_when_agent_has_none():
     tool = agent.as_tool()
 
     assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"
+
+
+# =========================================================================
+# Checkpoint integration tests (Part B)
+# =========================================================================
+
+
+def test_agent_checkpointing_defaults_to_false() -> None:
+    agent = Agent()
+    assert agent._checkpointing is False
+    assert agent._checkpoint_resume_context is None
+
+
+def test_agent_checkpointing_flag_stored() -> None:
+    agent = Agent(checkpointing=True)
+    assert agent._checkpointing is True
+    assert agent._checkpoint_resume_context is None
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_resume_without_checkpointing_flag_raises_value_error() -> None:
+    agent = Agent(checkpointing=False)
+    prompt = [{"checkpointResume": {"checkpoint": {}}}]
+    with pytest.raises(ValueError, match="checkpointing=True"):
+        await agent.invoke_async(prompt)
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_resume_mixed_content_raises_type_error() -> None:
+    agent = Agent(checkpointing=True)
+    prompt = [
+        {"checkpointResume": {"checkpoint": {}}},
+        {"text": "bogus"},
+    ]
+    with pytest.raises(TypeError, match="content_types"):
+        await agent.invoke_async(prompt)
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_resume_multiple_blocks_raises_type_error() -> None:
+    agent = Agent(checkpointing=True)
+    prompt = [
+        {"checkpointResume": {"checkpoint": {}}},
+        {"checkpointResume": {"checkpoint": {}}},
+    ]
+    with pytest.raises(TypeError, match="block_count"):
+        await agent.invoke_async(prompt)
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_resume_missing_checkpoint_key_raises_key_error() -> None:
+    agent = Agent(checkpointing=True)
+    prompt = [{"checkpointResume": {}}]
+    with pytest.raises(KeyError, match="checkpoint"):
+        await agent.invoke_async(prompt)
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_resume_schema_mismatch_raises_checkpoint_exception() -> None:
+    agent = Agent(checkpointing=True)
+    prompt = [{"checkpointResume": {"checkpoint": {"schema_version": "0.1", "position": "after_model"}}}]
+    with pytest.raises(CheckpointException, match="schema version"):
+        await agent.invoke_async(prompt)

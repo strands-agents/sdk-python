@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace as trace_api
 
+from ..experimental.checkpoint import Checkpoint
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
@@ -122,6 +123,19 @@ async def event_loop_cycle(
     # Initialize state and get cycle trace
     if "request_state" not in invocation_state:
         invocation_state["request_state"] = {}
+
+    # Consume checkpoint resume context (one-shot: cleared after reading).
+    # Cross-invocation state (resume context) lives on the agent; within-cycle
+    # transient state (resume position for the skip check, cycle index) lives
+    # in invocation_state.
+    resume_ctx = agent._checkpoint_resume_context
+    if resume_ctx is not None:
+        agent._checkpoint_resume_context = None
+        # after_tools completed that cycle, so next cycle starts at +1
+        next_cycle = resume_ctx.cycle_index + 1 if resume_ctx.position == "after_tools" else resume_ctx.cycle_index
+        invocation_state["_checkpoint_cycle_index"] = next_cycle
+        invocation_state["_checkpoint_resume_position"] = resume_ctx.position
+
     attributes = {"event_loop_cycle_id": str(invocation_state.get("event_loop_cycle_id"))}
     cycle_start_time, cycle_trace = agent.event_loop_metrics.start_cycle(attributes=attributes)
     invocation_state["event_loop_cycle_trace"] = cycle_trace
@@ -181,6 +195,32 @@ async def event_loop_cycle(
                 )
 
             if stop_reason == "tool_use":
+                # Checkpoint after model call, before tool execution.
+                # One-shot pop: safe because after_model always returns before reaching
+                # after_tools, so the stashed position is only consumed once.
+                if agent._checkpointing:
+                    resume_pos = invocation_state.pop("_checkpoint_resume_position", None)
+                    if resume_pos == "after_model":
+                        pass  # Just resumed here — skip re-checkpoint, proceed to tools
+                    else:
+                        cycle_index = invocation_state.get("_checkpoint_cycle_index", 0)
+                        checkpoint = Checkpoint(
+                            position="after_model",
+                            cycle_index=cycle_index,
+                            snapshot=agent.take_snapshot(preset="session").to_dict(),
+                        )
+                        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+                        if cycle_span:
+                            tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
+                        yield EventLoopStopEvent(
+                            "checkpoint",
+                            message,
+                            agent.event_loop_metrics,
+                            invocation_state["request_state"],
+                            checkpoint=checkpoint,
+                        )
+                        return
+
                 # Handle tool execution
                 tool_events = _handle_tool_execution(
                     stop_reason,
@@ -587,6 +627,24 @@ async def _handle_tool_execution(
             agent.event_loop_metrics,
             invocation_state["request_state"],
             structured_output=structured_output_result,
+        )
+        return
+
+    # Checkpoint after all tools complete, before the next model call.
+    if agent._checkpointing:
+        cycle_index = invocation_state.get("_checkpoint_cycle_index", 0)
+        invocation_state["_checkpoint_cycle_index"] = cycle_index + 1
+        checkpoint = Checkpoint(
+            position="after_tools",
+            cycle_index=cycle_index,
+            snapshot=agent.take_snapshot(preset="session").to_dict(),
+        )
+        yield EventLoopStopEvent(
+            "checkpoint",
+            message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+            checkpoint=checkpoint,
         )
         return
 
