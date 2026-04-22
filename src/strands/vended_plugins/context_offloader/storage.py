@@ -1,26 +1,27 @@
-"""Storage backends for externalized tool results.
+"""Storage backends for offloaded tool result content.
 
-This module defines the ExternalizationStorage protocol and provides three
-built-in implementations: file-based, in-memory, and S3 storage.
+This module defines the Storage protocol and provides three built-in
+implementations: file-based, in-memory, and S3 storage. Each content block
+from a tool result is stored individually with its content type preserved.
 
 Example:
     ```python
-    from strands.vended_plugins.result_externalizer import (
-        FileExternalizationStorage,
-        InMemoryExternalizationStorage,
-        S3ExternalizationStorage,
+    from strands.vended_plugins.context_offloader import (
+        FileStorage,
+        InMemoryStorage,
+        S3Storage,
     )
 
     # File-based storage
-    storage = FileExternalizationStorage(artifact_dir="./artifacts")
-    ref = storage.store("tool_123", "large output content...")
-    content = storage.retrieve(ref)
+    storage = FileStorage(artifact_dir="./artifacts")
+    ref = storage.store("tool_123_0", b"large output content...", "text/plain")
+    content, content_type = storage.retrieve(ref)
 
     # In-memory storage (useful for testing and serverless)
-    storage = InMemoryExternalizationStorage()
+    storage = InMemoryStorage()
 
     # S3 storage
-    storage = S3ExternalizationStorage(bucket="my-bucket", prefix="artifacts/")
+    storage = S3Storage(bucket="my-bucket", prefix="artifacts/")
     ```
 """
 
@@ -34,30 +35,51 @@ import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 
+_CONTENT_TYPE_TO_EXTENSION: dict[str, str] = {
+    "text/plain": ".txt",
+    "application/json": ".json",
+}
 
-def _sanitize_id(tool_use_id: str) -> str:
-    """Sanitize a tool use ID for safe use in filenames and object keys.
+
+def _sanitize_id(raw_id: str) -> str:
+    """Sanitize an ID for safe use in filenames and object keys.
 
     Replaces path separators, parent directory references, and other
     unsafe characters with underscores.
 
     Args:
-        tool_use_id: The raw tool use ID.
+        raw_id: The raw ID string.
 
     Returns:
         A sanitized string safe for use in filenames.
     """
-    sanitized = tool_use_id.replace("..", "_").replace("/", "_").replace("\\", "_")
+    sanitized = raw_id.replace("..", "_").replace("/", "_").replace("\\", "_")
     sanitized = re.sub(r"[^\w\-.]", "_", sanitized)
     return sanitized
 
 
-@runtime_checkable
-class ExternalizationStorage(Protocol):
-    """Backend for storing and retrieving externalized tool results.
+def _extension_for(content_type: str) -> str:
+    """Return a file extension for the given content type.
 
-    The SDK ships three built-in implementations: ``InMemoryExternalizationStorage``,
-    ``FileExternalizationStorage``, and ``S3ExternalizationStorage``. Implement this
+    Args:
+        content_type: MIME content type.
+
+    Returns:
+        A file extension including the leading dot.
+    """
+    if content_type in _CONTENT_TYPE_TO_EXTENSION:
+        return _CONTENT_TYPE_TO_EXTENSION[content_type]
+    subtype = content_type.split("/")[-1]
+    return f".{subtype}"
+
+
+@runtime_checkable
+class Storage(Protocol):
+    """Backend for storing and retrieving offloaded content blocks.
+
+    Each content block from a tool result is stored individually with its
+    content type preserved. The SDK ships three built-in implementations:
+    ``InMemoryStorage``, ``FileStorage``, and ``S3Storage``. Implement this
     protocol to create custom storage backends (e.g., Redis, DynamoDB).
 
     Lifecycle:
@@ -65,29 +87,30 @@ class ExternalizationStorage(Protocol):
         Stored content accumulates for the lifetime of the storage instance. For
         long-running agents, create a new storage instance per session or use a
         backend with built-in lifecycle management (e.g., S3 lifecycle policies).
-        See #2168 for ongoing work on eviction strategies.
     """
 
-    def store(self, tool_use_id: str, content: str) -> str:
+    def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content and return a reference identifier.
 
         Args:
-            tool_use_id: The tool use ID that produced this content.
-            content: The full text content to store.
+            key: A unique key for this content block.
+            content: The raw content bytes to store.
+            content_type: MIME type of the content (e.g., "text/plain",
+                "application/json", "image/png", "application/pdf").
 
         Returns:
             A reference string that can be used to retrieve the content later.
         """
         ...
 
-    def retrieve(self, reference: str) -> str:
+    def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve stored content by reference.
 
         Args:
             reference: The reference returned by a previous store() call.
 
         Returns:
-            The stored content.
+            A tuple of (content bytes, content type).
 
         Raises:
             KeyError: If the reference is not found.
@@ -95,11 +118,11 @@ class ExternalizationStorage(Protocol):
         ...
 
 
-class FileExternalizationStorage:
-    """Store externalized tool results as files on disk.
+class FileStorage:
+    """Store offloaded content as files on disk.
 
-    Files are written to the configured artifact directory with unique names
-    based on timestamp, counter, and tool use ID.
+    Files are written to the configured artifact directory with unique names.
+    File extensions are derived from the content type.
 
     Args:
         artifact_dir: Directory path where artifact files will be stored.
@@ -114,39 +137,43 @@ class FileExternalizationStorage:
         self._artifact_dir = Path(artifact_dir)
         self._counter: int = 0
         self._lock = threading.Lock()
+        self._content_types: dict[str, str] = {}
 
-    def store(self, tool_use_id: str, content: str) -> str:
+    def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content as a file and return the filename as reference.
 
         Args:
-            tool_use_id: The tool use ID that produced this content.
-            content: The full text content to store.
+            key: A unique key for this content block.
+            content: The raw content bytes to store.
+            content_type: MIME type of the content.
 
         Returns:
             The filename (not full path) used as the reference.
         """
         self._artifact_dir.mkdir(parents=True, exist_ok=True)
 
-        sanitized_id = _sanitize_id(tool_use_id)
+        sanitized_key = _sanitize_id(key)
         timestamp_ms = int(time.time() * 1000)
+        ext = _extension_for(content_type)
         with self._lock:
             self._counter += 1
             counter = self._counter
-        filename = f"{timestamp_ms}_{counter}_{sanitized_id}.txt"
+            filename = f"{timestamp_ms}_{counter}_{sanitized_key}{ext}"
+            self._content_types[filename] = content_type
 
         file_path = self._artifact_dir / filename
-        file_path.write_text(content, encoding="utf-8")
+        file_path.write_bytes(content)
 
         return filename
 
-    def retrieve(self, reference: str) -> str:
+    def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve content from a stored file.
 
         Args:
             reference: The filename reference returned by store().
 
         Returns:
-            The stored content.
+            A tuple of (content bytes, content type).
 
         Raises:
             KeyError: If the file does not exist.
@@ -156,11 +183,12 @@ class FileExternalizationStorage:
             raise KeyError(f"Reference not found: {reference}")
         if not file_path.is_file():
             raise KeyError(f"Reference not found: {reference}")
-        return file_path.read_text(encoding="utf-8")
+        content_type = self._content_types.get(reference, "application/octet-stream")
+        return file_path.read_bytes(), content_type
 
 
-class InMemoryExternalizationStorage:
-    """Store externalized tool results in memory.
+class InMemoryStorage:
+    """Store offloaded content in memory.
 
     Useful for testing and serverless environments where disk access
     is not available or not desired. Thread-safe.
@@ -168,40 +196,41 @@ class InMemoryExternalizationStorage:
     Note:
         Content accumulates for the lifetime of this instance. For long-running
         agents, consider creating a new instance per session or switching to
-        ``FileExternalizationStorage`` or ``S3ExternalizationStorage`` for
-        persistent storage with external lifecycle management.
+        ``FileStorage`` or ``S3Storage`` for persistent storage with external
+        lifecycle management.
     """
 
     def __init__(self) -> None:
         """Initialize in-memory storage."""
-        self._store: dict[str, str] = {}
+        self._store: dict[str, tuple[bytes, str]] = {}
         self._counter: int = 0
         self._lock = threading.Lock()
 
-    def store(self, tool_use_id: str, content: str) -> str:
+    def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content in memory and return a reference.
 
         Args:
-            tool_use_id: The tool use ID that produced this content.
-            content: The full text content to store.
+            key: A unique key for this content block.
+            content: The raw content bytes to store.
+            content_type: MIME type of the content.
 
         Returns:
             A unique reference string.
         """
         with self._lock:
             self._counter += 1
-            reference = f"mem_{self._counter}_{tool_use_id}"
-            self._store[reference] = content
+            reference = f"mem_{self._counter}_{key}"
+            self._store[reference] = (content, content_type)
         return reference
 
-    def retrieve(self, reference: str) -> str:
+    def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve content from memory.
 
         Args:
             reference: The reference returned by store().
 
         Returns:
-            The stored content.
+            A tuple of (content bytes, content type).
 
         Raises:
             KeyError: If the reference is not found.
@@ -214,18 +243,18 @@ class InMemoryExternalizationStorage:
     def clear(self) -> None:
         """Remove all stored content.
 
-        Call this to free memory when externalized results are no longer needed,
+        Call this to free memory when offloaded results are no longer needed,
         e.g., between sessions or after an invocation completes.
         """
         with self._lock:
             self._store.clear()
 
 
-class S3ExternalizationStorage:
-    """Store externalized tool results in Amazon S3.
+class S3Storage:
+    """Store offloaded content in Amazon S3.
 
-    Objects are stored as UTF-8 text with unique keys based on timestamp,
-    counter, and tool use ID under the configured prefix.
+    Objects are stored with unique keys under the configured prefix.
+    Content type is preserved as S3 object metadata.
 
     Args:
         bucket: S3 bucket name.
@@ -237,9 +266,9 @@ class S3ExternalizationStorage:
 
     Example:
         ```python
-        from strands.vended_plugins.result_externalizer import S3ExternalizationStorage
+        from strands.vended_plugins.context_offloader import S3Storage
 
-        storage = S3ExternalizationStorage(
+        storage = S3Storage(
             bucket="my-agent-artifacts",
             prefix="tool-results/",
         )
@@ -282,12 +311,13 @@ class S3ExternalizationStorage:
         self._counter: int = 0
         self._lock = threading.Lock()
 
-    def store(self, tool_use_id: str, content: str) -> str:
+    def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content as an S3 object and return the object key as reference.
 
         Args:
-            tool_use_id: The tool use ID that produced this content.
-            content: The full text content to store.
+            key: A unique key for this content block.
+            content: The raw content bytes to store.
+            content_type: MIME type of the content.
 
         Returns:
             The S3 object key used as the reference.
@@ -296,38 +326,40 @@ class S3ExternalizationStorage:
             botocore.exceptions.ClientError: If the S3 operation fails (e.g., bucket
                 does not exist, permission denied).
         """
-        sanitized_id = _sanitize_id(tool_use_id)
+        sanitized_key = _sanitize_id(key)
         timestamp_ms = int(time.time() * 1000)
+        ext = _extension_for(content_type)
         with self._lock:
             self._counter += 1
             counter = self._counter
-        key = f"{self._prefix}{timestamp_ms}_{counter}_{sanitized_id}.txt"
+        s3_key = f"{self._prefix}{timestamp_ms}_{counter}_{sanitized_key}{ext}"
 
         self._client.put_object(
             Bucket=self._bucket,
-            Key=key,
-            Body=content.encode("utf-8"),
-            ContentType="text/plain; charset=utf-8",
+            Key=s3_key,
+            Body=content,
+            ContentType=content_type,
         )
 
-        return key
+        return s3_key
 
-    def retrieve(self, reference: str) -> str:
+    def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve content from an S3 object.
 
         Args:
             reference: The S3 object key returned by store().
 
         Returns:
-            The stored content.
+            A tuple of (content bytes, content type).
 
         Raises:
             KeyError: If the object does not exist.
         """
         try:
             response = self._client.get_object(Bucket=self._bucket, Key=reference)
-            body: str = response["Body"].read().decode("utf-8")
-            return body
+            content: bytes = response["Body"].read()
+            content_type: str = response.get("ContentType", "application/octet-stream")
+            return content, content_type
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
                 raise KeyError(f"Reference not found: {reference}") from e
