@@ -534,16 +534,22 @@ class BedrockModel(Model):
             if "format" in document:
                 result["format"] = document["format"]
 
-            # Handle source - supports bytes or location
+            # Handle source - supports bytes, content, location, or text
             if "source" in document:
-                source = document["source"]
-                formatted_document_source: dict[str, Any] | None
-                if "location" in source:
-                    formatted_document_source = self._handle_location(source["location"])
+                document_source = document["source"]
+                formatted_document_source: dict[str, Any] | None = None
+                if "location" in document_source:
+                    formatted_document_source = self._handle_location(document_source["location"])
                     if formatted_document_source is None:
                         return None
-                elif "bytes" in source:
-                    formatted_document_source = {"bytes": source["bytes"]}
+                elif "bytes" in document_source:
+                    formatted_document_source = {"bytes": document_source["bytes"]}
+                elif "text" in document_source:
+                    formatted_document_source = {"text": document_source["text"]}
+                elif "content" in document_source:
+                    formatted_document_source = {
+                        "content": [{"text": item["text"]} for item in document_source["content"] if "text" in item]
+                    }
                 result["source"] = formatted_document_source
 
             # Handle optional fields
@@ -564,14 +570,14 @@ class BedrockModel(Model):
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
         if "image" in content:
             image = content["image"]
-            source = image["source"]
+            image_source = image["source"]
             formatted_image_source: dict[str, Any] | None
-            if "location" in source:
-                formatted_image_source = self._handle_location(source["location"])
+            if "location" in image_source:
+                formatted_image_source = self._handle_location(image_source["location"])
                 if formatted_image_source is None:
                     return None
-            elif "bytes" in source:
-                formatted_image_source = {"bytes": source["bytes"]}
+            elif "bytes" in image_source:
+                formatted_image_source = {"bytes": image_source["bytes"]}
             result = {"format": image["format"], "source": formatted_image_source}
             return {"image": result}
 
@@ -643,14 +649,14 @@ class BedrockModel(Model):
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_VideoBlock.html
         if "video" in content:
             video = content["video"]
-            source = video["source"]
+            video_source = video["source"]
             formatted_video_source: dict[str, Any] | None
-            if "location" in source:
-                formatted_video_source = self._handle_location(source["location"])
+            if "location" in video_source:
+                formatted_video_source = self._handle_location(video_source["location"])
                 if formatted_video_source is None:
                     return None
-            elif "bytes" in source:
-                formatted_video_source = {"bytes": source["bytes"]}
+            elif "bytes" in video_source:
+                formatted_video_source = {"bytes": video_source["bytes"]}
             result = {"format": video["format"], "source": formatted_video_source}
             return {"video": result}
 
