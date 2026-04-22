@@ -1011,10 +1011,14 @@ class Agent(AgentBase):
 
         # Resume detection — must run before existing shape handling so checkpointResume
         # blocks aren't misinterpreted as content blocks. Mirrors _InterruptState.resume()
-        # conventions (TypeError for shape, KeyError for lookup, ValueError for misconfig;
-        # error messages use the SDK's key=<value> | message format).
+        # conventions (TypeError for shape, KeyError for lookup, ValueError for misconfig)
+        # with one addition: a schema-version mismatch raises CheckpointException (the
+        # SDK-wide convention for checkpoint errors; parallel to SessionException and
+        # SnapshotException). Error messages use the SDK's key=<value> | message format.
         if isinstance(prompt, list) and prompt:
-            has_checkpoint_resume = any(isinstance(c, dict) and "checkpointResume" in c for c in prompt)
+            has_checkpoint_resume = any(
+                isinstance(content, dict) and "checkpointResume" in content for content in prompt
+            )
             if has_checkpoint_resume:
                 if not self._checkpointing:
                     raise ValueError(

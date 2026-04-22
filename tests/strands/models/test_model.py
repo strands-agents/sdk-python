@@ -550,15 +550,21 @@ class TestHeuristicEstimation:
 
         messages = [
             {"role": "user", "content": [{"text": "hello world!"}]},
-            {"role": "assistant", "content": [
-                {"toolUse": {"toolUseId": "1", "name": "my_tool", "input": {"q": "test"}}},
-                {"reasoningContent": {"reasoningText": {"text": "Let me think."}}},
-                {"guardContent": {"text": {"text": "Filtered."}}},
-                {"citationsContent": {"content": [{"text": "Citation."}]}},
-            ]},
-            {"role": "user", "content": [
-                {"toolResult": {"toolUseId": "1", "content": [{"text": "tool output here"}]}},
-            ]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"toolUse": {"toolUseId": "1", "name": "my_tool", "input": {"q": "test"}}},
+                    {"reasoningContent": {"reasoningText": {"text": "Let me think."}}},
+                    {"guardContent": {"text": {"text": "Filtered."}}},
+                    {"citationsContent": {"content": [{"text": "Citation."}]}},
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"toolResult": {"toolUseId": "1", "content": [{"text": "tool output here"}]}},
+                ],
+            },
         ]
         result = _estimate_tokens_with_heuristic(
             messages=messages,
@@ -574,9 +580,12 @@ class TestHeuristicEstimation:
 
         result = _estimate_tokens_with_heuristic(
             messages=[
-                {"role": "assistant", "content": [
-                    {"toolUse": {"toolUseId": "1", "name": "my_tool", "input": {"data": b"bytes"}}},
-                ]},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"toolUse": {"toolUseId": "1", "name": "my_tool", "input": {"data": b"bytes"}}},
+                    ],
+                },
             ],
             tool_specs=[{"name": "t", "inputSchema": {"json": {"default": b"bytes"}}}],
         )
@@ -598,9 +607,7 @@ class TestHeuristicEstimation:
         monkeypatch.setattr("builtins.__import__", _block_tiktoken)
 
         try:
-            result = await model.count_tokens(
-                messages=[{"role": "user", "content": [{"text": "hello world!"}]}]
-            )
+            result = await model.count_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
             assert result == 3  # ceil(12 / 4)
         finally:
             model_module._get_encoding.cache_clear()

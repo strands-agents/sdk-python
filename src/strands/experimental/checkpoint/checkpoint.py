@@ -52,9 +52,13 @@ CHECKPOINT_SCHEMA_VERSION = "1.0"
 CheckpointPosition = Literal["after_model", "after_tools"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class Checkpoint:
     """Pause point in the agent loop. Treat as opaque — pass back to resume.
+
+    Immutable by design: a checkpoint represents a captured moment. Mutating
+    one after creation would decouple it from the snapshot it was built with,
+    which is always a bug. Build a new Checkpoint if you need different values.
 
     Attributes:
         position: What just completed (after_model or after_tools).

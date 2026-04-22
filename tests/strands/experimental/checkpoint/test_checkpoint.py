@@ -18,10 +18,11 @@ def test_checkpoint_to_dict_from_dict_round_trip():
     data = checkpoint.to_dict()
     restored = Checkpoint.from_dict(data)
 
-    assert restored.position == checkpoint.position
-    assert restored.cycle_index == checkpoint.cycle_index
-    assert restored.snapshot == checkpoint.snapshot
-    assert restored.app_data == checkpoint.app_data
+    # Full-object equality catches any future-added field that isn't round-tripped
+    # correctly, without requiring this test to be updated for every new field.
+    assert restored == checkpoint
+    # schema_version is init=False, so it is always set to the current constant —
+    # asserted once explicitly since dataclass equality covers it via __eq__.
     assert restored.schema_version == CHECKPOINT_SCHEMA_VERSION
 
 

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace as trace_api
 
-from ..experimental.checkpoint import Checkpoint
+from ..experimental.checkpoint import Checkpoint, CheckpointPosition
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
@@ -76,6 +76,33 @@ def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
     return False
 
 
+def _build_checkpoint_stop_event(
+    agent: "Agent",
+    position: "CheckpointPosition",
+    cycle_index: int,
+    message: Message,
+    request_state: Any,
+) -> EventLoopStopEvent:
+    """Build the EventLoopStopEvent that pauses the agent at a checkpoint boundary.
+
+    Called from the two checkpoint emission sites (after_model in ``event_loop_cycle``
+    and after_tools in ``_handle_tool_execution``) to keep snapshot capture and event
+    construction in one place.
+    """
+    checkpoint = Checkpoint(
+        position=position,
+        cycle_index=cycle_index,
+        snapshot=agent.take_snapshot(preset="session").to_dict(),
+    )
+    return EventLoopStopEvent(
+        "checkpoint",
+        message,
+        agent.event_loop_metrics,
+        request_state,
+        checkpoint=checkpoint,
+    )
+
+
 async def event_loop_cycle(
     agent: "Agent",
     invocation_state: dict[str, Any],
@@ -128,13 +155,15 @@ async def event_loop_cycle(
     # Cross-invocation state (resume context) lives on the agent; within-cycle
     # transient state (resume position for the skip check, cycle index) lives
     # in invocation_state.
-    resume_ctx = agent._checkpoint_resume_context
-    if resume_ctx is not None:
+    resume_context = agent._checkpoint_resume_context
+    if resume_context is not None:
         agent._checkpoint_resume_context = None
         # after_tools completed that cycle, so next cycle starts at +1
-        next_cycle = resume_ctx.cycle_index + 1 if resume_ctx.position == "after_tools" else resume_ctx.cycle_index
+        next_cycle = (
+            resume_context.cycle_index + 1 if resume_context.position == "after_tools" else resume_context.cycle_index
+        )
         invocation_state["_checkpoint_cycle_index"] = next_cycle
-        invocation_state["_checkpoint_resume_position"] = resume_ctx.position
+        invocation_state["_checkpoint_resume_position"] = resume_context.position
 
     attributes = {"event_loop_cycle_id": str(invocation_state.get("event_loop_cycle_id"))}
     cycle_start_time, cycle_trace = agent.event_loop_metrics.start_cycle(attributes=attributes)
@@ -199,25 +228,20 @@ async def event_loop_cycle(
                 # One-shot pop: safe because after_model always returns before reaching
                 # after_tools, so the stashed position is only consumed once.
                 if agent._checkpointing:
-                    resume_pos = invocation_state.pop("_checkpoint_resume_position", None)
-                    if resume_pos == "after_model":
+                    resume_position = invocation_state.pop("_checkpoint_resume_position", None)
+                    if resume_position == "after_model":
                         pass  # Just resumed here — skip re-checkpoint, proceed to tools
                     else:
                         cycle_index = invocation_state.get("_checkpoint_cycle_index", 0)
-                        checkpoint = Checkpoint(
-                            position="after_model",
-                            cycle_index=cycle_index,
-                            snapshot=agent.take_snapshot(preset="session").to_dict(),
-                        )
                         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
                         if cycle_span:
                             tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
-                        yield EventLoopStopEvent(
-                            "checkpoint",
-                            message,
-                            agent.event_loop_metrics,
-                            invocation_state["request_state"],
-                            checkpoint=checkpoint,
+                        yield _build_checkpoint_stop_event(
+                            agent=agent,
+                            position="after_model",
+                            cycle_index=cycle_index,
+                            message=message,
+                            request_state=invocation_state["request_state"],
                         )
                         return
 
@@ -631,20 +655,18 @@ async def _handle_tool_execution(
         return
 
     # Checkpoint after all tools complete, before the next model call.
+    # Note: checkpoints are only emitted on tool_use cycles. An agent whose model
+    # returns end_turn on the very first call completes normally with no checkpoint
+    # (there is nothing durable to resume from).
     if agent._checkpointing:
         cycle_index = invocation_state.get("_checkpoint_cycle_index", 0)
         invocation_state["_checkpoint_cycle_index"] = cycle_index + 1
-        checkpoint = Checkpoint(
+        yield _build_checkpoint_stop_event(
+            agent=agent,
             position="after_tools",
             cycle_index=cycle_index,
-            snapshot=agent.take_snapshot(preset="session").to_dict(),
-        )
-        yield EventLoopStopEvent(
-            "checkpoint",
-            message,
-            agent.event_loop_metrics,
-            invocation_state["request_state"],
-            checkpoint=checkpoint,
+            message=message,
+            request_state=invocation_state["request_state"],
         )
         return
 
