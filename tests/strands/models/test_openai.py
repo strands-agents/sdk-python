@@ -89,6 +89,15 @@ def test_update_config(model, model_id):
     assert tru_model_id == exp_model_id
 
 
+def test__init__context_window_limit(openai_client):
+    _ = openai_client
+
+    model = OpenAIModel(model_id="gpt-4o", context_window_limit=128_000)
+
+    assert model.get_config().get("context_window_limit") == 128_000
+    assert model.context_window_limit == 128_000
+
+
 @pytest.mark.parametrize(
     "content, exp_result",
     [

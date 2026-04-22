@@ -288,6 +288,15 @@ def test__init__model_config(bedrock_client):
     assert tru_max_tokens == exp_max_tokens
 
 
+def test__init__context_window_limit(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(context_window_limit=200_000)
+
+    assert model.get_config().get("context_window_limit") == 200_000
+    assert model.context_window_limit == 200_000
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 
@@ -1605,6 +1614,87 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
     assert "extraField" not in tool_result
     assert "mcpMetadata" not in tool_result
     assert "status" not in tool_result
+
+
+def test_format_request_message_content_normalizes_empty_tool_result_content(model, model_id):
+    """Test that _format_request_message_content replaces empty toolResult content with a minimal text block.
+
+    Some model providers (e.g., Nemotron) reject toolResult blocks with content: [] via the
+    Converse API, while others (e.g., Claude) accept them. The SDK should normalize empty
+    content arrays to ensure cross-model compatibility.
+
+    See: https://github.com/strands-agents/sdk-python/issues/2122
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Querying...\n"},
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": []}},
+            ],
+        },
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
+    assert tool_result["content"] == [{"text": ""}], "Empty toolResult content should be normalized to [{'text': ''}]"
+
+
+def test_format_request_message_content_does_not_mutate_empty_tool_result(model, model_id):
+    """Test that normalizing empty toolResult content does not mutate the original messages."""
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": []}},
+            ],
+        },
+    ]
+
+    original_content = messages[2]["content"][0]["toolResult"]["content"]
+    model._format_request(messages)
+
+    assert original_content == [], "Original empty content list should not be mutated"
+
+
+def test_format_request_message_content_preserves_nonempty_tool_result_content(model, model_id):
+    """Test that _format_request_message_content does not modify non-empty toolResult content."""
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Querying...\n"},
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": [{"text": "some result"}]}},
+            ],
+        },
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
+    assert tool_result["content"] == [{"text": "some result"}]
 
 
 def test_format_request_removes_status_field_when_configured(model, model_id):

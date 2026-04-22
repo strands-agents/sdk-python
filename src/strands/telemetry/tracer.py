@@ -218,12 +218,6 @@ class Tracer:
             logger.warning("error=<%s> | error while ending span", e, exc_info=True)
         finally:
             span.end()
-            # Force flush to ensure spans are exported
-            if self.tracer_provider and hasattr(self.tracer_provider, "force_flush"):
-                try:
-                    self.tracer_provider.force_flush()
-                except Exception as e:
-                    logger.warning("error=<%s> | failed to force flush tracer provider", e)
 
     def end_span_with_error(self, span: Span, error_message: str, exception: Exception | None = None) -> None:
         """End a span with error status.

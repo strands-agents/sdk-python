@@ -17,6 +17,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec
 from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
+from .model import BaseModelConfig
 from .openai import OpenAIModel
 
 T = TypeVar("T", bound=BaseModel)
@@ -116,7 +117,7 @@ class SageMakerAIModel(OpenAIModel):
         tool_results_as_user_messages: bool | None
         additional_args: dict[str, Any] | None
 
-    class SageMakerAIEndpointConfig(TypedDict, total=False):
+    class SageMakerAIEndpointConfig(BaseModelConfig, total=False):
         """Configuration options for SageMaker models.
 
         Attributes:

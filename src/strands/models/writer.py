@@ -8,7 +8,7 @@ import json
 import logging
 import mimetypes
 from collections.abc import AsyncGenerator
-from typing import Any, TypedDict, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import writerai
 from pydantic import BaseModel
@@ -19,7 +19,7 @@ from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
-from .model import Model
+from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ T = TypeVar("T", bound=BaseModel)
 class WriterModel(Model):
     """Writer API model provider implementation."""
 
-    class WriterConfig(TypedDict, total=False):
+    class WriterConfig(BaseModelConfig, total=False):
         """Configuration options for Writer API.
 
         Attributes:

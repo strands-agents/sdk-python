@@ -9,7 +9,7 @@ import logging
 import mimetypes
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Protocol, TypedDict, TypeVar, cast
+from typing import Any, Protocol, TypeVar, cast
 
 import openai
 from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
@@ -22,7 +22,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import _has_location_source, validate_config_keys
-from .model import Model
+from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class OpenAIModel(Model):
 
     client: Client
 
-    class OpenAIConfig(TypedDict, total=False):
+    class OpenAIConfig(BaseModelConfig, total=False):
         """Configuration options for OpenAI models.
 
         Attributes:

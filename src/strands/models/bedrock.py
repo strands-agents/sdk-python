@@ -15,7 +15,7 @@ import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 from pydantic import BaseModel
-from typing_extensions import TypedDict, Unpack, override
+from typing_extensions import Unpack, override
 
 from strands.types.media import S3Location, SourceLocation
 
@@ -31,7 +31,7 @@ from ..types.exceptions import (
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
-from .model import CacheConfig, Model
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class BedrockModel(Model):
     - Context window overflow detection
     """
 
-    class BedrockConfig(TypedDict, total=False):
+    class BedrockConfig(BaseModelConfig, total=False):
         """Configuration options for Bedrock models.
 
         Attributes:
@@ -601,8 +601,15 @@ class BedrockModel(Model):
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
         if "toolResult" in content:
             tool_result = content["toolResult"]
+            # Normalize empty toolResult content arrays.
+            # Some model providers (e.g., Nemotron) reject toolResult blocks with
+            # content: [] via the Converse API, while others (e.g., Claude) accept
+            # them. Replace empty content with a minimal text block to ensure
+            # cross-model compatibility. This follows the same pattern as the
+            # TypeScript SDK's _formatMessages in bedrock.ts.
+            tool_result_content_list = tool_result.get("content") or [{"text": ""}]
             formatted_content: list[dict[str, Any]] = []
-            for tool_result_content in tool_result["content"]:
+            for tool_result_content in tool_result_content_list:
                 if "json" in tool_result_content:
                     # Handle json field since not in ContentBlock but valid in ToolResultContent
                     formatted_content.append({"json": tool_result_content["json"]})

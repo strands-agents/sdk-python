@@ -59,7 +59,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
-from .model import Model  # noqa: E402
+from .model import BaseModelConfig, Model  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ class OpenAIResponsesModel(Model):
     client: Client
     client_args: dict[str, Any]
 
-    class OpenAIResponsesConfig(TypedDict, total=False):
+    class OpenAIResponsesConfig(BaseModelConfig, total=False):
         """Configuration options for OpenAI Responses API models.
 
         Attributes:
