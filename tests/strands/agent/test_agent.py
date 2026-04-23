@@ -1174,7 +1174,7 @@ def test_system_prompt_content_string():
 
 def test_system_prompt_content_structured():
     """Test that system_prompt_content returns structured blocks with cache points."""
-    blocks = [{"text": "You are helpful"}, {"cache_control": {"type": "ephemeral"}}]
+    blocks = [{"text": "You are helpful"}, {"cachePoint": {"type": "default"}}]
     agent = Agent(system_prompt=blocks)
     assert agent.system_prompt_content == blocks
 
