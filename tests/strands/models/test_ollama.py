@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import unittest.mock
 
 import pydantic
@@ -656,6 +657,10 @@ def test_tool_use_id_is_unique_and_not_tool_name(model):
 
     # toolUseId should be unique across calls
     assert tool_use1["toolUseId"] != tool_use2["toolUseId"]
+
+    # toolUseId should follow the tooluse_<24-hex> convention used by other providers
+    assert re.fullmatch(r"tooluse_[0-9a-f]{24}", tool_use1["toolUseId"])
+    assert re.fullmatch(r"tooluse_[0-9a-f]{24}", tool_use2["toolUseId"])
 
     # name should still be correct
     assert tool_use1["name"] == "calculator"
