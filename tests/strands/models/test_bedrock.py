@@ -2214,6 +2214,30 @@ def test_override_default_model_id_uses_the_overriden_value(captured_warnings):
         assert model_id == "custom-overridden-model"
 
 
+def test_default_model_sentinel_triggers_region_prefix_fallback(captured_warnings):
+    """When DEFAULT_BEDROCK_MODEL_ID matches the sentinel template, the region-prefix fallback runs."""
+    sentinel = "us.anthropic.claude-sonnet-4-6"
+    with unittest.mock.patch("strands.models.bedrock.DEFAULT_BEDROCK_MODEL_ID", sentinel):
+        model_id = BedrockModel._get_default_model_with_warning("eu-west-1")
+        assert model_id == "eu.anthropic.claude-sonnet-4-6"
+
+
+def test_caller_supplied_model_id_wins_over_global_default(captured_warnings):
+    """Caller-supplied model_id in config takes precedence over the global default."""
+    model_config = {"model_id": "caller-supplied-model"}
+    model_id = BedrockModel._get_default_model_with_warning("us-east-1", model_config)
+    assert model_id == "caller-supplied-model"
+
+
+def test_default_model_sentinel_with_unsupported_region_warns(captured_warnings):
+    """When the sentinel matches and the region is unknown, the region-unsupported warning fires."""
+    sentinel = "us.anthropic.claude-sonnet-4-6"
+    with unittest.mock.patch("strands.models.bedrock.DEFAULT_BEDROCK_MODEL_ID", sentinel):
+        BedrockModel._get_default_model_with_warning("ca-central-1")
+    region_warnings = [w for w in captured_warnings if "does not support" in str(w.message)]
+    assert len(region_warnings) == 1
+
+
 def test_default_model_id_is_global_inference_profile(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("us-east-1")
     assert model_id == "global.anthropic.claude-sonnet-4-6"
