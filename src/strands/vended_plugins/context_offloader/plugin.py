@@ -273,7 +273,9 @@ class ContextOffloader(Plugin):
         preview = full_text[: self._preview_chars]
         ref_lines = "\n".join(f"  {ref} ({desc})" for ref, _, desc in references if ref)
         preview_text = (
-            f"[Offloaded: {len(content)} blocks, {len(full_text):,} text chars]\n\n"
+            f"[Offloaded: {len(content)} blocks, {len(full_text):,} text chars]\n"
+            f"[Use the preview below to answer if possible. If you need the full content,\n"
+            f"call retrieve_offloaded_content with a reference.]\n\n"
             f"{preview}\n\n"
             f"[Stored references:]\n{ref_lines}"
         )

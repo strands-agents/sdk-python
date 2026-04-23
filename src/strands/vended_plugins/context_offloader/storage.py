@@ -54,20 +54,6 @@ def _sanitize_id(raw_id: str) -> str:
     return sanitized
 
 
-def _extension_for(content_type: str) -> str:
-    """Return a file extension for the given content type.
-
-    Args:
-        content_type: MIME content type.
-
-    Returns:
-        A file extension including the leading dot.
-    """
-    if content_type == "text/plain":
-        return ".txt"
-    return f".{content_type.split('/')[-1]}"
-
-
 @runtime_checkable
 class Storage(Protocol):
     """Backend for storing and retrieving offloaded content blocks.
@@ -137,6 +123,13 @@ class FileStorage:
         self._lock = threading.Lock()
         self._content_types: dict[str, str] = self._load_metadata()
 
+    @staticmethod
+    def _extension_for(content_type: str) -> str:
+        """Return a file extension for the given content type."""
+        if content_type == "text/plain":
+            return ".txt"
+        return f".{content_type.split('/')[-1]}"
+
     def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content as a file and return the filename as reference.
 
@@ -152,7 +145,7 @@ class FileStorage:
 
         sanitized_key = _sanitize_id(key)
         timestamp_ms = int(time.time() * 1000)
-        ext = _extension_for(content_type)
+        ext = self._extension_for(content_type)
         with self._lock:
             self._counter += 1
             counter = self._counter
@@ -343,11 +336,10 @@ class S3Storage:
         """
         sanitized_key = _sanitize_id(key)
         timestamp_ms = int(time.time() * 1000)
-        ext = _extension_for(content_type)
         with self._lock:
             self._counter += 1
             counter = self._counter
-        s3_key = f"{self._prefix}{timestamp_ms}_{counter}_{sanitized_key}{ext}"
+        s3_key = f"{self._prefix}{timestamp_ms}_{counter}_{sanitized_key}"
 
         self._client.put_object(
             Bucket=self._bucket,
