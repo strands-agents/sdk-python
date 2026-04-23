@@ -250,7 +250,6 @@ def test_format_request_with_empty_content(model, model_id, stream_options):
     [
         ({"video": {}}, "video"),
         ({"document": {}}, "document"),
-        ({"reasoningContent": {}}, "reasoningContent"),
         ({"other": {}}, "other"),
     ],
 )
@@ -264,6 +263,22 @@ def test_format_request_with_unsupported_type(model, content, content_type):
 
     with pytest.raises(TypeError, match=f"content_type=<{content_type}> | unsupported type"):
         model.format_request(messages)
+
+
+def test_format_request_skips_reasoning_content(model):
+    """Test that reasoningContent blocks from other providers are silently skipped."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Hello"},
+                {"reasoningContent": {"reasoningText": {"text": "Let me think...", "signature": "sig"}}},
+            ],
+        },
+    ]
+
+    # Should not raise — reasoningContent is silently dropped
+    model.format_request(messages)
 
 
 class AsyncStreamWrapper:
