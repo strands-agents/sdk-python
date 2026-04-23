@@ -8,7 +8,7 @@ SDK. These types are modeled after the Bedrock API.
 
 from typing import Any, Literal
 
-from typing_extensions import NotRequired, Required, TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from .citations import CitationsContentBlock
 from .event_loop import Metrics, Usage
@@ -71,7 +71,7 @@ class CachePoint(TypedDict):
             that accept Anthropic-compatible cache_control fields.
     """
 
-    type: Required[str]
+    type: str
     ttl: NotRequired[str]
 
 
