@@ -1142,7 +1142,7 @@ def test_system_prompt_setter_string():
     agent.system_prompt = "updated prompt"
 
     assert agent.system_prompt == "updated prompt"
-    assert agent._system_prompt_content == [{"text": "updated prompt"}]
+    assert agent.system_prompt_content == [{"text": "updated prompt"}]
 
 
 def test_system_prompt_setter_list():
@@ -1153,7 +1153,7 @@ def test_system_prompt_setter_list():
     agent.system_prompt = content_blocks
 
     assert agent.system_prompt == "You are helpful"
-    assert agent._system_prompt_content == content_blocks
+    assert agent.system_prompt_content == content_blocks
 
 
 def test_system_prompt_setter_none():
@@ -1163,7 +1163,7 @@ def test_system_prompt_setter_none():
     agent.system_prompt = None
 
     assert agent.system_prompt is None
-    assert agent._system_prompt_content is None
+    assert agent.system_prompt_content is None
 
 
 @pytest.mark.asyncio
@@ -1981,7 +1981,7 @@ def test_agent_string_system_prompt():
     agent = Agent(system_prompt=system_prompt)
 
     assert agent.system_prompt == system_prompt
-    assert agent._system_prompt_content == [{"text": system_prompt}]
+    assert agent.system_prompt_content == [{"text": system_prompt}]
 
 
 def test_agent_single_text_block_system_prompt():
@@ -1991,7 +1991,7 @@ def test_agent_single_text_block_system_prompt():
     agent = Agent(system_prompt=system_prompt_content)
 
     assert agent.system_prompt == text
-    assert agent._system_prompt_content == system_prompt_content
+    assert agent.system_prompt_content == system_prompt_content
 
 
 def test_agent_multiple_blocks_system_prompt():
@@ -2004,7 +2004,7 @@ def test_agent_multiple_blocks_system_prompt():
     agent = Agent(system_prompt=system_prompt_content)
 
     assert agent.system_prompt == "You are a helpful assistant.\nAdditional instructions."
-    assert agent._system_prompt_content == system_prompt_content
+    assert agent.system_prompt_content == system_prompt_content
 
 
 def test_agent_single_non_text_block_system_prompt():
@@ -2013,7 +2013,7 @@ def test_agent_single_non_text_block_system_prompt():
     agent = Agent(system_prompt=system_prompt_content)
 
     assert agent.system_prompt is None
-    assert agent._system_prompt_content == system_prompt_content
+    assert agent.system_prompt_content == system_prompt_content
 
 
 def test_agent_none_system_prompt():
@@ -2021,7 +2021,7 @@ def test_agent_none_system_prompt():
     agent = Agent(system_prompt=None)
 
     assert agent.system_prompt is None
-    assert agent._system_prompt_content is None
+    assert agent.system_prompt_content is None
 
 
 def test_agent_empty_list_system_prompt():
@@ -2029,7 +2029,7 @@ def test_agent_empty_list_system_prompt():
     agent = Agent(system_prompt=[])
 
     assert agent.system_prompt is None
-    assert agent._system_prompt_content == []
+    assert agent.system_prompt_content == []
 
 
 def test_agent_backwards_compatibility_string_access():
