@@ -36,8 +36,8 @@ from .model import BaseModelConfig, CacheConfig, Model
 logger = logging.getLogger(__name__)
 
 # See: `BedrockModel._get_default_model_with_warning` for why we need both
-DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
-_DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-5-20250929-v1:0"
+DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-6"
+_DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-6"
 DEFAULT_BEDROCK_REGION = "us-west-2"
 
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
@@ -90,7 +90,7 @@ class BedrockModel(Model):
             guardrail_latest_message: Flag to send only the lastest user message to guardrails.
                 Defaults to False.
             max_tokens: Maximum number of tokens to generate in the response
-            model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+            model_id: The Bedrock model ID (e.g., "global.anthropic.claude-sonnet-4-6")
             include_tool_result_status: Flag to include status field in tool results.
                 True includes status, False removes status, "auto" determines based on model_id. Defaults to "auto".
             service_tier: Service tier for the request, controlling the trade-off between latency and cost.
@@ -1095,12 +1095,12 @@ class BedrockModel(Model):
             region_name (str): region for bedrock model
             model_config (Optional[dict[str, Any]]): Model Config that caller passes in on init
         """
-        if DEFAULT_BEDROCK_MODEL_ID != _DEFAULT_BEDROCK_MODEL_ID.format("us"):
-            return DEFAULT_BEDROCK_MODEL_ID
-
         model_config = model_config or {}
         if model_config.get("model_id"):
             return model_config["model_id"]
+
+        if DEFAULT_BEDROCK_MODEL_ID != _DEFAULT_BEDROCK_MODEL_ID.format("us"):
+            return DEFAULT_BEDROCK_MODEL_ID
 
         prefix_inference_map = {"ap": "apac"}  # some inference endpoints can be a bit different than the region prefix
 
