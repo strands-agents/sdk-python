@@ -25,6 +25,7 @@ import base64
 import json
 import logging
 import uuid
+from importlib.metadata import PackageNotFoundError, version
 from typing import Any, AsyncGenerator, cast
 
 import boto3
@@ -95,6 +96,11 @@ NOVA_AUDIO_OUTPUT_CONFIG = {
 
 NOVA_TEXT_CONFIG = {"mediaType": "text/plain"}
 NOVA_TOOL_CONFIG = {"mediaType": "application/json"}
+
+try:
+    _STRANDS_USER_AGENT_EXTRA = f"lib/strands-agents#{version('strands-agents')}"
+except PackageNotFoundError:
+    _STRANDS_USER_AGENT_EXTRA = "lib/strands-agents"
 
 
 class BidiNovaSonicModel(BidiModel):
@@ -259,13 +265,13 @@ class BidiNovaSonicModel(BidiModel):
             aws_access_key_id=credentials.access_key,
             aws_secret_access_key=credentials.secret_key,
             aws_session_token=credentials.token,
+            user_agent_extra=_STRANDS_USER_AGENT_EXTRA,
         )
 
         self.client = BedrockRuntimeClient(config=config)
         logger.debug("region=<%s> | nova sonic client initialized", self.region)
 
-        client = BedrockRuntimeClient(config=config)
-        self._stream = await client.invoke_model_with_bidirectional_stream(
+        self._stream = await self.client.invoke_model_with_bidirectional_stream(
             InvokeModelWithBidirectionalStreamOperationInput(model_id=self.model_id)
         )
         logger.debug("region=<%s> | nova sonic client initialized", self.region)
