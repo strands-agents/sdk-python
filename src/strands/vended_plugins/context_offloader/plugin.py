@@ -59,8 +59,10 @@ _STATE_KEY = "context_offloader"
 _SYSTEM_PROMPT_INJECTION = (
     "\n\n<context_offloader>\n"
     "When tool results are too large for the context window, they are offloaded to storage.\n"
-    "You will see placeholders like [Offloaded: N blocks, M text chars] with references.\n"
-    "To retrieve offloaded content, use the retrieve_offloaded_content tool with the reference.\n"
+    "You will see a preview of the content followed by storage references.\n"
+    "Use the preview to answer questions when possible — avoid retrieving the full content\n"
+    "unless the preview is insufficient. If you need the full content, use the\n"
+    "retrieve_offloaded_content tool with the reference.\n"
     "</context_offloader>"
 )
 
@@ -141,7 +143,7 @@ class ContextOffloader(Plugin):
         self,
         reference: str,
         tool_context: ToolContext,
-    ) -> str:
+    ) -> dict | str:
         """Retrieve offloaded content by reference.
 
         Use this tool when you see a placeholder with a reference (ref: ...)
@@ -156,14 +158,25 @@ class ContextOffloader(Plugin):
         except KeyError:
             return f"Error: reference not found: {reference}"
 
-        if content_type.startswith("text/") or content_type == "application/json":
+        if content_type.startswith("text/"):
             return content_bytes.decode("utf-8")
 
-        return (
-            f"[Binary content: {content_type}, {len(content_bytes):,} bytes]\n"
-            f"Binary content cannot be displayed as text. "
-            f"The content is stored at reference: {reference}"
-        )
+        if content_type == "application/json":
+            return {"status": "success", "content": [{"json": json.loads(content_bytes)}]}
+
+        if content_type.startswith("image/"):
+            img_format = content_type.split("/")[-1]
+            return {
+                "status": "success",
+                "content": [{"image": {"format": img_format, "source": {"bytes": content_bytes}}}],
+            }
+
+        if content_type.startswith("application/"):
+            doc_format = content_type.split("/")[-1]
+            doc_block = {"format": doc_format, "name": reference, "source": {"bytes": content_bytes}}
+            return {"status": "success", "content": [{"document": doc_block}]}
+
+        return content_bytes.decode("utf-8", errors="replace")
 
     @hook
     def _on_before_invocation(self, event: BeforeInvocationEvent) -> None:
@@ -185,6 +198,9 @@ class ContextOffloader(Plugin):
     def _handle_tool_result(self, event: AfterToolCallEvent) -> None:
         """Intercept oversized tool results, offload per-block, and replace with preview."""
         if event.cancel_message is not None:
+            return
+
+        if event.tool_use.get("name") == "retrieve_offloaded_content":
             return
 
         result = event.result
