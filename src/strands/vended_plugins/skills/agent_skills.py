@@ -7,11 +7,16 @@ skills, and injects skill metadata into the system prompt.
 Sandbox skill sources (e.g., ``"sandbox:/home/skills"``) are loaded
 asynchronously during ``init_agent()`` using the agent's sandbox instance,
 following the same deferred-loading pattern as the TypeScript SDK.
+
+The skill catalog is maintained **per-agent** using a ``WeakKeyDictionary``,
+so a single plugin instance can be safely shared across multiple agents
+(even with different sandboxes) without skill cross-contamination.
 """
 
 from __future__ import annotations
 
 import logging
+import weakref
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
 from xml.sax.saxutils import escape
@@ -62,6 +67,11 @@ class AgentSkills(Plugin):
     Sandbox sources are loaded asynchronously during ``init_agent()`` using the
     agent's sandbox, following the same deferred-loading pattern as the TypeScript SDK.
 
+    The skill catalog is stored **per-agent** so that a single plugin instance
+    can be safely attached to multiple agents with different sandboxes.
+    Synchronous sources (filesystem, URL, Skill instances) are shared as the
+    base set; sandbox-resolved skills are added per-agent on top of that base.
+
     Example:
         ```python
         from strands import Agent
@@ -81,6 +91,10 @@ class AgentSkills(Plugin):
         plugin = AgentSkills(skills=[skill])
 
         agent = Agent(plugins=[plugin])
+
+        # Safe to share across multiple agents with different sandboxes
+        agent_a = Agent(sandbox=sandbox_a, plugins=[plugin])
+        agent_b = Agent(sandbox=sandbox_b, plugins=[plugin])
         ```
     """
 
@@ -96,9 +110,9 @@ class AgentSkills(Plugin):
         """Initialize the AgentSkills plugin.
 
         Synchronous sources (filesystem paths, ``Skill`` instances, HTTPS URLs)
-        are resolved immediately. Sandbox sources (``"sandbox:/path"``) are
-        stored as pending and resolved during ``init_agent()`` when the agent's
-        sandbox is available.
+        are resolved immediately into the base skill set. Sandbox sources
+        (``"sandbox:/path"``) are stored as pending and resolved per-agent
+        during ``init_agent()`` when each agent's sandbox is available.
 
         Args:
             skills: One or more skill sources. Can be a single value or a list. Each element can be:
@@ -127,31 +141,57 @@ class AgentSkills(Plugin):
             else:
                 sync_sources.append(source)
 
-        # Resolve synchronous sources immediately
-        self._skills: dict[str, Skill] = self._resolve_skills(sync_sources)
+        # Resolve synchronous sources immediately — shared across all agents
+        self._base_skills: dict[str, Skill] = self._resolve_skills(sync_sources)
+
+        # Per-agent skill catalogs (base + sandbox-resolved skills)
+        # Uses WeakKeyDictionary so entries are cleaned up when agents are GC'd
+        self._agent_skills: weakref.WeakKeyDictionary[Agent, dict[str, Skill]] = weakref.WeakKeyDictionary()
 
         super().__init__()
+
+    def _get_skills(self, agent: Agent | None = None) -> dict[str, Skill]:
+        """Get the skill catalog for a specific agent.
+
+        Returns the per-agent catalog if the agent has been initialized,
+        otherwise falls back to the base (sync-resolved) skills.
+
+        Args:
+            agent: The agent to get skills for. If None, returns base skills.
+
+        Returns:
+            Dict mapping skill names to Skill instances.
+        """
+        if agent is not None and agent in self._agent_skills:
+            return self._agent_skills[agent]
+        return self._base_skills
 
     async def init_agent(self, agent: Agent) -> None:
         """Initialize the plugin with an agent instance.
 
-        Resolves any pending sandbox skill sources using the agent's sandbox,
-        then registers hooks and tools. This method is async to support
-        deferred sandbox loading — the plugin registry handles both sync and
-        async ``init_agent()`` implementations.
+        Creates a per-agent skill catalog by copying the base skills and
+        then resolving any sandbox sources using the agent's sandbox. This
+        ensures each agent gets its own skill set without cross-contamination.
 
         Args:
             agent: The agent instance to extend with skills support.
         """
-        # Resolve deferred sandbox sources
+        # Start with a COPY of base skills for this agent
+        agent_skills = dict(self._base_skills)
+
+        # Resolve deferred sandbox sources from THIS agent's sandbox
         if self._sandbox_sources:
-            await self._resolve_sandbox_sources(agent)
+            sandbox_skills = await self._resolve_sandbox_skills(agent)
+            agent_skills.update(sandbox_skills)
 
-        if not self._skills:
+        # Store per-agent catalog
+        self._agent_skills[agent] = agent_skills
+
+        if not agent_skills:
             logger.warning("no skills were loaded, the agent will have no skills available")
-        logger.debug("skill_count=<%d> | skills plugin initialized", len(self._skills))
+        logger.debug("skill_count=<%d> | skills plugin initialized for agent", len(agent_skills))
 
-    async def _resolve_sandbox_sources(self, agent: Agent) -> None:
+    async def _resolve_sandbox_skills(self, agent: Agent) -> dict[str, Skill]:
         """Resolve sandbox skill sources using the agent's sandbox.
 
         Each sandbox source path is treated as either a single skill directory
@@ -160,8 +200,12 @@ class AgentSkills(Plugin):
 
         Args:
             agent: The agent whose sandbox to load skills from.
+
+        Returns:
+            Dict mapping skill names to Skill instances loaded from the sandbox.
         """
         sandbox = agent.sandbox
+        resolved: dict[str, Skill] = {}
 
         for sandbox_path in self._sandbox_sources:
             logger.debug("sandbox_path=<%s> | resolving sandbox skill source", sandbox_path)
@@ -169,9 +213,9 @@ class AgentSkills(Plugin):
             try:
                 # First try loading as a single skill
                 skill = await Skill.from_sandbox(sandbox, sandbox_path, strict=self._strict)
-                if skill.name in self._skills:
+                if skill.name in resolved:
                     logger.warning("name=<%s> | duplicate skill name, overwriting previous skill", skill.name)
-                self._skills[skill.name] = skill
+                resolved[skill.name] = skill
                 logger.debug(
                     "sandbox_path=<%s>, name=<%s> | loaded single skill from sandbox",
                     sandbox_path,
@@ -182,11 +226,11 @@ class AgentSkills(Plugin):
                 try:
                     skills = await Skill.from_sandbox_directory(sandbox, sandbox_path, strict=self._strict)
                     for skill in skills:
-                        if skill.name in self._skills:
+                        if skill.name in resolved:
                             logger.warning(
                                 "name=<%s> | duplicate skill name, overwriting previous skill", skill.name
                             )
-                        self._skills[skill.name] = skill
+                        resolved[skill.name] = skill
                     logger.debug(
                         "sandbox_path=<%s>, count=<%d> | loaded skills from sandbox directory",
                         sandbox_path,
@@ -196,6 +240,8 @@ class AgentSkills(Plugin):
                     logger.warning("sandbox_path=<%s> | failed to load sandbox skills: %s", sandbox_path, e)
             except Exception as e:
                 logger.warning("sandbox_path=<%s> | failed to load sandbox skill: %s", sandbox_path, e)
+
+        return resolved
 
     @tool(context=True)
     def skills(self, skill_name: str, tool_context: ToolContext) -> str:  # noqa: D417
@@ -207,13 +253,15 @@ class AgentSkills(Plugin):
         Args:
             skill_name: Name of the skill to activate.
         """
+        agent_skills = self._get_skills(tool_context.agent)
+
         if not skill_name:
-            available = ", ".join(self._skills)
+            available = ", ".join(agent_skills)
             return f"Error: skill_name is required. Available skills: {available}"
 
-        found = self._skills.get(skill_name)
+        found = agent_skills.get(skill_name)
         if found is None:
-            available = ", ".join(self._skills)
+            available = ", ".join(agent_skills)
             return f"Skill '{skill_name}' not found. Available skills: {available}"
 
         logger.debug("skill_name=<%s> | skill activated", skill_name)
@@ -245,7 +293,7 @@ class AgentSkills(Plugin):
             else:
                 logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
 
-        skills_xml = self._generate_skills_xml()
+        skills_xml = self._generate_skills_xml(agent)
         injection = f"\n\n{skills_xml}"
         new_prompt = f"{current_prompt}{injection}" if current_prompt else skills_xml
 
@@ -253,13 +301,20 @@ class AgentSkills(Plugin):
         self._set_state_field(agent, "last_injected_xml", new_injected_xml)
         agent.system_prompt = new_prompt
 
-    def get_available_skills(self) -> list[Skill]:
+    def get_available_skills(self, agent: Agent | None = None) -> list[Skill]:
         """Get the list of available skills.
 
+        When called with an agent, returns that agent's full skill catalog
+        (base + sandbox-resolved). Without an agent, returns only the base
+        (sync-resolved) skills.
+
+        Args:
+            agent: Optional agent to get per-agent skills for.
+
         Returns:
-            A copy of the current skills list.
+            A copy of the skills list.
         """
-        return list(self._skills.values())
+        return list(self._get_skills(agent).values())
 
     def set_available_skills(self, skills: SkillSources) -> None:
         """Set the available skills, replacing any existing ones.
@@ -273,9 +328,8 @@ class AgentSkills(Plugin):
         ``set_available_skills`` because no agent context is available.
         Use ``"sandbox:..."`` sources in the constructor instead.
 
-        Note: this does not persist state or deactivate skills on any agent.
-        Active skill state is managed per-agent and will be reconciled on the
-        next tool call or invocation.
+        Note: this replaces the base skill set and clears all per-agent
+        caches so they will be rebuilt on the next ``init_agent``.
 
         Args:
             skills: One or more skill sources to resolve and set.
@@ -291,8 +345,10 @@ class AgentSkills(Plugin):
                     "Use sandbox sources in the AgentSkills constructor instead."
                 )
 
-        self._skills = self._resolve_skills(sources)
+        self._base_skills = self._resolve_skills(sources)
         self._sandbox_sources = []
+        # Clear per-agent caches so they pick up new base skills
+        self._agent_skills.clear()
 
     def _format_skill_response(self, skill: Skill) -> str:
         """Format the tool response when a skill is activated.
@@ -360,22 +416,27 @@ class AgentSkills(Plugin):
 
         return files
 
-    def _generate_skills_xml(self) -> str:
+    def _generate_skills_xml(self, agent: Agent | None = None) -> str:
         """Generate the XML block listing available skills for the system prompt.
 
         When no skills are loaded, returns a block indicating no skills are available.
         Otherwise includes a ``<location>`` element for skills loaded from the filesystem,
         following the AgentSkills.io integration spec.
 
+        Args:
+            agent: Optional agent to generate per-agent skills XML for.
+
         Returns:
             XML-formatted string with skill metadata.
         """
-        if not self._skills:
+        skills = self._get_skills(agent)
+
+        if not skills:
             return "<available_skills>\nNo skills are currently available.\n</available_skills>"
 
         lines: list[str] = ["<available_skills>"]
 
-        for skill in self._skills.values():
+        for skill in skills.values():
             lines.append("<skill>")
             lines.append(f"<name>{escape(skill.name)}</name>")
             lines.append(f"<description>{escape(skill.description)}</description>")
@@ -394,7 +455,7 @@ class AgentSkills(Plugin):
         HTTPS URL pointing to a SKILL.md file.
 
         Note: Sandbox sources should be resolved separately via
-        ``_resolve_sandbox_sources()``.
+        ``_resolve_sandbox_skills()``.
 
         Args:
             sources: List of skill sources to resolve.
