@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 from ..types.agent import AgentInput
 from ..types.content import Message, Messages
 from ..types.interrupt import _Interruptible
-from ..types.streaming import StopReason
+from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import AgentTool, ToolResult, ToolUse
 from .registry import BaseHookEvent, HookEvent
 
@@ -301,6 +301,21 @@ class AfterModelCallEvent(HookEvent):
     def should_reverse_callbacks(self) -> bool:
         """True to invoke callbacks in reverse order."""
         return True
+
+
+@dataclass
+class ModelStreamChunkEvent(HookEvent):
+    """Event triggered for each streaming chunk from the model.
+
+    This event is fired during model streaming for each chunk received,
+    allowing hook providers to observe streaming progress, implement
+    logging, collect metrics, or perform content filtering.
+
+    Attributes:
+        chunk: The raw streaming chunk from the model response.
+    """
+
+    chunk: StreamEvent
 
 
 # Multiagent hook events start here
