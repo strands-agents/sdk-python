@@ -11,7 +11,6 @@ from strands.event_loop.event_loop import event_loop_cycle
 from strands.interrupt import _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.registry import ToolRegistry
-from strands.types.exceptions import MaxTokenBudgetReachedException, MaxTurnsReachedException
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 from tests.strands.event_loop.helpers import apply_execution_limit_defaults
 
@@ -65,7 +64,7 @@ def test_max_turns_one_allows_single_cycle():
 
 def test_max_turns_stops_after_limit():
     """With max_turns=1, a tool-call response uses the first cycle; the follow-up
-    cycle raises MaxTurnsReachedException before calling the model again."""
+    cycle stops with stop_reason='max_turns' before calling the model again."""
     from strands import tool as tool_decorator
 
     @tool_decorator
@@ -77,7 +76,6 @@ def test_max_turns_stops_after_limit():
         model=MockedModelProvider(
             [
                 _tool_call_response(tool_name="noop"),
-                _text_response(),
             ]
         ),
         tools=[noop],
@@ -85,8 +83,8 @@ def test_max_turns_stops_after_limit():
         load_tools_from_directory=False,
     )
 
-    with pytest.raises(MaxTurnsReachedException):
-        agent("do something")
+    result = agent("do something")
+    assert result.stop_reason == "max_turns"
 
 
 def test_max_turns_allows_exactly_n_cycles():
@@ -163,7 +161,7 @@ async def test_max_token_budget_stops_when_counter_already_at_limit():
     and call event_loop_cycle directly — the same pattern used in test_event_loop.py."""
     mock_agent = unittest.mock.MagicMock()
     mock_agent.__class__ = Agent
-    mock_agent.messages = []
+    mock_agent.messages = [{"role": "user", "content": [{"text": "test"}]}]
     mock_agent.tool_registry = ToolRegistry()
     mock_agent.event_loop_metrics = EventLoopMetrics()
     mock_agent.event_loop_metrics.reset_usage_metrics()
@@ -178,9 +176,11 @@ async def test_max_token_budget_stops_when_counter_already_at_limit():
     mock_agent._invocation_turn_count = 0
     mock_agent._invocation_token_count = 500  # already at limit
 
-    with pytest.raises(MaxTokenBudgetReachedException):
-        async for _ in event_loop_cycle(agent=mock_agent, invocation_state={}):
-            pass
+    events = []
+    async for event in event_loop_cycle(agent=mock_agent, invocation_state={}):
+        events.append(event)
+    stop_event = events[-1]
+    assert stop_event["stop"][0] == "max_token_budget"
 
 
 def test_max_token_budget_first_cycle_runs_when_counter_is_zero():

@@ -35,30 +35,6 @@ class MaxTokensReachedException(Exception):
         super().__init__(message)
 
 
-class MaxTurnsReachedException(Exception):
-    """Exception raised when the agent exceeds the max_turns limit for a single invocation."""
-
-    def __init__(self, message: str):
-        """Initialize the exception.
-
-        Args:
-            message: The error message describing the turn limit issue.
-        """
-        super().__init__(message)
-
-
-class MaxTokenBudgetReachedException(Exception):
-    """Raised when the agent exceeds the max_token_budget for a single invocation."""
-
-    def __init__(self, message: str):
-        """Initialize the exception.
-
-        Args:
-            message: The error message describing the token budget issue.
-        """
-        super().__init__(message)
-
-
 class ContextWindowOverflowException(Exception):
     """Exception raised when the context window is exceeded.
 

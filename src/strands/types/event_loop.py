@@ -57,9 +57,9 @@ StopReason = Literal[
 - "end_turn": Normal completion of the response
 - "guardrail_intervened": Guardrail system intervened
 - "interrupt": Agent was interrupted for human input
-- "max_token_budget": Agent reached the max_token_budget limit set at construction
+- "max_token_budget": Agent-level cumulative token budget exhausted
 - "max_tokens": Maximum token limit reached
-- "max_turns": Agent reached the max_turns limit set at construction
+- "max_turns": Agent-level turn limit exhausted
 - "stop_sequence": Stop sequence encountered
 - "tool_use": Model requested to use a tool
 """
