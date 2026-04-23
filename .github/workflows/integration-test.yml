@@ -48,10 +48,8 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies
-        # Pin virtualenv until hatch is fixed.
-        # See https://github.com/pypa/hatch/issues/2193
         run: |
-          pip install --no-cache-dir hatch 'virtualenv<21'
+          pip install --no-cache-dir hatch
       - name: Run integration tests
         env:
           AWS_REGION: us-east-1
