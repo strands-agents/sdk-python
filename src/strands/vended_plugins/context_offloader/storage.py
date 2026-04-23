@@ -25,7 +25,7 @@ Example:
     ```
 """
 
-import json as json_module
+import json
 import re
 import threading
 import time
@@ -35,6 +35,7 @@ from typing import Any, Protocol, runtime_checkable
 import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
+
 
 def _sanitize_id(raw_id: str) -> str:
     """Sanitize an ID for safe use in filenames and object keys.
@@ -189,15 +190,16 @@ class FileStorage:
         metadata_path = self._artifact_dir / self._METADATA_FILE
         if metadata_path.is_file():
             try:
-                return json_module.loads(metadata_path.read_text(encoding="utf-8"))
-            except (json_module.JSONDecodeError, OSError):
+                result: dict[str, str] = json.loads(metadata_path.read_text(encoding="utf-8"))
+                return result
+            except (json.JSONDecodeError, OSError):
                 return {}
         return {}
 
     def _save_metadata(self) -> None:
         """Save content type metadata to the sidecar file."""
         metadata_path = self._artifact_dir / self._METADATA_FILE
-        metadata_path.write_text(json_module.dumps(self._content_types), encoding="utf-8")
+        metadata_path.write_text(json.dumps(self._content_types), encoding="utf-8")
 
 
 class InMemoryStorage:
