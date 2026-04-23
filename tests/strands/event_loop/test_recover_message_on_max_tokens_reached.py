@@ -224,6 +224,34 @@ def test_recover_message_on_max_tokens_reached_multiple_incomplete_tools():
     assert "incomplete due to maximum token limits" in result["content"][2]["text"]
 
 
+def test_recover_message_on_max_tokens_reached_preserves_metadata():
+    """Test that metadata is preserved through recovery."""
+    message: Message = {
+        "role": "assistant",
+        "content": [
+            {"toolUse": {"name": "calculator", "input": {}, "toolUseId": "123"}},
+        ],
+        "metadata": {"usage": {"inputTokens": 42, "outputTokens": 10, "totalTokens": 52}},
+    }
+
+    result = recover_message_on_max_tokens_reached(message)
+
+    assert "metadata" in result
+    assert result["metadata"]["usage"]["inputTokens"] == 42
+
+
+def test_recover_message_on_max_tokens_reached_without_metadata():
+    """Test that recovery works fine when no metadata is present."""
+    message: Message = {
+        "role": "assistant",
+        "content": [{"text": "some text"}],
+    }
+
+    result = recover_message_on_max_tokens_reached(message)
+
+    assert "metadata" not in result
+
+
 def test_recover_message_on_max_tokens_reached_preserves_user_role():
     """Test that the function preserves the original message role."""
     incomplete_message: Message = {

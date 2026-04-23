@@ -8,7 +8,7 @@ import json
 import logging
 import mimetypes
 from collections.abc import AsyncGenerator
-from typing import Any, TypedDict, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import anthropic
 from pydantic import BaseModel
@@ -21,7 +21,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from ._validation import _has_location_source, validate_config_keys
-from .model import Model
+from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class AnthropicModel(Model):
         "input and output tokens exceed your context limit",
     }
 
-    class AnthropicConfig(TypedDict, total=False):
+    class AnthropicConfig(BaseModelConfig, total=False):
         """Configuration options for Anthropic models.
 
         Attributes:
@@ -407,10 +407,24 @@ class AnthropicModel(Model):
                 logger.debug("got response from model")
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield self.format_chunk(event.model_dump())
+                        if event.type == "message_stop":
+                            # Build dict directly to avoid Pydantic serialization warnings
+                            # when the message contains ParsedTextBlock objects (issue #1746)
+                            yield self.format_chunk(
+                                {
+                                    "type": "message_stop",
+                                    "message": {"stop_reason": event.message.stop_reason},
+                                }
+                            )
+                        else:
+                            yield self.format_chunk(event.model_dump())
 
-                usage = event.message.usage  # type: ignore
-                yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
+                try:
+                    message_snapshot = await stream.get_final_message()
+                except AssertionError as e:
+                    logger.warning("error=<%s> | failed to retrieve message snapshot, usage metadata unavailable", e)
+                else:
+                    yield self.format_chunk({"type": "metadata", "usage": message_snapshot.usage.model_dump()})
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error

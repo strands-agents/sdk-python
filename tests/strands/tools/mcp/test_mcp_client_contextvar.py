@@ -88,3 +88,39 @@ def test_mcp_client_propagates_contextvars_to_background_thread(mock_transport, 
     )
     # Verify it was indeed a different thread
     assert background_thread_value["thread_id"] != main_thread_id, "Background task should run in a different thread"
+
+
+def test_mcp_client_clears_running_loop_in_background_thread(mock_transport, mock_session):
+    """Test that _background_task clears any leaked running event loop state.
+
+    When OpenTelemetry's ThreadingInstrumentor is active, Thread.run() is wrapped to propagate
+    trace context, which can leak the parent thread's running event loop reference into child
+    threads. This causes "RuntimeError: Cannot run the event loop while another loop is running"
+    when the background thread calls run_until_complete().
+
+    This test simulates that scenario by setting a running loop before _background_task runs
+    and verifying it gets cleared.
+    """
+    import asyncio
+
+    cleared_running_loop = {}
+
+    original_background_task = MCPClient._background_task
+
+    def simulating_otel_leak_background_task(self):
+        # Simulate OTEL ThreadingInstrumentor leaking the parent's running loop
+        fake_loop = asyncio.new_event_loop()
+        asyncio._set_running_loop(fake_loop)  # type: ignore[attr-defined]
+
+        # Call the real _background_task — it should clear the leaked loop and succeed
+        try:
+            return original_background_task(self)
+        finally:
+            cleared_running_loop["success"] = True
+            fake_loop.close()
+
+    with patch.object(MCPClient, "_background_task", simulating_otel_leak_background_task):
+        with MCPClient(mock_transport["transport_callable"]) as client:
+            assert client._background_thread is not None
+
+    assert cleared_running_loop.get("success"), "_background_task should have run successfully despite leaked loop"

@@ -7,11 +7,12 @@ from typing import Any
 
 from . import bedrock, model
 from .bedrock import BedrockModel
-from .model import CacheConfig, Model
+from .model import BaseModelConfig, CacheConfig, Model
 
 __all__ = [
     "bedrock",
     "model",
+    "BaseModelConfig",
     "BedrockModel",
     "CacheConfig",
     "Model",

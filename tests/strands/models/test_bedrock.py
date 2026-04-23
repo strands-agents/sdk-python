@@ -288,6 +288,15 @@ def test__init__model_config(bedrock_client):
     assert tru_max_tokens == exp_max_tokens
 
 
+def test__init__context_window_limit(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(context_window_limit=200_000)
+
+    assert model.get_config().get("context_window_limit") == 200_000
+    assert model.context_window_limit == 200_000
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 
@@ -1607,6 +1616,87 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
     assert "status" not in tool_result
 
 
+def test_format_request_message_content_normalizes_empty_tool_result_content(model, model_id):
+    """Test that _format_request_message_content replaces empty toolResult content with a minimal text block.
+
+    Some model providers (e.g., Nemotron) reject toolResult blocks with content: [] via the
+    Converse API, while others (e.g., Claude) accept them. The SDK should normalize empty
+    content arrays to ensure cross-model compatibility.
+
+    See: https://github.com/strands-agents/sdk-python/issues/2122
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Querying...\n"},
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": []}},
+            ],
+        },
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
+    assert tool_result["content"] == [{"text": ""}], "Empty toolResult content should be normalized to [{'text': ''}]"
+
+
+def test_format_request_message_content_does_not_mutate_empty_tool_result(model, model_id):
+    """Test that normalizing empty toolResult content does not mutate the original messages."""
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": []}},
+            ],
+        },
+    ]
+
+    original_content = messages[2]["content"][0]["toolResult"]["content"]
+    model._format_request(messages)
+
+    assert original_content == [], "Original empty content list should not be mutated"
+
+
+def test_format_request_message_content_preserves_nonempty_tool_result_content(model, model_id):
+    """Test that _format_request_message_content does not modify non-empty toolResult content."""
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Querying...\n"},
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": [{"text": "some result"}]}},
+            ],
+        },
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
+    assert tool_result["content"] == [{"text": "some result"}]
+
+
 def test_format_request_removes_status_field_when_configured(model, model_id):
     model.update_config(include_tool_result_status=False)
 
@@ -2126,25 +2216,25 @@ def test_get_default_model_with_warning_supported_regions_shows_no_warning(captu
     """Test get_model_prefix_with_warning doesn't warn for supported region prefixes."""
     BedrockModel._get_default_model_with_warning("us-west-2")
     BedrockModel._get_default_model_with_warning("eu-west-2")
-    assert len(captured_warnings) == 0
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_get_default_model_for_supported_eu_region_returns_correct_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("eu-west-1")
     assert model_id == "eu.anthropic.claude-sonnet-4-20250514-v1:0"
-    assert len(captured_warnings) == 0
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_get_default_model_for_supported_us_region_returns_correct_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("us-east-1")
     assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
-    assert len(captured_warnings) == 0
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_get_default_model_for_supported_gov_region_returns_correct_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("us-gov-west-1")
     assert model_id == "us-gov.anthropic.claude-sonnet-4-20250514-v1:0"
-    assert len(captured_warnings) == 0
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_get_model_prefix_for_ap_region_converts_to_apac_endpoint(captured_warnings):
@@ -2156,9 +2246,10 @@ def test_get_model_prefix_for_ap_region_converts_to_apac_endpoint(captured_warni
 def test_get_default_model_with_warning_unsupported_region_warns(captured_warnings):
     """Test _get_default_model_with_warning warns for unsupported regions."""
     BedrockModel._get_default_model_with_warning("ca-central-1")
-    assert len(captured_warnings) == 1
-    assert "This region ca-central-1 does not support" in str(captured_warnings[0].message)
-    assert "our default inference endpoint" in str(captured_warnings[0].message)
+    region_warnings = [w for w in captured_warnings if "does not support" in str(w.message)]
+    assert len(region_warnings) == 1
+    assert "This region ca-central-1 does not support" in str(region_warnings[0].message)
+    assert "our default inference endpoint" in str(region_warnings[0].message)
 
 
 def test_get_default_model_with_warning_no_warning_with_custom_model_id(captured_warnings):
@@ -2174,8 +2265,9 @@ def test_init_with_unsupported_region_warns(session_cls, captured_warnings):
     """Test BedrockModel initialization warns for unsupported regions."""
     BedrockModel(region_name="ca-central-1")
 
-    assert len(captured_warnings) == 1
-    assert "This region ca-central-1 does not support" in str(captured_warnings[0].message)
+    region_warnings = [w for w in captured_warnings if "does not support" in str(w.message)]
+    assert len(region_warnings) == 1
+    assert "This region ca-central-1 does not support" in str(region_warnings[0].message)
 
 
 def test_init_with_unsupported_region_custom_model_no_warning(session_cls, captured_warnings):
@@ -2194,7 +2286,7 @@ def test_no_override_uses_formatted_default_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("us-east-1")
     assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
     assert model_id != _DEFAULT_BEDROCK_MODEL_ID
-    assert len(captured_warnings) == 0
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_custom_model_id_not_overridden_by_region_formatting(session_cls):
@@ -2870,3 +2962,144 @@ def test_guardrail_latest_message_disabled_does_not_wrap(model):
 
     assert "text" in formatted
     assert "guardContent" not in formatted
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_citations_with_missing_optional_fields(bedrock_client, model, alist):
+    """Test that _convert_non_streaming_to_streaming handles citations missing optional fields.
+
+    Nova grounding returns citations with only url/domain but no title field. The conversion
+    should not crash with KeyError when optional fields like title, location, or sourceContent
+    are missing from the citation response.
+    """
+    # Simulate a non-streaming response with citations missing the 'title' field
+    # This is what Nova grounding returns: url+domain in location, no title
+    non_streaming_response = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "citationsContent": {
+                            "content": [{"text": "Top shoe brands include Nike and Adidas."}],
+                            "citations": [
+                                {
+                                    "location": {
+                                        "web": {
+                                            "url": "https://example.com/shoes",
+                                            "domain": "example.com",
+                                        }
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "end_turn",
+        "usage": {"inputTokens": 10, "outputTokens": 20},
+    }
+
+    events = list(model._convert_non_streaming_to_streaming(non_streaming_response))
+
+    # Should have: messageStart, contentBlockDelta (text + citation), contentBlockStop, messageStop, metadata
+    citation_deltas = [
+        e for e in events if "contentBlockDelta" in e and "citation" in e.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    assert len(citation_deltas) == 1
+
+    citation = citation_deltas[0]["contentBlockDelta"]["delta"]["citation"]
+    # title should NOT be present since the source didn't have it
+    assert "title" not in citation
+    # location should be present
+    assert "location" in citation
+    # sourceContent should NOT be present since the source didn't have it
+    assert "sourceContent" not in citation
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_citations_with_all_fields_present(bedrock_client, model, alist):
+    """Test that _convert_non_streaming_to_streaming correctly includes all fields when present."""
+    non_streaming_response = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "citationsContent": {
+                            "content": [{"text": "Nike is a top shoe brand."}],
+                            "citations": [
+                                {
+                                    "title": "Top Shoe Brands",
+                                    "location": {
+                                        "web": {
+                                            "url": "https://example.com/shoes",
+                                            "domain": "example.com",
+                                        }
+                                    },
+                                    "sourceContent": [{"text": "Nike is a leading brand"}],
+                                },
+                            ],
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "end_turn",
+        "usage": {"inputTokens": 10, "outputTokens": 20},
+    }
+
+    events = list(model._convert_non_streaming_to_streaming(non_streaming_response))
+
+    citation_deltas = [
+        e for e in events if "contentBlockDelta" in e and "citation" in e.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    assert len(citation_deltas) == 1
+
+    citation = citation_deltas[0]["contentBlockDelta"]["delta"]["citation"]
+    assert citation["title"] == "Top Shoe Brands"
+    assert citation["location"] == {"web": {"url": "https://example.com/shoes", "domain": "example.com"}}
+    assert citation["sourceContent"] == [{"text": "Nike is a leading brand"}]
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_citations_with_only_location(bedrock_client, model, alist):
+    """Test citations with only location field (no title, no sourceContent)."""
+    non_streaming_response = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "citationsContent": {
+                            "citations": [
+                                {
+                                    "location": {
+                                        "web": {
+                                            "url": "https://example.com",
+                                            "domain": "example.com",
+                                        }
+                                    },
+                                },
+                            ],
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "end_turn",
+        "usage": {"inputTokens": 5, "outputTokens": 10},
+    }
+
+    events = list(model._convert_non_streaming_to_streaming(non_streaming_response))
+
+    citation_deltas = [
+        e for e in events if "contentBlockDelta" in e and "citation" in e.get("contentBlockDelta", {}).get("delta", {})
+    ]
+    assert len(citation_deltas) == 1
+
+    citation = citation_deltas[0]["contentBlockDelta"]["delta"]["citation"]
+    assert citation["location"] == {"web": {"url": "https://example.com", "domain": "example.com"}}
+    assert "title" not in citation
+    assert "sourceContent" not in citation

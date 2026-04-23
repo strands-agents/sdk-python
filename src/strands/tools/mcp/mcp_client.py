@@ -12,6 +12,7 @@ import base64
 import contextvars
 import json
 import logging
+import sys
 import threading
 import uuid
 from asyncio import AbstractEventLoop
@@ -343,6 +344,15 @@ class MCPClient(ToolProvider):
         """
         self._log_debug_with_thread("exiting MCPClient context")
 
+        # Skip cleanup during interpreter finalization. On Python 3.14+, joining a
+        # non-daemon thread at shutdown raises PythonFinalizationError; even though
+        # our background thread is a daemon and will be reclaimed automatically,
+        # the join call itself produces noisy tracebacks on stderr when the GC
+        # reaches Agent.__del__ during finalization. See issue #2143.
+        if sys.is_finalizing():
+            self._log_debug_with_thread("interpreter is finalizing, skipping MCPClient cleanup")
+            return
+
         # Only try to signal close future if we have a background thread
         if self._background_thread is not None:
             # Signal close future if event loop exists
@@ -592,7 +602,9 @@ class MCPClient(ToolProvider):
             async def _call_as_task() -> MCPCallToolResult:
                 # When task-augmented execution is used, use the read_timeout_seconds parameter
                 # (which is a timedelta) for the polling timeout.
-                return await self._call_tool_as_task_and_poll_async(name, arguments, poll_timeout=read_timeout_seconds)
+                return await self._call_tool_as_task_and_poll_async(
+                    name, arguments, poll_timeout=read_timeout_seconds, meta=meta
+                )
 
             return _call_as_task()
         else:
@@ -742,6 +754,8 @@ class MCPClient(ToolProvider):
             result["structuredContent"] = call_tool_result.structuredContent
         if call_tool_result.meta:
             result["metadata"] = call_tool_result.meta
+        if call_tool_result.isError is not None:
+            result["isError"] = call_tool_result.isError
 
         return result
 
@@ -833,6 +847,9 @@ class MCPClient(ToolProvider):
         This allows for a long-running event loop.
         """
         self._log_debug_with_thread("setting up background task event loop")
+        # Clear any running-loop state leaked by OpenTelemetry's ThreadingInstrumentor, which wraps Thread.run()
+        # and can propagate the parent thread's event loop reference, causing run_until_complete() to fail.
+        asyncio._set_running_loop(None)
         self._background_thread_event_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._background_thread_event_loop)
         self._background_thread_event_loop.run_until_complete(self._async_background_thread())
@@ -1100,6 +1117,7 @@ class MCPClient(ToolProvider):
         arguments: dict[str, Any] | None = None,
         ttl: timedelta | None = None,
         poll_timeout: timedelta | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> MCPCallToolResult:
         """Call a tool using task-augmented execution and poll until completion.
 
@@ -1113,6 +1131,7 @@ class MCPClient(ToolProvider):
             arguments: Optional arguments to pass to the tool.
             ttl: Task time-to-live. Uses configured value if not specified.
             poll_timeout: Timeout for polling. Uses configured value if not specified.
+            meta: Optional metadata to pass to the tool call per MCP spec (_meta).
 
         Returns:
             MCPCallToolResult: The final tool result after task completion.
@@ -1133,6 +1152,7 @@ class MCPClient(ToolProvider):
             name=name,
             arguments=arguments,
             ttl=ttl_ms,
+            meta=meta,
         )
         task_id = create_result.task.taskId
         self._log_debug_with_thread("tool=<%s>, task_id=<%s> | task created", name, task_id)

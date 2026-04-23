@@ -132,6 +132,8 @@ def test_call_tool_sync_status(mock_transport, mock_session, is_error, expected_
         assert result["content"][0]["text"] == "Test message"
         # No structured content should be present when not provided by MCP
         assert result.get("structuredContent") is None
+        # isError mirrors the MCP server's explicit value; absent only for protocol/client exceptions
+        assert result.get("isError") is is_error
 
 
 def test_call_tool_sync_session_not_active():
@@ -261,6 +263,8 @@ async def test_call_tool_async_status(mock_transport, mock_session, is_error, ex
         assert result["toolUseId"] == "test-123"
         assert len(result["content"]) == 1
         assert result["content"][0]["text"] == "Test message"
+        # isError mirrors the MCP server's explicit value; absent only for protocol/client exceptions
+        assert result.get("isError") is is_error
 
 
 @pytest.mark.asyncio
@@ -407,6 +411,15 @@ def test_mcp_tool_result_type():
     )
 
     assert result_with_structured["structuredContent"] == {"key": "value"}
+
+    # isError is optional — absent by default
+    assert "isError" not in result
+
+    # isError can be set to flag tool-reported application errors
+    result_with_is_error = MCPToolResult(
+        status="error", toolUseId="test-789", content=[{"text": "Tool failed"}], isError=True
+    )
+    assert result_with_is_error["isError"] is True
 
 
 def test_call_tool_sync_without_structured_content(mock_transport, mock_session):
@@ -592,6 +605,33 @@ def test_stop_closes_event_loop():
     # Verify cleanup occurred
     assert client._background_thread is None
     assert client._background_thread_event_loop is None
+
+
+def test_stop_skips_cleanup_during_interpreter_finalization():
+    """Test that stop() is a no-op when the interpreter is finalizing.
+
+    On Python 3.14+, threading.Thread.join() raises PythonFinalizationError at
+    shutdown. The background thread is a daemon and is reclaimed automatically,
+    so stop() should skip join() and event loop cleanup to avoid noisy
+    tracebacks surfaced via Agent.__del__ during GC. See issue #2143.
+    """
+    client = MCPClient(MagicMock())
+
+    mock_thread = MagicMock()
+    mock_event_loop = MagicMock()
+    client._background_thread = mock_thread
+    client._background_thread_event_loop = mock_event_loop
+
+    with patch("strands.tools.mcp.mcp_client.sys.is_finalizing", return_value=True):
+        # Must not raise, and must not touch the thread or event loop.
+        client.stop(None, None, None)
+
+    mock_thread.join.assert_not_called()
+    mock_event_loop.close.assert_not_called()
+    # State is intentionally left alone during finalization — the interpreter
+    # is going away and cleanup is unnecessary.
+    assert client._background_thread is mock_thread
+    assert client._background_thread_event_loop is mock_event_loop
 
 
 def test_mcp_client_state_reset_after_timeout():

@@ -9,7 +9,7 @@ import logging
 import mimetypes
 import secrets
 from collections.abc import AsyncGenerator
-from typing import Any, TypedDict, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import pydantic
 from google import genai
@@ -20,7 +20,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import _has_location_source, validate_config_keys
-from .model import Model
+from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class GeminiModel(Model):
     - Docs: https://ai.google.dev/api
     """
 
-    class GeminiConfig(TypedDict, total=False):
+    class GeminiConfig(BaseModelConfig, total=False):
         """Configuration options for Gemini models.
 
         Attributes:

@@ -61,31 +61,42 @@ def test_agent_with_file_session(temp_dir):
 
 
 def test_agent_with_file_session_and_conversation_manager(temp_dir):
-    # Set up the session manager and add an agent
+    # Use window_size=2 because the sliding window now enforces that the first remaining
+    # message after trimming is a user message (#2087). With a simple (no-tool) turn producing
+    # [user, assistant], window_size=1 can never trim (the sole remaining message would be
+    # assistant). window_size=2 keeps a valid [user, assistant] pair after trimming.
     test_session_id = str(uuid4())
-    # Create a session
     session_manager = FileSessionManager(session_id=test_session_id, storage_dir=temp_dir)
     try:
         agent = Agent(
-            session_manager=session_manager, conversation_manager=SlidingWindowConversationManager(window_size=1)
+            session_manager=session_manager, conversation_manager=SlidingWindowConversationManager(window_size=2)
         )
+        # First call: 2 messages [user, assistant], fits in window — no trim
         agent("Hello!")
+        assert len(agent.messages) == 2
         assert len(session_manager.list_messages(test_session_id, agent.agent_id)) == 2
-        # Conversation Manager reduced messages
-        assert len(agent.messages) == 1
 
-        # After agent is persisted and run, restore the agent and run it again
+        # Second call: 4 messages, exceeds window, trimmed back to 2 [user, assistant]
+        agent("Hi again!")
+        assert len(agent.messages) == 2
+        assert agent.conversation_manager.removed_message_count == 2
+        # Session manager persists ALL messages even though agent memory was trimmed
+        assert len(session_manager.list_messages(test_session_id, agent.agent_id)) == 4
+
+        # Restore agent from session — should load trimmed state
         session_manager_2 = FileSessionManager(session_id=test_session_id, storage_dir=temp_dir)
         agent_2 = Agent(
-            session_manager=session_manager_2, conversation_manager=SlidingWindowConversationManager(window_size=1)
+            session_manager=session_manager_2, conversation_manager=SlidingWindowConversationManager(window_size=2)
         )
-        assert len(agent_2.messages) == 1
-        assert agent_2.conversation_manager.removed_message_count == 1
+        assert len(agent_2.messages) == 2
+        assert agent_2.conversation_manager.removed_message_count == 2
+
+        # Third call on restored agent: triggers another trim
         agent_2("Hello!")
-        assert len(agent_2.messages) == 1
-        assert len(session_manager_2.list_messages(test_session_id, agent_2.agent_id)) == 4
+        assert len(agent_2.messages) == 2
+        assert agent_2.conversation_manager.removed_message_count == 4
+        assert len(session_manager_2.list_messages(test_session_id, agent_2.agent_id)) == 6
     finally:
-        # Delete the session
         session_manager.delete_session(test_session_id)
         assert session_manager.read_session(test_session_id) is None
 

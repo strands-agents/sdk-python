@@ -78,6 +78,7 @@ def conversation_manager(request):
             ],
         ),
         # 5 - Remove dangling assistant message with tool use and user message without tool result
+        # Must start with a user message, so we skip the assistant message
         (
             {"window_size": 3},
             [
@@ -87,7 +88,6 @@ def conversation_manager(request):
                 {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
             ],
             [
-                {"role": "assistant", "content": [{"text": "First response"}]},
                 {"role": "user", "content": [{"text": "Use a tool"}]},
                 {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
             ],
@@ -107,19 +107,22 @@ def conversation_manager(request):
             ],
         ),
         # 7 - Message count above max window size - Preserve tool use/tool result pairs
+        # Cannot start with assistant or orphaned toolResult, so trim advances to next plain user message
         (
             {"window_size": 2},
             [
-                {"role": "user", "content": [{"toolResult": {"toolUseId": "123", "content": [], "status": "success"}}]},
+                {"role": "user", "content": [{"text": "Hello"}]},
                 {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
-                {"role": "user", "content": [{"toolResult": {"toolUseId": "456", "content": [], "status": "success"}}]},
+                {"role": "user", "content": [{"toolResult": {"toolUseId": "123", "content": [], "status": "success"}}]},
+                {"role": "assistant", "content": [{"text": "Done"}]},
+                {"role": "user", "content": [{"text": "Next"}]},
             ],
             [
-                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
-                {"role": "user", "content": [{"toolResult": {"toolUseId": "456", "content": [], "status": "success"}}]},
+                {"role": "user", "content": [{"text": "Next"}]},
             ],
         ),
         # 8 - Test sliding window behavior - preserve tool use/result pairs across cut boundary
+        # Must start with user message (not assistant, not orphaned toolResult), so trim advances to plain user msg
         (
             {"window_size": 3},
             [
@@ -127,14 +130,14 @@ def conversation_manager(request):
                 {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "123", "content": [], "status": "success"}}]},
                 {"role": "assistant", "content": [{"text": "Response after tool use"}]},
+                {"role": "user", "content": [{"text": "Follow up"}]},
             ],
             [
-                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
-                {"role": "user", "content": [{"toolResult": {"toolUseId": "123", "content": [], "status": "success"}}]},
-                {"role": "assistant", "content": [{"text": "Response after tool use"}]},
+                {"role": "user", "content": [{"text": "Follow up"}]},
             ],
         ),
         # 9 - Test sliding window with multiple tool pairs that need preservation
+        # Must start with user message; orphaned toolResult is skipped, lands on plain user text
         (
             {"window_size": 4},
             [
@@ -144,11 +147,10 @@ def conversation_manager(request):
                 {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool2", "input": {}}}]},
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "456", "content": [], "status": "success"}}]},
                 {"role": "assistant", "content": [{"text": "Final response"}]},
+                {"role": "user", "content": [{"text": "Another question"}]},
             ],
             [
-                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool2", "input": {}}}]},
-                {"role": "user", "content": [{"toolResult": {"toolUseId": "456", "content": [], "status": "success"}}]},
-                {"role": "assistant", "content": [{"text": "Final response"}]},
+                {"role": "user", "content": [{"text": "Another question"}]},
             ],
         ),
     ],
@@ -161,6 +163,43 @@ def test_apply_management(conversation_manager, messages, expected_messages):
     assert messages == expected_messages
 
 
+def test_sliding_window_forces_user_message_start():
+    """Test that trimmed conversation always starts with a user message (GitHub #2085)."""
+    manager = SlidingWindowConversationManager(window_size=3, should_truncate_results=False)
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi"}]},
+        {"role": "user", "content": [{"text": "How are you?"}]},
+        {"role": "assistant", "content": [{"text": "Good"}]},
+        {"role": "user", "content": [{"text": "Great"}]},
+    ]
+    test_agent = Agent(messages=messages)
+    manager.apply_management(test_agent)
+
+    assert len(messages) == 3
+    assert messages[0]["role"] == "user"
+    assert messages[0]["content"] == [{"text": "How are you?"}]
+
+
+def test_sliding_window_happy_path_preserves_window_size():
+    """In a typical user/assistant conversation, trimming preserves close to window_size messages."""
+    manager = SlidingWindowConversationManager(window_size=4, should_truncate_results=False)
+    messages = [
+        {"role": "user", "content": [{"text": "First"}]},
+        {"role": "assistant", "content": [{"text": "First response"}]},
+        {"role": "user", "content": [{"text": "Second"}]},
+        {"role": "assistant", "content": [{"text": "Second response"}]},
+        {"role": "user", "content": [{"text": "Third"}]},
+        {"role": "assistant", "content": [{"text": "Third response"}]},
+    ]
+    test_agent = Agent(messages=messages)
+    manager.apply_management(test_agent)
+
+    assert len(messages) == 4
+    assert messages[0]["role"] == "user"
+    assert messages[0]["content"] == [{"text": "Second"}]
+
+
 def test_sliding_window_conversation_manager_with_untrimmable_history_raises_context_window_overflow_exception():
     manager = SlidingWindowConversationManager(1, False)
     messages = [
@@ -171,9 +210,82 @@ def test_sliding_window_conversation_manager_with_untrimmable_history_raises_con
     test_agent = Agent(messages=messages)
 
     with pytest.raises(ContextWindowOverflowException):
-        manager.apply_management(test_agent)
+        manager.reduce_context(test_agent, e=RuntimeError("context overflow"))
 
     assert messages == original_messages
+
+
+def test_sliding_window_no_valid_trim_point_without_error_does_not_raise():
+    """When no valid trim point exists during routine management (no error), messages are left unchanged."""
+    manager = SlidingWindowConversationManager(1, False)
+    messages = [
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "789", "content": [], "status": "success"}}]},
+    ]
+    original_messages = messages.copy()
+    test_agent = Agent(messages=messages)
+
+    manager.apply_management(test_agent)
+
+    assert messages == original_messages
+
+
+def test_sliding_window_tool_heavy_conversation_falls_back_to_tool_pair_boundary():
+    """Tool-heavy conversations trim to assistant(toolUse) + user(toolResult) boundary."""
+    manager = SlidingWindowConversationManager(window_size=4, should_truncate_results=False)
+    messages = [
+        {"role": "user", "content": [{"text": "Review this PR"}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "1", "name": "get_diff", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "1", "content": [{"text": "diff"}], "status": "success"}}],
+        },
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "2", "name": "get_file", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "2", "content": [{"text": "file"}], "status": "success"}}],
+        },
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "3", "name": "get_tree", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "3", "content": [{"text": "tree"}], "status": "success"}}],
+        },
+        {"role": "assistant", "content": [{"text": "Here is my review"}]},
+    ]
+    test_agent = Agent(messages=messages)
+
+    manager.reduce_context(test_agent, e=Exception("context window overflow"))
+
+    # Should trim to first assistant(toolUse) + user(toolResult) pair after trim_index
+    # With 8 messages and window_size=4, trim_index starts at 4. First fallback at index 5 (toolUseId "3").
+    assert len(messages) == 3
+    assert messages[0]["role"] == "assistant"
+    assert messages[0]["content"][0]["toolUse"]["toolUseId"] == "3"
+    assert messages[1]["role"] == "user"
+    assert any("toolResult" in content for content in messages[1]["content"])
+
+
+def test_sliding_window_prefers_plain_user_message_over_tool_pair_fallback():
+    """Plain user messages are preferred over assistant+toolResult fallback when both exist."""
+    manager = SlidingWindowConversationManager(window_size=2, should_truncate_results=False)
+    messages = [
+        {"role": "user", "content": [{"text": "First"}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "1", "name": "tool1", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "1", "content": [{"text": "result"}], "status": "success"}}],
+        },
+        {"role": "assistant", "content": [{"text": "Response"}]},
+        {"role": "user", "content": [{"text": "Plain user message"}]},
+        {"role": "assistant", "content": [{"text": "Final response"}]},
+    ]
+    test_agent = Agent(messages=messages)
+
+    manager.apply_management(test_agent)
+
+    # Should prefer the plain user message, not the assistant+toolResult fallback
+    assert messages[0]["role"] == "user"
+    assert messages[0]["content"] == [{"text": "Plain user message"}]
 
 
 def test_sliding_window_conversation_manager_with_tool_results_truncated():

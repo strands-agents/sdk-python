@@ -83,8 +83,8 @@ class Tracer:
     When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces
     are sent to the OTLP endpoint.
 
-    Both attributes are controlled by including "gen_ai_latest_experimental" or "gen_ai_tool_definitions",
-    respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
+    Both attributes are controlled by including "gen_ai_latest_experimental", "gen_ai_tool_definitions",
+    or "gen_ai_use_latest_invocation_tokens", respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
     """
 
     def __init__(self) -> None:
@@ -100,6 +100,7 @@ class Tracer:
         ## To-do: should not set below attributes directly, use env var instead
         self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
         self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
+        self._use_latest_invocation_tokens = "gen_ai_use_latest_invocation_tokens" in opt_in_values
 
     def _parse_semconv_opt_in(self) -> set[str]:
         """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
@@ -217,12 +218,6 @@ class Tracer:
             logger.warning("error=<%s> | error while ending span", e, exc_info=True)
         finally:
             span.end()
-            # Force flush to ensure spans are exported
-            if self.tracer_provider and hasattr(self.tracer_provider, "force_flush"):
-                try:
-                    self.tracer_provider.force_flush()
-                except Exception as e:
-                    logger.warning("error=<%s> | failed to force flush tracer provider", e)
 
     def end_span_with_error(self, span: Span, error_message: str, exception: Exception | None = None) -> None:
         """End a span with error status.
@@ -526,9 +521,8 @@ class Tracer:
         event_loop_cycle_id = str(invocation_state.get("event_loop_cycle_id"))
         parent_span = parent_span if parent_span else invocation_state.get("event_loop_parent_span")
 
-        attributes: dict[str, AttributeValue] = {
-            "event_loop.cycle_id": event_loop_cycle_id,
-        }
+        attributes: dict[str, AttributeValue] = self._get_common_attributes(operation_name="execute_event_loop_cycle")
+        attributes["event_loop.cycle_id"] = event_loop_cycle_id
 
         if custom_trace_attributes:
             attributes.update(custom_trace_attributes)
@@ -689,16 +683,26 @@ class Tracer:
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
                 if self.is_langfuse:
                     attributes.update({"langfuse.observation.type": "span"})
-                accumulated_usage = response.metrics.accumulated_usage
+                if self._use_latest_invocation_tokens:
+                    latest_invocation = response.metrics.latest_agent_invocation
+                    if latest_invocation is None:
+                        logger.warning(
+                            "latest_agent_invocation is None despite _use_latest_invocation_tokens being set"
+                        )
+                        usage: Usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
+                    else:
+                        usage = latest_invocation.usage
+                else:
+                    usage = response.metrics.accumulated_usage
                 attributes.update(
                     {
-                        "gen_ai.usage.prompt_tokens": accumulated_usage["inputTokens"],
-                        "gen_ai.usage.completion_tokens": accumulated_usage["outputTokens"],
-                        "gen_ai.usage.input_tokens": accumulated_usage["inputTokens"],
-                        "gen_ai.usage.output_tokens": accumulated_usage["outputTokens"],
-                        "gen_ai.usage.total_tokens": accumulated_usage["totalTokens"],
-                        "gen_ai.usage.cache_read_input_tokens": accumulated_usage.get("cacheReadInputTokens", 0),
-                        "gen_ai.usage.cache_write_input_tokens": accumulated_usage.get("cacheWriteInputTokens", 0),
+                        "gen_ai.usage.prompt_tokens": usage["inputTokens"],
+                        "gen_ai.usage.completion_tokens": usage["outputTokens"],
+                        "gen_ai.usage.input_tokens": usage["inputTokens"],
+                        "gen_ai.usage.output_tokens": usage["outputTokens"],
+                        "gen_ai.usage.total_tokens": usage["totalTokens"],
+                        "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
+                        "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
                     }
                 )
 

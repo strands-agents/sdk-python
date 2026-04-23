@@ -189,6 +189,7 @@ async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results
         tool_use=tool_use,
         invocation_state=invocation_state,
         result=exp_results[0],
+        exception=unittest.mock.ANY,
     )
     assert tru_hook_after_event == exp_hook_after_event
 
@@ -216,6 +217,7 @@ async def test_executor_stream_with_trace(
     tracer.end_tool_call_span.assert_called_once_with(
         tracer.start_tool_call_span.return_value,
         {"content": [{"text": "sunny"}], "status": "success", "toolUseId": "1"},
+        error=None,
     )
 
     cycle_trace.add_child.assert_called_once()
@@ -901,3 +903,71 @@ async def test_executor_stream_retry_after_unknown_tool(executor, agent, tool_re
     assert len(tru_events) == 1
     assert tru_events[0].tool_result["status"] == "error"
     assert "Unknown tool" in tru_events[0].tool_result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_with_trace_error(
+    executor, tracer, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
+):
+    """Test that _stream_with_trace passes the exception to end_tool_call_span when a tool fails."""
+    tool_use: ToolUse = {"name": "exception_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream_with_trace(agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state)
+
+    await alist(stream)
+
+    tracer.end_tool_call_span.assert_called_once()
+    call_args = tracer.end_tool_call_span.call_args
+    assert call_args[0][1]["status"] == "error"
+    error_arg = call_args[1].get("error")
+    assert error_arg is not None
+    assert isinstance(error_arg, RuntimeError)
+    assert "Tool error" in str(error_arg)
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_error_preserves_exception(executor, agent, tool_results, invocation_state, alist):
+    """Test that _stream yields a ToolResultEvent with the exception preserved."""
+    tool_use: ToolUse = {"name": "exception_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    events = await alist(stream)
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert result_event.tool_result["status"] == "error"
+    assert result_event.exception is not None
+    assert isinstance(result_event.exception, RuntimeError)
+    assert "Tool error" in str(result_event.exception)
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_unknown_tool_has_exception(executor, agent, tool_results, invocation_state, alist):
+    """Test that _stream yields a ToolResultEvent with exception for unknown tools."""
+    tool_use: ToolUse = {"name": "nonexistent_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    events = await alist(stream)
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert result_event.tool_result["status"] == "error"
+    assert result_event.exception is not None
+    assert "Unknown tool" in str(result_event.exception)
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_cancel_has_exception(executor, agent, tool_results, invocation_state, alist):
+    """Test that _stream yields a ToolResultEvent with exception for cancelled tools."""
+
+    def cancel_callback(event):
+        event.cancel_tool = True
+        return event
+
+    agent.hooks.add_callback(BeforeToolCallEvent, cancel_callback)
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    events = await alist(stream)
+    result_event = events[-1]
+    assert isinstance(result_event, ToolResultEvent)
+    assert result_event.tool_result["status"] == "error"
+    assert result_event.exception is not None
+    assert "cancelled" in str(result_event.exception)
