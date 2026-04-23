@@ -24,8 +24,8 @@ Example:
     agent = Agent(plugins=[
         ContextOffloader(
             storage=FileStorage("./artifacts"),
-            max_result_chars=20_000,
-            preview_chars=8_000,
+            max_result_tokens=5_000,
+            preview_tokens=2_000,
         )
     ])
     ```
@@ -38,8 +38,10 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...hooks.events import AfterToolCallEvent, BeforeInvocationEvent
+from ...models.model import _get_encoding
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
+from ...types.content import Message
 from ...types.tools import ToolContext, ToolResult, ToolResultContent
 from .storage import Storage
 
@@ -48,11 +50,14 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MAX_RESULT_CHARS = 10_000
-"""Default character threshold above which tool results are offloaded."""
+_DEFAULT_MAX_RESULT_TOKENS = 2_500
+"""Default token threshold above which tool results are offloaded."""
 
-_DEFAULT_PREVIEW_CHARS = 4_000
-"""Default number of characters to keep as a preview in context."""
+_DEFAULT_PREVIEW_TOKENS = 1_000
+"""Default number of tokens to keep as a preview in context."""
+
+_CHARS_PER_TOKEN = 4
+"""Approximate characters per token, fallback for preview slicing without tiktoken."""
 
 _STATE_KEY = "context_offloader"
 
@@ -70,10 +75,13 @@ _SYSTEM_PROMPT_INJECTION = (
 class ContextOffloader(Plugin):
     """Plugin that offloads oversized tool results to reduce context consumption.
 
-    When a tool result exceeds the configured character threshold, this plugin
+    When a tool result exceeds the configured token threshold, this plugin
     stores each content block individually to a storage backend and replaces
     the in-context result with a truncated text preview plus per-block references.
     A built-in retrieval tool allows the agent to fetch offloaded content on demand.
+
+    Token estimation uses the agent's model ``count_tokens`` method, which
+    leverages tiktoken when available and falls back to character-based heuristics.
 
     Content type handling:
 
@@ -91,8 +99,8 @@ class ContextOffloader(Plugin):
 
     Args:
         storage: Backend for storing offloaded content (required).
-        max_result_chars: Offload results whose text+JSON content exceeds this many characters.
-        preview_chars: Number of characters to keep as a text preview in context.
+        max_result_tokens: Offload results whose estimated token count exceeds this threshold.
+        preview_tokens: Number of tokens to keep as a text preview in context.
 
     Example:
         ```python
@@ -110,32 +118,33 @@ class ContextOffloader(Plugin):
     def __init__(
         self,
         storage: Storage,
-        max_result_chars: int = _DEFAULT_MAX_RESULT_CHARS,
-        preview_chars: int = _DEFAULT_PREVIEW_CHARS,
+        max_result_tokens: int = _DEFAULT_MAX_RESULT_TOKENS,
+        preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
     ) -> None:
         """Initialize the ContextOffloader plugin.
 
         Args:
             storage: Backend for storing offloaded content.
-            max_result_chars: Offload results whose text+JSON content exceeds this
-                many characters. Defaults to ``_DEFAULT_MAX_RESULT_CHARS`` (10,000).
-            preview_chars: Number of characters to keep as a text preview in context.
-                Defaults to ``_DEFAULT_PREVIEW_CHARS`` (4,000).
+            max_result_tokens: Offload results whose estimated token count exceeds this
+                threshold. Defaults to ``_DEFAULT_MAX_RESULT_TOKENS`` (2,500).
+            preview_tokens: Number of tokens to keep as a text preview in context.
+                Uses tiktoken for exact slicing when available, falls back to
+                chars/4 heuristic. Defaults to ``_DEFAULT_PREVIEW_TOKENS`` (1,000).
 
         Raises:
-            ValueError: If max_result_chars is not positive, preview_chars is negative,
-                or preview_chars >= max_result_chars.
+            ValueError: If max_result_tokens is not positive, preview_tokens is negative,
+                or preview_tokens >= max_result_tokens.
         """
-        if max_result_chars <= 0:
-            raise ValueError("max_result_chars must be positive")
-        if preview_chars < 0:
-            raise ValueError("preview_chars must be non-negative")
-        if preview_chars >= max_result_chars:
-            raise ValueError("preview_chars must be less than max_result_chars")
+        if max_result_tokens <= 0:
+            raise ValueError("max_result_tokens must be positive")
+        if preview_tokens < 0:
+            raise ValueError("preview_tokens must be non-negative")
+        if preview_tokens >= max_result_tokens:
+            raise ValueError("preview_tokens must be less than max_result_tokens")
 
         self._storage = storage
-        self._max_result_chars = max_result_chars
-        self._preview_chars = preview_chars
+        self._max_result_tokens = max_result_tokens
+        self._preview_tokens = preview_tokens
         super().__init__()
 
     @tool(context=True)
@@ -195,7 +204,7 @@ class ContextOffloader(Plugin):
         self._set_state_field(agent, "last_injection", injection)
 
     @hook
-    def _handle_tool_result(self, event: AfterToolCallEvent) -> None:
+    async def _handle_tool_result(self, event: AfterToolCallEvent) -> None:
         """Intercept oversized tool results, offload per-block, and replace with preview."""
         if event.cancel_message is not None:
             return
@@ -207,7 +216,14 @@ class ContextOffloader(Plugin):
         content = result["content"]
         tool_use_id = event.tool_use["toolUseId"]
 
-        # Measure text+JSON size to decide whether to offload.
+        # Estimate token count by wrapping the tool result as a message for count_tokens
+        tool_result_message: Message = {"role": "user", "content": [{"toolResult": result}]}
+        token_count = await event.agent.model.count_tokens([tool_result_message])
+
+        if token_count <= self._max_result_tokens:
+            return
+
+        # Build text preview from text+JSON blocks.
         # Empty text blocks are intentionally excluded — they add no content value.
         text_preview_parts: list[str] = []
         for block in content:
@@ -216,12 +232,7 @@ class ContextOffloader(Plugin):
             elif "json" in block:
                 text_preview_parts.append(json.dumps(block["json"], indent=2))
 
-        if not text_preview_parts:
-            return
-
-        full_text = "\n".join(text_preview_parts)
-        if len(full_text) <= self._max_result_chars:
-            return
+        full_text = "\n".join(text_preview_parts) if text_preview_parts else ""
 
         # Store each content block individually
         references: list[tuple[str, str, str]] = []  # (ref, content_type, description)
@@ -263,17 +274,17 @@ class ContextOffloader(Plugin):
             return
 
         logger.debug(
-            "tool_use_id=<%s>, blocks=<%d>, text_chars=<%d> | tool result offloaded",
+            "tool_use_id=<%s>, blocks=<%d>, tokens=<%d> | tool result offloaded",
             tool_use_id,
             len(references),
-            len(full_text),
+            token_count,
         )
 
-        # Build preview text
-        preview = full_text[: self._preview_chars]
+        # Build preview text — use tiktoken for exact slicing when available
+        preview = self._slice_preview(full_text) if full_text else ""
         ref_lines = "\n".join(f"  {ref} ({desc})" for ref, _, desc in references if ref)
         preview_text = (
-            f"[Offloaded: {len(content)} blocks, {len(full_text):,} text chars]\n"
+            f"[Offloaded: {len(content)} blocks, ~{token_count:,} tokens]\n"
             f"[Use the preview below to answer if possible. If you need the full content,\n"
             f"call retrieve_offloaded_content with a reference.]\n\n"
             f"{preview}\n\n"
@@ -313,6 +324,25 @@ class ContextOffloader(Plugin):
             status=result["status"],
             content=new_content,
         )
+
+    def _slice_preview(self, text: str) -> str:
+        """Slice text to approximately preview_tokens.
+
+        Uses tiktoken for exact token-level slicing when available,
+        falls back to characters (tokens * 4) otherwise.
+
+        Args:
+            text: The full text to slice.
+
+        Returns:
+            The preview text.
+        """
+        encoding = _get_encoding()
+        if encoding is not None:
+            tokens = encoding.encode(text)
+            preview: str = encoding.decode(tokens[: self._preview_tokens])
+            return preview
+        return text[: self._preview_tokens * _CHARS_PER_TOKEN]
 
     def _set_state_field(self, agent: Agent, key: str, value: str) -> None:
         """Set a field in the plugin's agent state dict.

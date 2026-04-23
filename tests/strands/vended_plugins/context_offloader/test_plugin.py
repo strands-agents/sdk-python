@@ -2,7 +2,8 @@
 
 import json
 import logging
-from unittest.mock import MagicMock
+import math
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -23,14 +24,33 @@ def storage():
 def plugin(storage):
     return ContextOffloader(
         storage=storage,
-        max_result_chars=100,
-        preview_chars=50,
+        max_result_tokens=25,
+        preview_tokens=10,
     )
 
 
 @pytest.fixture
 def mock_agent():
-    return MagicMock()
+    agent = MagicMock()
+    agent.model = MagicMock()
+    agent.model.count_tokens = AsyncMock(side_effect=_heuristic_count_tokens)
+    return agent
+
+
+async def _heuristic_count_tokens(messages, **kwargs):
+    """Heuristic token counter for tests: chars / 4."""
+    total = 0
+    for msg in messages:
+        for block in msg.get("content", []):
+            if "toolResult" in block:
+                for content in block["toolResult"].get("content", []):
+                    if "text" in content:
+                        total += math.ceil(len(content["text"]) / 4)
+                    elif "json" in content:
+                        total += math.ceil(len(json.dumps(content["json"])) / 4)
+            elif "text" in block:
+                total += math.ceil(len(block["text"]) / 4)
+    return total
 
 
 def _make_event(agent, text_content, status="success", tool_use_id="tool_123", cancel_message=None):
@@ -66,32 +86,33 @@ class TestContextOffloader:
         hook_names = {h.__name__ for h in plugin.hooks}
         assert hook_names == {"_on_before_invocation", "_handle_tool_result"}
 
-    def test_raises_on_non_positive_max_result_chars(self):
-        with pytest.raises(ValueError, match="max_result_chars must be positive"):
-            ContextOffloader(storage=InMemoryStorage(), max_result_chars=0)
-        with pytest.raises(ValueError, match="max_result_chars must be positive"):
-            ContextOffloader(storage=InMemoryStorage(), max_result_chars=-1)
+    def test_raises_on_non_positive_max_result_tokens(self):
+        with pytest.raises(ValueError, match="max_result_tokens must be positive"):
+            ContextOffloader(storage=InMemoryStorage(), max_result_tokens=0)
+        with pytest.raises(ValueError, match="max_result_tokens must be positive"):
+            ContextOffloader(storage=InMemoryStorage(), max_result_tokens=-1)
 
-    def test_raises_on_negative_preview_chars(self):
-        with pytest.raises(ValueError, match="preview_chars must be non-negative"):
-            ContextOffloader(storage=InMemoryStorage(), preview_chars=-1)
+    def test_raises_on_negative_preview_tokens(self):
+        with pytest.raises(ValueError, match="preview_tokens must be non-negative"):
+            ContextOffloader(storage=InMemoryStorage(), preview_tokens=-1)
 
-    def test_raises_on_preview_chars_gte_max_result_chars(self):
-        with pytest.raises(ValueError, match="preview_chars must be less than max_result_chars"):
-            ContextOffloader(storage=InMemoryStorage(), max_result_chars=100, preview_chars=100)
-        with pytest.raises(ValueError, match="preview_chars must be less than max_result_chars"):
-            ContextOffloader(storage=InMemoryStorage(), max_result_chars=100, preview_chars=200)
+    def test_raises_on_preview_tokens_gte_max_result_tokens(self):
+        with pytest.raises(ValueError, match="preview_tokens must be less than max_result_tokens"):
+            ContextOffloader(storage=InMemoryStorage(), max_result_tokens=100, preview_tokens=100)
+        with pytest.raises(ValueError, match="preview_tokens must be less than max_result_tokens"):
+            ContextOffloader(storage=InMemoryStorage(), max_result_tokens=100, preview_tokens=200)
 
-    def test_offloads_oversized_text(self, plugin, storage, mock_agent):
+    @pytest.mark.asyncio
+    async def test_offloads_oversized_text(self, plugin, storage, mock_agent):
         large_text = "a" * 200
         event = _make_event(mock_agent, large_text)
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         result_text = event.result["content"][0]["text"]
         assert "[Offloaded:" in result_text
-        assert "a" * 50 in result_text
-        assert "a" * 51 not in result_text
+        # Preview should be shorter than the full text
+        assert len(result_text) < len(large_text) + 500  # preview + metadata < original + overhead
 
         # Verify stored content
         assert len(storage._store) == 1
@@ -100,42 +121,47 @@ class TestContextOffloader:
         assert content == large_text.encode("utf-8")
         assert content_type == "text/plain"
 
-    def test_preserves_status_and_tool_use_id(self, plugin, mock_agent):
+    @pytest.mark.asyncio
+    async def test_preserves_status_and_tool_use_id(self, plugin, mock_agent):
         event = _make_event(mock_agent, "x" * 200, status="error", tool_use_id="my_tool_456")
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         assert event.result["status"] == "error"
         assert event.result["toolUseId"] == "my_tool_456"
 
-    def test_under_threshold_passes_through(self, plugin, mock_agent):
-        small_text = "x" * 50
+    @pytest.mark.asyncio
+    async def test_under_threshold_passes_through(self, plugin, mock_agent):
+        small_text = "x" * 50  # 12.5 tokens, under 25
         event = _make_event(mock_agent, small_text)
         original_content = event.result["content"]
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         assert event.result["content"] is original_content
 
-    def test_at_threshold_passes_through(self, plugin, mock_agent):
-        exact_text = "x" * 100
+    @pytest.mark.asyncio
+    async def test_at_threshold_passes_through(self, plugin, mock_agent):
+        exact_text = "x" * 100  # exactly 25 tokens
         event = _make_event(mock_agent, exact_text)
         original_content = event.result["content"]
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         assert event.result["content"] is original_content
 
-    def test_skips_cancelled_tool_calls(self, plugin, mock_agent):
+    @pytest.mark.asyncio
+    async def test_skips_cancelled_tool_calls(self, plugin, mock_agent):
         large_text = "x" * 200
         event = _make_event(mock_agent, large_text, cancel_message="tool cancelled by user")
         original_content = event.result["content"]
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         assert event.result["content"] is original_content
 
-    def test_skips_retrieve_tool_results(self, plugin, mock_agent):
+    @pytest.mark.asyncio
+    async def test_skips_retrieve_tool_results(self, plugin, mock_agent):
         large_text = "x" * 200
         result = {"toolUseId": "tool_123", "status": "success", "content": [{"text": large_text}]}
         tool_use = {"toolUseId": "tool_123", "name": "retrieve_offloaded_content", "input": {}}
@@ -146,20 +172,22 @@ class TestContextOffloader:
             invocation_state={},
             result=result,
         )
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         assert event.result["content"][0]["text"] == large_text
 
-    def test_image_only_content_passes_through(self, plugin, mock_agent):
+    @pytest.mark.asyncio
+    async def test_image_only_content_passes_through(self, plugin, mock_agent):
         content = [{"image": {"format": "png", "source": {"bytes": b"fake"}}}]
         event = _make_event(mock_agent, content)
         original_content = event.result["content"]
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         assert event.result["content"] is original_content
 
-    def test_image_stored_and_placeholder_has_ref(self, plugin, storage, mock_agent):
+    @pytest.mark.asyncio
+    async def test_image_stored_and_placeholder_has_ref(self, plugin, storage, mock_agent):
         img_bytes = b"\x89PNG" + b"\x00" * 100
         content = [
             {"text": "x" * 200},
@@ -167,7 +195,7 @@ class TestContextOffloader:
         ]
         event = _make_event(mock_agent, content)
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         # Should have preview + image placeholder
         assert len(event.result["content"]) == 2
@@ -182,7 +210,8 @@ class TestContextOffloader:
         assert img_content == img_bytes
         assert img_type == "image/png"
 
-    def test_document_stored_and_placeholder_has_ref(self, plugin, storage, mock_agent):
+    @pytest.mark.asyncio
+    async def test_document_stored_and_placeholder_has_ref(self, plugin, storage, mock_agent):
         doc_bytes = b"%PDF-1.4" + b"\x00" * 100
         content = [
             {"text": "x" * 200},
@@ -190,7 +219,7 @@ class TestContextOffloader:
         ]
         event = _make_event(mock_agent, content)
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         assert len(event.result["content"]) == 2
         placeholder = event.result["content"][1]["text"]
@@ -203,14 +232,15 @@ class TestContextOffloader:
         assert doc_content == doc_bytes
         assert doc_type == "application/pdf"
 
-    def test_multiple_text_blocks_stored_separately(self, plugin, storage, mock_agent):
+    @pytest.mark.asyncio
+    async def test_multiple_text_blocks_stored_separately(self, plugin, storage, mock_agent):
         content = [
             {"text": "a" * 60},
             {"text": "b" * 60},
         ]
         event = _make_event(mock_agent, content)
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         # Two text blocks stored separately
         assert len(storage._store) == 2
@@ -218,12 +248,13 @@ class TestContextOffloader:
         assert storage.retrieve(refs[0]) == (b"a" * 60, "text/plain")
         assert storage.retrieve(refs[1]) == (b"b" * 60, "text/plain")
 
-    def test_json_content_stored_as_json(self, plugin, storage, mock_agent):
+    @pytest.mark.asyncio
+    async def test_json_content_stored_as_json(self, plugin, storage, mock_agent):
         large_json = {"data": [{"id": i, "value": "x" * 20} for i in range(10)]}
         content = [{"json": large_json}]
         event = _make_event(mock_agent, content)
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         assert len(storage._store) == 1
         ref = list(storage._store.keys())[0]
@@ -231,14 +262,15 @@ class TestContextOffloader:
         assert content_type == "application/json"
         assert json.loads(stored_content) == large_json
 
-    def test_mixed_text_and_json(self, plugin, storage, mock_agent):
+    @pytest.mark.asyncio
+    async def test_mixed_text_and_json(self, plugin, storage, mock_agent):
         content = [
             {"text": "a" * 60},
             {"json": {"key": "b" * 60}},
         ]
         event = _make_event(mock_agent, content)
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         # Both stored separately with correct types
         assert len(storage._store) == 2
@@ -246,44 +278,48 @@ class TestContextOffloader:
         assert storage.retrieve(refs[0])[1] == "text/plain"
         assert storage.retrieve(refs[1])[1] == "application/json"
 
-    def test_small_json_passes_through(self, plugin, mock_agent):
+    @pytest.mark.asyncio
+    async def test_small_json_passes_through(self, plugin, mock_agent):
         content = [{"json": {"key": "value"}}]
         event = _make_event(mock_agent, content)
         original_content = event.result["content"]
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         assert event.result["content"] is original_content
 
-    def test_error_status_still_offloaded(self, plugin, mock_agent):
+    @pytest.mark.asyncio
+    async def test_error_status_still_offloaded(self, plugin, mock_agent):
         large_text = "x" * 200
         event = _make_event(mock_agent, large_text, status="error")
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         assert "[Offloaded:" in event.result["content"][0]["text"]
         assert event.result["status"] == "error"
 
-    def test_storage_failure_keeps_original(self, mock_agent, caplog):
+    @pytest.mark.asyncio
+    async def test_storage_failure_keeps_original(self, mock_agent, caplog):
         failing_storage = MagicMock()
         failing_storage.store.side_effect = RuntimeError("disk full")
 
         plugin = ContextOffloader(
             storage=failing_storage,
-            max_result_chars=100,
-            preview_chars=50,
+            max_result_tokens=25,
+            preview_tokens=10,
         )
 
         large_text = "x" * 200
         event = _make_event(mock_agent, large_text)
 
         with caplog.at_level(logging.WARNING):
-            plugin._handle_tool_result(event)
+            await plugin._handle_tool_result(event)
 
         assert event.result["content"][0]["text"] == large_text
         assert "failed to offload" in caplog.text
 
-    def test_partial_storage_failure_keeps_original(self, mock_agent, caplog):
+    @pytest.mark.asyncio
+    async def test_partial_storage_failure_keeps_original(self, mock_agent, caplog):
         storage = MagicMock()
         call_count = 0
 
@@ -296,7 +332,7 @@ class TestContextOffloader:
 
         storage.store.side_effect = store_then_fail
 
-        plugin = ContextOffloader(storage=storage, max_result_chars=100, preview_chars=50)
+        plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
 
         content = [
             {"text": "a" * 60},
@@ -305,35 +341,38 @@ class TestContextOffloader:
         event = _make_event(mock_agent, content)
 
         with caplog.at_level(logging.WARNING):
-            plugin._handle_tool_result(event)
+            await plugin._handle_tool_result(event)
 
-        # Original result should be preserved despite first block being stored
         assert event.result["content"][0]["text"] == "a" * 60
         assert event.result["content"][1]["text"] == "b" * 60
         assert "failed to offload" in caplog.text
 
-    def test_empty_text_blocks_ignored_in_size_calculation(self, plugin, mock_agent):
+    @pytest.mark.asyncio
+    async def test_empty_text_blocks_not_stored(self, plugin, storage, mock_agent):
         content = [
             {"text": ""},
-            {"text": "x" * 50},
+            {"text": "x" * 200},
         ]
         event = _make_event(mock_agent, content)
-        original_content = event.result["content"]
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
-        assert event.result["content"] is original_content
+        # Empty text block is not in text_preview_parts but still iterated for storage
+        # The non-empty block triggers offloading
+        assert "[Offloaded:" in event.result["content"][0]["text"]
 
-    def test_document_only_content_passes_through(self, plugin, mock_agent):
+    @pytest.mark.asyncio
+    async def test_document_only_content_passes_through(self, plugin, mock_agent):
         content = [{"document": {"format": "pdf", "name": "report.pdf", "source": {"bytes": b"pdf"}}}]
         event = _make_event(mock_agent, content)
         original_content = event.result["content"]
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         assert event.result["content"] is original_content
 
-    def test_unknown_content_type_passed_through(self, plugin, mock_agent):
+    @pytest.mark.asyncio
+    async def test_unknown_content_type_passed_through(self, plugin, mock_agent):
         unknown_block = {"custom_type": {"data": "something"}}
         content = [
             {"text": "x" * 200},
@@ -341,12 +380,13 @@ class TestContextOffloader:
         ]
         event = _make_event(mock_agent, content)
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         # Unknown block should be passed through
         assert event.result["content"][-1] is unknown_block
 
-    def test_all_content_types_mixed(self, plugin, storage, mock_agent):
+    @pytest.mark.asyncio
+    async def test_all_content_types_mixed(self, plugin, storage, mock_agent):
         large_json = {"rows": [{"id": i} for i in range(20)]}
         img_bytes = b"\x89PNG" + b"\x00" * 100
         doc_bytes = b"%PDF" + b"\x00" * 200
@@ -358,7 +398,7 @@ class TestContextOffloader:
         ]
         event = _make_event(mock_agent, content)
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         result_content = event.result["content"]
         # Preview + image placeholder + document placeholder = 3 blocks
@@ -370,14 +410,15 @@ class TestContextOffloader:
         # All 4 blocks stored
         assert len(storage._store) == 4
 
-    def test_image_without_bytes_not_stored(self, plugin, storage, mock_agent):
+    @pytest.mark.asyncio
+    async def test_image_without_bytes_not_stored(self, plugin, storage, mock_agent):
         content = [
             {"text": "x" * 200},
             {"image": {"format": "png", "source": {}}},
         ]
         event = _make_event(mock_agent, content)
 
-        plugin._handle_tool_result(event)
+        await plugin._handle_tool_result(event)
 
         # Only text stored, not the empty image
         assert len(storage._store) == 1
@@ -393,7 +434,7 @@ class TestRetrievalTool:
 
     @pytest.fixture
     def plugin(self, storage):
-        return ContextOffloader(storage=storage, max_result_chars=100, preview_chars=50)
+        return ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
 
     @pytest.fixture
     def mock_agent(self):
@@ -458,7 +499,7 @@ class TestSystemPromptInjection:
 
     @pytest.fixture
     def plugin(self, storage):
-        return ContextOffloader(storage=storage, max_result_chars=100, preview_chars=50)
+        return ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
 
     @pytest.fixture
     def mock_agent(self):

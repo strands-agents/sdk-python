@@ -22,8 +22,8 @@ Example Usage:
     agent = Agent(plugins=[
         ContextOffloader(
             storage=FileStorage("./artifacts"),
-            max_result_chars=20_000,
-            preview_chars=8_000,
+            max_result_tokens=5_000,
+            preview_tokens=2_000,
         )
     ])
     ```
