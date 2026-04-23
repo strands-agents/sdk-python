@@ -2174,26 +2174,26 @@ def test_get_default_model_with_warning_supported_regions_shows_no_warning(captu
 
 def test_get_default_model_for_supported_eu_region_returns_correct_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("eu-west-1")
-    assert model_id == "eu.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert model_id == "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
     assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_get_default_model_for_supported_us_region_returns_correct_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("us-east-1")
-    assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert model_id == "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_get_default_model_for_supported_gov_region_returns_correct_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("us-gov-west-1")
-    assert model_id == "us-gov.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert model_id == "us-gov.anthropic.claude-sonnet-4-5-20250929-v1:0"
     assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_get_model_prefix_for_ap_region_converts_to_apac_endpoint(captured_warnings):
     """Test _get_default_model_with_warning warns for APAC regions since 'ap' is not in supported prefixes."""
     model_id = BedrockModel._get_default_model_with_warning("ap-southeast-1")
-    assert model_id == "apac.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert model_id == "apac.anthropic.claude-sonnet-4-5-20250929-v1:0"
 
 
 def test_get_default_model_with_warning_unsupported_region_warns(captured_warnings):
@@ -2237,7 +2237,7 @@ def test_override_default_model_id_uses_the_overriden_value(captured_warnings):
 
 def test_no_override_uses_formatted_default_model_id(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("us-east-1")
-    assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert model_id == "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     assert model_id != _DEFAULT_BEDROCK_MODEL_ID
     assert all("does not support" not in str(w.message) for w in captured_warnings)
 
