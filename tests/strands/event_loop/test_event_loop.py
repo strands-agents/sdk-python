@@ -1413,3 +1413,54 @@ async def test_event_loop_cycle_cancel_mid_cycle_beats_after_tools_checkpoint(
 
     assert tru_stop_reason == "cancelled"
     assert tru_checkpoint is None
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_cancel_mid_cycle_after_tools_non_checkpointing(
+    agent,
+    model,
+    tool,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    """Non-checkpointing cancel set after tools complete short-circuits recursion.
+
+    Documents the behavior added alongside the after_tools checkpoint: when cancel
+    fires during tool execution, the loop emits stop_reason='cancelled' immediately
+    rather than recursing into another model call that would also cancel. Faster
+    response, no unnecessary model call, same terminal stop_reason.
+    """
+    assert agent._checkpointing is False
+
+    # Cancel signal is raised after tools complete, before the cycle ends.
+    original_execute = agent.tool_executor._execute
+
+    def execute_then_cancel(*args, **kwargs):
+        stream = original_execute(*args, **kwargs)
+
+        async def wrapped():
+            async for event in stream:
+                yield event
+            agent._cancel_signal.set()
+
+        return wrapped()
+
+    agent.tool_executor._execute = execute_then_cancel
+    model.stream.return_value = agenerator(tool_stream)
+
+    # Spy on model.stream to confirm the recursive model call is skipped.
+    stream_call_count_before = model.stream.call_count
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        invocation_state={},
+    )
+    events = await alist(stream)
+    tru_stop_reason, _, _, _, _, _, tru_checkpoint = events[-1]["stop"]
+
+    assert tru_stop_reason == "cancelled"
+    assert tru_checkpoint is None
+    # Model.stream was called once for the initial tool_use response; the cancel
+    # path must not have triggered a second model call via recurse_event_loop.
+    assert model.stream.call_count == stream_call_count_before + 1
