@@ -149,6 +149,29 @@ class TestFileStorage:
         assert ".." not in ref
         assert "/" not in ref
 
+    def test_metadata_survives_across_instances(self, tmp_path):
+        artifact_dir = str(tmp_path / "artifacts")
+        storage1 = FileStorage(artifact_dir=artifact_dir)
+        ref = storage1.store("key_1", b"hello", "image/png")
+
+        storage2 = FileStorage(artifact_dir=artifact_dir)
+        content, content_type = storage2.retrieve(ref)
+        assert content == b"hello"
+        assert content_type == "image/png"
+
+    def test_corrupt_metadata_fallback(self, tmp_path):
+        (tmp_path / ".metadata.json").write_text("not valid json", encoding="utf-8")
+        storage = FileStorage(artifact_dir=str(tmp_path))
+        assert storage._content_types == {}
+
+    def test_missing_metadata_fallback(self, tmp_path):
+        storage = FileStorage(artifact_dir=str(tmp_path))
+        ref = storage.store("key_1", b"content", "image/png")
+
+        storage._content_types.clear()
+        _, content_type = storage.retrieve(ref)
+        assert content_type == "application/octet-stream"
+
     def test_retrieve_rejects_path_traversal(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path))
         with pytest.raises(KeyError, match="Reference not found"):
