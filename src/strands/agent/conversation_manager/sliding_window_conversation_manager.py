@@ -37,6 +37,7 @@ class SlidingWindowConversationManager(ConversationManager):
         should_truncate_results: bool = True,
         *,
         per_turn: bool | int = False,
+        protected_messages: int = 0,
     ):
         """Initialize the sliding window conversation manager.
 
@@ -54,18 +55,29 @@ class SlidingWindowConversationManager(ConversationManager):
                 manage message history and prevent the agent loop from slowing down. Start with
                 per_turn=True and adjust to a specific frequency (e.g., per_turn=5) if needed
                 for performance tuning.
+            protected_messages: Number of messages at the start of the conversation that should
+                never be removed during trimming. Defaults to 0 (no protection).
+
+                Use this when the first message(s) contain a task prompt or critical context that
+                the agent must retain throughout the entire conversation. For example, in batch
+                report generation, set ``protected_messages=1`` to ensure the initial user prompt
+                is never trimmed away during context overflow recovery.
 
         Raises:
-            ValueError: If per_turn is 0 or a negative integer.
+            ValueError: If per_turn is 0 or a negative integer, or if protected_messages is negative.
         """
         if isinstance(per_turn, int) and not isinstance(per_turn, bool) and per_turn <= 0:
             raise ValueError(f"per_turn must be a positive integer, True, or False, got {per_turn}")
+
+        if protected_messages < 0:
+            raise ValueError(f"protected_messages must be non-negative, got {protected_messages}")
 
         super().__init__()
 
         self.window_size = window_size
         self.should_truncate_results = should_truncate_results
         self.per_turn = per_turn
+        self.protected_messages = protected_messages
         self._model_call_count = 0
 
     def register_hooks(self, registry: "HookRegistry", **kwargs: Any) -> None:
@@ -160,6 +172,10 @@ class SlidingWindowConversationManager(ConversationManager):
          - toolResult with no corresponding toolUse
          - toolUse with no corresponding toolResult
 
+        When ``protected_messages`` is set, the first N messages are preserved and
+        re-inserted after trimming so that critical context (e.g. the initial task
+        prompt) is never lost.
+
         Args:
             agent: The agent whose messages will be reduce.
                 This list is modified in-place.
@@ -172,6 +188,11 @@ class SlidingWindowConversationManager(ConversationManager):
                 logs a warning and returns without modification.
         """
         messages = agent.messages
+
+        # Snapshot protected messages before any trimming
+        protected: list = []
+        if self.protected_messages > 0 and len(messages) > self.protected_messages:
+            protected = [msg for msg in messages[: self.protected_messages]]
 
         # Try to truncate the tool result first
         oldest_message_idx_with_tool_results = self._find_oldest_message_with_tool_results(messages)
@@ -187,6 +208,10 @@ class SlidingWindowConversationManager(ConversationManager):
         # Try to trim index id when tool result cannot be truncated anymore
         # If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size
         trim_index = 2 if len(messages) <= self.window_size else len(messages) - self.window_size
+
+        # Never trim into the protected region
+        if trim_index < self.protected_messages:
+            trim_index = self.protected_messages
 
         # Find the next valid trim point that:
         # 1. Starts with a user message (required by most model providers)
@@ -255,6 +280,18 @@ class SlidingWindowConversationManager(ConversationManager):
 
         # Overwrite message history
         messages[:] = messages[trim_index:]
+
+        # Re-insert protected messages that were trimmed away
+        if protected:
+            # Check which protected messages are no longer present
+            reinsert = [msg for msg in protected if msg not in messages]
+            if reinsert:
+                messages[:0] = reinsert
+                logger.info(
+                    "protected_messages=<%d> | re-inserted %d protected message(s) after trim",
+                    self.protected_messages,
+                    len(reinsert),
+                )
 
     def _truncate_tool_results(self, messages: Messages, msg_idx: int) -> bool:
         """Truncate tool results and replace image blocks in a message to reduce context size.
