@@ -385,11 +385,18 @@ class Agent(AgentBase):
         This method is thread-safe and can be called from any context
         (e.g., another thread, web request handler, background task).
 
-        The agent will stop gracefully at the next checkpoint:
+        The agent will stop gracefully at the next cancellation-safe point:
         - During model response streaming
         - Before tool execution
 
         The agent will return a result with stop_reason="cancelled".
+
+        Note:
+            The term "cancellation-safe point" is unrelated to durable-execution
+            :class:`~strands.experimental.checkpoint.Checkpoint` boundaries. Cancel
+            always beats checkpoint emission — a cancel signal received after the
+            model call but before the ``after_model`` checkpoint fires will surface
+            as ``stop_reason="cancelled"`` rather than ``"checkpoint"``.
 
         Example:
             ```python
