@@ -62,7 +62,7 @@ class ReasoningContentBlock(TypedDict, total=False):
     redactedContent: bytes
 
 
-class CachePoint(TypedDict, total=False):
+class CachePoint(TypedDict):
     """A cache point configuration for optimizing conversation history.
 
     Attributes:
@@ -72,7 +72,7 @@ class CachePoint(TypedDict, total=False):
     """
 
     type: Required[str]
-    ttl: str
+    ttl: NotRequired[str]
 
 
 class ContentBlock(TypedDict, total=False):
