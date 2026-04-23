@@ -41,7 +41,7 @@ def _heuristic_estimate_json(obj: Any) -> int:
 
 
 @functools.lru_cache(maxsize=1)
-def _get_encoding() -> Any:
+def get_encoding() -> Any:
     """Get the default tiktoken encoding, caching to avoid repeated lookups.
 
     Returns:
@@ -118,7 +118,7 @@ def _estimate_tokens_with_tiktoken(
     Raises:
         ImportError: If tiktoken is not installed.
     """
-    encoding = _get_encoding()
+    encoding = get_encoding()
     if encoding is None:
         raise ImportError("tiktoken is not available")
 

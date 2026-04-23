@@ -510,10 +510,10 @@ async def test_count_tokens_all_inputs(model):
 
 
 def test_get_encoding_falls_back_without_tiktoken(monkeypatch):
-    """Test that _get_encoding returns None and count_tokens falls back to heuristic."""
+    """Test that get_encoding returns None and count_tokens falls back to heuristic."""
     import strands.models.model as model_module
 
-    model_module._get_encoding.cache_clear()
+    model_module.get_encoding.cache_clear()
     original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
 
     def _block_tiktoken(name, *args, **kwargs):
@@ -524,7 +524,7 @@ def test_get_encoding_falls_back_without_tiktoken(monkeypatch):
     monkeypatch.setattr("builtins.__import__", _block_tiktoken)
 
     try:
-        assert model_module._get_encoding() is None
+        assert model_module.get_encoding() is None
 
         # _estimate_tokens_with_tiktoken should raise when tiktoken is unavailable
         with pytest.raises(ImportError):
@@ -538,7 +538,7 @@ def test_get_encoding_falls_back_without_tiktoken(monkeypatch):
         )
         assert result == 3  # ceil(12 / 4)
     finally:
-        model_module._get_encoding.cache_clear()
+        model_module.get_encoding.cache_clear()
 
 
 class TestHeuristicEstimation:
@@ -596,7 +596,7 @@ class TestHeuristicEstimation:
         """Model.count_tokens falls back to heuristic when tiktoken unavailable."""
         import strands.models.model as model_module
 
-        model_module._get_encoding.cache_clear()
+        model_module.get_encoding.cache_clear()
         original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
 
         def _block_tiktoken(name, *args, **kwargs):
@@ -610,4 +610,4 @@ class TestHeuristicEstimation:
             result = await model.count_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
             assert result == 3  # ceil(12 / 4)
         finally:
-            model_module._get_encoding.cache_clear()
+            model_module.get_encoding.cache_clear()
