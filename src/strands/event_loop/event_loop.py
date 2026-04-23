@@ -83,12 +83,7 @@ def _build_checkpoint_stop_event(
     message: Message,
     request_state: Any,
 ) -> EventLoopStopEvent:
-    """Build the EventLoopStopEvent that pauses the agent at a checkpoint boundary.
-
-    Called from the two checkpoint emission sites (after_model in ``event_loop_cycle``
-    and after_tools in ``_handle_tool_execution``) to keep snapshot capture and event
-    construction in one place.
-    """
+    """Build a checkpoint stop event. Used at ``after_model`` and ``after_tools``."""
     checkpoint = Checkpoint(
         position=position,
         cycle_index=cycle_index,
@@ -155,14 +150,11 @@ async def event_loop_cycle(
     if "request_state" not in invocation_state:
         invocation_state["request_state"] = {}
 
-    # Consume checkpoint resume context (one-shot: cleared after reading).
-    # Cross-invocation state (resume context) lives on the agent; within-cycle
-    # transient state (resume position for the skip check, cycle index) lives
-    # in invocation_state.
+    # Consume checkpoint resume context (one-shot).
     resume_context = agent._checkpoint_resume_context
     if resume_context is not None:
         agent._checkpoint_resume_context = None
-        # after_tools completed that cycle, so next cycle starts at +1
+        # after_tools completed that cycle, so the next cycle starts at +1
         next_cycle = (
             resume_context.cycle_index + 1 if resume_context.position == "after_tools" else resume_context.cycle_index
         )
@@ -228,18 +220,11 @@ async def event_loop_cycle(
                 )
 
             if stop_reason == "tool_use":
-                # Checkpoint after model call, before tool execution.
-                # One-shot pop: safe because after_model always returns before reaching
-                # after_tools, so the stashed position is only consumed once.
-                #
-                # Cancel beats checkpoint: if a cancellation signal arrived between
-                # model completion and this point, honor cancel rather than emit a
-                # checkpoint the caller never asked for. _handle_tool_execution's
-                # cancellation branch will run next and yield stop_reason="cancelled".
+                # Checkpoint after model call, before tools. Cancel takes precedence.
                 if agent._checkpointing and not agent._cancel_signal.is_set():
                     resume_position = invocation_state.pop("_checkpoint_resume_position", None)
                     if resume_position == "after_model":
-                        pass  # Just resumed here — skip re-checkpoint, proceed to tools
+                        pass  # Just resumed here — skip re-checkpoint
                     else:
                         cycle_index = invocation_state.get("_checkpoint_cycle_index", 0)
                         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
@@ -664,14 +649,8 @@ async def _handle_tool_execution(
         return
 
     # Checkpoint after all tools complete, before the next model call.
-    # Note: checkpoints are only emitted on tool_use cycles. An agent whose model
-    # returns end_turn on the very first call completes normally with no checkpoint
-    # (there is nothing durable to resume from).
-    #
-    # Cancel beats checkpoint: if cancel arrived during tool execution (after the
-    # cancellation check at the top of this function ran), honor it rather than
-    # emit an unwanted checkpoint. The cancel path below handles the conversation
-    # hygiene (tool_result placeholders for any outstanding tool_uses).
+    # Only emitted on tool_use cycles; end_turn on the first call completes
+    # normally with no checkpoint. Cancel takes precedence.
     if agent._checkpointing and not agent._cancel_signal.is_set():
         cycle_index = invocation_state.get("_checkpoint_cycle_index", 0)
         invocation_state["_checkpoint_cycle_index"] = cycle_index + 1
@@ -685,9 +664,6 @@ async def _handle_tool_execution(
         return
 
     # If cancel fired during tool execution, emit a cancelled stop event now.
-    # (The cancellation check at the top of _handle_tool_execution catches cancels
-    # that were already set before tools ran; this catches cancels that arrived
-    # during tool execution.)
     if agent._cancel_signal.is_set():
         yield EventLoopStopEvent(
             "cancelled",

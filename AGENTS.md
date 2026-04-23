@@ -153,8 +153,7 @@ strands-agents/
 │   │   │   ├── types/                    # Bidi types
 │   │   │   └── _async/                   # Async utilities
 │   │   ├── checkpoint/                   # Durable agent execution checkpoints
-│   │   │   ├── checkpoint.py             # Checkpoint dataclass and serialization
-│   │   │   └── types.py                  # CheckpointResumeContent / CheckpointResumeDict
+│   │   │   └── checkpoint.py             # Checkpoint dataclass and serialization
 │   │   ├── hooks/                        # Experimental hooks
 │   │   │   ├── events.py
 │   │   │   └── multiagent/

@@ -1,42 +1,35 @@
 """Checkpoint system for durable agent execution.
 
-Checkpoints enable crash-resilient agent workflows by capturing agent state at
-cycle boundaries in the agent loop. A durability provider (e.g. Temporal) can
-persist checkpoints and resume from them after failures.
+Checkpoints capture agent state at cycle boundaries so a durability provider
+(e.g. Temporal) can persist them and resume after failures.
 
-Two checkpoint positions per ReAct cycle:
-- after_model: model call completed, tools not yet executed.
-- after_tools: all tools executed, next model call pending.
+Positions per ReAct cycle:
+- ``after_model``: model call completed, tools not yet executed.
+- ``after_tools``: all tools executed, next model call pending.
 
-Per-tool granularity is handled by the ToolExecutor abstraction (e.g.
-TemporalToolExecutor routes each tool to a separate Temporal activity).
-The SDK checkpoint operates at cycle boundaries.
+Per-tool granularity within a cycle is the ToolExecutor's responsibility
+(e.g. TemporalToolExecutor routes each tool to a separate activity).
 
-User-facing pattern (same as interrupts):
-- Pause via stop_reason="checkpoint" on AgentResult
-- State via AgentResult.checkpoint field
-- Resume via checkpointResume content block in next agent() call
+Usage (mirrors the interrupt pattern):
+- Pause: ``AgentResult`` with ``stop_reason="checkpoint"`` and a populated
+  ``checkpoint`` field.
+- Resume: pass ``[{"checkpointResume": {"checkpoint": checkpoint.to_dict()}}]``
+  as the next prompt.
 
-Interaction with interrupts:
-- Interrupts take priority over checkpoints. If a tool raises an Interrupt
-  during a checkpointing=True cycle, the event loop returns
-  stop_reason="interrupt" (not "checkpoint"). The after_tools checkpoint
-  is never reached because the interrupt path returns early.
-- This is intentional: interrupts require human input, checkpoints are
-  for worker-level durability. Different semantics, different priorities.
+Precedence:
+- Interrupts > checkpoint: an interrupt raised during a checkpointing cycle
+  returns ``stop_reason="interrupt"`` and skips the ``after_tools`` checkpoint.
+- Cancel > checkpoint: a cancel signal set at either checkpoint boundary
+  suppresses emission and surfaces as ``stop_reason="cancelled"``.
 
-V0 Known Limitations:
-- Metrics reset on each resume call. The caller is responsible for aggregating
-  metrics across a durable run. EventLoopMetrics reflects only the current call.
-- OpenAIResponsesModel(stateful=True) is not supported. The server-side
-  response_id (_model_state) is not captured in the snapshot.
-- When position is "after_tools", AgentResult.message is the assistant message
-  that requested the tools; tool results are in the snapshot messages.
-- BeforeInvocationEvent and AfterInvocationEvent fire on every resume call,
-  same as interrupts. Hooks counting invocations will see each resume as a
-  separate invocation.
-- Per-tool granularity within a cycle requires a custom ToolExecutor
-  (e.g. TemporalToolExecutor).
+Known limitations:
+- ``EventLoopMetrics`` resets per invocation; aggregate across resumes yourself.
+- ``OpenAIResponsesModel(stateful=True)`` is not supported — the server-side
+  ``response_id`` is not captured.
+- At ``after_tools``, ``AgentResult.message`` is the assistant's tool-use
+  message; tool results live in the snapshot.
+- ``BeforeInvocationEvent`` / ``AfterInvocationEvent`` fire on every resume,
+  same as interrupts.
 """
 
 import logging
@@ -56,23 +49,14 @@ CheckpointPosition = Literal["after_model", "after_tools"]
 class Checkpoint:
     """Pause point in the agent loop. Treat as opaque — pass back to resume.
 
-    Immutable by design: a checkpoint represents a captured moment. Mutating
-    one after creation would decouple it from the snapshot it was built with,
-    which is always a bug. Build a new Checkpoint if you need different values.
-
     Attributes:
-        position: What just completed (after_model or after_tools).
-        cycle_index: Which ReAct loop cycle (0-based).
-        snapshot: Serialized agent state as a dict, produced by ``Snapshot.to_dict()``.
-            Stored as ``dict[str, Any]`` (not a ``Snapshot`` object) because checkpoints
-            must be JSON-serializable for cross-process persistence. The consumer
-            reconstructs via ``Snapshot.from_dict()`` on resume.
-        app_data: Application-level internal state data. The SDK does not read
-            or modify this. Applications can store arbitrary data needed across
-            checkpoint boundaries (e.g. session context, workflow metadata).
-            Separate from ``Snapshot.app_data`` which captures agent-state-level
-            data managed by the SDK.
-        schema_version: Rejects mismatches on resume across schema versions.
+        position: What just completed (``after_model`` or ``after_tools``).
+        cycle_index: ReAct loop cycle (0-based).
+        snapshot: Serialized agent state from ``Snapshot.to_dict()``. Stored as
+            a dict (not a ``Snapshot``) so the checkpoint is JSON-serializable.
+        app_data: Opaque application-level state. The SDK does not read or
+            modify this. Distinct from ``Snapshot.app_data`` (agent-level).
+        schema_version: Used to reject incompatible checkpoints on resume.
     """
 
     position: CheckpointPosition

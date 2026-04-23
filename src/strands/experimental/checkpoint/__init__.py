@@ -8,12 +8,5 @@ persist checkpoints and resume from them after failures.
 """
 
 from .checkpoint import CHECKPOINT_SCHEMA_VERSION, Checkpoint, CheckpointPosition
-from .types import CheckpointResumeContent, CheckpointResumeDict
 
-__all__ = [
-    "CHECKPOINT_SCHEMA_VERSION",
-    "Checkpoint",
-    "CheckpointPosition",
-    "CheckpointResumeContent",
-    "CheckpointResumeDict",
-]
+__all__ = ["CHECKPOINT_SCHEMA_VERSION", "Checkpoint", "CheckpointPosition"]
