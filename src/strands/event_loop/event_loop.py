@@ -663,8 +663,11 @@ async def _handle_tool_execution(
         )
         return
 
-    # If cancel fired during tool execution, emit a cancelled stop event now.
-    if agent._cancel_signal.is_set():
+    # Checkpointing-only: if cancel suppressed the after_tools checkpoint above,
+    # surface it as "cancelled" now rather than recursing into another model call
+    # that would also cancel. Non-checkpointing callers fall through to
+    # recurse_event_loop so the existing cancel-during-model-stream path handles it.
+    if agent._checkpointing and agent._cancel_signal.is_set():
         yield EventLoopStopEvent(
             "cancelled",
             message,
