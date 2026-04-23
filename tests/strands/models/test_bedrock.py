@@ -494,6 +494,44 @@ def test_format_request_tool_specs(model, messages, model_id, tool_spec):
     assert tru_request == exp_request
 
 
+def test_format_request_tool_specs_with_strict(model, messages, model_id):
+    strict_tool_spec = {
+        "description": "description",
+        "name": "name",
+        "inputSchema": {"key": "val"},
+        "strict": True,
+    }
+    tru_request = model._format_request(messages, tool_specs=[strict_tool_spec])
+    tool_in_request = tru_request["toolConfig"]["tools"][0]["toolSpec"]
+
+    assert tool_in_request["strict"] is True
+
+
+def test_format_request_tool_specs_with_strict_false(model, messages, model_id):
+    strict_false_tool_spec = {
+        "description": "description",
+        "name": "name",
+        "inputSchema": {"key": "val"},
+        "strict": False,
+    }
+    tru_request = model._format_request(messages, tool_specs=[strict_false_tool_spec])
+    tool_in_request = tru_request["toolConfig"]["tools"][0]["toolSpec"]
+
+    assert tool_in_request["strict"] is False
+
+
+def test_format_request_tool_specs_without_strict(model, messages, model_id):
+    tool_spec_no_strict = {
+        "description": "description",
+        "name": "name",
+        "inputSchema": {"key": "val"},
+    }
+    tru_request = model._format_request(messages, tool_specs=[tool_spec_no_strict])
+    tool_in_request = tru_request["toolConfig"]["tools"][0]["toolSpec"]
+
+    assert "strict" not in tool_in_request
+
+
 def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):
     tool_choice = {"auto": {}}
     tru_request = model._format_request(messages, [tool_spec], tool_choice=tool_choice)
