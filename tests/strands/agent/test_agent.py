@@ -2780,9 +2780,9 @@ def test_as_tool_defaults_description_when_agent_has_none():
     assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"
 
 
-# =========================================================================
-# Checkpoint integration tests (Part B)
-# =========================================================================
+# ============================================================================
+# Checkpointing Tests
+# ============================================================================
 
 
 def test_agent_checkpointing_defaults_to_false() -> None:
