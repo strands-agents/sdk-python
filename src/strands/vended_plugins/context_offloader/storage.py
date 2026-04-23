@@ -36,12 +36,6 @@ import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 
-_CONTENT_TYPE_TO_EXTENSION: dict[str, str] = {
-    "text/plain": ".txt",
-    "application/json": ".json",
-}
-
-
 def _sanitize_id(raw_id: str) -> str:
     """Sanitize an ID for safe use in filenames and object keys.
 
@@ -68,10 +62,9 @@ def _extension_for(content_type: str) -> str:
     Returns:
         A file extension including the leading dot.
     """
-    if content_type in _CONTENT_TYPE_TO_EXTENSION:
-        return _CONTENT_TYPE_TO_EXTENSION[content_type]
-    subtype = content_type.split("/")[-1]
-    return f".{subtype}"
+    if content_type == "text/plain":
+        return ".txt"
+    return f".{content_type.split('/')[-1]}"
 
 
 @runtime_checkable
