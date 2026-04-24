@@ -87,6 +87,10 @@ class OpenAIModel(Model):
                 Note: The client should not be shared across different asyncio event loops.
             client_args: Arguments for the OpenAI client (legacy approach).
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
+                The ``http_client`` key accepts either an ``httpx.AsyncClient`` instance or a
+                zero-argument callable that returns one. When a callable (factory) is provided,
+                it is invoked on every request to produce a fresh client, avoiding the
+                "closed client" error that occurs when the same instance is reused.
             **model_config: Configuration options for the OpenAI model.
 
         Raises:
@@ -579,6 +583,10 @@ class OpenAIModel(Model):
         - Otherwise, creates a new AsyncOpenAI client from client_args and automatically
           closes it when the context exits.
 
+        If ``http_client`` in *client_args* is a callable (factory), it is invoked on each
+        request to produce a fresh ``httpx.AsyncClient``, preventing the "closed client" error
+        that occurs when the same client instance is reused across ``async with`` blocks.
+
         Note: We create a new client per request to avoid connection sharing in the underlying
         httpx client, as the asyncio event loop does not allow connections to be shared.
         For more details, see https://github.com/encode/httpx/discussions/2959.
@@ -594,7 +602,11 @@ class OpenAIModel(Model):
             # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying
             # httpx client. The asyncio event loop does not allow connections to be shared. For more details, please
             # refer to https://github.com/encode/httpx/discussions/2959.
-            async with openai.AsyncOpenAI(**self.client_args) as client:
+            resolved_args = dict(self.client_args)
+            http_client = resolved_args.get("http_client")
+            if http_client is not None and callable(http_client) and not hasattr(http_client, "send"):
+                resolved_args["http_client"] = http_client()
+            async with openai.AsyncOpenAI(**resolved_args) as client:
                 yield client
 
     @override
