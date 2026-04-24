@@ -22,16 +22,21 @@ class MaxTokensReachedException(Exception):
     """Exception raised when the model reaches its maximum token generation limit.
 
     This exception is raised when the model stops generating tokens because it has reached the maximum number of
-    tokens allowed for output generation. This can occur when the model's max_tokens parameter is set too low for
-    the complexity of the response, or when the model naturally reaches its configured output limit during generation.
+    tokens allowed for output generation. The agent remains recoverable — the partial message is automatically added
+    to agent.messages, and you can continue the conversation by calling the agent again.
+
+    This can occur when the model's max_tokens parameter is set too low for the complexity of the response, or when
+    the model naturally reaches its configured output limit during generation.
     """
 
-    def __init__(self, message: str):
-        """Initialize the exception with an error message and the incomplete message object.
+    def __init__(self, message: str, recovered_message: Any = None):
+        """Initialize the exception with an error message and optional recovered partial message.
 
         Args:
             message: The error message describing the token limit issue
+            recovered_message: Optional partial message object that was recovered before the limit was reached
         """
+        self.recovered_message = recovered_message
         super().__init__(message)
 
 

@@ -99,6 +99,25 @@ class TestMaxTokensReachedException:
 
         assert str(exc_info.value) == "Token limit exceeded"
 
+    def test_recovered_message_attribute(self):
+        """Test that recovered_message attribute can be set and accessed."""
+        message = "Token limit reached"
+        recovered_message = {"role": "assistant", "content": [{"type": "text", "text": "partial response"}]}
+
+        exception = MaxTokensReachedException(message, recovered_message=recovered_message)
+
+        assert exception.recovered_message == recovered_message
+        assert hasattr(exception, "recovered_message")
+        assert str(exception) == message
+
+    def test_recovered_message_optional(self):
+        """Test that recovered_message is optional and defaults to None."""
+        message = "Token limit reached"
+        exception = MaxTokensReachedException(message)
+
+        assert exception.recovered_message is None
+        assert hasattr(exception, "recovered_message")
+
 
 class TestContextWindowOverflowException:
     """Tests for ContextWindowOverflowException class."""
