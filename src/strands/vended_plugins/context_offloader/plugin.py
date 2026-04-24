@@ -37,7 +37,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...hooks.events import AfterToolCallEvent
-from ...models.model import get_encoding
+from ...models.model import _get_encoding
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
 from ...types.content import Message
@@ -328,7 +328,7 @@ class ContextOffloader(Plugin):
         Returns:
             The preview text.
         """
-        encoding = get_encoding()
+        encoding = _get_encoding()
         if encoding is not None:
             tokens = encoding.encode(text)
             preview: str = encoding.decode(tokens[: self._preview_tokens])
