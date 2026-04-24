@@ -613,3 +613,24 @@ class TestHeuristicEstimation:
         """Model.count_tokens uses heuristic estimation."""
         result = await model.count_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
         assert result == 3  # ceil(12 / 4)
+
+    @pytest.mark.asyncio
+    async def test_model_falls_back_to_heuristic(self, monkeypatch, model):
+        """Model.count_tokens falls back to heuristic when tiktoken unavailable."""
+        import strands.models.model as model_module
+
+        model_module._get_encoding.cache_clear()
+        original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
+
+        def _block_tiktoken(name, *args, **kwargs):
+            if name == "tiktoken":
+                raise ImportError("No module named 'tiktoken'")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", _block_tiktoken)
+
+        try:
+            result = await model.count_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
+            assert result == 3  # ceil(12 / 4)
+        finally:
+            model_module._get_encoding.cache_clear()
