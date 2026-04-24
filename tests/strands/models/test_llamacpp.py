@@ -706,3 +706,100 @@ def test_format_request_filters_location_source_document(caplog) -> None:
     assert len(user_content) == 1
     assert user_content[0]["type"] == "text"
     assert "Location sources are not supported by llama.cpp" in caplog.text
+
+
+class TestCountTokens:
+    """Tests for LlamaCppModel.count_tokens native token counting."""
+
+    @pytest.fixture
+    def model(self):
+        return LlamaCppModel(base_url="http://localhost:8080")
+
+    @pytest.fixture
+    def messages(self):
+        return [{"role": "user", "content": [{"text": "hello"}]}]
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [
+            {
+                "name": "test_tool",
+                "description": "A test tool",
+                "inputSchema": {"json": {"type": "object", "properties": {}}},
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_success(self, model, messages):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"tokens": [1, 2, 3, 4, 5]}
+        mock_response.raise_for_status = MagicMock()
+        model.client.post = AsyncMock(return_value=mock_response)
+
+        result = await model.count_tokens(messages=messages)
+
+        assert result == 5
+        model.client.post.assert_called_once()
+        call_args = model.client.post.call_args
+        assert call_args[0][0] == "/tokenize"
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_system_prompt(self, model, messages):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"tokens": list(range(10))}
+        mock_response.raise_for_status = MagicMock()
+        model.client.post = AsyncMock(return_value=mock_response)
+
+        result = await model.count_tokens(messages=messages, system_prompt="Be helpful.")
+
+        assert result == 10
+        call_kwargs = model.client.post.call_args[1]
+        payload = call_kwargs["json"]
+        assert payload["messages"][0]["role"] == "system"
+        assert payload["messages"][0]["content"] == "Be helpful."
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_tool_specs(self, model, messages, tool_specs):
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"tokens": list(range(20))}
+        mock_response.raise_for_status = MagicMock()
+        model.client.post = AsyncMock(return_value=mock_response)
+
+        result = await model.count_tokens(messages=messages, tool_specs=tool_specs)
+
+        assert result == 20
+        call_kwargs = model.client.post.call_args[1]
+        payload = call_kwargs["json"]
+        assert "tools" in payload
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_http_error(self, model, messages):
+        model.client.post = AsyncMock(
+            side_effect=httpx.HTTPStatusError("Server error", request=MagicMock(), response=MagicMock(status_code=500))
+        )
+
+        result = await model.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_connection_error(self, model, messages):
+        model.client.post = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+
+        result = await model.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_logs_warning(self, model, messages, caplog):
+        model.client.post = AsyncMock(side_effect=RuntimeError("Server down"))
+
+        with caplog.at_level(logging.WARNING):
+            await model.count_tokens(messages=messages)
+
+        assert any("native token counting failed" in record.message for record in caplog.records)

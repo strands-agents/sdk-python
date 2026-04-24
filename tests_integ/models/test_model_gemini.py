@@ -219,3 +219,41 @@ def test_agent_with_reasoning_content(model, assistant_agent):
     result = assistant_agent("Think about what 2+2 is")
     assert "reasoningContent" in result.message["content"][0]
     assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
+
+
+class TestCountTokens:
+    @pytest.fixture
+    def model(self):
+        return GeminiModel(
+            model_id="gemini-2.0-flash",
+            client_args={"api_key": os.environ["GOOGLE_API_KEY"]},
+        )
+
+    @pytest.fixture
+    def messages(self):
+        return [{"role": "user", "content": [{"text": "What is the capital of France? Explain in detail."}]}]
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [
+            {
+                "name": "get_weather",
+                "description": "Get the current weather for a location",
+                "inputSchema": {"json": {"type": "object", "properties": {"location": {"type": "string"}}}},
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_count_tokens_messages_only(self, model, messages, caplog):
+        with caplog.at_level("DEBUG"):
+            result = await model.count_tokens(messages=messages)
+        assert isinstance(result, int)
+        assert result > 0
+        assert "native token count" in caplog.text
+        assert "falling back" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_count_tokens_with_tools_greater_than_without(self, model, messages, tool_specs):
+        without = await model.count_tokens(messages=messages)
+        with_tools = await model.count_tokens(messages=messages, tool_specs=tool_specs, system_prompt="Be helpful.")
+        assert with_tools > without

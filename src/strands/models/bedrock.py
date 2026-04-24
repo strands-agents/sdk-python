@@ -750,6 +750,58 @@ class BedrockModel(Model):
         return events
 
     @override
+    async def count_tokens(
+        self,
+        messages: Messages,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
+    ) -> int:
+        """Count tokens using Bedrock's native CountTokens API.
+
+        Uses the same message format as the Converse API to get accurate token counts
+        directly from the Bedrock service.
+
+        Args:
+            messages: List of message objects to count tokens for.
+            tool_specs: List of tool specifications to include in the count.
+            system_prompt: Plain string system prompt. Ignored if system_prompt_content is provided.
+            system_prompt_content: Structured system prompt content blocks.
+
+        Returns:
+            Total input token count.
+        """
+        try:
+            if system_prompt and system_prompt_content is None:
+                system_prompt_content = [{"text": system_prompt}]
+
+            request = self._format_request(messages, tool_specs, system_prompt_content)
+            converse_input: dict[str, Any] = {}
+            if "messages" in request:
+                converse_input["messages"] = request["messages"]
+            if "system" in request:
+                converse_input["system"] = request["system"]
+            if "toolConfig" in request:
+                converse_input["toolConfig"] = request["toolConfig"]
+
+            response = await asyncio.to_thread(
+                self.client.count_tokens,
+                modelId=self.config["model_id"],
+                input={"converse": converse_input},
+            )
+            total_tokens: int = response["inputTokens"]
+
+            logger.debug("model_id=<%s>, total_tokens=<%d> | native token count", self.config["model_id"], total_tokens)
+            return total_tokens
+        except Exception as e:
+            logger.warning(
+                "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
+                self.config["model_id"],
+                e,
+            )
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
+    @override
     async def stream(
         self,
         messages: Messages,

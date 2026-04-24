@@ -15,7 +15,7 @@ import pydantic
 from google import genai
 from typing_extensions import Required, Unpack, override
 
-from ..types.content import ContentBlock, ContentBlockStartToolUse, Messages
+from ..types.content import ContentBlock, ContentBlockStartToolUse, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
@@ -433,6 +433,65 @@ class GeminiModel(Model):
 
             case _:  # pragma: no cover
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
+
+    @override
+    async def count_tokens(
+        self,
+        messages: Messages,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
+    ) -> int:
+        """Count tokens using Gemini's native count_tokens API.
+
+        Uses the Gemini count_tokens API for message contents. The Gemini API does not support
+        counting system_instruction or tools, so those are estimated via the base class heuristic.
+
+        Args:
+            messages: List of message objects to count tokens for.
+            tool_specs: List of tool specifications to include in the count.
+            system_prompt: Plain string system prompt.
+            system_prompt_content: Structured system prompt content blocks.
+
+        Returns:
+            Total input token count.
+        """
+        try:
+            contents = list(self._format_request_content(messages))
+
+            client = self._get_client().aio
+            response = await client.models.count_tokens(
+                model=self.config["model_id"],
+                contents=contents,
+            )
+            if response.total_tokens is None:
+                raise ValueError("Gemini count_tokens returned None for total_tokens")
+            total_tokens: int = response.total_tokens
+
+            # The google-genai SDK explicitly raises ValueError for system_instruction, tools, and
+            # generation_config in CountTokensConfig on the non-Vertex (mldev) backend.
+            # Use heuristic for these.
+            extra = await super().count_tokens(
+                messages=[],
+                tool_specs=tool_specs,
+                system_prompt=system_prompt,
+                system_prompt_content=system_prompt_content,
+            )
+            total_tokens += extra
+
+            logger.debug(
+                "model_id=<%s>, total_tokens=<%d> | native token count",
+                self.config["model_id"],
+                total_tokens,
+            )
+            return total_tokens
+        except Exception as e:
+            logger.warning(
+                "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
+                self.config["model_id"],
+                e,
+            )
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
     async def stream(
         self,

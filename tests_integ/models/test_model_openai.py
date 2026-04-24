@@ -400,3 +400,41 @@ def test_responses_builtin_tool_shell():
     result = agent("Use the shell to compute the md5sum of the string 'strands-test'. Return only the hash.")
     text = result.message["content"][0]["text"]
     assert "d82f373f079b00a1db7ef1eec7f15c68" in text
+
+
+class TestOpenAIResponsesCountTokens:
+    @pytest.fixture
+    def model(self):
+        return OpenAIResponsesModel(
+            model_id="gpt-4o",
+            client_args={"api_key": os.environ["OPENAI_API_KEY"]},
+        )
+
+    @pytest.fixture
+    def messages(self):
+        return [{"role": "user", "content": [{"text": "What is the capital of France? Explain in detail."}]}]
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [
+            {
+                "name": "get_weather",
+                "description": "Get the current weather for a location",
+                "inputSchema": {"json": {"type": "object", "properties": {"location": {"type": "string"}}}},
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_count_tokens_messages_only(self, model, messages, caplog):
+        with caplog.at_level("DEBUG"):
+            result = await model.count_tokens(messages=messages)
+        assert isinstance(result, int)
+        assert result > 0
+        assert "native token count" in caplog.text
+        assert "falling back" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_count_tokens_with_tools_greater_than_without(self, model, messages, tool_specs):
+        without = await model.count_tokens(messages=messages)
+        with_tools = await model.count_tokens(messages=messages, tool_specs=tool_specs, system_prompt="Be helpful.")
+        assert with_tools > without

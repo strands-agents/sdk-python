@@ -3103,3 +3103,115 @@ async def test_non_streaming_citations_with_only_location(bedrock_client, model,
     assert citation["location"] == {"web": {"url": "https://example.com", "domain": "example.com"}}
     assert "title" not in citation
     assert "sourceContent" not in citation
+
+
+class TestCountTokens:
+    """Tests for BedrockModel.count_tokens native token counting."""
+
+    @pytest.fixture
+    def model_with_client(self, bedrock_client, model_id):
+        _ = bedrock_client
+        return BedrockModel(model_id=model_id)
+
+    @pytest.fixture
+    def messages(self):
+        return [{"role": "user", "content": [{"text": "hello"}]}]
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [
+            {
+                "name": "test_tool",
+                "description": "A test tool",
+                "inputSchema": {"json": {"type": "object", "properties": {}}},
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_success(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.return_value = {"inputTokens": 42}
+
+        result = await model_with_client.count_tokens(messages=messages)
+
+        assert result == 42
+        bedrock_client.count_tokens.assert_called_once()
+        call_kwargs = bedrock_client.count_tokens.call_args[1]
+        assert "input" in call_kwargs
+        assert "converse" in call_kwargs["input"]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_system_prompt(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.return_value = {"inputTokens": 55}
+
+        result = await model_with_client.count_tokens(messages=messages, system_prompt="Be helpful.")
+
+        assert result == 55
+        call_kwargs = bedrock_client.count_tokens.call_args[1]
+        assert call_kwargs["input"]["converse"]["system"] == [{"text": "Be helpful."}]
+        assert "toolConfig" not in call_kwargs["input"]["converse"]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_tool_specs(self, model_with_client, bedrock_client, messages, tool_specs):
+        bedrock_client.count_tokens.return_value = {"inputTokens": 100}
+
+        result = await model_with_client.count_tokens(messages=messages, tool_specs=tool_specs)
+
+        assert result == 100
+        call_kwargs = bedrock_client.count_tokens.call_args[1]
+        assert "toolConfig" in call_kwargs["input"]["converse"]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_system_prompt_content(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.return_value = {"inputTokens": 60}
+
+        result = await model_with_client.count_tokens(
+            messages=messages,
+            system_prompt_content=[{"text": "Be helpful."}, {"text": "Be concise."}],
+        )
+
+        assert result == 60
+        call_kwargs = bedrock_client.count_tokens.call_args[1]
+        assert call_kwargs["input"]["converse"]["system"] == [{"text": "Be helpful."}, {"text": "Be concise."}]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_strips_inference_config(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.return_value = {"inputTokens": 10}
+        model_with_client.update_config(max_tokens=100)
+
+        await model_with_client.count_tokens(messages=messages)
+
+        call_kwargs = bedrock_client.count_tokens.call_args[1]
+        converse = call_kwargs["input"]["converse"]
+        assert "inferenceConfig" not in converse
+        assert "additionalModelRequestFields" not in converse
+        assert "guardrailConfig" not in converse
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_api_error(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.side_effect = ClientError(
+            {"Error": {"Code": "ValidationException", "Message": "Unsupported"}},
+            "CountTokens",
+        )
+
+        result = await model_with_client.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_generic_exception(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.side_effect = RuntimeError("Connection failed")
+
+        result = await model_with_client.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_logs_warning(self, model_with_client, bedrock_client, messages, caplog):
+        bedrock_client.count_tokens.side_effect = RuntimeError("API down")
+
+        with caplog.at_level(logging.WARNING):
+            await model_with_client.count_tokens(messages=messages)
+
+        assert any("native token counting failed" in record.message for record in caplog.records)

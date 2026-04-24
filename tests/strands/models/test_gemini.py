@@ -1105,3 +1105,102 @@ def test_format_request_filters_location_source_document(model, caplog):
     assert len(formatted_content) == 1
     assert "text" in formatted_content[0]
     assert "Location sources are not supported by Gemini" in caplog.text
+
+
+class TestCountTokens:
+    """Tests for GeminiModel.count_tokens native token counting."""
+
+    @pytest.fixture
+    def gemini_client(self):
+        with unittest.mock.patch.object(strands.models.gemini.genai, "Client") as mock_client_cls:
+            mock_client = mock_client_cls.return_value
+            mock_client.aio = unittest.mock.AsyncMock()
+            yield mock_client
+
+    @pytest.fixture
+    def model(self, gemini_client):
+        _ = gemini_client
+        return GeminiModel(model_id="m1")
+
+    @pytest.fixture
+    def messages(self):
+        return [{"role": "user", "content": [{"text": "hello"}]}]
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [
+            {
+                "name": "test_tool",
+                "description": "A test tool",
+                "inputSchema": {"json": {"type": "object", "properties": {}}},
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_success(self, model, gemini_client, messages):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.total_tokens = 42
+        gemini_client.aio.models.count_tokens.return_value = mock_response
+
+        result = await model.count_tokens(messages=messages)
+
+        assert result == 42
+        gemini_client.aio.models.count_tokens.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_system_prompt(self, model, gemini_client, messages):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.total_tokens = 55
+        gemini_client.aio.models.count_tokens.return_value = mock_response
+
+        result = await model.count_tokens(messages=messages, system_prompt="Be helpful.")
+
+        assert result > 55  # native (55) + heuristic estimate for system_prompt
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_tool_specs(self, model, gemini_client, messages, tool_specs):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.total_tokens = 100
+        gemini_client.aio.models.count_tokens.return_value = mock_response
+
+        result = await model.count_tokens(messages=messages, tool_specs=tool_specs)
+
+        assert result > 100  # native (100) + heuristic estimate for tool_specs
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_none_total_tokens(self, model, gemini_client, messages):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.total_tokens = None
+        gemini_client.aio.models.count_tokens.return_value = mock_response
+
+        result = await model.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_api_error(self, model, gemini_client, messages):
+        gemini_client.aio.models.count_tokens.side_effect = genai.errors.ClientError("Unsupported", response_json={})
+
+        result = await model.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_generic_exception(self, model, gemini_client, messages):
+        gemini_client.aio.models.count_tokens.side_effect = RuntimeError("Connection failed")
+
+        result = await model.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_logs_warning(self, model, gemini_client, messages, caplog):
+        gemini_client.aio.models.count_tokens.side_effect = RuntimeError("API down")
+
+        with caplog.at_level(logging.WARNING):
+            await model.count_tokens(messages=messages)
+
+        assert any("native token counting failed" in record.message for record in caplog.records)

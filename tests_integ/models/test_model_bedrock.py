@@ -517,3 +517,38 @@ def test_prompt_caching_backward_compatibility_no_ttl(non_streaming_model):
     assert result.metrics.accumulated_usage.get("cacheWriteInputTokens", 0) > 0, (
         "Expected cacheWriteInputTokens > 0 even without TTL specified"
     )
+
+
+class TestCountTokens:
+    @pytest.fixture
+    def model(self):
+        return BedrockModel(model_id="anthropic.claude-sonnet-4-20250514-v1:0")
+
+    @pytest.fixture
+    def messages(self):
+        return [{"role": "user", "content": [{"text": "What is the capital of France? Explain in detail."}]}]
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [
+            {
+                "name": "get_weather",
+                "description": "Get the current weather for a location",
+                "inputSchema": {"json": {"type": "object", "properties": {"location": {"type": "string"}}}},
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_count_tokens_messages_only(self, model, messages, caplog):
+        with caplog.at_level("DEBUG"):
+            result = await model.count_tokens(messages=messages)
+        assert isinstance(result, int)
+        assert result > 0
+        assert "native token count" in caplog.text
+        assert "falling back" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_count_tokens_with_tools_greater_than_without(self, model, messages, tool_specs):
+        without = await model.count_tokens(messages=messages)
+        with_tools = await model.count_tokens(messages=messages, tool_specs=tool_specs, system_prompt="Be helpful.")
+        assert with_tools > without
