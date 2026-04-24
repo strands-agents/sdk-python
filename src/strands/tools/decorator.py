@@ -62,7 +62,7 @@ from typing import (
 import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from pydantic.fields import FieldInfo
-from pydantic_core import PydanticSerializationError
+from pydantic_core import PydanticSerializationError, PydanticUndefined
 from typing_extensions import override
 
 from ..interrupt import InterruptException
@@ -163,8 +163,28 @@ class FunctionToolMetadata:
         final_description = description
         if final_description is None:
             final_description = self.param_descriptions.get(param_name) or f"Parameter {param_name}"
-        # Create FieldInfo object from scratch
-        final_field = Field(default=param_default, description=final_description)
+        # Create FieldInfo object from scratch.
+        # When the caller uses ``Field(default_factory=list)`` (or similar) as a
+        # parameter default, ``param_default`` is already a ``FieldInfo`` instance.
+        # Passing it directly to ``Field(default=...)`` would wrap it in *another*
+        # FieldInfo, producing a non-serialisable default and triggering a
+        # ``PydanticJsonSchemaWarning``.  Detect this case and forward the
+        # original default / default_factory instead.
+        field_kwargs: dict[str, Any] = {"description": final_description}
+        if isinstance(param_default, FieldInfo):
+            # Prefer the description already extracted from Annotated / docstring,
+            # but fall back to the one embedded in the FieldInfo when no other
+            # source provides one.
+            if final_description == f"Parameter {param_name}" and param_default.description:
+                field_kwargs["description"] = param_default.description
+            if param_default.default_factory is not None:
+                field_kwargs["default_factory"] = param_default.default_factory
+            elif param_default.default is not PydanticUndefined:
+                field_kwargs["default"] = param_default.default
+        else:
+            field_kwargs["default"] = param_default
+
+        final_field = Field(**field_kwargs)
 
         return actual_type, final_field
 
