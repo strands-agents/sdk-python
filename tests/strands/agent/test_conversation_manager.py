@@ -703,3 +703,107 @@ def test_boundary_text_in_tool_result_not_truncated():
 
     assert not changed
     assert messages[0]["content"][0]["toolResult"]["content"][0]["text"] == boundary_text
+
+
+# ── protected_messages tests ──────────────────────────────────────────────
+
+
+def test_protected_messages_negative_raises():
+    """protected_messages must be non-negative."""
+    with pytest.raises(ValueError, match="non-negative"):
+        SlidingWindowConversationManager(protected_messages=-1)
+
+
+def test_protected_messages_zero_is_default():
+    """Default protected_messages=0 behaves identically to the original manager."""
+    manager = SlidingWindowConversationManager(window_size=2, should_truncate_results=False)
+    assert manager.protected_messages == 0
+
+
+def test_protected_messages_preserves_first_message_on_trim():
+    """When protected_messages=1, the first user message survives trimming."""
+    manager = SlidingWindowConversationManager(window_size=2, should_truncate_results=False, protected_messages=1)
+    agent = MagicMock()
+    agent.messages = [
+        {"role": "user", "content": [{"text": "Generate the report"}]},
+        {"role": "assistant", "content": [{"text": "Step 1"}]},
+        {"role": "user", "content": [{"text": "Follow-up"}]},
+        {"role": "assistant", "content": [{"text": "Step 2"}]},
+        {"role": "user", "content": [{"text": "Another question"}]},
+    ]
+
+    manager.apply_management(agent)
+
+    # The first message must still be present
+    assert agent.messages[0]["content"][0]["text"] == "Generate the report"
+    # And the conversation should end with the most recent messages
+    assert agent.messages[-1]["content"][0]["text"] == "Another question"
+
+
+def test_protected_messages_preserves_first_message_on_overflow():
+    """protected_messages=1 preserves the prompt even during context overflow (reduce_context with e)."""
+    manager = SlidingWindowConversationManager(window_size=2, should_truncate_results=False, protected_messages=1)
+    agent = MagicMock()
+    agent.messages = [
+        {"role": "user", "content": [{"text": "Task prompt"}]},
+        {"role": "assistant", "content": [{"text": "Calling tools"}]},
+        {"role": "user", "content": [{"text": "Tool results"}]},
+        {"role": "assistant", "content": [{"text": "More work"}]},
+        {"role": "user", "content": [{"text": "More results"}]},
+    ]
+
+    manager.reduce_context(agent, e=RuntimeError("context overflow"))
+
+    assert agent.messages[0]["content"][0]["text"] == "Task prompt"
+
+
+def test_protected_messages_multiple():
+    """protected_messages=2 preserves the first two messages."""
+    manager = SlidingWindowConversationManager(window_size=2, should_truncate_results=False, protected_messages=2)
+    agent = MagicMock()
+    agent.messages = [
+        {"role": "user", "content": [{"text": "System context"}]},
+        {"role": "assistant", "content": [{"text": "Acknowledged"}]},
+        {"role": "user", "content": [{"text": "Question 1"}]},
+        {"role": "assistant", "content": [{"text": "Answer 1"}]},
+        {"role": "user", "content": [{"text": "Question 2"}]},
+    ]
+
+    manager.apply_management(agent)
+
+    assert agent.messages[0]["content"][0]["text"] == "System context"
+    assert agent.messages[1]["content"][0]["text"] == "Acknowledged"
+
+
+def test_protected_messages_no_trim_needed():
+    """When messages fit in the window, protected_messages has no effect."""
+    manager = SlidingWindowConversationManager(window_size=10, should_truncate_results=False, protected_messages=1)
+    agent = MagicMock()
+    agent.messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi"}]},
+    ]
+
+    manager.apply_management(agent)
+
+    assert len(agent.messages) == 2
+
+
+def test_protected_messages_trim_index_skips_protected_region():
+    """The trim index must never fall within the protected region."""
+    manager = SlidingWindowConversationManager(window_size=3, should_truncate_results=False, protected_messages=1)
+    agent = MagicMock()
+    # 5 messages, window_size=3 → trim_index starts at 2
+    # But protected_messages=1 means index 0 is protected
+    agent.messages = [
+        {"role": "user", "content": [{"text": "Important prompt"}]},
+        {"role": "assistant", "content": [{"text": "Response 1"}]},
+        {"role": "user", "content": [{"text": "Q2"}]},
+        {"role": "assistant", "content": [{"text": "Response 2"}]},
+        {"role": "user", "content": [{"text": "Q3"}]},
+    ]
+
+    manager.apply_management(agent)
+
+    # First message must survive
+    assert agent.messages[0]["content"][0]["text"] == "Important prompt"
