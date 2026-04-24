@@ -1442,6 +1442,97 @@ async def test_structured_output(bedrock_client, model, test_output_model_cls, a
     assert tru_output == exp_output
 
 
+@pytest.mark.asyncio
+async def test_structured_output_native_mode(bedrock_client, model, test_output_model_cls, alist):
+    """Test structured_output with native mode returns parsed JSON text response."""
+    model.config["structured_output_mode"] = "native"
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    bedrock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": '{"name": "John", "age": 30}'}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    }
+
+    stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
+
+    tru_output = events[-1]
+    exp_output = {"output": test_output_model_cls(name="John", age=30)}
+    assert tru_output == exp_output
+
+
+@pytest.mark.asyncio
+async def test_structured_output_native_mode_sends_output_config(bedrock_client, model, test_output_model_cls, alist):
+    """Test that native mode sends outputConfig and no toolConfig."""
+    model.config["structured_output_mode"] = "native"
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    bedrock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": '{"name": "John", "age": 30}'}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    }
+
+    stream = model.structured_output(test_output_model_cls, messages)
+    await alist(stream)
+
+    call_kwargs = bedrock_client.converse_stream.call_args[1]
+    assert "outputConfig" in call_kwargs
+    assert call_kwargs["outputConfig"]["textFormat"]["type"] == "json_schema"
+    assert "toolConfig" not in call_kwargs
+
+
+@pytest.mark.asyncio
+async def test_structured_output_tool_mode_unchanged(bedrock_client, model, test_output_model_cls, alist):
+    """Test that tool mode (default) still uses the tool-based approach."""
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    bedrock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "TestOutputModel"}}}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"name": "John", "age": 30}'}}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "tool_use"}},
+        ]
+    }
+
+    stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
+
+    tru_output = events[-1]
+    exp_output = {"output": test_output_model_cls(name="John", age=30)}
+    assert tru_output == exp_output
+
+
+@pytest.mark.asyncio
+async def test_structured_output_native_mode_no_text_raises(bedrock_client, model, test_output_model_cls, alist):
+    """Test that native mode raises if no text content in response."""
+    model.config["structured_output_mode"] = "native"
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    bedrock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    }
+
+    with pytest.raises(ValueError, match="No text content found"):
+        stream = model.structured_output(test_output_model_cls, messages)
+        await alist(stream)
+
+
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
 @pytest.mark.asyncio
 async def test_add_note_on_client_error(bedrock_client, model, alist, messages):
@@ -3103,3 +3194,29 @@ async def test_non_streaming_citations_with_only_location(bedrock_client, model,
     assert citation["location"] == {"web": {"url": "https://example.com", "domain": "example.com"}}
     assert "title" not in citation
     assert "sourceContent" not in citation
+
+
+def test_format_request_with_output_config(model, messages, model_id):
+    """Test that output_config is included in request as outputConfig.textFormat."""
+    output_config = {
+        "schema": '{"type": "object", "properties": {"name": {"type": "string"}}, "additionalProperties": false}',
+        "name": "TestModel",
+        "description": "Test description",
+    }
+    request = model._format_request(messages, output_config=output_config)
+
+    assert request["outputConfig"] == {
+        "textFormat": {
+            "type": "json_schema",
+            "structure": {
+                "jsonSchema": output_config,
+            },
+        },
+    }
+    assert request["modelId"] == model_id
+
+
+def test_format_request_without_output_config(model, messages, model_id):
+    """Test that outputConfig is not included when output_config is None."""
+    request = model._format_request(messages)
+    assert "outputConfig" not in request
