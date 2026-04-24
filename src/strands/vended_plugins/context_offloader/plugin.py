@@ -192,7 +192,7 @@ class ContextOffloader(Plugin):
         if event.cancel_message is not None:
             return
 
-        if event.tool_use.get("name") == "retrieve_offloaded_content":
+        if self._include_retrieval_tool and event.tool_use.get("name") == self.retrieve_offloaded_content.tool_name:
             return
 
         result = event.result

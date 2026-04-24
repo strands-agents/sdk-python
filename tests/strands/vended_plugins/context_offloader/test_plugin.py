@@ -160,7 +160,24 @@ class TestContextOffloader:
         assert event.result["content"] is original_content
 
     @pytest.mark.asyncio
-    async def test_skips_retrieve_tool_results(self, plugin, mock_agent):
+    async def test_skips_retrieve_tool_results_when_enabled(self, storage, mock_agent):
+        plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10, include_retrieval_tool=True)
+        large_text = "x" * 200
+        result = {"toolUseId": "tool_123", "status": "success", "content": [{"text": large_text}]}
+        tool_use = {"toolUseId": "tool_123", "name": plugin.retrieve_offloaded_content.tool_name, "input": {}}
+        event = AfterToolCallEvent(
+            agent=mock_agent,
+            selected_tool=None,
+            tool_use=tool_use,
+            invocation_state={},
+            result=result,
+        )
+        await plugin._handle_tool_result(event)
+
+        assert event.result["content"][0]["text"] == large_text
+
+    @pytest.mark.asyncio
+    async def test_does_not_skip_retrieve_tool_when_disabled(self, plugin, storage, mock_agent):
         large_text = "x" * 200
         result = {"toolUseId": "tool_123", "status": "success", "content": [{"text": large_text}]}
         tool_use = {"toolUseId": "tool_123", "name": "retrieve_offloaded_content", "input": {}}
@@ -173,7 +190,8 @@ class TestContextOffloader:
         )
         await plugin._handle_tool_result(event)
 
-        assert event.result["content"][0]["text"] == large_text
+        # Tool is disabled, so the result should be offloaded normally
+        assert "[Offloaded:" in event.result["content"][0]["text"]
 
     @pytest.mark.asyncio
     async def test_image_only_content_passes_through(self, plugin, mock_agent):
