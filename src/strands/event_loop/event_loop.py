@@ -180,7 +180,7 @@ async def event_loop_cycle(
                         "For more information see: "
                         "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
                     ),
-                    recovered_message=message
+                    recovered_message=message,
                 )
 
             if stop_reason == "tool_use":
