@@ -19,6 +19,7 @@ from opentelemetry.sdk.metrics.export import ConsoleMetricExporter, PeriodicExpo
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
+from opentelemetry.trace import NoOpTracerProvider
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 logger = logging.getLogger(__name__)
@@ -54,9 +55,12 @@ class StrandsTelemetry:
     Args:
         tracer_provider: Optional pre-configured SDKTracerProvider. If None,
             a new one will be created and set as the global tracer provider.
+        enabled: Whether to enable OpenTelemetry instrumentation. Defaults to True.
+            Can also be disabled via STRANDS_OTEL_ENABLED=false environment variable.
+            When disabled, uses NoOpTracerProvider and all setup methods become no-ops.
 
     Environment Variables:
-        Environment variables are handled by the underlying OpenTelemetry SDK:
+        - STRANDS_OTEL_ENABLED: Set to "false" to disable instrumentation (default: true)
         - OTEL_EXPORTER_OTLP_ENDPOINT: OTLP endpoint URL
         - OTEL_EXPORTER_OTLP_HEADERS: Headers for OTLP requests
         - OTEL_SERVICE_NAME: Overrides resource service name
@@ -68,13 +72,20 @@ class StrandsTelemetry:
         Using a custom tracer provider:
         >>> StrandsTelemetry(tracer_provider=my_provider).setup_console_exporter()
 
+        Disable instrumentation programmatically:
+        >>> StrandsTelemetry(enabled=False)
+
+        Disable instrumentation via environment variable:
+        >>> # export STRANDS_OTEL_ENABLED=false
+        >>> StrandsTelemetry()  # Will use NoOpTracerProvider
+
         Step-by-step configuration:
         >>> telemetry = StrandsTelemetry()
         >>> telemetry.setup_console_exporter()
         >>> telemetry.setup_otlp_exporter()
 
         To setup global meter provider
-        >>> telemetry.setup_meter(enable_console_exporter=True, enable_otlp_exporter=True) # default are False
+        >>> telemetry.setup_meter(enable_console_exporter=True, enable_otlp_exporter=True)
 
     Note:
         - The tracer provider is automatically initialized upon instantiation
@@ -82,26 +93,52 @@ class StrandsTelemetry:
         - Exporters must be explicitly configured using the setup methods
         - Failed exporter configurations are logged but do not raise exceptions
         - All setup methods return self to enable method chaining
+        - When disabled, all methods are no-ops and return self for chaining compatibility
     """
 
     def __init__(
         self,
         tracer_provider: SDKTracerProvider | None = None,
+        enabled: bool | None = None,
     ) -> None:
         """Initialize the StrandsTelemetry instance.
 
         Args:
             tracer_provider: Optional pre-configured tracer provider.
                 If None, a new one will be created and set as global.
+            enabled: Whether to enable telemetry. Defaults to True unless
+                STRANDS_OTEL_ENABLED environment variable is set to "false".
 
         The instance is ready to use immediately after initialization, though
         trace exporters must be configured separately using the setup methods.
         """
+        # Determine if telemetry is enabled
+        if enabled is None:
+            env_value = os.environ.get("STRANDS_OTEL_ENABLED", "true").lower()
+            self._enabled = env_value not in ("false", "0", "no", "off")
+        else:
+            self._enabled = enabled
+
         self.resource = get_otel_resource()
+
+        if not self._enabled:
+            logger.info("OpenTelemetry instrumentation disabled")
+            self.tracer_provider = NoOpTracerProvider()  # type: ignore[assignment]
+            return
+
         if tracer_provider:
             self.tracer_provider = tracer_provider
         else:
             self._initialize_tracer()
+
+    @property
+    def enabled(self) -> bool:
+        """Check if telemetry is enabled.
+
+        Returns:
+            True if telemetry is enabled, False otherwise.
+        """
+        return self._enabled
 
     def _initialize_tracer(self) -> None:
         """Initialize the OpenTelemetry tracer."""
@@ -136,7 +173,13 @@ class StrandsTelemetry:
         This method configures a SimpleSpanProcessor with a ConsoleSpanExporter,
         allowing trace data to be output to the console. Any additional keyword
         arguments provided will be forwarded to the ConsoleSpanExporter.
+
+        Note:
+            This is a no-op if telemetry is disabled.
         """
+        if not self._enabled:
+            return self
+
         try:
             logger.info("Enabling console export")
             console_processor = SimpleSpanProcessor(ConsoleSpanExporter(**kwargs))
@@ -158,7 +201,13 @@ class StrandsTelemetry:
         This method configures a BatchSpanProcessor with an OTLPSpanExporter,
         allowing trace data to be exported to an OTLP endpoint. Any additional
         keyword arguments provided will be forwarded to the OTLPSpanExporter.
+
+        Note:
+            This is a no-op if telemetry is disabled.
         """
+        if not self._enabled:
+            return self
+
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
         try:
@@ -173,7 +222,14 @@ class StrandsTelemetry:
     def setup_meter(
         self, enable_console_exporter: bool = False, enable_otlp_exporter: bool = False
     ) -> "StrandsTelemetry":
-        """Initialize the OpenTelemetry Meter."""
+        """Initialize the OpenTelemetry Meter.
+
+        Note:
+            This is a no-op if telemetry is disabled.
+        """
+        if not self._enabled:
+            return self
+
         logger.info("Initializing meter")
         metrics_readers = []
         try:
