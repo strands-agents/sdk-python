@@ -3,8 +3,6 @@
 This module provides the ContextOffloader plugin that intercepts oversized
 tool results, persists each content block to a storage backend, and replaces
 the in-context result with a truncated preview and per-block references.
-The plugin also provides a retrieval tool so the agent can fetch offloaded
-content on demand.
 
 Example:
     ```python
@@ -20,12 +18,13 @@ Example:
         ContextOffloader(storage=InMemoryStorage())
     ])
 
-    # File storage with custom thresholds
+    # File storage with custom thresholds and retrieval tool enabled
     agent = Agent(plugins=[
         ContextOffloader(
             storage=FileStorage("./artifacts"),
             max_result_tokens=5_000,
             preview_tokens=2_000,
+            include_retrieval_tool=True,
         )
     ])
     ```
@@ -37,7 +36,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from ...hooks.events import AfterToolCallEvent, BeforeInvocationEvent
+from ...hooks.events import AfterToolCallEvent
 from ...models.model import get_encoding
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
@@ -59,18 +58,6 @@ _DEFAULT_PREVIEW_TOKENS = 1_000
 _CHARS_PER_TOKEN = 4
 """Approximate characters per token, fallback for preview slicing without tiktoken."""
 
-_STATE_KEY = "context_offloader"
-
-_SYSTEM_PROMPT_INJECTION = (
-    "\n\n<context_offloader>\n"
-    "When tool results are too large for the context window, they are offloaded to storage.\n"
-    "You will see a preview of the content followed by storage references.\n"
-    "Use the preview to answer questions when possible — avoid retrieving the full content\n"
-    "unless the preview is insufficient. If you need the full content, use the\n"
-    "retrieve_offloaded_content tool with the reference.\n"
-    "</context_offloader>"
-)
-
 
 class ContextOffloader(Plugin):
     """Plugin that offloads oversized tool results to reduce context consumption.
@@ -78,7 +65,6 @@ class ContextOffloader(Plugin):
     When a tool result exceeds the configured token threshold, this plugin
     stores each content block individually to a storage backend and replaces
     the in-context result with a truncated text preview plus per-block references.
-    A built-in retrieval tool allows the agent to fetch offloaded content on demand.
 
     Token estimation uses the agent's model ``count_tokens`` method, which
     leverages tiktoken when available and falls back to character-based heuristics.
@@ -101,6 +87,8 @@ class ContextOffloader(Plugin):
         storage: Backend for storing offloaded content (required).
         max_result_tokens: Offload results whose estimated token count exceeds this threshold.
         preview_tokens: Number of tokens to keep as a text preview in context.
+        include_retrieval_tool: Whether to register the ``retrieve_offloaded_content`` tool.
+            Defaults to False.
 
     Example:
         ```python
@@ -120,6 +108,8 @@ class ContextOffloader(Plugin):
         storage: Storage,
         max_result_tokens: int = _DEFAULT_MAX_RESULT_TOKENS,
         preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
+        *,
+        include_retrieval_tool: bool = False,
     ) -> None:
         """Initialize the ContextOffloader plugin.
 
@@ -130,6 +120,8 @@ class ContextOffloader(Plugin):
             preview_tokens: Number of tokens to keep as a text preview in context.
                 Uses tiktoken for exact slicing when available, falls back to
                 chars/4 heuristic. Defaults to ``_DEFAULT_PREVIEW_TOKENS`` (1,000).
+            include_retrieval_tool: Whether to register the ``retrieve_offloaded_content``
+                tool so the agent can fetch offloaded content. Defaults to False.
 
         Raises:
             ValueError: If max_result_tokens is not positive, preview_tokens is negative,
@@ -145,7 +137,14 @@ class ContextOffloader(Plugin):
         self._storage = storage
         self._max_result_tokens = max_result_tokens
         self._preview_tokens = preview_tokens
+        self._include_retrieval_tool = include_retrieval_tool
         super().__init__()
+
+    def init_agent(self, agent: Agent) -> None:
+        """Conditionally register the retrieval tool."""
+        if not self._include_retrieval_tool:
+            # Remove the auto-discovered retrieval tool
+            self._tools = [t for t in self._tools if t.tool_name != "retrieve_offloaded_content"]
 
     @tool(context=True)
     def retrieve_offloaded_content(
@@ -186,22 +185,6 @@ class ContextOffloader(Plugin):
             return {"status": "success", "content": [{"document": doc_block}]}
 
         return content_bytes.decode("utf-8", errors="replace")
-
-    @hook
-    def _on_before_invocation(self, event: BeforeInvocationEvent) -> None:
-        """Inject offloader guidance into the system prompt."""
-        agent: Agent = event.agent
-        state_data = agent.state.get(_STATE_KEY)
-        last_injection = state_data.get("last_injection") if isinstance(state_data, dict) else None
-
-        current_prompt = agent.system_prompt or ""
-
-        if last_injection is not None and last_injection in current_prompt:
-            return
-
-        injection = _SYSTEM_PROMPT_INJECTION
-        agent.system_prompt = f"{current_prompt}{injection}" if current_prompt else injection.strip()
-        self._set_state_field(agent, "last_injection", injection)
 
     @hook
     async def _handle_tool_result(self, event: AfterToolCallEvent) -> None:
@@ -283,10 +266,18 @@ class ContextOffloader(Plugin):
         # Build preview text — use tiktoken for exact slicing when available
         preview = self._slice_preview(full_text) if full_text else ""
         ref_lines = "\n".join(f"  {ref} ({desc})" for ref, _, desc in references if ref)
+
+        guidance = (
+            "Tool result was offloaded to external storage due to size.\n"
+            "Use the preview below to answer if possible.\n"
+            "Use your available tools to selectively access the data you need."
+        )
+        if self._include_retrieval_tool:
+            guidance += "\nYou can also use retrieve_offloaded_content with a reference to get the full content."
+
         preview_text = (
             f"[Offloaded: {len(content)} blocks, ~{token_count:,} tokens]\n"
-            f"[Use the preview below to answer if possible. If you need the full content,\n"
-            f"call retrieve_offloaded_content with a reference.]\n\n"
+            f"{guidance}\n\n"
             f"{preview}\n\n"
             f"[Stored references:]\n{ref_lines}"
         )
@@ -343,17 +334,3 @@ class ContextOffloader(Plugin):
             preview: str = encoding.decode(tokens[: self._preview_tokens])
             return preview
         return text[: self._preview_tokens * _CHARS_PER_TOKEN]
-
-    def _set_state_field(self, agent: Agent, key: str, value: str) -> None:
-        """Set a field in the plugin's agent state dict.
-
-        Args:
-            agent: The agent whose state to update.
-            key: The state field key.
-            value: The value to set.
-        """
-        state_data = agent.state.get(_STATE_KEY)
-        if not isinstance(state_data, dict):
-            state_data = {}
-        state_data[key] = value
-        agent.state.set(_STATE_KEY, state_data)

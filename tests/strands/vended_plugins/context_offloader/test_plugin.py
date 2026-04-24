@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from strands.hooks.events import AfterToolCallEvent, BeforeInvocationEvent
+from strands.hooks.events import AfterToolCallEvent
 from strands.types.tools import ToolContext, ToolUse
 from strands.vended_plugins.context_offloader import (
     ContextOffloader,
@@ -82,9 +82,8 @@ class TestContextOffloader:
         assert plugin.name == "context_offloader"
 
     def test_hooks_auto_discovered(self, plugin):
-        assert len(plugin.hooks) == 2
-        hook_names = {h.__name__ for h in plugin.hooks}
-        assert hook_names == {"_on_before_invocation", "_handle_tool_result"}
+        assert len(plugin.hooks) == 1
+        assert plugin.hooks[0].__name__ == "_handle_tool_result"
 
     def test_raises_on_non_positive_max_result_tokens(self):
         with pytest.raises(ValueError, match="max_result_tokens must be positive"):
@@ -434,7 +433,7 @@ class TestRetrievalTool:
 
     @pytest.fixture
     def plugin(self, storage):
-        return ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+        return ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10, include_retrieval_tool=True)
 
     @pytest.fixture
     def mock_agent(self):
@@ -445,9 +444,15 @@ class TestRetrievalTool:
         tool_use = ToolUse(toolUseId="retrieve_1", name="retrieve_offloaded_content", input={})
         return ToolContext(tool_use=tool_use, agent=mock_agent, invocation_state={})
 
-    def test_retrieval_tool_auto_discovered(self, plugin):
+    def test_retrieval_tool_registered_when_enabled(self, plugin):
         tool_names = [t.tool_name for t in plugin.tools]
         assert "retrieve_offloaded_content" in tool_names
+
+    def test_retrieval_tool_not_registered_by_default(self):
+        plugin = ContextOffloader(storage=InMemoryStorage())
+        plugin.init_agent(MagicMock())
+        tool_names = [t.tool_name for t in plugin.tools]
+        assert "retrieve_offloaded_content" not in tool_names
 
     def test_retrieve_text_content(self, plugin, storage, tool_context):
         ref = storage.store("key_1", b"hello world", "text/plain")
@@ -477,12 +482,6 @@ class TestRetrievalTool:
         assert result["content"][0]["image"]["format"] == "png"
         assert result["content"][0]["image"]["source"]["bytes"] == img_bytes
 
-    def test_retrieve_json_returns_native(self, plugin, storage, tool_context):
-        ref = storage.store("key_1", b'{"key": "value"}', "application/json")
-        result = plugin.retrieve_offloaded_content(reference=ref, tool_context=tool_context)
-        assert result["status"] == "success"
-        assert result["content"][0]["json"] == {"key": "value"}
-
     def test_retrieve_document_content(self, plugin, storage, tool_context):
         doc_bytes = b"%PDF-1.4 content"
         ref = storage.store("key_1", doc_bytes, "application/pdf")
@@ -492,43 +491,31 @@ class TestRetrievalTool:
         assert result["content"][0]["document"]["source"]["bytes"] == doc_bytes
 
 
-class TestSystemPromptInjection:
+class TestInlineGuidance:
     @pytest.fixture
     def storage(self):
         return InMemoryStorage()
 
     @pytest.fixture
-    def plugin(self, storage):
-        return ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
-
-    @pytest.fixture
     def mock_agent(self):
         agent = MagicMock()
-        agent.system_prompt = "You are a helpful assistant."
-        agent.state = MagicMock()
-        agent.state.get.return_value = None
+        agent.model = MagicMock()
+        agent.model.count_tokens = AsyncMock(side_effect=_heuristic_count_tokens)
         return agent
 
-    def test_injects_system_prompt(self, plugin, mock_agent):
-        event = BeforeInvocationEvent(agent=mock_agent)
-        plugin._on_before_invocation(event)
+    @pytest.mark.asyncio
+    async def test_guidance_mentions_retrieval_tool_when_enabled(self, storage, mock_agent):
+        plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10, include_retrieval_tool=True)
+        event = _make_event(mock_agent, "x" * 200)
+        await plugin._handle_tool_result(event)
+        result_text = event.result["content"][0]["text"]
+        assert "retrieve_offloaded_content" in result_text
 
-        set_call = mock_agent.state.set.call_args
-        assert set_call is not None
-        assert "context_offloader" in str(mock_agent.system_prompt)
-
-    def test_does_not_double_inject(self, plugin, mock_agent):
-        # Simulate already-injected state
-        mock_agent.system_prompt = "You are a helper.\n\n<context_offloader>\nstuff\n</context_offloader>"
-        mock_agent.state.get.return_value = {"last_injection": "\n\n<context_offloader>\nstuff\n</context_offloader>"}
-
-        event = BeforeInvocationEvent(agent=mock_agent)
-        plugin._on_before_invocation(event)
-
-        # System prompt should not have been modified (already contains injection)
-        assert mock_agent.system_prompt.count("<context_offloader>") == 1
-
-    def test_hooks_include_before_invocation(self, plugin):
-        hook_names = [h.__name__ for h in plugin.hooks]
-        assert "_on_before_invocation" in hook_names
-        assert "_handle_tool_result" in hook_names
+    @pytest.mark.asyncio
+    async def test_guidance_does_not_mention_retrieval_tool_when_disabled(self, storage, mock_agent):
+        plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+        event = _make_event(mock_agent, "x" * 200)
+        await plugin._handle_tool_result(event)
+        result_text = event.result["content"][0]["text"]
+        assert "retrieve_offloaded_content" not in result_text
+        assert "available tools" in result_text
