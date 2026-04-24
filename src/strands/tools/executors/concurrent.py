@@ -48,6 +48,12 @@ class ConcurrentToolExecutor(ToolExecutor):
         task_events = [asyncio.Event() for _ in tool_uses]
         stop_event = object()
 
+        # Build a mapping from toolUseId to its original request index so we can
+        # restore request order after concurrent execution completes.
+        tool_use_id_to_index: dict[str, int] = {
+            str(tool_use.get("toolUseId")): idx for idx, tool_use in enumerate(tool_uses)
+        }
+
         tasks = []
         try:
             for task_id, tool_use in enumerate(tool_uses):
@@ -85,6 +91,14 @@ class ConcurrentToolExecutor(ToolExecutor):
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Re-order tool_results to match the original request order.
+            # The base ``_stream`` method appends results as each task finishes,
+            # so when tools complete out-of-order the list reflects completion
+            # order rather than request order.
+            tool_results.sort(
+                key=lambda r: tool_use_id_to_index.get(str(r.get("toolUseId")), 0)
+            )
 
     async def _task(
         self,

@@ -42,6 +42,27 @@ async def test_concurrent_executor_execute(
 
 
 @pytest.mark.asyncio
+async def test_concurrent_executor_preserves_request_order(
+    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context, alist
+):
+    """tool_results must follow the original tool_uses order, not completion order."""
+    # temperature_tool is synchronous and completes instantly.
+    # We put it second to verify it doesn't overtake the first tool in tool_results.
+    tool_uses = [
+        {"name": "temperature_tool", "toolUseId": "id-first", "input": {}},
+        {"name": "weather_tool", "toolUseId": "id-second", "input": {}},
+    ]
+    stream = executor._execute(
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+    )
+    await alist(stream)
+
+    # The slow_tool result should appear first because it was requested first,
+    # even though weather_tool completes sooner.
+    assert [r["toolUseId"] for r in tool_results] == ["id-first", "id-second"]
+
+
+@pytest.mark.asyncio
 async def test_concurrent_executor_interrupt(
     executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context, alist
 ):
