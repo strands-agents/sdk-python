@@ -158,6 +158,8 @@ async def event_loop_cycle(
                 )
                 return
             # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
+            # Neither this path nor the existing-tool-use path below increments _invocation_turn_count
+            # because no model call is made — max_turns limits model invocations only.
             if agent._interrupt_state.activated:
                 stop_reason: StopReason = "tool_use"
                 message = agent._interrupt_state.context["tool_use_message"]

@@ -171,9 +171,8 @@ async def test_max_token_budget_stops_when_counter_already_at_limit():
     mock_agent._model_state = {}
     mock_agent.trace_attributes = {}
     mock_agent._retry_strategy = ModelRetryStrategy()
-    mock_agent.max_turns = None
+    apply_execution_limit_defaults(mock_agent)
     mock_agent.max_token_budget = 500
-    mock_agent._invocation_turn_count = 0
     mock_agent._invocation_token_count = 500  # already at limit
 
     events = []
@@ -209,6 +208,43 @@ def test_max_token_budget_resets_between_invocations():
 
     result = agent("second")
     assert result.stop_reason == "end_turn"
+
+
+@pytest.mark.asyncio
+async def test_max_turns_skipped_model_cycle_does_not_consume_turn():
+    """Cycles that skip the model don't increment _invocation_turn_count, so max_turns limits model invocations only."""
+
+    async def _empty_tool_events(*args, **kwargs):
+        return
+        yield  # make this an async generator
+
+    with unittest.mock.patch(
+        "strands.event_loop.event_loop._handle_tool_execution",
+        side_effect=_empty_tool_events,
+    ):
+        mock_agent = unittest.mock.MagicMock()
+        mock_agent.__class__ = Agent
+        mock_agent.messages = [
+            {"role": "user", "content": [{"text": "test"}]},
+            _tool_call_response(tool_name="noop"),
+        ]
+        mock_agent.tool_registry = ToolRegistry()
+        mock_agent.event_loop_metrics = EventLoopMetrics()
+        mock_agent.event_loop_metrics.reset_usage_metrics()
+        mock_agent.hooks.invoke_callbacks_async = unittest.mock.AsyncMock()
+        mock_agent._interrupt_state = _InterruptState()
+        mock_agent._cancel_signal = threading.Event()
+        mock_agent._model_state = {}
+        mock_agent.trace_attributes = {}
+        mock_agent._retry_strategy = ModelRetryStrategy()
+        apply_execution_limit_defaults(mock_agent)
+        mock_agent.max_turns = 1
+
+        events = []
+        async for event in event_loop_cycle(agent=mock_agent, invocation_state={}):
+            events.append(event)
+
+        assert mock_agent._invocation_turn_count == 0
 
 
 @pytest.mark.asyncio

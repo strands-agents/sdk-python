@@ -515,7 +515,7 @@ class Agent(AgentBase):
         Returns:
             Result object containing:
 
-                - stop_reason: Why the event loop stopped (e.g., "end_turn", "max_tokens")
+                - stop_reason: Why the event loop stopped (e.g., "end_turn", "max_tokens", "max_turns", "max_token_budget")
                 - message: The final message from the model
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
@@ -562,7 +562,7 @@ class Agent(AgentBase):
         Returns:
             Result: object containing:
 
-                - stop_reason: Why the event loop stopped (e.g., "end_turn", "max_tokens")
+                - stop_reason: Why the event loop stopped (e.g., "end_turn", "max_tokens", "max_turns", "max_token_budget")
                 - message: The final message from the model
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
