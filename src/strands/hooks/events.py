@@ -171,7 +171,7 @@ class BeforeToolCallEvent(HookEvent, _Interruptible):
 
 
 @dataclass
-class AfterToolCallEvent(HookEvent):
+class AfterToolCallEvent(HookEvent, _Interruptible):
     """Event triggered after a tool invocation completes.
 
     This event is fired after the agent has finished executing a tool,
@@ -192,6 +192,12 @@ class AfterToolCallEvent(HookEvent):
           by tracking retry state or implementing idempotent event processing
         - ToolResultEvent is NOT emitted for discarded attempts - only the final attempt's
           result is emitted and added to the conversation history
+
+    Interrupts:
+        Hook callbacks can call ``event.interrupt(name, reason)`` to pause agent execution
+        and request human input. The tool result is preserved and the tool will not be
+        re-executed on resume. See :func:`strands.event_loop.event_loop._handle_tool_execution`
+        for the replay mechanism.
 
     Attributes:
         selected_tool: The tool that was invoked. It may be None if tool lookup failed.
@@ -220,6 +226,18 @@ class AfterToolCallEvent(HookEvent):
     def should_reverse_callbacks(self) -> bool:
         """True to invoke callbacks in reverse order."""
         return True
+
+    @override
+    def _interrupt_id(self, name: str) -> str:
+        """Unique id for the interrupt.
+
+        Args:
+            name: User defined name for the interrupt.
+
+        Returns:
+            Interrupt id.
+        """
+        return f"v1:after_tool_call:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
 
 
 @dataclass

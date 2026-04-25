@@ -170,7 +170,7 @@ class ToolExecutor(abc.ABC):
                     "content": [{"text": cancel_message}],
                 }
 
-                after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
+                after_event, interrupts = await ToolExecutor._invoke_after_tool_call_hook(
                     agent,
                     None,
                     tool_use,
@@ -179,6 +179,12 @@ class ToolExecutor(abc.ABC):
                     exception=Exception(cancel_message),
                     cancel_message=cancel_message,
                 )
+
+                if interrupts:
+                    tool_results.append(after_event.result)
+                    yield ToolInterruptEvent(tool_use, interrupts, source_event=after_event)
+                    return
+
                 yield ToolResultEvent(after_event.result, exception=after_event.exception)
                 tool_results.append(after_event.result)
                 return
@@ -209,9 +215,15 @@ class ToolExecutor(abc.ABC):
                     }
 
                     unknown_tool_error = Exception(f"Unknown tool: {tool_name}")
-                    after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
+                    after_event, interrupts = await ToolExecutor._invoke_after_tool_call_hook(
                         agent, selected_tool, tool_use, invocation_state, result, exception=unknown_tool_error
                     )
+
+                    if interrupts:
+                        tool_results.append(after_event.result)
+                        yield ToolInterruptEvent(tool_use, interrupts, source_event=after_event)
+                        return
+
                     # Check if retry requested for unknown tool error
                     # Use getattr because BidiAfterToolCallEvent doesn't have retry attribute
                     if getattr(after_event, "retry", False):
@@ -256,9 +268,14 @@ class ToolExecutor(abc.ABC):
 
                 result = cast(ToolResult, event)
 
-                after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
+                after_event, interrupts = await ToolExecutor._invoke_after_tool_call_hook(
                     agent, selected_tool, tool_use, invocation_state, result, exception=exception
                 )
+
+                if interrupts:
+                    tool_results.append(after_event.result)
+                    yield ToolInterruptEvent(tool_use, interrupts, source_event=after_event)
+                    return
 
                 # Check if retry requested (getattr for BidiAfterToolCallEvent compatibility)
                 if getattr(after_event, "retry", False):
@@ -277,9 +294,15 @@ class ToolExecutor(abc.ABC):
                     "content": [{"text": f"Error: {str(e)}"}],
                 }
 
-                after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
+                after_event, interrupts = await ToolExecutor._invoke_after_tool_call_hook(
                     agent, selected_tool, tool_use, invocation_state, error_result, exception=e
                 )
+
+                if interrupts:
+                    tool_results.append(after_event.result)
+                    yield ToolInterruptEvent(tool_use, interrupts, source_event=after_event)
+                    return
+
                 # Check if retry requested (getattr for BidiAfterToolCallEvent compatibility)
                 if getattr(after_event, "retry", False):
                     logger.debug("tool_name=<%s> | retry requested after exception, retrying tool call", tool_name)

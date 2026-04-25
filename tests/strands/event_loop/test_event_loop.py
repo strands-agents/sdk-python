@@ -999,6 +999,7 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
                 "role": "assistant",
                 "metadata": ANY,
             },
+            "after_tool_events": [],
         },
         "interrupts": {
             "v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9": {
