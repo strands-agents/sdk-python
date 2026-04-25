@@ -54,7 +54,7 @@ except Exception as e:
 import openai  # noqa: E402 - must import after version check
 
 from ..types.citations import WebLocationDict  # noqa: E402
-from ..types.content import ContentBlock, Messages, Role  # noqa: E402
+from ..types.content import ContentBlock, Messages, Role, SystemContentBlock  # noqa: E402
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
 from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
@@ -183,6 +183,55 @@ class OpenAIResponsesModel(Model):
             The OpenAI Responses API model configuration.
         """
         return cast(OpenAIResponsesModel.OpenAIResponsesConfig, self.config)
+
+    @override
+    async def count_tokens(
+        self,
+        messages: Messages,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
+    ) -> int:
+        """Count tokens using the OpenAI Responses API input_tokens.count endpoint.
+
+        Uses the same message format as the Responses API to get accurate token counts
+        directly from the OpenAI service.
+
+        Args:
+            messages: List of message objects to count tokens for.
+            tool_specs: List of tool specifications to include in the count.
+            system_prompt: Plain string system prompt. Ignored if system_prompt_content is provided.
+            system_prompt_content: Structured system prompt content blocks.
+
+        Returns:
+            Total input token count.
+        """
+        try:
+            # system_prompt_content is not used; this provider only accepts system_prompt as a plain string,
+            # matching the behavior of stream(). The caller always provides system_prompt alongside
+            # system_prompt_content, so the plain string is always available.
+            request = self._format_request(messages, tool_specs, system_prompt)
+            # Keep only fields accepted by input_tokens.count
+            count_tokens_fields = {"model", "input", "instructions", "tools"}
+            request = {k: request[k] for k in request.keys() & count_tokens_fields}
+
+            async with openai.AsyncOpenAI(**self.client_args) as client:
+                response = await client.responses.input_tokens.count(**request)
+                total_tokens: int = response.input_tokens
+
+            logger.debug(
+                "model_id=<%s>, total_tokens=<%d> | native token count",
+                self.config["model_id"],
+                total_tokens,
+            )
+            return total_tokens
+        except Exception as e:
+            logger.warning(
+                "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
+                self.config["model_id"],
+                e,
+            )
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
     @override
     async def stream(

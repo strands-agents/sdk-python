@@ -1190,3 +1190,111 @@ def test_format_request_messages_excludes_reasoning_content(caplog):
         {"role": "user", "content": [{"type": "input_text", "text": "Thanks"}]},
     ]
     assert "reasoningContent is not yet supported" in caplog.text
+
+
+class TestCountTokens:
+    """Tests for OpenAIResponsesModel.count_tokens native token counting."""
+
+    @pytest.fixture
+    def openai_client(self):
+        with unittest.mock.patch.object(strands.models.openai_responses.openai, "AsyncOpenAI") as mock_client_cls:
+            mock_client = unittest.mock.AsyncMock()
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            yield mock_client
+
+    @pytest.fixture
+    def model(self, openai_client):
+        _ = openai_client
+        return OpenAIResponsesModel(model_id="gpt-4o")
+
+    @pytest.fixture
+    def messages(self):
+        return [{"role": "user", "content": [{"text": "hello"}]}]
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [
+            {
+                "name": "test_tool",
+                "description": "A test tool",
+                "inputSchema": {"json": {"type": "object", "properties": {}}},
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_success(self, model, openai_client, messages):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.input_tokens = 42
+        openai_client.responses.input_tokens.count.return_value = mock_response
+
+        result = await model.count_tokens(messages=messages)
+
+        assert result == 42
+        openai_client.responses.input_tokens.count.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_system_prompt(self, model, openai_client, messages):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.input_tokens = 55
+        openai_client.responses.input_tokens.count.return_value = mock_response
+
+        result = await model.count_tokens(messages=messages, system_prompt="Be helpful.")
+
+        assert result == 55
+        call_kwargs = openai_client.responses.input_tokens.count.call_args[1]
+        assert call_kwargs["instructions"] == "Be helpful."
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_tool_specs(self, model, openai_client, messages, tool_specs):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.input_tokens = 100
+        openai_client.responses.input_tokens.count.return_value = mock_response
+
+        result = await model.count_tokens(messages=messages, tool_specs=tool_specs)
+
+        assert result == 100
+        call_kwargs = openai_client.responses.input_tokens.count.call_args[1]
+        assert "tools" in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_stream_and_store_stripped(self, model, openai_client, messages):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.input_tokens = 10
+        openai_client.responses.input_tokens.count.return_value = mock_response
+
+        await model.count_tokens(messages=messages)
+
+        call_kwargs = openai_client.responses.input_tokens.count.call_args[1]
+        assert "stream" not in call_kwargs
+        assert "store" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_api_error(self, model, openai_client, messages):
+        openai_client.responses.input_tokens.count.side_effect = openai.APIError(
+            message="Unsupported", request=unittest.mock.MagicMock(), body=None
+        )
+
+        result = await model.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_generic_exception(self, model, openai_client, messages):
+        openai_client.responses.input_tokens.count.side_effect = RuntimeError("Connection failed")
+
+        result = await model.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_logs_warning(self, model, openai_client, messages, caplog):
+        import logging
+
+        openai_client.responses.input_tokens.count.side_effect = RuntimeError("API down")
+
+        with caplog.at_level(logging.WARNING):
+            await model.count_tokens(messages=messages)
+
+        assert any("native token counting failed" in record.message for record in caplog.records)

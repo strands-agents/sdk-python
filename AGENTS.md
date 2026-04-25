@@ -141,7 +141,8 @@ strands-agents/
 │   │   │   ├── context_providers/        # Context data providers (e.g., ledger)
 │   │   │   ├── core/                     # Base classes, actions, context
 │   │   │   └── handlers/                 # Handler implementations (e.g., LLM)
-│   │   └── skills/                       # AgentSkills.io integration (Skill, AgentSkills)
+│   │   ├── skills/                       # AgentSkills.io integration (Skill, AgentSkills)
+│   │   └── context_offloader/             # Large tool result offloading plugin
 │   │
 │   ├── experimental/                     # Experimental features (API may change)
 │   │   ├── agent_config.py               # Experimental agent config
@@ -427,6 +428,7 @@ hatch test --all                     # Test all Python versions (3.10-3.13)
 - Use `moto` for mocking AWS services
 - Use `pytest.mark.asyncio` for async tests
 - Keep tests focused and independent
+- Import packages at the top of the test files
 
 ## MCP Tasks (Experimental)
 

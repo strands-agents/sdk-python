@@ -5,6 +5,7 @@
 
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
@@ -124,7 +125,7 @@ class OllamaModel(Model):
                     "tool_calls": [
                         {
                             "function": {
-                                "name": content["toolUse"]["toolUseId"],
+                                "name": content["toolUse"]["name"],
                                 "arguments": content["toolUse"]["input"],
                             }
                         }
@@ -246,7 +247,8 @@ class OllamaModel(Model):
                     return {"contentBlockStart": {"start": {}}}
 
                 tool_name = event["data"].function.name
-                return {"contentBlockStart": {"start": {"toolUse": {"name": tool_name, "toolUseId": tool_name}}}}
+                tool_use_id = f"tooluse_{uuid.uuid4().hex[:24]}"
+                return {"contentBlockStart": {"start": {"toolUse": {"name": tool_name, "toolUseId": tool_use_id}}}}
 
             case "content_delta":
                 if event["data_type"] == "text":

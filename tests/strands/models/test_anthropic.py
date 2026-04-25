@@ -1040,3 +1040,101 @@ async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model,
 
     # Verify the message_stop event was still processed correctly
     assert {"messageStop": {"stopReason": mock_message_stop.message.stop_reason}} in events
+
+
+class TestCountTokens:
+    """Tests for AnthropicModel.count_tokens native token counting."""
+
+    @pytest.fixture
+    def model_with_client(self, anthropic_client, model_id, max_tokens):
+        _ = anthropic_client
+        return AnthropicModel(model_id=model_id, max_tokens=max_tokens)
+
+    @pytest.fixture
+    def messages(self):
+        return [{"role": "user", "content": [{"text": "hello"}]}]
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [
+            {
+                "name": "test_tool",
+                "description": "A test tool",
+                "inputSchema": {"json": {"type": "object", "properties": {}}},
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_success(self, model_with_client, anthropic_client, messages):
+        mock_response = unittest.mock.MagicMock()
+        mock_response.input_tokens = 42
+        anthropic_client.messages.count_tokens = unittest.mock.AsyncMock(return_value=mock_response)
+
+        result = await model_with_client.count_tokens(messages=messages)
+
+        assert result == 42
+        anthropic_client.messages.count_tokens.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_system_prompt(self, model_with_client, anthropic_client, messages):
+        mock_response = unittest.mock.MagicMock()
+        mock_response.input_tokens = 55
+        anthropic_client.messages.count_tokens = unittest.mock.AsyncMock(return_value=mock_response)
+
+        result = await model_with_client.count_tokens(messages=messages, system_prompt="Be helpful.")
+
+        assert result == 55
+        call_kwargs = anthropic_client.messages.count_tokens.call_args[1]
+        assert call_kwargs["system"] == "Be helpful."
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_tool_specs(self, model_with_client, anthropic_client, messages, tool_specs):
+        mock_response = unittest.mock.MagicMock()
+        mock_response.input_tokens = 100
+        anthropic_client.messages.count_tokens = unittest.mock.AsyncMock(return_value=mock_response)
+
+        result = await model_with_client.count_tokens(messages=messages, tool_specs=tool_specs)
+
+        assert result == 100
+        call_kwargs = anthropic_client.messages.count_tokens.call_args[1]
+        assert "tools" in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_max_tokens_stripped_from_request(self, model_with_client, anthropic_client, messages):
+        mock_response = unittest.mock.MagicMock()
+        mock_response.input_tokens = 10
+        anthropic_client.messages.count_tokens = unittest.mock.AsyncMock(return_value=mock_response)
+
+        await model_with_client.count_tokens(messages=messages)
+
+        call_kwargs = anthropic_client.messages.count_tokens.call_args[1]
+        assert "max_tokens" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_api_error(self, model_with_client, anthropic_client, messages):
+        anthropic_client.messages.count_tokens = unittest.mock.AsyncMock(
+            side_effect=anthropic.APIError(message="Unsupported", request=unittest.mock.MagicMock(), body=None)
+        )
+
+        result = await model_with_client.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_generic_exception(self, model_with_client, anthropic_client, messages):
+        anthropic_client.messages.count_tokens = unittest.mock.AsyncMock(side_effect=RuntimeError("Connection failed"))
+
+        result = await model_with_client.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_logs_warning(self, model_with_client, anthropic_client, messages, caplog):
+        anthropic_client.messages.count_tokens = unittest.mock.AsyncMock(side_effect=RuntimeError("API down"))
+
+        with caplog.at_level(logging.WARNING):
+            await model_with_client.count_tokens(messages=messages)
+
+        assert any("native token counting failed" in record.message for record in caplog.records)

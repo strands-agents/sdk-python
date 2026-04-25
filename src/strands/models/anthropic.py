@@ -16,7 +16,7 @@ from typing_extensions import Required, Unpack, override
 
 from ..event_loop.streaming import process_stream
 from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
@@ -370,6 +370,54 @@ class AnthropicModel(Model):
 
             case _:
                 raise RuntimeError(f"event_type=<{event['type']} | unknown type")
+
+    @override
+    async def count_tokens(
+        self,
+        messages: Messages,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
+    ) -> int:
+        """Count tokens using Anthropic's native count_tokens API.
+
+        Uses the same message format as the Messages API to get accurate token counts
+        directly from the Anthropic service.
+
+        Args:
+            messages: List of message objects to count tokens for.
+            tool_specs: List of tool specifications to include in the count.
+            system_prompt: Plain string system prompt. Ignored if system_prompt_content is provided.
+            system_prompt_content: Structured system prompt content blocks.
+
+        Returns:
+            Total input token count.
+        """
+        try:
+            # system_prompt_content is not used; this provider only accepts system_prompt as a plain string,
+            # matching the behavior of stream(). The caller always provides system_prompt alongside
+            # system_prompt_content, so the plain string is always available.
+            request = self.format_request(messages, tool_specs, system_prompt)
+            # Keep only fields accepted by count_tokens; strip inference params (max_tokens, temperature, etc.)
+            count_tokens_fields = {"model", "messages", "tools", "tool_choice", "system"}
+            request = {k: request[k] for k in request.keys() & count_tokens_fields}
+
+            response = await self.client.messages.count_tokens(**request)
+            total_tokens: int = response.input_tokens
+
+            logger.debug(
+                "model_id=<%s>, total_tokens=<%d> | native token count",
+                self.config["model_id"],
+                total_tokens,
+            )
+            return total_tokens
+        except Exception as e:
+            logger.warning(
+                "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
+                self.config["model_id"],
+                e,
+            )
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
     @override
     async def stream(

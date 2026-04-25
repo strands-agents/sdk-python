@@ -955,6 +955,39 @@ def test_format_request_message_tool_call_no_reasoning_signature():
     assert "__thought__" not in result["id"]
 
 
+def test_format_system_messages_preserves_cache_point_ttl():
+    """CachePoint with ttl="1h" should produce cache_control with ttl field."""
+    result = LiteLLMModel._format_system_messages(
+        system_prompt_content=[
+            {"text": "You are a helpful assistant."},
+            {"cachePoint": {"type": "default", "ttl": "1h"}},
+        ]
+    )
+    assert result[0]["content"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+
+def test_format_system_messages_cache_point_without_ttl():
+    """CachePoint without ttl should produce cache_control with no ttl key (backward compat)."""
+    result = LiteLLMModel._format_system_messages(
+        system_prompt_content=[
+            {"text": "You are a helpful assistant."},
+            {"cachePoint": {"type": "default"}},
+        ]
+    )
+    assert result[0]["content"][0]["cache_control"] == {"type": "ephemeral"}
+    assert "ttl" not in result[0]["content"][0]["cache_control"]
+
+
+def test_format_system_messages_cache_point_with_no_preceding_content():
+    """CachePoint with no preceding text block should be silently ignored."""
+    result = LiteLLMModel._format_system_messages(
+        system_prompt_content=[
+            {"cachePoint": {"type": "default", "ttl": "1h"}},
+        ]
+    )
+    assert result == []
+
+
 def test_thought_signature_round_trip():
     """Test that thought signature is preserved through a full response -> internal -> request cycle."""
     model = LiteLLMModel(model_id="test")

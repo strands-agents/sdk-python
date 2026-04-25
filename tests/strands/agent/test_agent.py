@@ -35,7 +35,7 @@ from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 # For unit testing we will use the the us inference
-FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
+FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID
 
 
 @pytest.fixture
@@ -1164,6 +1164,33 @@ def test_system_prompt_setter_none():
 
     assert agent.system_prompt is None
     assert agent._system_prompt_content is None
+
+
+def test_system_prompt_content_string():
+    """Test that system_prompt_content returns content blocks for string prompt."""
+    agent = Agent(system_prompt="hello")
+    assert agent.system_prompt_content == [{"text": "hello"}]
+
+
+def test_system_prompt_content_structured():
+    """Test that system_prompt_content returns structured blocks with cache points."""
+    blocks = [{"text": "You are helpful"}, {"cachePoint": {"type": "default"}}]
+    agent = Agent(system_prompt=blocks)
+    assert agent.system_prompt_content == blocks
+
+
+def test_system_prompt_content_none():
+    """Test that system_prompt_content returns None when no prompt is set."""
+    agent = Agent(system_prompt=None)
+    assert agent.system_prompt_content is None
+
+
+def test_system_prompt_content_returns_copy():
+    """Test that system_prompt_content returns a defensive copy."""
+    agent = Agent(system_prompt="hello")
+    content = agent.system_prompt_content
+    content.append({"text": "injected"})
+    assert agent.system_prompt_content == [{"text": "hello"}]
 
 
 @pytest.mark.asyncio

@@ -74,3 +74,16 @@ class EdgeCondition(Protocol):
 ```
 
 Using `Protocol` with `**kwargs` allows the interface to evolve by adding new keyword arguments without breaking existing implementations that don't use them.
+
+### Tool Name References
+
+When comparing against tool names in hooks or plugins, use the tool instance's `tool_name` property instead of hardcoding strings. Tool specs can be modified at runtime via the `AgentTool.tool_spec` setter, so hardcoded names may not match the actual registered name.
+
+```python
+# Good
+if event.tool_use.get("name") == self.my_tool.tool_name:
+    ...
+
+# Bad — fragile if tool name is changed at runtime
+if event.tool_use.get("name") == "my_tool":
+    ...

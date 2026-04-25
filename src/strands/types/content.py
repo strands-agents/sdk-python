@@ -67,9 +67,12 @@ class CachePoint(TypedDict):
 
     Attributes:
         type: The type of cache point, typically "default".
+        ttl: Optional cache TTL duration (e.g. "5m", "1h"). Supported by providers
+            that accept Anthropic-compatible cache_control fields.
     """
 
     type: str
+    ttl: NotRequired[str]
 
 
 class ContentBlock(TypedDict, total=False):

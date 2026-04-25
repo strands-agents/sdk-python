@@ -25,7 +25,7 @@ import httpx
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
@@ -507,6 +507,60 @@ class LlamaCppModel(Model):
 
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']}> | unknown type")
+
+    @override
+    async def count_tokens(
+        self,
+        messages: Messages,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
+    ) -> int:
+        """Count tokens using llama.cpp's native /tokenize endpoint.
+
+        Sends the formatted prompt to the llama.cpp server's tokenization endpoint
+        to get an accurate token count. Requires a llama.cpp server version that supports
+        chat-template-aware tokenization via the ``messages`` field in /tokenize requests.
+        Older server versions that only accept ``{"content": "string"}`` are not supported
+        and will fall back to estimation.
+
+        Args:
+            messages: List of message objects to count tokens for.
+            tool_specs: List of tool specifications to include in the count.
+            system_prompt: Plain string system prompt. Ignored if system_prompt_content is provided.
+            system_prompt_content: Structured system prompt content blocks.
+
+        Returns:
+            Total input token count.
+        """
+        try:
+            # system_prompt_content is not used; this provider only accepts system_prompt as a plain string,
+            # matching the behavior of stream(). The caller always provides system_prompt alongside
+            # system_prompt_content, so the plain string is always available.
+            request = self._format_request(messages, tool_specs, system_prompt)
+            payload = {
+                "messages": request["messages"],
+                **({"tools": request["tools"]} if request.get("tools") else {}),
+            }
+
+            response = await self.client.post("/tokenize", json=payload)
+            response.raise_for_status()
+            data = response.json()
+            total_tokens: int = len(data.get("tokens", []))
+
+            logger.debug(
+                "model_id=<%s>, total_tokens=<%d> | native token count",
+                self.config.get("model_id", "default"),
+                total_tokens,
+            )
+            return total_tokens
+        except Exception as e:
+            logger.warning(
+                "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
+                self.config.get("model_id", "default"),
+                e,
+            )
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
     @override
     async def stream(

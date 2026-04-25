@@ -96,6 +96,9 @@ NOVA_AUDIO_OUTPUT_CONFIG = {
 NOVA_TEXT_CONFIG = {"mediaType": "text/plain"}
 NOVA_TOOL_CONFIG = {"mediaType": "application/json"}
 
+_MAX_HISTORY_MESSAGE_BYTES = 50 * 1024  # 50KB per message
+_MAX_HISTORY_TOTAL_BYTES = 200 * 1024  # 200KB total history
+
 
 class BidiNovaSonicModel(BidiModel):
     """Nova Sonic implementation for bidirectional streaming.
@@ -726,7 +729,7 @@ class BidiNovaSonicModel(BidiModel):
         """Generate system prompt events."""
         content_name = str(uuid.uuid4())
         return [
-            self._get_text_content_start_event(content_name, "SYSTEM"),
+            self._get_text_content_start_event(content_name, "SYSTEM", interactive=False),
             self._get_text_input_event(content_name, system_prompt or ""),
             self._get_content_end_event(content_name),
         ]
@@ -737,42 +740,98 @@ class BidiNovaSonicModel(BidiModel):
         Converts agent message history to Nova Sonic format following the
         contentStart/textInput/contentEnd pattern for each message.
 
+        History messages are sent as non-interactive (interactive=False) so Nova Sonic
+        treats them as prior context rather than new inputs requiring a response.
+
+        Individual messages are truncated to 50KB and total history is capped
+        at 200KB. When the limit is reached, the oldest messages are dropped
+        to prioritize recent conversation context.
+
         Args:
             messages: List of conversation messages with role and content.
 
         Returns:
             List of JSON event strings for Nova Sonic.
         """
-        events = []
+        max_message_bytes = _MAX_HISTORY_MESSAGE_BYTES
+        max_total_bytes = _MAX_HISTORY_TOTAL_BYTES
 
-        for message in messages:
-            role = message["role"].upper()  # Convert to ASSISTANT or USER
+        # First pass: extract and truncate text from each message, walking backwards
+        # to prioritize recent messages when the total size limit is hit
+        prepared: list[tuple[str, str]] = []  # (role, text)
+        total_bytes = 0
+
+        for message in reversed(messages):
+            role = message["role"].upper()
             content_blocks = message.get("content", [])
 
-            # Extract text content from content blocks
             text_parts = []
             for block in content_blocks:
                 if "text" in block:
                     text_parts.append(block["text"])
 
-            # Combine all text parts
-            if text_parts:
-                combined_text = "\n".join(text_parts)
-                content_name = str(uuid.uuid4())
+            if not text_parts:
+                continue
 
-                # Add contentStart, textInput, and contentEnd events
-                events.extend(
-                    [
-                        self._get_text_content_start_event(content_name, role),
-                        self._get_text_input_event(content_name, combined_text),
-                        self._get_content_end_event(content_name),
-                    ]
+            combined_text = "\n".join(text_parts)
+
+            # Truncate individual message
+            encoded = combined_text.encode("utf-8")
+            if len(encoded) > max_message_bytes:
+                encoded = encoded[:max_message_bytes]
+                combined_text = encoded.decode("utf-8", errors="ignore")
+                encoded = combined_text.encode("utf-8")
+
+            msg_bytes = len(encoded)
+
+            if total_bytes + msg_bytes > max_total_bytes:
+                logger.debug(
+                    "total_bytes=<%d>, msg_bytes=<%d>, max_total_bytes=<%d> | dropping older messages to fit limit",
+                    total_bytes,
+                    msg_bytes,
+                    max_total_bytes,
                 )
+                break
+
+            total_bytes += msg_bytes
+            prepared.append((role, combined_text))
+
+        # Reverse back to chronological order
+        prepared.reverse()
+
+        # Ensure the first message is from the user role — drop leading assistant messages
+        while prepared and prepared[0][0] != "USER":
+            dropped_role, dropped_text = prepared.pop(0)
+            logger.debug(
+                "role=<%s>, text_preview=<%s> | dropping leading non-user message from history",
+                dropped_role,
+                dropped_text[:100],
+            )
+
+        logger.debug("prepared_count=<%d>, total_bytes=<%d> | final history after trimming", len(prepared), total_bytes)
+
+        # Second pass: build events
+        events: list[str] = []
+        for role, text in prepared:
+            content_name = str(uuid.uuid4())
+            events.extend(
+                [
+                    self._get_text_content_start_event(content_name, role, interactive=False),
+                    self._get_text_input_event(content_name, text),
+                    self._get_content_end_event(content_name),
+                ]
+            )
 
         return events
 
-    def _get_text_content_start_event(self, content_name: str, role: str = "USER") -> str:
-        """Generate text content start event."""
+    def _get_text_content_start_event(self, content_name: str, role: str = "USER", interactive: bool = True) -> str:
+        """Generate text content start event.
+
+        Args:
+            content_name: Unique identifier for this content block.
+            role: Message role (USER, ASSISTANT, SYSTEM).
+            interactive: Whether this is a live input (True) or history context (False).
+        """
         return json.dumps(
             {
                 "event": {
@@ -781,7 +840,7 @@ class BidiNovaSonicModel(BidiModel):
                         "contentName": content_name,
                         "type": "TEXT",
                         "role": role,
-                        "interactive": True,
+                        "interactive": interactive,
                         "textInputConfiguration": NOVA_TEXT_CONFIG,
                     }
                 }
