@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace as trace_api
 
+from ..experimental.checkpoint import Checkpoint, CheckpointPosition
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
@@ -75,6 +76,28 @@ def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
     return False
 
 
+def _build_checkpoint_stop_event(
+    agent: "Agent",
+    position: "CheckpointPosition",
+    cycle_index: int,
+    message: Message,
+    request_state: Any,
+) -> EventLoopStopEvent:
+    """Build a checkpoint stop event. Used at ``after_model`` and ``after_tools``."""
+    checkpoint = Checkpoint(
+        position=position,
+        cycle_index=cycle_index,
+        snapshot=agent.take_snapshot(preset="session").to_dict(),
+    )
+    return EventLoopStopEvent(
+        "checkpoint",
+        message,
+        agent.event_loop_metrics,
+        request_state,
+        checkpoint=checkpoint,
+    )
+
+
 async def event_loop_cycle(
     agent: "Agent",
     invocation_state: dict[str, Any],
@@ -103,12 +126,16 @@ async def event_loop_cycle(
         structured_output_context: Optional context for structured output management.
 
     Yields:
-        Model and tool stream events. The last event is a tuple containing:
+        Model and tool stream events. The final ``EventLoopStopEvent`` payload
+        (``event["stop"]``) is a 7-tuple:
 
-            - StopReason: Reason the model stopped generating (e.g., "tool_use")
+            - StopReason: Reason the model stopped generating (e.g., "tool_use", "checkpoint")
             - Message: The generated message from the model
             - EventLoopMetrics: Updated metrics for the event loop
             - Any: Updated request state
+            - Sequence[Interrupt] | None: Interrupts raised during the cycle, if any
+            - BaseModel | None: Structured output result, if any
+            - Checkpoint | None: Checkpoint captured when stop_reason == "checkpoint"
 
     Raises:
         EventLoopException: If an error occurs during execution
@@ -122,6 +149,18 @@ async def event_loop_cycle(
     # Initialize state and get cycle trace
     if "request_state" not in invocation_state:
         invocation_state["request_state"] = {}
+
+    # Consume checkpoint resume context (one-shot).
+    resume_context = agent._checkpoint_resume_context
+    if resume_context is not None:
+        agent._checkpoint_resume_context = None
+        # after_tools completed that cycle, so the next cycle starts at +1
+        next_cycle = (
+            resume_context.cycle_index + 1 if resume_context.position == "after_tools" else resume_context.cycle_index
+        )
+        invocation_state["_checkpoint_cycle_index"] = next_cycle
+        invocation_state["_checkpoint_resume_position"] = resume_context.position
+
     attributes = {"event_loop_cycle_id": str(invocation_state.get("event_loop_cycle_id"))}
     cycle_start_time, cycle_trace = agent.event_loop_metrics.start_cycle(attributes=attributes)
     invocation_state["event_loop_cycle_trace"] = cycle_trace
@@ -181,6 +220,25 @@ async def event_loop_cycle(
                 )
 
             if stop_reason == "tool_use":
+                # Checkpoint after model call, before tools. Cancel takes precedence.
+                if agent._checkpointing and not agent._cancel_signal.is_set():
+                    resume_position = invocation_state.pop("_checkpoint_resume_position", None)
+                    if resume_position == "after_model":
+                        pass  # Just resumed here — skip re-checkpoint
+                    else:
+                        cycle_index = invocation_state.get("_checkpoint_cycle_index", 0)
+                        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+                        if cycle_span:
+                            tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
+                        yield _build_checkpoint_stop_event(
+                            agent=agent,
+                            position="after_model",
+                            cycle_index=cycle_index,
+                            message=message,
+                            request_state=invocation_state["request_state"],
+                        )
+                        return
+
                 # Handle tool execution
                 tool_events = _handle_tool_execution(
                     stop_reason,
@@ -587,6 +645,34 @@ async def _handle_tool_execution(
             agent.event_loop_metrics,
             invocation_state["request_state"],
             structured_output=structured_output_result,
+        )
+        return
+
+    # Checkpoint after all tools complete, before the next model call.
+    # Only emitted on tool_use cycles; end_turn on the first call completes
+    # normally with no checkpoint. Cancel takes precedence.
+    if agent._checkpointing and not agent._cancel_signal.is_set():
+        cycle_index = invocation_state.get("_checkpoint_cycle_index", 0)
+        invocation_state["_checkpoint_cycle_index"] = cycle_index + 1
+        yield _build_checkpoint_stop_event(
+            agent=agent,
+            position="after_tools",
+            cycle_index=cycle_index,
+            message=message,
+            request_state=invocation_state["request_state"],
+        )
+        return
+
+    # Checkpointing-only: if cancel suppressed the after_tools checkpoint above,
+    # surface it as "cancelled" now rather than recursing into another model call
+    # that would also cancel. Non-checkpointing callers fall through to
+    # recurse_event_loop so the existing cancel-during-model-stream path handles it.
+    if agent._checkpointing and agent._cancel_signal.is_set():
+        yield EventLoopStopEvent(
+            "cancelled",
+            message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
         )
         return
 
