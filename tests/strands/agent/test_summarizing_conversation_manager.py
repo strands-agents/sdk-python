@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from strands.agent.agent import Agent
+from strands.hooks.registry import HookRegistry
 from strands.agent.conversation_manager.summarizing_conversation_manager import (
     DEFAULT_SUMMARIZATION_PROMPT,
     SummarizingConversationManager,
@@ -45,6 +46,7 @@ class MockAgent:
         self.summary_response = summary_response
         self.system_prompt = None
         self.messages = []
+        self.hooks = HookRegistry()
         self.model = Mock()
         self.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream(self.summary_response))
         self.call_tracker = Mock()

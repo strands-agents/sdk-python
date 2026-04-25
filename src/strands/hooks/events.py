@@ -303,6 +303,39 @@ class AfterModelCallEvent(HookEvent):
         return True
 
 
+@dataclass
+class BeforeReduceContextEvent(HookEvent):
+    """Event triggered before the conversation manager reduces context.
+
+    This event is fired just before the agent calls reduce_context() in response
+    to a context window overflow. Hook providers can use this event for logging,
+    observability, or displaying progress indicators during long-running sessions.
+
+    Attributes:
+        exception: The ContextWindowOverflowException that triggered the context reduction.
+    """
+
+    exception: Exception
+
+
+@dataclass
+class AfterReduceContextEvent(HookEvent):
+    """Event triggered after the conversation manager has reduced context.
+
+    This event is fired immediately after reduce_context() returns, before the
+    agent retries the model call. Hook providers can use this event to log the
+    outcome of the reduction or update observability dashboards.
+
+    Note: This event uses reverse callback ordering, meaning callbacks registered
+    later will be invoked first during cleanup.
+    """
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
+
+
 # Multiagent hook events start here
 @dataclass
 class MultiAgentInitializedEvent(BaseHookEvent):

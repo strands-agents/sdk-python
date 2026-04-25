@@ -21,7 +21,13 @@ from strands.agent.conversation_manager.null_conversation_manager import NullCon
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
-from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent
+from strands.hooks import (
+    AfterReduceContextEvent,
+    BeforeInvocationEvent,
+    BeforeModelCallEvent,
+    BeforeReduceContextEvent,
+    BeforeToolCallEvent,
+)
 from strands.interrupt import Interrupt
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
@@ -2800,3 +2806,39 @@ def test_as_tool_defaults_description_when_agent_has_none():
     tool = agent.as_tool()
 
     assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"
+
+
+@pytest.mark.asyncio
+async def test_stream_async_fires_before_and_after_reduce_context_hook_events(mock_model, agent, agenerator, alist):
+    """BeforeReduceContextEvent and AfterReduceContextEvent are fired around reduce_context."""
+    overflow_exc = ContextWindowOverflowException(RuntimeError("Input is too long for requested model"))
+
+    mock_model.mock_stream.side_effect = [
+        overflow_exc,
+        agenerator(
+            [
+                {"contentBlockStart": {"contentBlockIndex": 0, "start": {}}},
+                {"contentBlockDelta": {"contentBlockIndex": 0, "delta": {"text": "OK"}}},
+                {"contentBlockStop": {"contentBlockIndex": 0}},
+                {"messageStop": {"stopReason": "end_turn"}},
+            ]
+        ),
+    ]
+
+    # Seed messages so SlidingWindowConversationManager.reduce_context() can trim them.
+    agent.messages[:] = [
+        {"role": "user", "content": [{"text": "msg1"}]},
+        {"role": "assistant", "content": [{"text": "resp1"}]},
+        {"role": "user", "content": [{"text": "msg2"}]},
+    ]
+
+    before_events = []
+    after_events = []
+    agent.add_hook(lambda e: before_events.append(e), BeforeReduceContextEvent)
+    agent.add_hook(lambda e: after_events.append(e), AfterReduceContextEvent)
+
+    await alist(agent.stream_async("hello"))
+
+    assert len(before_events) == 1
+    assert before_events[0].exception is overflow_exc
+    assert len(after_events) == 1

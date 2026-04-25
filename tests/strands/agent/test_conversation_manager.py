@@ -323,7 +323,7 @@ def test_null_conversation_manager_reduce_context_raises_context_window_overflow
     manager.apply_management(test_agent)
 
     with pytest.raises(ContextWindowOverflowException):
-        manager.reduce_context(messages)
+        manager.reduce_context(test_agent)
 
     assert messages == original_messages
 
@@ -341,7 +341,7 @@ def test_null_conversation_manager_reduce_context_with_exception_raises_same_exc
     manager.apply_management(test_agent)
 
     with pytest.raises(RuntimeError):
-        manager.reduce_context(messages, RuntimeError("test"))
+        manager.reduce_context(test_agent, RuntimeError("test"))
 
     assert messages == original_messages
 
