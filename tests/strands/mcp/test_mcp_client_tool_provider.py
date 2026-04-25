@@ -6,9 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from mcp.types import Tool as MCPTool
 
-from strands.tools.mcp import MCPClient
-from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
-from strands.tools.mcp.mcp_client import ToolFilters
+from strands.mcp import MCPClient
+from strands.mcp.mcp_agent_tool import MCPAgentTool
+from strands.mcp.mcp_client import ToolFilters
 from strands.types import PaginatedList
 from strands.types.exceptions import ToolProviderException
 
@@ -257,7 +257,7 @@ async def test_prefix_renames_tools(mock_transport):
 
     with (
         patch.object(client, "_invoke_on_background_thread") as mock_invoke,
-        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+        patch("strands.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
         # Mock the MCP server response
         mock_list_tools_result = MagicMock()
@@ -391,7 +391,7 @@ def test_list_tools_sync_prefix_override_constructor_default(mock_transport):
 
     with (
         patch.object(client, "_invoke_on_background_thread") as mock_invoke,
-        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+        patch("strands.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
         # Mock the MCP server response
         mock_list_tools_result = MagicMock()
@@ -434,7 +434,7 @@ def test_list_tools_sync_prefix_override_with_empty_string(mock_transport):
 
     with (
         patch.object(client, "_invoke_on_background_thread") as mock_invoke,
-        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+        patch("strands.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
         # Mock the MCP server response
         mock_list_tools_result = MagicMock()
@@ -477,7 +477,7 @@ def test_list_tools_sync_prefix_uses_constructor_default_when_none(mock_transpor
 
     with (
         patch.object(client, "_invoke_on_background_thread") as mock_invoke,
-        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+        patch("strands.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
         # Mock the MCP server response
         mock_list_tools_result = MagicMock()
@@ -521,7 +521,7 @@ def test_list_tools_sync_tool_filters_override_constructor_default(mock_transpor
 
     with (
         patch.object(client, "_invoke_on_background_thread") as mock_invoke,
-        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+        patch("strands.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
         # Mock the MCP server response
         mock_list_tools_result = MagicMock()
@@ -562,7 +562,7 @@ def test_list_tools_sync_tool_filters_override_with_empty_dict(mock_transport):
 
     with (
         patch.object(client, "_invoke_on_background_thread") as mock_invoke,
-        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+        patch("strands.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
         # Mock the MCP server response
         mock_list_tools_result = MagicMock()
@@ -603,7 +603,7 @@ def test_list_tools_sync_tool_filters_uses_constructor_default_when_none(mock_tr
 
     with (
         patch.object(client, "_invoke_on_background_thread") as mock_invoke,
-        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+        patch("strands.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
         # Mock the MCP server response
         mock_list_tools_result = MagicMock()
@@ -645,7 +645,7 @@ def test_list_tools_sync_combined_prefix_and_filter_overrides(mock_transport):
     with (
         patch.object(client, "_is_session_active", return_value=True),
         patch.object(client, "_invoke_on_background_thread") as mock_invoke,
-        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+        patch("strands.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
         mock_future = MagicMock()
         mock_future.result.return_value = mock_result
@@ -700,7 +700,7 @@ def test_list_tools_sync_direct_usage_without_constructor_defaults(mock_transpor
     with (
         patch.object(client, "_is_session_active", return_value=True),
         patch.object(client, "_invoke_on_background_thread") as mock_invoke,
-        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+        patch("strands.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
         mock_future = MagicMock()
         mock_future.result.return_value = mock_result
@@ -754,7 +754,7 @@ def test_list_tools_sync_regex_filter_override(mock_transport):
     with (
         patch.object(client, "_is_session_active", return_value=True),
         patch.object(client, "_invoke_on_background_thread") as mock_invoke,
-        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+        patch("strands.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
         mock_future = MagicMock()
         mock_future.result.return_value = mock_result
@@ -798,7 +798,7 @@ def test_list_tools_sync_callable_filter_override(mock_transport):
     with (
         patch.object(client, "_is_session_active", return_value=True),
         patch.object(client, "_invoke_on_background_thread") as mock_invoke,
-        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+        patch("strands.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
         mock_future = MagicMock()
         mock_future.result.return_value = mock_result
