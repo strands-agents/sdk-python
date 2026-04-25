@@ -627,7 +627,9 @@ async def test_event_loop_cycle_max_tokens_exception(
 
     # Call event_loop_cycle, expecting it to raise MaxTokensReachedException
     expected_message = (
-        "Agent has reached an unrecoverable state due to max_tokens limit. "
+        "Model stopped generating due to maximum token limit. "
+        "The partial message has been added to the conversation history. "
+        "You can continue by calling the agent again. "
         "For more information see: "
         "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
     )
