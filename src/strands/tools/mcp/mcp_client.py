@@ -718,6 +718,7 @@ class MCPClient(ToolProvider):
             status="error",
             toolUseId=tool_use_id,
             content=[{"text": f"Tool execution failed: {str(exception)}"}],
+            isError=True,
         )
 
     def _handle_tool_result(self, tool_use_id: str, call_tool_result: MCPCallToolResult) -> MCPToolResult:
@@ -748,6 +749,7 @@ class MCPClient(ToolProvider):
             status=status,
             toolUseId=tool_use_id,
             content=mapped_contents,
+            isError=call_tool_result.isError,
         )
 
         if call_tool_result.structuredContent:
