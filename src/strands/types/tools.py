@@ -30,12 +30,19 @@ class ToolSpec(TypedDict):
         outputSchema: Optional JSON Schema defining the expected output format.
             Note: Not all model providers support this field. Providers that don't
             support it should filter it out before sending to their API.
+        readOnly: Optional flag indicating the tool only reads state without modification.
+        destructive: Optional flag indicating the tool performs irreversible actions.
+        requiresConfirmation: Optional flag indicating the tool should require user
+            confirmation before execution.
     """
 
     description: str
     inputSchema: JSONSchema
     name: str
     outputSchema: NotRequired[JSONSchema]
+    readOnly: NotRequired[bool]
+    destructive: NotRequired[bool]
+    requiresConfirmation: NotRequired[bool]
 
 
 class Tool(TypedDict):
@@ -252,6 +259,33 @@ class AgentTool(ABC):
 
         Returns:
             False by default.
+        """
+        return False
+
+    @property
+    def is_read_only(self) -> bool:
+        """Whether this tool only reads state without modification.
+
+        Returns:
+            False by default. Override in subclasses or set via @tool(read_only=True).
+        """
+        return False
+
+    @property
+    def is_destructive(self) -> bool:
+        """Whether this tool performs irreversible actions.
+
+        Returns:
+            False by default. Override in subclasses or set via @tool(destructive=True).
+        """
+        return False
+
+    @property
+    def requires_confirmation(self) -> bool:
+        """Whether this tool should require user confirmation before execution.
+
+        Returns:
+            False by default. Override in subclasses or set via @tool(requires_confirmation=True).
         """
         return False
 
