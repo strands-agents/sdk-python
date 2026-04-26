@@ -105,6 +105,7 @@ strands-agents/
 │   │   ├── event_loop.py                 # Event loop types
 │   │   ├── json_dict.py                  # JSON dict utilities
 │   │   ├── collections.py                # Collection types
+│   │   ├── _snapshot.py                  # Snapshot types and helpers
 │   │   ├── _events.py                    # Internal event types
 │   │   ├── a2a.py                        # A2A protocol types
 │   │   └── models/                       # Model-specific types

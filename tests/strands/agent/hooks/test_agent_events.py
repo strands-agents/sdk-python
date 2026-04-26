@@ -147,6 +147,7 @@ async def test_stream_e2e_success(alist):
                     {"toolUse": {"input": {}, "name": "normal_tool", "toolUseId": "123"}},
                 ],
                 "role": "assistant",
+                "metadata": ANY,
             }
         },
         {
@@ -205,6 +206,7 @@ async def test_stream_e2e_success(alist):
                     {"toolUse": {"input": {}, "name": "async_tool", "toolUseId": "1234"}},
                 ],
                 "role": "assistant",
+                "metadata": ANY,
             }
         },
         {
@@ -263,6 +265,7 @@ async def test_stream_e2e_success(alist):
                     {"toolUse": {"input": {}, "name": "streaming_tool", "toolUseId": "12345"}},
                 ],
                 "role": "assistant",
+                "metadata": ANY,
             }
         },
         {
@@ -307,11 +310,11 @@ async def test_stream_e2e_success(alist):
         },
         {"event": {"contentBlockStop": {}}},
         {"event": {"messageStop": {"stopReason": "end_turn"}}},
-        {"message": {"content": [{"text": "I invoked the tools!"}], "role": "assistant"}},
+        {"message": {"content": [{"text": "I invoked the tools!"}], "role": "assistant", "metadata": ANY}},
         {
             "result": AgentResult(
                 stop_reason="end_turn",
-                message={"content": [{"text": "I invoked the tools!"}], "role": "assistant"},
+                message={"content": [{"text": "I invoked the tools!"}], "role": "assistant", "metadata": ANY},
                 metrics=ANY,
                 state={},
             ),
@@ -371,11 +374,11 @@ async def test_stream_e2e_throttle_and_redact(alist, mock_sleep):
         },
         {"event": {"contentBlockStop": {}}},
         {"event": {"messageStop": {"stopReason": "guardrail_intervened"}}},
-        {"message": {"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant"}},
+        {"message": {"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant", "metadata": ANY}},
         {
             "result": AgentResult(
                 stop_reason="guardrail_intervened",
-                message={"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant"},
+                message={"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant", "metadata": ANY},
                 metrics=ANY,
                 state={},
             ),
@@ -442,6 +445,7 @@ async def test_stream_e2e_reasoning_redacted_content(alist):
                     {"text": "Response with redacted reasoning"},
                 ],
                 "role": "assistant",
+                "metadata": ANY,
             }
         },
         {
@@ -453,6 +457,7 @@ async def test_stream_e2e_reasoning_redacted_content(alist):
                         {"text": "Response with redacted reasoning"},
                     ],
                     "role": "assistant",
+                    "metadata": ANY,
                 },
                 metrics=ANY,
                 state={},

@@ -68,4 +68,7 @@ def recover_message_on_max_tokens_reached(message: Message) -> Message:
             }
         )
 
-    return {"content": valid_content, "role": message["role"]}
+    recovered: Message = {"content": valid_content, "role": message["role"]}
+    if "metadata" in message:
+        recovered["metadata"] = message["metadata"]
+    return recovered

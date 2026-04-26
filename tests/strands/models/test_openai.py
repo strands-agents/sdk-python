@@ -818,7 +818,12 @@ def test_format_request_with_tool_choice_tool(model, messages, tool_specs, syste
         (
             {
                 "chunk_type": "metadata",
-                "data": unittest.mock.Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150),
+                "data": unittest.mock.Mock(
+                    prompt_tokens=100,
+                    completion_tokens=50,
+                    total_tokens=150,
+                    prompt_tokens_details=None,
+                ),
             },
             {
                 "metadata": {
@@ -845,6 +850,45 @@ def test_format_chunk_unknown_type(model):
 
     with pytest.raises(RuntimeError, match="chunk_type=<unknown> | unknown type"):
         model.format_chunk(event)
+
+
+def test_format_chunk_metadata_with_cache_tokens(model):
+    """Test format_chunk for metadata with cache tokens present."""
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_tokens_details = unittest.mock.Mock()
+    mock_tokens_details.cached_tokens = 25
+    mock_usage.prompt_tokens_details = mock_tokens_details
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    result = model.format_chunk(event)
+
+    assert result["metadata"]["usage"]["inputTokens"] == 100
+    assert result["metadata"]["usage"]["outputTokens"] == 50
+    assert result["metadata"]["usage"]["totalTokens"] == 150
+    assert result["metadata"]["usage"]["cacheReadInputTokens"] == 25
+
+
+def test_format_chunk_metadata_with_zero_cached_tokens(model):
+    """Test format_chunk for metadata when cached_tokens is 0."""
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_tokens_details = unittest.mock.Mock()
+    mock_tokens_details.cached_tokens = 0
+    mock_usage.prompt_tokens_details = mock_tokens_details
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    result = model.format_chunk(event)
+
+    assert "cacheReadInputTokens" not in result["metadata"]["usage"]
 
 
 @pytest.mark.asyncio

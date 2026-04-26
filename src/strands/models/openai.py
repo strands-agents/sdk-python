@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
@@ -546,13 +547,19 @@ class OpenAIModel(Model):
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
+                usage_data: Usage = {
+                    "inputTokens": event["data"].prompt_tokens,
+                    "outputTokens": event["data"].completion_tokens,
+                    "totalTokens": event["data"].total_tokens,
+                }
+
+                if tokens_details := getattr(event["data"], "prompt_tokens_details", None):
+                    if cached := getattr(tokens_details, "cached_tokens", None):
+                        usage_data["cacheReadInputTokens"] = cached
+
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": event["data"].prompt_tokens,
-                            "outputTokens": event["data"].completion_tokens,
-                            "totalTokens": event["data"].total_tokens,
-                        },
+                        "usage": usage_data,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },

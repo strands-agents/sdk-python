@@ -336,7 +336,7 @@ def test_agent__call__(
         "stop_reason": result.stop_reason,
     }
     exp_result = {
-        "message": {"content": [{"text": "test text"}], "role": "assistant"},
+        "message": {"content": [{"text": "test text"}], "role": "assistant", "metadata": unittest.mock.ANY},
         "state": {},
         "stop_reason": "end_turn",
     }
@@ -781,6 +781,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
                     {"reasoningContent": {"reasoningText": {"text": "value", "signature": "value"}}},
                     {"text": "value"},
                 ],
+                "metadata": unittest.mock.ANY,
             },
         ),
         unittest.mock.call(
@@ -793,6 +794,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
                         {"reasoningContent": {"reasoningText": {"text": "value", "signature": "value"}}},
                         {"text": "value"},
                     ],
+                    "metadata": unittest.mock.ANY,
                 },
                 metrics=unittest.mock.ANY,
                 state={},
@@ -817,7 +819,7 @@ async def test_agent__call__in_async_context(mock_model, agent, agenerator):
     result = agent("test")
 
     tru_message = result.message
-    exp_message = {"content": [{"text": "abc"}], "role": "assistant"}
+    exp_message = {"content": [{"text": "abc"}], "role": "assistant", "metadata": unittest.mock.ANY}
     assert tru_message == exp_message
 
 
@@ -837,7 +839,7 @@ async def test_agent_invoke_async(mock_model, agent, agenerator):
     result = await agent.invoke_async("test")
 
     tru_message = result.message
-    exp_message = {"content": [{"text": "abc"}], "role": "assistant"}
+    exp_message = {"content": [{"text": "abc"}], "role": "assistant", "metadata": unittest.mock.ANY}
     assert tru_message == exp_message
 
 
@@ -1128,7 +1130,7 @@ async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, ali
     tru_message = agent.messages
     exp_message = [
         {"content": prompt, "role": "user"},
-        {"content": [{"text": "I see text and an image"}], "role": "assistant"},
+        {"content": [{"text": "I see text and an image"}], "role": "assistant", "metadata": unittest.mock.ANY},
     ]
     assert tru_message == exp_message
 
@@ -1636,10 +1638,15 @@ def test_agent_restored_from_session_management_with_correct_index():
 
 
 def test_agent_with_session_and_conversation_manager():
-    mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    mock_model = MockedModelProvider(
+        [
+            {"role": "assistant", "content": [{"text": "first"}]},
+            {"role": "assistant", "content": [{"text": "second"}]},
+        ]
+    )
     mock_session_repository = MockedSessionRepository()
     session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
-    conversation_manager = SlidingWindowConversationManager(window_size=1)
+    conversation_manager = SlidingWindowConversationManager(window_size=2)
     # Create an agent with a mocked model and session repository
     agent = Agent(
         session_manager=session_manager,
@@ -1654,14 +1661,20 @@ def test_agent_with_session_and_conversation_manager():
 
     agent("Hello!")
 
-    # After invoking, assert that the messages were persisted
+    # After first invocation: [user, assistant] — fits in window, no trimming
     assert len(mock_session_repository.list_messages("123", agent.agent_id)) == 2
-    # Assert conversation manager reduced the messages
-    assert len(agent.messages) == 1
+    assert len(agent.messages) == 2
+
+    agent("Second question")
+
+    # After second invocation: [user, assistant, user, assistant] exceeds window_size=2
+    # Conversation manager trims to 2 messages starting with a user message
+    assert len(agent.messages) == 2
+    assert agent.messages[0]["role"] == "user"
 
     # Initialize another agent using the same session
     session_manager_2 = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
-    conversation_manager_2 = SlidingWindowConversationManager(window_size=1)
+    conversation_manager_2 = SlidingWindowConversationManager(window_size=2)
     agent_2 = Agent(
         session_manager=session_manager_2,
         conversation_manager=conversation_manager_2,
@@ -1669,7 +1682,7 @@ def test_agent_with_session_and_conversation_manager():
     )
     # Assert that the second agent was initialized properly, and that the messages of both agents are equal
     assert agent.messages == agent_2.messages
-    # Asser the conversation manager was initialized properly
+    # Assert the conversation manager was initialized properly
     assert agent.conversation_manager.removed_message_count == agent_2.conversation_manager.removed_message_count
 
 
@@ -1976,7 +1989,11 @@ def test_agent__call__invalid_tool_name():
     }
 
     # And that it continued to the LLM call
-    assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}
+    assert agent.messages[-1] == {
+        "content": [{"text": "I invoked a tool!"}],
+        "role": "assistant",
+        "metadata": unittest.mock.ANY,
+    }
 
 
 def test_agent_string_system_prompt():

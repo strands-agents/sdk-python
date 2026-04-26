@@ -6,7 +6,9 @@ allowing them to be used standalone or as part of multi-agent patterns.
 A2AAgent can be used to get the Agent Card and interact with the agent.
 """
 
+import dataclasses
 import logging
+import warnings
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -38,6 +40,7 @@ class A2AAgent(AgentBase):
         name: str | None = None,
         description: str | None = None,
         timeout: int = _DEFAULT_TIMEOUT,
+        client_config: ClientConfig | None = None,
         a2a_client_factory: ClientFactory | None = None,
     ):
         """Initialize A2A agent.
@@ -47,15 +50,34 @@ class A2AAgent(AgentBase):
             name: Agent name. If not provided, will be populated from agent card.
             description: Agent description. If not provided, will be populated from agent card.
             timeout: Timeout for HTTP operations in seconds (defaults to 300).
-            a2a_client_factory: Optional pre-configured A2A ClientFactory. If provided,
-                it will be used to create the A2A client after discovering the agent card.
-                Note: When providing a custom factory, you are responsible for managing
-                the lifecycle of any httpx client it uses.
+            client_config: A2A ``ClientConfig`` for authentication and transport settings.
+                The ``httpx_client`` configured here is used for both card discovery and
+                message sending, enabling authenticated endpoints (SigV4, OAuth, bearer tokens).
+                When providing an ``httpx_client``, you are responsible for configuring its timeout.
+            a2a_client_factory: Deprecated. Use ``client_config`` instead.
+
+        Raises:
+            ValueError: If both ``client_config`` and ``a2a_client_factory`` are provided.
         """
+        if client_config is not None and a2a_client_factory is not None:
+            raise ValueError(
+                "Cannot provide both client_config and a2a_client_factory. "
+                "Use client_config (recommended) or a2a_client_factory (deprecated), not both."
+            )
+
+        if a2a_client_factory is not None:
+            warnings.warn(
+                "a2a_client_factory is deprecated. Use client_config instead. "
+                "a2a_client_factory will be removed in a future version.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         self.endpoint = endpoint
         self.name = name
         self.description = description
         self.timeout = timeout
+        self._client_config: ClientConfig | None = client_config
         self._agent_card: AgentCard | None = None
         self._a2a_client_factory: ClientFactory | None = a2a_client_factory
 
@@ -160,9 +182,11 @@ class A2AAgent(AgentBase):
     async def get_agent_card(self) -> AgentCard:
         """Fetch and return the remote agent's card.
 
-        This method eagerly fetches the agent card from the remote endpoint,
-        populating name and description if not already set. The card is cached
-        after the first fetch.
+        Eagerly fetches the agent card from the remote endpoint, populating name and description
+        if not already set. The card is cached after the first fetch.
+
+        When ``client_config`` is provided with an ``httpx_client``, that client is used for
+        card resolution, enabling authenticated card discovery (e.g., SigV4, OAuth, bearer tokens).
 
         Returns:
             The remote agent's AgentCard containing name, description, capabilities, skills, etc.
@@ -170,16 +194,20 @@ class A2AAgent(AgentBase):
         if self._agent_card is not None:
             return self._agent_card
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resolver = A2ACardResolver(httpx_client=client, base_url=self.endpoint)
+        if self._client_config is not None and self._client_config.httpx_client is not None:
+            resolver = A2ACardResolver(httpx_client=self._client_config.httpx_client, base_url=self.endpoint)
             self._agent_card = await resolver.get_agent_card()
+        else:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resolver = A2ACardResolver(httpx_client=client, base_url=self.endpoint)
+                self._agent_card = await resolver.get_agent_card()
 
         # Populate name from card if not set
-        if self.name is None and self._agent_card.name:
+        if self.name is None and self._agent_card.name is not None:
             self.name = self._agent_card.name
 
         # Populate description from card if not set
-        if self.description is None and self._agent_card.description:
+        if self.description is None and self._agent_card.description is not None:
             self.description = self._agent_card.description
 
         logger.debug("agent=<%s>, endpoint=<%s> | discovered agent card", self.name, self.endpoint)
@@ -189,8 +217,9 @@ class A2AAgent(AgentBase):
     async def _get_a2a_client(self) -> AsyncIterator[Any]:
         """Get A2A client for sending messages.
 
-        If a custom factory was provided, uses that (caller manages httpx lifecycle).
-        Otherwise creates a per-call httpx client with proper cleanup.
+        If a deprecated factory was provided, delegates to it for client creation.
+        If client_config was provided, uses it directly — ClientFactory handles defaults.
+        Otherwise creates a managed httpx client with the agent's timeout.
 
         Yields:
             Configured A2A client instance.
@@ -201,6 +230,12 @@ class A2AAgent(AgentBase):
             yield self._a2a_client_factory.create(agent_card)
             return
 
+        if self._client_config is not None:
+            config = dataclasses.replace(self._client_config, streaming=True)
+            yield ClientFactory(config).create(agent_card)
+            return
+
+        # No client_config — create a managed httpx client, consistent with get_agent_card() path
         async with httpx.AsyncClient(timeout=self.timeout) as httpx_client:
             config = ClientConfig(httpx_client=httpx_client, streaming=True)
             yield ClientFactory(config).create(agent_card)
