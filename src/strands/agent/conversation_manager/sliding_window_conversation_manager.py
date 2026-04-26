@@ -42,7 +42,7 @@ class SlidingWindowConversationManager(ConversationManager):
 
         Args:
             window_size: Maximum number of messages to keep in the agent's history.
-                Defaults to 40 messages.
+                Use 0 to clear all messages on every reduction. Defaults to 40 messages.
             should_truncate_results: Truncate tool results when a message is too large for the model's context window
             per_turn: Controls when to apply message management during agent execution.
                 - False (default): Only apply management at the end (default behavior)
@@ -56,8 +56,10 @@ class SlidingWindowConversationManager(ConversationManager):
                 for performance tuning.
 
         Raises:
-            ValueError: If per_turn is 0 or a negative integer.
+            ValueError: If window_size is negative, or if per_turn is 0 or a negative integer.
         """
+        if not isinstance(window_size, bool) and window_size < 0:
+            raise ValueError(f"window_size must be a non-negative integer, got {window_size}")
         if isinstance(per_turn, int) and not isinstance(per_turn, bool) and per_turn <= 0:
             raise ValueError(f"per_turn must be a positive integer, True, or False, got {per_turn}")
 
@@ -172,6 +174,12 @@ class SlidingWindowConversationManager(ConversationManager):
                 logs a warning and returns without modification.
         """
         messages = agent.messages
+
+        # window_size=0 means "remove all messages" (matches TypeScript SDK behaviour)
+        if self.window_size == 0:
+            self.removed_message_count += len(messages)
+            messages[:] = []
+            return
 
         # Try to truncate the tool result first
         oldest_message_idx_with_tool_results = self._find_oldest_message_with_tool_results(messages)
