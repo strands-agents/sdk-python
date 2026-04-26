@@ -1487,14 +1487,14 @@ async def test_no_add_note_when_not_available(bedrock_client, model, alist, mess
 
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
 @pytest.mark.asyncio
-async def test_add_note_on_access_denied_exception(bedrock_client, model, alist, messages):
-    """Test that add_note adds documentation link for AccessDeniedException."""
+async def test_add_note_on_validation_exception_identifier(bedrock_client, model, alist, messages):
+    """Test that add_note adds documentation link for ValidationException about invalid model identifier."""
     # Mock the client error response for access denied
     error_response = {
         "Error": {
-            "Code": "AccessDeniedException",
-            "Message": "An error occurred (AccessDeniedException) when calling the ConverseStream operation: "
-            "You don't have access to the model with the specified model ID.",
+            "Code": "ValidationException",
+            "Message": "An error occurred (ValidationException) when calling the ConverseStream operation: "
+            "The provided model identifier is invalid.",
         }
     }
     bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConversationStream")
@@ -1507,7 +1507,7 @@ async def test_add_note_on_access_denied_exception(bedrock_client, model, alist,
         "└ Bedrock region: us-west-2",
         "└ Model id: m1",
         "└ For more information see "
-        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
+        "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#model-identifier-is-invalid",
     ]
 
 
@@ -1535,7 +1535,7 @@ async def test_add_note_on_validation_exception_throughput(bedrock_client, model
         "└ Bedrock region: us-west-2",
         "└ Model id: m1",
         "└ For more information see "
-        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
+        "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
     ]
 
 
