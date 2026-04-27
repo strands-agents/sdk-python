@@ -493,6 +493,60 @@ def test_format_request_tool_specs(model, messages, model_id, tool_spec):
     assert tru_request == exp_request
 
 
+class TestStrictTools:
+    """Tests for strict_tools config option on BedrockModel."""
+
+    @pytest.fixture
+    def messages(self):
+        return [{"role": "user", "content": [{"text": "test"}]}]
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [{"name": "my_tool", "description": "A tool", "inputSchema": {"key": "val"}}]
+
+    def test_strict_tools_true_injects_strict_into_tool_spec(self, bedrock_client, model_id, messages, tool_specs):
+        model = BedrockModel(model_id=model_id, strict_tools=True)
+        request = model._format_request(messages, tool_specs=tool_specs)
+        formatted_tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
+
+        assert formatted_tool_spec["strict"] is True
+        assert formatted_tool_spec["name"] == "my_tool"
+
+    def test_strict_tools_default_no_strict_in_tool_spec(self, bedrock_client, model_id, messages, tool_specs):
+        model = BedrockModel(model_id=model_id)
+        request = model._format_request(messages, tool_specs=tool_specs)
+        formatted_tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
+
+        assert "strict" not in formatted_tool_spec
+
+    def test_strict_tools_false_no_strict_in_tool_spec(self, bedrock_client, model_id, messages, tool_specs):
+        model = BedrockModel(model_id=model_id, strict_tools=False)
+        request = model._format_request(messages, tool_specs=tool_specs)
+        formatted_tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
+
+        assert "strict" not in formatted_tool_spec
+
+    def test_strict_tools_none_no_strict_in_tool_spec(self, bedrock_client, model_id, messages, tool_specs):
+        model = BedrockModel(model_id=model_id, strict_tools=None)
+        request = model._format_request(messages, tool_specs=tool_specs)
+        formatted_tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
+
+        assert "strict" not in formatted_tool_spec
+
+    def test_strict_tools_true_applies_to_all_tool_specs(self, bedrock_client, model_id, messages):
+        model = BedrockModel(model_id=model_id, strict_tools=True)
+        tool_specs = [
+            {"name": "tool_a", "description": "Tool A", "inputSchema": {"key": "a"}},
+            {"name": "tool_b", "description": "Tool B", "inputSchema": {"key": "b"}},
+            {"name": "tool_c", "description": "Tool C", "inputSchema": {"key": "c"}},
+        ]
+        request = model._format_request(messages, tool_specs=tool_specs)
+
+        for tool in request["toolConfig"]["tools"]:
+            if "toolSpec" in tool:
+                assert tool["toolSpec"]["strict"] is True
+
+
 def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):
     tool_choice = {"auto": {}}
     tru_request = model._format_request(messages, [tool_spec], tool_choice=tool_choice)
