@@ -1,0 +1,16 @@
+
+==================================== ERRORS ====================================
+____________ ERROR collecting tests/strands/agent/test_a2a_agent.py ____________
+ImportError while importing test module '/home/runner/work/sdk-python/sdk-python/tests/strands/agent/test_a2a_agent.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+/opt/hostedtoolcache/Python/3.13.13/x64/lib/python3.13/importlib/__init__.py:88: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/strands/agent/test_a2a_agent.py:9: in <module>
+    from a2a.client import ClientConfig
+E   ModuleNotFoundError: No module named 'a2a'
+=========================== short test summary info ============================
+ERROR tests/strands/agent/test_a2a_agent.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.68s

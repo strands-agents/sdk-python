@@ -1,0 +1,87 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.13, pytest-9.0.3, pluggy-1.6.0 -- /opt/hostedtoolcache/Python/3.13.13/x64/bin/python
+cachedir: .pytest_cache
+rootdir: /home/runner/work/sdk-python/sdk-python
+configfile: pyproject.toml
+plugins: asyncio-1.3.0, cov-7.1.0, timeout-2.4.0, xdist-3.8.0, anyio-4.13.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+timeout: 90.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 7 items
+
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_true_injects_strict_into_tool_spec FAILED [ 14%]
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_default_no_strict_in_tool_spec PASSED [ 28%]
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_false_no_strict_in_tool_spec PASSED [ 42%]
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_none_no_strict_in_tool_spec PASSED [ 57%]
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_true_applies_to_all_tool_specs FAILED [ 71%]
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_with_citations_logs_warning FAILED [ 85%]
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_without_citations_no_warning PASSED [100%]
+
+=================================== FAILURES ===================================
+_____ TestStrictTools.test_strict_tools_true_injects_strict_into_tool_spec _____
+tests/strands/models/test_bedrock.py:3235: in test_strict_tools_true_injects_strict_into_tool_spec
+    assert formatted_tool_spec["strict"] is True
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'strict'
+_______ TestStrictTools.test_strict_tools_true_applies_to_all_tool_specs _______
+tests/strands/models/test_bedrock.py:3288: in test_strict_tools_true_applies_to_all_tool_specs
+    assert tool["toolSpec"]["strict"] is True
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   KeyError: 'strict'
+________ TestStrictTools.test_strict_tools_with_citations_logs_warning _________
+tests/strands/models/test_bedrock.py:3303: in test_strict_tools_with_citations_logs_warning
+    assert any("strict_tools" in record.message and "citations" in record.message for record in caplog.records)
+E   assert False
+E    +  where False = any(<generator object TestStrictTools.test_strict_tools_with_citations_logs_warning.<locals>.<genexpr> at 0x7f2e53461630>)
+=============================== warnings summary ===============================
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_true_injects_strict_into_tool_spec
+  /home/runner/work/sdk-python/sdk-python/tests/strands/models/test_bedrock.py:3228: UserWarning: Invalid configuration parameters: ['strict_tools'].
+  Valid parameters are: ['additional_args', 'additional_request_fields', 'additional_response_field_paths', 'cache_config', 'cache_prompt', 'cache_tools', 'context_window_limit', 'guardrail_id', 'guardrail_latest_message', 'guardrail_redact_input', 'guardrail_redact_input_message', 'guardrail_redact_output', 'guardrail_redact_output_message', 'guardrail_stream_processing_mode', 'guardrail_trace', 'guardrail_version', 'include_tool_result_status', 'max_tokens', 'model_id', 'service_tier', 'stop_sequences', 'streaming', 'temperature', 'top_p'].
+  
+  See https://github.com/strands-agents/sdk-python/issues/815
+    model = BedrockModel(model_id=model_id, strict_tools=True)
+
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_false_no_strict_in_tool_spec
+  /home/runner/work/sdk-python/sdk-python/tests/strands/models/test_bedrock.py:3253: UserWarning: Invalid configuration parameters: ['strict_tools'].
+  Valid parameters are: ['additional_args', 'additional_request_fields', 'additional_response_field_paths', 'cache_config', 'cache_prompt', 'cache_tools', 'context_window_limit', 'guardrail_id', 'guardrail_latest_message', 'guardrail_redact_input', 'guardrail_redact_input_message', 'guardrail_redact_output', 'guardrail_redact_output_message', 'guardrail_stream_processing_mode', 'guardrail_trace', 'guardrail_version', 'include_tool_result_status', 'max_tokens', 'model_id', 'service_tier', 'stop_sequences', 'streaming', 'temperature', 'top_p'].
+  
+  See https://github.com/strands-agents/sdk-python/issues/815
+    model = BedrockModel(model_id=model_id, strict_tools=False)
+
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_none_no_strict_in_tool_spec
+  /home/runner/work/sdk-python/sdk-python/tests/strands/models/test_bedrock.py:3264: UserWarning: Invalid configuration parameters: ['strict_tools'].
+  Valid parameters are: ['additional_args', 'additional_request_fields', 'additional_response_field_paths', 'cache_config', 'cache_prompt', 'cache_tools', 'context_window_limit', 'guardrail_id', 'guardrail_latest_message', 'guardrail_redact_input', 'guardrail_redact_input_message', 'guardrail_redact_output', 'guardrail_redact_output_message', 'guardrail_stream_processing_mode', 'guardrail_trace', 'guardrail_version', 'include_tool_result_status', 'max_tokens', 'model_id', 'service_tier', 'stop_sequences', 'streaming', 'temperature', 'top_p'].
+  
+  See https://github.com/strands-agents/sdk-python/issues/815
+    model = BedrockModel(model_id=model_id, strict_tools=None)
+
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_true_applies_to_all_tool_specs
+  /home/runner/work/sdk-python/sdk-python/tests/strands/models/test_bedrock.py:3275: UserWarning: Invalid configuration parameters: ['strict_tools'].
+  Valid parameters are: ['additional_args', 'additional_request_fields', 'additional_response_field_paths', 'cache_config', 'cache_prompt', 'cache_tools', 'context_window_limit', 'guardrail_id', 'guardrail_latest_message', 'guardrail_redact_input', 'guardrail_redact_input_message', 'guardrail_redact_output', 'guardrail_redact_output_message', 'guardrail_stream_processing_mode', 'guardrail_trace', 'guardrail_version', 'include_tool_result_status', 'max_tokens', 'model_id', 'service_tier', 'stop_sequences', 'streaming', 'temperature', 'top_p'].
+  
+  See https://github.com/strands-agents/sdk-python/issues/815
+    model = BedrockModel(model_id=model_id, strict_tools=True)
+
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_with_citations_logs_warning
+  /home/runner/work/sdk-python/sdk-python/tests/strands/models/test_bedrock.py:3292: UserWarning: Invalid configuration parameters: ['strict_tools'].
+  Valid parameters are: ['additional_args', 'additional_request_fields', 'additional_response_field_paths', 'cache_config', 'cache_prompt', 'cache_tools', 'context_window_limit', 'guardrail_id', 'guardrail_latest_message', 'guardrail_redact_input', 'guardrail_redact_input_message', 'guardrail_redact_output', 'guardrail_redact_output_message', 'guardrail_stream_processing_mode', 'guardrail_trace', 'guardrail_version', 'include_tool_result_status', 'max_tokens', 'model_id', 'service_tier', 'stop_sequences', 'streaming', 'temperature', 'top_p'].
+  
+  See https://github.com/strands-agents/sdk-python/issues/815
+    model = BedrockModel(
+
+tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_without_citations_no_warning
+  /home/runner/work/sdk-python/sdk-python/tests/strands/models/test_bedrock.py:3307: UserWarning: Invalid configuration parameters: ['strict_tools'].
+  Valid parameters are: ['additional_args', 'additional_request_fields', 'additional_response_field_paths', 'cache_config', 'cache_prompt', 'cache_tools', 'context_window_limit', 'guardrail_id', 'guardrail_latest_message', 'guardrail_redact_input', 'guardrail_redact_input_message', 'guardrail_redact_output', 'guardrail_redact_output_message', 'guardrail_stream_processing_mode', 'guardrail_trace', 'guardrail_version', 'include_tool_result_status', 'max_tokens', 'model_id', 'service_tier', 'stop_sequences', 'streaming', 'temperature', 'top_p'].
+  
+  See https://github.com/strands-agents/sdk-python/issues/815
+    model = BedrockModel(model_id=model_id, strict_tools=True)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/runner/work/sdk-python/sdk-python/build/test-results.xml -
+=========================== short test summary info ============================
+FAILED tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_true_injects_strict_into_tool_spec - KeyError: 'strict'
+FAILED tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_true_applies_to_all_tool_specs - KeyError: 'strict'
+FAILED tests/strands/models/test_bedrock.py::TestStrictTools::test_strict_tools_with_citations_logs_warning - assert False
+ +  where False = any(<generator object TestStrictTools.test_strict_tools_with_citations_logs_warning.<locals>.<genexpr> at 0x7f2e53461630>)
+=================== 3 failed, 4 passed, 6 warnings in 0.66s ====================

@@ -1,0 +1,50 @@
+........................................................................ [ 14%]
+........................................................................ [ 28%]
+........................................................................ [ 43%]
+........................................................................ [ 57%]
+........................................................................ [ 71%]
+........................................................................ [ 86%]
+.....................................................................    [100%]
+=============================== warnings summary ===============================
+tests/strands/agent/test_agent.py::test_agent__call__passes_invocation_state
+  /home/runner/work/sdk-python/sdk-python/src/strands/agent/agent.py:558: UserWarning: `**kwargs` parameter is deprecating, use `invocation_state` instead.
+    async for event in events:
+
+tests/strands/agent/test_agent.py::test_agent_structured_output
+  /home/runner/work/sdk-python/sdk-python/tests/strands/agent/test_agent.py:919: DeprecationWarning: Agent.structured_output method is deprecated. You should pass in `structured_output_model` directly into the agent invocation. see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/
+    tru_result = agent.structured_output(type(user), prompt)
+
+tests/strands/agent/test_agent.py::test_agent_structured_output
+tests/strands/agent/test_agent.py::test_agent_structured_output_multi_modal_input
+tests/strands/agent/test_agent.py::test_agent_structured_output_without_prompt
+tests/strands/agent/test_agent.py::test_agent_structured_output_async
+  /home/runner/work/sdk-python/sdk-python/src/strands/_async.py:26: DeprecationWarning: Agent.structured_output_async method is deprecated. You should pass in `structured_output_model` directly into the agent invocation. see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/
+    return await async_func()
+
+tests/strands/agent/test_agent.py::test_agent_structured_output_multi_modal_input
+  /home/runner/work/sdk-python/sdk-python/tests/strands/agent/test_agent.py:984: DeprecationWarning: Agent.structured_output method is deprecated. You should pass in `structured_output_model` directly into the agent invocation. see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/
+    tru_result = agent.structured_output(type(user), prompt)
+
+tests/strands/agent/test_agent.py::test_agent_structured_output_in_async_context
+  /home/runner/work/sdk-python/sdk-python/tests/strands/agent/test_agent.py:1011: DeprecationWarning: Agent.structured_output_async method is deprecated. You should pass in `structured_output_model` directly into the agent invocation. see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/
+    tru_result = await agent.structured_output_async(type(user), prompt)
+
+tests/strands/agent/test_agent.py::test_agent_structured_output_without_prompt
+  /home/runner/work/sdk-python/sdk-python/tests/strands/agent/test_agent.py:1032: DeprecationWarning: Agent.structured_output method is deprecated. You should pass in `structured_output_model` directly into the agent invocation. see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/
+    tru_result = agent.structured_output(type(user))  # No prompt provided
+
+tests/strands/agent/test_agent.py::test_agent_structured_output_async
+  /home/runner/work/sdk-python/sdk-python/tests/strands/agent/test_agent.py:1053: DeprecationWarning: Agent.structured_output method is deprecated. You should pass in `structured_output_model` directly into the agent invocation. see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/
+    tru_result = agent.structured_output(type(user), prompt)
+
+tests/strands/agent/test_agent.py::test_stream_async_returns_all_events
+tests/strands/agent/test_agent.py::test_stream_async_passes_invocation_state
+  /home/runner/work/sdk-python/sdk-python/tests/conftest.py:91: UserWarning: `**kwargs` parameter is deprecating, use `invocation_state` instead.
+    return [item async for item in items]
+
+tests/strands/agent/test_agent.py::test_agent_structured_output_interrupt
+  /home/runner/work/sdk-python/sdk-python/tests/strands/agent/test_agent.py:1923: DeprecationWarning: Agent.structured_output method is deprecated. You should pass in `structured_output_model` directly into the agent invocation. see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/
+    agent.structured_output(type(user), "invalid")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+501 passed, 13 warnings in 7.33s
