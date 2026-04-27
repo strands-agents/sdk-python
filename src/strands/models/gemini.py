@@ -16,7 +16,7 @@ from google import genai
 from typing_extensions import Required, Unpack, override
 
 from ..types.content import ContentBlock, ContentBlockStartToolUse, Messages, SystemContentBlock
-from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException, ProviderTokenCountError
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import _has_location_source, validate_config_keys
@@ -465,7 +465,7 @@ class GeminiModel(Model):
                 contents=contents,
             )
             if response.total_tokens is None:
-                raise ValueError("Gemini count_tokens returned None for total_tokens")
+                raise ProviderTokenCountError("Gemini count_tokens returned None for total_tokens")
             total_tokens: int = response.total_tokens
 
             # The google-genai SDK explicitly raises ValueError for system_instruction, tools, and

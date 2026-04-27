@@ -27,6 +27,7 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import (
     ContextWindowOverflowException,
     ModelThrottledException,
+    ProviderTokenCountError,
 )
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
@@ -789,7 +790,10 @@ class BedrockModel(Model):
                 modelId=self.config["model_id"],
                 input={"converse": converse_input},
             )
-            total_tokens: int = response["inputTokens"]
+            input_tokens = response.get("inputTokens")
+            if input_tokens is None:
+                raise ProviderTokenCountError("Bedrock count_tokens returned None for inputTokens")
+            total_tokens: int = input_tokens
 
             logger.debug("model_id=<%s>, total_tokens=<%d> | native token count", self.config["model_id"], total_tokens)
             return total_tokens
