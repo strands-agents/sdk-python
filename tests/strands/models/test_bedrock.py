@@ -3218,3 +3218,97 @@ class TestCountTokens:
             await model_with_client.count_tokens(messages=messages)
 
         assert any("native token counting failed" in record.message for record in caplog.records)
+
+
+class TestStrictTools:
+    """Tests for strict_tools config option on BedrockModel."""
+
+    def test_strict_tools_true_injects_strict_into_tool_spec(self, bedrock_client, model_id):
+        """Test that strict_tools=True injects 'strict': True into each toolSpec."""
+        model = BedrockModel(model_id=model_id, strict_tools=True)
+        messages = [{"role": "user", "content": [{"text": "test"}]}]
+        tool_spec = {"name": "my_tool", "description": "A tool", "inputSchema": {"key": "val"}}
+
+        request = model._format_request(messages, tool_specs=[tool_spec])
+
+        formatted_tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
+        assert formatted_tool_spec["strict"] is True
+        assert formatted_tool_spec["name"] == "my_tool"
+        assert formatted_tool_spec["description"] == "A tool"
+        assert formatted_tool_spec["inputSchema"] == {"key": "val"}
+
+    def test_strict_tools_default_no_strict_in_tool_spec(self, bedrock_client, model_id):
+        """Test that when strict_tools is not set, toolSpec does NOT include 'strict'."""
+        model = BedrockModel(model_id=model_id)
+        messages = [{"role": "user", "content": [{"text": "test"}]}]
+        tool_spec = {"name": "my_tool", "description": "A tool", "inputSchema": {"key": "val"}}
+
+        request = model._format_request(messages, tool_specs=[tool_spec])
+
+        formatted_tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
+        assert "strict" not in formatted_tool_spec
+
+    def test_strict_tools_false_no_strict_in_tool_spec(self, bedrock_client, model_id):
+        """Test that strict_tools=False does NOT include 'strict' in toolSpec."""
+        model = BedrockModel(model_id=model_id, strict_tools=False)
+        messages = [{"role": "user", "content": [{"text": "test"}]}]
+        tool_spec = {"name": "my_tool", "description": "A tool", "inputSchema": {"key": "val"}}
+
+        request = model._format_request(messages, tool_specs=[tool_spec])
+
+        formatted_tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
+        assert "strict" not in formatted_tool_spec
+
+    def test_strict_tools_none_no_strict_in_tool_spec(self, bedrock_client, model_id):
+        """Test that strict_tools=None does NOT include 'strict' in toolSpec."""
+        model = BedrockModel(model_id=model_id, strict_tools=None)
+        messages = [{"role": "user", "content": [{"text": "test"}]}]
+        tool_spec = {"name": "my_tool", "description": "A tool", "inputSchema": {"key": "val"}}
+
+        request = model._format_request(messages, tool_specs=[tool_spec])
+
+        formatted_tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
+        assert "strict" not in formatted_tool_spec
+
+    def test_strict_tools_true_applies_to_all_tool_specs(self, bedrock_client, model_id):
+        """Test that strict_tools=True injects 'strict': True into ALL toolSpec objects."""
+        model = BedrockModel(model_id=model_id, strict_tools=True)
+        messages = [{"role": "user", "content": [{"text": "test"}]}]
+        tool_specs = [
+            {"name": "tool_a", "description": "Tool A", "inputSchema": {"key": "a"}},
+            {"name": "tool_b", "description": "Tool B", "inputSchema": {"key": "b"}},
+            {"name": "tool_c", "description": "Tool C", "inputSchema": {"key": "c"}},
+        ]
+
+        request = model._format_request(messages, tool_specs=tool_specs)
+
+        tools = request["toolConfig"]["tools"]
+        for tool in tools:
+            if "toolSpec" in tool:
+                assert tool["toolSpec"]["strict"] is True
+
+    def test_strict_tools_with_citations_logs_warning(self, bedrock_client, model_id, caplog):
+        """Test that a warning is logged when strict_tools=True is used with citations config."""
+        model = BedrockModel(
+            model_id=model_id,
+            strict_tools=True,
+            additional_request_fields={"citations": {"enabled": True}},
+        )
+        messages = [{"role": "user", "content": [{"text": "test"}]}]
+        tool_spec = {"name": "my_tool", "description": "A tool", "inputSchema": {"key": "val"}}
+
+        with caplog.at_level(logging.WARNING, logger="strands.models.bedrock"):
+            model._format_request(messages, tool_specs=[tool_spec])
+
+        assert any("strict_tools" in record.message and "citations" in record.message for record in caplog.records)
+
+    def test_strict_tools_without_citations_no_warning(self, bedrock_client, model_id, caplog):
+        """Test that no warning is logged when strict_tools=True without citations config."""
+        model = BedrockModel(model_id=model_id, strict_tools=True)
+        messages = [{"role": "user", "content": [{"text": "test"}]}]
+        tool_spec = {"name": "my_tool", "description": "A tool", "inputSchema": {"key": "val"}}
+
+        with caplog.at_level(logging.WARNING, logger="strands.models.bedrock"):
+            model._format_request(messages, tool_specs=[tool_spec])
+
+        assert not any("strict_tools" in record.message for record in caplog.records)

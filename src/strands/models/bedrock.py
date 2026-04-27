@@ -99,6 +99,10 @@ class BedrockModel(Model):
                 supported service tiers, models, and regions
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
+            strict_tools: Flag to enable strict schema validation on all tool definitions.
+                When True, injects "strict": true into each toolSpec, preventing the model from
+                hallucinating tool names or generating inputs that don't match the defined schema.
+                Note: Structured outputs is incompatible with citations for Anthropic models.
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
         """
@@ -124,6 +128,7 @@ class BedrockModel(Model):
         service_tier: str | None
         stop_sequences: list[str] | None
         streaming: bool | None
+        strict_tools: bool | None
         temperature: float | None
         top_p: float | None
 
@@ -237,6 +242,15 @@ class BedrockModel(Model):
             if has_tool_content:
                 tool_specs = [noop_tool.tool_spec]
 
+        # Warn if strict_tools is used alongside citations configuration
+        if self.config.get("strict_tools"):
+            additional_fields = self.config.get("additional_request_fields") or {}
+            if "citations" in additional_fields:
+                logger.warning(
+                    "strict_tools=<%s> | strict_tools is incompatible with citations for Anthropic models",
+                    self.config.get("strict_tools"),
+                )
+
         # Use system_prompt_content directly (copy for mutability)
         system_blocks: list[SystemContentBlock] = system_prompt_content.copy() if system_prompt_content else []
         # Add cache point if configured (backwards compatibility)
@@ -261,6 +275,7 @@ class BedrockModel(Model):
                                         "name": tool_spec["name"],
                                         "description": tool_spec["description"],
                                         "inputSchema": tool_spec["inputSchema"],
+                                        **({"strict": True} if self.config.get("strict_tools") else {}),
                                     }
                                 }
                                 for tool_spec in tool_specs
