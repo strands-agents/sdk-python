@@ -3211,6 +3211,15 @@ class TestCountTokens:
         assert result >= 0
 
     @pytest.mark.asyncio
+    async def test_fallback_on_none_input_tokens(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.return_value = {}
+
+        result = await model_with_client.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
     async def test_fallback_logs_warning(self, model_with_client, bedrock_client, messages, caplog):
         bedrock_client.count_tokens.side_effect = RuntimeError("API down")
 
