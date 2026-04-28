@@ -642,14 +642,21 @@ def test_format_request_tool_specs_with_strict(model, messages, system_prompt):
             "name": "test_tool",
             "description": "A test tool",
             "inputSchema": {
-                "json": {"type": "object", "properties": {"input": {"type": "string"}}, "required": ["input"]}
+                "json": {
+                    "type": "object",
+                    "properties": {"input": {"type": "string"}, "optional_input": {"type": "string"}},
+                    "required": ["input"],
+                }
             },
             "strict": True,
         }
     ]
     tru_request = model.format_request(messages, strict_tool_specs, system_prompt)
 
-    assert tru_request["tools"][0]["function"]["strict"] is True
+    tool_function = tru_request["tools"][0]["function"]
+    assert tool_function["strict"] is True
+    assert tool_function["parameters"]["additionalProperties"] is False
+    assert set(tool_function["parameters"]["required"]) == {"input", "optional_input"}
 
 
 def test_format_request_tool_specs_with_strict_false(model, messages, system_prompt):

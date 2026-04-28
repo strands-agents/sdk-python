@@ -21,6 +21,7 @@ from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
+from ._strict_schema import ensure_strict_json_schema
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -481,7 +482,11 @@ class OpenAIModel(Model):
                     "function": {
                         "name": tool_spec["name"],
                         "description": tool_spec["description"],
-                        "parameters": tool_spec["inputSchema"]["json"],
+                        "parameters": (
+                            ensure_strict_json_schema(tool_spec["inputSchema"]["json"], require_all_properties=True)
+                            if tool_spec.get("strict")
+                            else tool_spec["inputSchema"]["json"]
+                        ),
                         **({"strict": tool_spec["strict"]} if "strict" in tool_spec else {}),
                     },
                 }
