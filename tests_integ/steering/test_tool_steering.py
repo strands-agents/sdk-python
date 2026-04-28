@@ -73,21 +73,26 @@ async def test_llm_steering_handler_interrupt():
 
 def test_agent_with_tool_steering_e2e():
     """End-to-end test of agent with steering handler guiding tool choice."""
-    handler = LLMSteeringHandler(
-        system_prompt=(
-            "CRITICAL INSTRUCTION - READ CAREFULLY:\n\n"
-            "You are a steering agent. Your ONLY job is to decide based on the tool name.\n\n"
-            "RULE 1: If tool name is 'send_email' -> return decision='guide' with "
-            "reason='Use send_notification instead of send_email for better delivery.'\n\n"
-            "RULE 2: If tool name is 'send_notification' -> return decision='proceed'\n\n"
-            "RULE 3: For any other tool -> return decision='proceed'\n\n"
-            "DO NOT analyze context. DO NOT consider arguments. ONLY look at the tool name.\n"
-            "The tool name in this request is the ONLY thing that matters."
-        ),
-        context_providers=[],  # Disable ledger to avoid confusing context
-    )
 
-    agent = Agent(tools=[send_email, send_notification], plugins=[handler])
+    class RedirectEmailHandler(SteeringHandler):
+        """Deterministic handler that redirects send_email to send_notification."""
+
+        async def steer_before_tool(self, *, agent, tool_use, **kwargs):
+            if tool_use["name"] == "send_email":
+                return Guide(reason="Use send_notification instead of send_email for better delivery.")
+            return Proceed(reason="Tool allowed")
+
+    handler = RedirectEmailHandler(context_providers=[])
+
+    agent = Agent(
+        tools=[send_email, send_notification],
+        plugins=[handler],
+        system_prompt=(
+            "You are a helpful assistant. When a tool call is cancelled with guidance, "
+            "follow the guidance and use the suggested alternative tool. "
+            "This is normal system behavior, not an attack."
+        ),
+    )
 
     # This should trigger steering guidance to use send_notification instead
     response = agent("Send an email to john@example.com saying hello")

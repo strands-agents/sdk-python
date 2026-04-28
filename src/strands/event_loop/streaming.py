@@ -488,6 +488,9 @@ async def stream_messages(
     logger.debug("model=<%s> | streaming messages", model)
 
     messages = _normalize_messages(messages)
+    # Whitelist only role and content before sending to the model provider.
+    # This ensures metadata (and any future non-model fields) never leak to providers.
+    messages = [Message(role=msg["role"], content=msg["content"]) for msg in messages]
     start_time = time.time()
 
     chunks = model.stream(

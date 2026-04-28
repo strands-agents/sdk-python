@@ -11,14 +11,14 @@ from typing import Any, TypeVar
 
 import mistralai
 from pydantic import BaseModel
-from typing_extensions import TypedDict, Unpack, override
+from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
-from .model import Model
+from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class MistralModel(Model):
     - System prompts
     """
 
-    class MistralConfig(TypedDict, total=False):
+    class MistralConfig(BaseModelConfig, total=False):
         """Configuration parameters for Mistral models.
 
         Attributes:

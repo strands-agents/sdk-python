@@ -77,6 +77,12 @@ class SessionException(Exception):
     pass
 
 
+class SnapshotException(Exception):
+    """Exception raised when snapshot operations fail (e.g., unsupported schema version)."""
+
+    pass
+
+
 class ToolProviderException(Exception):
     """Exception raised when a tool provider fails to load or cleanup tools."""
 

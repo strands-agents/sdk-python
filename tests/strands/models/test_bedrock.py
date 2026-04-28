@@ -16,7 +16,6 @@ import strands
 from strands import _exception_notes
 from strands.models import BedrockModel, CacheConfig
 from strands.models.bedrock import (
-    _DEFAULT_BEDROCK_MODEL_ID,
     DEFAULT_BEDROCK_MODEL_ID,
     DEFAULT_BEDROCK_REGION,
     DEFAULT_READ_TIMEOUT,
@@ -24,7 +23,7 @@ from strands.models.bedrock import (
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from strands.types.tools import ToolSpec
 
-FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
+FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID
 
 
 @pytest.fixture
@@ -286,6 +285,15 @@ def test__init__model_config(bedrock_client):
     exp_max_tokens = 1
 
     assert tru_max_tokens == exp_max_tokens
+
+
+def test__init__context_window_limit(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(context_window_limit=200_000)
+
+    assert model.get_config().get("context_window_limit") == 200_000
+    assert model.context_window_limit == 200_000
 
 
 def test_update_config(model, model_id):
@@ -1607,6 +1615,87 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
     assert "status" not in tool_result
 
 
+def test_format_request_message_content_normalizes_empty_tool_result_content(model, model_id):
+    """Test that _format_request_message_content replaces empty toolResult content with a minimal text block.
+
+    Some model providers (e.g., Nemotron) reject toolResult blocks with content: [] via the
+    Converse API, while others (e.g., Claude) accept them. The SDK should normalize empty
+    content arrays to ensure cross-model compatibility.
+
+    See: https://github.com/strands-agents/sdk-python/issues/2122
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Querying...\n"},
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": []}},
+            ],
+        },
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
+    assert tool_result["content"] == [{"text": ""}], "Empty toolResult content should be normalized to [{'text': ''}]"
+
+
+def test_format_request_message_content_does_not_mutate_empty_tool_result(model, model_id):
+    """Test that normalizing empty toolResult content does not mutate the original messages."""
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": []}},
+            ],
+        },
+    ]
+
+    original_content = messages[2]["content"][0]["toolResult"]["content"]
+    model._format_request(messages)
+
+    assert original_content == [], "Original empty content list should not be mutated"
+
+
+def test_format_request_message_content_preserves_nonempty_tool_result_content(model, model_id):
+    """Test that _format_request_message_content does not modify non-empty toolResult content."""
+    messages = [
+        {"role": "user", "content": [{"text": "List tables"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Querying...\n"},
+                {"toolUse": {"toolUseId": "tool_001", "name": "run_query", "input": {"sql": "SELECT 1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "tool_001", "content": [{"text": "some result"}]}},
+            ],
+        },
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
+    assert tool_result["content"] == [{"text": "some result"}]
+
+
 def test_format_request_removes_status_field_when_configured(model, model_id):
     model.update_config(include_tool_result_status=False)
 
@@ -2042,6 +2131,53 @@ def test_format_request_filters_cache_point_content_blocks(model, model_id):
     assert "extraField" not in cache_point_block
 
 
+def test_format_request_preserves_cache_point_ttl(model, model_id):
+    """Test that format_request preserves the ttl field in cachePoint content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "cachePoint": {
+                        "type": "default",
+                        "ttl": "1h",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    cache_point_block = formatted_request["messages"][0]["content"][0]["cachePoint"]
+    expected = {"type": "default", "ttl": "1h"}
+    assert cache_point_block == expected
+    assert cache_point_block["ttl"] == "1h"
+
+
+def test_format_request_cache_point_without_ttl(model, model_id):
+    """Test that cache points work without ttl field (backward compatibility)."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "cachePoint": {
+                        "type": "default",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    cache_point_block = formatted_request["messages"][0]["content"][0]["cachePoint"]
+    expected = {"type": "default"}
+    assert cache_point_block == expected
+    assert "ttl" not in cache_point_block
+
+
 def test_config_validation_warns_on_unknown_keys(bedrock_client, captured_warnings):
     """Test that unknown config keys emit a warning."""
     BedrockModel(model_id="test-model", invalid_param="test")
@@ -2076,42 +2212,24 @@ def test_tool_choice_none_no_warning(model, messages, captured_warnings):
 
 
 def test_get_default_model_with_warning_supported_regions_shows_no_warning(captured_warnings):
-    """Test get_model_prefix_with_warning doesn't warn for supported region prefixes."""
+    """Test _get_default_model_with_warning doesn't warn for any region (global profile works everywhere)."""
     BedrockModel._get_default_model_with_warning("us-west-2")
     BedrockModel._get_default_model_with_warning("eu-west-2")
-    assert len(captured_warnings) == 0
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
-def test_get_default_model_for_supported_eu_region_returns_correct_model_id(captured_warnings):
-    model_id = BedrockModel._get_default_model_with_warning("eu-west-1")
-    assert model_id == "eu.anthropic.claude-sonnet-4-20250514-v1:0"
-    assert len(captured_warnings) == 0
+def test_get_default_model_returns_global_inference_profile(captured_warnings):
+    """Default model id is the global inference profile regardless of region."""
+    for region in ("us-east-1", "eu-west-1", "us-gov-west-1", "ap-southeast-1", "ca-central-1"):
+        assert BedrockModel._get_default_model_with_warning(region) == DEFAULT_BEDROCK_MODEL_ID
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
-def test_get_default_model_for_supported_us_region_returns_correct_model_id(captured_warnings):
-    model_id = BedrockModel._get_default_model_with_warning("us-east-1")
-    assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
-    assert len(captured_warnings) == 0
-
-
-def test_get_default_model_for_supported_gov_region_returns_correct_model_id(captured_warnings):
-    model_id = BedrockModel._get_default_model_with_warning("us-gov-west-1")
-    assert model_id == "us-gov.anthropic.claude-sonnet-4-20250514-v1:0"
-    assert len(captured_warnings) == 0
-
-
-def test_get_model_prefix_for_ap_region_converts_to_apac_endpoint(captured_warnings):
-    """Test _get_default_model_with_warning warns for APAC regions since 'ap' is not in supported prefixes."""
-    model_id = BedrockModel._get_default_model_with_warning("ap-southeast-1")
-    assert model_id == "apac.anthropic.claude-sonnet-4-20250514-v1:0"
-
-
-def test_get_default_model_with_warning_unsupported_region_warns(captured_warnings):
-    """Test _get_default_model_with_warning warns for unsupported regions."""
+def test_get_default_model_with_warning_unsupported_region_does_not_warn(captured_warnings):
+    """Global inference profile works across all regions, so no region-support warning is emitted."""
     BedrockModel._get_default_model_with_warning("ca-central-1")
-    assert len(captured_warnings) == 1
-    assert "This region ca-central-1 does not support" in str(captured_warnings[0].message)
-    assert "our default inference endpoint" in str(captured_warnings[0].message)
+    region_warnings = [w for w in captured_warnings if "does not support" in str(w.message)]
+    assert len(region_warnings) == 0
 
 
 def test_get_default_model_with_warning_no_warning_with_custom_model_id(captured_warnings):
@@ -2123,12 +2241,12 @@ def test_get_default_model_with_warning_no_warning_with_custom_model_id(captured
     assert len(captured_warnings) == 0
 
 
-def test_init_with_unsupported_region_warns(session_cls, captured_warnings):
-    """Test BedrockModel initialization warns for unsupported regions."""
+def test_init_with_unsupported_region_does_not_warn(session_cls, captured_warnings):
+    """BedrockModel initialization does not warn for 'unsupported' regions when using the global profile."""
     BedrockModel(region_name="ca-central-1")
 
-    assert len(captured_warnings) == 1
-    assert "This region ca-central-1 does not support" in str(captured_warnings[0].message)
+    region_warnings = [w for w in captured_warnings if "does not support" in str(w.message)]
+    assert len(region_warnings) == 0
 
 
 def test_init_with_unsupported_region_custom_model_no_warning(session_cls, captured_warnings):
@@ -2143,11 +2261,35 @@ def test_override_default_model_id_uses_the_overriden_value(captured_warnings):
         assert model_id == "custom-overridden-model"
 
 
-def test_no_override_uses_formatted_default_model_id(captured_warnings):
+def test_default_model_sentinel_triggers_region_prefix_fallback(captured_warnings):
+    """When DEFAULT_BEDROCK_MODEL_ID matches the sentinel template, the region-prefix fallback runs."""
+    sentinel = "us.anthropic.claude-sonnet-4-6"
+    with unittest.mock.patch("strands.models.bedrock.DEFAULT_BEDROCK_MODEL_ID", sentinel):
+        model_id = BedrockModel._get_default_model_with_warning("eu-west-1")
+        assert model_id == "eu.anthropic.claude-sonnet-4-6"
+
+
+def test_caller_supplied_model_id_wins_over_global_default(captured_warnings):
+    """Caller-supplied model_id in config takes precedence over the global default."""
+    model_config = {"model_id": "caller-supplied-model"}
+    model_id = BedrockModel._get_default_model_with_warning("us-east-1", model_config)
+    assert model_id == "caller-supplied-model"
+
+
+def test_default_model_sentinel_with_unsupported_region_warns(captured_warnings):
+    """When the sentinel matches and the region is unknown, the region-unsupported warning fires."""
+    sentinel = "us.anthropic.claude-sonnet-4-6"
+    with unittest.mock.patch("strands.models.bedrock.DEFAULT_BEDROCK_MODEL_ID", sentinel):
+        BedrockModel._get_default_model_with_warning("ca-central-1")
+    region_warnings = [w for w in captured_warnings if "does not support" in str(w.message)]
+    assert len(region_warnings) == 1
+
+
+def test_default_model_id_is_global_inference_profile(captured_warnings):
     model_id = BedrockModel._get_default_model_with_warning("us-east-1")
-    assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
-    assert model_id != _DEFAULT_BEDROCK_MODEL_ID
-    assert len(captured_warnings) == 0
+    assert model_id == "global.anthropic.claude-sonnet-4-6"
+    assert model_id == DEFAULT_BEDROCK_MODEL_ID
+    assert all("does not support" not in str(w.message) for w in captured_warnings)
 
 
 def test_custom_model_id_not_overridden_by_region_formatting(session_cls):
@@ -2964,3 +3106,115 @@ async def test_non_streaming_citations_with_only_location(bedrock_client, model,
     assert citation["location"] == {"web": {"url": "https://example.com", "domain": "example.com"}}
     assert "title" not in citation
     assert "sourceContent" not in citation
+
+
+class TestCountTokens:
+    """Tests for BedrockModel.count_tokens native token counting."""
+
+    @pytest.fixture
+    def model_with_client(self, bedrock_client, model_id):
+        _ = bedrock_client
+        return BedrockModel(model_id=model_id)
+
+    @pytest.fixture
+    def messages(self):
+        return [{"role": "user", "content": [{"text": "hello"}]}]
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [
+            {
+                "name": "test_tool",
+                "description": "A test tool",
+                "inputSchema": {"json": {"type": "object", "properties": {}}},
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_success(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.return_value = {"inputTokens": 42}
+
+        result = await model_with_client.count_tokens(messages=messages)
+
+        assert result == 42
+        bedrock_client.count_tokens.assert_called_once()
+        call_kwargs = bedrock_client.count_tokens.call_args[1]
+        assert "input" in call_kwargs
+        assert "converse" in call_kwargs["input"]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_system_prompt(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.return_value = {"inputTokens": 55}
+
+        result = await model_with_client.count_tokens(messages=messages, system_prompt="Be helpful.")
+
+        assert result == 55
+        call_kwargs = bedrock_client.count_tokens.call_args[1]
+        assert call_kwargs["input"]["converse"]["system"] == [{"text": "Be helpful."}]
+        assert "toolConfig" not in call_kwargs["input"]["converse"]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_tool_specs(self, model_with_client, bedrock_client, messages, tool_specs):
+        bedrock_client.count_tokens.return_value = {"inputTokens": 100}
+
+        result = await model_with_client.count_tokens(messages=messages, tool_specs=tool_specs)
+
+        assert result == 100
+        call_kwargs = bedrock_client.count_tokens.call_args[1]
+        assert "toolConfig" in call_kwargs["input"]["converse"]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_system_prompt_content(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.return_value = {"inputTokens": 60}
+
+        result = await model_with_client.count_tokens(
+            messages=messages,
+            system_prompt_content=[{"text": "Be helpful."}, {"text": "Be concise."}],
+        )
+
+        assert result == 60
+        call_kwargs = bedrock_client.count_tokens.call_args[1]
+        assert call_kwargs["input"]["converse"]["system"] == [{"text": "Be helpful."}, {"text": "Be concise."}]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_strips_inference_config(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.return_value = {"inputTokens": 10}
+        model_with_client.update_config(max_tokens=100)
+
+        await model_with_client.count_tokens(messages=messages)
+
+        call_kwargs = bedrock_client.count_tokens.call_args[1]
+        converse = call_kwargs["input"]["converse"]
+        assert "inferenceConfig" not in converse
+        assert "additionalModelRequestFields" not in converse
+        assert "guardrailConfig" not in converse
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_api_error(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.side_effect = ClientError(
+            {"Error": {"Code": "ValidationException", "Message": "Unsupported"}},
+            "CountTokens",
+        )
+
+        result = await model_with_client.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_generic_exception(self, model_with_client, bedrock_client, messages):
+        bedrock_client.count_tokens.side_effect = RuntimeError("Connection failed")
+
+        result = await model_with_client.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_logs_warning(self, model_with_client, bedrock_client, messages, caplog):
+        bedrock_client.count_tokens.side_effect = RuntimeError("API down")
+
+        with caplog.at_level(logging.WARNING):
+            await model_with_client.count_tokens(messages=messages)
+
+        assert any("native token counting failed" in record.message for record in caplog.records)

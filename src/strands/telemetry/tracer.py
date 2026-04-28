@@ -218,12 +218,6 @@ class Tracer:
             logger.warning("error=<%s> | error while ending span", e, exc_info=True)
         finally:
             span.end()
-            # Force flush to ensure spans are exported
-            if self.tracer_provider and hasattr(self.tracer_provider, "force_flush"):
-                try:
-                    self.tracer_provider.force_flush()
-                except Exception as e:
-                    logger.warning("error=<%s> | failed to force flush tracer provider", e)
 
     def end_span_with_error(self, span: Span, error_message: str, exception: Exception | None = None) -> None:
         """End a span with error status.
@@ -527,9 +521,7 @@ class Tracer:
         event_loop_cycle_id = str(invocation_state.get("event_loop_cycle_id"))
         parent_span = parent_span if parent_span else invocation_state.get("event_loop_parent_span")
 
-        attributes: dict[str, AttributeValue] = self._get_common_attributes(
-            operation_name="execute_event_loop_cycle"
-        )
+        attributes: dict[str, AttributeValue] = self._get_common_attributes(operation_name="execute_event_loop_cycle")
         attributes["event_loop.cycle_id"] = event_loop_cycle_id
 
         if custom_trace_attributes:

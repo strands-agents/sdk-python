@@ -32,11 +32,12 @@ def _mock_agent():
     agent._system_prompt = "You are an agent."
     agent._system_prompt_content = [{"text": "You are an agent."}]
 
-    # Make system_prompt property behave like the real Agent
+    # Make system_prompt and system_prompt_content properties behave like the real Agent
     type(agent).system_prompt = property(
         lambda self: self._system_prompt,
         lambda self, value: _set_system_prompt(self, value),
     )
+    type(agent).system_prompt_content = property(lambda self: self._system_prompt_content)
 
     agent.hooks = HookRegistry()
     agent.add_hook = MagicMock(
@@ -59,11 +60,15 @@ def _mock_tool_context(agent: MagicMock) -> ToolContext:
     return ToolContext(tool_use=tool_use, agent=agent, invocation_state={"agent": agent})
 
 
-def _set_system_prompt(agent: MagicMock, value: str | None) -> None:
+def _set_system_prompt(agent: MagicMock, value: str | list | None) -> None:
     """Simulate the Agent.system_prompt setter."""
     if isinstance(value, str):
         agent._system_prompt = value
         agent._system_prompt_content = [{"text": value}]
+    elif isinstance(value, list):
+        text_parts = [block["text"] for block in value if "text" in block]
+        agent._system_prompt = "\n".join(text_parts) if text_parts else None
+        agent._system_prompt_content = value
     elif value is None:
         agent._system_prompt = None
         agent._system_prompt_content = None
@@ -417,9 +422,41 @@ class TestSystemPromptInjection:
         event = BeforeInvocationEvent(agent=agent)
         plugin._on_before_invocation(event)
 
-        # The public setter should have been used, so _system_prompt_content
-        # should be consistent with _system_prompt
-        assert agent._system_prompt_content == [{"text": agent._system_prompt}]
+        # The public setter should have been used via the content-block path:
+        # original block is preserved and the skills XML is appended as a new block.
+        assert len(agent.system_prompt_content) == 2
+        assert agent.system_prompt_content[0] == {"text": "Original."}
+        assert "<available_skills>" in agent.system_prompt_content[1]["text"]
+
+    def test_preserves_cache_points_in_system_prompt(self):
+        """Test that cachePoint blocks in the system prompt are preserved after injection."""
+        plugin = AgentSkills(skills=[_make_skill()])
+        agent = _mock_agent()
+        agent._system_prompt = "Base instructions."
+        agent._system_prompt_content = [
+            {"text": "Base instructions."},
+            {"cachePoint": {"type": "default"}},
+        ]
+
+        expected_skills_xml = plugin._generate_skills_xml()
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        # Exact block structure: original text, cachePoint, skills XML
+        assert agent.system_prompt_content == [
+            {"text": "Base instructions."},
+            {"cachePoint": {"type": "default"}},
+            {"text": expected_skills_xml},
+        ]
+
+        # Repeated invocation: identical result, no accumulation
+        plugin._on_before_invocation(event)
+        assert agent.system_prompt_content == [
+            {"text": "Base instructions."},
+            {"cachePoint": {"type": "default"}},
+            {"text": expected_skills_xml},
+        ]
 
     def test_warns_when_previous_xml_not_found(self, caplog):
         """Test that a warning is logged when the previously injected XML is missing from the prompt."""
@@ -434,6 +471,43 @@ class TestSystemPromptInjection:
         # Completely replace the system prompt, removing the injected XML
         agent.system_prompt = "Totally new prompt."
 
+        with caplog.at_level(logging.WARNING):
+            plugin._on_before_invocation(event)
+
+        assert "unable to find previously injected skills XML in system prompt" in caplog.text
+        assert "<available_skills>" in agent.system_prompt
+
+
+class TestStringPathInjection:
+    """Tests for the string-path branch of _on_before_invocation (system_prompt_content is None)."""
+
+    def test_string_path_replaces_previous_xml(self):
+        """Test that old injected XML is replaced when found in the string prompt."""
+        plugin = AgentSkills(skills=[_make_skill()])
+        agent = _mock_agent()
+
+        old_xml = "\n\n<old>xml</old>"
+        agent._system_prompt = f"Base prompt.{old_xml}"
+        agent._system_prompt_content = None
+        agent.state.set(plugin._state_key, {"last_injected_xml": old_xml})
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        assert "<old>xml</old>" not in agent.system_prompt
+        assert "<available_skills>" in agent.system_prompt
+        assert agent.system_prompt.startswith("Base prompt.")
+
+    def test_string_path_warns_when_previous_xml_not_found(self, caplog):
+        """Test that a warning is logged when old XML is missing from the string prompt."""
+        plugin = AgentSkills(skills=[_make_skill()])
+        agent = _mock_agent()
+
+        agent._system_prompt = "Totally new prompt."
+        agent._system_prompt_content = None
+        agent.state.set(plugin._state_key, {"last_injected_xml": "\n\n<old>xml</old>"})
+
+        event = BeforeInvocationEvent(agent=agent)
         with caplog.at_level(logging.WARNING):
             plugin._on_before_invocation(event)
 
@@ -659,6 +733,95 @@ class TestResolveSkills:
         """Test that nonexistent paths are skipped."""
         plugin = AgentSkills(skills=[str(tmp_path / "ghost")])
         assert len(plugin._skills) == 0
+
+
+class TestResolveUrlSkills:
+    """Tests for _resolve_skills with URL sources."""
+
+    _SKILL_MODULE = "strands.vended_plugins.skills.skill"
+    _SAMPLE_CONTENT = "---\nname: url-skill\ndescription: A URL skill\n---\n# Instructions\n"
+
+    def _mock_urlopen(self, content):
+        """Create a mock urlopen context manager returning the given content."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = content.encode("utf-8")
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+        return mock_response
+
+    def test_resolve_url_source(self):
+        """Test resolving a URL string as a skill source."""
+        from unittest.mock import patch
+
+        with patch(
+            f"{self._SKILL_MODULE}.urllib.request.urlopen", return_value=self._mock_urlopen(self._SAMPLE_CONTENT)
+        ):
+            plugin = AgentSkills(skills=["https://example.com/SKILL.md"])
+
+        assert len(plugin.get_available_skills()) == 1
+        assert plugin.get_available_skills()[0].name == "url-skill"
+
+    def test_resolve_mixed_url_and_local(self, tmp_path):
+        """Test resolving a mix of URL and local filesystem sources."""
+        from unittest.mock import patch
+
+        _make_skill_dir(tmp_path, "local-skill")
+
+        with patch(
+            f"{self._SKILL_MODULE}.urllib.request.urlopen", return_value=self._mock_urlopen(self._SAMPLE_CONTENT)
+        ):
+            plugin = AgentSkills(
+                skills=[
+                    "https://example.com/SKILL.md",
+                    str(tmp_path / "local-skill"),
+                ]
+            )
+
+        assert len(plugin.get_available_skills()) == 2
+        names = {s.name for s in plugin.get_available_skills()}
+        assert names == {"url-skill", "local-skill"}
+
+    def test_resolve_url_failure_skips_gracefully(self, caplog):
+        """Test that a failed URL fetch is skipped with a warning."""
+        import logging
+        import urllib.error
+        from unittest.mock import patch
+
+        with (
+            patch(
+                f"{self._SKILL_MODULE}.urllib.request.urlopen",
+                side_effect=urllib.error.HTTPError(
+                    url="https://example.com", code=404, msg="Not Found", hdrs=None, fp=None
+                ),
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            plugin = AgentSkills(skills=["https://example.com/broken/SKILL.md"])
+
+        assert len(plugin.get_available_skills()) == 0
+        assert "failed to load skill from URL" in caplog.text
+
+    def test_resolve_duplicate_url_skills_warns(self, caplog):
+        """Test that duplicate skill names from URLs log a warning."""
+        import logging
+        from unittest.mock import patch
+
+        with (
+            patch(
+                f"{self._SKILL_MODULE}.urllib.request.urlopen",
+                return_value=self._mock_urlopen(self._SAMPLE_CONTENT),
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            plugin = AgentSkills(
+                skills=[
+                    "https://example.com/a/SKILL.md",
+                    "https://example.com/b/SKILL.md",
+                ]
+            )
+
+        assert len(plugin.get_available_skills()) == 1
+        assert "duplicate skill name" in caplog.text
 
 
 class TestImports:

@@ -251,9 +251,7 @@ class TestTaskMetaForwarding:
 
         with MCPClient(mock_transport["transport_callable"], tasks_config=TasksConfig()) as client:
             client.list_tools_sync()
-            client.call_tool_sync(
-                tool_use_id="test-id", name="meta_tool", arguments={"param": "value"}, meta=meta
-            )
+            client.call_tool_sync(tool_use_id="test-id", name="meta_tool", arguments={"param": "value"}, meta=meta)
 
             experimental.call_tool_as_task.assert_called_once()
             call_kwargs = experimental.call_tool_as_task.call_args
@@ -281,9 +279,7 @@ class TestTaskMetaForwarding:
 
         with MCPClient(mock_transport["transport_callable"], tasks_config=TasksConfig()) as client:
             client.list_tools_sync()
-            client.call_tool_sync(
-                tool_use_id="test-id", name="no_meta_tool", arguments={"param": "value"}
-            )
+            client.call_tool_sync(tool_use_id="test-id", name="no_meta_tool", arguments={"param": "value"})
 
             experimental.call_tool_as_task.assert_called_once()
             call_kwargs = experimental.call_tool_as_task.call_args

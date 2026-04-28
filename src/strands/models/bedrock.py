@@ -15,7 +15,7 @@ import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 from pydantic import BaseModel
-from typing_extensions import TypedDict, Unpack, override
+from typing_extensions import Unpack, override
 
 from strands.types.media import S3Location, SourceLocation
 
@@ -31,13 +31,13 @@ from ..types.exceptions import (
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
-from .model import CacheConfig, Model
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
 # See: `BedrockModel._get_default_model_with_warning` for why we need both
-DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
-_DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-20250514-v1:0"
+DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-6"
+_DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-6"
 DEFAULT_BEDROCK_REGION = "us-west-2"
 
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
@@ -69,7 +69,7 @@ class BedrockModel(Model):
     - Context window overflow detection
     """
 
-    class BedrockConfig(TypedDict, total=False):
+    class BedrockConfig(BaseModelConfig, total=False):
         """Configuration options for Bedrock models.
 
         Attributes:
@@ -90,7 +90,7 @@ class BedrockModel(Model):
             guardrail_latest_message: Flag to send only the lastest user message to guardrails.
                 Defaults to False.
             max_tokens: Maximum number of tokens to generate in the response
-            model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
+            model_id: The Bedrock model ID (e.g., "global.anthropic.claude-sonnet-4-6")
             include_tool_result_status: Flag to include status field in tool results.
                 True includes status, False removes status, "auto" determines based on model_id. Defaults to "auto".
             service_tier: Service tier for the request, controlling the trade-off between latency and cost.
@@ -521,12 +521,16 @@ class BedrockModel(Model):
         """
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CachePointBlock.html
         if "cachePoint" in content:
-            return {"cachePoint": {"type": content["cachePoint"]["type"]}}
+            cache_point = content["cachePoint"]
+            result: dict[str, Any] = {"type": cache_point["type"]}
+            if "ttl" in cache_point:
+                result["ttl"] = cache_point["ttl"]
+            return {"cachePoint": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_DocumentBlock.html
         if "document" in content:
             document = content["document"]
-            result: dict[str, Any] = {}
+            result = {}
 
             # Handle required fields (all optional due to total=False)
             if "name" in document:
@@ -601,8 +605,15 @@ class BedrockModel(Model):
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
         if "toolResult" in content:
             tool_result = content["toolResult"]
+            # Normalize empty toolResult content arrays.
+            # Some model providers (e.g., Nemotron) reject toolResult blocks with
+            # content: [] via the Converse API, while others (e.g., Claude) accept
+            # them. Replace empty content with a minimal text block to ensure
+            # cross-model compatibility. This follows the same pattern as the
+            # TypeScript SDK's _formatMessages in bedrock.ts.
+            tool_result_content_list = tool_result.get("content") or [{"text": ""}]
             formatted_content: list[dict[str, Any]] = []
-            for tool_result_content in tool_result["content"]:
+            for tool_result_content in tool_result_content_list:
                 if "json" in tool_result_content:
                     # Handle json field since not in ContentBlock but valid in ToolResultContent
                     formatted_content.append({"json": tool_result_content["json"]})
@@ -737,6 +748,58 @@ class BedrockModel(Model):
             )
 
         return events
+
+    @override
+    async def count_tokens(
+        self,
+        messages: Messages,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
+        system_prompt_content: list[SystemContentBlock] | None = None,
+    ) -> int:
+        """Count tokens using Bedrock's native CountTokens API.
+
+        Uses the same message format as the Converse API to get accurate token counts
+        directly from the Bedrock service.
+
+        Args:
+            messages: List of message objects to count tokens for.
+            tool_specs: List of tool specifications to include in the count.
+            system_prompt: Plain string system prompt. Ignored if system_prompt_content is provided.
+            system_prompt_content: Structured system prompt content blocks.
+
+        Returns:
+            Total input token count.
+        """
+        try:
+            if system_prompt and system_prompt_content is None:
+                system_prompt_content = [{"text": system_prompt}]
+
+            request = self._format_request(messages, tool_specs, system_prompt_content)
+            converse_input: dict[str, Any] = {}
+            if "messages" in request:
+                converse_input["messages"] = request["messages"]
+            if "system" in request:
+                converse_input["system"] = request["system"]
+            if "toolConfig" in request:
+                converse_input["toolConfig"] = request["toolConfig"]
+
+            response = await asyncio.to_thread(
+                self.client.count_tokens,
+                modelId=self.config["model_id"],
+                input={"converse": converse_input},
+            )
+            total_tokens: int = response["inputTokens"]
+
+            logger.debug("model_id=<%s>, total_tokens=<%d> | native token count", self.config["model_id"], total_tokens)
+            return total_tokens
+        except Exception as e:
+            logger.warning(
+                "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
+                self.config["model_id"],
+                e,
+            )
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
     @override
     async def stream(
@@ -1088,12 +1151,12 @@ class BedrockModel(Model):
             region_name (str): region for bedrock model
             model_config (Optional[dict[str, Any]]): Model Config that caller passes in on init
         """
-        if DEFAULT_BEDROCK_MODEL_ID != _DEFAULT_BEDROCK_MODEL_ID.format("us"):
-            return DEFAULT_BEDROCK_MODEL_ID
-
         model_config = model_config or {}
         if model_config.get("model_id"):
             return model_config["model_id"]
+
+        if DEFAULT_BEDROCK_MODEL_ID != _DEFAULT_BEDROCK_MODEL_ID.format("us"):
+            return DEFAULT_BEDROCK_MODEL_ID
 
         prefix_inference_map = {"ap": "apac"}  # some inference endpoints can be a bit different than the region prefix
 
@@ -1116,4 +1179,10 @@ class BedrockModel(Model):
                 stacklevel=2,
             )
 
-        return _DEFAULT_BEDROCK_MODEL_ID.format(prefix_inference_map.get(prefix, prefix))
+        default_model_id = _DEFAULT_BEDROCK_MODEL_ID.format(prefix_inference_map.get(prefix, prefix))
+        warnings.warn(
+            f"You're using default model '{default_model_id}', which is subject to change. "
+            "Specify a model explicitly to pin the model target.",
+            stacklevel=2,
+        )
+        return default_model_id

@@ -35,7 +35,7 @@ from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 # For unit testing we will use the the us inference
-FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
+FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID
 
 
 @pytest.fixture
@@ -374,7 +374,7 @@ def test_agent__call__(
         "stop_reason": result.stop_reason,
     }
     exp_result = {
-        "message": {"content": [{"text": "test text"}], "role": "assistant"},
+        "message": {"content": [{"text": "test text"}], "role": "assistant", "metadata": unittest.mock.ANY},
         "state": {},
         "stop_reason": "end_turn",
     }
@@ -819,6 +819,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
                     {"reasoningContent": {"reasoningText": {"text": "value", "signature": "value"}}},
                     {"text": "value"},
                 ],
+                "metadata": unittest.mock.ANY,
             },
         ),
         unittest.mock.call(
@@ -831,6 +832,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
                         {"reasoningContent": {"reasoningText": {"text": "value", "signature": "value"}}},
                         {"text": "value"},
                     ],
+                    "metadata": unittest.mock.ANY,
                 },
                 metrics=unittest.mock.ANY,
                 state={},
@@ -855,7 +857,7 @@ async def test_agent__call__in_async_context(mock_model, agent, agenerator):
     result = agent("test")
 
     tru_message = result.message
-    exp_message = {"content": [{"text": "abc"}], "role": "assistant"}
+    exp_message = {"content": [{"text": "abc"}], "role": "assistant", "metadata": unittest.mock.ANY}
     assert tru_message == exp_message
 
 
@@ -875,7 +877,7 @@ async def test_agent_invoke_async(mock_model, agent, agenerator):
     result = await agent.invoke_async("test")
 
     tru_message = result.message
-    exp_message = {"content": [{"text": "abc"}], "role": "assistant"}
+    exp_message = {"content": [{"text": "abc"}], "role": "assistant", "metadata": unittest.mock.ANY}
     assert tru_message == exp_message
 
 
@@ -1166,7 +1168,7 @@ async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, ali
     tru_message = agent.messages
     exp_message = [
         {"content": prompt, "role": "user"},
-        {"content": [{"text": "I see text and an image"}], "role": "assistant"},
+        {"content": [{"text": "I see text and an image"}], "role": "assistant", "metadata": unittest.mock.ANY},
     ]
     assert tru_message == exp_message
 
@@ -1200,6 +1202,33 @@ def test_system_prompt_setter_none():
 
     assert agent.system_prompt is None
     assert agent._system_prompt_content is None
+
+
+def test_system_prompt_content_string():
+    """Test that system_prompt_content returns content blocks for string prompt."""
+    agent = Agent(system_prompt="hello")
+    assert agent.system_prompt_content == [{"text": "hello"}]
+
+
+def test_system_prompt_content_structured():
+    """Test that system_prompt_content returns structured blocks with cache points."""
+    blocks = [{"text": "You are helpful"}, {"cachePoint": {"type": "default"}}]
+    agent = Agent(system_prompt=blocks)
+    assert agent.system_prompt_content == blocks
+
+
+def test_system_prompt_content_none():
+    """Test that system_prompt_content returns None when no prompt is set."""
+    agent = Agent(system_prompt=None)
+    assert agent.system_prompt_content is None
+
+
+def test_system_prompt_content_returns_copy():
+    """Test that system_prompt_content returns a defensive copy."""
+    agent = Agent(system_prompt="hello")
+    content = agent.system_prompt_content
+    content.append({"text": "injected"})
+    assert agent.system_prompt_content == [{"text": "hello"}]
 
 
 @pytest.mark.asyncio
@@ -2004,7 +2033,11 @@ def test_agent__call__invalid_tool_name():
     }
 
     # And that it continued to the LLM call
-    assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}
+    assert agent.messages[-1] == {
+        "content": [{"text": "I invoked a tool!"}],
+        "role": "assistant",
+        "metadata": unittest.mock.ANY,
+    }
 
 
 def test_agent_string_system_prompt():

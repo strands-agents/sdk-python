@@ -1221,21 +1221,6 @@ def test_end_span_with_exception_handling(mock_span):
         pytest.fail("_end_span should not raise exceptions")
 
 
-def test_force_flush_with_error(mock_span, mock_get_tracer_provider):
-    """Test force flush with error handling."""
-    # Setup the tracer with a provider that raises an exception on force_flush
-    tracer = Tracer()
-
-    mock_tracer_provider = mock_get_tracer_provider.return_value
-    mock_tracer_provider.force_flush.side_effect = Exception("Force flush error")
-
-    # Should not raise an exception
-    tracer._end_span(mock_span)
-
-    # Verify force_flush was called
-    mock_tracer_provider.force_flush.assert_called_once()
-
-
 def test_end_tool_call_span_with_none(mock_span):
     """Test ending a tool call span with None result."""
     tracer = Tracer()
