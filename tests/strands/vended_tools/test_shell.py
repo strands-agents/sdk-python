@@ -114,12 +114,30 @@ class TestShellTool:
         subdir = tmp_path / "subdir"
         subdir.mkdir()
 
-        chunks, _ = await collect_generator(
+        chunks, result = await collect_generator(
             shell.__wrapped__(command=f"cd {subdir}", tool_context=tool_context)
         )
 
+        # Verify cwd state was tracked
         shell_state = tool_context.agent.state.get("_strands_shell_state")
         assert shell_state is not None
+        assert shell_state["cwd"] == str(subdir)
+
+        # Verify no internal markers leak into the result or streamed chunks
+        assert "__STRANDS_CWD__" not in result
+        for chunk in chunks:
+            assert "__STRANDS_CWD__" not in chunk.data
+
+    @pytest.mark.asyncio
+    async def test_cwd_no_marker_leak_in_streaming(self, tool_context, tmp_path):
+        """Test that no internal markers appear in streamed output."""
+        chunks, result = await collect_generator(
+            shell.__wrapped__(command="echo hello && cd /tmp", tool_context=tool_context)
+        )
+        # No internal markers should appear in any output
+        all_chunk_data = "".join(c.data for c in chunks)
+        assert "__STRANDS_CWD__" not in all_chunk_data
+        assert "__STRANDS_CWD__" not in result
 
     @pytest.mark.asyncio
     async def test_multiline_output(self, tool_context):

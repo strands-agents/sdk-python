@@ -81,10 +81,7 @@ async def python_repl(
 
     # Handle reset
     if reset:
-        try:
-            tool_context.agent.state.delete("_strands_python_repl_state")
-        except Exception:
-            pass
+        tool_context.agent.state.delete("_strands_python_repl_state")
         if not code or not code.strip():
             yield "Python REPL state reset."
             return

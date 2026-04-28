@@ -44,6 +44,10 @@ STATE_KEY = "strands_shell_tool"
 #: Default timeout for shell commands (seconds)
 DEFAULT_TIMEOUT = 120
 
+#: Internal marker used to separate user output from cwd tracking.
+#: Must be unique enough to never appear in legitimate command output.
+_CWD_MARKER = "__STRANDS_CWD__"
+
 
 @tool(context=True)
 async def shell(
@@ -96,13 +100,19 @@ async def shell(
     shell_state = tool_context.agent.state.get("_strands_shell_state") or {}
     cwd = shell_state.get("cwd")
 
-    # Wrap command with cwd tracking in a single execution to avoid
-    # a separate `pwd` call after every command (reduces latency for
-    # remote sandboxes). Appends `; pwd` to capture the final cwd.
-    tracked_command = f"{command}; echo __STRANDS_CWD__; pwd"
+    # Append cwd tracking to the command. We use a unique marker so we can
+    # reliably split the actual output from the cwd line. This captures the
+    # final working directory even after `cd` commands (which only affect
+    # the shell process they run in — a separate pwd call would not see them).
+    tracked_command = f"{command}; echo {_CWD_MARKER}; pwd"
 
-    # Execute via sandbox streaming
+    # Collect chunks during streaming, then filter the marker before yielding.
+    # This prevents internal markers from leaking into UI consumers' streamed
+    # output while preserving cwd tracking correctness.
+    stdout_chunks: list[StreamChunk] = []
+    stderr_chunks: list[StreamChunk] = []
     result: ExecutionResult | None = None
+
     try:
         async for chunk in sandbox.execute_streaming(
             tracked_command,
@@ -110,8 +120,10 @@ async def shell(
             cwd=cwd,
         ):
             if isinstance(chunk, StreamChunk):
-                # Yield each chunk — the decorator wraps it as ToolStreamEvent
-                yield chunk
+                if chunk.stream_type == "stderr":
+                    stderr_chunks.append(chunk)
+                else:
+                    stdout_chunks.append(chunk)
             elif isinstance(chunk, ExecutionResult):
                 result = chunk
     except asyncio.TimeoutError:
@@ -128,21 +140,27 @@ async def shell(
         yield "Error: Sandbox did not return an execution result."
         return
 
-    # Extract cwd from output (after __STRANDS_CWD__ marker)
+    # Extract cwd from the full stdout (result.stdout has the complete text)
     stdout = result.stdout or ""
-    cwd_marker = "__STRANDS_CWD__"
-    if cwd_marker in stdout:
-        parts = stdout.split(cwd_marker, 1)
-        # The actual command output is before the marker
+    if _CWD_MARKER in stdout:
+        parts = stdout.split(_CWD_MARKER, 1)
+        # Actual command output is before the marker
         stdout = parts[0].rstrip("\n")
         # The cwd is the line after the marker
         new_cwd = parts[1].strip()
         if new_cwd:
             shell_state["cwd"] = new_cwd
             tool_context.agent.state.set("_strands_shell_state", shell_state)
-    else:
-        # Fallback: no marker found (sandbox may have filtered it)
-        pass
+
+    # Yield filtered stdout chunks to UI consumers (marker stripped).
+    # Reconstruct from the cleaned stdout rather than yielding raw chunks,
+    # since the marker may span chunk boundaries.
+    if stdout:
+        yield StreamChunk(data=stdout, stream_type="stdout")
+
+    # Yield stderr chunks as-is (no marker contamination possible)
+    for chunk in stderr_chunks:
+        yield chunk
 
     # Format final output (becomes the ToolResult)
     output_parts = []
@@ -168,7 +186,4 @@ def _clear_shell_state(tool_context: ToolContext) -> None:
     Args:
         tool_context: The tool context providing access to agent state.
     """
-    try:
-        tool_context.agent.state.delete("_strands_shell_state")
-    except Exception:
-        pass
+    tool_context.agent.state.delete("_strands_shell_state")
