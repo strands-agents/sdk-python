@@ -478,9 +478,7 @@ class Skill:
         raise FileNotFoundError(f"path=<{skill_path}> | no SKILL.md found in sandbox skill directory")
 
     @classmethod
-    async def from_sandbox_directory(
-        cls, sandbox: Sandbox, skills_dir: str, *, strict: bool = False
-    ) -> list[Skill]:
+    async def from_sandbox_directory(cls, sandbox: Sandbox, skills_dir: str, *, strict: bool = False) -> list[Skill]:
         """Load all skills from a parent directory in a sandbox.
 
         Lists subdirectories in the given sandbox path and loads any that
@@ -523,7 +521,5 @@ class Skill:
             except (FileNotFoundError, ValueError, OSError, NotImplementedError) as e:
                 logger.debug("sandbox_path=<%s> | skipping directory: %s", child_path, e)
 
-        logger.debug(
-            "sandbox_path=<%s>, count=<%d> | loaded skills from sandbox directory", skills_dir, len(skills)
-        )
+        logger.debug("sandbox_path=<%s>, count=<%d> | loaded skills from sandbox directory", skills_dir, len(skills))
         return skills

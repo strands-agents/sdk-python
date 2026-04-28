@@ -78,7 +78,6 @@ def _set_system_prompt(agent: MagicMock, value: str | list | None) -> None:
         agent._system_prompt_content = None
 
 
-
 class TestSkillsPluginInit:
     """Tests for AgentSkills initialization."""
 

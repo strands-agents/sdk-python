@@ -138,7 +138,7 @@ class AgentSkills(Plugin):
 
         for source in all_sources:
             if isinstance(source, str) and source.startswith(_SANDBOX_PREFIX):
-                self._sandbox_sources.append(source[len(_SANDBOX_PREFIX):])
+                self._sandbox_sources.append(source[len(_SANDBOX_PREFIX) :])
             else:
                 sync_sources.append(source)
 
@@ -239,9 +239,7 @@ class AgentSkills(Plugin):
                     skills = await Skill.from_sandbox_directory(sandbox, sandbox_path, strict=self._strict)
                     for skill in skills:
                         if skill.name in resolved:
-                            logger.warning(
-                                "name=<%s> | duplicate skill name, overwriting previous skill", skill.name
-                            )
+                            logger.warning("name=<%s> | duplicate skill name, overwriting previous skill", skill.name)
                         resolved[skill.name] = skill
                     logger.debug(
                         "sandbox_path=<%s>, count=<%d> | loaded skills from sandbox directory",

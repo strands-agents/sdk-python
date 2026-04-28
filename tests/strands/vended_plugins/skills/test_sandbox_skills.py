@@ -141,9 +141,7 @@ class TestSkillFromSandbox:
     @pytest.mark.asyncio
     async def test_load_skill_from_sandbox_directory(self):
         """Test loading a skill from a directory containing SKILL.md."""
-        sandbox = _make_mock_sandbox(
-            files={"/home/skills/my-skill/SKILL.md": SKILL_CONTENT}
-        )
+        sandbox = _make_mock_sandbox(files={"/home/skills/my-skill/SKILL.md": SKILL_CONTENT})
 
         skill = await Skill.from_sandbox(sandbox, "/home/skills/my-skill")
 
@@ -155,9 +153,7 @@ class TestSkillFromSandbox:
     @pytest.mark.asyncio
     async def test_load_skill_from_direct_skill_md_path(self):
         """Test loading a skill by pointing directly to SKILL.md."""
-        sandbox = _make_mock_sandbox(
-            files={"/home/skills/my-skill/SKILL.md": SKILL_CONTENT}
-        )
+        sandbox = _make_mock_sandbox(files={"/home/skills/my-skill/SKILL.md": SKILL_CONTENT})
 
         skill = await Skill.from_sandbox(sandbox, "/home/skills/my-skill/SKILL.md")
 
@@ -166,9 +162,7 @@ class TestSkillFromSandbox:
     @pytest.mark.asyncio
     async def test_load_skill_lowercase_skill_md(self):
         """Test loading skill from skill.md (lowercase)."""
-        sandbox = _make_mock_sandbox(
-            files={"/home/skills/my-skill/skill.md": SKILL_CONTENT}
-        )
+        sandbox = _make_mock_sandbox(files={"/home/skills/my-skill/skill.md": SKILL_CONTENT})
 
         skill = await Skill.from_sandbox(sandbox, "/home/skills/my-skill")
 
@@ -199,9 +193,7 @@ class TestSkillFromSandbox:
     @pytest.mark.asyncio
     async def test_raises_on_invalid_content(self):
         """Test ValueError when SKILL.md has invalid content."""
-        sandbox = _make_mock_sandbox(
-            files={"/home/skills/bad-skill/SKILL.md": INVALID_SKILL_CONTENT}
-        )
+        sandbox = _make_mock_sandbox(files={"/home/skills/bad-skill/SKILL.md": INVALID_SKILL_CONTENT})
 
         with pytest.raises(ValueError, match="name"):
             await Skill.from_sandbox(sandbox, "/home/skills/bad-skill")
@@ -209,9 +201,7 @@ class TestSkillFromSandbox:
     @pytest.mark.asyncio
     async def test_path_trailing_slash(self):
         """Test that trailing slashes in path are handled correctly."""
-        sandbox = _make_mock_sandbox(
-            files={"/home/skills/my-skill/SKILL.md": SKILL_CONTENT}
-        )
+        sandbox = _make_mock_sandbox(files={"/home/skills/my-skill/SKILL.md": SKILL_CONTENT})
 
         skill = await Skill.from_sandbox(sandbox, "/home/skills/my-skill/")
 
@@ -226,9 +216,7 @@ description: Has invalid name
 ---
 # Instructions
 """
-        sandbox = _make_mock_sandbox(
-            files={"/home/skills/bad/SKILL.md": content}
-        )
+        sandbox = _make_mock_sandbox(files={"/home/skills/bad/SKILL.md": content})
 
         with pytest.raises(ValueError, match="skill name"):
             await Skill.from_sandbox(sandbox, "/home/skills/bad", strict=True)
@@ -298,9 +286,7 @@ class TestSkillFromSandboxDirectory:
     @pytest.mark.asyncio
     async def test_empty_directory(self):
         """Test loading from an empty directory."""
-        sandbox = _make_mock_sandbox(
-            dirs={"/home/skills": []}
-        )
+        sandbox = _make_mock_sandbox(dirs={"/home/skills": []})
 
         skills = await Skill.from_sandbox_directory(sandbox, "/home/skills")
 
@@ -436,9 +422,7 @@ class TestAgentSkillsSandboxSources:
     @pytest.mark.asyncio
     async def test_sandbox_single_skill_directory(self):
         """Test sandbox source pointing to a single skill directory (not parent)."""
-        sandbox = _make_mock_sandbox(
-            files={"/home/skills/my-skill/SKILL.md": SKILL_CONTENT}
-        )
+        sandbox = _make_mock_sandbox(files={"/home/skills/my-skill/SKILL.md": SKILL_CONTENT})
         agent = _mock_agent(sandbox=sandbox)
 
         plugin = AgentSkills(skills=["sandbox:///home/skills/my-skill"])
@@ -462,9 +446,7 @@ class TestAgentSkillsSandboxSources:
     @pytest.mark.asyncio
     async def test_sandbox_source_duplicate_overwrites(self):
         """Test that duplicate skill names from sandbox overwrite earlier ones."""
-        sandbox = _make_mock_sandbox(
-            files={"/sandbox/skills/dupe/SKILL.md": SKILL_CONTENT}
-        )
+        sandbox = _make_mock_sandbox(files={"/sandbox/skills/dupe/SKILL.md": SKILL_CONTENT})
         agent = _mock_agent(sandbox=sandbox)
 
         # Pre-load a skill with the same name into base
