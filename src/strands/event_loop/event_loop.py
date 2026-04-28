@@ -364,7 +364,8 @@ async def _handle_model_execution(
                     async for event in streamed_events:
                         yield event
                 finally:
-                    await streamed_events.aclose()
+                    if streamed_events is not None:
+                        await streamed_events.aclose()
 
                 stop_reason, message, usage, metrics = event["stop"]
                 invocation_state.setdefault("request_state", {})
