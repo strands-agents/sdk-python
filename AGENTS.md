@@ -117,6 +117,12 @@ strands-agents/
 │   │   ├── repository_session_manager.py # Repository pattern
 │   │   └── session_repository.py         # Storage interface
 │   │
+│   │
+│   ├── sandbox/                        # Sandbox abstraction for code execution
+│   │   ├── base.py                       # Sandbox ABC, ExecutionResult, FileInfo, OutputFile
+│   │   ├── host.py                       # HostSandbox (native Python, default)
+│   │   ├── shell_based.py               # ShellBasedSandbox (for remote/container envs)
+│   │   └── noop.py                      # NoOpSandbox (raises NotImplementedError for all ops)
 │   ├── telemetry/                        # Observability (OpenTelemetry)
 │   │   ├── tracer.py                     # Tracing
 │   │   ├── metrics.py                    # Metrics collection
@@ -183,6 +189,7 @@ strands-agents/
 │       ├── types/
 │       ├── session/
 │       ├── telemetry/
+│       ├── sandbox/
 │       ├── hooks/
 │       ├── plugins/
 │       ├── handlers/
