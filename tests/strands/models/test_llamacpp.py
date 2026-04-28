@@ -796,10 +796,10 @@ class TestCountTokens:
         assert result >= 0
 
     @pytest.mark.asyncio
-    async def test_fallback_logs_warning(self, model, messages, caplog):
+    async def test_fallback_logs_debug(self, model, messages, caplog):
         model.client.post = AsyncMock(side_effect=RuntimeError("Server down"))
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG, logger="strands.models.llamacpp"):
             await model.count_tokens(messages=messages)
 
         assert any("native token counting failed" in record.message for record in caplog.records)

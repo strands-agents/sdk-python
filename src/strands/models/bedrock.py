@@ -798,7 +798,7 @@ class BedrockModel(Model):
             logger.debug("model_id=<%s>, total_tokens=<%d> | native token count", self.config["model_id"], total_tokens)
             return total_tokens
         except Exception as e:
-            logger.warning(
+            logger.debug(
                 "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
                 self.config["model_id"],
                 e,
