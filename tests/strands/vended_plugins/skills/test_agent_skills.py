@@ -72,7 +72,7 @@ def _set_system_prompt(agent: MagicMock, value: str | list | None) -> None:
         agent._system_prompt_content = value
         # Derive the string prompt from text blocks
         text_parts = [block["text"] for block in value if "text" in block]
-        agent._system_prompt = "\n\n".join(text_parts)
+        agent._system_prompt = "\n".join(text_parts) if text_parts else None
     elif value is None:
         agent._system_prompt = None
         agent._system_prompt_content = None
@@ -477,6 +477,43 @@ class TestSystemPromptInjection:
         # Completely replace the system prompt, removing the injected XML
         agent.system_prompt = "Totally new prompt."
 
+        with caplog.at_level(logging.WARNING):
+            plugin._on_before_invocation(event)
+
+        assert "unable to find previously injected skills XML in system prompt" in caplog.text
+        assert "<available_skills>" in agent.system_prompt
+
+
+class TestStringPathInjection:
+    """Tests for the string-path branch of _on_before_invocation (system_prompt_content is None)."""
+
+    def test_string_path_replaces_previous_xml(self):
+        """Test that old injected XML is replaced when found in the string prompt."""
+        plugin = AgentSkills(skills=[_make_skill()])
+        agent = _mock_agent()
+
+        old_xml = "\n\n<old>xml</old>"
+        agent._system_prompt = f"Base prompt.{old_xml}"
+        agent._system_prompt_content = None
+        agent.state.set(plugin._state_key, {"last_injected_xml": old_xml})
+
+        event = BeforeInvocationEvent(agent=agent)
+        plugin._on_before_invocation(event)
+
+        assert "<old>xml</old>" not in agent.system_prompt
+        assert "<available_skills>" in agent.system_prompt
+        assert agent.system_prompt.startswith("Base prompt.")
+
+    def test_string_path_warns_when_previous_xml_not_found(self, caplog):
+        """Test that a warning is logged when old XML is missing from the string prompt."""
+        plugin = AgentSkills(skills=[_make_skill()])
+        agent = _mock_agent()
+
+        agent._system_prompt = "Totally new prompt."
+        agent._system_prompt_content = None
+        agent.state.set(plugin._state_key, {"last_injected_xml": "\n\n<old>xml</old>"})
+
+        event = BeforeInvocationEvent(agent=agent)
         with caplog.at_level(logging.WARNING):
             plugin._on_before_invocation(event)
 
