@@ -2700,9 +2700,18 @@ def test_cache_strategy_anthropic_for_claude(bedrock_client):
     assert model2._cache_strategy == "anthropic"
 
 
+def test_cache_strategy_anthropic_for_nova(bedrock_client):
+    """Test that _cache_strategy returns 'anthropic' for Nova models."""
+    model = BedrockModel(model_id="us.amazon.nova-pro-v1:0")
+    assert model._cache_strategy == "anthropic"
+
+    model2 = BedrockModel(model_id="amazon.nova-lite-v1:0")
+    assert model2._cache_strategy == "anthropic"
+
+
 def test_cache_strategy_none_for_non_claude(bedrock_client):
     """Test that _cache_strategy returns None for unsupported models."""
-    model = BedrockModel(model_id="amazon.nova-pro-v1:0")
+    model = BedrockModel(model_id="amazon.titan-text-express-v1")
     assert model._cache_strategy is None
 
 
