@@ -277,7 +277,7 @@ class BidiNovaSonicModel(BidiModel):
         self._stream = await self.client.invoke_model_with_bidirectional_stream(
             InvokeModelWithBidirectionalStreamOperationInput(model_id=self.model_id)
         )
-        logger.debug("region=<%s> | nova sonic client initialized", self.region)
+        logger.debug("region=<%s> | nova sonic bidirectional stream established", self.region)
 
         init_events = self._build_initialization_events(system_prompt, tools, messages)
         logger.debug("event_count=<%d> | sending nova sonic initialization events", len(init_events))
