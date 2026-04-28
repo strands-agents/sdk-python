@@ -425,6 +425,7 @@ class Skill:
 
         logger.debug("path=<%s>, count=<%d> | loaded skills from directory", skills_dir, len(skills))
         return skills
+
     @classmethod
     async def from_sandbox(cls, sandbox: Sandbox, skill_path: str, *, strict: bool = False) -> Skill:
         """Load a single skill from a sandbox filesystem.
@@ -455,30 +456,26 @@ class Skill:
         """
         # Normalize path — try SKILL.md first, then skill.md
         if skill_path.lower().endswith("skill.md"):
-            skill_md_path = skill_path
-        else:
-            # Try to find SKILL.md in the directory
-            skill_md_path = None
-            for name in ("SKILL.md", "skill.md"):
-                candidate = f"{skill_path.rstrip('/')}/{name}"
-                try:
-                    await sandbox.read_file(candidate)
-                    skill_md_path = candidate
-                    break
-                except (FileNotFoundError, OSError, NotImplementedError):
-                    continue
+            # Direct path to SKILL.md — read it directly
+            logger.debug("sandbox_path=<%s> | loading skill from sandbox", skill_path)
+            content = await sandbox.read_text(skill_path)
+            skill = cls.from_content(content, strict=strict)
+            logger.debug("name=<%s>, sandbox_path=<%s> | skill loaded from sandbox", skill.name, skill_path)
+            return skill
 
-            if skill_md_path is None:
-                raise FileNotFoundError(f"path=<{skill_path}> | no SKILL.md found in sandbox skill directory")
+        # Try to find and read SKILL.md in the directory (single I/O per attempt)
+        for name in ("SKILL.md", "skill.md"):
+            candidate = f"{skill_path.rstrip('/')}/{name}"
+            try:
+                content = await sandbox.read_text(candidate)
+                logger.debug("sandbox_path=<%s> | loading skill from sandbox", candidate)
+                skill = cls.from_content(content, strict=strict)
+                logger.debug("name=<%s>, sandbox_path=<%s> | skill loaded from sandbox", skill.name, candidate)
+                return skill
+            except (FileNotFoundError, OSError, NotImplementedError):
+                continue
 
-        logger.debug("sandbox_path=<%s> | loading skill from sandbox", skill_md_path)
-
-        assert skill_md_path is not None  # guaranteed by the FileNotFoundError above
-        content = await sandbox.read_text(skill_md_path)
-        skill = cls.from_content(content, strict=strict)
-
-        logger.debug("name=<%s>, sandbox_path=<%s> | skill loaded from sandbox", skill.name, skill_md_path)
-        return skill
+        raise FileNotFoundError(f"path=<{skill_path}> | no SKILL.md found in sandbox skill directory")
 
     @classmethod
     async def from_sandbox_directory(

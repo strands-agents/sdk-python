@@ -4,7 +4,7 @@ This module provides the AgentSkills class that extends the Plugin base class
 to add Agent Skills support. The plugin registers a tool for activating
 skills, and injects skill metadata into the system prompt.
 
-Sandbox skill sources (e.g., ``"sandbox:/home/skills"``) are loaded
+Sandbox skill sources (e.g., ``"sandbox:///home/skills"``) are loaded
 asynchronously during ``init_agent()`` using the agent's sandbox instance,
 following the same deferred-loading pattern as the TypeScript SDK.
 
@@ -24,6 +24,7 @@ from xml.sax.saxutils import escape
 from ...hooks.events import BeforeInvocationEvent
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
+from ...types.content import SystemContentBlock
 from ...types.tools import ToolContext
 from .skill import Skill
 
@@ -35,10 +36,10 @@ logger = logging.getLogger(__name__)
 _DEFAULT_STATE_KEY = "agent_skills"
 _RESOURCE_DIRS = ("scripts", "references", "assets")
 _DEFAULT_MAX_RESOURCE_FILES = 20
-_SANDBOX_PREFIX = "sandbox:"
+_SANDBOX_PREFIX = "sandbox://"
 
 SkillSource: TypeAlias = str | Path | Skill
-"""A single skill source: path string, Path object, Skill instance, or ``"sandbox:/path"`` string."""
+"""A single skill source: path string, Path object, Skill instance, or ``"sandbox:///path"`` string."""
 
 SkillSources: TypeAlias = SkillSource | list[SkillSource]
 """One or more skill sources."""
@@ -61,7 +62,7 @@ class AgentSkills(Plugin):
     3. Session persistence of active skill state via ``agent.state``
 
     Skills can be provided as filesystem paths (to individual skill directories or
-    parent directories containing multiple skills), ``"sandbox:/path"`` URIs that
+    parent directories containing multiple skills), ``"sandbox:///path"`` URIs that
     load skills from the agent's sandbox at init time, or pre-built ``Skill`` instances.
 
     Sandbox sources are loaded asynchronously during ``init_agent()`` using the
@@ -81,10 +82,10 @@ class AgentSkills(Plugin):
         plugin = AgentSkills(skills=["./skills/pdf-processing", "./skills/"])
 
         # Load from agent's sandbox (resolved at agent init)
-        plugin = AgentSkills(skills=["sandbox:/home/skills"])
+        plugin = AgentSkills(skills=["sandbox:///home/skills"])
 
         # Mix local and sandbox sources
-        plugin = AgentSkills(skills=["./local-skills/", "sandbox:/home/skills"])
+        plugin = AgentSkills(skills=["./local-skills/", "sandbox:///home/skills"])
 
         # Or provide Skill instances directly
         skill = Skill(name="my-skill", description="A custom skill", instructions="Do the thing")
@@ -111,7 +112,7 @@ class AgentSkills(Plugin):
 
         Synchronous sources (filesystem paths, ``Skill`` instances, HTTPS URLs)
         are resolved immediately into the base skill set. Sandbox sources
-        (``"sandbox:/path"``) are stored as pending and resolved per-agent
+        (``"sandbox:///path"``) are stored as pending and resolved per-agent
         during ``init_agent()`` when each agent's sandbox is available.
 
         Args:
@@ -121,7 +122,7 @@ class AgentSkills(Plugin):
                 - A ``str`` or ``Path`` to a parent directory (containing skill subdirectories)
                 - A ``Skill`` dataclass instance
                 - An ``https://`` URL pointing directly to raw SKILL.md content
-                - A ``"sandbox:/path"`` URI to load from the agent's sandbox at init time
+                - A ``"sandbox:///path"`` URI to load from the agent's sandbox at init time
             state_key: Key used to store plugin state in ``agent.state``.
             max_resource_files: Maximum number of resource files to list in skill responses.
             strict: If True, raise on skill validation issues. If False (default), warn and load anyway.
@@ -137,7 +138,7 @@ class AgentSkills(Plugin):
 
         for source in all_sources:
             if isinstance(source, str) and source.startswith(_SANDBOX_PREFIX):
-                self._sandbox_sources.append(source[len(_SANDBOX_PREFIX) :])
+                self._sandbox_sources.append(source[len(_SANDBOX_PREFIX):])
             else:
                 sync_sources.append(source)
 
@@ -164,6 +165,10 @@ class AgentSkills(Plugin):
         """
         if agent is not None and agent in self._agent_skills:
             return self._agent_skills[agent]
+        if agent is not None and agent not in self._agent_skills and self._sandbox_sources:
+            logger.warning(
+                "agent has not been initialized yet — sandbox skills are not available; returning base skills only"
+            )
         return self._base_skills
 
     async def init_agent(self, agent: Agent) -> None:
@@ -204,8 +209,15 @@ class AgentSkills(Plugin):
         Returns:
             Dict mapping skill names to Skill instances loaded from the sandbox.
         """
-        sandbox = agent.sandbox
         resolved: dict[str, Skill] = {}
+
+        sandbox = getattr(agent, "sandbox", None)
+        if sandbox is None:
+            logger.warning(
+                "agent has no sandbox configured — skipping %d sandbox skill source(s)",
+                len(self._sandbox_sources),
+            )
+            return resolved
 
         for sandbox_path in self._sandbox_sources:
             logger.debug("sandbox_path=<%s> | resolving sandbox skill source", sandbox_path)
@@ -272,34 +284,51 @@ class AgentSkills(Plugin):
     def _on_before_invocation(self, event: BeforeInvocationEvent) -> None:
         """Inject skill metadata into the system prompt before each invocation.
 
-        Removes the previously injected XML block (if any) via exact string
-        replacement, then appends a fresh one. Uses agent state to track the
-        injected XML per-agent, so a single plugin instance can be shared
-        across multiple agents safely.
+        Removes the previously injected XML block (if any) via exact match,
+        then appends a fresh one. Uses agent state to track the injected XML
+        per-agent, so a single plugin instance can be shared across multiple
+        agents safely.
+
+        When the agent has a structured system prompt (list of SystemContentBlock),
+        the injection is done at the block level so that cache points and other
+        structured blocks are preserved. Otherwise falls back to string manipulation.
 
         Args:
             event: The before-invocation event containing the agent reference.
         """
         agent = event.agent
 
-        current_prompt = agent.system_prompt or ""
-
-        # Remove the previously injected XML block by exact match
         state_data = agent.state.get(self._state_key)
         last_injected_xml = state_data.get("last_injected_xml") if isinstance(state_data, dict) else None
-        if last_injected_xml is not None:
-            if last_injected_xml in current_prompt:
-                current_prompt = current_prompt.replace(last_injected_xml, "")
-            else:
-                logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
 
         skills_xml = self._generate_skills_xml(agent)
-        injection = f"\n\n{skills_xml}"
-        new_prompt = f"{current_prompt}{injection}" if current_prompt else skills_xml
+        content = agent.system_prompt_content
 
-        new_injected_xml = injection if current_prompt else skills_xml
-        self._set_state_field(agent, "last_injected_xml", new_injected_xml)
-        agent.system_prompt = new_prompt
+        if content is not None:
+            # Content-block path: preserve cache points and other structured blocks
+            blocks: list[SystemContentBlock] = list(content)
+            if last_injected_xml is not None:
+                injected_block: SystemContentBlock = {"text": last_injected_xml}
+                if injected_block in blocks:
+                    blocks.remove(injected_block)
+                else:
+                    logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
+            blocks.append({"text": skills_xml})
+            self._set_state_field(agent, "last_injected_xml", skills_xml)
+            agent.system_prompt = blocks
+        else:
+            # String path: legacy behaviour for plain-string system prompts
+            current_prompt = agent.system_prompt or ""
+            if last_injected_xml is not None:
+                if last_injected_xml in current_prompt:
+                    current_prompt = current_prompt.replace(last_injected_xml, "")
+                else:
+                    logger.warning("unable to find previously injected skills XML in system prompt, re-appending")
+            injection = f"\n\n{skills_xml}"
+            new_prompt = f"{current_prompt}{injection}" if current_prompt else skills_xml
+            new_injected_xml = injection if current_prompt else skills_xml
+            self._set_state_field(agent, "last_injected_xml", new_injected_xml)
+            agent.system_prompt = new_prompt
 
     def get_available_skills(self, agent: Agent | None = None) -> list[Skill]:
         """Get the list of available skills.
@@ -324,7 +353,7 @@ class AgentSkills(Plugin):
         parent directory containing skill subdirectories, or an ``https://``
         URL pointing directly to raw SKILL.md content.
 
-        Note: Sandbox sources (``"sandbox:/path"``) are NOT supported in
+        Note: Sandbox sources (``"sandbox:///path"``) are NOT supported in
         ``set_available_skills`` because no agent context is available.
         Use ``"sandbox:..."`` sources in the constructor instead.
 

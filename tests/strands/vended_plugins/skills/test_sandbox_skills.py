@@ -3,7 +3,7 @@
 Tests cover:
 - Skill.from_sandbox() — loading a single skill from sandbox
 - Skill.from_sandbox_directory() — loading multiple skills from sandbox
-- AgentSkills with "sandbox:/path" sources — deferred loading in init_agent
+- AgentSkills with "sandbox:///path" sources — deferred loading in init_agent
 - Mixed local + sandbox sources
 - Error handling (missing files, invalid content, sandbox failures)
 - Multi-agent isolation with different sandboxes
@@ -370,7 +370,7 @@ class TestAgentSkillsSandboxSources:
     @pytest.mark.asyncio
     async def test_sandbox_source_parsed_from_constructor(self):
         """Test that 'sandbox:' prefixed sources are stored as pending."""
-        plugin = AgentSkills(skills=["sandbox:/home/skills"])
+        plugin = AgentSkills(skills=["sandbox:///home/skills"])
 
         assert len(plugin._sandbox_sources) == 1
         assert plugin._sandbox_sources[0] == "/home/skills"
@@ -388,7 +388,7 @@ class TestAgentSkillsSandboxSources:
             },
         )
         agent = _mock_agent(sandbox=sandbox)
-        plugin = AgentSkills(skills=["sandbox:/home/skills"])
+        plugin = AgentSkills(skills=["sandbox:///home/skills"])
 
         assert len(plugin._base_skills) == 0
 
@@ -421,7 +421,7 @@ class TestAgentSkillsSandboxSources:
         )
         agent = _mock_agent(sandbox=sandbox)
 
-        plugin = AgentSkills(skills=[str(local_skill_dir), "sandbox:/home/skills"])
+        plugin = AgentSkills(skills=[str(local_skill_dir), "sandbox:///home/skills"])
 
         # Local skill resolved immediately into base
         assert "local-skill" in plugin._base_skills
@@ -441,7 +441,7 @@ class TestAgentSkillsSandboxSources:
         )
         agent = _mock_agent(sandbox=sandbox)
 
-        plugin = AgentSkills(skills=["sandbox:/home/skills/my-skill"])
+        plugin = AgentSkills(skills=["sandbox:///home/skills/my-skill"])
         await plugin.init_agent(agent)
 
         assert "sandbox-skill" in plugin._get_skills(agent)
@@ -452,7 +452,7 @@ class TestAgentSkillsSandboxSources:
         sandbox = _make_mock_sandbox()
         agent = _mock_agent(sandbox=sandbox)
 
-        plugin = AgentSkills(skills=["sandbox:/nonexistent"])
+        plugin = AgentSkills(skills=["sandbox:///nonexistent"])
 
         with caplog.at_level(logging.WARNING):
             await plugin.init_agent(agent)
@@ -469,7 +469,7 @@ class TestAgentSkillsSandboxSources:
 
         # Pre-load a skill with the same name into base
         existing = Skill(name="sandbox-skill", description="Original", instructions="Old")
-        plugin = AgentSkills(skills=[existing, "sandbox:/sandbox/skills/dupe"])
+        plugin = AgentSkills(skills=[existing, "sandbox:///sandbox/skills/dupe"])
         await plugin.init_agent(agent)
 
         # Sandbox version should overwrite the base version in the per-agent catalog
@@ -490,7 +490,7 @@ class TestAgentSkillsSandboxSources:
         )
         agent = _mock_agent(sandbox=sandbox)
 
-        plugin = AgentSkills(skills=["sandbox:/skills-a", "sandbox:/skills-b"])
+        plugin = AgentSkills(skills=["sandbox:///skills-a", "sandbox:///skills-b"])
         await plugin.init_agent(agent)
 
         agent_skills = plugin._get_skills(agent)
@@ -504,7 +504,7 @@ class TestAgentSkillsSandboxSources:
         plugin = AgentSkills(skills=[])
 
         with pytest.raises(ValueError, match="Sandbox sources"):
-            plugin.set_available_skills(["sandbox:/home/skills"])
+            plugin.set_available_skills(["sandbox:///home/skills"])
 
     @pytest.mark.asyncio
     async def test_sandbox_skills_appear_in_system_prompt(self):
@@ -517,7 +517,7 @@ class TestAgentSkillsSandboxSources:
         )
         agent = _mock_agent(sandbox=sandbox)
 
-        plugin = AgentSkills(skills=["sandbox:/home/skills"])
+        plugin = AgentSkills(skills=["sandbox:///home/skills"])
         await plugin.init_agent(agent)
 
         # Simulate before_invocation hook — generate XML for this agent
@@ -537,7 +537,7 @@ class TestAgentSkillsSandboxSources:
         )
         agent = _mock_agent(sandbox=sandbox)
 
-        plugin = AgentSkills(skills=["sandbox:/home/skills"])
+        plugin = AgentSkills(skills=["sandbox:///home/skills"])
         await plugin.init_agent(agent)
 
         # Create tool context and activate the skill
@@ -566,9 +566,9 @@ class TestAgentSkillsSandboxSources:
         """Test various sandbox: source string formats."""
         plugin = AgentSkills(
             skills=[
-                "sandbox:/home/skills",
-                "sandbox:/absolute/path/to/skills",
-                "sandbox:/tmp/skills/",
+                "sandbox:///home/skills",
+                "sandbox:///absolute/path/to/skills",
+                "sandbox:///tmp/skills/",
             ]
         )
 
@@ -594,7 +594,7 @@ class TestAgentSkillsSandboxPluginRegistry:
         )
         agent = _mock_agent(sandbox=sandbox)
 
-        plugin = AgentSkills(skills=["sandbox:/home/skills"])
+        plugin = AgentSkills(skills=["sandbox:///home/skills"])
 
         # The registry should handle the async init_agent
         registry = _PluginRegistry(agent)
@@ -614,7 +614,7 @@ class TestAgentSkillsSandboxPluginRegistry:
         )
         agent = _mock_agent(sandbox=sandbox)
 
-        plugin = AgentSkills(skills=["sandbox:/home/skills"])
+        plugin = AgentSkills(skills=["sandbox:///home/skills"])
         await plugin.init_agent(agent)
 
         available = plugin.get_available_skills(agent)
@@ -646,7 +646,7 @@ class TestMultiAgentIsolation:
         agent_b = _mock_agent(sandbox=sandbox_b)
 
         # SAME plugin instance
-        plugin = AgentSkills(skills=["sandbox:/home/skills"])
+        plugin = AgentSkills(skills=["sandbox:///home/skills"])
 
         await plugin.init_agent(agent_a)
         await plugin.init_agent(agent_b)
@@ -678,7 +678,7 @@ class TestMultiAgentIsolation:
         )
         agent_b = _mock_agent(sandbox=sandbox_b)
 
-        plugin = AgentSkills(skills=[base_skill, "sandbox:/skills"])
+        plugin = AgentSkills(skills=[base_skill, "sandbox:///skills"])
 
         await plugin.init_agent(agent_a)
         await plugin.init_agent(agent_b)
@@ -717,7 +717,7 @@ These are different instructions.
         )
         agent_b = _mock_agent(sandbox=sandbox_b)
 
-        plugin = AgentSkills(skills=["sandbox:/skills"])
+        plugin = AgentSkills(skills=["sandbox:///skills"])
 
         await plugin.init_agent(agent_a)
         await plugin.init_agent(agent_b)
@@ -741,7 +741,7 @@ These are different instructions.
         )
         agent_b = _mock_agent(sandbox=sandbox_b)
 
-        plugin = AgentSkills(skills=["sandbox:/skills"])
+        plugin = AgentSkills(skills=["sandbox:///skills"])
         await plugin.init_agent(agent_a)
         await plugin.init_agent(agent_b)
 
@@ -777,7 +777,7 @@ These are different instructions.
         )
         agent_b = _mock_agent(sandbox=sandbox_b)
 
-        plugin = AgentSkills(skills=["sandbox:/skills"])
+        plugin = AgentSkills(skills=["sandbox:///skills"])
         await plugin.init_agent(agent_a)
         await plugin.init_agent(agent_b)
 
@@ -799,7 +799,7 @@ These are different instructions.
         )
         agent = _mock_agent(sandbox=sandbox)
 
-        plugin = AgentSkills(skills=["sandbox:/skills"])
+        plugin = AgentSkills(skills=["sandbox:///skills"])
         await plugin.init_agent(agent)
 
         # With agent — returns per-agent catalog
@@ -821,7 +821,7 @@ These are different instructions.
         )
         agent = _mock_agent(sandbox=sandbox)
 
-        plugin = AgentSkills(skills=[base, "sandbox:/skills"])
+        plugin = AgentSkills(skills=[base, "sandbox:///skills"])
 
         # Before init
         assert list(plugin._base_skills.keys()) == ["base-skill"]
@@ -843,7 +843,7 @@ These are different instructions.
         )
         agent = _mock_agent(sandbox=sandbox)
 
-        plugin = AgentSkills(skills=["sandbox:/skills"])
+        plugin = AgentSkills(skills=["sandbox:///skills"])
         await plugin.init_agent(agent)
 
         assert "docker-skill" in plugin._get_skills(agent)
