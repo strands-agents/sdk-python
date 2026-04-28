@@ -2,7 +2,7 @@
 
 Provides view, create, str_replace, insert, and undo_edit operations on files
 in the agent's sandbox. The tool delegates all file I/O to the sandbox's
-``read_file``, ``write_file``, and ``list_files`` methods.
+``read_text``, ``write_text``, and ``list_files`` methods.
 
 The tool shape matches Anthropic's ``text_editor`` built-in tool — 5 commands,
 7 parameters. This means models trained on Anthropic's tool spec will work
@@ -16,13 +16,26 @@ Configuration keys (set via ``agent.state.set("strands_editor_tool", {...})``):
   paths containing ``..``. When False (the default), paths are passed through
   to the sandbox without filesystem-level validation — the sandbox decides
   what a path means. Default: False.
+
+Example::
+
+    from strands import Agent
+    from strands.vended_tools import editor
+
+    agent = Agent(tools=[editor])
+    agent("View the contents of /tmp/example.py")
+
+    # Configure max file size
+    agent.state.set("strands_editor_tool", {"max_file_size": 2097152})
 """
 
 import logging
 from typing import Any, Literal
 
-from ...tools.decorator import tool
-from ...types.tools import ToolContext
+from ..sandbox.base import Sandbox
+from ..tools.decorator import tool
+from ..types.tools import ToolContext
+from ._utils import get_tool_config
 
 logger = logging.getLogger(__name__)
 
@@ -40,11 +53,6 @@ SNIPPET_LINES = 4
 
 #: Maximum directory listing depth
 MAX_DIRECTORY_DEPTH = 2
-
-
-def _get_config(tool_context: ToolContext) -> dict[str, Any]:
-    """Read editor tool configuration from agent state."""
-    return tool_context.agent.state.get(STATE_KEY) or {}
 
 
 def _make_output(content: str, descriptor: str, init_line: int = 1) -> str:
@@ -144,8 +152,8 @@ async def editor(
     Returns:
         Result of the operation — file contents, success message, or error.
     """
-    config = _get_config(tool_context)
-    sandbox = tool_context.agent.sandbox
+    config = get_tool_config(tool_context, STATE_KEY)
+    sandbox: Sandbox = tool_context.agent.sandbox
 
     # Path validation is opt-in. By default, paths are passed straight through
     # to the sandbox without filesystem-level validation. This allows sandboxes
@@ -182,11 +190,11 @@ async def editor(
         return f"Error: Unknown command: {command}"  # type: ignore[unreachable]
     except NotImplementedError as e:
         return f"Error: Sandbox does not support this operation — {e}"
-    except Exception as e:
+    except (FileNotFoundError, UnicodeDecodeError, OSError, ValueError) as e:
         return f"Error: {e}"
 
 
-async def _handle_view(sandbox: Any, config: dict[str, Any], path: str, view_range: list[int] | None) -> str:
+async def _handle_view(sandbox: Sandbox, config: dict[str, Any], path: str, view_range: list[int] | None) -> str:
     """Handle the view command."""
     # Check if path is a directory
     try:
@@ -205,7 +213,7 @@ async def _handle_view(sandbox: Any, config: dict[str, Any], path: str, view_ran
     # Read file
     max_size = config.get("max_file_size", DEFAULT_MAX_FILE_SIZE)
     try:
-        content = (await sandbox.read_file(path)).decode("utf-8")
+        content = await sandbox.read_text(path)
     except FileNotFoundError:
         return f"Error: The path {path} does not exist. Please provide a valid path."
     except UnicodeDecodeError:
@@ -237,14 +245,14 @@ async def _handle_view(sandbox: Any, config: dict[str, Any], path: str, view_ran
         return f"Error: Invalid `view_range`: [{start}, {end}]. Second element must be >= first element."
 
     if end == -1:
-        selected = lines[start - 1 :]
+        selected = lines[start - 1:]
     else:
-        selected = lines[start - 1 : end]
+        selected = lines[start - 1:end]
 
     return _make_output("\n".join(selected), path, init_line=start)
 
 
-async def _handle_create(sandbox: Any, tool_context: ToolContext, path: str, file_text: str) -> str:
+async def _handle_create(sandbox: Sandbox, tool_context: ToolContext, path: str, file_text: str) -> str:
     """Handle the create command."""
     # Check if file already exists
     try:
@@ -253,12 +261,12 @@ async def _handle_create(sandbox: Any, tool_context: ToolContext, path: str, fil
     except (FileNotFoundError, OSError):
         pass  # File doesn't exist, good
 
-    await sandbox.write_file(path, file_text.encode("utf-8"))
+    await sandbox.write_text(path, file_text)
     return f"File created successfully at: {path}"
 
 
 async def _handle_str_replace(
-    sandbox: Any,
+    sandbox: Sandbox,
     tool_context: ToolContext,
     config: dict[str, Any],
     path: str,
@@ -267,7 +275,7 @@ async def _handle_str_replace(
 ) -> str:
     """Handle the str_replace command."""
     try:
-        content = (await sandbox.read_file(path)).decode("utf-8")
+        content = await sandbox.read_text(path)
     except FileNotFoundError:
         return f"Error: The path {path} does not exist."
 
@@ -285,13 +293,12 @@ async def _handle_str_replace(
     if count > 1:
         # Find line numbers of all occurrences
         lines = content.split("\n")
-        line_nums = []
+        line_nums: list[int] = []
         for i, line in enumerate(lines):
             if expanded_old in line:
                 line_nums.append(i + 1)
         # Also check multi-line matches
         if not line_nums:
-            # old_str spans multiple lines, find approximate locations
             idx = 0
             while True:
                 idx = content.find(expanded_old, idx)
@@ -312,7 +319,7 @@ async def _handle_str_replace(
     new_content = content.replace(expanded_old, expanded_new, 1)
 
     # Write back
-    await sandbox.write_file(path, new_content.encode("utf-8"))
+    await sandbox.write_text(path, new_content)
 
     # Generate snippet around the change
     replace_idx = content.find(expanded_old)
@@ -334,7 +341,7 @@ async def _handle_str_replace(
 
 
 async def _handle_insert(
-    sandbox: Any,
+    sandbox: Sandbox,
     tool_context: ToolContext,
     config: dict[str, Any],
     path: str,
@@ -343,7 +350,7 @@ async def _handle_insert(
 ) -> str:
     """Handle the insert command."""
     try:
-        content = (await sandbox.read_file(path)).decode("utf-8")
+        content = await sandbox.read_text(path)
     except FileNotFoundError:
         return f"Error: The path {path} does not exist."
 
@@ -368,7 +375,7 @@ async def _handle_insert(
         new_lines = lines[:insert_line] + new_str_lines + lines[insert_line:]
 
     new_content = "\n".join(new_lines)
-    await sandbox.write_file(path, new_content.encode("utf-8"))
+    await sandbox.write_text(path, new_content)
 
     # Generate snippet
     start = max(0, insert_line - SNIPPET_LINES)
@@ -382,7 +389,7 @@ async def _handle_insert(
     )
 
 
-async def _handle_undo(sandbox: Any, tool_context: ToolContext, path: str) -> str:
+async def _handle_undo(sandbox: Sandbox, tool_context: ToolContext, path: str) -> str:
     """Handle the undo_edit command."""
     previous_content = _get_undo(tool_context, path)
     if previous_content is None:
@@ -390,12 +397,12 @@ async def _handle_undo(sandbox: Any, tool_context: ToolContext, path: str) -> st
 
     # Read current content for future undo
     try:
-        current = (await sandbox.read_file(path)).decode("utf-8")
+        current = await sandbox.read_text(path)
     except FileNotFoundError:
         current = ""
 
     # Write the previous content back
-    await sandbox.write_file(path, previous_content.encode("utf-8"))
+    await sandbox.write_text(path, previous_content)
 
     # Save current as new undo (so undo is toggleable)
     _save_undo(tool_context, path, current)

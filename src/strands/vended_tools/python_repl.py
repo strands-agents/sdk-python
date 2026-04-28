@@ -13,6 +13,17 @@ Configuration keys (set via ``agent.state.set("strands_python_repl_tool", {...})
 
 - ``timeout`` (int): Default timeout in seconds for code execution.
   Overridden by the per-call ``timeout`` parameter. Default: 30.
+
+Example::
+
+    from strands import Agent
+    from strands.vended_tools import python_repl
+
+    agent = Agent(tools=[python_repl])
+    agent("Calculate the first 10 Fibonacci numbers")
+
+    # Configure timeout
+    agent.state.set("strands_python_repl_tool", {"timeout": 60})
 """
 
 import asyncio
@@ -20,9 +31,10 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from ...sandbox.base import ExecutionResult, StreamChunk
-from ...tools.decorator import tool
-from ...types.tools import ToolContext
+from ..sandbox.base import ExecutionResult, StreamChunk
+from ..tools.decorator import tool
+from ..types.tools import ToolContext
+from ._utils import get_tool_config
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +43,6 @@ STATE_KEY = "strands_python_repl_tool"
 
 #: Default timeout for code execution (seconds)
 DEFAULT_TIMEOUT = 30
-
-
-def _get_config(tool_context: ToolContext) -> dict[str, Any]:
-    """Read python_repl tool configuration from agent state."""
-    return tool_context.agent.state.get(STATE_KEY) or {}
 
 
 @tool(context=True)
@@ -69,7 +76,7 @@ async def python_repl(
         :class:`~strands.sandbox.base.StreamChunk` objects during execution (wrapped as
         ``ToolStreamEvent`` by the SDK), then a final string result.
     """
-    config = _get_config(tool_context)
+    config = get_tool_config(tool_context, STATE_KEY)
     sandbox = tool_context.agent.sandbox
 
     # Handle reset
@@ -106,7 +113,7 @@ async def python_repl(
     except NotImplementedError:
         yield "Error: Sandbox does not support code execution (NoOpSandbox)."
         return
-    except Exception as e:
+    except OSError as e:
         yield f"Error: {e}"
         return
 

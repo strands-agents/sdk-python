@@ -13,6 +13,17 @@ Configuration keys (set via ``agent.state.set("strands_shell_tool", {...})``):
 
 - ``timeout`` (int): Default timeout in seconds. Overridden by the per-call
   ``timeout`` parameter. Default: 120.
+
+Example::
+
+    from strands import Agent
+    from strands.vended_tools import shell
+
+    agent = Agent(tools=[shell])
+    agent("List all Python files in the current directory")
+
+    # Configure timeout
+    agent.state.set("strands_shell_tool", {"timeout": 60})
 """
 
 import asyncio
@@ -20,9 +31,10 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from ...sandbox.base import ExecutionResult, StreamChunk
-from ...tools.decorator import tool
-from ...types.tools import ToolContext
+from ..sandbox.base import ExecutionResult, StreamChunk
+from ..tools.decorator import tool
+from ..types.tools import ToolContext
+from ._utils import get_tool_config
 
 logger = logging.getLogger(__name__)
 
@@ -31,18 +43,6 @@ STATE_KEY = "strands_shell_tool"
 
 #: Default timeout for shell commands (seconds)
 DEFAULT_TIMEOUT = 120
-
-
-def _get_config(tool_context: ToolContext) -> dict[str, Any]:
-    """Read shell tool configuration from agent state.
-
-    Args:
-        tool_context: The tool context providing access to agent state.
-
-    Returns:
-        Configuration dict. Empty dict if no config is set.
-    """
-    return tool_context.agent.state.get(STATE_KEY) or {}
 
 
 @tool(context=True)
@@ -77,7 +77,7 @@ async def shell(
         :class:`~strands.sandbox.base.StreamChunk` objects during execution (wrapped as
         ``ToolStreamEvent`` by the SDK), then a final string result.
     """
-    config = _get_config(tool_context)
+    config = get_tool_config(tool_context, STATE_KEY)
     sandbox = tool_context.agent.sandbox
 
     # Handle restart
@@ -96,11 +96,16 @@ async def shell(
     shell_state = tool_context.agent.state.get("_strands_shell_state") or {}
     cwd = shell_state.get("cwd")
 
+    # Wrap command with cwd tracking in a single execution to avoid
+    # a separate `pwd` call after every command (reduces latency for
+    # remote sandboxes). Appends `; pwd` to capture the final cwd.
+    tracked_command = f"{command}; echo __STRANDS_CWD__; pwd"
+
     # Execute via sandbox streaming
     result: ExecutionResult | None = None
     try:
         async for chunk in sandbox.execute_streaming(
-            command,
+            tracked_command,
             timeout=effective_timeout,
             cwd=cwd,
         ):
@@ -115,7 +120,7 @@ async def shell(
     except NotImplementedError:
         yield "Error: Sandbox does not support command execution (NoOpSandbox)."
         return
-    except Exception as e:
+    except OSError as e:
         yield f"Error: {e}"
         return
 
@@ -123,21 +128,26 @@ async def shell(
         yield "Error: Sandbox did not return an execution result."
         return
 
-    # Track working directory changes
-    try:
-        cwd_result = await sandbox.execute("pwd", timeout=5, cwd=cwd)
-        if cwd_result.exit_code == 0:
-            new_cwd = cwd_result.stdout.strip()
-            if new_cwd:
-                shell_state["cwd"] = new_cwd
-                tool_context.agent.state.set("_strands_shell_state", shell_state)
-    except Exception:
-        pass  # Best-effort cwd tracking
+    # Extract cwd from output (after __STRANDS_CWD__ marker)
+    stdout = result.stdout or ""
+    cwd_marker = "__STRANDS_CWD__"
+    if cwd_marker in stdout:
+        parts = stdout.split(cwd_marker, 1)
+        # The actual command output is before the marker
+        stdout = parts[0].rstrip("\n")
+        # The cwd is the line after the marker
+        new_cwd = parts[1].strip()
+        if new_cwd:
+            shell_state["cwd"] = new_cwd
+            tool_context.agent.state.set("_strands_shell_state", shell_state)
+    else:
+        # Fallback: no marker found (sandbox may have filtered it)
+        pass
 
     # Format final output (becomes the ToolResult)
     output_parts = []
-    if result.stdout:
-        output_parts.append(result.stdout)
+    if stdout:
+        output_parts.append(stdout)
     if result.stderr:
         output_parts.append(result.stderr)
 
