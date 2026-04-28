@@ -11,6 +11,7 @@ from strands.hooks.events import AfterToolCallEvent
 from strands.types.tools import ToolContext, ToolUse
 from strands.vended_plugins.context_offloader import (
     ContextOffloader,
+    FileStorage,
     InMemoryStorage,
 )
 
@@ -537,3 +538,45 @@ class TestInlineGuidance:
         result_text = event.result["content"][0]["text"]
         assert "retrieve_offloaded_content" not in result_text
         assert "available tools" in result_text
+
+
+class TestActionableReferences:
+    """Tests that storage-specific references appear in the offloaded preview."""
+
+    @pytest.mark.asyncio
+    async def test_file_storage_path_in_preview(self, tmp_path, mock_agent):
+        storage = FileStorage(artifact_dir=str(tmp_path / "artifacts"))
+        plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+        event = _make_event(mock_agent, "a" * 200)
+
+        await plugin._handle_tool_result(event)
+
+        result_text = event.result["content"][0]["text"]
+        assert str(tmp_path / "artifacts") in result_text
+
+    @pytest.mark.asyncio
+    async def test_file_storage_image_placeholder_has_path(self, tmp_path, mock_agent):
+        storage = FileStorage(artifact_dir=str(tmp_path / "artifacts"))
+        plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+        img_bytes = b"\x89PNG" + b"\x00" * 100
+        content = [
+            {"text": "x" * 200},
+            {"image": {"format": "png", "source": {"bytes": img_bytes}}},
+        ]
+        event = _make_event(mock_agent, content)
+
+        await plugin._handle_tool_result(event)
+
+        placeholder = event.result["content"][1]["text"]
+        assert str(tmp_path / "artifacts") in placeholder
+
+    @pytest.mark.asyncio
+    async def test_inmemory_storage_opaque_reference_in_preview(self, mock_agent):
+        storage = InMemoryStorage()
+        plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+        event = _make_event(mock_agent, "a" * 200)
+
+        await plugin._handle_tool_result(event)
+
+        result_text = event.result["content"][0]["text"]
+        assert "mem_" in result_text
