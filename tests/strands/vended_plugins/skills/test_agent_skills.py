@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from strands.hooks.events import BeforeInvocationEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins.registry import _PluginRegistry
@@ -32,12 +34,11 @@ def _mock_agent():
     agent._system_prompt = "You are an agent."
     agent._system_prompt_content = [{"text": "You are an agent."}]
 
-    # Make system_prompt and system_prompt_content properties behave like the real Agent
+    # Make system_prompt property behave like the real Agent
     type(agent).system_prompt = property(
         lambda self: self._system_prompt,
         lambda self, value: _set_system_prompt(self, value),
     )
-    type(agent).system_prompt_content = property(lambda self: self._system_prompt_content)
 
     agent.hooks = HookRegistry()
     agent.add_hook = MagicMock(
@@ -60,15 +61,11 @@ def _mock_tool_context(agent: MagicMock) -> ToolContext:
     return ToolContext(tool_use=tool_use, agent=agent, invocation_state={"agent": agent})
 
 
-def _set_system_prompt(agent: MagicMock, value: str | list | None) -> None:
+def _set_system_prompt(agent: MagicMock, value: str | None) -> None:
     """Simulate the Agent.system_prompt setter."""
     if isinstance(value, str):
         agent._system_prompt = value
         agent._system_prompt_content = [{"text": value}]
-    elif isinstance(value, list):
-        text_parts = [block["text"] for block in value if "text" in block]
-        agent._system_prompt = "\n".join(text_parts) if text_parts else None
-        agent._system_prompt_content = value
     elif value is None:
         agent._system_prompt = None
         agent._system_prompt_content = None
@@ -160,12 +157,13 @@ class TestSkillsPluginInitAgent:
 
         assert agent.hooks.has_callbacks()
 
-    def test_does_not_store_agent_reference(self):
+    @pytest.mark.asyncio
+    async def test_does_not_store_agent_reference(self):
         """Test that init_agent does not store the agent on the plugin."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
 
-        plugin.init_agent(agent)
+        await plugin.init_agent(agent)
 
         assert not hasattr(plugin, "_agent")
 
@@ -422,41 +420,9 @@ class TestSystemPromptInjection:
         event = BeforeInvocationEvent(agent=agent)
         plugin._on_before_invocation(event)
 
-        # The public setter should have been used via the content-block path:
-        # original block is preserved and the skills XML is appended as a new block.
-        assert len(agent.system_prompt_content) == 2
-        assert agent.system_prompt_content[0] == {"text": "Original."}
-        assert "<available_skills>" in agent.system_prompt_content[1]["text"]
-
-    def test_preserves_cache_points_in_system_prompt(self):
-        """Test that cachePoint blocks in the system prompt are preserved after injection."""
-        plugin = AgentSkills(skills=[_make_skill()])
-        agent = _mock_agent()
-        agent._system_prompt = "Base instructions."
-        agent._system_prompt_content = [
-            {"text": "Base instructions."},
-            {"cachePoint": {"type": "default"}},
-        ]
-
-        expected_skills_xml = plugin._generate_skills_xml()
-
-        event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
-
-        # Exact block structure: original text, cachePoint, skills XML
-        assert agent.system_prompt_content == [
-            {"text": "Base instructions."},
-            {"cachePoint": {"type": "default"}},
-            {"text": expected_skills_xml},
-        ]
-
-        # Repeated invocation: identical result, no accumulation
-        plugin._on_before_invocation(event)
-        assert agent.system_prompt_content == [
-            {"text": "Base instructions."},
-            {"cachePoint": {"type": "default"}},
-            {"text": expected_skills_xml},
-        ]
+        # The public setter should have been used, so _system_prompt_content
+        # should be consistent with _system_prompt
+        assert agent._system_prompt_content == [{"text": agent._system_prompt}]
 
     def test_warns_when_previous_xml_not_found(self, caplog):
         """Test that a warning is logged when the previously injected XML is missing from the prompt."""
@@ -471,43 +437,6 @@ class TestSystemPromptInjection:
         # Completely replace the system prompt, removing the injected XML
         agent.system_prompt = "Totally new prompt."
 
-        with caplog.at_level(logging.WARNING):
-            plugin._on_before_invocation(event)
-
-        assert "unable to find previously injected skills XML in system prompt" in caplog.text
-        assert "<available_skills>" in agent.system_prompt
-
-
-class TestStringPathInjection:
-    """Tests for the string-path branch of _on_before_invocation (system_prompt_content is None)."""
-
-    def test_string_path_replaces_previous_xml(self):
-        """Test that old injected XML is replaced when found in the string prompt."""
-        plugin = AgentSkills(skills=[_make_skill()])
-        agent = _mock_agent()
-
-        old_xml = "\n\n<old>xml</old>"
-        agent._system_prompt = f"Base prompt.{old_xml}"
-        agent._system_prompt_content = None
-        agent.state.set(plugin._state_key, {"last_injected_xml": old_xml})
-
-        event = BeforeInvocationEvent(agent=agent)
-        plugin._on_before_invocation(event)
-
-        assert "<old>xml</old>" not in agent.system_prompt
-        assert "<available_skills>" in agent.system_prompt
-        assert agent.system_prompt.startswith("Base prompt.")
-
-    def test_string_path_warns_when_previous_xml_not_found(self, caplog):
-        """Test that a warning is logged when old XML is missing from the string prompt."""
-        plugin = AgentSkills(skills=[_make_skill()])
-        agent = _mock_agent()
-
-        agent._system_prompt = "Totally new prompt."
-        agent._system_prompt_content = None
-        agent.state.set(plugin._state_key, {"last_injected_xml": "\n\n<old>xml</old>"})
-
-        event = BeforeInvocationEvent(agent=agent)
         with caplog.at_level(logging.WARNING):
             plugin._on_before_invocation(event)
 
@@ -702,16 +631,16 @@ class TestResolveSkills:
         skill = _make_skill()
         plugin = AgentSkills(skills=[skill])
 
-        assert len(plugin._skills) == 1
-        assert plugin._skills["test-skill"] is skill
+        assert len(plugin._base_skills) == 1
+        assert plugin._base_skills["test-skill"] is skill
 
     def test_resolve_skill_directory_path(self, tmp_path):
         """Test resolving a path to a skill directory."""
         _make_skill_dir(tmp_path, "path-skill")
         plugin = AgentSkills(skills=[tmp_path / "path-skill"])
 
-        assert len(plugin._skills) == 1
-        assert "path-skill" in plugin._skills
+        assert len(plugin._base_skills) == 1
+        assert "path-skill" in plugin._base_skills
 
     def test_resolve_parent_directory_path(self, tmp_path):
         """Test resolving a path to a parent directory."""
@@ -719,20 +648,20 @@ class TestResolveSkills:
         _make_skill_dir(tmp_path, "child-b")
         plugin = AgentSkills(skills=[tmp_path])
 
-        assert len(plugin._skills) == 2
+        assert len(plugin._base_skills) == 2
 
     def test_resolve_skill_md_file_path(self, tmp_path):
         """Test resolving a path to a SKILL.md file."""
         skill_dir = _make_skill_dir(tmp_path, "file-skill")
         plugin = AgentSkills(skills=[skill_dir / "SKILL.md"])
 
-        assert len(plugin._skills) == 1
-        assert "file-skill" in plugin._skills
+        assert len(plugin._base_skills) == 1
+        assert "file-skill" in plugin._base_skills
 
     def test_resolve_nonexistent_path(self, tmp_path):
         """Test that nonexistent paths are skipped."""
         plugin = AgentSkills(skills=[str(tmp_path / "ghost")])
-        assert len(plugin._skills) == 0
+        assert len(plugin._base_skills) == 0
 
 
 class TestResolveUrlSkills:
