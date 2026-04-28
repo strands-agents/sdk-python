@@ -165,7 +165,7 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
         agent=agent,
         message=agent.messages[0],
     )
-    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY, projected_input_tokens=ANY)
     assert next(events) == AfterModelCallEvent(
         agent=agent,
         invocation_state=ANY,
@@ -195,7 +195,7 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
-    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY, projected_input_tokens=ANY)
     assert next(events) == AfterModelCallEvent(
         agent=agent,
         invocation_state=ANY,
@@ -239,7 +239,7 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
         agent=agent,
         message=agent.messages[0],
     )
-    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY, projected_input_tokens=ANY)
     assert next(events) == AfterModelCallEvent(
         agent=agent,
         invocation_state=ANY,
@@ -269,7 +269,7 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
-    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY)
+    assert next(events) == BeforeModelCallEvent(agent=agent, invocation_state=ANY, projected_input_tokens=ANY)
     assert next(events) == AfterModelCallEvent(
         agent=agent,
         invocation_state=ANY,
