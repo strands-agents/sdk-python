@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from strands.hooks.events import BeforeInvocationEvent
 from strands.hooks.registry import HookRegistry
 from strands.plugins.registry import _PluginRegistry
@@ -66,9 +68,11 @@ def _set_system_prompt(agent: MagicMock, value: str | list | None) -> None:
         agent._system_prompt = value
         agent._system_prompt_content = [{"text": value}]
     elif isinstance(value, list):
+        # Content-block path: list of SystemContentBlock dicts
+        agent._system_prompt_content = value
+        # Derive the string prompt from text blocks
         text_parts = [block["text"] for block in value if "text" in block]
         agent._system_prompt = "\n".join(text_parts) if text_parts else None
-        agent._system_prompt_content = value
     elif value is None:
         agent._system_prompt = None
         agent._system_prompt_content = None
@@ -160,12 +164,13 @@ class TestSkillsPluginInitAgent:
 
         assert agent.hooks.has_callbacks()
 
-    def test_does_not_store_agent_reference(self):
+    @pytest.mark.asyncio
+    async def test_does_not_store_agent_reference(self):
         """Test that init_agent does not store the agent on the plugin."""
         plugin = AgentSkills(skills=[_make_skill()])
         agent = _mock_agent()
 
-        plugin.init_agent(agent)
+        await plugin.init_agent(agent)
 
         assert not hasattr(plugin, "_agent")
 
@@ -702,16 +707,16 @@ class TestResolveSkills:
         skill = _make_skill()
         plugin = AgentSkills(skills=[skill])
 
-        assert len(plugin._skills) == 1
-        assert plugin._skills["test-skill"] is skill
+        assert len(plugin._base_skills) == 1
+        assert plugin._base_skills["test-skill"] is skill
 
     def test_resolve_skill_directory_path(self, tmp_path):
         """Test resolving a path to a skill directory."""
         _make_skill_dir(tmp_path, "path-skill")
         plugin = AgentSkills(skills=[tmp_path / "path-skill"])
 
-        assert len(plugin._skills) == 1
-        assert "path-skill" in plugin._skills
+        assert len(plugin._base_skills) == 1
+        assert "path-skill" in plugin._base_skills
 
     def test_resolve_parent_directory_path(self, tmp_path):
         """Test resolving a path to a parent directory."""
@@ -719,20 +724,20 @@ class TestResolveSkills:
         _make_skill_dir(tmp_path, "child-b")
         plugin = AgentSkills(skills=[tmp_path])
 
-        assert len(plugin._skills) == 2
+        assert len(plugin._base_skills) == 2
 
     def test_resolve_skill_md_file_path(self, tmp_path):
         """Test resolving a path to a SKILL.md file."""
         skill_dir = _make_skill_dir(tmp_path, "file-skill")
         plugin = AgentSkills(skills=[skill_dir / "SKILL.md"])
 
-        assert len(plugin._skills) == 1
-        assert "file-skill" in plugin._skills
+        assert len(plugin._base_skills) == 1
+        assert "file-skill" in plugin._base_skills
 
     def test_resolve_nonexistent_path(self, tmp_path):
         """Test that nonexistent paths are skipped."""
         plugin = AgentSkills(skills=[str(tmp_path / "ghost")])
-        assert len(plugin._skills) == 0
+        assert len(plugin._base_skills) == 0
 
 
 class TestResolveUrlSkills:

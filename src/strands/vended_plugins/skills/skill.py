@@ -14,9 +14,12 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from ...sandbox.base import Sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -421,4 +424,102 @@ class Skill:
                 logger.warning("path=<%s> | skipping skill due to error: %s", child, e)
 
         logger.debug("path=<%s>, count=<%d> | loaded skills from directory", skills_dir, len(skills))
+        return skills
+
+    @classmethod
+    async def from_sandbox(cls, sandbox: Sandbox, skill_path: str, *, strict: bool = False) -> Skill:
+        """Load a single skill from a sandbox filesystem.
+
+        Reads a SKILL.md file from the sandbox and parses it into a Skill
+        instance. The sandbox can be any implementation (host, Docker, cloud).
+
+        Example::
+
+            from strands.sandbox import HostSandbox
+
+            sandbox = HostSandbox()
+            skill = await Skill.from_sandbox(sandbox, "/home/skills/my-skill")
+
+        Args:
+            sandbox: The sandbox to read from.
+            skill_path: Path to the skill directory (containing SKILL.md) or the
+                SKILL.md file itself within the sandbox.
+            strict: If True, raise on any validation issue. If False (default),
+                warn and load anyway.
+
+        Returns:
+            A Skill instance populated from the sandbox SKILL.md file.
+
+        Raises:
+            FileNotFoundError: If no SKILL.md is found at the given path.
+            ValueError: If the skill metadata is invalid.
+        """
+        # Normalize path — try SKILL.md first, then skill.md
+        if skill_path.lower().endswith("skill.md"):
+            # Direct path to SKILL.md — read it directly
+            logger.debug("sandbox_path=<%s> | loading skill from sandbox", skill_path)
+            content = await sandbox.read_text(skill_path)
+            skill = cls.from_content(content, strict=strict)
+            logger.debug("name=<%s>, sandbox_path=<%s> | skill loaded from sandbox", skill.name, skill_path)
+            return skill
+
+        # Try to find and read SKILL.md in the directory (single I/O per attempt)
+        for name in ("SKILL.md", "skill.md"):
+            candidate = f"{skill_path.rstrip('/')}/{name}"
+            try:
+                content = await sandbox.read_text(candidate)
+                logger.debug("sandbox_path=<%s> | loading skill from sandbox", candidate)
+                skill = cls.from_content(content, strict=strict)
+                logger.debug("name=<%s>, sandbox_path=<%s> | skill loaded from sandbox", skill.name, candidate)
+                return skill
+            except (FileNotFoundError, OSError, NotImplementedError):
+                continue
+
+        raise FileNotFoundError(f"path=<{skill_path}> | no SKILL.md found in sandbox skill directory")
+
+    @classmethod
+    async def from_sandbox_directory(cls, sandbox: Sandbox, skills_dir: str, *, strict: bool = False) -> list[Skill]:
+        """Load all skills from a parent directory in a sandbox.
+
+        Lists subdirectories in the given sandbox path and loads any that
+        contain a SKILL.md file.
+
+        Example::
+
+            from strands.sandbox import HostSandbox
+
+            sandbox = HostSandbox()
+            skills = await Skill.from_sandbox_directory(sandbox, "/home/skills")
+
+        Args:
+            sandbox: The sandbox to read from.
+            skills_dir: Path to the parent directory containing skill
+                subdirectories within the sandbox.
+            strict: If True, raise on any validation issue. If False (default),
+                warn and load anyway.
+
+        Returns:
+            List of Skill instances loaded from the sandbox directory.
+        """
+        skills: list[Skill] = []
+
+        try:
+            entries = await sandbox.list_files(skills_dir)
+        except (FileNotFoundError, OSError, NotImplementedError) as e:
+            logger.warning("sandbox_path=<%s> | failed to list sandbox directory: %s", skills_dir, e)
+            return skills
+
+        for entry in sorted(entries, key=lambda e: e.name):
+            if not entry.is_dir:
+                continue
+
+            child_path = f"{skills_dir.rstrip('/')}/{entry.name}"
+
+            try:
+                skill = await cls.from_sandbox(sandbox, child_path, strict=strict)
+                skills.append(skill)
+            except (FileNotFoundError, ValueError, OSError, NotImplementedError) as e:
+                logger.debug("sandbox_path=<%s> | skipping directory: %s", child_path, e)
+
+        logger.debug("sandbox_path=<%s>, count=<%d> | loaded skills from sandbox directory", skills_dir, len(skills))
         return skills
