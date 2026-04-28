@@ -106,11 +106,13 @@ async def shell(
     # the shell process they run in — a separate pwd call would not see them).
     tracked_command = f"{command}; echo {_CWD_MARKER}; pwd"
 
-    # Collect chunks during streaming, then filter the marker before yielding.
-    # This prevents internal markers from leaking into UI consumers' streamed
-    # output while preserving cwd tracking correctness.
-    stdout_chunks: list[StreamChunk] = []
-    stderr_chunks: list[StreamChunk] = []
+    # One-chunk-behind streaming: yield stdout chunks incrementally as they
+    # arrive, but hold back the most recent one. The CWD marker is always at
+    # the very end of stdout (appended via `; echo __STRANDS_CWD__; pwd`),
+    # so only the last stdout chunk needs filtering. This preserves real-time
+    # streaming for all chunks except the last, while ensuring no internal
+    # markers leak to UI consumers.
+    pending_chunk: StreamChunk | None = None
     result: ExecutionResult | None = None
 
     try:
@@ -121,9 +123,13 @@ async def shell(
         ):
             if isinstance(chunk, StreamChunk):
                 if chunk.stream_type == "stderr":
-                    stderr_chunks.append(chunk)
+                    # stderr is safe — yield immediately
+                    yield chunk
                 else:
-                    stdout_chunks.append(chunk)
+                    # Yield the previous stdout chunk (it's safe — marker is at the end)
+                    if pending_chunk is not None:
+                        yield pending_chunk
+                    pending_chunk = chunk
             elif isinstance(chunk, ExecutionResult):
                 result = chunk
     except asyncio.TimeoutError:
@@ -152,15 +158,11 @@ async def shell(
             shell_state["cwd"] = new_cwd
             tool_context.agent.state.set("_strands_shell_state", shell_state)
 
-    # Yield filtered stdout chunks to UI consumers (marker stripped).
-    # Reconstruct from the cleaned stdout rather than yielding raw chunks,
-    # since the marker may span chunk boundaries.
-    if stdout:
-        yield StreamChunk(data=stdout, stream_type="stdout")
-
-    # Yield stderr chunks as-is (no marker contamination possible)
-    for chunk in stderr_chunks:
-        yield chunk
+    # Filter the marker from the last stdout chunk and yield it
+    if pending_chunk is not None:
+        cleaned = pending_chunk.data.split(_CWD_MARKER, 1)[0].rstrip("\n")
+        if cleaned:
+            yield StreamChunk(data=cleaned, stream_type="stdout")
 
     # Format final output (becomes the ToolResult)
     output_parts = []

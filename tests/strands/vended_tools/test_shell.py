@@ -2,7 +2,7 @@
 
 import pytest
 
-from strands.sandbox.base import StreamChunk
+from strands.sandbox.base import ExecutionResult, StreamChunk
 from strands.sandbox.noop import NoOpSandbox
 from strands.vended_tools.shell import shell
 
@@ -176,3 +176,50 @@ class TestShellTool:
             assert hasattr(chunk, "data")
             assert hasattr(chunk, "stream_type")
             assert chunk.stream_type in ("stdout", "stderr")
+
+    @pytest.mark.asyncio
+    async def test_stderr_streams_immediately_during_one_chunk_behind(
+        self, tool_context, mock_agent
+    ):
+        """Test that stderr chunks are yielded immediately, not held back.
+
+        The one-chunk-behind approach only holds back stdout chunks. Stderr
+        chunks should pass through without delay regardless of buffering.
+        """
+        # Use a mock sandbox that interleaves stdout and stderr chunks
+        from unittest.mock import AsyncMock
+
+        async def fake_streaming(command, timeout=None, cwd=None):
+            """Simulate a sandbox that yields interleaved stdout/stderr."""
+            yield StreamChunk(data="stdout1\n", stream_type="stdout")
+            yield StreamChunk(data="err1\n", stream_type="stderr")
+            yield StreamChunk(data="stdout2\n", stream_type="stdout")
+            yield StreamChunk(data="err2\n", stream_type="stderr")
+            yield StreamChunk(data="stdout3\n__STRANDS_CWD__\n/tmp\n", stream_type="stdout")
+            yield ExecutionResult(
+                exit_code=0,
+                stdout="stdout1\nstdout2\nstdout3\n__STRANDS_CWD__\n/tmp\n",
+                stderr="err1\nerr2\n",
+            )
+
+        mock_agent.sandbox = AsyncMock()
+        mock_agent.sandbox.execute_streaming = fake_streaming
+
+        chunks, result = await collect_generator(
+            shell.__wrapped__(command="test", tool_context=tool_context)
+        )
+
+        # Verify all chunks are present and no markers leaked
+        all_data = "".join(c.data for c in chunks)
+        assert "__STRANDS_CWD__" not in all_data
+
+        # Verify stderr chunks are present
+        stderr_data = "".join(c.data for c in chunks if c.stream_type == "stderr")
+        assert "err1" in stderr_data
+        assert "err2" in stderr_data
+
+        # Verify stdout chunks are present (minus marker)
+        stdout_data = "".join(c.data for c in chunks if c.stream_type == "stdout")
+        assert "stdout1" in stdout_data
+        assert "stdout2" in stdout_data
+        assert "stdout3" in stdout_data
