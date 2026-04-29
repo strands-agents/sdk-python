@@ -323,7 +323,7 @@ def test_null_conversation_manager_reduce_context_raises_context_window_overflow
     manager.apply_management(test_agent)
 
     with pytest.raises(ContextWindowOverflowException):
-        manager.reduce_context(messages)
+        manager.reduce_context(test_agent)
 
     assert messages == original_messages
 
@@ -341,7 +341,7 @@ def test_null_conversation_manager_reduce_context_with_exception_raises_same_exc
     manager.apply_management(test_agent)
 
     with pytest.raises(RuntimeError):
-        manager.reduce_context(messages, RuntimeError("test"))
+        manager.reduce_context(test_agent, RuntimeError("test"))
 
     assert messages == original_messages
 
@@ -755,3 +755,121 @@ def test_window_size_zero_clears_on_overflow():
     manager.reduce_context(test_agent, e=Exception("overflow"))
 
     assert messages == []
+
+
+# --- Template-method and backward-compatibility tests ---
+
+
+def test_template_method_emits_events():
+    """Subclass overriding _reduce_context gets Before/After events automatically."""
+    from strands.hooks import AfterReduceContextEvent, BeforeReduceContextEvent
+    from strands.agent.conversation_manager.conversation_manager import ConversationManager
+
+    class CustomManager(ConversationManager):
+        def apply_management(self, agent, **kwargs):
+            pass
+
+        def _reduce_context(self, agent, e=None, **kwargs):
+            agent.messages[:] = agent.messages[-1:]
+
+    manager = CustomManager()
+    messages = [
+        {"role": "user", "content": [{"text": "a"}]},
+        {"role": "assistant", "content": [{"text": "b"}]},
+        {"role": "user", "content": [{"text": "c"}]},
+    ]
+    test_agent = Agent(messages=messages)
+
+    before_events: list[BeforeReduceContextEvent] = []
+    after_events: list[AfterReduceContextEvent] = []
+    test_agent.hooks.add_callback(BeforeReduceContextEvent, before_events.append)
+    test_agent.hooks.add_callback(AfterReduceContextEvent, after_events.append)
+
+    manager.reduce_context(test_agent)
+
+    assert len(before_events) == 1
+    assert len(after_events) == 1
+    assert before_events[0].message_count == 3
+    assert after_events[0].messages_removed == 2
+    assert after_events[0].message_count_before == 3
+    assert after_events[0].message_count_after == 1
+
+
+def test_legacy_override_emits_events_with_warning():
+    """Third-party subclass overriding reduce_context directly still gets events + DeprecationWarning."""
+    import warnings
+
+    from strands.hooks import AfterReduceContextEvent, BeforeReduceContextEvent
+    from strands.agent.conversation_manager.conversation_manager import ConversationManager
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+
+        class LegacyManager(ConversationManager):
+            def apply_management(self, agent, **kwargs):
+                pass
+
+            def reduce_context(self, agent, e=None, **kwargs):
+                agent.messages[:] = agent.messages[1:]
+
+    assert any(issubclass(w.category, DeprecationWarning) and "LegacyManager" in str(w.message) for w in caught)
+
+    manager = LegacyManager()
+    messages = [
+        {"role": "user", "content": [{"text": "a"}]},
+        {"role": "user", "content": [{"text": "b"}]},
+    ]
+    test_agent = Agent(messages=messages)
+
+    after_events: list[AfterReduceContextEvent] = []
+    test_agent.hooks.add_callback(AfterReduceContextEvent, after_events.append)
+
+    manager.reduce_context(test_agent)
+
+    assert len(after_events) == 1
+    assert after_events[0].messages_removed == 1
+
+
+def test_null_manager_before_fires_after_does_not():
+    """NullConversationManager raises; BeforeReduceContextEvent fires but AfterReduceContextEvent does not."""
+    from strands.hooks import AfterReduceContextEvent, BeforeReduceContextEvent
+
+    manager = NullConversationManager()
+    test_agent = Agent(messages=[{"role": "user", "content": [{"text": "hi"}]}])
+
+    before_events: list[BeforeReduceContextEvent] = []
+    after_events: list[AfterReduceContextEvent] = []
+    test_agent.hooks.add_callback(BeforeReduceContextEvent, before_events.append)
+    test_agent.hooks.add_callback(AfterReduceContextEvent, after_events.append)
+
+    with pytest.raises(ContextWindowOverflowException):
+        manager.reduce_context(test_agent)
+
+    assert len(before_events) == 1
+    assert len(after_events) == 0
+
+
+def test_proactive_sliding_window_emits_events():
+    """SlidingWindowConversationManager.apply_management calls reduce_context which emits events."""
+    from strands.hooks import AfterReduceContextEvent, BeforeReduceContextEvent
+
+    manager = SlidingWindowConversationManager(window_size=2, should_truncate_results=False)
+    messages = [
+        {"role": "user", "content": [{"text": "1"}]},
+        {"role": "assistant", "content": [{"text": "2"}]},
+        {"role": "user", "content": [{"text": "3"}]},
+    ]
+    test_agent = Agent(messages=messages)
+
+    before_events: list[BeforeReduceContextEvent] = []
+    after_events: list[AfterReduceContextEvent] = []
+    test_agent.hooks.add_callback(BeforeReduceContextEvent, before_events.append)
+    test_agent.hooks.add_callback(AfterReduceContextEvent, after_events.append)
+
+    manager.apply_management(test_agent)
+
+    assert len(before_events) == 1
+    assert len(after_events) == 1
+    assert before_events[0].exception is None
+    assert after_events[0].exception is None
+    assert after_events[0].messages_removed > 0

@@ -155,7 +155,7 @@ class SlidingWindowConversationManager(ConversationManager):
             return
         self.reduce_context(agent)
 
-    def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
+    def _reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Trim the oldest messages to reduce the conversation context size.
 
         The method handles special cases where trimming the messages leads to:

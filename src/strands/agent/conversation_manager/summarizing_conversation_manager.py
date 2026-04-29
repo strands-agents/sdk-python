@@ -123,7 +123,7 @@ class SummarizingConversationManager(ConversationManager):
         # No proactive management - summarization only happens on context overflow
         pass
 
-    def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
+    def _reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Reduce context using summarization.
 
         Args:

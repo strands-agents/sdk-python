@@ -8,6 +8,7 @@ from strands.agent.conversation_manager.summarizing_conversation_manager import 
     DEFAULT_SUMMARIZATION_PROMPT,
     SummarizingConversationManager,
 )
+from strands.hooks.registry import HookRegistry
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -51,6 +52,7 @@ class MockAgent:
         self.tool_registry = Mock()
         self.tool_names = []
         self._default_structured_output_model = None
+        self.hooks = HookRegistry()
 
     def __call__(self, prompt):
         """Mock agent call that returns a summary."""
