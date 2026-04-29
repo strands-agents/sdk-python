@@ -49,6 +49,28 @@ DEFAULT_TIMEOUT = 120
 _CWD_MARKER = "__STRANDS_CWD__"
 
 
+def _safe_yield_length(buffer: str, marker: str) -> int:
+    """Return the number of chars from the start of buffer that are safe to yield.
+
+    "Safe" means: no suffix of the yielded portion could be a prefix of the marker.
+    This prevents partial marker leakage when the marker is split across chunks.
+    """
+    # Check if the buffer contains the full marker — if so, only yield up to it
+    marker_pos = buffer.find(marker)
+    if marker_pos != -1:
+        return marker_pos
+
+    # Check if the end of the buffer matches a prefix of the marker.
+    # e.g., buffer ends with "__STRAN" which is a prefix of "__STRANDS_CWD__"
+    max_overlap = min(len(marker) - 1, len(buffer))
+    for i in range(max_overlap, 0, -1):
+        if buffer.endswith(marker[:i]):
+            return len(buffer) - i
+
+    # No overlap — everything is safe
+    return len(buffer)
+
+
 @tool(context=True)
 async def shell(
     command: str,
@@ -113,15 +135,12 @@ async def shell(
     # the shell process they run in — a separate pwd call would not see them).
     tracked_command = f"{command}; echo {_CWD_MARKER}; pwd"
 
-    # Sliding-window streaming: buffer the last len(_CWD_MARKER) bytes of
-    # stdout to handle the case where the marker is split across two chunks.
-    # We yield everything except a trailing window that might contain the
-    # start of the marker. Once we see the full result, we filter cleanly.
-    #
-    # The approach: collect all stdout chunks, then yield filtered output
-    # from result.stdout (which has the complete, un-fragmented text).
-    # stderr chunks are yielded immediately (never contain the marker).
-    stdout_chunks: list[StreamChunk] = []
+    # Streaming with marker-aware buffering:
+    # We accumulate stdout in a buffer and yield only the "safe" prefix — i.e.,
+    # bytes that cannot possibly be part of the CWD marker. This preserves
+    # real-time streaming for all output while ensuring no partial or full
+    # marker ever leaks to UI consumers. stderr is always yielded immediately.
+    stdout_buffer = ""
     result: ExecutionResult | None = None
 
     try:
@@ -132,11 +151,17 @@ async def shell(
         ):
             if isinstance(chunk, StreamChunk):
                 if chunk.stream_type == "stderr":
-                    # stderr is safe — yield immediately
+                    # stderr never contains the marker — yield immediately
                     yield chunk
                 else:
-                    # Collect stdout chunks — we'll yield filtered output after
-                    stdout_chunks.append(chunk)
+                    # Append to buffer, yield whatever is safely past the marker
+                    stdout_buffer += chunk.data
+                    safe_len = _safe_yield_length(stdout_buffer, _CWD_MARKER)
+                    if safe_len > 0:
+                        yield StreamChunk(
+                            data=stdout_buffer[:safe_len], stream_type="stdout"
+                        )
+                        stdout_buffer = stdout_buffer[safe_len:]
             elif isinstance(chunk, ExecutionResult):
                 result = chunk
     except asyncio.TimeoutError:
@@ -167,11 +192,12 @@ async def shell(
             shell_state["cwd"] = new_cwd
             tool_context.agent.state.set("_strands_shell_state", shell_state)
 
-    # Yield the filtered stdout as a single chunk (marker fully removed).
-    # This avoids partial marker leakage that occurs with chunk-by-chunk
-    # filtering when the marker is split across chunk boundaries.
-    if stdout:
-        yield StreamChunk(data=stdout, stream_type="stdout")
+    # Flush remaining buffer with marker stripped.
+    # The buffer holds the tail that overlapped with the marker prefix.
+    if stdout_buffer:
+        cleaned = stdout_buffer.rsplit(_CWD_MARKER, 1)[0].rstrip("\n")
+        if cleaned:
+            yield StreamChunk(data=cleaned, stream_type="stdout")
 
     # Format final output (becomes the ToolResult)
     output_parts = []
