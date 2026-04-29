@@ -155,7 +155,8 @@ class ContextOffloader(Plugin):
         """Retrieve offloaded content by reference.
 
         Use this tool when you see a placeholder with a reference (ref: ...)
-        and need the full content.
+        and need the full content. Only use this as a fallback if the data
+        cannot be accessed using your existing tools.
 
         Args:
             reference: The reference string from the offload placeholder.
@@ -273,10 +274,7 @@ class ContextOffloader(Plugin):
             "Use your available tools to selectively access the data you need."
         )
         if self._include_retrieval_tool:
-            guidance += (
-                "\nOnly use retrieve_offloaded_content as a fallback"
-                " if the data cannot be accessed using your existing tools."
-            )
+            guidance += "\nYou can also use retrieve_offloaded_content with a reference to get the full content."
 
         preview_text = (
             f"[Offloaded: {len(content)} blocks, ~{token_count:,} tokens]\n"
