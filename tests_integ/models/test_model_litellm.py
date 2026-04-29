@@ -12,17 +12,17 @@ from strands.models.litellm import LiteLLMModel
 
 @pytest.fixture
 def model():
-    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0")
+    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0")
 
 
 @pytest.fixture
 def streaming_model():
-    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0", params={"stream": True})
+    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0", params={"stream": True})
 
 
 @pytest.fixture
 def non_streaming_model():
-    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0", params={"stream": False})
+    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0", params={"stream": False})
 
 
 @pytest.fixture

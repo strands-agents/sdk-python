@@ -279,7 +279,7 @@ def test_structured_output_multi_modal_input(streaming_agent, yellow_img, yellow
 def test_redacted_content_handling():
     """Test redactedContent handling with thinking mode."""
     bedrock_model = BedrockModel(
-        model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
         additional_request_fields={
             "thinking": {
                 "type": "enabled",
