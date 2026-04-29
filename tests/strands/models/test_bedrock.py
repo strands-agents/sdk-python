@@ -493,6 +493,188 @@ def test_format_request_tool_specs(model, messages, model_id, tool_spec):
     assert tru_request == exp_request
 
 
+def test_format_request_strict_tools_injects_strict_and_closes_schema(bedrock_client, model_id, messages):
+    tool_specs = [
+        {
+            "name": "my_tool",
+            "description": "A tool",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {"param": {"type": "string"}},
+                    "required": ["param"],
+                }
+            },
+        }
+    ]
+    model = BedrockModel(model_id=model_id, strict_tools=True)
+    request = model._format_request(messages, tool_specs=tool_specs)
+    tool_spec_result = request["toolConfig"]["tools"][0]["toolSpec"]
+
+    assert tool_spec_result == {
+        "name": "my_tool",
+        "description": "A tool",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {"param": {"type": "string"}},
+                "required": ["param"],
+                "additionalProperties": False,
+            }
+        },
+        "strict": True,
+    }
+
+
+def test_format_request_strict_tools_does_not_mutate_original(bedrock_client, model_id, messages):
+    tool_specs = [
+        {
+            "name": "my_tool",
+            "description": "A tool",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {"param": {"type": "string"}},
+                    "required": ["param"],
+                }
+            },
+        }
+    ]
+    model = BedrockModel(model_id=model_id, strict_tools=True)
+    model._format_request(messages, tool_specs=tool_specs)
+
+    assert "additionalProperties" not in tool_specs[0]["inputSchema"]["json"]
+
+
+def test_format_request_strict_tools_preserves_additional_properties_true(bedrock_client, model_id, messages):
+    tool_specs = [
+        {
+            "name": "my_tool",
+            "description": "A tool",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {"param": {"type": "string"}},
+                    "required": ["param"],
+                    "additionalProperties": True,
+                }
+            },
+        }
+    ]
+    model = BedrockModel(model_id=model_id, strict_tools=True)
+    request = model._format_request(messages, tool_specs=tool_specs)
+    schema = request["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
+
+    assert schema["additionalProperties"] is True
+
+
+def test_format_request_strict_tools_nested_objects(bedrock_client, model_id, messages):
+    tool_specs = [
+        {
+            "name": "my_tool",
+            "description": "A tool",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "config": {
+                            "type": "object",
+                            "properties": {"value": {"type": "integer"}},
+                        }
+                    },
+                    "required": ["config"],
+                }
+            },
+        }
+    ]
+    model = BedrockModel(model_id=model_id, strict_tools=True)
+    request = model._format_request(messages, tool_specs=tool_specs)
+    schema = request["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
+
+    assert schema == {
+        "type": "object",
+        "properties": {
+            "config": {
+                "type": "object",
+                "properties": {"value": {"type": "integer"}},
+                "additionalProperties": False,
+            }
+        },
+        "required": ["config"],
+        "additionalProperties": False,
+    }
+
+
+def test_format_request_strict_tools_default_no_strict(bedrock_client, model_id, messages):
+    tool_specs = [
+        {
+            "name": "my_tool",
+            "description": "A tool",
+            "inputSchema": {
+                "json": {
+                    "type": "object",
+                    "properties": {"param": {"type": "string"}},
+                    "required": ["param"],
+                }
+            },
+        }
+    ]
+    model = BedrockModel(model_id=model_id)
+    request = model._format_request(messages, tool_specs=tool_specs)
+    tool_spec_result = request["toolConfig"]["tools"][0]["toolSpec"]
+
+    assert "strict" not in tool_spec_result
+    assert tool_spec_result["inputSchema"]["json"] == {
+        "type": "object",
+        "properties": {"param": {"type": "string"}},
+        "required": ["param"],
+    }
+
+
+def test_format_request_strict_tools_false_no_strict(bedrock_client, model_id, messages):
+    tool_specs = [
+        {
+            "name": "my_tool",
+            "description": "A tool",
+            "inputSchema": {"json": {"type": "object", "properties": {"x": {"type": "string"}}}},
+        }
+    ]
+    model = BedrockModel(model_id=model_id, strict_tools=False)
+    request = model._format_request(messages, tool_specs=tool_specs)
+    tool_spec_result = request["toolConfig"]["tools"][0]["toolSpec"]
+
+    assert "strict" not in tool_spec_result
+
+
+def test_format_request_strict_tools_none_no_strict(bedrock_client, model_id, messages):
+    tool_specs = [
+        {
+            "name": "my_tool",
+            "description": "A tool",
+            "inputSchema": {"json": {"type": "object", "properties": {"x": {"type": "string"}}}},
+        }
+    ]
+    model = BedrockModel(model_id=model_id, strict_tools=None)
+    request = model._format_request(messages, tool_specs=tool_specs)
+    tool_spec_result = request["toolConfig"]["tools"][0]["toolSpec"]
+
+    assert "strict" not in tool_spec_result
+
+
+def test_format_request_strict_tools_applies_to_all_tools(bedrock_client, model_id, messages):
+    tool_specs = [
+        {"name": "tool_a", "description": "Tool A", "inputSchema": {"json": {"type": "object", "properties": {}}}},
+        {"name": "tool_b", "description": "Tool B", "inputSchema": {"json": {"type": "object", "properties": {}}}},
+    ]
+    model = BedrockModel(model_id=model_id, strict_tools=True)
+    request = model._format_request(messages, tool_specs=tool_specs)
+
+    for tool in request["toolConfig"]["tools"]:
+        if "toolSpec" in tool:
+            assert tool["toolSpec"]["strict"] is True
+            assert tool["toolSpec"]["inputSchema"]["json"]["additionalProperties"] is False
+
+
 def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):
     tool_choice = {"auto": {}}
     tru_request = model._format_request(messages, [tool_spec], tool_choice=tool_choice)
