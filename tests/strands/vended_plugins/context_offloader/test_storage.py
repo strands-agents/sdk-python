@@ -1,6 +1,7 @@
 """Tests for offload storage backends."""
 
 import threading
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -147,7 +148,30 @@ class TestFileStorage:
         storage = FileStorage(artifact_dir=str(tmp_path))
         ref = storage.store("../../etc/passwd", b"content")
         assert ".." not in ref
-        assert "/" not in ref
+        assert "/" not in Path(ref).name
+
+    def test_reference_includes_artifact_dir(self, tmp_path):
+        artifact_dir = str(tmp_path / "artifacts")
+        storage = FileStorage(artifact_dir=artifact_dir)
+        ref = storage.store("key_1", b"content")
+        assert Path(ref).parent == Path(artifact_dir)
+
+    def test_relative_artifact_dir_gives_relative_reference(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        storage = FileStorage(artifact_dir="./artifacts")
+        ref = storage.store("key_1", b"content")
+        assert Path(ref).parent == Path("artifacts")
+        content, content_type = storage.retrieve(ref)
+        assert content == b"content"
+        assert content_type == "text/plain"
+
+    def test_retrieve_accepts_bare_filename(self, tmp_path):
+        storage = FileStorage(artifact_dir=str(tmp_path))
+        ref = storage.store("key_1", b"hello world")
+        filename = Path(ref).name
+        content, content_type = storage.retrieve(filename)
+        assert content == b"hello world"
+        assert content_type == "text/plain"
 
     def test_metadata_survives_across_instances(self, tmp_path):
         artifact_dir = str(tmp_path / "artifacts")
@@ -233,9 +257,9 @@ class TestS3Storage:
         assert storage.retrieve(ref1)[0] == b"content a"
         assert storage.retrieve(ref2)[0] == b"content b"
 
-    def test_reference_includes_prefix(self, storage):
+    def test_reference_is_s3_uri(self, storage):
         ref = storage.store("tool_abc", b"content")
-        assert ref.startswith("artifacts/")
+        assert ref.startswith("s3://test-bucket/artifacts/")
 
     def test_empty_prefix(self, mock_s3_client):
         with patch("boto3.Session") as mock_session_cls:
@@ -245,8 +269,19 @@ class TestS3Storage:
             storage = S3Storage(bucket="test-bucket", prefix="")
 
         ref = storage.store("tool_abc", b"content")
-        assert not ref.startswith("/")
+        assert ref.startswith("s3://test-bucket/")
         assert storage.retrieve(ref)[0] == b"content"
+
+    def test_retrieve_accepts_raw_key(self, storage, mock_s3_client):
+        ref = storage.store("key_1", b"hello world")
+        raw_key = ref.removeprefix("s3://test-bucket/")
+        content, content_type = storage.retrieve(raw_key)
+        assert content == b"hello world"
+        assert content_type == "text/plain"
+
+    def test_retrieve_rejects_wrong_bucket_uri(self, storage):
+        with pytest.raises(KeyError, match="Reference not found"):
+            storage.retrieve("s3://wrong-bucket/artifacts/some_key")
 
     def test_put_object_called_with_correct_params(self, storage, mock_s3_client):
         storage.store("key_1", b"test content", "application/json")

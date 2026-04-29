@@ -88,7 +88,7 @@ class ContextOffloader(Plugin):
         max_result_tokens: Offload results whose estimated token count exceeds this threshold.
         preview_tokens: Number of tokens to keep as a text preview in context.
         include_retrieval_tool: Whether to register the ``retrieve_offloaded_content`` tool.
-            Defaults to False.
+            Defaults to True.
 
     Example:
         ```python
@@ -109,7 +109,7 @@ class ContextOffloader(Plugin):
         max_result_tokens: int = _DEFAULT_MAX_RESULT_TOKENS,
         preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
         *,
-        include_retrieval_tool: bool = False,
+        include_retrieval_tool: bool = True,
     ) -> None:
         """Initialize the ContextOffloader plugin.
 
@@ -121,7 +121,7 @@ class ContextOffloader(Plugin):
                 Uses tiktoken for exact slicing when available, falls back to
                 chars/4 heuristic. Defaults to ``_DEFAULT_PREVIEW_TOKENS`` (1,000).
             include_retrieval_tool: Whether to register the ``retrieve_offloaded_content``
-                tool so the agent can fetch offloaded content. Defaults to False.
+                tool so the agent can fetch offloaded content. Defaults to True.
 
         Raises:
             ValueError: If max_result_tokens is not positive, preview_tokens is negative,
@@ -155,7 +155,8 @@ class ContextOffloader(Plugin):
         """Retrieve offloaded content by reference.
 
         Use this tool when you see a placeholder with a reference (ref: ...)
-        and need the full content.
+        and need the full content. Only use this as a fallback if the data
+        cannot be accessed using your existing tools.
 
         Args:
             reference: The reference string from the offload placeholder.

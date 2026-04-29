@@ -131,7 +131,11 @@ class FileStorage:
         return f".{content_type.split('/')[-1]}"
 
     def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
-        """Store content as a file and return the filename as reference.
+        """Store content as a file and return the path as reference.
+
+        The returned path preserves the form of ``artifact_dir`` passed to
+        the constructor: a relative ``artifact_dir`` yields a relative
+        reference, an absolute one yields an absolute reference.
 
         Args:
             key: A unique key for this content block.
@@ -139,7 +143,7 @@ class FileStorage:
             content_type: MIME type of the content.
 
         Returns:
-            The filename (not full path) used as the reference.
+            The file path (e.g., ``./artifacts/1234_1_key.txt``).
         """
         self._artifact_dir.mkdir(parents=True, exist_ok=True)
 
@@ -156,13 +160,16 @@ class FileStorage:
         file_path = self._artifact_dir / filename
         file_path.write_bytes(content)
 
-        return filename
+        return str(file_path)
 
     def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve content from a stored file.
 
+        Accepts both full paths (as returned by ``store()``) and bare
+        filenames for backward compatibility.
+
         Args:
-            reference: The filename reference returned by store().
+            reference: The file path or filename returned by store().
 
         Returns:
             A tuple of (content bytes, content type).
@@ -170,12 +177,17 @@ class FileStorage:
         Raises:
             KeyError: If the file does not exist.
         """
-        file_path = (self._artifact_dir / reference).resolve()
-        if not file_path.is_relative_to(self._artifact_dir.resolve()):
+        resolved_dir = self._artifact_dir.resolve()
+        ref_path = Path(reference)
+        file_path = ref_path.resolve() if len(ref_path.parts) > 1 else (self._artifact_dir / reference).resolve()
+        if not file_path.is_relative_to(resolved_dir):
+            file_path = (self._artifact_dir / reference).resolve()
+        if not file_path.is_relative_to(resolved_dir):
             raise KeyError(f"Reference not found: {reference}")
         if not file_path.is_file():
             raise KeyError(f"Reference not found: {reference}")
-        content_type = self._content_types.get(reference, "application/octet-stream")
+        filename = file_path.name
+        content_type = self._content_types.get(filename, "application/octet-stream")
         return file_path.read_bytes(), content_type
 
     def _load_metadata(self) -> dict[str, str]:
@@ -320,7 +332,7 @@ class S3Storage:
         self._lock = threading.Lock()
 
     def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
-        """Store content as an S3 object and return the object key as reference.
+        """Store content as an S3 object and return an ``s3://`` URI as reference.
 
         Args:
             key: A unique key for this content block.
@@ -328,7 +340,7 @@ class S3Storage:
             content_type: MIME type of the content.
 
         Returns:
-            The S3 object key used as the reference.
+            An S3 URI (e.g., ``s3://bucket/prefix/1234_1_key``).
 
         Raises:
             botocore.exceptions.ClientError: If the S3 operation fails (e.g., bucket
@@ -348,13 +360,16 @@ class S3Storage:
             ContentType=content_type,
         )
 
-        return s3_key
+        return f"s3://{self._bucket}/{s3_key}"
 
     def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve content from an S3 object.
 
+        Accepts both ``s3://`` URIs (as returned by ``store()``) and raw
+        S3 keys for backward compatibility.
+
         Args:
-            reference: The S3 object key returned by store().
+            reference: The S3 URI or object key returned by store().
 
         Returns:
             A tuple of (content bytes, content type).
@@ -362,8 +377,14 @@ class S3Storage:
         Raises:
             KeyError: If the object does not exist.
         """
+        s3_key = reference
+        if reference.startswith("s3://"):
+            expected_prefix = f"s3://{self._bucket}/"
+            if not reference.startswith(expected_prefix):
+                raise KeyError(f"Reference not found: {reference}")
+            s3_key = reference[len(expected_prefix) :]
         try:
-            response = self._client.get_object(Bucket=self._bucket, Key=reference)
+            response = self._client.get_object(Bucket=self._bucket, Key=s3_key)
             content: bytes = response["Body"].read()
             content_type: str = response.get("ContentType", "application/octet-stream")
             return content, content_type
