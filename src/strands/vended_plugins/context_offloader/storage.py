@@ -177,11 +177,12 @@ class FileStorage:
         Raises:
             KeyError: If the file does not exist.
         """
+        resolved_dir = self._artifact_dir.resolve()
         ref_path = Path(reference)
         file_path = ref_path.resolve() if len(ref_path.parts) > 1 else (self._artifact_dir / reference).resolve()
-        if not file_path.is_relative_to(self._artifact_dir.resolve()):
+        if not file_path.is_relative_to(resolved_dir):
             file_path = (self._artifact_dir / reference).resolve()
-        if not file_path.is_relative_to(self._artifact_dir.resolve()):
+        if not file_path.is_relative_to(resolved_dir):
             raise KeyError(f"Reference not found: {reference}")
         if not file_path.is_file():
             raise KeyError(f"Reference not found: {reference}")
@@ -381,7 +382,7 @@ class S3Storage:
             expected_prefix = f"s3://{self._bucket}/"
             if not reference.startswith(expected_prefix):
                 raise KeyError(f"Reference not found: {reference}")
-            s3_key = reference[len(expected_prefix):]
+            s3_key = reference[len(expected_prefix) :]
         try:
             response = self._client.get_object(Bucket=self._bucket, Key=s3_key)
             content: bytes = response["Body"].read()

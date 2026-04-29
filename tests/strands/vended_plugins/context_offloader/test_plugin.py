@@ -27,6 +27,7 @@ def plugin(storage):
         storage=storage,
         max_result_tokens=25,
         preview_tokens=10,
+        include_retrieval_tool=False,
     )
 
 
@@ -467,8 +468,14 @@ class TestRetrievalTool:
         tool_names = [t.tool_name for t in plugin.tools]
         assert "retrieve_offloaded_content" in tool_names
 
-    def test_retrieval_tool_not_registered_by_default(self):
+    def test_retrieval_tool_registered_by_default_for_inmemory(self):
         plugin = ContextOffloader(storage=InMemoryStorage())
+        plugin.init_agent(MagicMock())
+        tool_names = [t.tool_name for t in plugin.tools]
+        assert "retrieve_offloaded_content" in tool_names
+
+    def test_retrieval_tool_not_registered_by_default_for_file_storage(self, tmp_path):
+        plugin = ContextOffloader(storage=FileStorage(artifact_dir=str(tmp_path)))
         plugin.init_agent(MagicMock())
         tool_names = [t.tool_name for t in plugin.tools]
         assert "retrieve_offloaded_content" not in tool_names
@@ -532,7 +539,9 @@ class TestInlineGuidance:
 
     @pytest.mark.asyncio
     async def test_guidance_does_not_mention_retrieval_tool_when_disabled(self, storage, mock_agent):
-        plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+        plugin = ContextOffloader(
+            storage=storage, max_result_tokens=25, preview_tokens=10, include_retrieval_tool=False
+        )
         event = _make_event(mock_agent, "x" * 200)
         await plugin._handle_tool_result(event)
         result_text = event.result["content"][0]["text"]

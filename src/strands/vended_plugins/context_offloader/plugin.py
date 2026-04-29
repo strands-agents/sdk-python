@@ -42,7 +42,7 @@ from ...plugins import Plugin, hook
 from ...tools.decorator import tool
 from ...types.content import Message
 from ...types.tools import ToolContext, ToolResult, ToolResultContent
-from .storage import Storage
+from .storage import InMemoryStorage, Storage
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -109,7 +109,7 @@ class ContextOffloader(Plugin):
         max_result_tokens: int = _DEFAULT_MAX_RESULT_TOKENS,
         preview_tokens: int = _DEFAULT_PREVIEW_TOKENS,
         *,
-        include_retrieval_tool: bool = False,
+        include_retrieval_tool: bool | None = None,
     ) -> None:
         """Initialize the ContextOffloader plugin.
 
@@ -121,7 +121,9 @@ class ContextOffloader(Plugin):
                 Uses tiktoken for exact slicing when available, falls back to
                 chars/4 heuristic. Defaults to ``_DEFAULT_PREVIEW_TOKENS`` (1,000).
             include_retrieval_tool: Whether to register the ``retrieve_offloaded_content``
-                tool so the agent can fetch offloaded content. Defaults to False.
+                tool so the agent can fetch offloaded content. Defaults to True for
+                ``InMemoryStorage`` (where the retrieval tool is the only access
+                method) and False for other backends.
 
         Raises:
             ValueError: If max_result_tokens is not positive, preview_tokens is negative,
@@ -133,6 +135,9 @@ class ContextOffloader(Plugin):
             raise ValueError("preview_tokens must be non-negative")
         if preview_tokens >= max_result_tokens:
             raise ValueError("preview_tokens must be less than max_result_tokens")
+
+        if include_retrieval_tool is None:
+            include_retrieval_tool = isinstance(storage, InMemoryStorage)
 
         self._storage = storage
         self._max_result_tokens = max_result_tokens
