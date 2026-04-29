@@ -124,9 +124,12 @@ class OpenAIEndpointConfig(TypedDict, total=False):
     OpenAI-compatible surface, such as the Responses API's server-side stateful conversations
     and reasoning controls.
 
-    Generic inference parameters (``temperature``, ``top_p``, ``max_tokens``,
-    ``stop_sequences``, ``streaming``) continue to live on :class:`BedrockModel.BedrockConfig`
-    and are forwarded to the underlying OpenAI model.
+    Generic inference parameters (``temperature``, ``top_p``, ``max_tokens``) live on
+    :class:`BedrockModel.BedrockConfig` and are forwarded to the underlying OpenAI model.
+    ``stop_sequences`` is forwarded to Chat Completions as ``stop`` but is rejected at
+    init time when ``api="responses"`` (the Responses API does not accept stop sequences).
+    ``streaming=False`` is not supported on this path and is also rejected at init time,
+    since the OpenAI SDK's Responses and Chat Completions surfaces always stream.
 
     Attributes:
         api: Which OpenAI API surface to use. ``"responses"`` maps to the Responses API and

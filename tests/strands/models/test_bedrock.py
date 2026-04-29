@@ -3414,3 +3414,29 @@ def test_openai_endpoint_invalid_config_raises(session_cls, config_kwargs, error
 
     with pytest.raises(ValueError, match=error_match):
         BedrockModel(model_id="openai.gpt-oss-120b", region_name="us-east-1", **config_kwargs)
+
+
+@pytest.mark.asyncio
+async def test_openai_endpoint_count_tokens_falls_back_to_base(session_cls, openai_responses_model_cls, messages):
+    """count_tokens bypasses the Converse client on the openai_endpoint path.
+
+    Bedrock's native CountTokens API lives on ``bedrock-runtime`` and has no Mantle
+    equivalent, so ``BedrockModel.count_tokens`` must route to the base ``Model.count_tokens``
+    estimator (tiktoken or heuristic). A regression that routed through ``self.client`` would
+    raise ``AttributeError`` since ``self.client is None`` on the Mantle path.
+    """
+    _ = session_cls
+
+    model = BedrockModel(
+        model_id="openai.gpt-oss-120b",
+        region_name="us-east-1",
+        openai_endpoint={"api": "responses"},
+    )
+
+    # Delegate is a mock and does not implement count_tokens. Call should still succeed
+    # because the override dispatches to super() rather than the delegate or the boto client.
+    result = await model.count_tokens(messages=messages)
+
+    assert isinstance(result, int)
+    assert result > 0
+    openai_responses_model_cls.return_value.count_tokens.assert_not_called()
