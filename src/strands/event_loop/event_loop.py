@@ -95,6 +95,8 @@ def _build_checkpoint_stop_event(
         agent.event_loop_metrics,
         request_state,
         checkpoint=checkpoint,
+    )
+    
 async def _estimate_input_tokens(agent: "Agent") -> int:
     """Estimate the input token count for the next model call.
 
