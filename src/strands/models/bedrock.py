@@ -30,6 +30,7 @@ from ..types.exceptions import (
 )
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
+from ._strict_schema import ensure_strict_json_schema
 from ._validation import validate_config_keys
 from .model import BaseModelConfig, CacheConfig, Model
 
@@ -99,6 +100,10 @@ class BedrockModel(Model):
                 supported service tiers, models, and regions
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
+            strict_tools: Flag to enable structured output enforcement on tool definitions.
+                When True, adds strict: true to each tool spec and automatically injects
+                "additionalProperties": false into all object types in tool input schemas.
+                See https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
         """
@@ -124,6 +129,7 @@ class BedrockModel(Model):
         service_tier: str | None
         stop_sequences: list[str] | None
         streaming: bool | None
+        strict_tools: bool | None
         temperature: float | None
         top_p: float | None
 
@@ -239,6 +245,7 @@ class BedrockModel(Model):
 
         # Use system_prompt_content directly (copy for mutability)
         system_blocks: list[SystemContentBlock] = system_prompt_content.copy() if system_prompt_content else []
+
         # Add cache point if configured (backwards compatibility)
         if cache_prompt := self.config.get("cache_prompt"):
             warnings.warn(
@@ -260,7 +267,12 @@ class BedrockModel(Model):
                                     "toolSpec": {
                                         "name": tool_spec["name"],
                                         "description": tool_spec["description"],
-                                        "inputSchema": tool_spec["inputSchema"],
+                                        "inputSchema": (
+                                            {"json": ensure_strict_json_schema(tool_spec["inputSchema"]["json"])}
+                                            if self.config.get("strict_tools")
+                                            else tool_spec["inputSchema"]
+                                        ),
+                                        **({"strict": True} if self.config.get("strict_tools") else {}),
                                     }
                                 }
                                 for tool_spec in tool_specs
