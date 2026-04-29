@@ -468,14 +468,14 @@ class TestRetrievalTool:
         tool_names = [t.tool_name for t in plugin.tools]
         assert "retrieve_offloaded_content" in tool_names
 
-    def test_retrieval_tool_registered_by_default_for_inmemory(self):
+    def test_retrieval_tool_registered_by_default(self):
         plugin = ContextOffloader(storage=InMemoryStorage())
         plugin.init_agent(MagicMock())
         tool_names = [t.tool_name for t in plugin.tools]
         assert "retrieve_offloaded_content" in tool_names
 
-    def test_retrieval_tool_not_registered_by_default_for_file_storage(self, tmp_path):
-        plugin = ContextOffloader(storage=FileStorage(artifact_dir=str(tmp_path)))
+    def test_retrieval_tool_not_registered_when_disabled(self):
+        plugin = ContextOffloader(storage=InMemoryStorage(), include_retrieval_tool=False)
         plugin.init_agent(MagicMock())
         tool_names = [t.tool_name for t in plugin.tools]
         assert "retrieve_offloaded_content" not in tool_names
