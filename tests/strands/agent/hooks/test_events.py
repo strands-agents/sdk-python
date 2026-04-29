@@ -260,3 +260,22 @@ def test_after_invocation_event_resume_accepts_various_input_types(agent):
     # None to stop
     event.resume = None
     assert event.resume is None
+
+
+def test_before_model_call_event_projected_input_tokens_default(agent):
+    """Test that projected_input_tokens defaults to None."""
+    event = BeforeModelCallEvent(agent=agent)
+    assert event.projected_input_tokens is None
+
+
+def test_before_model_call_event_projected_input_tokens_set(agent):
+    """Test that projected_input_tokens can be set at construction."""
+    event = BeforeModelCallEvent(agent=agent, projected_input_tokens=500)
+    assert event.projected_input_tokens == 500
+
+
+def test_before_model_call_event_projected_input_tokens_not_writable(agent):
+    """Test that projected_input_tokens is not writable after construction."""
+    event = BeforeModelCallEvent(agent=agent, projected_input_tokens=500)
+    with pytest.raises(AttributeError, match="Property projected_input_tokens is not writable"):
+        event.projected_input_tokens = 1000

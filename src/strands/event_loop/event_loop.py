@@ -75,6 +75,48 @@ def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
     return False
 
 
+async def _estimate_input_tokens(agent: "Agent") -> int:
+    """Estimate the input token count for the next model call.
+
+    Reads inputTokens + outputTokens from the last assistant message's metadata as a known
+    baseline, then estimates only new messages added after it. Falls back to full estimation
+    when no metadata is available (cold start or first call). On cold start, tool specs are
+    resolved lazily so that the caller does not need to resolve them before BeforeModelCallEvent.
+
+    Args:
+        agent: The agent instance with messages and model.
+
+    Returns:
+        Estimated input token count.
+    """
+    messages = agent.messages
+
+    # Find the last assistant message with usage metadata
+    last_assistant_idx = -1
+    for i, msg in reversed(list(enumerate(messages))):
+        if msg.get("role") == "assistant" and msg.get("metadata", {}).get("usage"):
+            last_assistant_idx = i
+            break
+
+    if last_assistant_idx >= 0:
+        usage = messages[last_assistant_idx]["metadata"]["usage"]
+        known_baseline = usage["inputTokens"] + usage["outputTokens"]
+        new_messages = messages[last_assistant_idx + 1 :]
+        if not new_messages:
+            return known_baseline
+        # System prompt and tool spec tokens are already included in the baseline
+        return known_baseline + await agent.model.count_tokens(new_messages)
+
+    # Cold start: resolve tool specs lazily for estimation only
+    tool_specs = agent.tool_registry.get_all_tool_specs()
+    return await agent.model.count_tokens(
+        messages,
+        tool_specs=tool_specs,
+        system_prompt=agent.system_prompt,
+        system_prompt_content=agent._system_prompt_content,
+    )
+
+
 async def event_loop_cycle(
     agent: "Agent",
     invocation_state: dict[str, Any],
@@ -325,10 +367,18 @@ async def _handle_model_execution(
         )
         with trace_api.use_span(model_invoke_span, end_on_exit=False):
             try:
+                # Estimate input tokens for the upcoming model call (non-fatal)
+                projected_input_tokens: int | None = None
+                try:
+                    projected_input_tokens = await _estimate_input_tokens(agent)
+                except Exception as e:
+                    logger.debug("error=<%s> | token estimation failed, proceeding without estimate", e)
+
                 await agent.hooks.invoke_callbacks_async(
                     BeforeModelCallEvent(
                         agent=agent,
                         invocation_state=invocation_state,
+                        projected_input_tokens=projected_input_tokens,
                     )
                 )
 
