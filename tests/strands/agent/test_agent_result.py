@@ -468,3 +468,15 @@ def test_agent_result_from_dict_handles_missing_checkpoint() -> None:
         }
     )
     assert restored.checkpoint is None
+def test_projected_context_size_delegates_to_metrics(mock_metrics, simple_message: Message):
+    """Test that projected_context_size delegates to metrics.projected_context_size."""
+    mock_metrics.projected_context_size = 15000
+    result = AgentResult(stop_reason="end_turn", message=simple_message, metrics=mock_metrics, state={})
+    assert result.projected_context_size == 15000
+
+
+def test_projected_context_size_none_when_no_data(mock_metrics, simple_message: Message):
+    """Test that projected_context_size returns None when metrics has no data."""
+    mock_metrics.projected_context_size = None
+    result = AgentResult(stop_reason="end_turn", message=simple_message, metrics=mock_metrics, state={})
+    assert result.projected_context_size is None

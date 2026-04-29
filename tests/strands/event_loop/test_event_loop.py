@@ -1469,3 +1469,82 @@ async def test_event_loop_cycle_cancel_mid_cycle_after_tools_non_checkpointing(
     # Invariant: the non-checkpointing path must recurse — model.stream was called
     # a second time via recurse_event_loop.
     assert model.stream.call_count >= stream_call_count_before + 2
+class TestEstimateInputTokens:
+    """Tests for _estimate_input_tokens helper."""
+
+    @pytest.mark.asyncio
+    async def test_cold_start_estimates_all_messages(self):
+        """On cold start (no prior usage metadata), estimates all messages with lazily resolved tool specs."""
+        agent = unittest.mock.AsyncMock()
+        agent.messages = [{"role": "user", "content": [{"text": "Hi"}]}]
+        agent.system_prompt = "You are helpful"
+        agent._system_prompt_content = None
+        agent.tool_registry = unittest.mock.MagicMock()
+        agent.tool_registry.get_all_tool_specs.return_value = [{"name": "tool1"}]
+        agent.model.count_tokens = AsyncMock(return_value=42)
+
+        result = await strands.event_loop.event_loop._estimate_input_tokens(agent)
+
+        assert result == 42
+        agent.tool_registry.get_all_tool_specs.assert_called_once()
+        agent.model.count_tokens.assert_called_once_with(
+            agent.messages,
+            tool_specs=[{"name": "tool1"}],
+            system_prompt="You are helpful",
+            system_prompt_content=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_baseline_only_no_new_messages(self):
+        """When last message is assistant with usage and no new messages after, returns baseline."""
+        agent = unittest.mock.AsyncMock()
+        agent.messages = [
+            {"role": "user", "content": [{"text": "Hi"}]},
+            {
+                "role": "assistant",
+                "content": [{"text": "Hello"}],
+                "metadata": {"usage": {"inputTokens": 100, "outputTokens": 20, "totalTokens": 120}},
+            },
+        ]
+        agent.system_prompt = "You are helpful"
+
+        result = await strands.event_loop.event_loop._estimate_input_tokens(agent)
+
+        assert result == 120
+        agent.model.count_tokens.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_baseline_plus_delta(self):
+        """When new messages exist after last assistant, adds estimated delta to baseline."""
+        agent = unittest.mock.AsyncMock()
+        agent.messages = [
+            {"role": "user", "content": [{"text": "Hi"}]},
+            {
+                "role": "assistant",
+                "content": [{"text": "Hello"}],
+                "metadata": {"usage": {"inputTokens": 100, "outputTokens": 30, "totalTokens": 130}},
+            },
+            {"role": "user", "content": [{"text": "tool result"}]},
+        ]
+        agent.system_prompt = "You are helpful"
+        agent.model.count_tokens = AsyncMock(return_value=50)
+
+        result = await strands.event_loop.event_loop._estimate_input_tokens(agent)
+
+        # baseline (100+30) + delta (50) = 180
+        assert result == 180
+        agent.model.count_tokens.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_error_fallback_returns_none_at_call_site(self):
+        """When count_tokens raises, the caller catches and sets projected_input_tokens to None."""
+        agent = unittest.mock.AsyncMock()
+        agent.messages = [{"role": "user", "content": [{"text": "Hi"}]}]
+        agent.system_prompt = "You are helpful"
+        agent._system_prompt_content = None
+        agent.tool_registry = unittest.mock.MagicMock()
+        agent.tool_registry.get_all_tool_specs.return_value = []
+        agent.model.count_tokens = AsyncMock(side_effect=Exception("API unavailable"))
+
+        with pytest.raises(Exception, match="API unavailable"):
+            await strands.event_loop.event_loop._estimate_input_tokens(agent)

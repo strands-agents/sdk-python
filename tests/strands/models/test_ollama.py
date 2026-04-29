@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 import unittest.mock
 
 import pydantic
@@ -127,7 +128,12 @@ def test_format_request_with_image(model, model_id):
 
 def test_format_request_with_tool_use(model, model_id):
     messages = [
-        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "calculator", "input": '{"expression": "2+2"}'}}]}
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "tool-use-id-123", "name": "calculator", "input": '{"expression": "2+2"}'}}
+            ],
+        }
     ]
 
     tru_request = model.format_request(messages)
@@ -321,9 +327,11 @@ def test_format_chunk_content_start_tool(model):
     event = {"chunk_type": "content_start", "data_type": "tool", "data": mock_function}
 
     tru_chunk = model.format_chunk(event)
-    exp_chunk = {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "calculator"}}}}
+    tool_use = tru_chunk["contentBlockStart"]["start"]["toolUse"]
 
-    assert tru_chunk == exp_chunk
+    assert tool_use["name"] == "calculator"
+    assert tool_use["toolUseId"] != "calculator"
+    assert len(tool_use["toolUseId"]) > 0
 
 
 def test_format_chunk_content_delta_text(model):
@@ -499,24 +507,27 @@ async def test_stream_with_tool_calls(ollama_client, model, agenerator, alist):
     response = model.stream(messages)
 
     tru_events = await alist(response)
-    exp_events = [
-        {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "calculator"}}}},
-        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
-        {"contentBlockStop": {}},
-        {"contentBlockDelta": {"delta": {"text": "I'll calculate that for you"}}},
-        {"contentBlockStop": {}},
-        {"messageStop": {"stopReason": "tool_use"}},
-        {
-            "metadata": {
-                "usage": {"inputTokens": 8, "outputTokens": 15, "totalTokens": 23},
-                "metrics": {"latencyMs": 2.0},
-            }
-        },
-    ]
 
-    assert tru_events == exp_events
+    # Verify the tool use event has a unique ID (not equal to the tool name)
+    tool_start_event = tru_events[2]
+    tool_use = tool_start_event["contentBlockStart"]["start"]["toolUse"]
+    assert tool_use["name"] == "calculator"
+    assert tool_use["toolUseId"] != "calculator"
+
+    # Verify all other events
+    assert tru_events[0] == {"messageStart": {"role": "assistant"}}
+    assert tru_events[1] == {"contentBlockStart": {"start": {}}}
+    assert tru_events[3] == {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}}
+    assert tru_events[4] == {"contentBlockStop": {}}
+    assert tru_events[5] == {"contentBlockDelta": {"delta": {"text": "I'll calculate that for you"}}}
+    assert tru_events[6] == {"contentBlockStop": {}}
+    assert tru_events[7] == {"messageStop": {"stopReason": "tool_use"}}
+    assert tru_events[8] == {
+        "metadata": {
+            "usage": {"inputTokens": 8, "outputTokens": 15, "totalTokens": 23},
+            "metrics": {"latencyMs": 2.0},
+        }
+    }
     expected_request = {
         "model": "m1",
         "messages": [{"role": "user", "content": "Calculate 2+2"}],
@@ -625,3 +636,57 @@ def test_format_request_filters_location_source_document(model, caplog):
     user_message = formatted_messages[0]
     assert user_message["content"] == "analyze this document"
     assert "Location sources are not supported by Ollama" in caplog.text
+
+
+def test_tool_use_id_is_unique_and_not_tool_name(model):
+    """Test that toolUseId is a unique UUID, not the tool name."""
+    mock_function = unittest.mock.Mock()
+    mock_function.function.name = "calculator"
+
+    event = {"chunk_type": "content_start", "data_type": "tool", "data": mock_function}
+
+    chunk1 = model.format_chunk(event)
+    chunk2 = model.format_chunk(event)
+
+    tool_use1 = chunk1["contentBlockStart"]["start"]["toolUse"]
+    tool_use2 = chunk2["contentBlockStart"]["start"]["toolUse"]
+
+    # toolUseId should not equal the tool name
+    assert tool_use1["toolUseId"] != "calculator"
+    assert tool_use2["toolUseId"] != "calculator"
+
+    # toolUseId should be unique across calls
+    assert tool_use1["toolUseId"] != tool_use2["toolUseId"]
+
+    # toolUseId should follow the tooluse_<24-hex> convention used by other providers
+    assert re.fullmatch(r"tooluse_[0-9a-f]{24}", tool_use1["toolUseId"])
+    assert re.fullmatch(r"tooluse_[0-9a-f]{24}", tool_use2["toolUseId"])
+
+    # name should still be correct
+    assert tool_use1["name"] == "calculator"
+    assert tool_use2["name"] == "calculator"
+
+
+def test_format_request_uses_tool_name_not_tool_use_id(model, model_id):
+    """Test that format_request uses the 'name' field, not 'toolUseId', for the function name."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "unique-id-abc-123",
+                        "name": "calculator",
+                        "input": '{"expression": "1+1"}',
+                    }
+                }
+            ],
+        }
+    ]
+
+    request = model.format_request(messages)
+    tool_call = request["messages"][0]["tool_calls"][0]
+
+    # The function name in the request must come from "name", not "toolUseId"
+    assert tool_call["function"]["name"] == "calculator"
+    assert tool_call["function"]["name"] != "unique-id-abc-123"

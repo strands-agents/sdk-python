@@ -236,9 +236,14 @@ class BeforeModelCallEvent(HookEvent):
         invocation_state: State and configuration passed through the agent invocation.
             This can include shared context for multi-agent coordination, request tracking,
             and dynamic configuration.
+        projected_input_tokens: Projected input token count for the upcoming model call.
+            Computed by the agent loop from message metadata and token estimation.
+            Available for hooks and plugins (e.g. conversation managers) to make
+            proactive decisions about context management. None if estimation failed.
     """
 
     invocation_state: dict[str, Any] = field(default_factory=dict)
+    projected_input_tokens: int | None = None
 
 
 @dataclass

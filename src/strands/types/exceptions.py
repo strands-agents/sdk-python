@@ -83,6 +83,16 @@ class SnapshotException(Exception):
     pass
 
 
+class ProviderTokenCountError(Exception):
+    """Thrown when a model provider's native token counting API fails.
+
+    This error is used as internal control flow within provider ``count_tokens()`` overrides.
+    When caught, the provider falls back to the base class heuristic estimation.
+    """
+
+    pass
+
+
 class ToolProviderException(Exception):
     """Exception raised when a tool provider fails to load or cleanup tools."""
 

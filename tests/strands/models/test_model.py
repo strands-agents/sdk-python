@@ -509,7 +509,7 @@ async def test_count_tokens_all_inputs(model):
     assert result == 31
 
 
-def test_get_encoding_falls_back_without_tiktoken(monkeypatch):
+def test__get_encoding_falls_back_without_tiktoken(monkeypatch):
     """Test that _get_encoding returns None and count_tokens falls back to heuristic."""
     import strands.models.model as model_module
 

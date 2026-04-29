@@ -221,11 +221,14 @@ class LiteLLMModel(OpenAIModel):
         for block in system_prompt_content or []:
             if "text" in block:
                 system_content.append({"type": "text", "text": block["text"]})
-            elif "cachePoint" in block and block["cachePoint"].get("type") == "default":
+            elif "cachePoint" in block and block["cachePoint"]["type"] == "default":
                 # Apply cache control to the immediately preceding content block
                 # for LiteLLM/Anthropic compatibility
                 if system_content:
-                    system_content[-1]["cache_control"] = {"type": "ephemeral"}
+                    cache_control: dict[str, Any] = {"type": "ephemeral"}
+                    if ttl := block["cachePoint"].get("ttl"):
+                        cache_control["ttl"] = ttl
+                    system_content[-1]["cache_control"] = cache_control
 
         # Create single system message with content array rather than mulitple system messages
         return [{"role": "system", "content": system_content}] if system_content else []

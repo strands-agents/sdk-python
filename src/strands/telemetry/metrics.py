@@ -216,6 +216,25 @@ class EventLoopMetrics:
         return None
 
     @property
+    def projected_context_size(self) -> int | None:
+        """Projected context size for the next model call.
+
+        Computed as inputTokens + outputTokens from the most recent cycle's usage,
+        representing the approximate input token count for the next model call
+        (prior input + generated output that is now part of the conversation).
+
+        Returns:
+            The projected token count, or None if no data is available.
+        """
+        if self.agent_invocations and self.agent_invocations[-1].cycles:
+            usage = self.agent_invocations[-1].cycles[-1].usage
+            input_tokens = usage.get("inputTokens")
+            output_tokens = usage.get("outputTokens")
+            if input_tokens is not None and output_tokens is not None:
+                return input_tokens + output_tokens
+        return None
+
+    @property
     def _metrics_client(self) -> "MetricsClient":
         """Get the singleton MetricsClient instance."""
         return MetricsClient()
