@@ -66,9 +66,9 @@ def _make_output(content: str, descriptor: str, init_line: int = 1) -> str:
     Returns:
         Formatted output with line numbers.
     """
-    # Expand tabs to spaces
-    content = content.replace("\t", "        ")
-    lines = content.split("\n")
+    # Expand tabs to spaces for display only
+    display_content = content.replace("\t", "        ")
+    lines = display_content.split("\n")
     numbered = []
     for i, line in enumerate(lines):
         line_num = i + init_line
@@ -183,6 +183,11 @@ async def editor(
                 return "Error: Parameter `insert_line` is required for command: insert"
             if new_str is None:
                 return "Error: Parameter `new_str` is required for command: insert"
+            # Coerce insert_line to int (LLMs may send floats)
+            try:
+                insert_line = int(insert_line)
+            except (TypeError, ValueError):
+                return f"Error: `insert_line` must be an integer, got: {type(insert_line).__name__}"
             return await _handle_insert(sandbox, tool_context, config, path, insert_line, new_str)
         elif command == "undo_edit":
             return await _handle_undo(sandbox, tool_context, path)
@@ -233,7 +238,12 @@ async def _handle_view(sandbox: Sandbox, config: dict[str, Any], path: str, view
     if len(view_range) != 2:
         return "Error: `view_range` must be a list of two integers [start, end]."
 
-    start, end = view_range[0], view_range[1]
+    # Coerce view_range elements to int (LLMs may send floats like [1.0, 3.0])
+    try:
+        start = int(view_range[0])
+        end = int(view_range[1])
+    except (TypeError, ValueError):
+        return "Error: `view_range` elements must be integers."
 
     if start < 1 or start > n_lines:
         return (
@@ -279,13 +289,11 @@ async def _handle_str_replace(
     except FileNotFoundError:
         return f"Error: The path {path} does not exist."
 
-    # Expand tabs for matching
-    content = content.replace("\t", "        ")
-    expanded_old = old_str.replace("\t", "        ")
-    expanded_new = new_str.replace("\t", "        ")
-
-    # Count occurrences — MUST be exactly 1
-    count = content.count(expanded_old)
+    # Match against original content — do NOT expand tabs for matching.
+    # Tab expansion is only used for display output (_make_output).
+    # This preserves tab characters in the file and prevents false matches
+    # between tabs and their space equivalents.
+    count = content.count(old_str)
 
     if count == 0:
         return f"Error: No replacement was performed, old_str `{old_str}` did not appear verbatim in {path}."
@@ -295,13 +303,13 @@ async def _handle_str_replace(
         lines = content.split("\n")
         line_nums: list[int] = []
         for i, line in enumerate(lines):
-            if expanded_old in line:
+            if old_str in line:
                 line_nums.append(i + 1)
         # Also check multi-line matches
         if not line_nums:
             idx = 0
             while True:
-                idx = content.find(expanded_old, idx)
+                idx = content.find(old_str, idx)
                 if idx == -1:
                     break
                 line_num = content[:idx].count("\n") + 1
@@ -312,20 +320,20 @@ async def _handle_str_replace(
             f"in lines {line_nums}. Please ensure old_str is unique."
         )
 
-    # Save undo state
+    # Save undo state (original content before any modification)
     _save_undo(tool_context, path, content)
 
-    # Perform replacement
-    new_content = content.replace(expanded_old, expanded_new, 1)
+    # Perform replacement on original content (preserving tabs)
+    new_content = content.replace(old_str, new_str, 1)
 
-    # Write back
+    # Write back (preserving original formatting including tabs)
     await sandbox.write_text(path, new_content)
 
-    # Generate snippet around the change
-    replace_idx = content.find(expanded_old)
+    # Generate snippet around the change (expand tabs for display only)
+    replace_idx = content.find(old_str)
     replace_line = content[:replace_idx].count("\n")
-    inserted_lines = expanded_new.count("\n") + 1
-    original_lines = expanded_old.count("\n") + 1
+    inserted_lines = new_str.count("\n") + 1
+    original_lines = old_str.count("\n") + 1
     line_diff = inserted_lines - original_lines
 
     new_lines = new_content.split("\n")
@@ -354,21 +362,19 @@ async def _handle_insert(
     except FileNotFoundError:
         return f"Error: The path {path} does not exist."
 
-    # Expand tabs
-    content = content.replace("\t", "        ")
-    expanded_new = new_str.replace("\t", "        ")
-
+    # Work with original content — do NOT expand tabs.
+    # Tab expansion is only for display output.
     lines = content.split("\n")
     n_lines = len(lines)
 
     if insert_line < 0 or insert_line > n_lines:
         return f"Error: Invalid `insert_line`: {insert_line}. Should be within [0, {n_lines}]."
 
-    # Save undo state
+    # Save undo state (original content)
     _save_undo(tool_context, path, content)
 
-    # Insert
-    new_str_lines = expanded_new.split("\n")
+    # Insert (preserve original content including tabs)
+    new_str_lines = new_str.split("\n")
     if content == "":
         new_lines = new_str_lines
     else:
@@ -377,7 +383,7 @@ async def _handle_insert(
     new_content = "\n".join(new_lines)
     await sandbox.write_text(path, new_content)
 
-    # Generate snippet
+    # Generate snippet (expand tabs for display only)
     start = max(0, insert_line - SNIPPET_LINES)
     end = min(len(new_lines), insert_line + len(new_str_lines) + SNIPPET_LINES)
     snippet = "\n".join(new_lines[start:end])

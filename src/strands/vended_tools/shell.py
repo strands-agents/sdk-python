@@ -96,6 +96,13 @@ async def shell(
     if effective_timeout is None:
         effective_timeout = config.get("timeout", DEFAULT_TIMEOUT)
 
+    # Coerce timeout to int — JSON configs and LLMs may pass strings or floats
+    if effective_timeout is not None:
+        try:
+            effective_timeout = int(effective_timeout)
+        except (TypeError, ValueError):
+            effective_timeout = DEFAULT_TIMEOUT
+
     # Get tracked working directory from state (for session continuity)
     shell_state = tool_context.agent.state.get("_strands_shell_state") or {}
     cwd = shell_state.get("cwd")
@@ -106,13 +113,15 @@ async def shell(
     # the shell process they run in — a separate pwd call would not see them).
     tracked_command = f"{command}; echo {_CWD_MARKER}; pwd"
 
-    # One-chunk-behind streaming: yield stdout chunks incrementally as they
-    # arrive, but hold back the most recent one. The CWD marker is always at
-    # the very end of stdout (appended via `; echo __STRANDS_CWD__; pwd`),
-    # so only the last stdout chunk needs filtering. This preserves real-time
-    # streaming for all chunks except the last, while ensuring no internal
-    # markers leak to UI consumers.
-    pending_chunk: StreamChunk | None = None
+    # Sliding-window streaming: buffer the last len(_CWD_MARKER) bytes of
+    # stdout to handle the case where the marker is split across two chunks.
+    # We yield everything except a trailing window that might contain the
+    # start of the marker. Once we see the full result, we filter cleanly.
+    #
+    # The approach: collect all stdout chunks, then yield filtered output
+    # from result.stdout (which has the complete, un-fragmented text).
+    # stderr chunks are yielded immediately (never contain the marker).
+    stdout_chunks: list[StreamChunk] = []
     result: ExecutionResult | None = None
 
     try:
@@ -126,10 +135,8 @@ async def shell(
                     # stderr is safe — yield immediately
                     yield chunk
                 else:
-                    # Yield the previous stdout chunk (it's safe — marker is at the end)
-                    if pending_chunk is not None:
-                        yield pending_chunk
-                    pending_chunk = chunk
+                    # Collect stdout chunks — we'll yield filtered output after
+                    stdout_chunks.append(chunk)
             elif isinstance(chunk, ExecutionResult):
                 result = chunk
     except asyncio.TimeoutError:
@@ -146,23 +153,25 @@ async def shell(
         yield "Error: Sandbox did not return an execution result."
         return
 
-    # Extract cwd from the full stdout (result.stdout has the complete text)
+    # Extract cwd from the full stdout using rsplit — this splits on the LAST
+    # occurrence of the marker, which is always the one we appended. This
+    # prevents corruption if user commands happen to output the marker string.
     stdout = result.stdout or ""
     if _CWD_MARKER in stdout:
-        parts = stdout.split(_CWD_MARKER, 1)
-        # Actual command output is before the marker
+        parts = stdout.rsplit(_CWD_MARKER, 1)
+        # Actual command output is before the LAST marker
         stdout = parts[0].rstrip("\n")
-        # The cwd is the line after the marker
+        # The cwd is the line after the last marker
         new_cwd = parts[1].strip()
         if new_cwd:
             shell_state["cwd"] = new_cwd
             tool_context.agent.state.set("_strands_shell_state", shell_state)
 
-    # Filter the marker from the last stdout chunk and yield it
-    if pending_chunk is not None:
-        cleaned = pending_chunk.data.split(_CWD_MARKER, 1)[0].rstrip("\n")
-        if cleaned:
-            yield StreamChunk(data=cleaned, stream_type="stdout")
+    # Yield the filtered stdout as a single chunk (marker fully removed).
+    # This avoids partial marker leakage that occurs with chunk-by-chunk
+    # filtering when the marker is split across chunk boundaries.
+    if stdout:
+        yield StreamChunk(data=stdout, stream_type="stdout")
 
     # Format final output (becomes the ToolResult)
     output_parts = []
