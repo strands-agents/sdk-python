@@ -1,8 +1,12 @@
 import time
 import uuid
 
+import httpx
 import pydantic
 import pytest
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
+from botocore.session import Session as BotocoreSession
 
 import strands
 from strands import Agent
@@ -552,3 +556,165 @@ class TestCountTokens:
         without = await model.count_tokens(messages=messages)
         with_tools = await model.count_tokens(messages=messages, tool_specs=tool_specs, system_prompt="Be helpful.")
         assert with_tools > without
+
+
+# --------------------------------------------------------------------------------------
+# openai_endpoint (Bedrock Mantle OpenAI-compatible endpoint)
+#
+# These tests exercise BedrockModel's ``openai_endpoint`` config, which routes requests
+# through ``bedrock-mantle.<region>.api.aws`` using the OpenAI Python SDK.
+#
+# Auth: tests sign requests with AWS SigV4 via a custom httpx client, using the caller's
+# AWS credentials (same resolution chain as the Converse tests above). This keeps the
+# integration test suite self-contained — no extra environment variables, no bearer
+# tokens to provision. End users of ``openai_endpoint`` typically set ``OPENAI_API_KEY``
+# to their Bedrock API key as shown in the AWS docs:
+# https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html
+#
+# Coverage is deliberately minimal: one test per behavior that is unique to this code
+# path. Generic OpenAI semantics (streaming events, structured output, etc.) are covered
+# by the OpenAI provider's own integration tests.
+# --------------------------------------------------------------------------------------
+
+_OPENAI_ENDPOINT_REGION = "us-east-1"
+_OPENAI_ENDPOINT_MODEL_ID = "openai.gpt-oss-120b"
+
+
+class _MantleSigV4Auth(httpx.Auth):
+    """httpx Auth handler that signs bedrock-mantle requests with AWS SigV4."""
+
+    def __init__(self, region: str):
+        session = BotocoreSession()
+        self.credentials = session.get_credentials().get_frozen_credentials()
+        self.signer = SigV4Auth(self.credentials, "bedrock", region)
+
+    def auth_flow(self, request: httpx.Request):
+        aws_request = AWSRequest(
+            method=request.method,
+            url=str(request.url),
+            headers=dict(request.headers),
+            data=request.content,
+        )
+        self.signer.add_auth(aws_request)
+        for key, value in aws_request.headers.items():
+            request.headers[key] = value
+        yield request
+
+
+class _MantleNonClosingAsyncClient(httpx.AsyncClient):
+    """AsyncClient that survives the OpenAI SDK's per-request context manager.
+
+    ``OpenAIModel`` / ``OpenAIResponsesModel`` wrap each request in ``async with
+    openai.AsyncOpenAI(...)``. On ``__aexit__`` the OpenAI base client calls
+    ``self._client.aclose()`` on whatever httpx client it owns — including an
+    injected one. Subsequent turns in the same test would then fail because the
+    signed client has been closed. Overriding ``aclose`` to a no-op keeps the
+    client alive across turns.
+    """
+
+    async def aclose(self) -> None:
+        pass
+
+
+def _signed_mantle_client_args() -> dict[str, object]:
+    """Build ``client_args`` that sign Mantle requests with the caller's AWS credentials.
+
+    The OpenAI SDK still requires a non-empty ``api_key`` value even when a custom
+    ``http_client`` replaces the Authorization header; any placeholder string works.
+    """
+    return {
+        "api_key": "unused",
+        "http_client": _MantleNonClosingAsyncClient(auth=_MantleSigV4Auth(_OPENAI_ENDPOINT_REGION)),
+    }
+
+
+def test_openai_endpoint_chat_completions_invoke():
+    """BedrockModel routes through the Chat Completions API and returns a valid response."""
+    model = BedrockModel(
+        model_id=_OPENAI_ENDPOINT_MODEL_ID,
+        region_name=_OPENAI_ENDPOINT_REGION,
+        openai_endpoint={
+            "api": "chat_completions",
+            "client_args": _signed_mantle_client_args(),
+        },
+    )
+    agent = Agent(model=model, system_prompt="Reply in one short sentence.", load_tools_from_directory=False)
+    result = agent("What is 2+2?")
+
+    assert "4" in str(result)
+
+
+def test_openai_endpoint_responses_invoke_with_reasoning():
+    """Responses dispatch works and ``params.reasoning`` reaches the underlying SDK.
+
+    The gpt-oss models emit ``reasoningContent`` blocks when reasoning is enabled, so
+    their presence in assistant messages confirms both the dispatch and the params
+    forwarding.
+    """
+    model = BedrockModel(
+        model_id=_OPENAI_ENDPOINT_MODEL_ID,
+        region_name=_OPENAI_ENDPOINT_REGION,
+        openai_endpoint={
+            "api": "responses",
+            "client_args": _signed_mantle_client_args(),
+            "params": {"reasoning": {"effort": "low"}},
+        },
+    )
+    agent = Agent(model=model, system_prompt="Reply in one short sentence.", callback_handler=None)
+
+    result = agent("What is 2+2?")
+    assert "4" in str(result)
+
+    has_reasoning = any(
+        "reasoningContent" in block for msg in agent.messages if msg["role"] == "assistant" for block in msg["content"]
+    )
+    assert has_reasoning, "expected reasoningContent blocks on the Responses API"
+
+    # Second turn must not raise despite reasoningContent in message history.
+    agent("What about 3+3?")
+
+
+def test_openai_endpoint_responses_stateful():
+    """``stateful=True`` clears local messages and the server recalls prior context."""
+    model = BedrockModel(
+        model_id=_OPENAI_ENDPOINT_MODEL_ID,
+        region_name=_OPENAI_ENDPOINT_REGION,
+        openai_endpoint={
+            "api": "responses",
+            "stateful": True,
+            "client_args": _signed_mantle_client_args(),
+        },
+    )
+    agent = Agent(model=model, system_prompt="Reply in one short sentence.")
+
+    agent("My name is Alice.")
+    assert len(agent.messages) == 0, "stateful mode should clear local messages between turns"
+
+    result = agent("What is my name?")
+    assert "alice" in str(result).lower()
+
+
+def test_openai_endpoint_tool_use():
+    """Tool invocation works end-to-end when routed through the Responses API."""
+
+    @strands.tool
+    def tool_time() -> str:
+        """Return the current time."""
+        return "12:00"
+
+    @strands.tool
+    def tool_weather() -> str:
+        """Return the current weather."""
+        return "sunny"
+
+    model = BedrockModel(
+        model_id=_OPENAI_ENDPOINT_MODEL_ID,
+        region_name=_OPENAI_ENDPOINT_REGION,
+        openai_endpoint={"api": "responses", "client_args": _signed_mantle_client_args()},
+    )
+    agent = Agent(model=model, tools=[tool_time, tool_weather], load_tools_from_directory=False)
+
+    result = agent("What is the time and weather in New York?")
+    text = " ".join(block["text"] for block in result.message["content"] if "text" in block).lower()
+
+    assert all(s in text for s in ["12:00", "sunny"])

@@ -3227,3 +3227,164 @@ class TestCountTokens:
             await model_with_client.count_tokens(messages=messages)
 
         assert any("native token counting failed" in record.message for record in caplog.records)
+
+
+# ======================================================================================
+# openai_endpoint
+#
+# Unit tests for BedrockModel's ``openai_endpoint`` config. Tests patch the lazily-
+# imported delegate classes (``OpenAIModel`` / ``OpenAIResponsesModel``) so assertions
+# focus on routing, parameter forwarding, and validation without touching the OpenAI
+# SDK or the network.
+# ======================================================================================
+
+
+@pytest.fixture
+def openai_model_cls():
+    """Patch the lazy import of OpenAIModel inside bedrock._build_openai_delegate."""
+    with unittest.mock.patch("strands.models.openai.OpenAIModel", autospec=True) as mock_cls:
+        mock_cls.return_value.stateful = False
+        yield mock_cls
+
+
+@pytest.fixture
+def openai_responses_model_cls():
+    """Patch the lazy import of OpenAIResponsesModel inside bedrock._build_openai_delegate."""
+    with unittest.mock.patch("strands.models.openai_responses.OpenAIResponsesModel", autospec=True) as mock_cls:
+        mock_cls.return_value.stateful = False
+        yield mock_cls
+
+
+def test_openai_endpoint_chat_completions_builds_delegate(session_cls, mock_client_method, openai_model_cls):
+    """api=chat_completions builds OpenAIModel with derived base_url and translated params.
+
+    Also verifies that the boto Converse client is not constructed on the Mantle path, and
+    that ``include_tool_result_status`` (auto-defaulted by ``__init__``) does not trip the
+    Converse-only conflict check (regression guard for a shipped bug).
+    """
+    _ = session_cls
+
+    BedrockModel(
+        model_id="openai.gpt-oss-120b",
+        region_name="us-east-1",
+        max_tokens=256,
+        temperature=0.3,
+        top_p=0.9,
+        stop_sequences=["END"],
+        openai_endpoint={"api": "chat_completions", "api_key": "bedrock-key"},
+    )
+
+    openai_model_cls.assert_called_once_with(
+        client_args={
+            "api_key": "bedrock-key",
+            "base_url": "https://bedrock-mantle.us-east-1.api.aws/v1",
+        },
+        model_id="openai.gpt-oss-120b",
+        params={
+            "max_tokens": 256,
+            "temperature": 0.3,
+            "top_p": 0.9,
+            "stop": ["END"],
+        },
+    )
+    mock_client_method.assert_not_called()
+
+
+def test_openai_endpoint_responses_builds_delegate(session_cls, mock_client_method, openai_responses_model_cls):
+    """api=responses builds OpenAIResponsesModel with stateful, user params, and Responses naming.
+
+    Responses translates ``max_tokens`` to ``max_output_tokens`` and drops ``stop_sequences``.
+    User ``params`` take precedence over BedrockConfig-derived values for the same key.
+    """
+    _ = session_cls
+
+    BedrockModel(
+        model_id="openai.gpt-oss-120b",
+        region_name="us-west-2",
+        max_tokens=256,
+        temperature=0.1,
+        stop_sequences=["END"],
+        openai_endpoint={
+            "api": "responses",
+            "stateful": True,
+            "params": {"temperature": 0.9, "reasoning": {"effort": "low"}},
+        },
+    )
+
+    openai_responses_model_cls.assert_called_once_with(
+        client_args={"base_url": "https://bedrock-mantle.us-west-2.api.aws/v1"},
+        model_id="openai.gpt-oss-120b",
+        params={
+            "temperature": 0.9,
+            "reasoning": {"effort": "low"},
+            "max_output_tokens": 256,
+        },
+        stateful=True,
+    )
+    mock_client_method.assert_not_called()
+
+
+def test_openai_endpoint_update_config_rebuilds_delegate(session_cls, openai_responses_model_cls):
+    """update_config rebuilds the delegate with the merged config so changes take effect."""
+    _ = session_cls
+
+    model = BedrockModel(
+        model_id="openai.gpt-oss-120b",
+        region_name="us-east-1",
+        openai_endpoint={"api": "responses"},
+    )
+    openai_responses_model_cls.reset_mock()
+
+    model.update_config(max_tokens=512, temperature=0.7)
+
+    openai_responses_model_cls.assert_called_once_with(
+        client_args={"base_url": "https://bedrock-mantle.us-east-1.api.aws/v1"},
+        model_id="openai.gpt-oss-120b",
+        params={"max_output_tokens": 512, "temperature": 0.7},
+        stateful=False,
+    )
+
+
+@pytest.mark.parametrize(
+    ("config_kwargs", "error_match"),
+    [
+        pytest.param(
+            {"openai_endpoint": {}},
+            '"api" to be "responses" or "chat_completions"',
+            id="missing_api",
+        ),
+        pytest.param(
+            {"openai_endpoint": {"api": "whatever"}},
+            '"api" to be "responses" or "chat_completions"',
+            id="invalid_api",
+        ),
+        pytest.param(
+            {
+                "guardrail_id": "g1",
+                "guardrail_version": "v1",
+                "openai_endpoint": {"api": "responses"},
+            },
+            "Converse-only config fields",
+            id="guardrail_conflict",
+        ),
+        pytest.param(
+            {
+                "cache_config": CacheConfig(strategy="auto"),
+                "openai_endpoint": {"api": "responses"},
+            },
+            "Converse-only config fields",
+            id="cache_config_conflict",
+        ),
+        pytest.param(
+            {"openai_endpoint": {"api": "chat_completions", "stateful": True}},
+            'stateful is only supported when api="responses"',
+            id="stateful_with_chat_completions",
+        ),
+    ],
+)
+def test_openai_endpoint_invalid_config_raises(session_cls, config_kwargs, error_match):
+    """openai_endpoint rejects invalid or conflicting configurations at init time."""
+    _ = session_cls
+
+    with pytest.raises(ValueError, match=error_match):
+        BedrockModel(model_id="openai.gpt-oss-120b", region_name="us-east-1", **config_kwargs)

@@ -1,6 +1,24 @@
 """AWS Bedrock model provider.
 
-- Docs: https://aws.amazon.com/bedrock/
+Supports two transports:
+
+- Converse API (default) via the ``bedrock-runtime`` endpoint. Used when ``openai_endpoint``
+  is not set on the config. Provides guardrails, prompt caching, and the full Converse feature
+  set.
+- OpenAI-compatible endpoint (``bedrock-mantle``) when ``openai_endpoint`` is provided on the
+  config. Routes through the OpenAI Python SDK to the Responses or Chat Completions API.
+  Unlocks features such as server-side stateful conversations, Responses API reasoning, and
+  built-in tools.
+
+Generic inference parameters (``temperature``, ``top_p``, ``max_tokens``, ``stop_sequences``,
+``streaming``) apply to both transports and live at the top level of ``BedrockConfig``.
+Converse-only fields (``guardrail_*``, ``cache_*``, ``service_tier``, etc.) may not be combined
+with ``openai_endpoint``; doing so raises at init time.
+
+Docs:
+
+- Bedrock overview: https://aws.amazon.com/bedrock/
+- OpenAI-compatible endpoints: https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html
 """
 
 import asyncio
@@ -9,7 +27,7 @@ import logging
 import os
 import warnings
 from collections.abc import AsyncGenerator, Callable, Iterable, ValuesView
-from typing import Any, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, TypeVar, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -34,6 +52,10 @@ from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
 from .model import BaseModelConfig, CacheConfig, Model
 
+if TYPE_CHECKING:
+    from .openai import OpenAIModel
+    from .openai_responses import OpenAIResponsesModel
+
 logger = logging.getLogger(__name__)
 
 # See: `BedrockModel._get_default_model_with_warning` for why we need both
@@ -56,6 +78,73 @@ _MODELS_INCLUDE_STATUS = [
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
+
+# Bedrock OpenAI-compatible endpoint (Mantle). See:
+# https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html
+_BEDROCK_MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws/v1"
+
+# Config fields that only apply to the Converse transport. Setting any of these together with
+# ``openai_endpoint`` would silently no-op, so we reject the combination at init time.
+#
+# ``include_tool_result_status`` is intentionally excluded: it is always auto-defaulted by
+# ``__init__`` and only affects Converse-side tool-result serialization. It has no effect on
+# the Mantle path either way, so requiring users to clear it would be a pure footgun.
+_CONVERSE_ONLY_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        "additional_request_fields",
+        "additional_response_field_paths",
+        "cache_prompt",
+        "cache_config",
+        "cache_tools",
+        "guardrail_id",
+        "guardrail_trace",
+        "guardrail_version",
+        "guardrail_stream_processing_mode",
+        "guardrail_redact_input",
+        "guardrail_redact_input_message",
+        "guardrail_redact_output",
+        "guardrail_redact_output_message",
+        "guardrail_latest_message",
+        "service_tier",
+    }
+)
+
+
+class OpenAIEndpointConfig(TypedDict, total=False):
+    """Configuration for routing a :class:`BedrockModel` through the OpenAI-compatible endpoint.
+
+    When this config is present on :class:`BedrockModel.BedrockConfig`, requests are sent
+    through the Bedrock Mantle endpoint (``bedrock-mantle.<region>.api.aws``) using the OpenAI
+    Python SDK instead of the Converse API. This unlocks features that are specific to the
+    OpenAI-compatible surface, such as the Responses API's server-side stateful conversations
+    and reasoning controls.
+
+    Generic inference parameters (``temperature``, ``top_p``, ``max_tokens``,
+    ``stop_sequences``, ``streaming``) continue to live on :class:`BedrockModel.BedrockConfig`
+    and are forwarded to the underlying OpenAI model.
+
+    Attributes:
+        api: Which OpenAI API surface to use. ``"responses"`` maps to the Responses API and
+            ``"chat_completions"`` maps to the Chat Completions API. Required.
+        api_key: Bedrock API key to send as the bearer token. The OpenAI SDK is only the
+            transport here; this is a Bedrock-issued key, not an OpenAI account key. The
+            AWS docs recommend setting the ``OPENAI_API_KEY`` environment variable to your
+            Bedrock API key, which is the OpenAI SDK's default env var. When ``api_key`` is
+            omitted, the underlying SDK picks up ``OPENAI_API_KEY`` automatically.
+        stateful: Enable server-side conversation state management. Responses API only.
+        params: Extra parameters forwarded to the OpenAI SDK ``params`` dict. Use this for
+            Responses-only options such as ``reasoning``.
+        client_args: Extra arguments merged into the OpenAI client constructor. Use this
+            to plug in a custom ``http_client`` (for example, to sign requests with AWS
+            SigV4) or to override timeouts. ``api_key`` and ``base_url`` set here override
+            the values derived from ``api_key`` and ``region``.
+    """
+
+    api: Literal["responses", "chat_completions"]
+    api_key: str | None
+    stateful: bool | None
+    params: dict[str, Any] | None
+    client_args: dict[str, Any] | None
 
 
 class BedrockModel(Model):
@@ -94,6 +183,10 @@ class BedrockModel(Model):
             model_id: The Bedrock model ID (e.g., "global.anthropic.claude-sonnet-4-6")
             include_tool_result_status: Flag to include status field in tool results.
                 True includes status, False removes status, "auto" determines based on model_id. Defaults to "auto".
+            openai_endpoint: When set, route requests through Bedrock's OpenAI-compatible endpoint
+                (``bedrock-mantle``) using the OpenAI Python SDK instead of the Converse API.
+                See :class:`OpenAIEndpointConfig`. Converse-only fields (``guardrail_*``,
+                ``cache_*``, ``service_tier``, etc.) may not be combined with this option.
             service_tier: Service tier for the request, controlling the trade-off between latency and cost.
                 Valid values: "default" (standard), "priority" (faster, premium), "flex" (cheaper, slower).
                 Please check https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html for
@@ -127,6 +220,7 @@ class BedrockModel(Model):
         streaming: bool | None
         temperature: float | None
         top_p: float | None
+        openai_endpoint: OpenAIEndpointConfig | None
 
     def __init__(
         self,
@@ -152,6 +246,7 @@ class BedrockModel(Model):
 
         session = boto_session or boto3.Session()
         resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
+        self._resolved_region = resolved_region
         self.config = BedrockModel.BedrockConfig(
             model_id=BedrockModel._get_default_model_with_warning(resolved_region, model_config),
             include_tool_result_status="auto",
@@ -159,6 +254,22 @@ class BedrockModel(Model):
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
+
+        # When ``openai_endpoint`` is configured, requests are routed through the Bedrock Mantle
+        # OpenAI-compatible endpoint via the OpenAI Python SDK. Skip the boto client since it is
+        # not used on that path.
+        self._openai_delegate: OpenAIModel | OpenAIResponsesModel | None = None
+        endpoint_config = self.config.get("openai_endpoint")
+        if endpoint_config is not None:
+            self._validate_openai_endpoint_config()
+            self._openai_delegate = self._build_openai_delegate()
+            self.client = None
+            logger.debug(
+                "region=<%s>, api=<%s> | bedrock openai-compatible delegate created",
+                resolved_region,
+                endpoint_config["api"],
+            )
+            return
 
         # Add strands-agents to the request user agent
         if boto_client_config:
@@ -183,6 +294,98 @@ class BedrockModel(Model):
 
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
+    def _validate_openai_endpoint_config(self) -> None:
+        """Validate that ``openai_endpoint`` is not combined with Converse-only fields.
+
+        Raises:
+            ValueError: If a Converse-only config field is set alongside ``openai_endpoint``
+                or if ``api`` is missing from ``openai_endpoint``.
+        """
+        endpoint = cast(OpenAIEndpointConfig, self.config["openai_endpoint"])
+        api = endpoint.get("api")
+        if api not in ("responses", "chat_completions"):
+            raise ValueError(f'openai_endpoint requires "api" to be "responses" or "chat_completions", got {api!r}')
+
+        conflicting = sorted(k for k in _CONVERSE_ONLY_CONFIG_KEYS if self.config.get(k) is not None)
+        if conflicting:
+            raise ValueError(
+                "openai_endpoint cannot be combined with Converse-only config fields: "
+                f"{conflicting}. Remove these fields or drop openai_endpoint to use the Converse API."
+            )
+
+        # ``stateful`` is only meaningful for the Responses API.
+        if endpoint.get("stateful") and api != "responses":
+            raise ValueError(f'openai_endpoint.stateful is only supported when api="responses". Got api={api!r}.')
+
+    def _build_openai_delegate(self) -> "OpenAIModel | OpenAIResponsesModel":
+        """Construct the OpenAI-compatible delegate for the Mantle endpoint.
+
+        Forwards generic inference params from :class:`BedrockConfig` into the OpenAI SDK
+        ``params`` dict, translating names where the OpenAI and Bedrock conventions differ.
+
+        Returns:
+            An :class:`OpenAIResponsesModel` or :class:`OpenAIModel` configured to talk to
+            ``bedrock-mantle.<region>.api.aws``.
+        """
+        endpoint = cast(OpenAIEndpointConfig, self.config["openai_endpoint"])
+        api = endpoint["api"]
+
+        # The Mantle base URL is fully determined by region; AWS owns the endpoint list:
+        # https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html
+        base_url = _BEDROCK_MANTLE_BASE_URL_TEMPLATE.format(region=self._resolved_region)
+
+        params: dict[str, Any] = dict(endpoint.get("params") or {})
+        # Forward generic inference params from BedrockConfig. Translate naming where the
+        # Responses API differs from Chat Completions (max_tokens -> max_output_tokens).
+        max_tokens = self.config.get("max_tokens")
+        if max_tokens is not None:
+            params.setdefault("max_output_tokens" if api == "responses" else "max_tokens", max_tokens)
+        temperature = self.config.get("temperature")
+        if temperature is not None:
+            params.setdefault("temperature", temperature)
+        top_p = self.config.get("top_p")
+        if top_p is not None:
+            params.setdefault("top_p", top_p)
+        stop_sequences = self.config.get("stop_sequences")
+        if stop_sequences is not None:
+            # Chat Completions uses `stop`; Responses does not accept stop sequences.
+            if api == "chat_completions":
+                params.setdefault("stop", stop_sequences)
+            else:
+                logger.debug("stop_sequences ignored when routing through Responses API")
+
+        # The OpenAI SDK's ``api_key`` parameter is just the bearer token it sends in the
+        # Authorization header; when pointed at bedrock-mantle this is a Bedrock-issued key.
+        # The AWS docs recommend setting OPENAI_API_KEY to the Bedrock API key so existing
+        # OpenAI SDK code works unchanged. If the user does not pass ``api_key`` here, the
+        # OpenAI SDK will read OPENAI_API_KEY from the environment on its own.
+        client_args: dict[str, Any] = {"base_url": base_url}
+        if api_key := endpoint.get("api_key"):
+            client_args["api_key"] = api_key
+        # User-supplied client_args win over derived defaults. This is the escape hatch for
+        # plumbing a signed httpx client (SigV4), custom timeouts, etc.
+        if extra_client_args := endpoint.get("client_args"):
+            client_args.update(extra_client_args)
+
+        if api == "responses":
+            from .openai_responses import OpenAIResponsesModel
+
+            stateful = bool(endpoint.get("stateful"))
+            return OpenAIResponsesModel(
+                client_args=client_args,
+                model_id=self.config["model_id"],
+                params=params,
+                stateful=stateful,
+            )
+
+        from .openai import OpenAIModel
+
+        return OpenAIModel(
+            client_args=client_args,
+            model_id=self.config["model_id"],
+            params=params,
+        )
+
     @property
     def _cache_strategy(self) -> str | None:
         """The cache strategy for this model based on its model ID.
@@ -194,6 +397,18 @@ class BedrockModel(Model):
             return "anthropic"
         return None
 
+    @property
+    @override
+    def stateful(self) -> bool:
+        """Whether the model manages conversation state server-side.
+
+        Delegates to the underlying OpenAI-compatible model when ``openai_endpoint`` is configured,
+        otherwise returns False (the Converse API is always stateless).
+        """
+        if self._openai_delegate is not None:
+            return self._openai_delegate.stateful
+        return False
+
     @override
     def update_config(self, **model_config: Unpack[BedrockConfig]) -> None:  # type: ignore
         """Update the Bedrock Model configuration with the provided arguments.
@@ -204,12 +419,19 @@ class BedrockModel(Model):
         validate_config_keys(model_config, self.BedrockConfig)
         self.config.update(model_config)
 
+        # If the delegate is already built and the caller changed anything the delegate depends on,
+        # rebuild it so subsequent calls pick up the new config. Skipped during __init__ where
+        # ``_openai_delegate`` is not yet set.
+        if getattr(self, "_openai_delegate", None) is not None:
+            self._validate_openai_endpoint_config()
+            self._openai_delegate = self._build_openai_delegate()
+
     @override
     def get_config(self) -> BedrockConfig:
         """Get the current Bedrock Model configuration.
 
         Returns:
-            The Bedrock model configuration.
+            The Bedrock model configuration.405
         """
         return self.config
 
@@ -772,7 +994,15 @@ class BedrockModel(Model):
         Returns:
             Total input token count.
         """
+        # The openai_endpoint path has no Bedrock Converse client and no equivalent native
+        # count endpoint, so fall back to the base ``Model.count_tokens`` estimation
+        # (tiktoken when available, heuristic otherwise).
+        if self._openai_delegate is not None:
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
         try:
+            # The openai_endpoint early-return above guarantees ``self.client`` exists here.
+            assert self.client is not None, "Bedrock Converse client is unavailable"
             if system_prompt and system_prompt_content is None:
                 system_prompt_content = [{"text": system_prompt}]
 
@@ -836,6 +1066,16 @@ class BedrockModel(Model):
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the model service is throttling requests.
         """
+        if self._openai_delegate is not None:
+            async for delegate_event in self._openai_delegate.stream(
+                messages,
+                tool_specs,
+                system_prompt,
+                tool_choice=tool_choice,
+                **kwargs,
+            ):
+                yield delegate_event
+            return
 
         def callback(event: StreamEvent | None = None) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, event)
@@ -885,6 +1125,8 @@ class BedrockModel(Model):
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the model service is throttling requests.
         """
+        # Converse-only path; the Mantle delegate handles streaming directly in ``stream``.
+        assert self.client is not None, "Bedrock Converse client is unavailable"
         try:
             logger.debug("formatting request")
             request = self._format_request(messages, tool_specs, system_prompt_content, tool_choice)
@@ -1110,6 +1352,13 @@ class BedrockModel(Model):
         Yields:
             Model events with the last being the structured output.
         """
+        if self._openai_delegate is not None:
+            async for delegate_event in self._openai_delegate.structured_output(
+                output_model, prompt, system_prompt, **kwargs
+            ):
+                yield delegate_event
+            return
+
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.stream(
