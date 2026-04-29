@@ -3293,8 +3293,9 @@ def test_openai_endpoint_chat_completions_builds_delegate(session_cls, mock_clie
 def test_openai_endpoint_responses_builds_delegate(session_cls, mock_client_method, openai_responses_model_cls):
     """api=responses builds OpenAIResponsesModel with stateful, user params, and Responses naming.
 
-    Responses translates ``max_tokens`` to ``max_output_tokens`` and drops ``stop_sequences``.
-    User ``params`` take precedence over BedrockConfig-derived values for the same key.
+    Responses translates ``max_tokens`` to ``max_output_tokens``. ``stop_sequences`` is not
+    allowed on this path (rejected by validation) so it is not set here. User ``params``
+    take precedence over BedrockConfig-derived values for the same key.
     """
     _ = session_cls
 
@@ -3303,7 +3304,6 @@ def test_openai_endpoint_responses_builds_delegate(session_cls, mock_client_meth
         region_name="us-west-2",
         max_tokens=256,
         temperature=0.1,
-        stop_sequences=["END"],
         openai_endpoint={
             "api": "responses",
             "stateful": True,
@@ -3374,6 +3374,32 @@ def test_openai_endpoint_update_config_rebuilds_delegate(session_cls, openai_res
             },
             "Converse-only config fields",
             id="cache_config_conflict",
+        ),
+        pytest.param(
+            {
+                "additional_args": {"k": "v"},
+                "openai_endpoint": {"api": "responses"},
+            },
+            "Converse-only config fields",
+            id="additional_args_conflict",
+        ),
+        pytest.param(
+            {"streaming": False, "openai_endpoint": {"api": "responses"}},
+            "does not support streaming=False",
+            id="streaming_false_with_responses",
+        ),
+        pytest.param(
+            {"streaming": False, "openai_endpoint": {"api": "chat_completions"}},
+            "does not support streaming=False",
+            id="streaming_false_with_chat_completions",
+        ),
+        pytest.param(
+            {
+                "stop_sequences": ["STOP"],
+                "openai_endpoint": {"api": "responses"},
+            },
+            'api="responses" does not accept stop_sequences',
+            id="stop_sequences_with_responses",
         ),
         pytest.param(
             {"openai_endpoint": {"api": "chat_completions", "stateful": True}},

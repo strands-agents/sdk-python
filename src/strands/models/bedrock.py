@@ -10,10 +10,14 @@ Supports two transports:
   Unlocks features such as server-side stateful conversations, Responses API reasoning, and
   built-in tools.
 
-Generic inference parameters (``temperature``, ``top_p``, ``max_tokens``, ``stop_sequences``,
-``streaming``) apply to both transports and live at the top level of ``BedrockConfig``.
-Converse-only fields (``guardrail_*``, ``cache_*``, ``service_tier``, etc.) may not be combined
-with ``openai_endpoint``; doing so raises at init time.
+Generic inference parameters (``temperature``, ``top_p``, ``max_tokens``) apply to both
+transports and live at the top level of ``BedrockConfig``. The ``openai_endpoint`` path
+always streams (the OpenAI SDK's Responses and Chat Completions surfaces do not offer a
+non-streaming mode), and ``stop_sequences`` is forwarded to Chat Completions as ``stop``
+but is not accepted by the Responses API. Converse-only fields (``guardrail_*``,
+``cache_*``, ``service_tier``, ``additional_args``, etc.) may not be combined with
+``openai_endpoint``; the same applies to ``streaming=False`` and to ``stop_sequences``
+when ``api="responses"``. All of these raise at init time rather than silently no-op.
 
 Docs:
 
@@ -91,6 +95,7 @@ _BEDROCK_MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws/v1"
 # the Mantle path either way, so requiring users to clear it would be a pure footgun.
 _CONVERSE_ONLY_CONFIG_KEYS: frozenset[str] = frozenset(
     {
+        "additional_args",
         "additional_request_fields",
         "additional_response_field_paths",
         "cache_prompt",
@@ -137,7 +142,11 @@ class OpenAIEndpointConfig(TypedDict, total=False):
         client_args: Extra arguments merged into the OpenAI client constructor. Use this
             to plug in a custom ``http_client`` (for example, to sign requests with AWS
             SigV4) or to override timeouts. ``api_key`` and ``base_url`` set here override
-            the values derived from ``api_key`` and ``region``.
+            the values derived from ``api_key`` and ``region``. When providing a custom
+            ``http_client``, the caller owns its lifecycle: the OpenAI SDK's per-request
+            context manager will call ``aclose()`` on whatever client it is given, so a
+            long-lived injected client should either override ``aclose()`` to a no-op or
+            be constructed fresh per request.
     """
 
     api: Literal["responses", "chat_completions"]
@@ -185,8 +194,10 @@ class BedrockModel(Model):
                 True includes status, False removes status, "auto" determines based on model_id. Defaults to "auto".
             openai_endpoint: When set, route requests through Bedrock's OpenAI-compatible endpoint
                 (``bedrock-mantle``) using the OpenAI Python SDK instead of the Converse API.
-                See :class:`OpenAIEndpointConfig`. Converse-only fields (``guardrail_*``,
-                ``cache_*``, ``service_tier``, etc.) may not be combined with this option.
+                See :class:`OpenAIEndpointConfig`. Raises at init time when combined with
+                Converse-only fields (``guardrail_*``, ``cache_*``, ``service_tier``,
+                ``additional_args``, etc.), with ``streaming=False``, or with
+                ``stop_sequences`` when ``api="responses"``.
             service_tier: Service tier for the request, controlling the trade-off between latency and cost.
                 Valid values: "default" (standard), "priority" (faster, premium), "flex" (cheaper, slower).
                 Please check https://docs.aws.amazon.com/bedrock/latest/userguide/service-tiers-inference.html for
@@ -295,11 +306,22 @@ class BedrockModel(Model):
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
     def _validate_openai_endpoint_config(self) -> None:
-        """Validate that ``openai_endpoint`` is not combined with Converse-only fields.
+        """Validate ``openai_endpoint`` against the rest of :class:`BedrockConfig`.
+
+        Runs the full set of Mantle-path checks:
+
+        1. ``api`` must be one of ``"responses"`` or ``"chat_completions"``.
+        2. No Converse-only fields may be set alongside ``openai_endpoint``.
+        3. ``streaming=False`` is rejected; both OpenAI delegate APIs always stream.
+        4. ``stop_sequences`` is rejected when ``api="responses"``; the Responses API
+           does not accept stop sequences. It is forwarded as ``stop`` for Chat Completions.
+        5. ``stateful=True`` is Responses-only.
+
+        Each failure raises rather than silently no-opping so misconfigurations surface
+        at init time.
 
         Raises:
-            ValueError: If a Converse-only config field is set alongside ``openai_endpoint``
-                or if ``api`` is missing from ``openai_endpoint``.
+            ValueError: When any of the above checks fail.
         """
         endpoint = cast(OpenAIEndpointConfig, self.config["openai_endpoint"])
         api = endpoint.get("api")
@@ -311,6 +333,24 @@ class BedrockModel(Model):
             raise ValueError(
                 "openai_endpoint cannot be combined with Converse-only config fields: "
                 f"{conflicting}. Remove these fields or drop openai_endpoint to use the Converse API."
+            )
+
+        # Both OpenAI delegates always stream; ``streaming=False`` would be silently
+        # overridden on the Mantle path, which is the class of bug this validator exists
+        # to prevent.
+        if self.config.get("streaming") is False:
+            raise ValueError(
+                "openai_endpoint does not support streaming=False. The OpenAI SDK's Responses "
+                "and Chat Completions surfaces always stream; remove streaming=False or drop "
+                "openai_endpoint to use the Converse API."
+            )
+
+        # The Responses API does not accept stop sequences. Chat Completions forwards them
+        # as ``stop``, so this only applies on the Responses path.
+        if api == "responses" and self.config.get("stop_sequences") is not None:
+            raise ValueError(
+                'openai_endpoint with api="responses" does not accept stop_sequences. '
+                'Remove stop_sequences or use api="chat_completions".'
             )
 
         # ``stateful`` is only meaningful for the Responses API.
@@ -348,11 +388,9 @@ class BedrockModel(Model):
             params.setdefault("top_p", top_p)
         stop_sequences = self.config.get("stop_sequences")
         if stop_sequences is not None:
-            # Chat Completions uses `stop`; Responses does not accept stop sequences.
-            if api == "chat_completions":
-                params.setdefault("stop", stop_sequences)
-            else:
-                logger.debug("stop_sequences ignored when routing through Responses API")
+            # Reaching this branch implies api == "chat_completions"; the validator
+            # rejects stop_sequences on the Responses path so no fallback is needed.
+            params.setdefault("stop", stop_sequences)
 
         # The OpenAI SDK's ``api_key`` parameter is just the bearer token it sends in the
         # Authorization header; when pointed at bedrock-mantle this is a Bedrock-issued key.
@@ -431,7 +469,7 @@ class BedrockModel(Model):
         """Get the current Bedrock Model configuration.
 
         Returns:
-            The Bedrock model configuration.405
+            The Bedrock model configuration.
         """
         return self.config
 
@@ -1067,10 +1105,20 @@ class BedrockModel(Model):
             ModelThrottledException: If the model service is throttling requests.
         """
         if self._openai_delegate is not None:
+            # The OpenAI delegates accept ``system_prompt`` (a plain string) but not
+            # ``system_prompt_content``. Collapse structured text blocks into a single
+            # string so the delegate receives the same content; non-text blocks (cache
+            # points, etc.) are Converse-only and are dropped here rather than silently
+            # forwarded as unsupported payload.
+            delegate_system_prompt = system_prompt
+            if delegate_system_prompt is None and system_prompt_content:
+                delegate_system_prompt = (
+                    "\n\n".join(block["text"] for block in system_prompt_content if "text" in block) or None
+                )
             async for delegate_event in self._openai_delegate.stream(
                 messages,
                 tool_specs,
-                system_prompt,
+                delegate_system_prompt,
                 tool_choice=tool_choice,
                 **kwargs,
             ):
