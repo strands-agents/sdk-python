@@ -53,6 +53,13 @@ _MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
 ]
 
+# Models that support S3 location sources for documents, images, and videos in the Bedrock Converse API.
+# Other model families (Anthropic Claude, Meta Llama, Mistral, Cohere, etc.) only accept inline bytes
+# and reject S3 location sources with a ValidationException.
+_MODELS_SUPPORT_S3_LOCATION = [
+    "amazon.nova",
+]
+
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
@@ -493,9 +500,33 @@ class BedrockModel(Model):
         else:  # "auto"
             return any(model in self.config["model_id"] for model in _MODELS_INCLUDE_STATUS)
 
+    @property
+    def _supports_s3_location(self) -> bool:
+        """Whether this model supports S3 location sources in the Bedrock Converse API.
+
+        Only Amazon Nova models support S3 location sources for documents, images, and videos.
+        Other families (Anthropic Claude, Meta Llama, Mistral, Cohere, etc.) only accept inline
+        bytes and reject S3 location sources with a ValidationException.
+
+        Returns:
+            True if the model supports S3 location sources, False otherwise.
+        """
+        model_id = self.config.get("model_id", "").lower()
+        return any(prefix in model_id for prefix in _MODELS_SUPPORT_S3_LOCATION)
+
     def _handle_location(self, location: SourceLocation) -> dict[str, Any] | None:
-        """Convert location content block to Bedrock format if its an S3Location."""
+        """Convert location content block to Bedrock format if its an S3Location.
+
+        Returns None if the location type is unsupported or if the current model does not
+        support S3 location sources.
+        """
         if location["type"] == "s3":
+            if not self._supports_s3_location:
+                logger.warning(
+                    "model_id=<%s> | S3 location sources are not supported by this model; skipping content block",
+                    self.config.get("model_id"),
+                )
+                return None
             s3_location = cast(S3Location, location)
             formatted_document_s3: dict[str, Any] = {"uri": s3_location["uri"]}
             if "bucketOwner" in s3_location:
