@@ -91,6 +91,7 @@ class BedrockModel(Model):
             cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
             cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
             cache_tools: Cache point type for tools
+            cache_tools_ttl: Optional TTL duration for tool cache points (e.g. "5m", "1h")
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
             guardrail_version: Version of the guardrail to apply
@@ -128,6 +129,7 @@ class BedrockModel(Model):
         cache_prompt: str | None
         cache_config: CacheConfig | None
         cache_tools: str | None
+        cache_tools_ttl: str | None
         guardrail_id: str | None
         guardrail_trace: Literal["enabled", "disabled", "enabled_full"] | None
         guardrail_stream_processing_mode: Literal["sync", "async"] | None
@@ -293,7 +295,18 @@ class BedrockModel(Model):
                                 for tool_spec in tool_specs
                             ],
                             *(
-                                [{"cachePoint": {"type": self.config["cache_tools"]}}]
+                                [
+                                    {
+                                        "cachePoint": {
+                                            "type": self.config["cache_tools"],
+                                            **(
+                                                {"ttl": self.config["cache_tools_ttl"]}
+                                                if self.config.get("cache_tools_ttl")
+                                                else {}
+                                            ),
+                                        }
+                                    }
+                                ]
                                 if self.config.get("cache_tools")
                                 else []
                             ),
@@ -395,7 +408,11 @@ class BedrockModel(Model):
                 last_user_idx = msg_idx
 
         if last_user_idx is not None and messages[last_user_idx].get("content"):
-            messages[last_user_idx]["content"].append({"cachePoint": {"type": "default"}})
+            cache_point: dict[str, Any] = {"type": "default"}
+            cache_config = self.config.get("cache_config")
+            if cache_config and cache_config.ttl:
+                cache_point["ttl"] = cache_config.ttl
+            messages[last_user_idx]["content"].append({"cachePoint": cache_point})
             logger.debug("msg_idx=<%s> | added cache point to last user message", last_user_idx)
 
     def _find_last_user_text_message_index(self, messages: Messages) -> int | None:

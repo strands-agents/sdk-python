@@ -3495,3 +3495,59 @@ class TestCountTokens:
         bedrock_client.count_tokens.assert_not_called()
         assert isinstance(result, int)
         assert result >= 0
+
+
+def test_inject_cache_point_with_ttl(bedrock_client):
+    """Test that _inject_cache_point includes TTL when cache_config has ttl set."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", ttl="5m"),
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    cache_point = cleaned_messages[0]["content"][-1]["cachePoint"]
+    assert cache_point["type"] == "default"
+    assert cache_point["ttl"] == "5m"
+
+
+def test_inject_cache_point_without_ttl(bedrock_client):
+    """Test that _inject_cache_point omits TTL when cache_config has no ttl."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    cache_point = cleaned_messages[0]["content"][-1]["cachePoint"]
+    assert cache_point["type"] == "default"
+    assert "ttl" not in cache_point
+
+
+def test_format_request_cache_tools_with_ttl(model, messages, model_id, tool_spec, cache_type):
+    """Test that cache_tools_ttl propagates into toolConfig cachePoint."""
+    model.update_config(cache_tools=cache_type, cache_tools_ttl="5m")
+
+    tru_request = model._format_request(messages, tool_specs=[tool_spec])
+
+    exp_cache_point = {"cachePoint": {"type": cache_type, "ttl": "5m"}}
+    assert tru_request["toolConfig"]["tools"][-1] == exp_cache_point
+
+
+def test_format_request_cache_tools_without_ttl(model, messages, model_id, tool_spec, cache_type):
+    """Test that toolConfig cachePoint omits TTL when cache_tools_ttl is not set."""
+    model.update_config(cache_tools=cache_type)
+
+    tru_request = model._format_request(messages, tool_specs=[tool_spec])
+
+    exp_cache_point = {"cachePoint": {"type": cache_type}}
+    assert tru_request["toolConfig"]["tools"][-1] == exp_cache_point

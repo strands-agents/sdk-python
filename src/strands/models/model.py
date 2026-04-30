@@ -134,9 +134,12 @@ class CacheConfig:
         strategy: Caching strategy to use.
             - "auto": Automatically detect model support and inject cachePoint to maximize cache coverage
             - "anthropic": Inject cachePoint in Anthropic-compatible format without model support check
+        ttl: Optional TTL duration for cache entries (e.g. "5m", "1h").
+            When specified, auto-injected cache points will include this TTL value.
     """
 
     strategy: Literal["auto", "anthropic"] = "auto"
+    ttl: str | None = None
 
 
 class Model(abc.ABC):
