@@ -555,7 +555,7 @@ class LlamaCppModel(Model):
             )
             return total_tokens
         except Exception as e:
-            logger.warning(
+            logger.debug(
                 "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
                 self.config.get("model_id", "default"),
                 e,

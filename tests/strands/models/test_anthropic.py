@@ -1131,10 +1131,10 @@ class TestCountTokens:
         assert result >= 0
 
     @pytest.mark.asyncio
-    async def test_fallback_logs_warning(self, model_with_client, anthropic_client, messages, caplog):
+    async def test_fallback_logs_debug(self, model_with_client, anthropic_client, messages, caplog):
         anthropic_client.messages.count_tokens = unittest.mock.AsyncMock(side_effect=RuntimeError("API down"))
 
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.DEBUG, logger="strands.models.anthropic"):
             await model_with_client.count_tokens(messages=messages)
 
         assert any("native token counting failed" in record.message for record in caplog.records)

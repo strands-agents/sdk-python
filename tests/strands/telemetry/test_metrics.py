@@ -613,3 +613,44 @@ def test_latest_context_size_missing_input_tokens_key(event_loop_metrics):
         )
     )
     assert event_loop_metrics.latest_context_size is None
+
+
+def test_projected_context_size_no_invocations(event_loop_metrics):
+    assert event_loop_metrics.projected_context_size is None
+
+
+def test_projected_context_size_invocation_with_no_cycles(event_loop_metrics):
+    event_loop_metrics.reset_usage_metrics()
+    assert event_loop_metrics.projected_context_size is None
+
+
+def test_projected_context_size_returns_input_plus_output(event_loop_metrics, mock_get_meter_provider):
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
+    event_loop_metrics.update_usage(Usage(inputTokens=100, outputTokens=50, totalTokens=150))
+
+    assert event_loop_metrics.projected_context_size == 150
+
+
+def test_projected_context_size_updates_across_cycles(event_loop_metrics, mock_get_meter_provider):
+    event_loop_metrics.reset_usage_metrics()
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c1"})
+    event_loop_metrics.update_usage(Usage(inputTokens=100, outputTokens=50, totalTokens=150))
+
+    event_loop_metrics.start_cycle(attributes={"event_loop_cycle_id": "c2"})
+    event_loop_metrics.update_usage(Usage(inputTokens=200, outputTokens=80, totalTokens=280))
+
+    assert event_loop_metrics.projected_context_size == 280
+
+
+def test_projected_context_size_missing_tokens_key(event_loop_metrics):
+    """Returns None when usage dict is missing inputTokens or outputTokens."""
+    event_loop_metrics.reset_usage_metrics()
+    invocation = event_loop_metrics.agent_invocations[-1]
+    invocation.cycles.append(
+        strands.telemetry.metrics.EventLoopCycleMetric(
+            event_loop_cycle_id="c1",
+            usage={"outputTokens": 50, "totalTokens": 50},
+        )
+    )
+    assert event_loop_metrics.projected_context_size is None

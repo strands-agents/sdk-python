@@ -279,7 +279,7 @@ def test_structured_output_multi_modal_input(streaming_agent, yellow_img, yellow
 def test_redacted_content_handling():
     """Test redactedContent handling with thinking mode."""
     bedrock_model = BedrockModel(
-        model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
         additional_request_fields={
             "thinking": {
                 "type": "enabled",
@@ -552,3 +552,27 @@ class TestCountTokens:
         without = await model.count_tokens(messages=messages)
         with_tools = await model.count_tokens(messages=messages, tool_specs=tool_specs, system_prompt="Be helpful.")
         assert with_tools > without
+
+
+def test_strict_tools_with_complex_schema():
+    """Test strict_tools=True with tools that have complex schemas including arrays and optional params."""
+
+    tools_called = set()
+
+    @strands.tool
+    def search(query: str, tags: list[str], max_results: int = 5) -> str:
+        """Search for items matching query and tags."""
+        tools_called.add("search")
+        return f"Found results for '{query}' with tags {tags} (limit {max_results})"
+
+    @strands.tool
+    def calculator(expression: str) -> float:
+        """Calculate the result of a mathematical expression."""
+        tools_called.add("calculator")
+        return eval(expression)
+
+    model = BedrockModel(strict_tools=True)
+    agent = Agent(model=model, tools=[search, calculator], load_tools_from_directory=False)
+    agent('Search for "python" with tags ["programming", "language"] using the search tool.')
+
+    assert "search" in tools_called
