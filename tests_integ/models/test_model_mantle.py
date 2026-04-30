@@ -1,61 +1,46 @@
-"""Integration tests for OpenAI Responses API on Bedrock Mantle with AWS credentials."""
+"""Integration tests for OpenAI-compatible APIs on Bedrock Mantle.
 
-import httpx
+Exercises the ``aws_config`` pathway on ``OpenAIModel`` (Chat Completions) and
+``OpenAIResponsesModel`` (Responses API) against the live
+``bedrock-mantle.<region>.api.aws/v1`` endpoint. Credentials come from the
+ambient AWS credential chain; no explicit API key is passed by the user.
+"""
+
 import pytest
-from botocore.auth import SigV4Auth
-from botocore.awsrequest import AWSRequest
-from botocore.session import Session as BotocoreSession
 
 from strands import Agent
+from strands.models.openai import OpenAIModel
 from strands.models.openai_responses import OpenAIResponsesModel
 
-
-class _SigV4Auth(httpx.Auth):
-    """httpx Auth handler that signs requests with AWS SigV4."""
-
-    def __init__(self, region: str):
-        session = BotocoreSession()
-        self.credentials = session.get_credentials().get_frozen_credentials()
-        self.signer = SigV4Auth(self.credentials, "bedrock", region)
-
-    def auth_flow(self, request: httpx.Request):
-        aws_request = AWSRequest(
-            method=request.method,
-            url=str(request.url),
-            headers=dict(request.headers),
-            data=request.content,
-        )
-        self.signer.add_auth(aws_request)
-        for key, value in aws_request.headers.items():
-            request.headers[key] = value
-        yield request
-
-
-class _NonClosingAsyncClient(httpx.AsyncClient):
-    """AsyncClient that survives the OpenAI SDK's context manager lifecycle."""
-
-    async def aclose(self) -> None:
-        pass
+_REGION = "us-east-1"
+_MODEL_ID = "openai.gpt-oss-120b"
 
 
 @pytest.fixture
-def client_args():
-    region = "us-east-1"
-    return {
-        "api_key": "unused",
-        "base_url": f"https://bedrock-mantle.{region}.api.aws/v1",
-        "http_client": _NonClosingAsyncClient(auth=_SigV4Auth(region)),
-    }
+def aws_config():
+    return {"region": _REGION}
 
 
 @pytest.fixture
-def model(client_args):
-    return OpenAIResponsesModel(model_id="openai.gpt-oss-120b", client_args=client_args)
+def chat_completions_model(aws_config):
+    return OpenAIModel(model_id=_MODEL_ID, aws_config=aws_config)
 
 
 @pytest.fixture
-def stateful_model(client_args):
-    return OpenAIResponsesModel(model_id="openai.gpt-oss-120b", stateful=True, client_args=client_args)
+def model(aws_config):
+    return OpenAIResponsesModel(model_id=_MODEL_ID, aws_config=aws_config)
+
+
+@pytest.fixture
+def stateful_model(aws_config):
+    return OpenAIResponsesModel(model_id=_MODEL_ID, stateful=True, aws_config=aws_config)
+
+
+def test_chat_completions_agent_invoke(chat_completions_model):
+    """OpenAIModel (Chat Completions) reaches Mantle via aws_config."""
+    agent = Agent(model=chat_completions_model, system_prompt="Reply in one short sentence.", callback_handler=None)
+    result = agent("What is 2+2?")
+    assert "4" in str(result)
 
 
 def test_agent_invoke(model):
@@ -74,11 +59,11 @@ def test_responses_server_side_conversation(stateful_model):
     assert "alice" in str(result).lower()
 
 
-def test_reasoning_content_multi_turn(client_args):
+def test_reasoning_content_multi_turn(aws_config):
     """Test that reasoning content from gpt-oss models doesn't break multi-turn conversations."""
     model = OpenAIResponsesModel(
-        model_id="openai.gpt-oss-120b",
-        client_args=client_args,
+        model_id=_MODEL_ID,
+        aws_config=aws_config,
         params={"reasoning": {"effort": "low"}},
     )
     agent = Agent(model=model, system_prompt="Reply in one short sentence.", callback_handler=None)

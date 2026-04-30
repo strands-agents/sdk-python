@@ -21,6 +21,7 @@ from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
+from ._openai_bedrock import AwsConfig, resolve_bedrock_client_args
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -71,6 +72,7 @@ class OpenAIModel(Model):
         self,
         client: Client | None = None,
         client_args: dict[str, Any] | None = None,
+        aws_config: AwsConfig | None = None,
         **model_config: Unpack[OpenAIConfig],
     ) -> None:
         """Initialize provider instance.
@@ -87,22 +89,52 @@ class OpenAIModel(Model):
                 Note: The client should not be shared across different asyncio event loops.
             client_args: Arguments for the OpenAI client (legacy approach).
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
+                May be combined with ``aws_config``; transport-level options like ``http_client``,
+                ``timeout``, or ``default_headers`` are preserved, while ``base_url`` and
+                ``api_key`` are always overridden by ``aws_config`` when both are set.
+            aws_config: Route requests through Amazon Bedrock's Mantle (OpenAI-compatible)
+                endpoint. Provide ``{"region": "us-east-1"}`` at minimum. Accepts optional
+                ``credentials_provider`` (a botocore ``CredentialProvider``) and ``expiry``
+                (a ``datetime.timedelta`` up to 12h). When set, a fresh bearer token is minted
+                on every request via ``aws-bedrock-token-generator`` and the OpenAI client is
+                pointed at ``https://bedrock-mantle.<region>.api.aws/v1``. Cannot be combined
+                with a pre-built ``client``.
             **model_config: Configuration options for the OpenAI model.
 
         Raises:
-            ValueError: If both `client` and `client_args` are provided.
+            ValueError: If ``client`` is combined with ``client_args`` or ``aws_config``,
+                or if ``aws_config`` is missing a region.
         """
         validate_config_keys(model_config, self.OpenAIConfig)
         self.config = dict(model_config)
 
-        # Validate that only one client configuration method is provided
-        if client is not None and client_args is not None and len(client_args) > 0:
+        # Validate that client configuration methods are mutually exclusive where they conflict.
+        # client_args + aws_config is allowed — aws_config will override base_url / api_key only.
+        client_args_provided = client_args is not None and len(client_args) > 0
+        if client is not None and client_args_provided:
             raise ValueError("Only one of 'client' or 'client_args' should be provided, not both.")
+        if aws_config is not None:
+            if client is not None:
+                raise ValueError("'aws_config' cannot be combined with a pre-built 'client'.")
+            if not aws_config.get("region"):
+                raise ValueError("aws_config must include a non-empty 'region'.")
 
         self._custom_client = client
         self.client_args = client_args or {}
+        self._aws_config = aws_config
 
         logger.debug("config=<%s> | initializing", self.config)
+
+    def _resolve_client_args(self) -> dict[str, Any]:
+        """Return the kwargs to pass to ``openai.AsyncOpenAI`` for the current request.
+
+        When ``aws_config`` is set, a fresh Bedrock Mantle bearer token is minted on every
+        call and ``base_url`` / ``api_key`` are overridden. Any other entries from
+        ``client_args`` (e.g. ``http_client``, ``timeout``) are preserved.
+        """
+        if self._aws_config is not None:
+            return resolve_bedrock_client_args(self._aws_config, self.client_args)
+        return self.client_args
 
     @override
     def update_config(self, **model_config: Unpack[OpenAIConfig]) -> None:  # type: ignore[override]
@@ -590,11 +622,11 @@ class OpenAIModel(Model):
             # Use the injected client (caller manages lifecycle)
             yield self._custom_client
         else:
-            # Create a new client from client_args
+            # Create a new client from resolved args (static client_args or freshly-minted Bedrock creds).
             # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying
             # httpx client. The asyncio event loop does not allow connections to be shared. For more details, please
             # refer to https://github.com/encode/httpx/discussions/2959.
-            async with openai.AsyncOpenAI(**self.client_args) as client:
+            async with openai.AsyncOpenAI(**self._resolve_client_args()) as client:
                 yield client
 
     @override
