@@ -4,6 +4,11 @@ Converts an ``aws_config`` dict into the ``base_url`` and ``api_key`` that the
 OpenAI Python SDK consumes. Tokens are minted on demand via
 ``aws_bedrock_token_generator.provide_token`` so long-running agents keep working
 past the bearer token's maximum lifetime.
+
+``aws_bedrock_token_generator`` is imported lazily inside
+:func:`resolve_bedrock_client_args` so that users of OpenAI-compatible extras
+(``sagemaker``, ``litellm``, bare ``openai`` without Mantle) don't pay an
+``ImportError`` just for importing the model class.
 """
 
 from __future__ import annotations
@@ -11,7 +16,7 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any, TypedDict
 
-from aws_bedrock_token_generator import provide_token
+from typing_extensions import Required
 
 _MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws/v1"
 
@@ -27,7 +32,7 @@ class AwsConfig(TypedDict, total=False):
             to ``provide_token``.
     """
 
-    region: str
+    region: Required[str]
     credentials_provider: Any
     expiry: timedelta
 
@@ -40,11 +45,21 @@ def resolve_bedrock_client_args(aws_config: AwsConfig, client_args: dict[str, An
     overridden by the values derived from ``aws_config``.
 
     Raises:
-        ValueError: If ``aws_config['region']`` is missing.
+        ValueError: If ``aws_config['region']`` is missing or empty.
+        ImportError: If ``aws-bedrock-token-generator`` is not installed.
+        RuntimeError: If token minting fails (e.g. missing AWS credentials).
     """
     region = aws_config.get("region")
     if not region:
         raise ValueError("aws_config must include a non-empty 'region'.")
+
+    try:
+        from aws_bedrock_token_generator import provide_token
+    except ImportError as e:
+        raise ImportError(
+            "aws_config requires the 'aws-bedrock-token-generator' package. "
+            "Install it with: pip install strands-agents[openai]"
+        ) from e
 
     # Only forward optional kwargs when explicitly set, so provide_token's own
     # defaults apply. Passing expiry=None in particular crashes the library.
@@ -53,7 +68,14 @@ def resolve_bedrock_client_args(aws_config: AwsConfig, client_args: dict[str, An
         token_kwargs["aws_credentials_provider"] = aws_config["credentials_provider"]
     if "expiry" in aws_config:
         token_kwargs["expiry"] = aws_config["expiry"]
-    token = provide_token(**token_kwargs)
+
+    try:
+        token = provide_token(**token_kwargs)
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to mint Bedrock Mantle bearer token for region '{region}'. "
+            "Verify your AWS credentials and network connectivity."
+        ) from e
 
     resolved: dict[str, Any] = dict(client_args or {})
     resolved["base_url"] = _MANTLE_BASE_URL_TEMPLATE.format(region=region)

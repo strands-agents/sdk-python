@@ -113,11 +113,8 @@ class OpenAIModel(Model):
         client_args_provided = client_args is not None and len(client_args) > 0
         if client is not None and client_args_provided:
             raise ValueError("Only one of 'client' or 'client_args' should be provided, not both.")
-        if aws_config is not None:
-            if client is not None:
-                raise ValueError("'aws_config' cannot be combined with a pre-built 'client'.")
-            if not aws_config.get("region"):
-                raise ValueError("aws_config must include a non-empty 'region'.")
+        if aws_config is not None and client is not None:
+            raise ValueError("'aws_config' cannot be combined with a pre-built 'client'.")
 
         self._custom_client = client
         self.client_args = client_args or {}

@@ -169,9 +169,6 @@ class OpenAIResponsesModel(Model):
         validate_config_keys(model_config, self.OpenAIResponsesConfig)
         self.config = dict(model_config)
 
-        if aws_config is not None and not aws_config.get("region"):
-            raise ValueError("aws_config must include a non-empty 'region'.")
-
         self.client_args = client_args or {}
         self._aws_config = aws_config
 

@@ -1310,7 +1310,7 @@ class TestOpenAIResponsesModelAwsConfig:
 
     @pytest.fixture
     def mock_provide_token(self):
-        with unittest.mock.patch("strands.models._openai_bedrock.provide_token") as mock:
+        with unittest.mock.patch("aws_bedrock_token_generator.provide_token") as mock:
             mock.return_value = "bedrock-api-key-deadbeef&Version=1"
             yield mock
 
@@ -1373,5 +1373,14 @@ class TestOpenAIResponsesModelAwsConfig:
 
     def test_aws_config_requires_region(self, openai_client):
         _ = openai_client
+        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", aws_config={})
         with pytest.raises(ValueError, match="region"):
-            OpenAIResponsesModel(model_id="openai.gpt-oss-120b", aws_config={})
+            model._resolve_client_args()
+
+    def test_aws_config_wraps_token_failures_with_context(self, openai_client, mock_provide_token):
+        """provide_token failures are wrapped in a RuntimeError with actionable context."""
+        _ = openai_client
+        mock_provide_token.side_effect = RuntimeError("no credentials in chain")
+        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", aws_config={"region": "us-east-1"})
+        with pytest.raises(RuntimeError, match="Bedrock Mantle bearer token.*us-east-1"):
+            model._resolve_client_args()
