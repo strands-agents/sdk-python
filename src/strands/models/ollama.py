@@ -5,18 +5,19 @@
 
 import json
 import logging
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, TypeVar, cast
 
 import ollama
 from pydantic import BaseModel
-from typing_extensions import TypedDict, Unpack, override
+from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
-from .model import Model
+from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class OllamaModel(Model):
     - Tool/function calling
     """
 
-    class OllamaConfig(TypedDict, total=False):
+    class OllamaConfig(BaseModelConfig, total=False):
         """Configuration parameters for Ollama models.
 
         Attributes:
@@ -124,7 +125,7 @@ class OllamaModel(Model):
                     "tool_calls": [
                         {
                             "function": {
-                                "name": content["toolUse"]["toolUseId"],
+                                "name": content["toolUse"]["name"],
                                 "arguments": content["toolUse"]["input"],
                             }
                         }
@@ -246,7 +247,8 @@ class OllamaModel(Model):
                     return {"contentBlockStart": {"start": {}}}
 
                 tool_name = event["data"].function.name
-                return {"contentBlockStart": {"start": {"toolUse": {"name": tool_name, "toolUseId": tool_name}}}}
+                tool_use_id = f"tooluse_{uuid.uuid4().hex[:24]}"
+                return {"contentBlockStart": {"start": {"toolUse": {"name": tool_name, "toolUseId": tool_use_id}}}}
 
             case "content_delta":
                 if event["data_type"] == "text":
@@ -273,8 +275,8 @@ class OllamaModel(Model):
                 return {
                     "metadata": {
                         "usage": {
-                            "inputTokens": event["data"].eval_count,
-                            "outputTokens": event["data"].prompt_eval_count,
+                            "inputTokens": event["data"].prompt_eval_count,
+                            "outputTokens": event["data"].eval_count,
                             "totalTokens": event["data"].eval_count + event["data"].prompt_eval_count,
                         },
                         "metrics": {

@@ -83,8 +83,8 @@ class Tracer:
     When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces
     are sent to the OTLP endpoint.
 
-    Both attributes are controlled by including "gen_ai_latest_experimental" or "gen_ai_tool_definitions",
-    respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
+    Both attributes are controlled by including "gen_ai_latest_experimental", "gen_ai_tool_definitions",
+    or "gen_ai_use_latest_invocation_tokens", respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
     """
 
     def __init__(self) -> None:
@@ -100,6 +100,7 @@ class Tracer:
         ## To-do: should not set below attributes directly, use env var instead
         self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
         self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
+        self._use_latest_invocation_tokens = "gen_ai_use_latest_invocation_tokens" in opt_in_values
 
     def _parse_semconv_opt_in(self) -> set[str]:
         """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
@@ -185,6 +186,7 @@ class Tracer:
         span: Span,
         attributes: dict[str, AttributeValue] | None = None,
         error: Exception | None = None,
+        error_message: str | None = None,
     ) -> None:
         """Generic helper method to end a span.
 
@@ -192,8 +194,9 @@ class Tracer:
             span: The span to end
             attributes: Optional attributes to set before ending the span
             error: Optional exception if an error occurred
+            error_message: Optional error message to set in the span status
         """
-        if not span:
+        if not span or not span.is_recording():
             return
 
         try:
@@ -206,20 +209,17 @@ class Tracer:
 
             # Handle error if present
             if error:
-                span.set_status(StatusCode.ERROR, str(error))
+                status_description = error_message or str(error) or type(error).__name__
+                span.set_status(StatusCode.ERROR, status_description)
                 span.record_exception(error)
+            elif error_message:
+                span.set_status(StatusCode.ERROR, error_message)
             else:
                 span.set_status(StatusCode.OK)
         except Exception as e:
             logger.warning("error=<%s> | error while ending span", e, exc_info=True)
         finally:
             span.end()
-            # Force flush to ensure spans are exported
-            if self.tracer_provider and hasattr(self.tracer_provider, "force_flush"):
-                try:
-                    self.tracer_provider.force_flush()
-                except Exception as e:
-                    logger.warning("error=<%s> | failed to force flush tracer provider", e)
 
     def end_span_with_error(self, span: Span, error_message: str, exception: Exception | None = None) -> None:
         """End a span with error status.
@@ -229,11 +229,11 @@ class Tracer:
             error_message: Error message to set in the span status.
             exception: Optional exception to record in the span.
         """
-        if not span:
+        if not span or not span.is_recording():
             return
 
         error = exception or Exception(error_message)
-        self._end_span(span, error=error)
+        self._end_span(span, error=error, error_message=error_message)
 
     def _add_event(
         self, span: Span | None, event_name: str, event_attributes: Attributes, to_span_attributes: bool = False
@@ -330,18 +330,15 @@ class Tracer:
     ) -> None:
         """End a model invocation span with results and metrics.
 
-        Note: The span is automatically closed and exceptions recorded. This method just sets the necessary attributes.
-        Status in the span is automatically set to UNSET (OK) on success or ERROR on exception.
-
         Args:
-            span: The span to set attributes on.
+            span: The span to end.
             message: The message response from the model.
             usage: Token usage information from the model call.
             metrics: Metrics from the model call.
             stop_reason: The reason the model stopped generating.
         """
-        # Set end time attribute
-        span.set_attribute("gen_ai.event.end_time", datetime.now(timezone.utc).isoformat())
+        if not span or not span.is_recording():
+            return
 
         attributes: dict[str, AttributeValue] = {
             "gen_ai.usage.prompt_tokens": usage["inputTokens"],
@@ -378,7 +375,7 @@ class Tracer:
                 event_attributes={"finish_reason": str(stop_reason), "message": serialize(message["content"])},
             )
 
-        span.set_attributes(attributes)
+        self._end_span(span, attributes)
 
     def start_tool_call_span(
         self,
@@ -459,15 +456,13 @@ class Tracer:
             error: Optional exception if the tool call failed.
         """
         attributes: dict[str, AttributeValue] = {}
+        status: str | None = None
+        content: list[Any] = []
+
         if tool_result is not None:
             status = tool_result.get("status")
-            status_str = str(status) if status is not None else ""
-
-            attributes.update(
-                {
-                    "gen_ai.tool.status": status_str,
-                }
-            )
+            content = tool_result.get("content", [])
+            attributes["gen_ai.tool.status"] = str(status) if status is not None else ""
 
             if self.use_latest_genai_conventions:
                 self._add_event(
@@ -482,7 +477,7 @@ class Tracer:
                                         {
                                             "type": "tool_call_response",
                                             "id": tool_result.get("toolUseId", ""),
-                                            "response": tool_result.get("content"),
+                                            "response": content,
                                         }
                                     ],
                                 }
@@ -496,12 +491,16 @@ class Tracer:
                     span,
                     "gen_ai.choice",
                     event_attributes={
-                        "message": serialize(tool_result.get("content")),
+                        "message": serialize(content),
                         "id": tool_result.get("toolUseId", ""),
                     },
                 )
 
-        self._end_span(span, attributes, error)
+        if error is None and status == "error":
+            error_message = next((b["text"] for b in content if "text" in b), "tool returned error status")
+            self._end_span(span, attributes, error_message=error_message)
+        else:
+            self._end_span(span, attributes, error)
 
     def start_event_loop_cycle_span(
         self,
@@ -526,9 +525,8 @@ class Tracer:
         event_loop_cycle_id = str(invocation_state.get("event_loop_cycle_id"))
         parent_span = parent_span if parent_span else invocation_state.get("event_loop_parent_span")
 
-        attributes: dict[str, AttributeValue] = {
-            "event_loop.cycle_id": event_loop_cycle_id,
-        }
+        attributes: dict[str, AttributeValue] = self._get_common_attributes(operation_name="execute_event_loop_cycle")
+        attributes["event_loop.cycle_id"] = event_loop_cycle_id
 
         if custom_trace_attributes:
             attributes.update(custom_trace_attributes)
@@ -553,19 +551,13 @@ class Tracer:
     ) -> None:
         """End an event loop cycle span with results.
 
-        Note: The span is automatically closed and exceptions recorded. This method just sets the necessary attributes.
-        Status in the span is automatically set to UNSET (OK) on success or ERROR on exception.
-
         Args:
-            span: The span to set attributes on.
+            span: The span to end.
             message: The message response from this cycle.
             tool_result_message: Optional tool result message if a tool was called.
         """
-        if not span:
+        if not span or not span.is_recording():
             return
-
-        # Set end time attribute
-        span.set_attribute("gen_ai.event.end_time", datetime.now(timezone.utc).isoformat())
 
         event_attributes: dict[str, AttributeValue] = {"message": serialize(message["content"])}
 
@@ -590,6 +582,8 @@ class Tracer:
                 )
             else:
                 self._add_event(span, "gen_ai.choice", event_attributes=event_attributes)
+
+        self._end_span(span)
 
     def start_agent_span(
         self,
@@ -693,16 +687,26 @@ class Tracer:
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
                 if self.is_langfuse:
                     attributes.update({"langfuse.observation.type": "span"})
-                accumulated_usage = response.metrics.accumulated_usage
+                if self._use_latest_invocation_tokens:
+                    latest_invocation = response.metrics.latest_agent_invocation
+                    if latest_invocation is None:
+                        logger.warning(
+                            "latest_agent_invocation is None despite _use_latest_invocation_tokens being set"
+                        )
+                        usage: Usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
+                    else:
+                        usage = latest_invocation.usage
+                else:
+                    usage = response.metrics.accumulated_usage
                 attributes.update(
                     {
-                        "gen_ai.usage.prompt_tokens": accumulated_usage["inputTokens"],
-                        "gen_ai.usage.completion_tokens": accumulated_usage["outputTokens"],
-                        "gen_ai.usage.input_tokens": accumulated_usage["inputTokens"],
-                        "gen_ai.usage.output_tokens": accumulated_usage["outputTokens"],
-                        "gen_ai.usage.total_tokens": accumulated_usage["totalTokens"],
-                        "gen_ai.usage.cache_read_input_tokens": accumulated_usage.get("cacheReadInputTokens", 0),
-                        "gen_ai.usage.cache_write_input_tokens": accumulated_usage.get("cacheWriteInputTokens", 0),
+                        "gen_ai.usage.prompt_tokens": usage["inputTokens"],
+                        "gen_ai.usage.completion_tokens": usage["outputTokens"],
+                        "gen_ai.usage.input_tokens": usage["inputTokens"],
+                        "gen_ai.usage.output_tokens": usage["outputTokens"],
+                        "gen_ai.usage.total_tokens": usage["totalTokens"],
+                        "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
+                        "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
                     }
                 )
 
@@ -839,7 +843,9 @@ class Tracer:
         if system_prompt is None and system_prompt_content is None:
             return
 
-        content_blocks = system_prompt_content if system_prompt_content else [{"text": system_prompt}]
+        content_blocks: list[ContentBlock] = (
+            system_prompt_content if system_prompt_content else [{"text": system_prompt or ""}]
+        )
 
         if self.use_latest_genai_conventions:
             parts = self._map_content_blocks_to_otel_parts(content_blocks)

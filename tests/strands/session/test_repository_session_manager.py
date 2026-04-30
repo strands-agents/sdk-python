@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from strands.agent.agent import Agent
+from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
 from strands.agent.state import AgentState
@@ -243,6 +244,32 @@ def test_initialize_multi_agent_existing(existing_session_manager, mock_multi_ag
 
     # Verify deserialize_state was called with existing state
     mock_multi_agent.deserialize_state.assert_called_once_with(existing_state)
+
+
+def test_initialize_skips_message_restore_for_server_managed_conversation(existing_session_manager):
+    """Test that messages are not restored when model manages conversation server-side."""
+    session_agent = SessionAgent(
+        agent_id="existing-agent",
+        state={},
+        conversation_manager_state=NullConversationManager().get_state(),
+        _internal_state={
+            "interrupt_state": {"interrupts": {}, "context": {}, "activated": False},
+            "model_state": {"response_id": "resp_abc123"},
+        },
+    )
+    existing_session_manager.session_repository.create_agent("test-session", session_agent)
+
+    message = SessionMessage.from_message({"role": "user", "content": [{"text": "Hello"}]}, 0)
+    existing_session_manager.session_repository.create_message("test-session", "existing-agent", message)
+
+    mock_model = Mock()
+    mock_model.stateful = True
+    agent = Agent(agent_id="existing-agent", model=mock_model)
+    existing_session_manager.initialize(agent)
+
+    assert agent.messages == []
+    assert agent._model_state == {"response_id": "resp_abc123"}
+    assert existing_session_manager.session_repository.list_messages("test-session", "existing-agent") == [message]
 
 
 def test_fix_broken_tool_use_adds_missing_tool_results(existing_session_manager):
@@ -729,6 +756,35 @@ def test_sync_agent_calls_update_when_conversation_manager_state_changed(mock_re
     agent.conversation_manager.removed_message_count = 5
 
     # Sync should call update_agent because conversation manager state changed
+    session_manager.sync_agent(agent)
+    assert len(update_agent_calls) == 1
+
+
+def test_sync_agent_calls_update_when_model_state_changed(mock_repository):
+    """Test that sync_agent() calls update_agent() when model state changed."""
+    session_manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+
+    # Create and initialize agent
+    agent = Agent(agent_id="test-agent", session_manager=session_manager)
+
+    # Track update_agent calls
+    update_agent_calls = []
+    original_update_agent = mock_repository.update_agent
+
+    def tracking_update_agent(session_id, session_agent):
+        update_agent_calls.append((session_id, session_agent))
+        return original_update_agent(session_id, session_agent)
+
+    mock_repository.update_agent = tracking_update_agent
+
+    # First sync to establish baseline
+    session_manager.sync_agent(agent)
+    update_agent_calls.clear()
+
+    # Modify model state
+    agent._model_state["response_id"] = "resp_abc123"
+
+    # Sync should call update_agent because model state changed
     session_manager.sync_agent(agent)
     assert len(update_agent_calls) == 1
 

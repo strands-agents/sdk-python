@@ -20,6 +20,7 @@ import json
 from typing import Literal
 
 from mcp.server import FastMCP
+from mcp.server.fastmcp import Context
 from mcp.types import BlobResourceContents, CallToolResult, EmbeddedResource, TextContent, TextResourceContents
 from pydantic import BaseModel
 
@@ -47,6 +48,13 @@ def start_echo_server():
     @mcp.tool(description="Echos response back to the user", structured_output=False)
     def echo(to_echo: str) -> str:
         return to_echo
+
+    @mcp.tool(description="Echos back the _meta received in the request", structured_output=False)
+    def echo_meta(ctx: Context) -> str:
+        meta = ctx.request_context.meta
+        if meta is None:
+            return json.dumps(None)
+        return json.dumps(meta.model_dump(exclude_none=True))
 
     # FastMCP automatically constructs structured output schema from method signature
     @mcp.tool(description="Echos response back with structured content", structured_output=True)

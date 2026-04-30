@@ -69,12 +69,14 @@ class SwarmNode:
     swarm: Optional["Swarm"] = None
     _initial_messages: Messages = field(default_factory=list, init=False)
     _initial_state: AgentState = field(default_factory=AgentState, init=False)
+    _initial_model_state: dict[str, Any] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         """Capture initial executor state after initialization."""
         # Deep copy the initial messages and state to preserve them
         self._initial_messages = copy.deepcopy(self.executor.messages)
         self._initial_state = AgentState(self.executor.state.get())
+        self._initial_model_state = copy.deepcopy(self.executor._model_state)
 
     def __hash__(self) -> int:
         """Return hash for SwarmNode based on node_id."""
@@ -104,10 +106,12 @@ class SwarmNode:
             self.executor.messages = context["messages"]
             self.executor.state = AgentState(context["state"])
             self.executor._interrupt_state = _InterruptState.from_dict(context["interrupt_state"])
+            self.executor._model_state = context.get("model_state", {})
             return
 
         self.executor.messages = copy.deepcopy(self._initial_messages)
         self.executor.state = AgentState(self._initial_state.get())
+        self.executor._model_state = copy.deepcopy(self._initial_model_state)
 
 
 @dataclass
@@ -697,6 +701,7 @@ class Swarm(MultiAgentBase):
             "interrupt_state": node.executor._interrupt_state.to_dict(),
             "state": node.executor.state.get(),
             "messages": node.executor.messages,
+            "model_state": node.executor._model_state,
         }
 
         self._interrupt_state.interrupts.update({interrupt.id: interrupt for interrupt in interrupts})

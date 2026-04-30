@@ -5,6 +5,7 @@ The agent loop handles the events received from the model and executes tools whe
 
 import asyncio
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
 from ....types._events import ToolInterruptEvent, ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
@@ -248,6 +249,10 @@ class _BidiAgentLoop:
 
         tool_results: list[ToolResult] = []
 
+        # Ensure request_state exists for tools like strands_tools.stop
+        if "request_state" not in self._invocation_state:
+            self._invocation_state["request_state"] = {}
+
         invocation_state: dict[str, Any] = {
             **self._invocation_state,
             "agent": self._agent,
@@ -282,16 +287,29 @@ class _BidiAgentLoop:
 
             await self._event_queue.put(ToolResultMessageEvent(tool_result_message))
 
-            # Check for stop_conversation before sending to model
-            if tool_use["name"] == "stop_conversation":
-                logger.info("tool_name=<%s> | conversation stop requested, skipping model send", tool_use["name"])
+            # Check for stop_event_loop flag (set by strands_tools.stop, stop_conversation, or any custom tool)
+            request_state = invocation_state.get("request_state", {})
+            should_stop = request_state.get("stop_event_loop", False)
+
+            # Backward compatibility: also check for stop_conversation by name (deprecated)
+            if not should_stop and tool_use["name"] == "stop_conversation":
+                warnings.warn(
+                    "Stopping the event loop by tool name 'stop_conversation' is deprecated. "
+                    "Use request_state['stop_event_loop'] = True instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                should_stop = True
+
+            if should_stop:
+                logger.info("stop_event_loop=<True> | stopping conversation")
                 connection_id = getattr(self._agent.model, "_connection_id", "unknown")
                 await self._event_queue.put(
                     BidiConnectionCloseEvent(connection_id=connection_id, reason="user_request")
                 )
-                return  # Skip the model send
+                return  # Skip sending result to model
 
-            # Send result to model (all tools except stop_conversation)
+            # Send result to model
             await self.send(tool_result_event)
 
         except Exception as error:

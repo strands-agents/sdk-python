@@ -1,3 +1,4 @@
+import os
 import unittest.mock
 from uuid import uuid4
 
@@ -11,17 +12,17 @@ from strands.models.litellm import LiteLLMModel
 
 @pytest.fixture
 def model():
-    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0")
+    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0")
 
 
 @pytest.fixture
 def streaming_model():
-    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0", params={"stream": True})
+    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0", params={"stream": True})
 
 
 @pytest.fixture
 def non_streaming_model():
-    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0", params={"stream": False})
+    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0", params={"stream": False})
 
 
 @pytest.fixture
@@ -277,3 +278,15 @@ async def test_cache_read_tokens_multi_turn(model):
 
     assert result.metrics.accumulated_usage["cacheReadInputTokens"] > 0
     assert result.metrics.accumulated_usage["cacheWriteInputTokens"] > 0
+
+
+def test_gemini_thinking_model_tool_call(tools):
+    """Test that Gemini thinking models preserve thought_signature through multi-turn tool calls.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1764
+    """
+    model = LiteLLMModel(model_id="gemini/gemini-2.5-flash", client_args={"api_key": os.environ.get("GOOGLE_API_KEY")})
+    agent = Agent(model=model, tools=tools)
+    result = agent("What is the time and weather in New York?")
+    text = result.message["content"][0]["text"].lower()
+    assert all(string in text for string in ["12:00", "sunny"])

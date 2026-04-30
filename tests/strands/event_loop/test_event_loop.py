@@ -5,6 +5,9 @@ import unittest.mock
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 import strands
 import strands.telemetry
@@ -19,6 +22,7 @@ from strands.hooks import (
 )
 from strands.interrupt import Interrupt, _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
+from strands.telemetry.tracer import Tracer
 from strands.tools.executors import SequentialToolExecutor
 from strands.tools.registry import ToolRegistry
 from strands.types._events import EventLoopStopEvent
@@ -152,6 +156,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.tool_executor = tool_executor
     mock._interrupt_state = _InterruptState()
     mock._cancel_signal = threading.Event()
+    mock._model_state = {}
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
 
@@ -188,7 +193,7 @@ async def test_event_loop_cycle_text_response(
     tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
+    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
     exp_request_state = {}
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
@@ -220,7 +225,7 @@ async def test_event_loop_cycle_text_response_throttling(
     tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
+    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
     exp_request_state = {}
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
@@ -259,7 +264,7 @@ async def test_event_loop_cycle_exponential_backoff(
 
     # Verify the final response
     assert tru_stop_reason == "end_turn"
-    assert tru_message == {"role": "assistant", "content": [{"text": "test text"}]}
+    assert tru_message == {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
     assert tru_request_state == {}
 
     # Verify that sleep was called with increasing delays
@@ -349,7 +354,7 @@ async def test_event_loop_cycle_tool_result(
     tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
+    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
     exp_request_state = {}
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
@@ -384,13 +389,13 @@ async def test_event_loop_cycle_tool_result(
                     },
                 ],
             },
-            {"role": "assistant", "content": [{"text": "test text"}]},
         ],
         tool_registry.get_all_tool_specs(),
         "p1",
         tool_choice=None,
         system_prompt_content=unittest.mock.ANY,
         invocation_state=unittest.mock.ANY,
+        model_state=unittest.mock.ANY,
     )
 
 
@@ -478,6 +483,7 @@ async def test_event_loop_cycle_stop(
                 }
             }
         ],
+        "metadata": ANY,
     }
     exp_request_state = {"stop_event_loop": True}
 
@@ -581,6 +587,14 @@ async def test_event_loop_tracing_with_model_error(
         )
         await alist(stream)
 
+    assert mock_tracer.end_span_with_error.call_count == 2
+    mock_tracer.end_span_with_error.assert_has_calls(
+        [
+            call(model_span, "Input too long", model.stream.side_effect),
+            call(cycle_span, "Input too long", model.stream.side_effect),
+        ]
+    )
+
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_max_tokens_exception(
@@ -671,6 +685,53 @@ async def test_event_loop_tracing_with_tool_execution(
     assert mock_tracer.end_model_invoke_span.call_count == 2
 
 
+@pytest.mark.asyncio
+async def test_event_loop_cycle_closes_cycle_span_before_recursive_cycle(
+    agent,
+    model,
+    tool_stream,
+    agenerator,
+    alist,
+):
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    tracer = Tracer()
+    tracer.tracer_provider = provider
+    tracer.tracer = provider.get_tracer(tracer.service_name)
+
+    async def delayed_text_stream():
+        yield {"contentBlockDelta": {"delta": {"text": "test text"}}}
+        await asyncio.sleep(0.05)
+        yield {"contentBlockStop": {}}
+
+    agent.trace_span = None
+    agent._system_prompt_content = None
+    model.config = {"model_id": "test-model"}
+    model.stream.side_effect = [
+        agenerator(tool_stream),
+        delayed_text_stream(),
+    ]
+
+    with patch("strands.event_loop.event_loop.get_tracer", return_value=tracer):
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state={},
+        )
+        await alist(stream)
+
+    provider.force_flush()
+    cycle_spans = sorted(
+        [span for span in exporter.get_finished_spans() if span.name == "execute_event_loop_cycle"],
+        key=lambda span: span.start_time,
+    )
+
+    assert len(cycle_spans) == 2
+    assert cycle_spans[0].end_time <= cycle_spans[1].start_time
+    assert cycle_spans[0].end_time < cycle_spans[1].end_time
+
+
 @patch("strands.event_loop.event_loop.get_tracer")
 @pytest.mark.asyncio
 async def test_event_loop_tracing_with_throttling_exception(
@@ -707,6 +768,7 @@ async def test_event_loop_tracing_with_throttling_exception(
         )
         await alist(stream)
 
+    assert mock_tracer.end_span_with_error.call_count == 1
     # Verify span was created for the successful retry
     assert mock_tracer.start_model_invoke_span.call_count == 2
     assert mock_tracer.end_model_invoke_span.call_count == 1
@@ -884,14 +946,14 @@ async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, 
         agent=agent,
         invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
-            message={"content": [{"text": "test text"}], "role": "assistant"}, stop_reason="end_turn"
+            message={"content": [{"text": "test text"}], "role": "assistant", "metadata": ANY}, stop_reason="end_turn"
         ),
         exception=None,
     )
 
     # Final message
     assert next(events) == MessageAddedEvent(
-        agent=agent, message={"content": [{"text": "test text"}], "role": "assistant"}
+        agent=agent, message={"content": [{"text": "test text"}], "role": "assistant", "metadata": ANY}
     )
 
 
@@ -935,6 +997,7 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
                     },
                 ],
                 "role": "assistant",
+                "metadata": ANY,
             },
         },
         "interrupts": {
@@ -1069,7 +1132,7 @@ async def test_invalid_tool_names_adds_tool_uses(agent, model, alist):
     # ensure that we got end_turn and not tool_use
     assert events[-1] == EventLoopStopEvent(
         stop_reason="end_turn",
-        message={"content": [{"text": "I invoked a tool!"}], "role": "assistant"},
+        message={"content": [{"text": "I invoked a tool!"}], "role": "assistant", "metadata": ANY},
         metrics=ANY,
         request_state={},
     )
@@ -1135,3 +1198,84 @@ async def test_event_loop_metrics_recorded_before_recursion(
         # Verify the event loop completed successfully
         tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
         assert tru_stop_reason == "end_turn"
+
+
+class TestEstimateInputTokens:
+    """Tests for _estimate_input_tokens helper."""
+
+    @pytest.mark.asyncio
+    async def test_cold_start_estimates_all_messages(self):
+        """On cold start (no prior usage metadata), estimates all messages with lazily resolved tool specs."""
+        agent = unittest.mock.AsyncMock()
+        agent.messages = [{"role": "user", "content": [{"text": "Hi"}]}]
+        agent.system_prompt = "You are helpful"
+        agent._system_prompt_content = None
+        agent.tool_registry = unittest.mock.MagicMock()
+        agent.tool_registry.get_all_tool_specs.return_value = [{"name": "tool1"}]
+        agent.model.count_tokens = AsyncMock(return_value=42)
+
+        result = await strands.event_loop.event_loop._estimate_input_tokens(agent)
+
+        assert result == 42
+        agent.tool_registry.get_all_tool_specs.assert_called_once()
+        agent.model.count_tokens.assert_called_once_with(
+            agent.messages,
+            tool_specs=[{"name": "tool1"}],
+            system_prompt="You are helpful",
+            system_prompt_content=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_baseline_only_no_new_messages(self):
+        """When last message is assistant with usage and no new messages after, returns baseline."""
+        agent = unittest.mock.AsyncMock()
+        agent.messages = [
+            {"role": "user", "content": [{"text": "Hi"}]},
+            {
+                "role": "assistant",
+                "content": [{"text": "Hello"}],
+                "metadata": {"usage": {"inputTokens": 100, "outputTokens": 20, "totalTokens": 120}},
+            },
+        ]
+        agent.system_prompt = "You are helpful"
+
+        result = await strands.event_loop.event_loop._estimate_input_tokens(agent)
+
+        assert result == 120
+        agent.model.count_tokens.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_baseline_plus_delta(self):
+        """When new messages exist after last assistant, adds estimated delta to baseline."""
+        agent = unittest.mock.AsyncMock()
+        agent.messages = [
+            {"role": "user", "content": [{"text": "Hi"}]},
+            {
+                "role": "assistant",
+                "content": [{"text": "Hello"}],
+                "metadata": {"usage": {"inputTokens": 100, "outputTokens": 30, "totalTokens": 130}},
+            },
+            {"role": "user", "content": [{"text": "tool result"}]},
+        ]
+        agent.system_prompt = "You are helpful"
+        agent.model.count_tokens = AsyncMock(return_value=50)
+
+        result = await strands.event_loop.event_loop._estimate_input_tokens(agent)
+
+        # baseline (100+30) + delta (50) = 180
+        assert result == 180
+        agent.model.count_tokens.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_error_fallback_returns_none_at_call_site(self):
+        """When count_tokens raises, the caller catches and sets projected_input_tokens to None."""
+        agent = unittest.mock.AsyncMock()
+        agent.messages = [{"role": "user", "content": [{"text": "Hi"}]}]
+        agent.system_prompt = "You are helpful"
+        agent._system_prompt_content = None
+        agent.tool_registry = unittest.mock.MagicMock()
+        agent.tool_registry.get_all_tool_specs.return_value = []
+        agent.model.count_tokens = AsyncMock(side_effect=Exception("API unavailable"))
+
+        with pytest.raises(Exception, match="API unavailable"):
+            await strands.event_loop.event_loop._estimate_input_tokens(agent)

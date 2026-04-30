@@ -4,6 +4,7 @@ Integration test for ToolContext functionality with real agent interactions.
 """
 
 from strands import Agent, ToolContext, tool
+from strands.models.bedrock import BedrockModel
 from strands.types.tools import ToolResult
 
 
@@ -41,7 +42,8 @@ def _validate_tool_result_content(agent: Agent):
 def test_strands_context_integration_context_true():
     """Test ToolContext functionality with real agent interactions."""
 
-    agent = Agent(tools=[good_story])
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+    agent = Agent(model=model, tools=[good_story])
     agent("using a tool, write a good story")
 
     _validate_tool_result_content(agent)

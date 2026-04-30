@@ -9,7 +9,7 @@ import logging
 import mimetypes
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, Protocol, TypedDict, TypeVar, cast
+from typing import Any, Protocol, TypeVar, cast
 
 import openai
 from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
@@ -17,11 +17,12 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import _has_location_source, validate_config_keys
-from .model import Model
+from .model import BaseModelConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class OpenAIModel(Model):
 
     client: Client
 
-    class OpenAIConfig(TypedDict, total=False):
+    class OpenAIConfig(BaseModelConfig, total=False):
         """Configuration options for OpenAI models.
 
         Attributes:
@@ -546,13 +547,19 @@ class OpenAIModel(Model):
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
+                usage_data: Usage = {
+                    "inputTokens": event["data"].prompt_tokens,
+                    "outputTokens": event["data"].completion_tokens,
+                    "totalTokens": event["data"].total_tokens,
+                }
+
+                if tokens_details := getattr(event["data"], "prompt_tokens_details", None):
+                    if cached := getattr(tokens_details, "cached_tokens", None):
+                        usage_data["cacheReadInputTokens"] = cached
+
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": event["data"].prompt_tokens,
-                            "outputTokens": event["data"].completion_tokens,
-                            "totalTokens": event["data"].total_tokens,
-                        },
+                        "usage": usage_data,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },

@@ -14,7 +14,7 @@ from .agent.agent import BidiAgent
 # Model interface (for custom implementations)
 from .models.model import BidiModel
 
-# Built-in tools
+# Built-in tools (deprecated - use strands_tools.stop instead)
 from .tools import stop_conversation
 
 # Event types - For type hints and event handling
@@ -39,8 +39,6 @@ from .types.events import (
 __all__ = [
     # Main interface
     "BidiAgent",
-    # Built-in tools
-    "stop_conversation",
     # Input Event types
     "BidiTextInputEvent",
     "BidiAudioInputEvent",
@@ -64,6 +62,8 @@ __all__ = [
     "ToolStreamEvent",
     # Model interface
     "BidiModel",
+    # Built-in tools (deprecated)
+    "stop_conversation",
 ]
 
 

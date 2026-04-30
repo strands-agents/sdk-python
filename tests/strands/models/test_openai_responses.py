@@ -328,6 +328,7 @@ def test_format_request(model, messages, tool_specs, system_prompt):
             }
         ],
         "stream": True,
+        "store": False,
         "instructions": system_prompt,
         "tools": [
             {
@@ -392,6 +393,19 @@ def test_format_request(model, messages, tool_specs, system_prompt):
         (
             {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": "I'm thinking"},
             {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "I'm thinking"}}}},
+        ),
+        # Content Delta - Citation
+        (
+            {
+                "chunk_type": "content_delta",
+                "data_type": "citation",
+                "data": {"type": "url_citation", "title": "Example", "url": "https://example.com"},
+            },
+            {
+                "contentBlockDelta": {
+                    "delta": {"citation": {"title": "Example", "location": {"web": {"url": "https://example.com"}}}}
+                }
+            },
         ),
         # Content Delta - Text
         (
@@ -487,6 +501,7 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
         "model": model_id,
         "input": [{"role": "user", "content": [{"type": "input_text", "text": "test"}]}],
         "stream": True,
+        "store": False,
         "max_output_tokens": 100,
     }
     openai_client.responses.create.assert_called_once_with(**expected_request)
@@ -581,9 +596,16 @@ async def test_stream_response_incomplete(openai_client, model, agenerator, alis
 
 
 @pytest.mark.asyncio
-async def test_stream_reasoning_content(openai_client, model, agenerator, alist):
-    """Test that reasoning content (o1/o3 models) is streamed correctly."""
-    mock_reasoning_event = unittest.mock.Mock(type="response.reasoning_text.delta", delta="Let me think...")
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "response.reasoning_text.delta",
+        "response.reasoning_summary_text.delta",
+    ],
+)
+async def test_stream_reasoning_content(openai_client, model, agenerator, alist, event_type):
+    """Test that reasoning content is streamed correctly for both full and summary reasoning events."""
+    mock_reasoning_event = unittest.mock.Mock(type=event_type, delta="Let me think...")
     mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="The answer is 42")
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
@@ -614,6 +636,74 @@ async def test_stream_reasoning_content(openai_client, model, agenerator, alist)
     content_stops = [e for e in tru_events if "contentBlockStop" in e]
     assert len(content_starts) == 2  # one for reasoning, one for text
     assert len(content_stops) == 2
+
+
+@pytest.mark.asyncio
+async def test_stream_citation_annotations(openai_client, model, agenerator, alist):
+    """Test that web search citation annotations are streamed as CitationsDelta events."""
+    mock_text_event1 = unittest.mock.Mock(type="response.output_text.delta", delta="The answer is here. ")
+    mock_text_event2 = unittest.mock.Mock(type="response.output_text.delta", delta="(example.com)")
+    mock_annotation_event = unittest.mock.Mock(
+        type="response.output_text.annotation.added",
+        annotation={
+            "type": "url_citation",
+            "title": "Example Source",
+            "url": "https://example.com/article",
+        },
+    )
+    mock_complete_event = unittest.mock.Mock(
+        type="response.completed",
+        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+    )
+
+    openai_client.responses.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_text_event1, mock_text_event2, mock_annotation_event, mock_complete_event])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "search something"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    citation_deltas = [
+        e for e in tru_events if "contentBlockDelta" in e and "citation" in e["contentBlockDelta"]["delta"]
+    ]
+    assert len(citation_deltas) == 1
+    assert citation_deltas[0] == {
+        "contentBlockDelta": {
+            "delta": {
+                "citation": {
+                    "title": "Example Source",
+                    "location": {"web": {"url": "https://example.com/article"}},
+                }
+            }
+        }
+    }
+
+
+@pytest.mark.asyncio
+async def test_stream_unsupported_annotation_type(openai_client, model, agenerator, alist, caplog):
+    """Test that unsupported annotation types log a warning and are not emitted."""
+    mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="Some text")
+    mock_annotation_event = unittest.mock.Mock(
+        type="response.output_text.annotation.added",
+        annotation={"type": "file_citation", "file_id": "file-123", "filename": "doc.pdf"},
+    )
+    mock_complete_event = unittest.mock.Mock(
+        type="response.completed",
+        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+    )
+
+    openai_client.responses.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_text_event, mock_annotation_event, mock_complete_event])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "search files"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    citation_deltas = [
+        e for e in tru_events if "contentBlockDelta" in e and "citation" in e["contentBlockDelta"]["delta"]
+    ]
+    assert len(citation_deltas) == 0
+    assert "annotation_type=<file_citation> | unsupported annotation type" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -884,6 +974,71 @@ def test_format_request_with_tool_choice(model, messages, tool_specs):
     assert request["tool_choice"] == {"type": "function", "name": "test_tool"}
 
 
+def test_format_request_merges_builtin_tools_with_function_tools(messages, tool_specs):
+    """Test that built-in tools from params are merged with function tools."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o",
+        params={"tools": [{"type": "web_search"}]},
+    )
+    request = model._format_request(messages, tool_specs)
+
+    assert request["tools"] == [
+        {"type": "web_search"},
+        {
+            "type": "function",
+            "name": "test_tool",
+            "description": "A test tool",
+            "parameters": {
+                "type": "object",
+                "properties": {"input": {"type": "string"}},
+                "required": ["input"],
+            },
+        },
+    ]
+
+
+def test_format_request_builtin_tools_without_function_tools(messages):
+    """Test that built-in tools from params are preserved when no function tools are provided."""
+    model = OpenAIResponsesModel(
+        model_id="gpt-4o",
+        params={"tools": [{"type": "web_search"}]},
+    )
+    request = model._format_request(messages)
+
+    assert request["tools"] == [{"type": "web_search"}]
+
+
+def test_format_request_messages_with_citations_content():
+    """Test that citationsContent blocks are converted to text in the request."""
+    messages = [
+        {"role": "user", "content": [{"text": "search something"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "citationsContent": {
+                        "citations": [
+                            {
+                                "title": "Example",
+                                "location": {"web": {"url": "https://example.com", "domain": "example.com"}},
+                                "sourceContent": [{"text": "cited text"}],
+                            }
+                        ],
+                        "content": [{"text": "The answer with citations."}],
+                    }
+                }
+            ],
+        },
+    ]
+    formatted = OpenAIResponsesModel._format_request_messages(messages)
+
+    assistant_msg = [m for m in formatted if m.get("role") == "assistant"][0]
+    assert assistant_msg == {
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "The answer with citations."}],
+    }
+
+
 def test_format_request_message_content_image_size_limit():
     """Test that oversized images raise ValueError."""
     oversized_data = b"x" * (_MAX_MEDIA_SIZE_BYTES + 1)
@@ -955,3 +1110,191 @@ def test_openai_version_check():
     # Reload with valid version to restore module state
     with unittest.mock.patch("importlib.metadata.version", mock_valid_version):
         importlib.reload(openai_responses_module)
+
+
+@pytest.mark.parametrize("stateful", [True, False])
+def test_stateful(model_id, stateful):
+    """Model.stateful reflects the stateful config option."""
+    model = OpenAIResponsesModel(model_id=model_id, stateful=stateful)
+    assert model.stateful is stateful
+
+
+@pytest.mark.asyncio
+async def test_stream_stateful(openai_client, model_id, agenerator, alist):
+    """When stateful is enabled, model writes response_id to model_state from response.created."""
+    model = OpenAIResponsesModel(model_id=model_id, stateful=True)
+    mock_events = [
+        unittest.mock.Mock(
+            type="response.created",
+            response=unittest.mock.Mock(id="resp_abc123"),
+        ),
+        unittest.mock.Mock(type="response.output_text.delta", delta="Hi"),
+        unittest.mock.Mock(
+            type="response.completed",
+            response=unittest.mock.Mock(
+                id="resp_abc123",
+                usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15),
+            ),
+        ),
+    ]
+
+    openai_client.responses.create = unittest.mock.AsyncMock(return_value=agenerator(mock_events))
+
+    model_state = {"response_id": "resp_previous"}
+    events = await alist(
+        model.stream(
+            [{"role": "user", "content": [{"text": "Hello"}]}],
+            model_state=model_state,
+        )
+    )
+
+    call_kwargs = openai_client.responses.create.call_args[1]
+    assert call_kwargs["previous_response_id"] == "resp_previous"
+
+    assert model_state["response_id"] == "resp_abc123"
+
+    metadata_events = [e for e in events if "metadata" in e]
+    assert len(metadata_events) == 1
+    assert metadata_events[0]["metadata"] == {
+        "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+        "metrics": {"latencyMs": 0},
+    }
+
+
+def test_format_request_messages_excludes_reasoning_content(caplog):
+    """Test that reasoningContent blocks are filtered from messages with a warning."""
+    messages = [
+        {
+            "content": [{"text": "Hello"}],
+            "role": "user",
+        },
+        {
+            "content": [
+                {"reasoningContent": {"reasoningText": {"text": "Let me think..."}}},
+                {"text": "The answer is 42"},
+            ],
+            "role": "assistant",
+        },
+        {
+            "content": [{"text": "Thanks"}],
+            "role": "user",
+        },
+    ]
+
+    with caplog.at_level("WARNING"):
+        result = OpenAIResponsesModel._format_request_messages(messages)
+
+    assert result == [
+        {"role": "user", "content": [{"type": "input_text", "text": "Hello"}]},
+        {"role": "assistant", "content": [{"type": "output_text", "text": "The answer is 42"}]},
+        {"role": "user", "content": [{"type": "input_text", "text": "Thanks"}]},
+    ]
+    assert "reasoningContent is not yet supported" in caplog.text
+
+
+class TestCountTokens:
+    """Tests for OpenAIResponsesModel.count_tokens native token counting."""
+
+    @pytest.fixture
+    def openai_client(self):
+        with unittest.mock.patch.object(strands.models.openai_responses.openai, "AsyncOpenAI") as mock_client_cls:
+            mock_client = unittest.mock.AsyncMock()
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            yield mock_client
+
+    @pytest.fixture
+    def model(self, openai_client):
+        _ = openai_client
+        return OpenAIResponsesModel(model_id="gpt-4o")
+
+    @pytest.fixture
+    def messages(self):
+        return [{"role": "user", "content": [{"text": "hello"}]}]
+
+    @pytest.fixture
+    def tool_specs(self):
+        return [
+            {
+                "name": "test_tool",
+                "description": "A test tool",
+                "inputSchema": {"json": {"type": "object", "properties": {}}},
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_success(self, model, openai_client, messages):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.input_tokens = 42
+        openai_client.responses.input_tokens.count.return_value = mock_response
+
+        result = await model.count_tokens(messages=messages)
+
+        assert result == 42
+        openai_client.responses.input_tokens.count.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_system_prompt(self, model, openai_client, messages):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.input_tokens = 55
+        openai_client.responses.input_tokens.count.return_value = mock_response
+
+        result = await model.count_tokens(messages=messages, system_prompt="Be helpful.")
+
+        assert result == 55
+        call_kwargs = openai_client.responses.input_tokens.count.call_args[1]
+        assert call_kwargs["instructions"] == "Be helpful."
+
+    @pytest.mark.asyncio
+    async def test_native_count_tokens_with_tool_specs(self, model, openai_client, messages, tool_specs):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.input_tokens = 100
+        openai_client.responses.input_tokens.count.return_value = mock_response
+
+        result = await model.count_tokens(messages=messages, tool_specs=tool_specs)
+
+        assert result == 100
+        call_kwargs = openai_client.responses.input_tokens.count.call_args[1]
+        assert "tools" in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_stream_and_store_stripped(self, model, openai_client, messages):
+        mock_response = unittest.mock.AsyncMock()
+        mock_response.input_tokens = 10
+        openai_client.responses.input_tokens.count.return_value = mock_response
+
+        await model.count_tokens(messages=messages)
+
+        call_kwargs = openai_client.responses.input_tokens.count.call_args[1]
+        assert "stream" not in call_kwargs
+        assert "store" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_api_error(self, model, openai_client, messages):
+        openai_client.responses.input_tokens.count.side_effect = openai.APIError(
+            message="Unsupported", request=unittest.mock.MagicMock(), body=None
+        )
+
+        result = await model.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_on_generic_exception(self, model, openai_client, messages):
+        openai_client.responses.input_tokens.count.side_effect = RuntimeError("Connection failed")
+
+        result = await model.count_tokens(messages=messages)
+
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_logs_debug(self, model, openai_client, messages, caplog):
+        import logging
+
+        openai_client.responses.input_tokens.count.side_effect = RuntimeError("API down")
+
+        with caplog.at_level(logging.DEBUG, logger="strands.models.openai_responses"):
+            await model.count_tokens(messages=messages)
+
+        assert any("native token counting failed" in record.message for record in caplog.records)

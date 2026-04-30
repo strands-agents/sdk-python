@@ -105,6 +105,7 @@ strands-agents/
 │   │   ├── event_loop.py                 # Event loop types
 │   │   ├── json_dict.py                  # JSON dict utilities
 │   │   ├── collections.py                # Collection types
+│   │   ├── _snapshot.py                  # Snapshot types and helpers
 │   │   ├── _events.py                    # Internal event types
 │   │   ├── a2a.py                        # A2A protocol types
 │   │   └── models/                       # Model-specific types
@@ -140,7 +141,8 @@ strands-agents/
 │   │   │   ├── context_providers/        # Context data providers (e.g., ledger)
 │   │   │   ├── core/                     # Base classes, actions, context
 │   │   │   └── handlers/                 # Handler implementations (e.g., LLM)
-│   │   └── skills/                       # AgentSkills.io integration (Skill, AgentSkills)
+│   │   ├── skills/                       # AgentSkills.io integration (Skill, AgentSkills)
+│   │   └── context_offloader/             # Large tool result offloading plugin
 │   │
 │   ├── experimental/                     # Experimental features (API may change)
 │   │   ├── agent_config.py               # Experimental agent config
@@ -151,6 +153,8 @@ strands-agents/
 │   │   │   ├── tools/                    # Bidi tools
 │   │   │   ├── types/                    # Bidi types
 │   │   │   └── _async/                   # Async utilities
+│   │   ├── checkpoint/                   # Durable agent execution checkpoints
+│   │   │   └── checkpoint.py             # Checkpoint dataclass and serialization
 │   │   ├── hooks/                        # Experimental hooks
 │   │   │   ├── events.py
 │   │   │   └── multiagent/
@@ -424,6 +428,7 @@ hatch test --all                     # Test all Python versions (3.10-3.13)
 - Use `moto` for mocking AWS services
 - Use `pytest.mark.asyncio` for async tests
 - Keep tests focused and independent
+- Import packages at the top of the test files
 
 ## MCP Tasks (Experimental)
 

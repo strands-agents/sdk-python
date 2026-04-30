@@ -34,7 +34,7 @@ def model():
         client_args={
             "api_key": os.getenv("ANTHROPIC_API_KEY"),
         },
-        model_id="claude-3-haiku-20240307",  # Using Haiku for faster/cheaper tests
+        model_id="claude-haiku-4-5-20251001",  # Using Haiku for faster/cheaper tests
         max_tokens=1024,
     )
 
@@ -46,7 +46,7 @@ def summarization_model():
         client_args={
             "api_key": os.getenv("ANTHROPIC_API_KEY"),
         },
-        model_id="claude-3-haiku-20240307",
+        model_id="claude-haiku-4-5-20251001",
         max_tokens=512,
     )
 

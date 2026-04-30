@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import date, datetime, timezone
 from unittest import mock
@@ -125,6 +126,30 @@ def test_end_span_with_error_message(mock_span):
 
     mock_span.set_status.assert_called_once()
     assert mock_span.set_status.call_args[0][0] == StatusCode.ERROR
+    mock_span.end.assert_called_once()
+
+
+def test_end_span_with_empty_exception_message_uses_exception_name(mock_span):
+    """Test that empty exception messages fall back to the exception type name."""
+    tracer = Tracer()
+    error = Exception()
+
+    tracer.end_span_with_error(mock_span, "", error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "Exception")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
+def test_end_span_with_error_prefers_explicit_message(mock_span):
+    """Test that an explicit error message takes precedence over the exception text."""
+    tracer = Tracer()
+    error = Exception()
+
+    tracer.end_span_with_error(mock_span, "Explicit error message", error)
+
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "Explicit error message")
+    mock_span.record_exception.assert_called_once_with(error)
     mock_span.end.assert_called_once()
 
 
@@ -321,6 +346,8 @@ def test_end_model_invoke_span(mock_span):
         "gen_ai.choice",
         attributes={"message": json.dumps(message["content"]), "finish_reason": "end_turn"},
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
@@ -360,6 +387,8 @@ def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
                 ),
             },
         )
+        mock_span.set_status.assert_called_once_with(StatusCode.OK)
+        mock_span.end.assert_called_once()
 
 
 def test_start_tool_call_span(mock_tracer):
@@ -679,6 +708,33 @@ def test_end_tool_call_span_latest_conventions(mock_span, monkeypatch):
     mock_span.end.assert_called_once()
 
 
+def test_end_tool_call_span_with_error(mock_span):
+    """Test ending a tool call span with an explicit error sets StatusCode.ERROR."""
+    tracer = Tracer()
+    error = ValueError("tool exploded")
+    tool_result = {"status": "error", "content": [{"text": "Error: tool exploded"}]}
+
+    tracer.end_tool_call_span(mock_span, tool_result, error=error)
+
+    mock_span.set_attributes.assert_called_once_with({"gen_ai.tool.status": "error"})
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "tool exploded")
+    mock_span.record_exception.assert_called_once_with(error)
+    mock_span.end.assert_called_once()
+
+
+def test_end_tool_call_span_error_result_no_exception(mock_span):
+    """Test that an error result without an exception still sets StatusCode.ERROR."""
+    tracer = Tracer()
+    tool_result = {"status": "error", "content": [{"text": "tool cancelled by user"}]}
+
+    tracer.end_tool_call_span(mock_span, tool_result)
+
+    mock_span.set_attributes.assert_called_once_with({"gen_ai.tool.status": "error"})
+    mock_span.set_status.assert_called_once_with(StatusCode.ERROR, "tool cancelled by user")
+    mock_span.record_exception.assert_not_called()
+    mock_span.end.assert_called_once()
+
+
 def test_start_event_loop_cycle_span(mock_tracer):
     """Test starting an event loop cycle span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
@@ -701,6 +757,8 @@ def test_start_event_loop_cycle_span(mock_tracer):
 
         mock_span.set_attributes.assert_called_once_with(
             {
+                "gen_ai.operation.name": "execute_event_loop_cycle",
+                "gen_ai.system": "strands-agents",
                 "event_loop.cycle_id": "cycle-123",
                 "request_id": "req-456",
                 "trace_level": "debug",
@@ -730,7 +788,13 @@ def test_start_event_loop_cycle_span_latest_conventions(mock_tracer, monkeypatch
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "execute_event_loop_cycle"
 
-        mock_span.set_attributes.assert_called_once_with({"event_loop.cycle_id": "cycle-123"})
+        mock_span.set_attributes.assert_called_once_with(
+            {
+                "gen_ai.operation.name": "execute_event_loop_cycle",
+                "gen_ai.provider.name": "strands-agents",
+                "event_loop.cycle_id": "cycle-123",
+            }
+        )
         mock_span.add_event.assert_any_call(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -760,6 +824,8 @@ def test_end_event_loop_cycle_span(mock_span):
             "tool.result": json.dumps(tool_result_message["content"]),
         },
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
@@ -795,6 +861,8 @@ def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
             )
         },
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_start_agent_span(mock_tracer):
@@ -999,6 +1067,57 @@ def test_end_agent_span_latest_conventions(mock_span, monkeypatch):
     mock_span.end.assert_called_once()
 
 
+def test_end_agent_span_uses_per_invocation_usage_when_opted_in(mock_span, monkeypatch):
+    """Test that agent span reports per-invocation usage when gen_ai_use_latest_invocation_tokens is set."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_use_latest_invocation_tokens")
+    tracer = Tracer()
+
+    mock_invocation = mock.MagicMock()
+    mock_invocation.usage = {"inputTokens": 100, "outputTokens": 50, "totalTokens": 150}
+
+    mock_metrics = mock.MagicMock()
+    mock_metrics.accumulated_usage = {"inputTokens": 1000, "outputTokens": 500, "totalTokens": 1500}
+    mock_metrics.latest_agent_invocation = mock_invocation
+
+    mock_response = mock.MagicMock()
+    mock_response.metrics = mock_metrics
+    mock_response.stop_reason = "end_turn"
+    mock_response.__str__ = mock.MagicMock(return_value="Agent response")
+
+    tracer.end_agent_span(mock_span, mock_response)
+
+    call_args = mock_span.set_attributes.call_args[0][0]
+    assert call_args["gen_ai.usage.input_tokens"] == 100
+    assert call_args["gen_ai.usage.output_tokens"] == 50
+    assert call_args["gen_ai.usage.total_tokens"] == 150
+    assert call_args["gen_ai.usage.prompt_tokens"] == 100
+    assert call_args["gen_ai.usage.completion_tokens"] == 50
+
+
+def test_end_agent_span_warns_when_opted_in_but_no_invocations(mock_span, monkeypatch, caplog):
+    """Test warning and zero usage when opted in but no agent invocations exist."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_use_latest_invocation_tokens")
+    tracer = Tracer()
+
+    mock_metrics = mock.MagicMock()
+    mock_metrics.accumulated_usage = {"inputTokens": 200, "outputTokens": 100, "totalTokens": 300}
+    mock_metrics.latest_agent_invocation = None
+
+    mock_response = mock.MagicMock()
+    mock_response.metrics = mock_metrics
+    mock_response.stop_reason = "end_turn"
+    mock_response.__str__ = mock.MagicMock(return_value="Agent response")
+
+    with caplog.at_level(logging.WARNING):
+        tracer.end_agent_span(mock_span, mock_response)
+
+    assert "latest_agent_invocation is None" in caplog.text
+    call_args = mock_span.set_attributes.call_args[0][0]
+    assert call_args["gen_ai.usage.input_tokens"] == 0
+    assert call_args["gen_ai.usage.output_tokens"] == 0
+    assert call_args["gen_ai.usage.total_tokens"] == 0
+
+
 def test_end_model_invoke_span_with_cache_metrics(mock_span):
     """Test ending a model invoke span with cache metrics."""
     tracer = Tracer()
@@ -1028,6 +1147,8 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
             "gen_ai.server.time_to_first_token": 5,
         }
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
 
 
 def test_end_agent_span_with_cache_metrics(mock_span):
@@ -1111,21 +1232,6 @@ def test_end_span_with_exception_handling(mock_span):
         mock_span.end.assert_called_once()
     except Exception:
         pytest.fail("_end_span should not raise exceptions")
-
-
-def test_force_flush_with_error(mock_span, mock_get_tracer_provider):
-    """Test force flush with error handling."""
-    # Setup the tracer with a provider that raises an exception on force_flush
-    tracer = Tracer()
-
-    mock_tracer_provider = mock_get_tracer_provider.return_value
-    mock_tracer_provider.force_flush.side_effect = Exception("Force flush error")
-
-    # Should not raise an exception
-    tracer._end_span(mock_span)
-
-    # Verify force_flush was called
-    mock_tracer_provider.force_flush.assert_called_once()
 
 
 def test_end_tool_call_span_with_none(mock_span):

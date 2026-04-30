@@ -25,6 +25,7 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent.messages = []
     agent.state = AgentState()  # Add state attribute
     agent._interrupt_state = _InterruptState()  # Add interrupt state
+    agent._model_state = {}  # Add model state
     agent.tool_registry = Mock()
     agent.tool_registry.registry = {}
     agent.tool_registry.process_tools = Mock()

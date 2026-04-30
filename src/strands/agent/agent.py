@@ -9,6 +9,7 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
+import copy
 import logging
 import threading
 import warnings
@@ -29,6 +30,13 @@ from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
 from ..tools._tool_helpers import generate_missing_tool_result_content
+from ..types._snapshot import (
+    SNAPSHOT_SCHEMA_VERSION,
+    Snapshot,
+    SnapshotField,
+    SnapshotPreset,
+    resolve_snapshot_fields,
+)
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
@@ -45,7 +53,7 @@ from ..hooks import (
 from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
 from ..models.bedrock import BedrockModel
-from ..models.model import Model
+from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
 from ..session.session_manager import SessionManager
@@ -68,6 +76,7 @@ from .agent_result import AgentResult
 from .base import AgentBase
 from .conversation_manager import (
     ConversationManager,
+    NullConversationManager,
     SlidingWindowConversationManager,
 )
 from .state import AgentState
@@ -131,7 +140,7 @@ class Agent(AgentBase):
         description: str | None = None,
         state: AgentState | dict | None = None,
         plugins: list[Plugin] | None = None,
-        hooks: list[HookProvider] | None = None,
+        hooks: list[HookProvider | HookCallback] | None = None,
         session_manager: SessionManager | None = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
@@ -186,7 +195,8 @@ class Agent(AgentBase):
                 Plugins are initialized with the agent instance after construction and can register hooks,
                 modify agent attributes, or perform other setup tasks.
                 Defaults to None.
-            hooks: hooks to be added to the agent hook registry
+            hooks: Hooks to be added to the agent hook registry. Accepts HookProvider instances
+                or plain callable hook callbacks (functions with typed event parameters).
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
@@ -229,7 +239,19 @@ class Agent(AgentBase):
         else:
             self.callback_handler = callback_handler
 
-        self.conversation_manager = conversation_manager if conversation_manager else SlidingWindowConversationManager()
+        if self.model.stateful and conversation_manager is not None:
+            raise ValueError(
+                "conversation_manager cannot be used with a stateful model. "
+                "The model manages conversation state server-side."
+            )
+
+        self.conversation_manager: ConversationManager
+        if self.model.stateful:
+            self.conversation_manager = NullConversationManager()
+        elif conversation_manager:
+            self.conversation_manager = conversation_manager
+        else:
+            self.conversation_manager = SlidingWindowConversationManager()
 
         # Process trace attributes to ensure they're of compatible types
         self.trace_attributes: dict[str, AttributeValue] = {}
@@ -282,6 +304,9 @@ class Agent(AgentBase):
 
         self._interrupt_state = _InterruptState()
 
+        # Runtime state for model providers (e.g., server-side response ids)
+        self._model_state: dict[str, Any] = {}
+
         # Initialize lock for guarding concurrent invocations
         # Using threading.Lock instead of asyncio.Lock because run_async() creates
         # separate event loops in different threads, so asyncio.Lock wouldn't work
@@ -325,7 +350,17 @@ class Agent(AgentBase):
 
         if hooks:
             for hook in hooks:
-                self.hooks.add_hook(hook)
+                if isinstance(hook, HookProvider):
+                    self.hooks.add_hook(hook)
+                elif callable(hook):
+                    self.hooks.add_callback(None, hook)
+                else:
+                    raise ValueError(
+                        f"Invalid hook: {hook!r}. Must be a HookProvider instance or a callable hook callback."
+                    )
+
+        # Register built-in plugins
+        self._plugin_registry.add_and_init(_ModelPlugin())
 
         if plugins:
             for plugin in plugins:
@@ -392,6 +427,18 @@ class Agent(AgentBase):
                   - None: Clear the system prompt
         """
         self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(value)
+
+    @property
+    def system_prompt_content(self) -> list[SystemContentBlock] | None:
+        """Get the system prompt as a list of content blocks.
+
+        Returns the structured content block representation, preserving cache points
+        and other non-text blocks. Returns None if no system prompt is set.
+
+        Returns:
+            The system prompt as a list of content blocks, or None if no system prompt is set.
+        """
+        return list(self._system_prompt_content) if self._system_prompt_content is not None else None
 
     @property
     def tool(self) -> _ToolCaller:
@@ -990,7 +1037,7 @@ class Agent(AgentBase):
                 # Check if all item in input list are dictionaries
                 elif all(isinstance(item, dict) for item in prompt):
                     # Check if all items are messages
-                    if all(all(key in item for key in Message.__annotations__.keys()) for item in prompt):
+                    if all(all(key in item for key in Message.__required_keys__) for item in prompt):
                         # Messages input - add all messages to conversation
                         messages = cast(Messages, prompt)
 
@@ -1075,6 +1122,78 @@ class Agent(AgentBase):
         for message in messages:
             self.messages.append(message)
             await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
+
+    def take_snapshot(
+        self,
+        *,
+        preset: SnapshotPreset | None = None,
+        include: list[SnapshotField] | None = None,
+        exclude: list[SnapshotField] | None = None,
+        app_data: dict[str, Any] | None = None,
+    ) -> Snapshot:
+        """Capture current agent state as an in-memory snapshot.
+
+        Args:
+            preset: Named preset of fields to capture. Currently only "session" is supported,
+                which captures messages, state, conversation_manager_state, and interrupt_state.
+            include: Additional fields to capture on top of the preset.
+            exclude: Fields to remove after applying preset and include.
+            app_data: Application-owned arbitrary JSON stored verbatim in the snapshot.
+
+        Returns:
+            A Snapshot containing the captured agent state.
+
+        Raises:
+            SnapshotException: If no fields are resolved or an invalid field name is provided.
+        """
+        fields = resolve_snapshot_fields(preset=preset, include=include, exclude=exclude)
+
+        data: dict[str, Any] = {}
+        if "messages" in fields:
+            data["messages"] = copy.deepcopy(self.messages)
+        if "state" in fields:
+            data["state"] = self.state.get()
+        if "conversation_manager_state" in fields:
+            data["conversation_manager_state"] = self.conversation_manager.get_state()
+        if "interrupt_state" in fields:
+            data["interrupt_state"] = self._interrupt_state.to_dict()
+        if "system_prompt" in fields:
+            # Store the content-block representation so round-trips preserve caching hints and
+            # other block-level metadata.
+            data["system_prompt"] = copy.deepcopy(self._system_prompt_content)
+
+        return Snapshot(
+            scope="agent",
+            schema_version=SNAPSHOT_SCHEMA_VERSION,
+            data=data,
+            app_data=copy.deepcopy(app_data) if app_data else {},
+        )
+
+    def load_snapshot(self, snapshot: Snapshot) -> None:
+        """Restore agent state from a previously captured snapshot.
+
+        Only fields present in snapshot.data are restored; absent fields are left unchanged.
+
+        Args:
+            snapshot: The snapshot to restore from.
+
+        Raises:
+            SnapshotException: If snapshot.schema_version is not "1.0".
+        """
+        snapshot.validate()
+
+        data = snapshot.data
+
+        if "messages" in data:
+            self.messages = copy.deepcopy(data["messages"])
+        if "state" in data:
+            self.state = AgentState(data["state"])
+        if "conversation_manager_state" in data:
+            self.conversation_manager.restore_from_session(data["conversation_manager_state"])
+        if "interrupt_state" in data:
+            self._interrupt_state = _InterruptState.from_dict(data["interrupt_state"])
+        if "system_prompt" in data:
+            self.system_prompt = copy.deepcopy(data["system_prompt"])
 
     def _redact_user_content(self, content: list[ContentBlock], redact_message: str) -> list[ContentBlock]:
         """Redact user content preserving toolResult blocks.
