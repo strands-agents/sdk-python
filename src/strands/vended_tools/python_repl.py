@@ -91,6 +91,13 @@ async def python_repl(
     if effective_timeout is None:
         effective_timeout = config.get("timeout", DEFAULT_TIMEOUT)
 
+    # Coerce timeout to int — JSON configs and LLMs may pass strings or floats
+    if effective_timeout is not None:
+        try:
+            effective_timeout = int(effective_timeout)
+        except (TypeError, ValueError):
+            effective_timeout = DEFAULT_TIMEOUT
+
     # Execute via sandbox streaming
     result: ExecutionResult | None = None
     try:
