@@ -210,16 +210,19 @@ async def event_loop_cycle(
                 """
                 Handle max_tokens limit reached by the model.
 
-                When the model reaches its maximum token limit, this represents a potentially unrecoverable
-                state where the model's response was truncated. By default, Strands fails hard with an
-                MaxTokensReachedException to maintain consistency with other failure types.
+                The message has already been recovered in _handle_model_execution and automatically added
+                to agent.messages. Notify the caller that the limit was reached. The agent remains recoverable
+                — the partial message is already in the conversation history.
                 """
                 raise MaxTokensReachedException(
                     message=(
-                        "Agent has reached an unrecoverable state due to max_tokens limit. "
+                        "Model stopped generating due to maximum token limit. "
+                        "The partial message has been added to the conversation history. "
+                        "You can continue by calling the agent again. "
                         "For more information see: "
                         "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
-                    )
+                    ),
+                    recovered_message=message,
                 )
 
             if stop_reason == "tool_use":
