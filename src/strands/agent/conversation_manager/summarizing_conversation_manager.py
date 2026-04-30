@@ -65,6 +65,8 @@ class SummarizingConversationManager(ConversationManager):
         preserve_recent_messages: int = 10,
         summarization_agent: Optional["Agent"] = None,
         summarization_system_prompt: str | None = None,
+        *,
+        compression_threshold: float | None = None,
     ):
         """Initialize the summarizing conversation manager.
 
@@ -77,8 +79,10 @@ class SummarizingConversationManager(ConversationManager):
                 If provided, this agent can use tools as part of the summarization process.
             summarization_system_prompt: Optional system prompt override for summarization.
                 If None, uses the default summarization prompt.
+            compression_threshold: Ratio of context window usage that triggers proactive compression.
+                See :class:`ConversationManager` for details.
         """
-        super().__init__()
+        super().__init__(compression_threshold=compression_threshold)
         if summarization_agent is not None and summarization_system_prompt is not None:
             raise ValueError(
                 "Cannot provide both summarization_agent and summarization_system_prompt. "
@@ -136,44 +140,67 @@ class SummarizingConversationManager(ConversationManager):
             ContextWindowOverflowException: If the context cannot be summarized.
         """
         try:
-            # Calculate how many messages to summarize
-            messages_to_summarize_count = max(1, int(len(agent.messages) * self.summary_ratio))
-
-            # Ensure we don't summarize recent messages
-            messages_to_summarize_count = min(
-                messages_to_summarize_count, len(agent.messages) - self.preserve_recent_messages
-            )
-
-            if messages_to_summarize_count <= 0:
-                raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
-
-            # Adjust split point to avoid breaking ToolUse/ToolResult pairs
-            messages_to_summarize_count = self._adjust_split_point_for_tool_pairs(
-                agent.messages, messages_to_summarize_count
-            )
-
-            if messages_to_summarize_count <= 0:
-                raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
-
-            # Extract messages to summarize
-            messages_to_summarize = agent.messages[:messages_to_summarize_count]
-            remaining_messages = agent.messages[messages_to_summarize_count:]
-
-            # Keep track of the number of messages that have been summarized thus far.
-            self.removed_message_count += len(messages_to_summarize)
-            # If there is a summary message, don't count it in the removed_message_count.
-            if self._summary_message:
-                self.removed_message_count -= 1
-
-            # Generate summary
-            self._summary_message = self._generate_summary(messages_to_summarize, agent)
-
-            # Replace the summarized messages with the summary
-            agent.messages[:] = [self._summary_message] + remaining_messages
-
+            self._summarize_oldest(agent)
         except Exception as summarization_error:
             logger.error("Summarization failed: %s", summarization_error)
             raise summarization_error from e
+
+    def reduce_on_threshold(self, agent: "Agent", **kwargs: Any) -> bool:
+        """Proactively reduce context by summarizing oldest messages.
+
+        Args:
+            agent: The agent whose conversation history will be reduced.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            True if the history was reduced, False otherwise.
+        """
+        self._summarize_oldest(agent)
+        return True
+
+    def _summarize_oldest(self, agent: "Agent") -> None:
+        """Summarize the oldest messages and replace them with a summary.
+
+        Args:
+            agent: The agent instance.
+
+        Raises:
+            ContextWindowOverflowException: If there are insufficient messages for summarization.
+        """
+        # Calculate how many messages to summarize
+        messages_to_summarize_count = max(1, int(len(agent.messages) * self.summary_ratio))
+
+        # Ensure we don't summarize recent messages
+        messages_to_summarize_count = min(
+            messages_to_summarize_count, len(agent.messages) - self.preserve_recent_messages
+        )
+
+        if messages_to_summarize_count <= 0:
+            raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
+
+        # Adjust split point to avoid breaking ToolUse/ToolResult pairs
+        messages_to_summarize_count = self._adjust_split_point_for_tool_pairs(
+            agent.messages, messages_to_summarize_count
+        )
+
+        if messages_to_summarize_count <= 0:
+            raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
+
+        # Extract messages to summarize
+        messages_to_summarize = agent.messages[:messages_to_summarize_count]
+        remaining_messages = agent.messages[messages_to_summarize_count:]
+
+        # Keep track of the number of messages that have been summarized thus far.
+        self.removed_message_count += len(messages_to_summarize)
+        # If there is a summary message, don't count it in the removed_message_count.
+        if self._summary_message:
+            self.removed_message_count -= 1
+
+        # Generate summary
+        self._summary_message = self._generate_summary(messages_to_summarize, agent)
+
+        # Replace the summarized messages with the summary
+        agent.messages[:] = [self._summary_message] + remaining_messages
 
     def _generate_summary(self, messages: list[Message], agent: "Agent") -> Message:
         """Generate a summary of the provided messages.

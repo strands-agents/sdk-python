@@ -4,6 +4,7 @@ import pytest
 
 from strands import tool
 from strands.agent.agent import Agent
+from strands.agent.conversation_manager.conversation_manager import ConversationManager
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.hooks.events import BeforeModelCallEvent
@@ -755,3 +756,225 @@ def test_window_size_zero_clears_on_overflow():
     manager.reduce_context(test_agent, e=Exception("overflow"))
 
     assert messages == []
+
+
+# ==============================================================================
+# Compression Threshold Tests
+# ==============================================================================
+
+
+class _MinimalManager(ConversationManager):
+    """Manager that does NOT override reduce_on_threshold."""
+
+    def apply_management(self, agent, **kwargs):
+        pass
+
+    def reduce_context(self, agent, e=None, **kwargs):
+        pass
+
+
+class _ThresholdManager(ConversationManager):
+    """Manager that overrides reduce_on_threshold for testing."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.reduce_on_threshold_call_count = 0
+
+    def apply_management(self, agent, **kwargs):
+        pass
+
+    def reduce_context(self, agent, e=None, **kwargs):
+        pass
+
+    def reduce_on_threshold(self, agent, **kwargs):
+        self.reduce_on_threshold_call_count += 1
+        if agent.messages:
+            agent.messages.pop(0)
+        return True
+
+
+def _make_mock_agent(messages=None, context_window_limit=1000):
+    agent = MagicMock()
+    agent.messages = messages if messages is not None else []
+    agent.model = MagicMock()
+    agent.model.context_window_limit = context_window_limit
+    return agent
+
+
+def _make_threshold_event(agent, projected_input_tokens=None):
+    return BeforeModelCallEvent(
+        agent=agent,
+        invocation_state={},
+        projected_input_tokens=projected_input_tokens,
+    )
+
+
+def test_compression_threshold_rejects_zero():
+    with pytest.raises(ValueError, match="compression_threshold must be between 0"):
+        _ThresholdManager(compression_threshold=0)
+
+
+def test_compression_threshold_rejects_negative():
+    with pytest.raises(ValueError, match="compression_threshold must be between 0"):
+        _ThresholdManager(compression_threshold=-0.5)
+
+
+def test_compression_threshold_rejects_greater_than_one():
+    with pytest.raises(ValueError, match="compression_threshold must be between 0"):
+        _ThresholdManager(compression_threshold=1.5)
+
+
+def test_compression_threshold_accepts_exactly_one():
+    manager = _ThresholdManager(compression_threshold=1.0)
+    assert manager._compression_threshold == 1.0
+
+
+def test_compression_threshold_none_by_default():
+    manager = _MinimalManager()
+    assert manager._compression_threshold is None
+
+
+def test_compression_threshold_registers_hook_when_override_present():
+    manager = _ThresholdManager(compression_threshold=0.7)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+    assert registry.has_callbacks()
+
+
+def test_compression_threshold_no_hook_when_not_set():
+    manager = _ThresholdManager()
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+    assert not registry.has_callbacks()
+
+
+def test_compression_threshold_warns_when_no_override():
+    manager = _MinimalManager(compression_threshold=0.7)
+    registry = HookRegistry()
+    with patch("strands.agent.conversation_manager.conversation_manager.logger") as mock_logger:
+        manager.register_hooks(registry)
+        mock_logger.warning.assert_called_once()
+        assert "reduce_on_threshold is not implemented" in mock_logger.warning.call_args[0][0]
+    assert not registry.has_callbacks()
+
+
+def test_compression_threshold_calls_reduce_when_exceeded():
+    manager = _ThresholdManager(compression_threshold=0.7)
+    agent = _make_mock_agent(messages=[{"role": "user", "content": [{"text": "msg"}]}], context_window_limit=1000)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    event = _make_threshold_event(agent, projected_input_tokens=800)
+    registry.invoke_callbacks(event)
+
+    assert manager.reduce_on_threshold_call_count == 1
+
+
+def test_compression_threshold_no_call_when_below():
+    manager = _ThresholdManager(compression_threshold=0.7)
+    agent = _make_mock_agent(context_window_limit=1000)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    event = _make_threshold_event(agent, projected_input_tokens=500)
+    registry.invoke_callbacks(event)
+
+    assert manager.reduce_on_threshold_call_count == 0
+
+
+def test_compression_threshold_no_call_when_projected_tokens_none():
+    manager = _ThresholdManager(compression_threshold=0.7)
+    agent = _make_mock_agent(context_window_limit=1000)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    event = _make_threshold_event(agent, projected_input_tokens=None)
+    registry.invoke_callbacks(event)
+
+    assert manager.reduce_on_threshold_call_count == 0
+
+
+def test_compression_threshold_uses_default_when_context_window_limit_not_set():
+    manager = _ThresholdManager(compression_threshold=0.7)
+    agent = _make_mock_agent(context_window_limit=None)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    # projected_input_tokens=150_000 is 75% of the 200k default, exceeding 0.7 threshold
+    event = _make_threshold_event(agent, projected_input_tokens=150_000)
+    with patch("strands.agent.conversation_manager.conversation_manager.logger") as mock_logger:
+        registry.invoke_callbacks(event)
+        mock_logger.warning.assert_called_once()
+        assert "using default" in mock_logger.warning.call_args[0][0]
+
+    assert manager.reduce_on_threshold_call_count == 1
+
+
+def test_compression_threshold_warns_only_once_per_instance():
+    """Second invocation on the same manager instance suppresses the context_window_limit warning."""
+    manager = _ThresholdManager(compression_threshold=0.7)
+    agent = _make_mock_agent(context_window_limit=None)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    event = _make_threshold_event(agent, projected_input_tokens=150_000)
+    with patch("strands.agent.conversation_manager.conversation_manager.logger") as mock_logger:
+        registry.invoke_callbacks(event)
+        registry.invoke_callbacks(event)
+        assert mock_logger.warning.call_count == 1
+
+
+def test_compression_threshold_exception_swallowed():
+    """Exceptions in reduce_on_threshold should not propagate from the hook."""
+
+    class _FailingManager(ConversationManager):
+        def apply_management(self, agent, **kwargs):
+            pass
+
+        def reduce_context(self, agent, e=None, **kwargs):
+            pass
+
+        def reduce_on_threshold(self, agent, **kwargs):
+            raise RuntimeError("boom")
+
+    manager = _FailingManager(compression_threshold=0.7)
+    agent = _make_mock_agent(context_window_limit=1000)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    event = _make_threshold_event(agent, projected_input_tokens=800)
+    registry.invoke_callbacks(event)
+
+
+def test_sliding_window_reduce_on_threshold_trims():
+    manager = SlidingWindowConversationManager(window_size=4, should_truncate_results=False, compression_threshold=0.7)
+    messages = [
+        {"role": "user", "content": [{"text": f"Message {i}"}]}
+        if i % 2 == 0
+        else {"role": "assistant", "content": [{"text": f"Response {i}"}]}
+        for i in range(6)
+    ]
+    agent = _make_mock_agent(messages=messages, context_window_limit=1000)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    event = _make_threshold_event(agent, projected_input_tokens=800)
+    registry.invoke_callbacks(event)
+
+    assert len(agent.messages) == 4
+
+
+def test_sliding_window_reduce_on_threshold_no_trim_below():
+    manager = SlidingWindowConversationManager(window_size=4, should_truncate_results=False, compression_threshold=0.7)
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi"}]},
+    ]
+    agent = _make_mock_agent(messages=messages, context_window_limit=1000)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    event = _make_threshold_event(agent, projected_input_tokens=500)
+    registry.invoke_callbacks(event)
+
+    assert len(agent.messages) == 2
