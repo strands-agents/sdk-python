@@ -765,7 +765,9 @@ def tool(  # type: ignore
             defaults to 'tool_context', or if an override is needed, set context equal to a string to designate
             the param name.
         strict: Optional Boolean that ensures the model will only output tool calls containing parameters
-            that perfectly match the defined input schema.
+            that perfectly match the defined input schema. Note: When using strict mode, optional parameters
+            must be explicitly typed as nullable (e.g., `Optional[str]`), otherwise the model will be forced
+            to generate a value for them.
 
     Returns:
         An AgentTool that also mimics the original function when invoked
