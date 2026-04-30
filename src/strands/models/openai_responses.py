@@ -152,19 +152,12 @@ class OpenAIResponsesModel(Model):
         Args:
             client_args: Arguments for the OpenAI client.
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
-                May be combined with ``aws_config``; transport-level options like ``http_client``,
-                ``timeout``, or ``default_headers`` are preserved, while ``base_url`` and
-                ``api_key`` are always overridden by ``aws_config`` when both are set.
+                May be combined with ``aws_config``; when both are set, ``aws_config`` overrides
+                ``base_url`` and ``api_key`` only.
             aws_config: Route requests through Amazon Bedrock's Mantle (OpenAI-compatible)
-                endpoint. Provide ``{"region": "us-east-1"}`` at minimum. Accepts optional
-                ``credentials_provider`` (a botocore ``CredentialProvider``) and ``expiry``
-                (a ``datetime.timedelta`` up to 12h). When set, a fresh bearer token is minted
-                on every request via ``aws-bedrock-token-generator`` and the OpenAI client is
-                pointed at ``https://bedrock-mantle.<region>.api.aws/v1``.
+                endpoint. See :class:`AwsConfig` for accepted keys. When set, a fresh bearer
+                token is minted on every request.
             **model_config: Configuration options for the OpenAI Responses API model.
-
-        Raises:
-            ValueError: If ``aws_config`` is missing a region.
         """
         validate_config_keys(model_config, self.OpenAIResponsesConfig)
         self.config = dict(model_config)
@@ -177,9 +170,7 @@ class OpenAIResponsesModel(Model):
     def _resolve_client_args(self) -> dict[str, Any]:
         """Return the kwargs to pass to ``openai.AsyncOpenAI`` for the current request.
 
-        When ``aws_config`` is set, a fresh Bedrock Mantle bearer token is minted on every
-        call and ``base_url`` / ``api_key`` are overridden. Any other entries from
-        ``client_args`` (e.g. ``http_client``, ``timeout``) are preserved.
+        Delegates to :func:`resolve_bedrock_client_args` when ``aws_config`` is set.
         """
         if self._aws_config is not None:
             return resolve_bedrock_client_args(self._aws_config, self.client_args)

@@ -1718,8 +1718,6 @@ def test_format_request_messages_multiple_tool_calls_with_images():
 
 
 class TestOpenAIModelAwsConfig:
-    """Tests for the Bedrock Mantle pathway via the aws_config kwarg."""
-
     @pytest.fixture
     def mock_provide_token(self):
         with unittest.mock.patch("aws_bedrock_token_generator.provide_token") as mock:
@@ -1731,12 +1729,11 @@ class TestOpenAIModelAwsConfig:
         _ = openai_client
         model = OpenAIModel(model_id="openai.gpt-oss-120b", aws_config={"region": "us-east-1"})
 
-        # api_key is resolved per-request (lazy), so check via the resolved client_args at call time
+        # Token is minted lazily per request, so inspect the resolved kwargs.
         resolved = model._resolve_client_args()
         assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/v1"
         assert resolved["api_key"] == "bedrock-api-key-deadbeef&Version=1"
-        # Only region is forwarded when the user did not set optional kwargs,
-        # so provide_token's own defaults (e.g. 12h expiry) apply.
+        # Optional kwargs aren't forwarded so provide_token's own defaults apply.
         mock_provide_token.assert_called_once_with(region="us-east-1")
 
     def test_aws_config_forwards_credentials_provider_and_expiry(self, openai_client, mock_provide_token):

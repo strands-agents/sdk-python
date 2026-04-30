@@ -1306,8 +1306,6 @@ class TestCountTokens:
 
 
 class TestOpenAIResponsesModelAwsConfig:
-    """Tests for the Bedrock Mantle pathway via the aws_config kwarg."""
-
     @pytest.fixture
     def mock_provide_token(self):
         with unittest.mock.patch("aws_bedrock_token_generator.provide_token") as mock:

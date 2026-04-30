@@ -2,13 +2,12 @@
 
 Converts an ``aws_config`` dict into the ``base_url`` and ``api_key`` that the
 OpenAI Python SDK consumes. Tokens are minted on demand via
-``aws_bedrock_token_generator.provide_token`` so long-running agents keep working
-past the bearer token's maximum lifetime.
+``aws_bedrock_token_generator.provide_token`` so long-running agents survive the
+bearer token's maximum lifetime.
 
-``aws_bedrock_token_generator`` is imported lazily inside
-:func:`resolve_bedrock_client_args` so that users of OpenAI-compatible extras
-(``sagemaker``, ``litellm``, bare ``openai`` without Mantle) don't pay an
-``ImportError`` just for importing the model class.
+``aws_bedrock_token_generator`` is imported lazily so that extras which reuse
+the OpenAI package without pulling the Mantle dependency do not hit an
+``ImportError`` at module load.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ class AwsConfig(TypedDict, total=False):
     """AWS-side config for reaching Bedrock Mantle via an OpenAI-compatible client.
 
     Attributes:
-        region: AWS region hosting the Bedrock Mantle endpoint (required).
+        region: AWS region hosting the Bedrock Mantle endpoint.
         credentials_provider: Optional botocore ``CredentialProvider`` forwarded to
             ``provide_token``. Defaults to the AWS credential chain.
         expiry: Optional ``timedelta`` for the bearer token's lifetime, forwarded
@@ -61,8 +60,7 @@ def resolve_bedrock_client_args(aws_config: AwsConfig, client_args: dict[str, An
             "Install it with: pip install strands-agents[openai]"
         ) from e
 
-    # Only forward optional kwargs when explicitly set, so provide_token's own
-    # defaults apply. Passing expiry=None in particular crashes the library.
+    # Only forward kwargs the user set; provide_token rejects expiry=None.
     token_kwargs: dict[str, Any] = {"region": region}
     if "credentials_provider" in aws_config:
         token_kwargs["aws_credentials_provider"] = aws_config["credentials_provider"]
