@@ -1758,7 +1758,7 @@ async def test_add_note_on_validation_exception_throughput(bedrock_client, model
         "└ Bedrock region: us-west-2",
         "└ Model id: m1",
         "└ For more information see "
-        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
+        "https://strandsagents.com/docs/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
     ]
 
 
