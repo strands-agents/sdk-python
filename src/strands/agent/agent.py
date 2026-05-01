@@ -869,7 +869,7 @@ class Agent(AgentBase):
 
                     self._end_agent_trace_span(response=result)
 
-                except Exception as e:
+                except BaseException as e:
                     self._end_agent_trace_span(error=e)
                     raise
 
@@ -1072,7 +1072,7 @@ class Agent(AgentBase):
     def _end_agent_trace_span(
         self,
         response: AgentResult | None = None,
-        error: Exception | None = None,
+        error: BaseException | None = None,
     ) -> None:
         """Ends a trace span for the agent.
 

@@ -185,7 +185,7 @@ class Tracer:
         self,
         span: Span,
         attributes: dict[str, AttributeValue] | None = None,
-        error: Exception | None = None,
+        error: BaseException | None = None,
         error_message: str | None = None,
     ) -> None:
         """Generic helper method to end a span.
@@ -221,7 +221,7 @@ class Tracer:
         finally:
             span.end()
 
-    def end_span_with_error(self, span: Span, error_message: str, exception: Exception | None = None) -> None:
+    def end_span_with_error(self, span: Span, error_message: str, exception: BaseException | None = None) -> None:
         """End a span with error status.
 
         Args:
@@ -447,7 +447,9 @@ class Tracer:
 
         return span
 
-    def end_tool_call_span(self, span: Span, tool_result: ToolResult | None, error: Exception | None = None) -> None:
+    def end_tool_call_span(
+        self, span: Span, tool_result: ToolResult | None, error: BaseException | None = None
+    ) -> None:
         """End a tool call span with results.
 
         Args:
@@ -648,7 +650,7 @@ class Tracer:
         self,
         span: Span,
         response: AgentResult | None = None,
-        error: Exception | None = None,
+        error: BaseException | None = None,
     ) -> None:
         """End an agent span with results and metrics.
 
