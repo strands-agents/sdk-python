@@ -5,8 +5,8 @@ from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest
 from opentelemetry import context, propagate
 
-from strands.tools.mcp.mcp_client import MCPClient
-from strands.tools.mcp.mcp_instrumentation import (
+from strands.mcp.mcp_client import MCPClient
+from strands.mcp.mcp_instrumentation import (
     ItemWithContext,
     SessionContextAttachingReader,
     SessionContextSavingWriter,
@@ -18,7 +18,7 @@ from strands.tools.mcp.mcp_instrumentation import (
 @pytest.fixture(autouse=True)
 def reset_mcp_instrumentation():
     """Reset MCP instrumentation state before each test."""
-    import strands.tools.mcp.mcp_instrumentation as mcp_inst
+    import strands.mcp.mcp_instrumentation as mcp_inst
 
     mcp_inst._instrumentation_applied = False
     yield
@@ -342,7 +342,7 @@ class MockPydanticParams:
 class TestMCPInstrumentation:
     def test_mcp_instrumentation_called_on_client_init(self):
         """Test that mcp_instrumentation is called when MCPClient is initialized."""
-        with patch("strands.tools.mcp.mcp_client.mcp_instrumentation") as mock_instrumentation:
+        with patch("strands.mcp.mcp_client.mcp_instrumentation") as mock_instrumentation:
             # Mock transport
             def mock_transport():
                 read_stream = AsyncMock()
@@ -359,7 +359,7 @@ class TestMCPInstrumentation:
         """Test that mcp_instrumentation is only called once even with multiple MCPClient instances."""
 
         # Mock the wrap_function_wrapper to count calls
-        with patch("strands.tools.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
+        with patch("strands.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
             # Mock transport
             def mock_transport():
                 read_stream = AsyncMock()
@@ -379,8 +379,8 @@ class TestMCPInstrumentation:
     def test_mcp_instrumentation_calls_wrap_function_wrapper(self):
         """Test that mcp_instrumentation calls the expected wrapper functions."""
         with (
-            patch("strands.tools.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap,
-            patch("strands.tools.mcp.mcp_instrumentation.register_post_import_hook") as mock_register,
+            patch("strands.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap,
+            patch("strands.mcp.mcp_instrumentation.register_post_import_hook") as mock_register,
         ):
             mcp_instrumentation()
 
@@ -410,7 +410,7 @@ class TestMCPInstrumentation:
         mock_request.root.params = mock_params
 
         # Create the patch function
-        with patch("strands.tools.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
+        with patch("strands.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
             mcp_instrumentation()
             patch_function = mock_wrap.call_args_list[0][0][2]
 
@@ -440,7 +440,7 @@ class TestMCPInstrumentation:
         mock_params = MockPydanticParams(_meta={"com.example/request_id": "abc-123"}, name="echo")
         mock_request.root.params = mock_params
 
-        with patch("strands.tools.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
+        with patch("strands.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
             mcp_instrumentation()
             patch_function = mock_wrap.call_args_list[0][0][2]
 
@@ -465,7 +465,7 @@ class TestMCPInstrumentation:
         mock_request.root.params = {"existing": "param"}
 
         # Create the patch function
-        with patch("strands.tools.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
+        with patch("strands.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
             mcp_instrumentation()
             patch_function = mock_wrap.call_args_list[0][0][2]
 
@@ -491,7 +491,7 @@ class TestMCPInstrumentation:
         mock_request = MagicMock()
         mock_request.root.method = "other/method"
 
-        with patch("strands.tools.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
+        with patch("strands.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
             mcp_instrumentation()
             patch_function = mock_wrap.call_args_list[0][0][2]
 
@@ -515,7 +515,7 @@ class TestMCPInstrumentation:
         mock_request.root.params = MagicMock()
         mock_request.root.params.model_dump.side_effect = Exception("Test exception")
 
-        with patch("strands.tools.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
+        with patch("strands.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
             mcp_instrumentation()
             patch_function = mock_wrap.call_args_list[0][0][2]
 
@@ -546,7 +546,7 @@ class TestMCPInstrumentation:
         failing_params = FailingMockPydanticParams(existing="param")
         mock_request.root.params = failing_params
 
-        with patch("strands.tools.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
+        with patch("strands.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
             mcp_instrumentation()
             patch_function = mock_wrap.call_args_list[0][0][2]
 

@@ -21,8 +21,8 @@ from mcp.types import TextContent as MCPTextContent
 from mcp.types import Tool as MCPTool
 from pydantic import AnyUrl
 
-from strands.tools.mcp import MCPClient
-from strands.tools.mcp.mcp_types import MCPToolResult
+from strands.mcp import MCPClient
+from strands.mcp.mcp_types import MCPToolResult
 from strands.types.exceptions import MCPClientInitializationError
 
 # Fixtures mock_transport and mock_session are imported from conftest.py

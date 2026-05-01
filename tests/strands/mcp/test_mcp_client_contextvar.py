@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from strands.tools.mcp import MCPClient
+from strands.mcp import MCPClient
 
 
 @pytest.fixture
@@ -43,7 +43,7 @@ def mock_session():
     mock_session_cm = AsyncMock()
     mock_session_cm.__aenter__.return_value = mock_session
 
-    with patch("strands.tools.mcp.mcp_client.ClientSession", return_value=mock_session_cm):
+    with patch("strands.mcp.mcp_client.ClientSession", return_value=mock_session_cm):
         yield mock_session
 
 
