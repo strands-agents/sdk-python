@@ -29,6 +29,7 @@ from .. import _identifier
 from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
+from ..experimental.checkpoint import Checkpoint
 from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types._snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
@@ -146,6 +147,7 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
+        checkpointing: bool = False,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -214,6 +216,11 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
+            checkpointing: When True, the event loop pauses at cycle boundaries (after model call,
+                after all tools execute) and returns an AgentResult with stop_reason="checkpoint"
+                and a populated ``checkpoint`` field. Persist the checkpoint and resume by passing
+                ``[{"checkpointResume": {"checkpoint": checkpoint.to_dict()}}]`` as the next prompt.
+                Defaults to False. See :mod:`strands.experimental.checkpoint` for usage and limitations.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -304,6 +311,10 @@ class Agent(AgentBase):
 
         self._interrupt_state = _InterruptState()
 
+        # Checkpointing: when True, event loop pauses at cycle boundaries
+        self._checkpointing: bool = checkpointing
+        self._checkpoint_resume_context: Checkpoint | None = None
+
         # Runtime state for model providers (e.g., server-side response ids)
         self._model_state: dict[str, Any] = {}
 
@@ -374,11 +385,17 @@ class Agent(AgentBase):
         This method is thread-safe and can be called from any context
         (e.g., another thread, web request handler, background task).
 
-        The agent will stop gracefully at the next checkpoint:
+        The agent will stop gracefully at the next cancellation-safe point:
         - During model response streaming
         - Before tool execution
 
         The agent will return a result with stop_reason="cancelled".
+
+        Note:
+            "Cancellation-safe point" is distinct from
+            :class:`~strands.experimental.checkpoint.Checkpoint` boundaries.
+            Cancel takes precedence: a cancel signal at either checkpoint boundary
+            surfaces as ``stop_reason="cancelled"``, not ``"checkpoint"``.
 
         Example:
             ```python
@@ -1006,8 +1023,55 @@ class Agent(AgentBase):
             if structured_output_context:
                 structured_output_context.cleanup(self.tool_registry)
 
+    def _try_consume_checkpoint_resume(self, prompt: list[Any]) -> bool:
+        """Detect, validate, and consume a ``checkpointResume`` prompt block.
+
+        Returns True if the prompt was a resume block (state restored, caller
+        should skip normal message conversion). Returns False if no resume
+        block is present. Raises on malformed or misconfigured input.
+
+        Follows interrupt-resume error conventions: TypeError for shape issues,
+        KeyError for missing keys, ValueError for misconfig. A schema mismatch
+        in the checkpoint payload raises ``CheckpointException``.
+        """
+        has_checkpoint_resume = any(isinstance(content, dict) and "checkpointResume" in content for content in prompt)
+        if not has_checkpoint_resume:
+            return False
+
+        if not self._checkpointing:
+            raise ValueError(
+                "Received checkpointResume block but agent was created with "
+                "checkpointing=False. Pass checkpointing=True when constructing "
+                "the Agent to enable durable execution."
+            )
+
+        invalid_types = [
+            key for content in prompt if isinstance(content, dict) for key in content if key != "checkpointResume"
+        ]
+        if invalid_types:
+            raise TypeError(
+                f"content_types=<{invalid_types}> | checkpointResume cannot be mixed with other content types"
+            )
+
+        if len(prompt) != 1:
+            raise TypeError(f"block_count=<{len(prompt)}> | only one checkpointResume block permitted per prompt")
+
+        resume_block = prompt[0].get("checkpointResume", {})
+        if not isinstance(resume_block, dict) or "checkpoint" not in resume_block:
+            raise KeyError("checkpoint | missing required key in checkpointResume block")
+
+        checkpoint = Checkpoint.from_dict(resume_block["checkpoint"])
+        self.load_snapshot(Snapshot.from_dict(checkpoint.snapshot))
+        self._checkpoint_resume_context = checkpoint
+        return True
+
     async def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         if self._interrupt_state.activated:
+            return []
+
+        # Resume detection — must run before existing shape handling so checkpointResume
+        # blocks aren't misinterpreted as content blocks.
+        if isinstance(prompt, list) and prompt and self._try_consume_checkpoint_resume(prompt):
             return []
 
         messages: Messages | None = None

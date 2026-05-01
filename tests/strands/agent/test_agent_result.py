@@ -5,6 +5,7 @@ import pytest
 from pydantic import BaseModel
 
 from strands.agent.agent_result import AgentResult
+from strands.experimental.checkpoint import Checkpoint
 from strands.interrupt import Interrupt
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.types.content import Message
@@ -110,6 +111,7 @@ def test_to_dict(mock_metrics, simple_message: Message):
         "type": "agent_result",
         "message": simple_message,
         "stop_reason": "end_turn",
+        "checkpoint": None,
     }
 
 
@@ -386,6 +388,86 @@ def test_context_size_none_when_no_data(mock_metrics, simple_message: Message):
     assert result.context_size is None
 
 
+# =========================================================================
+# Checkpoint field and round-trip serialization (Part B)
+#
+# Covers the V0 durable-execution contract: when stop_reason == "checkpoint",
+# AgentResult carries a Checkpoint that round-trips through to_dict/from_dict.
+# =========================================================================
+
+
+def test_agent_result_checkpoint_field_default_none() -> None:
+    result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"text": "hi"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+    assert result.checkpoint is None
+
+
+def test_agent_result_accepts_checkpoint() -> None:
+    checkpoint = Checkpoint(position="after_model", cycle_index=0)
+    result = AgentResult(
+        stop_reason="checkpoint",
+        message={"role": "assistant", "content": [{"toolUse": {"toolUseId": "1", "name": "t", "input": {}}}]},
+        metrics=EventLoopMetrics(),
+        state={},
+        checkpoint=checkpoint,
+    )
+    assert result.checkpoint is checkpoint
+    assert result.checkpoint.position == "after_model"
+
+
+def test_agent_result_to_dict_includes_checkpoint() -> None:
+    checkpoint = Checkpoint(position="after_model", cycle_index=0)
+    result = AgentResult(
+        stop_reason="checkpoint",
+        message={"role": "assistant", "content": [{"toolUse": {"toolUseId": "1", "name": "t", "input": {}}}]},
+        metrics=EventLoopMetrics(),
+        state={},
+        checkpoint=checkpoint,
+    )
+    d = result.to_dict()
+    assert d["checkpoint"] is not None
+    assert d["checkpoint"]["position"] == "after_model"
+    assert d["checkpoint"]["cycle_index"] == 0
+
+
+def test_agent_result_to_dict_checkpoint_none_when_absent() -> None:
+    result = AgentResult(
+        stop_reason="end_turn",
+        message={"role": "assistant", "content": [{"text": "hi"}]},
+        metrics=EventLoopMetrics(),
+        state={},
+    )
+    d = result.to_dict()
+    assert d["checkpoint"] is None
+
+
+def test_agent_result_from_dict_round_trips_checkpoint() -> None:
+    original = AgentResult(
+        stop_reason="checkpoint",
+        message={"role": "assistant", "content": [{"toolUse": {"toolUseId": "1", "name": "t", "input": {}}}]},
+        metrics=EventLoopMetrics(),
+        state={},
+        checkpoint=Checkpoint(position="after_tools", cycle_index=3),
+    )
+    restored = AgentResult.from_dict(original.to_dict())
+    assert restored.checkpoint is not None
+    assert restored.checkpoint.position == "after_tools"
+    assert restored.checkpoint.cycle_index == 3
+
+
+def test_agent_result_from_dict_handles_missing_checkpoint() -> None:
+    restored = AgentResult.from_dict(
+        {
+            "type": "agent_result",
+            "message": {"role": "assistant", "content": [{"text": "done"}]},
+            "stop_reason": "end_turn",
+        }
+    )
+    assert restored.checkpoint is None
 def test_projected_context_size_delegates_to_metrics(mock_metrics, simple_message: Message):
     """Test that projected_context_size delegates to metrics.projected_context_size."""
     mock_metrics.projected_context_size = 15000
