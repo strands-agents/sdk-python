@@ -407,7 +407,7 @@ def test_format_chunk_metadata(model):
                 "totalTokens": 150,
             },
             "metrics": {
-                "latencyMs": 1.0,
+                "latencyMs": 1,
             },
         },
     }
@@ -447,7 +447,7 @@ async def test_stream(ollama_client, model, agenerator, alist, captured_warnings
         {
             "metadata": {
                 "usage": {"inputTokens": 5, "outputTokens": 10, "totalTokens": 15},
-                "metrics": {"latencyMs": 1.0},
+                "metrics": {"latencyMs": 1},
             }
         },
     ]
@@ -525,7 +525,7 @@ async def test_stream_with_tool_calls(ollama_client, model, agenerator, alist):
     assert tru_events[8] == {
         "metadata": {
             "usage": {"inputTokens": 8, "outputTokens": 15, "totalTokens": 23},
-            "metrics": {"latencyMs": 2.0},
+            "metrics": {"latencyMs": 2},
         }
     }
     expected_request = {
