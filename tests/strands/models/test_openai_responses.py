@@ -1,3 +1,4 @@
+import os
 import unittest.mock
 
 import openai
@@ -1301,33 +1302,33 @@ class TestCountTokens:
 
 
 # =============================================================================
-# Bedrock Mantle (aws_config) integration with OpenAIResponsesModel
+# Bedrock Mantle (bedrock_mantle_config) integration with OpenAIResponsesModel
 # =============================================================================
 
 
-class TestOpenAIResponsesModelAwsConfig:
+class TestOpenAIResponsesModelBedrockMantleConfig:
     @pytest.fixture
     def mock_provide_token(self):
         with unittest.mock.patch("aws_bedrock_token_generator.provide_token") as mock:
             mock.return_value = "bedrock-api-key-deadbeef&Version=1"
             yield mock
 
-    def test_aws_config_sets_base_url_and_api_key(self, openai_client, mock_provide_token):
+    def test_bedrock_mantle_config_sets_base_url_and_api_key(self, openai_client, mock_provide_token):
         _ = openai_client
-        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", aws_config={"region": "us-east-1"})
+        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={"region": "us-east-1"})
         resolved = model._resolve_client_args()
         assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/v1"
         assert resolved["api_key"] == "bedrock-api-key-deadbeef&Version=1"
         mock_provide_token.assert_called_once_with(region="us-east-1")
 
-    def test_aws_config_forwards_credentials_provider_and_expiry(self, openai_client, mock_provide_token):
+    def test_bedrock_mantle_config_forwards_credentials_provider_and_expiry(self, openai_client, mock_provide_token):
         _ = openai_client
         from datetime import timedelta
 
         provider = unittest.mock.Mock()
         model = OpenAIResponsesModel(
             model_id="openai.gpt-oss-120b",
-            aws_config={
+            bedrock_mantle_config={
                 "region": "us-west-2",
                 "credentials_provider": provider,
                 "expiry": timedelta(minutes=15),
@@ -1340,28 +1341,24 @@ class TestOpenAIResponsesModelAwsConfig:
             expiry=timedelta(minutes=15),
         )
 
-    def test_aws_config_mints_token_per_request(self, openai_client, mock_provide_token):
+    def test_bedrock_mantle_config_mints_token_per_request(self, openai_client, mock_provide_token):
         _ = openai_client
-        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", aws_config={"region": "us-east-1"})
+        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={"region": "us-east-1"})
         model._resolve_client_args()
         model._resolve_client_args()
         assert mock_provide_token.call_count == 2
 
-    def test_aws_config_merges_with_client_args(self, openai_client, mock_provide_token):
-        """aws_config is allowed alongside client_args; base_url and api_key are overridden,
-        other transport-level options are preserved.
-        """
+    def test_bedrock_mantle_config_merges_with_client_args(self, openai_client, mock_provide_token):
+        """bedrock_mantle_config composes with client_args; transport options are preserved."""
         _ = openai_client
         sentinel_http_client = unittest.mock.Mock()
         model = OpenAIResponsesModel(
             model_id="openai.gpt-oss-120b",
             client_args={
-                "api_key": "will-be-overridden",
-                "base_url": "https://also-overridden.example.com",
                 "timeout": 42,
                 "http_client": sentinel_http_client,
             },
-            aws_config={"region": "us-east-1"},
+            bedrock_mantle_config={"region": "us-east-1"},
         )
         resolved = model._resolve_client_args()
         assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/v1"
@@ -1369,16 +1366,59 @@ class TestOpenAIResponsesModelAwsConfig:
         assert resolved["timeout"] == 42
         assert resolved["http_client"] is sentinel_http_client
 
-    def test_aws_config_requires_region(self, openai_client):
+    def test_bedrock_mantle_config_rejects_base_url_in_client_args(self, openai_client, mock_provide_token):
+        """client_args must not contain base_url or api_key when bedrock_mantle_config is set."""
         _ = openai_client
-        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", aws_config={})
-        with pytest.raises(ValueError, match="region"):
+        model = OpenAIResponsesModel(
+            model_id="openai.gpt-oss-120b",
+            client_args={"api_key": "should-not-be-here"},
+            bedrock_mantle_config={"region": "us-east-1"},
+        )
+        with pytest.raises(ValueError, match="client_args must not contain"):
             model._resolve_client_args()
 
-    def test_aws_config_wraps_token_failures_with_context(self, openai_client, mock_provide_token):
+    def test_bedrock_mantle_config_requires_region(self, openai_client):
+        """bedrock_mantle_config raises when no region can be resolved from config, session, or env."""
+        _ = openai_client
+        with (
+            unittest.mock.patch("boto3.Session") as mock_session_cls,
+            unittest.mock.patch.dict(os.environ, {}, clear=True),
+        ):
+            mock_session_cls.return_value.region_name = None
+            model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={})
+            with pytest.raises(ValueError, match="Could not resolve an AWS region"):
+                model._resolve_client_args()
+
+    def test_bedrock_mantle_config_region_resolved_from_boto3_default(self, openai_client, mock_provide_token):
+        """When region is omitted, the default boto3 session chain resolves it."""
+        _ = openai_client
+        with unittest.mock.patch("boto3.Session") as mock_session_cls:
+            mock_session_cls.return_value.region_name = "eu-west-1"
+            model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={})
+            resolved = model._resolve_client_args()
+
+        assert resolved["base_url"] == "https://bedrock-mantle.eu-west-1.api.aws/v1"
+        mock_provide_token.assert_called_once_with(region="eu-west-1")
+
+    def test_bedrock_mantle_config_region_resolved_from_boto_session(self, openai_client, mock_provide_token):
+        """An explicit ``boto_session`` supplies the region when ``region`` is omitted."""
+        _ = openai_client
+        session = unittest.mock.Mock()
+        session.region_name = "ap-southeast-2"
+        model = OpenAIResponsesModel(
+            model_id="openai.gpt-oss-120b",
+            bedrock_mantle_config={"boto_session": session},
+        )
+
+        resolved = model._resolve_client_args()
+
+        assert resolved["base_url"] == "https://bedrock-mantle.ap-southeast-2.api.aws/v1"
+        mock_provide_token.assert_called_once_with(region="ap-southeast-2")
+
+    def test_bedrock_mantle_config_wraps_token_failures_with_context(self, openai_client, mock_provide_token):
         """provide_token failures are wrapped in a RuntimeError with actionable context."""
         _ = openai_client
         mock_provide_token.side_effect = RuntimeError("no credentials in chain")
-        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", aws_config={"region": "us-east-1"})
+        model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={"region": "us-east-1"})
         with pytest.raises(RuntimeError, match="Bedrock Mantle bearer token.*us-east-1"):
             model._resolve_client_args()

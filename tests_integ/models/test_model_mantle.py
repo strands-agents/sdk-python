@@ -1,6 +1,6 @@
 """Integration tests for OpenAI-compatible APIs on Bedrock Mantle.
 
-Exercises the ``aws_config`` pathway on ``OpenAIModel`` (Chat Completions) and
+Exercises the ``bedrock_mantle_config`` pathway on ``OpenAIModel`` (Chat Completions) and
 ``OpenAIResponsesModel`` (Responses API) against the live
 ``bedrock-mantle.<region>.api.aws/v1`` endpoint. Credentials come from the
 ambient AWS credential chain; no explicit API key is passed by the user.
@@ -17,27 +17,27 @@ _MODEL_ID = "openai.gpt-oss-120b"
 
 
 @pytest.fixture
-def aws_config():
+def bedrock_mantle_config():
     return {"region": _REGION}
 
 
 @pytest.fixture
-def chat_completions_model(aws_config):
-    return OpenAIModel(model_id=_MODEL_ID, aws_config=aws_config)
+def chat_completions_model(bedrock_mantle_config):
+    return OpenAIModel(model_id=_MODEL_ID, bedrock_mantle_config=bedrock_mantle_config)
 
 
 @pytest.fixture
-def model(aws_config):
-    return OpenAIResponsesModel(model_id=_MODEL_ID, aws_config=aws_config)
+def model(bedrock_mantle_config):
+    return OpenAIResponsesModel(model_id=_MODEL_ID, bedrock_mantle_config=bedrock_mantle_config)
 
 
 @pytest.fixture
-def stateful_model(aws_config):
-    return OpenAIResponsesModel(model_id=_MODEL_ID, stateful=True, aws_config=aws_config)
+def stateful_model(bedrock_mantle_config):
+    return OpenAIResponsesModel(model_id=_MODEL_ID, stateful=True, bedrock_mantle_config=bedrock_mantle_config)
 
 
 def test_chat_completions_agent_invoke(chat_completions_model):
-    """OpenAIModel (Chat Completions) reaches Mantle via aws_config."""
+    """OpenAIModel (Chat Completions) reaches Mantle via bedrock_mantle_config."""
     agent = Agent(model=chat_completions_model, system_prompt="Reply in one short sentence.", callback_handler=None)
     result = agent("What is 2+2?")
     assert "4" in str(result)
@@ -59,11 +59,11 @@ def test_responses_server_side_conversation(stateful_model):
     assert "alice" in str(result).lower()
 
 
-def test_reasoning_content_multi_turn(aws_config):
+def test_reasoning_content_multi_turn(bedrock_mantle_config):
     """Test that reasoning content from gpt-oss models doesn't break multi-turn conversations."""
     model = OpenAIResponsesModel(
         model_id=_MODEL_ID,
-        aws_config=aws_config,
+        bedrock_mantle_config=bedrock_mantle_config,
         params={"reasoning": {"effort": "low"}},
     )
     agent = Agent(model=model, system_prompt="Reply in one short sentence.", callback_handler=None)

@@ -1,13 +1,15 @@
 """Internal helpers for routing OpenAI-compatible clients to Bedrock Mantle.
 
-Converts an ``aws_config`` dict into the ``base_url`` and ``api_key`` that the
+Converts a ``bedrock_mantle_config`` dict into the ``base_url`` and ``api_key`` that the
 OpenAI Python SDK consumes. Tokens are minted on demand via
 ``aws_bedrock_token_generator.provide_token`` so long-running agents survive the
 bearer token's maximum lifetime.
 
-``aws_bedrock_token_generator`` is imported lazily so that extras which reuse
-the OpenAI package without pulling the Mantle dependency do not hit an
-``ImportError`` at module load.
+``aws_bedrock_token_generator`` is part of the ``openai`` extras group
+(``pip install strands-agents[openai]``) but is *not* included in the ``litellm``
+or ``sagemaker`` extras, which also pull in the ``openai`` package. The import is
+therefore lazy — it happens inside :func:`resolve_bedrock_client_args` so that
+those other extras never trigger an ``ImportError`` at module load.
 """
 
 from __future__ import annotations
@@ -15,57 +17,108 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any, TypedDict
 
-from typing_extensions import Required
+import boto3
+from botocore.credentials import CredentialProvider
 
 _MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws/v1"
+_MANTLE_DOCS_URL = "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html"
 
 
-class AwsConfig(TypedDict, total=False):
-    """AWS-side config for reaching Bedrock Mantle via an OpenAI-compatible client.
+class BedrockMantleConfig(TypedDict, total=False):
+    """Config for routing an OpenAI-compatible client through Bedrock Mantle.
 
     Attributes:
-        region: AWS region hosting the Bedrock Mantle endpoint.
-        credentials_provider: Optional botocore ``CredentialProvider`` forwarded to
-            ``provide_token``. Defaults to the AWS credential chain.
-        expiry: Optional ``timedelta`` for the bearer token's lifetime, forwarded
-            to ``provide_token``.
+        region: AWS region hosting the Bedrock Mantle endpoint. If omitted, resolved
+            from ``boto_session`` (if provided) or the standard boto3 chain
+            (``AWS_REGION`` / ``AWS_DEFAULT_REGION`` / active profile / EC2 metadata).
+            A :class:`ValueError` is raised if none resolve.
+        boto_session: Optional :class:`boto3.Session` used to resolve the region when
+            ``region`` is not provided. Useful for picking up a non-default profile
+            without exporting env vars.
+        credentials_provider: Optional botocore :class:`~botocore.credentials.CredentialProvider`
+            forwarded to ``provide_token``. Omit to let the token generator use the
+            standard AWS credential chain.
+        expiry: Optional ``timedelta`` for the bearer token's lifetime, forwarded to
+            ``provide_token``. Defaults to the generator's built-in lifetime when
+            omitted.
     """
 
-    region: Required[str]
-    credentials_provider: Any
+    region: str
+    boto_session: boto3.Session
+    credentials_provider: CredentialProvider
     expiry: timedelta
 
 
-def resolve_bedrock_client_args(aws_config: AwsConfig, client_args: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Resolve an ``AwsConfig`` (plus optional ``client_args``) into OpenAI client kwargs.
-
-    Mints a fresh bearer token on every call. When ``client_args`` is provided, its
-    entries are preserved except for ``base_url`` and ``api_key``, which are always
-    overridden by the values derived from ``aws_config``.
+def _resolve_region(config: BedrockMantleConfig) -> str:
+    """Resolve the AWS region, preferring explicit config then falling back to boto3.
 
     Raises:
-        ValueError: If ``aws_config['region']`` is missing or empty.
+        ValueError: If no region can be resolved from the config, an attached session,
+            or the standard boto3 credential chain.
+    """
+    region = config.get("region")
+    if region:
+        return region
+
+    session = config.get("boto_session")
+    if session is not None and session.region_name:
+        return str(session.region_name)
+
+    # ``boto3.Session()`` with no args reads ``AWS_REGION`` / ``AWS_DEFAULT_REGION``,
+    # the active profile, and falls back to EC2 instance metadata — the same chain
+    # :class:`BedrockModel` uses.
+    default_region = boto3.Session().region_name
+    if default_region:
+        return str(default_region)
+
+    raise ValueError(
+        "Could not resolve an AWS region for Bedrock Mantle. Pass 'region' in "
+        "bedrock_mantle_config, attach a boto_session with a configured region, or set "
+        f"AWS_REGION in the environment. See {_MANTLE_DOCS_URL} for supported regions."
+    )
+
+
+def resolve_bedrock_client_args(
+    config: BedrockMantleConfig, client_args: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Resolve a ``BedrockMantleConfig`` (plus optional ``client_args``) into OpenAI client kwargs.
+
+    Mints a fresh bearer token on every call. When ``client_args`` is provided, it must
+    not contain ``base_url`` or ``api_key`` — those are always derived from the config.
+
+    Raises:
+        ValueError: If no region can be resolved, or if ``client_args`` contains
+            ``base_url`` or ``api_key``.
         ImportError: If ``aws-bedrock-token-generator`` is not installed.
         RuntimeError: If token minting fails (e.g. missing AWS credentials).
     """
-    region = aws_config.get("region")
-    if not region:
-        raise ValueError("aws_config must include a non-empty 'region'.")
+    if client_args:
+        conflicting = [k for k in ("api_key", "base_url") if k in client_args]
+        if conflicting:
+            raise ValueError(
+                f"client_args must not contain {conflicting} when bedrock_mantle_config is set; "
+                "these are derived from the Mantle config automatically."
+            )
 
+    region = _resolve_region(config)
+
+    # ``aws-bedrock-token-generator`` is included in the ``openai`` extras group but not in
+    # ``litellm`` or ``sagemaker`` (which also depend on the ``openai`` package). The lazy
+    # import keeps those extras from hitting an ImportError at module load.
     try:
         from aws_bedrock_token_generator import provide_token
     except ImportError as e:
         raise ImportError(
-            "aws_config requires the 'aws-bedrock-token-generator' package. "
+            "bedrock_mantle_config requires the 'aws-bedrock-token-generator' package. "
             "Install it with: pip install strands-agents[openai]"
         ) from e
 
     # Only forward kwargs the user set; provide_token rejects expiry=None.
     token_kwargs: dict[str, Any] = {"region": region}
-    if "credentials_provider" in aws_config:
-        token_kwargs["aws_credentials_provider"] = aws_config["credentials_provider"]
-    if "expiry" in aws_config:
-        token_kwargs["expiry"] = aws_config["expiry"]
+    if "credentials_provider" in config:
+        token_kwargs["aws_credentials_provider"] = config["credentials_provider"]
+    if "expiry" in config:
+        token_kwargs["expiry"] = config["expiry"]
 
     try:
         token = provide_token(**token_kwargs)

@@ -21,7 +21,7 @@ from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
-from ._openai_bedrock import AwsConfig, resolve_bedrock_client_args
+from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -72,7 +72,7 @@ class OpenAIModel(Model):
         self,
         client: Client | None = None,
         client_args: dict[str, Any] | None = None,
-        aws_config: AwsConfig | None = None,
+        bedrock_mantle_config: BedrockMantleConfig | None = None,
         **model_config: Unpack[OpenAIConfig],
     ) -> None:
         """Initialize provider instance.
@@ -89,39 +89,41 @@ class OpenAIModel(Model):
                 Note: The client should not be shared across different asyncio event loops.
             client_args: Arguments for the OpenAI client (legacy approach).
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
-                May be combined with ``aws_config``; when both are set, ``aws_config`` overrides
-                ``base_url`` and ``api_key`` only.
-            aws_config: Route requests through Amazon Bedrock's Mantle (OpenAI-compatible)
-                endpoint. See :class:`AwsConfig` for accepted keys. When set, a fresh bearer
-                token is minted on every request. Cannot be combined with a pre-built ``client``.
+                May be combined with ``bedrock_mantle_config``; when both are set,
+                ``bedrock_mantle_config`` derives ``base_url`` and ``api_key`` (which must not
+                appear in ``client_args``).
+            bedrock_mantle_config: Route requests through Amazon Bedrock's Mantle
+                (OpenAI-compatible) endpoint. See :class:`BedrockMantleConfig` for accepted
+                keys. When set, a fresh bearer token is minted on every request. Cannot be
+                combined with a pre-built ``client``.
             **model_config: Configuration options for the OpenAI model.
 
         Raises:
-            ValueError: If ``client`` is combined with ``client_args`` or ``aws_config``.
+            ValueError: If ``client`` is combined with ``client_args`` or ``bedrock_mantle_config``.
         """
         validate_config_keys(model_config, self.OpenAIConfig)
         self.config = dict(model_config)
 
-        # client_args + aws_config is allowed; aws_config overrides base_url / api_key only.
+        # client_args + bedrock_mantle_config is allowed; the config derives base_url / api_key.
         client_args_provided = client_args is not None and len(client_args) > 0
         if client is not None and client_args_provided:
             raise ValueError("Only one of 'client' or 'client_args' should be provided, not both.")
-        if aws_config is not None and client is not None:
-            raise ValueError("'aws_config' cannot be combined with a pre-built 'client'.")
+        if bedrock_mantle_config is not None and client is not None:
+            raise ValueError("'bedrock_mantle_config' cannot be combined with a pre-built 'client'.")
 
         self._custom_client = client
         self.client_args = client_args or {}
-        self._aws_config = aws_config
+        self._bedrock_mantle_config = bedrock_mantle_config
 
         logger.debug("config=<%s> | initializing", self.config)
 
     def _resolve_client_args(self) -> dict[str, Any]:
         """Return the kwargs to pass to ``openai.AsyncOpenAI`` for the current request.
 
-        Delegates to :func:`resolve_bedrock_client_args` when ``aws_config`` is set.
+        Delegates to :func:`resolve_bedrock_client_args` when ``bedrock_mantle_config`` is set.
         """
-        if self._aws_config is not None:
-            return resolve_bedrock_client_args(self._aws_config, self.client_args)
+        if self._bedrock_mantle_config is not None:
+            return resolve_bedrock_client_args(self._bedrock_mantle_config, self.client_args)
         return self.client_args
 
     @override
