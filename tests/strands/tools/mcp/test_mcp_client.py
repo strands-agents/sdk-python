@@ -386,7 +386,10 @@ def test_enter_with_initialization_exception(mock_transport):
     client = MCPClient(mock_transport["transport_callable"])
 
     with patch.object(client, "stop") as mock_stop:
-        with pytest.raises(MCPClientInitializationError, match="the client initialization failed"):
+        with pytest.raises(
+            MCPClientInitializationError,
+            match="the client initialization failed: Transport initialization failed",
+        ):
             client.start()
 
         # Verify stop() was called for cleanup
