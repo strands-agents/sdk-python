@@ -1710,3 +1710,85 @@ def test_format_request_messages_multiple_tool_calls_with_images():
         },
     ]
     assert tru_result == exp_result
+
+
+class TestGetClientHttpClientFactory:
+    """Tests for http_client factory support in _get_client."""
+
+    @pytest.mark.asyncio
+    async def test_http_client_factory_called_on_each_request(self):
+        """When http_client is a callable, it should be invoked on every _get_client call."""
+        mock_http_client_1 = unittest.mock.MagicMock()
+        mock_http_client_2 = unittest.mock.MagicMock()
+        factory = unittest.mock.MagicMock(
+            side_effect=[mock_http_client_1, mock_http_client_2],
+            spec=[],  # No attributes — ensures no .send
+        )
+
+        with unittest.mock.patch.object(strands.models.openai.openai, "AsyncOpenAI") as mock_cls:
+            mock_client = unittest.mock.AsyncMock()
+            mock_client.__aenter__ = unittest.mock.AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = unittest.mock.AsyncMock(return_value=None)
+            mock_cls.return_value = mock_client
+
+            model = OpenAIModel(
+                client_args={"api_key": "test-key", "http_client": factory},
+                model_id="gpt-4",
+            )
+
+            async with model._get_client():
+                pass
+            async with model._get_client():
+                pass
+
+        assert factory.call_count == 2
+        calls = mock_cls.call_args_list
+        assert calls[0][1]["http_client"] == mock_http_client_1
+        assert calls[1][1]["http_client"] == mock_http_client_2
+
+    @pytest.mark.asyncio
+    async def test_http_client_instance_passed_through(self):
+        """When http_client is a regular instance (not callable), it should be passed as-is."""
+        mock_http_client = unittest.mock.MagicMock()
+        mock_http_client.send = unittest.mock.MagicMock()  # httpx clients have .send()
+
+        with unittest.mock.patch.object(strands.models.openai.openai, "AsyncOpenAI") as mock_cls:
+            mock_client = unittest.mock.AsyncMock()
+            mock_client.__aenter__ = unittest.mock.AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = unittest.mock.AsyncMock(return_value=None)
+            mock_cls.return_value = mock_client
+
+            model = OpenAIModel(
+                client_args={"api_key": "test-key", "http_client": mock_http_client},
+                model_id="gpt-4",
+            )
+
+            async with model._get_client():
+                pass
+
+        mock_cls.assert_called_once_with(api_key="test-key", http_client=mock_http_client)
+
+    @pytest.mark.asyncio
+    async def test_client_args_not_mutated_by_factory(self):
+        """The original client_args dict should not be mutated when using a factory."""
+        factory = unittest.mock.MagicMock(
+            return_value=unittest.mock.MagicMock(),
+            spec=[],  # No attributes — ensures no .send
+        )
+
+        with unittest.mock.patch.object(strands.models.openai.openai, "AsyncOpenAI") as mock_cls:
+            mock_client = unittest.mock.AsyncMock()
+            mock_client.__aenter__ = unittest.mock.AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = unittest.mock.AsyncMock(return_value=None)
+            mock_cls.return_value = mock_client
+
+            model = OpenAIModel(
+                client_args={"api_key": "test-key", "http_client": factory},
+                model_id="gpt-4",
+            )
+
+            async with model._get_client():
+                pass
+
+        # The original client_args should still have the factory, not the resolved instance
+        assert model.client_args["http_client"] is factory
