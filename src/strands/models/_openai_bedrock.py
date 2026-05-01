@@ -83,23 +83,15 @@ def resolve_bedrock_client_args(
 ) -> dict[str, Any]:
     """Resolve a ``BedrockMantleConfig`` (plus optional ``client_args``) into OpenAI client kwargs.
 
-    Mints a fresh bearer token on every call. When ``client_args`` is provided, it must
-    not contain ``base_url`` or ``api_key`` — those are always derived from the config.
+    Mints a fresh bearer token on every call. Callers are expected to validate that
+    ``client_args`` does not contain ``base_url`` or ``api_key`` before calling this
+    function (typically at ``__init__`` time for fail-fast behavior).
 
     Raises:
-        ValueError: If no region can be resolved, or if ``client_args`` contains
-            ``base_url`` or ``api_key``.
+        ValueError: If no region can be resolved.
         ImportError: If ``aws-bedrock-token-generator`` is not installed.
         RuntimeError: If token minting fails (e.g. missing AWS credentials).
     """
-    if client_args:
-        conflicting = [k for k in ("api_key", "base_url") if k in client_args]
-        if conflicting:
-            raise ValueError(
-                f"client_args must not contain {conflicting} when bedrock_mantle_config is set; "
-                "these are derived from the Mantle config automatically."
-            )
-
     region = _resolve_region(config)
 
     # ``aws-bedrock-token-generator`` is included in the ``openai`` extras group but not in

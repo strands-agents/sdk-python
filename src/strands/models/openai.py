@@ -110,6 +110,13 @@ class OpenAIModel(Model):
             raise ValueError("Only one of 'client' or 'client_args' should be provided, not both.")
         if bedrock_mantle_config is not None and client is not None:
             raise ValueError("'bedrock_mantle_config' cannot be combined with a pre-built 'client'.")
+        if bedrock_mantle_config is not None and client_args:
+            conflicting = [k for k in ("api_key", "base_url") if k in client_args]
+            if conflicting:
+                raise ValueError(
+                    f"client_args must not contain {conflicting} when bedrock_mantle_config is set; "
+                    "these are derived from the Mantle config automatically."
+                )
 
         self._custom_client = client
         self.client_args = client_args or {}

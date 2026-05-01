@@ -165,6 +165,14 @@ class OpenAIResponsesModel(Model):
         self.client_args = client_args or {}
         self._bedrock_mantle_config = bedrock_mantle_config
 
+        if bedrock_mantle_config is not None and client_args:
+            conflicting = [k for k in ("api_key", "base_url") if k in client_args]
+            if conflicting:
+                raise ValueError(
+                    f"client_args must not contain {conflicting} when bedrock_mantle_config is set; "
+                    "these are derived from the Mantle config automatically."
+                )
+
         logger.debug("config=<%s> | initializing", self.config)
 
     def _resolve_client_args(self) -> dict[str, Any]:

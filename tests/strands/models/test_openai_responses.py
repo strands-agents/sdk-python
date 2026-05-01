@@ -1366,16 +1366,15 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
         assert resolved["timeout"] == 42
         assert resolved["http_client"] is sentinel_http_client
 
-    def test_bedrock_mantle_config_rejects_base_url_in_client_args(self, openai_client, mock_provide_token):
+    def test_bedrock_mantle_config_rejects_base_url_in_client_args(self, openai_client):
         """client_args must not contain base_url or api_key when bedrock_mantle_config is set."""
         _ = openai_client
-        model = OpenAIResponsesModel(
-            model_id="openai.gpt-oss-120b",
-            client_args={"api_key": "should-not-be-here"},
-            bedrock_mantle_config={"region": "us-east-1"},
-        )
         with pytest.raises(ValueError, match="client_args must not contain"):
-            model._resolve_client_args()
+            OpenAIResponsesModel(
+                model_id="openai.gpt-oss-120b",
+                client_args={"api_key": "should-not-be-here"},
+                bedrock_mantle_config={"region": "us-east-1"},
+            )
 
     def test_bedrock_mantle_config_requires_region(self, openai_client):
         """bedrock_mantle_config raises when no region can be resolved from config, session, or env."""
