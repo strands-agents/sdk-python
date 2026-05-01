@@ -14,6 +14,7 @@ from strands.interrupt import _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.executors import SequentialToolExecutor
 from strands.tools.registry import ToolRegistry
+from tests.strands.event_loop.helpers import apply_execution_limit_defaults
 
 
 @pytest.fixture
@@ -57,6 +58,7 @@ def agent(model, messages, tool_registry, hook_registry):
     mock._cancel_signal = threading.Event()
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
+    apply_execution_limit_defaults(mock)
     return mock
 
 
