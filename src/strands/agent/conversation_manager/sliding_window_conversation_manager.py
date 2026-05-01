@@ -37,6 +37,7 @@ class SlidingWindowConversationManager(ConversationManager):
         should_truncate_results: bool = True,
         *,
         per_turn: bool | int = False,
+        compression_threshold: float | None = None,
     ):
         """Initialize the sliding window conversation manager.
 
@@ -54,6 +55,8 @@ class SlidingWindowConversationManager(ConversationManager):
                 manage message history and prevent the agent loop from slowing down. Start with
                 per_turn=True and adjust to a specific frequency (e.g., per_turn=5) if needed
                 for performance tuning.
+            compression_threshold: Ratio of context window usage that triggers proactive compression.
+                See :class:`ConversationManager` for details.
 
         Raises:
             ValueError: If window_size is negative, or if per_turn is 0 or a negative integer.
@@ -63,7 +66,7 @@ class SlidingWindowConversationManager(ConversationManager):
         if isinstance(per_turn, int) and not isinstance(per_turn, bool) and per_turn <= 0:
             raise ValueError(f"per_turn must be a positive integer, True, or False, got {per_turn}")
 
-        super().__init__()
+        super().__init__(compression_threshold=compression_threshold)
 
         self.window_size = window_size
         self.should_truncate_results = should_truncate_results
@@ -154,6 +157,20 @@ class SlidingWindowConversationManager(ConversationManager):
             )
             return
         self.reduce_context(agent)
+
+    def reduce_on_threshold(self, agent: "Agent", **kwargs: Any) -> bool:
+        """Proactively reduce context by trimming oldest messages.
+
+        Args:
+            agent: The agent whose conversation history will be reduced.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            True if the history was reduced, False otherwise.
+        """
+        initial_count = len(agent.messages)
+        self.reduce_context(agent)
+        return len(agent.messages) < initial_count
 
     def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Trim the oldest messages to reduce the conversation context size.

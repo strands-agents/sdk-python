@@ -1,5 +1,5 @@
 from typing import cast
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -8,6 +8,8 @@ from strands.agent.conversation_manager.summarizing_conversation_manager import 
     DEFAULT_SUMMARIZATION_PROMPT,
     SummarizingConversationManager,
 )
+from strands.hooks.events import BeforeModelCallEvent
+from strands.hooks.registry import HookRegistry
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -802,3 +804,86 @@ def test_generate_summary_disables_structured_output_on_summarization_agent():
 
     assert observed_values == [None], "structured output should be disabled during summarization"
     assert summary_agent._default_structured_output_model is structured_output_model, "should be restored after"
+
+
+# ==============================================================================
+# Compression Threshold Tests
+# ==============================================================================
+
+
+def _make_summarizing_threshold_agent(messages, summary_response="Summary of conversation", context_window_limit=1000):
+    agent = MagicMock()
+    agent.messages = messages
+    agent.model = MagicMock()
+    agent.model.context_window_limit = context_window_limit
+    agent.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream(summary_response))
+    return agent
+
+
+def test_reduce_on_threshold_summarizes_when_exceeded():
+    manager = SummarizingConversationManager(
+        summary_ratio=0.5,
+        preserve_recent_messages=2,
+        compression_threshold=0.7,
+    )
+    messages = [
+        {"role": "user", "content": [{"text": f"Message {i}"}]}
+        if i % 2 == 0
+        else {"role": "assistant", "content": [{"text": f"Response {i}"}]}
+        for i in range(20)
+    ]
+    agent = _make_summarizing_threshold_agent(messages, context_window_limit=1000)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    event = BeforeModelCallEvent(agent=agent, invocation_state={}, projected_input_tokens=800)
+    registry.invoke_callbacks(event)
+
+    # 20 * 0.5 = 10 summarized → 1 summary + 10 remaining = 11
+    assert len(agent.messages) == 11
+    assert agent.messages[0]["role"] == "user"
+
+
+def test_reduce_on_threshold_no_summarize_when_below():
+    manager = SummarizingConversationManager(compression_threshold=0.7)
+    messages = [
+        {"role": "user", "content": [{"text": f"Message {i}"}]}
+        if i % 2 == 0
+        else {"role": "assistant", "content": [{"text": f"Response {i}"}]}
+        for i in range(20)
+    ]
+    agent = _make_summarizing_threshold_agent(messages, context_window_limit=1000)
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    event = BeforeModelCallEvent(agent=agent, invocation_state={}, projected_input_tokens=500)
+    registry.invoke_callbacks(event)
+
+    assert len(agent.messages) == 20
+
+
+def test_reduce_on_threshold_swallows_errors():
+    manager = SummarizingConversationManager(
+        summary_ratio=0.5,
+        preserve_recent_messages=2,
+        compression_threshold=0.7,
+    )
+    messages = [
+        {"role": "user", "content": [{"text": f"Message {i}"}]}
+        if i % 2 == 0
+        else {"role": "assistant", "content": [{"text": f"Response {i}"}]}
+        for i in range(20)
+    ]
+    agent = MagicMock()
+    agent.messages = messages
+    agent.model = MagicMock()
+    agent.model.context_window_limit = 1000
+    agent.model.stream = Mock(side_effect=lambda *a, **kw: _mock_model_stream_error(RuntimeError("model failed")))
+
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    event = BeforeModelCallEvent(agent=agent, invocation_state={}, projected_input_tokens=800)
+    # Should not throw — reduce_on_threshold is best-effort
+    registry.invoke_callbacks(event)
+    assert len(agent.messages) == 20
