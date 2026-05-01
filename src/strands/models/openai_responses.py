@@ -58,6 +58,7 @@ from ..types.content import ContentBlock, Messages, Role, SystemContentBlock  # 
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
 from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
+from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
 from .model import BaseModelConfig, Model  # noqa: E402
 
@@ -141,20 +142,47 @@ class OpenAIResponsesModel(Model):
         stateful: bool
 
     def __init__(
-        self, client_args: dict[str, Any] | None = None, **model_config: Unpack[OpenAIResponsesConfig]
+        self,
+        client_args: dict[str, Any] | None = None,
+        bedrock_mantle_config: BedrockMantleConfig | None = None,
+        **model_config: Unpack[OpenAIResponsesConfig],
     ) -> None:
         """Initialize provider instance.
 
         Args:
             client_args: Arguments for the OpenAI client.
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
+                May be combined with ``bedrock_mantle_config``; when both are set, the config
+                derives ``base_url`` and ``api_key`` (which must not appear in ``client_args``).
+            bedrock_mantle_config: Route requests through Amazon Bedrock's Mantle
+                (OpenAI-compatible) endpoint. See :class:`BedrockMantleConfig` for accepted
+                keys. When set, a fresh bearer token is minted on every request.
             **model_config: Configuration options for the OpenAI Responses API model.
         """
         validate_config_keys(model_config, self.OpenAIResponsesConfig)
         self.config = dict(model_config)
+
         self.client_args = client_args or {}
+        self._bedrock_mantle_config = bedrock_mantle_config
+
+        if bedrock_mantle_config is not None and client_args:
+            conflicting = [k for k in ("api_key", "base_url") if k in client_args]
+            if conflicting:
+                raise ValueError(
+                    f"client_args must not contain {conflicting} when bedrock_mantle_config is set; "
+                    "these are derived from the Mantle config automatically."
+                )
 
         logger.debug("config=<%s> | initializing", self.config)
+
+    def _resolve_client_args(self) -> dict[str, Any]:
+        """Return the kwargs to pass to ``openai.AsyncOpenAI`` for the current request.
+
+        Delegates to :func:`resolve_bedrock_client_args` when ``bedrock_mantle_config`` is set.
+        """
+        if self._bedrock_mantle_config is not None:
+            return resolve_bedrock_client_args(self._bedrock_mantle_config, self.client_args)
+        return self.client_args
 
     @property
     @override
@@ -215,7 +243,7 @@ class OpenAIResponsesModel(Model):
             count_tokens_fields = {"model", "input", "instructions", "tools"}
             request = {k: request[k] for k in request.keys() & count_tokens_fields}
 
-            async with openai.AsyncOpenAI(**self.client_args) as client:
+            async with openai.AsyncOpenAI(**self._resolve_client_args()) as client:
                 response = await client.responses.input_tokens.count(**request)
                 total_tokens: int = response.input_tokens
 
@@ -267,7 +295,7 @@ class OpenAIResponsesModel(Model):
 
         logger.debug("invoking OpenAI Responses API model")
 
-        async with openai.AsyncOpenAI(**self.client_args) as client:
+        async with openai.AsyncOpenAI(**self._resolve_client_args()) as client:
             try:
                 response = await client.responses.create(**request)
 
@@ -447,7 +475,7 @@ class OpenAIResponsesModel(Model):
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
-        async with openai.AsyncOpenAI(**self.client_args) as client:
+        async with openai.AsyncOpenAI(**self._resolve_client_args()) as client:
             try:
                 response = await client.responses.parse(
                     model=self.get_config()["model_id"],
