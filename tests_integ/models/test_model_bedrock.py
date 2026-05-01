@@ -6,8 +6,17 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.models import BedrockModel
+from strands.models import BedrockModel, CacheConfig
 from strands.types.content import ContentBlock
+
+# Model ID used for prompt-caching TTL integration tests. Per
+# https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
+# the models that officially support 1h TTL on CachePoint are Claude Opus 4.5,
+# Claude Haiku 4.5, and Claude Sonnet 4.5. Haiku 4.5 is the newest Haiku
+# available and is preferred for CI due to lower latency and cost relative to
+# the same-version Sonnet 4.5. Bump this when a newer Haiku is released that
+# supports CachePoint TTL.
+_CACHE_TTL_MODEL_ID = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 
 @pytest.fixture
@@ -576,3 +585,129 @@ def test_strict_tools_with_complex_schema():
     agent('Search for "python" with tags ["programming", "language"] using the search tool.')
 
     assert "search" in tools_called
+
+
+def test_prompt_caching_cache_tools_ttl():
+    """Test that cache_tools_ttl propagates into the auto-injected toolConfig cache point.
+
+    Verifies that BedrockModel(cache_tools="default", cache_tools_ttl="5m") produces a
+    Bedrock request with cachePoint.ttl on the toolConfig checkpoint, and that the call
+    completes without a ValidationException on the TTL field.
+
+    Note: we intentionally do not assert specific cacheWriteInputTokens on the toolConfig
+    prefix because Bedrock's tool-prefix cache threshold varies by model and region.
+    The critical behavior under test here is that the TTL field is accepted end-to-end.
+
+    Uses Claude Haiku 4.5 which supports TTL in CachePointBlock on Bedrock per
+    https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
+    (Claude Opus 4.5, Claude Haiku 4.5, and Claude Sonnet 4.5 all support 1h TTL).
+    """
+    model = BedrockModel(
+        model_id=_CACHE_TTL_MODEL_ID,
+        streaming=False,
+        cache_tools="default",
+        cache_tools_ttl="5m",
+    )
+
+    @strands.tool
+    def lookup_fact(topic: str) -> str:
+        """Look up a fact about the given topic.
+
+        This tool is useful when you need authoritative information.
+        """
+        return f"Fact about {topic}: example"
+
+    agent = Agent(
+        model=model,
+        tools=[lookup_fact],
+        load_tools_from_directory=False,
+    )
+
+    # The call must succeed — Bedrock must accept cachePoint.ttl on the toolConfig checkpoint
+    # without raising a ValidationException.
+    result = agent("Use the lookup_fact tool to look up 'python'.")
+    assert len(str(result)) > 0
+
+
+def test_prompt_caching_cache_config_auto_with_ttl():
+    """Test that CacheConfig(strategy="auto", ttl="5m") propagates TTL to the auto-injected message cache point.
+
+    Verifies that the cache point appended to the last user message by _inject_cache_point
+    carries the configured TTL, and that Bedrock accepts the request.
+
+    Uses Claude Haiku 4.5 which supports TTL in CachePointBlock on Bedrock per
+    https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
+    """
+    model = BedrockModel(
+        model_id=_CACHE_TTL_MODEL_ID,
+        streaming=False,
+        cache_config=CacheConfig(strategy="auto", ttl="5m"),
+    )
+
+    unique_id = str(uuid.uuid4())
+    # Minimum 4096 tokens required for caching with Haiku 4.5
+    large_message = f"Context for test {unique_id}: " + ("This is important context. " * 1000) + " What is 2+2?"
+
+    agent = Agent(
+        model=model,
+        load_tools_from_directory=False,
+    )
+
+    # First call: auto-injected cache point on the last user message must include ttl and be accepted
+    result1 = agent(large_message)
+    assert len(str(result1)) > 0
+
+    # Verify cache write occurred with auto-inject + ttl
+    assert result1.metrics.accumulated_usage.get("cacheWriteInputTokens", 0) > 0, (
+        "Expected cacheWriteInputTokens > 0 with CacheConfig(strategy='auto', ttl='5m')"
+    )
+
+
+def test_prompt_caching_aligned_1h_ttl_across_checkpoints():
+    """Regression test for Bedrock TTL non-increasing ordering rule (Issue #2121).
+
+    Bedrock processes cache checkpoints in order: toolConfig -> system -> messages,
+    and requires TTLs to be non-increasing. Before this change, cache_tools hardcoded
+    an implicit 5m TTL, so any 1h TTL on a later checkpoint would raise a
+    ValidationException.
+
+    This test sets 1h TTL on all three checkpoints simultaneously and verifies the
+    call succeeds.
+
+    Uses Claude Haiku 4.5 which supports 1h TTL per
+    https://docs.aws.amazon.com/bedrock/latest/userguide/prompt-caching.html
+    """
+    model = BedrockModel(
+        model_id=_CACHE_TTL_MODEL_ID,
+        streaming=False,
+        cache_tools="default",
+        cache_tools_ttl="1h",
+        cache_config=CacheConfig(strategy="auto", ttl="1h"),
+    )
+
+    # Timestamp-based uniqueness to avoid cache conflicts across CI runs
+    unique_id = str(int(time.time() * 1000000))
+    large_context = f"Background context for test {unique_id}: " + ("This is important context. " * 1000)
+
+    # User-supplied 1h cache point on system prompt — third checkpoint also at 1h
+    system_prompt_with_cache = [
+        {"text": large_context},
+        {"cachePoint": {"type": "default", "ttl": "1h"}},
+        {"text": "You are a helpful assistant."},
+    ]
+
+    @strands.tool
+    def echo(value: str) -> str:
+        """Echo the given value back."""
+        return value
+
+    agent = Agent(
+        model=model,
+        system_prompt=system_prompt_with_cache,
+        tools=[echo],
+        load_tools_from_directory=False,
+    )
+
+    # Must succeed without ValidationException on the non-increasing TTL rule
+    result = agent("What is 2+2?")
+    assert len(str(result)) > 0
