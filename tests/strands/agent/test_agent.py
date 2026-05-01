@@ -21,7 +21,13 @@ from strands.agent.conversation_manager.null_conversation_manager import NullCon
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
-from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent
+from strands.hooks import (
+    AfterReduceContextEvent,
+    BeforeInvocationEvent,
+    BeforeModelCallEvent,
+    BeforeReduceContextEvent,
+    BeforeToolCallEvent,
+)
 from strands.interrupt import Interrupt
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
@@ -527,6 +533,78 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
 
     conversation_manager_spy.reduce_context.assert_called_once()
     assert conversation_manager_spy.apply_management.call_count == 1
+
+
+def test_agent__call__emits_reduce_context_events(mock_model, agent, agenerator):
+    """Verify Before/AfterReduceContextEvent fire with correct metadata when overflow triggers reduction."""
+    messages: Messages = [
+        {"role": "user", "content": [{"text": "Hello!"}]},
+        {"role": "assistant", "content": [{"text": "Hi!"}]},
+        {"role": "user", "content": [{"text": "Whats your favorite color?"}]},
+        {"role": "assistant", "content": [{"text": "Blue!"}]},
+    ]
+    agent.messages = messages
+
+    before_events: list[BeforeReduceContextEvent] = []
+    after_events: list[AfterReduceContextEvent] = []
+
+    agent.hooks.add_callback(BeforeReduceContextEvent, before_events.append)
+    agent.hooks.add_callback(AfterReduceContextEvent, after_events.append)
+
+    trigger_exception = ContextWindowOverflowException(RuntimeError("Input is too long for requested model"))
+    mock_model.mock_stream.side_effect = [
+        trigger_exception,
+        agenerator(
+            [
+                {"contentBlockStart": {"start": {}}},
+                {"contentBlockDelta": {"delta": {"text": "Green!"}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+            ]
+        ),
+    ]
+
+    agent("And now?")
+
+    assert len(before_events) == 1
+    assert len(after_events) == 1
+
+    before_event = before_events[0]
+    assert before_event.agent is agent
+    assert before_event.exception is trigger_exception
+    # Before reduction runs, the prompt "And now?" has already been appended to messages (5 total).
+    assert before_event.message_count == 5
+
+    after_event = after_events[0]
+    assert after_event.agent is agent
+    assert after_event.exception is trigger_exception
+    assert after_event.message_count_before == 5
+    assert after_event.message_count_after < after_event.message_count_before
+    assert after_event.messages_removed == after_event.message_count_before - after_event.message_count_after
+    assert after_event.messages_removed > 0
+
+
+def test_agent__call__no_reduce_context_events_on_success(mock_model, agent, agenerator):
+    """Verify reduce-context events are NOT fired on a normal successful invocation."""
+    before_events: list[BeforeReduceContextEvent] = []
+    after_events: list[AfterReduceContextEvent] = []
+
+    agent.hooks.add_callback(BeforeReduceContextEvent, before_events.append)
+    agent.hooks.add_callback(AfterReduceContextEvent, after_events.append)
+
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"contentBlockStart": {"start": {}}},
+            {"contentBlockDelta": {"delta": {"text": "ok"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    agent("Hello?")
+
+    assert before_events == []
+    assert after_events == []
 
 
 def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite_loop(mock_model, agent, tool):
