@@ -725,6 +725,7 @@ def tool(
     inputSchema: JSONSchema | None = None,
     name: str | None = None,
     context: bool | str = False,
+    strict: bool | None = None,
 ) -> Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]: ...
 # Suppressing the type error because we want callers to be able to use both `tool` and `tool()` at the
 # call site, but the actual implementation handles that and it's not representable via the type-system
@@ -734,6 +735,7 @@ def tool(  # type: ignore
     inputSchema: JSONSchema | None = None,
     name: str | None = None,
     context: bool | str = False,
+    strict: bool | None = None,
 ) -> DecoratedFunctionTool[P, R] | Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]:
     """Decorator that transforms a Python function into a Strands tool.
 
@@ -762,6 +764,10 @@ def tool(  # type: ignore
         context: When provided, places an object in the designated parameter. If True, the param name
             defaults to 'tool_context', or if an override is needed, set context equal to a string to designate
             the param name.
+        strict: Optional Boolean that ensures the model will only output tool calls containing parameters
+            that perfectly match the defined input schema. Note: When using strict mode, optional parameters
+            must be explicitly typed as nullable (e.g., `Optional[str]`), otherwise the model will be forced
+            to generate a value for them.
 
     Returns:
         An AgentTool that also mimics the original function when invoked
@@ -816,6 +822,8 @@ def tool(  # type: ignore
             tool_spec["description"] = description
         if inputSchema is not None:
             tool_spec["inputSchema"] = inputSchema
+        if strict is not None:
+            tool_spec["strict"] = strict
 
         tool_name = tool_spec.get("name", f.__name__)
 

@@ -438,3 +438,17 @@ class TestOpenAIResponsesCountTokens:
         without = await model.count_tokens(messages=messages)
         with_tools = await model.count_tokens(messages=messages, tool_specs=tool_specs, system_prompt="Be helpful.")
         assert with_tools > without
+
+
+def test_strict_tool_integration(model):
+    """Test that a strict tool invocation is accepted by the OpenAI API without a 400 validation error."""
+
+    @strands.tool(strict=True)
+    def strict_tool(text: str) -> str:
+        """A strict tool for testing."""
+        return f"Echo: {text}"
+
+    agent = Agent(model=model, tools=[strict_tool])
+    # The API should accept the request and respond normally without throwing a 400 validation error
+    result = agent("Call the strict tool with the text 'hello'")
+    assert result.message is not None
