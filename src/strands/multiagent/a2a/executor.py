@@ -102,16 +102,16 @@ class StrandsA2AExecutor(AgentExecutor):
         except ServerError:
             # Re-raise ServerErrors (setup failures like missing input)
             raise
-        except Exception as e:
+        except Exception:
             # Agent execution failures transition to failed state
-            logger.exception("Agent execution failed, transitioning task to failed state")
+            logger.exception("task_id=<%s> | agent execution failed, transitioning to failed state", task.id)
             try:
                 await updater.failed(
-                    message=updater.new_agent_message(parts=[Part(root=TextPart(text=f"Agent execution failed: {e}"))])
+                    message=updater.new_agent_message(parts=[Part(root=TextPart(text="Agent execution failed"))])
                 )
             except RuntimeError:
                 # Task already in terminal state (e.g., completed before error in cleanup)
-                logger.debug("Task already in terminal state, cannot transition to failed")
+                logger.debug("task_id=<%s> | task already in terminal state, cannot transition to failed", task.id)
 
     async def _execute_streaming(self, context: RequestContext, updater: TaskUpdater) -> None:
         """Execute request in streaming mode.
@@ -130,9 +130,9 @@ class StrandsA2AExecutor(AgentExecutor):
         if context.message and hasattr(context.message, "parts"):
             content_blocks = self._convert_a2a_parts_to_content_blocks(context.message.parts)
             if not content_blocks:
-                raise ServerError(error=InternalError())
+                raise ServerError(error=InternalError()) from None
         else:
-            raise ServerError(error=InternalError())
+            raise ServerError(error=InternalError()) from None
 
         if not self.enable_a2a_compliant_streaming:
             warnings.warn(
@@ -270,17 +270,31 @@ class StrandsA2AExecutor(AgentExecutor):
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Cancel an ongoing execution.
 
-        Transitions the task to the canceled state. If the agent supports cancellation
-        (e.g., via a stop mechanism), this will signal the agent to stop processing.
+        Transitions the task to the canceled state and attempts to stop the agent.
+        The agent's cancel() method is called if available to signal cooperative
+        cancellation of in-flight execution.
+
+        Note: This transitions the A2A task state. The underlying agent execution
+        may still complete its current model call before stopping.
 
         Args:
             context: The A2A request context.
             event_queue: The A2A event queue.
+
+        Raises:
+            ServerError: If no current task exists or the task is already in a terminal state.
         """
         task = context.current_task
         if not task:
-            logger.warning("Cancellation requested but no current task found")
+            logger.warning("cancel requested but no current task found")
             raise ServerError(error=UnsupportedOperationError()) from None
+
+        # Attempt to stop the agent if it supports cancellation
+        if hasattr(self.agent, "cancel") and callable(self.agent.cancel):
+            try:
+                self.agent.cancel()
+            except Exception:
+                logger.debug("task_id=<%s> | agent cancel signal failed (non-critical)", task.id)
 
         updater = TaskUpdater(event_queue, task.id, task.context_id)
 
@@ -289,8 +303,8 @@ class StrandsA2AExecutor(AgentExecutor):
                 message=updater.new_agent_message(parts=[Part(root=TextPart(text="Task cancelled by client request"))])
             )
         except RuntimeError:
-            # Task already in terminal state
-            logger.warning("Cannot cancel task %s: already in terminal state", task.id)
+            # TaskUpdater raises RuntimeError when task is already in a terminal state
+            logger.warning("task_id=<%s> | cannot cancel, already in terminal state", task.id)
             raise ServerError(error=UnsupportedOperationError()) from None
 
     def _get_file_type_from_mime_type(self, mime_type: str | None) -> Literal["document", "image", "video", "unknown"]:

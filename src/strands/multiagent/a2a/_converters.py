@@ -11,9 +11,10 @@ from ...telemetry.metrics import EventLoopMetrics
 from ...types.a2a import A2AResponse
 from ...types.agent import AgentInput
 from ...types.content import ContentBlock, Message
+from ...types.event_loop import StopReason
 
 # Mapping from A2A TaskState to Strands stop_reason
-_STATE_TO_STOP_REASON = {
+_STATE_TO_STOP_REASON: dict[TaskState, StopReason] = {
     TaskState.completed: "end_turn",
     TaskState.failed: "end_turn",
     TaskState.canceled: "end_turn",
@@ -125,20 +126,25 @@ def convert_response_to_agent_result(response: A2AResponse) -> AgentResult:
     """
     content: list[ContentBlock] = []
     task_state = _extract_task_state(response)
-    stop_reason = _STATE_TO_STOP_REASON.get(task_state, "end_turn") if task_state else "end_turn"
+    stop_reason: StopReason = _STATE_TO_STOP_REASON.get(task_state, "end_turn") if task_state else "end_turn"
 
     if isinstance(response, tuple) and len(response) == 2:
         task, update_event = response
 
         # Handle artifact updates
         if isinstance(update_event, TaskArtifactUpdateEvent):
-            if update_event.artifact and hasattr(update_event.artifact, "parts"):
+            if update_event.artifact and hasattr(update_event.artifact, "parts") and update_event.artifact.parts:
                 for part in update_event.artifact.parts:
                     if hasattr(part, "root") and hasattr(part.root, "text"):
                         content.append({"text": part.root.text})
         # Handle status updates with messages
         elif isinstance(update_event, TaskStatusUpdateEvent):
-            if update_event.status and hasattr(update_event.status, "message") and update_event.status.message:
+            if (
+                update_event.status
+                and hasattr(update_event.status, "message")
+                and update_event.status.message
+                and update_event.status.message.parts
+            ):
                 for part in update_event.status.message.parts:
                     if hasattr(part, "root") and hasattr(part.root, "text"):
                         content.append({"text": part.root.text})
@@ -146,7 +152,7 @@ def convert_response_to_agent_result(response: A2AResponse) -> AgentResult:
         # Use task.artifacts when no content was extracted from the event
         if not content and task and hasattr(task, "artifacts") and task.artifacts is not None:
             for artifact in task.artifacts:
-                if hasattr(artifact, "parts"):
+                if hasattr(artifact, "parts") and artifact.parts:
                     for part in artifact.parts:
                         if hasattr(part, "root") and hasattr(part.root, "text"):
                             content.append({"text": part.root.text})
@@ -161,7 +167,7 @@ def convert_response_to_agent_result(response: A2AResponse) -> AgentResult:
     }
 
     # Build state dict with A2A metadata
-    state: dict = {}
+    state: dict[str, str] = {}
     if task_state is not None:
         state["a2a_task_state"] = task_state.value
 

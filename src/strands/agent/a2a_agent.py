@@ -29,7 +29,9 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 300
 
-# A2A task states that indicate the task is complete (no more events expected)
+# A2A task states that indicate the response stream is complete.
+# Terminal states mean no more events; input states mean execution is paused.
+# Derived from _STATE_TO_STOP_REASON in _converters to maintain single source of truth.
 _TERMINAL_STATES = {
     TaskState.completed,
     TaskState.failed,
@@ -37,11 +39,12 @@ _TERMINAL_STATES = {
     TaskState.rejected,
 }
 
-# A2A task states that pause execution awaiting external input
 _INPUT_STATES = {
     TaskState.input_required,
     TaskState.auth_required,
 }
+
+_COMPLETE_STATES = _TERMINAL_STATES | _INPUT_STATES
 
 
 class A2AAgent(AgentBase):
@@ -310,11 +313,6 @@ class A2AAgent(AgentBase):
             if isinstance(update_event, TaskStatusUpdateEvent):
                 if update_event.status and hasattr(update_event.status, "state"):
                     state = update_event.status.state
-                    # Terminal states: task is done
-                    if state in _TERMINAL_STATES:
-                        return True
-                    # Input-required states: task is paused, waiting for user
-                    if state in _INPUT_STATES:
-                        return True
+                    return state in _COMPLETE_STATES
 
         return False

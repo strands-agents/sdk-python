@@ -1383,7 +1383,7 @@ async def test_execute_transitions_to_failed_on_streaming_error(
         e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
     ]
     assert len(failed_events) == 1
-    assert "Connection lost" in failed_events[0].status.message.parts[0].root.text
+    assert "Agent execution failed" in failed_events[0].status.message.parts[0].root.text
 
 
 @pytest.mark.asyncio
@@ -1588,3 +1588,99 @@ async def test_execute_setup_failure_raises_server_error(mock_strands_agent, moc
         await executor.execute(mock_request_context, mock_event_queue)
 
     assert isinstance(excinfo.value.error, InternalError)
+
+
+@pytest.mark.asyncio
+async def test_execute_error_when_task_already_terminal(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that error during execution is handled gracefully when task is already in terminal state."""
+    from a2a.types import TextPart
+
+    # Make stream_async raise but also make the event queue raise RuntimeError
+    # (simulating task already in terminal state when we try to mark as failed)
+    mock_strands_agent.stream_async = MagicMock(side_effect=Exception("Agent error"))
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-already-done"
+    mock_task.context_id = "ctx-already-done"
+    mock_request_context.current_task = mock_task
+
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "test"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    # Simulate task already in terminal state by making enqueue raise RuntimeError
+    # after the first call (task creation)
+    call_count = [0]
+    original_enqueue = mock_event_queue.enqueue_event
+
+    async def enqueue_with_terminal_error(event):
+        call_count[0] += 1
+        if call_count[0] > 1:
+            # Simulate RuntimeError from TaskUpdater terminal state check
+            raise RuntimeError("Task test-task-id is already in a terminal state.")
+        return await original_enqueue(event)
+
+    mock_event_queue.enqueue_event = enqueue_with_terminal_error
+
+    # Should NOT raise - handles RuntimeError gracefully
+    await executor.execute(mock_request_context, mock_event_queue)
+
+
+@pytest.mark.asyncio
+async def test_cancel_calls_agent_cancel_method(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that cancel() attempts to call agent.cancel() if available."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent
+
+    # Give the agent a cancel method
+    mock_strands_agent.cancel = MagicMock()
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-cancel-agent"
+    mock_task.context_id = "ctx-cancel-agent"
+    mock_request_context.current_task = mock_task
+
+    await executor.cancel(mock_request_context, mock_event_queue)
+
+    # Verify agent.cancel() was called
+    mock_strands_agent.cancel.assert_called_once()
+
+    # Verify task state is canceled
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    canceled_events = [
+        e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.canceled
+    ]
+    assert len(canceled_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_handles_agent_cancel_exception(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that cancel() gracefully handles agent.cancel() raising an exception."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent
+
+    # Give the agent a cancel method that raises
+    mock_strands_agent.cancel = MagicMock(side_effect=RuntimeError("Cannot cancel"))
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-cancel-err"
+    mock_task.context_id = "ctx-cancel-err"
+    mock_request_context.current_task = mock_task
+
+    # Should still succeed (agent cancel is best-effort)
+    await executor.cancel(mock_request_context, mock_event_queue)
+
+    # Task should still be transitioned to canceled
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    canceled_events = [
+        e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.canceled
+    ]
+    assert len(canceled_events) == 1
