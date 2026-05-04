@@ -1703,3 +1703,241 @@ async def test_cancel_raises_when_task_already_terminal(mock_strands_agent, mock
 
         assert isinstance(excinfo.value.error, UnsupportedOperationError)
         mock_updater.cancel.assert_called_once()
+
+
+# =========================================================================
+# DEVIL'S ADVOCATE FINDINGS — Tests addressing review gaps
+# =========================================================================
+
+
+@pytest.mark.asyncio
+async def test_execute_handles_asyncio_cancelled_error(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Critical Finding 1: asyncio.CancelledError transitions task to canceled state.
+
+    asyncio.CancelledError is a BaseException (not Exception). It's raised when an asyncio
+    task is cancelled — e.g., HTTP client disconnect, server shutdown, task group cancellation.
+    Without explicit handling, the task would remain stuck in 'working' state forever (zombie).
+
+    This test verifies the task transitions to 'canceled' before re-raising CancelledError.
+    """
+    import asyncio
+
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TextPart
+
+    async def mock_stream(content_blocks, **kwargs):
+        """Mock streaming that gets cancelled mid-stream."""
+        yield {"data": "partial output"}
+        raise asyncio.CancelledError()
+
+    mock_strands_agent.stream_async = MagicMock(side_effect=mock_stream)
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-cancelled"
+    mock_task.context_id = "ctx-cancelled"
+    mock_request_context.current_task = mock_task
+
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "test"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    # CancelledError should be re-raised (framework needs to know task was cancelled)
+    with pytest.raises(asyncio.CancelledError):
+        await executor.execute(mock_request_context, mock_event_queue)
+
+    # But BEFORE re-raising, the task should have been transitioned to canceled
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    canceled_events = [
+        e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.canceled
+    ]
+    assert len(canceled_events) == 1
+    assert (
+        "cancelled" in canceled_events[0].status.message.parts[0].root.text.lower()
+        or "connection termination" in canceled_events[0].status.message.parts[0].root.text.lower()
+    )
+
+
+@pytest.mark.asyncio
+async def test_execute_asyncio_cancelled_when_task_already_terminal(
+    mock_strands_agent, mock_request_context, mock_event_queue
+):
+    """Test CancelledError handling when task is already in a terminal state.
+
+    If the task completed right before the cancellation arrives, the updater.cancel()
+    will raise RuntimeError. We should handle this gracefully and still re-raise CancelledError.
+    """
+    import asyncio
+
+    from a2a.types import TextPart
+
+    async def mock_stream(content_blocks, **kwargs):
+        """Async generator that immediately raises CancelledError."""
+        yield {"data": "partial"}  # Must yield to be async generator
+        raise asyncio.CancelledError()
+
+    mock_strands_agent.stream_async = MagicMock(side_effect=mock_stream)
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-cancelled-terminal"
+    mock_task.context_id = "ctx-cancelled-terminal"
+    mock_request_context.current_task = mock_task
+
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "test"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    # Patch TaskUpdater to simulate task already in terminal state
+    with patch("strands.multiagent.a2a.executor.TaskUpdater") as MockTaskUpdater:
+        mock_updater = MagicMock()
+        mock_updater.cancel = AsyncMock(side_effect=RuntimeError("Task is already in a terminal state"))
+        mock_updater.update_status = AsyncMock()
+        mock_updater.add_artifact = AsyncMock()
+        mock_updater.new_agent_message = MagicMock(return_value=MagicMock())
+        mock_updater.context_id = "ctx-cancelled-terminal"
+        mock_updater.task_id = "task-cancelled-terminal"
+        MockTaskUpdater.return_value = mock_updater
+
+        # Should still re-raise CancelledError
+        with pytest.raises(asyncio.CancelledError):
+            await executor.execute(mock_request_context, mock_event_queue)
+
+        # cancel() was attempted
+        mock_updater.cancel.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_execute_with_interrupt_empty_list_transitions_to_input_required(
+    mock_strands_agent, mock_request_context, mock_event_queue
+):
+    """Critical Finding 2: stop_reason='interrupt' with empty interrupts list.
+
+    The agent explicitly signaled it needs input (stop_reason="interrupt") but provided
+    no interrupt details. This should STILL transition to input_required — the stop_reason
+    is the authoritative signal. Previously this would silently complete the task.
+    """
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TextPart
+
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.stop_reason = "interrupt"
+    mock_result.interrupts = []  # Empty list — previously this was falsy and caused completion!
+
+    async def mock_stream(content_blocks, **kwargs):
+        yield {"result": mock_result}
+
+    mock_strands_agent.stream_async = MagicMock(side_effect=mock_stream)
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-empty-interrupts"
+    mock_task.context_id = "ctx-empty-interrupts"
+    mock_request_context.current_task = mock_task
+
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "do something"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    await executor.execute(mock_request_context, mock_event_queue)
+
+    # Should transition to input_required, NOT completed
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    input_required_events = [
+        e
+        for e in enqueued_events
+        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.input_required
+    ]
+    completed_events = [
+        e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.completed
+    ]
+
+    assert len(input_required_events) == 1, "Empty interrupts list should still trigger input_required"
+    assert len(completed_events) == 0, "Should NOT complete when stop_reason='interrupt'"
+    # Verify the fallback message is used
+    assert "additional input" in input_required_events[0].status.message.parts[0].root.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_execute_with_interrupt_none_list_transitions_to_input_required(
+    mock_strands_agent, mock_request_context, mock_event_queue
+):
+    """Edge case: stop_reason='interrupt' with interrupts=None.
+
+    Same logic — the stop_reason is authoritative. None interrupts should
+    still result in input_required transition.
+    """
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TextPart
+
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.stop_reason = "interrupt"
+    mock_result.interrupts = None  # None, not empty list
+
+    async def mock_stream(content_blocks, **kwargs):
+        yield {"result": mock_result}
+
+    mock_strands_agent.stream_async = MagicMock(side_effect=mock_stream)
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-none-interrupts"
+    mock_task.context_id = "ctx-none-interrupts"
+    mock_request_context.current_task = mock_task
+
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "do something"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    await executor.execute(mock_request_context, mock_event_queue)
+
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    input_required_events = [
+        e
+        for e in enqueued_events
+        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.input_required
+    ]
+    assert len(input_required_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_without_hasattr_cancel(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test cancel works when agent doesn't have cancel() method (AttributeError)."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent
+
+    # Remove cancel method entirely
+    del mock_strands_agent.cancel
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-no-cancel-method"
+    mock_task.context_id = "ctx-no-cancel-method"
+    mock_request_context.current_task = mock_task
+
+    # Should succeed — AttributeError from agent.cancel() is caught
+    await executor.cancel(mock_request_context, mock_event_queue)
+
+    # Task should still be transitioned to canceled
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    canceled_events = [
+        e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.canceled
+    ]
+    assert len(canceled_events) == 1

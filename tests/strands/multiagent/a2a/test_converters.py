@@ -402,3 +402,127 @@ def test_extract_task_state_from_message_returns_none():
     message = MagicMock(spec=Message)
     state = _extract_task_state(message)
     assert state is None
+
+
+# =========================================================================
+# DEVIL'S ADVOCATE FINDINGS — Tests addressing review gaps
+# =========================================================================
+
+
+def test_convert_response_completed_state_includes_state_metadata():
+    """Major Finding 3: The completed state test was missing state assertion.
+
+    Every other state test asserts both stop_reason AND result.state, but the most
+    important one (completed — the happy path) was missing the state check. This ensures
+    downstream consumers relying on result.state["a2a_task_state"] won't break silently.
+    """
+    from unittest.mock import MagicMock
+
+    from a2a.types import TaskState, TaskStatus, TaskStatusUpdateEvent
+
+    task = MagicMock()
+    task.artifacts = None
+
+    status = TaskStatus(state=TaskState.completed, message=None)
+    update_event = MagicMock(spec=TaskStatusUpdateEvent)
+    update_event.status = status
+
+    result = convert_response_to_agent_result((task, update_event))
+    assert result.stop_reason == "end_turn"
+    assert result.state.get("a2a_task_state") == "completed"  # THIS WAS MISSING
+
+
+def test_convert_response_unknown_state_defaults_to_end_turn():
+    """Major Finding 4: TaskState.unknown should default to end_turn.
+
+    The a2a-sdk has a TaskState.unknown value. Our code handles it via the .get()
+    default ("end_turn"). This test documents that this is an intentional design
+    decision: unknown states are treated as terminal completions rather than errors.
+
+    Rationale: An unknown state from a remote server is ambiguous. Treating it as
+    end_turn (completed) is the safest default — the client won't hang waiting for
+    more events, and the result content (if any) is still accessible.
+    """
+    from unittest.mock import MagicMock
+
+    from a2a.types import TaskState, TaskStatus, TaskStatusUpdateEvent
+
+    task = MagicMock()
+    task.artifacts = None
+
+    status = TaskStatus(state=TaskState.unknown, message=None)
+    update_event = MagicMock(spec=TaskStatusUpdateEvent)
+    update_event.status = status
+
+    result = convert_response_to_agent_result((task, update_event))
+    # unknown is NOT in _STATE_TO_STOP_REASON, so defaults to "end_turn"
+    assert result.stop_reason == "end_turn"
+    # state metadata should reflect the actual state value
+    assert result.state.get("a2a_task_state") == "unknown"
+
+
+def test_convert_response_working_state_defaults_to_end_turn():
+    """Test that working state (not in mapping) defaults to end_turn.
+
+    This covers the edge case where a TaskStatusUpdateEvent with state=working
+    somehow reaches the converter (shouldn't normally happen since _is_complete_event
+    filters these out, but defense-in-depth).
+    """
+    from unittest.mock import MagicMock
+
+    from a2a.types import TaskState, TaskStatus, TaskStatusUpdateEvent
+
+    task = MagicMock()
+    task.artifacts = None
+
+    status = TaskStatus(state=TaskState.working, message=None)
+    update_event = MagicMock(spec=TaskStatusUpdateEvent)
+    update_event.status = status
+
+    result = convert_response_to_agent_result((task, update_event))
+    assert result.stop_reason == "end_turn"
+    assert result.state.get("a2a_task_state") == "working"
+
+
+def test_extract_task_state_from_artifact_update_returns_none():
+    """Minor Finding 5: _extract_task_state with TaskArtifactUpdateEvent returns None.
+
+    This is the untested path where the update event is an artifact (not status).
+    """
+    from unittest.mock import MagicMock
+
+    from a2a.types import TaskArtifactUpdateEvent
+
+    from strands.multiagent.a2a._converters import _extract_task_state
+
+    task = MagicMock()
+    mock_event = MagicMock(spec=TaskArtifactUpdateEvent)
+
+    state = _extract_task_state((task, mock_event))
+    assert state is None
+
+
+def test_state_to_stop_reason_covers_all_lifecycle_states():
+    """Verify _STATE_TO_STOP_REASON has mappings for all documented lifecycle states.
+
+    Guards against future additions to the a2a-sdk that we miss.
+    """
+    from a2a.types import TaskState
+
+    from strands.multiagent.a2a._converters import _STATE_TO_STOP_REASON
+
+    # These are the states we explicitly handle
+    expected_mapped = {
+        TaskState.completed,
+        TaskState.failed,
+        TaskState.canceled,
+        TaskState.rejected,
+        TaskState.input_required,
+        TaskState.auth_required,
+    }
+    assert set(_STATE_TO_STOP_REASON.keys()) == expected_mapped
+
+    # These should NOT be in the mapping (they're non-terminal progress states)
+    assert TaskState.working not in _STATE_TO_STOP_REASON
+    assert TaskState.submitted not in _STATE_TO_STOP_REASON
+    assert TaskState.unknown not in _STATE_TO_STOP_REASON

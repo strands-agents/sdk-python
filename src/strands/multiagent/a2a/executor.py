@@ -8,6 +8,7 @@ The A2A AgentExecutor ensures clients receive responses for synchronous and
 streamed requests to the A2AServer.
 """
 
+import asyncio
 import base64
 import json
 import logging
@@ -102,6 +103,21 @@ class StrandsA2AExecutor(AgentExecutor):
         except ServerError:
             # Re-raise ServerErrors (setup failures like missing input)
             raise
+        except asyncio.CancelledError:
+            # asyncio.CancelledError is a BaseException (not Exception) — raised when
+            # the asyncio task is cancelled (e.g., HTTP client disconnect, server shutdown).
+            # We transition to canceled state so the task doesn't remain a zombie in "working".
+            logger.warning("task_id=<%s> | asyncio task cancelled, transitioning to canceled state", task.id)
+            try:
+                await updater.cancel(
+                    message=updater.new_agent_message(
+                        parts=[Part(root=TextPart(text="Task cancelled due to connection termination"))]
+                    )
+                )
+            except RuntimeError:
+                # Task already in terminal state
+                logger.debug("task_id=<%s> | task already in terminal state, cannot transition to canceled", task.id)
+            raise
         except Exception:
             # Agent execution failures transition to failed state
             logger.exception("task_id=<%s> | agent execution failed, transitioning to failed state", task.id)
@@ -163,7 +179,9 @@ class StrandsA2AExecutor(AgentExecutor):
                     await self._handle_streaming_event(event, updater)
 
             # Check if agent returned with interrupts (input_required)
-            if result is not None and result.stop_reason == "interrupt" and result.interrupts:
+            # Note: stop_reason="interrupt" is the authoritative signal. Even if interrupts
+            # list is empty (edge case), the agent still indicated it needs input.
+            if result is not None and result.stop_reason == "interrupt":
                 await self._handle_interrupt_result(result, updater)
             else:
                 await self._handle_agent_result(result, updater)
@@ -194,7 +212,12 @@ class StrandsA2AExecutor(AgentExecutor):
                 desc += f": {interrupt.reason}"
             interrupt_descriptions.append(desc)
 
-        input_message = "Agent requires input:\n" + "\n".join(interrupt_descriptions)
+        if interrupt_descriptions:
+            input_message = "Agent requires input:\n" + "\n".join(interrupt_descriptions)
+        else:
+            # Edge case: stop_reason="interrupt" but no interrupt details provided.
+            # Still transition to input_required — the agent signaled it needs input.
+            input_message = "Agent requires additional input to continue"
 
         await updater.requires_input(message=updater.new_agent_message(parts=[Part(root=TextPart(text=input_message))]))
 
@@ -291,12 +314,15 @@ class StrandsA2AExecutor(AgentExecutor):
             logger.warning("context_id=<%s> | cancel requested but no current task found", context.context_id)
             raise ServerError(error=UnsupportedOperationError()) from None
 
-        # Attempt to stop the agent if it supports cancellation
-        if hasattr(self.agent, "cancel") and callable(self.agent.cancel):
-            try:
-                self.agent.cancel()
-            except Exception:
-                logger.debug("task_id=<%s> | agent cancel signal failed (non-critical)", task.id)
+        # Attempt to cooperatively cancel the agent's execution (best-effort).
+        # Agent.cancel() may not exist on all implementations, so we guard with hasattr.
+        try:
+            self.agent.cancel()
+        except (AttributeError, NotImplementedError):
+            # Agent doesn't support cancel — proceed with state transition only
+            pass
+        except Exception:
+            logger.debug("task_id=<%s> | agent cancel signal failed (non-critical)", task.id)
 
         updater = TaskUpdater(event_queue, task.id, task.context_id)
 

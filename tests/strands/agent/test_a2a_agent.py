@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 from a2a.client import ClientConfig
-from a2a.types import AgentCard, Message, Part, Role, TextPart
+from a2a.types import AgentCard, Message, Part, Role, TaskState, TextPart
 
 from strands.agent.a2a_agent import A2AAgent
 from strands.agent.agent_result import AgentResult
@@ -824,3 +824,53 @@ def test_is_complete_event_submitted_state_not_complete(a2a_agent):
     update_event.status = status
 
     assert a2a_agent._is_complete_event((task, update_event)) is False
+
+
+# =========================================================================
+# DEVIL'S ADVOCATE FINDINGS — Tests addressing review gaps
+# =========================================================================
+
+
+@pytest.mark.parametrize(
+    "state,expected_complete",
+    [
+        (TaskState.completed, True),
+        (TaskState.failed, True),
+        (TaskState.canceled, True),
+        (TaskState.rejected, True),
+        (TaskState.input_required, True),
+        (TaskState.auth_required, True),
+        (TaskState.working, False),
+        (TaskState.submitted, False),
+        (TaskState.unknown, False),
+    ],
+    ids=[
+        "completed-is-complete",
+        "failed-is-complete",
+        "canceled-is-complete",
+        "rejected-is-complete",
+        "input_required-is-complete",
+        "auth_required-is-complete",
+        "working-not-complete",
+        "submitted-not-complete",
+        "unknown-not-complete",
+    ],
+)
+def test_is_complete_event_all_states_parametrized(a2a_agent, state, expected_complete):
+    """Minor Finding 7: Parametrized test covering ALL TaskState values.
+
+    This replaces verbose individual tests with a single parameterized test that
+    covers all 9 TaskState values. When a2a-sdk adds new states, adding a row here
+    is trivial.
+    """
+    from unittest.mock import MagicMock
+
+    from a2a.types import TaskStatusUpdateEvent
+
+    task = MagicMock()
+    status = MagicMock()
+    status.state = state
+    update_event = MagicMock(spec=TaskStatusUpdateEvent)
+    update_event.status = status
+
+    assert a2a_agent._is_complete_event((task, update_event)) is expected_complete
