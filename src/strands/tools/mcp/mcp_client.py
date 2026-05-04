@@ -220,7 +220,7 @@ class MCPClient(ToolProvider):
             logger.exception("client failed to initialize")
             # Pass None for exc_type, exc_val, exc_tb since this isn't a context manager exit
             self.stop(None, None, None)
-            raise MCPClientInitializationError("the client initialization failed") from e
+            raise MCPClientInitializationError(f"the client initialization failed: {e}") from e
         return self
 
     # ToolProvider interface methods
