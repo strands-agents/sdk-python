@@ -130,9 +130,11 @@ class StrandsA2AExecutor(AgentExecutor):
         if context.message and hasattr(context.message, "parts"):
             content_blocks = self._convert_a2a_parts_to_content_blocks(context.message.parts)
             if not content_blocks:
-                raise ServerError(error=InternalError()) from None
+                raise ServerError(
+                    error=InternalError(message="No valid content found in request message parts")
+                ) from None
         else:
-            raise ServerError(error=InternalError()) from None
+            raise ServerError(error=InternalError(message="Request message is missing or has no parts")) from None
 
         if not self.enable_a2a_compliant_streaming:
             warnings.warn(
@@ -286,7 +288,7 @@ class StrandsA2AExecutor(AgentExecutor):
         """
         task = context.current_task
         if not task:
-            logger.warning("cancel requested but no current task found")
+            logger.warning("context_id=<%s> | cancel requested but no current task found", context.context_id)
             raise ServerError(error=UnsupportedOperationError()) from None
 
         # Attempt to stop the agent if it supports cancellation

@@ -1595,8 +1595,7 @@ async def test_execute_error_when_task_already_terminal(mock_strands_agent, mock
     """Test that error during execution is handled gracefully when task is already in terminal state."""
     from a2a.types import TextPart
 
-    # Make stream_async raise but also make the event queue raise RuntimeError
-    # (simulating task already in terminal state when we try to mark as failed)
+    # Make stream_async raise to trigger the error path
     mock_strands_agent.stream_async = MagicMock(side_effect=Exception("Agent error"))
 
     executor = StrandsA2AExecutor(mock_strands_agent)
@@ -1614,22 +1613,18 @@ async def test_execute_error_when_task_already_terminal(mock_strands_agent, mock
     mock_message.parts = [mock_part]
     mock_request_context.message = mock_message
 
-    # Simulate task already in terminal state by making enqueue raise RuntimeError
-    # after the first call (task creation)
-    call_count = [0]
-    original_enqueue = mock_event_queue.enqueue_event
+    # Patch TaskUpdater.failed to raise RuntimeError (simulating task already in terminal state)
+    with patch("strands.multiagent.a2a.executor.TaskUpdater") as MockTaskUpdater:
+        mock_updater = MagicMock()
+        mock_updater.failed = AsyncMock(side_effect=RuntimeError("Task is already in a terminal state"))
+        mock_updater.new_agent_message = MagicMock(return_value=MagicMock())
+        MockTaskUpdater.return_value = mock_updater
 
-    async def enqueue_with_terminal_error(event):
-        call_count[0] += 1
-        if call_count[0] > 1:
-            # Simulate RuntimeError from TaskUpdater terminal state check
-            raise RuntimeError("Task test-task-id is already in a terminal state.")
-        return await original_enqueue(event)
+        # Should NOT raise - handles RuntimeError gracefully
+        await executor.execute(mock_request_context, mock_event_queue)
 
-    mock_event_queue.enqueue_event = enqueue_with_terminal_error
-
-    # Should NOT raise - handles RuntimeError gracefully
-    await executor.execute(mock_request_context, mock_event_queue)
+        # Verify failed() was attempted
+        mock_updater.failed.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -1684,3 +1679,27 @@ async def test_cancel_handles_agent_cancel_exception(mock_strands_agent, mock_re
         e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.canceled
     ]
     assert len(canceled_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_raises_when_task_already_terminal(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that cancel() raises ServerError when task is already in a terminal state."""
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-terminal"
+    mock_task.context_id = "ctx-terminal"
+    mock_request_context.current_task = mock_task
+
+    # Patch TaskUpdater.cancel to raise RuntimeError (task already completed/failed)
+    with patch("strands.multiagent.a2a.executor.TaskUpdater") as MockTaskUpdater:
+        mock_updater = MagicMock()
+        mock_updater.cancel = AsyncMock(side_effect=RuntimeError("Task is already in a terminal state"))
+        mock_updater.new_agent_message = MagicMock(return_value=MagicMock())
+        MockTaskUpdater.return_value = mock_updater
+
+        with pytest.raises(ServerError) as excinfo:
+            await executor.cancel(mock_request_context, mock_event_queue)
+
+        assert isinstance(excinfo.value.error, UnsupportedOperationError)
+        mock_updater.cancel.assert_called_once()

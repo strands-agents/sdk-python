@@ -15,10 +15,14 @@ from typing import Any
 
 import httpx
 from a2a.client import A2ACardResolver, ClientConfig, ClientFactory
-from a2a.types import AgentCard, Message, TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
+from a2a.types import AgentCard, Message, TaskArtifactUpdateEvent, TaskStatusUpdateEvent
 
 from .._async import run_async
-from ..multiagent.a2a._converters import convert_input_to_message, convert_response_to_agent_result
+from ..multiagent.a2a._converters import (
+    _STATE_TO_STOP_REASON,
+    convert_input_to_message,
+    convert_response_to_agent_result,
+)
 from ..types._events import AgentResultEvent
 from ..types.a2a import A2AResponse, A2AStreamEvent
 from ..types.agent import AgentInput
@@ -30,20 +34,10 @@ logger = logging.getLogger(__name__)
 _DEFAULT_TIMEOUT = 300
 
 # A2A task states that indicate the response stream is complete.
-# Terminal states mean no more events; input states mean execution is paused.
-# Derived from _STATE_TO_STOP_REASON in _converters to maintain single source of truth.
-_TERMINAL_STATES = {
-    TaskState.completed,
-    TaskState.failed,
-    TaskState.canceled,
-    TaskState.rejected,
-}
-
-_INPUT_STATES = {
-    TaskState.input_required,
-    TaskState.auth_required,
-}
-
+# Derived from the canonical _STATE_TO_STOP_REASON mapping in _converters.
+# Terminal states (end_turn) mean no more events; input states (interrupt) mean execution is paused.
+_TERMINAL_STATES = {state for state, reason in _STATE_TO_STOP_REASON.items() if reason == "end_turn"}
+_INPUT_STATES = {state for state, reason in _STATE_TO_STOP_REASON.items() if reason == "interrupt"}
 _COMPLETE_STATES = _TERMINAL_STATES | _INPUT_STATES
 
 
