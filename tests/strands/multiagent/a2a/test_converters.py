@@ -243,3 +243,152 @@ def test_convert_response_handles_missing_data():
     mock_task.artifacts = [mock_artifact]
     result = convert_response_to_agent_result((mock_task, None))
     assert len(result.message["content"]) == 0
+
+
+# =========================================================================
+# NEW TESTS: Lifecycle State Mapping
+# =========================================================================
+
+
+def test_convert_response_completed_state_maps_to_end_turn():
+    """Test that completed state maps to end_turn stop_reason."""
+    from unittest.mock import MagicMock
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus, Part, TextPart
+
+    task = MagicMock()
+    task.artifacts = None
+
+    status = TaskStatus(state=TaskState.completed, message=None)
+    update_event = MagicMock(spec=TaskStatusUpdateEvent)
+    update_event.status = status
+
+    result = convert_response_to_agent_result((task, update_event))
+    assert result.stop_reason == "end_turn"
+
+
+def test_convert_response_failed_state_maps_to_end_turn():
+    """Test that failed state maps to end_turn stop_reason with error content."""
+    from unittest.mock import MagicMock
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus, Message, Part, TextPart, Role
+
+    task = MagicMock()
+    task.artifacts = None
+
+    # Create a status message with error info
+    error_part = MagicMock()
+    error_part.root = MagicMock()
+    error_part.root.text = "Agent execution failed: timeout"
+
+    error_message = MagicMock(spec=Message)
+    error_message.parts = [error_part]
+
+    status = TaskStatus(state=TaskState.failed, message=error_message)
+    update_event = MagicMock(spec=TaskStatusUpdateEvent)
+    update_event.status = status
+
+    result = convert_response_to_agent_result((task, update_event))
+    assert result.stop_reason == "end_turn"
+    assert result.state.get("a2a_task_state") == "failed"
+    assert "Agent execution failed" in result.message["content"][0]["text"]
+
+
+def test_convert_response_input_required_maps_to_interrupt():
+    """Test that input_required state maps to interrupt stop_reason."""
+    from unittest.mock import MagicMock
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus, Message, Part, TextPart, Role
+
+    task = MagicMock()
+    task.artifacts = None
+
+    input_part = MagicMock()
+    input_part.root = MagicMock()
+    input_part.root.text = "Agent requires input:\n- approval: Need confirmation"
+
+    input_message = MagicMock(spec=Message)
+    input_message.parts = [input_part]
+
+    status = TaskStatus(state=TaskState.input_required, message=input_message)
+    update_event = MagicMock(spec=TaskStatusUpdateEvent)
+    update_event.status = status
+
+    result = convert_response_to_agent_result((task, update_event))
+    assert result.stop_reason == "interrupt"
+    assert result.state.get("a2a_task_state") == "input-required"
+    assert "approval" in result.message["content"][0]["text"]
+
+
+def test_convert_response_canceled_state_maps_to_end_turn():
+    """Test that canceled state maps to end_turn stop_reason."""
+    from unittest.mock import MagicMock
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    task = MagicMock()
+    task.artifacts = None
+
+    status = TaskStatus(state=TaskState.canceled, message=None)
+    update_event = MagicMock(spec=TaskStatusUpdateEvent)
+    update_event.status = status
+
+    result = convert_response_to_agent_result((task, update_event))
+    assert result.stop_reason == "end_turn"
+    assert result.state.get("a2a_task_state") == "canceled"
+
+
+def test_convert_response_rejected_state_maps_to_end_turn():
+    """Test that rejected state maps to end_turn stop_reason."""
+    from unittest.mock import MagicMock
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    task = MagicMock()
+    task.artifacts = None
+
+    status = TaskStatus(state=TaskState.rejected, message=None)
+    update_event = MagicMock(spec=TaskStatusUpdateEvent)
+    update_event.status = status
+
+    result = convert_response_to_agent_result((task, update_event))
+    assert result.stop_reason == "end_turn"
+    assert result.state.get("a2a_task_state") == "rejected"
+
+
+def test_convert_response_auth_required_maps_to_interrupt():
+    """Test that auth_required state maps to interrupt stop_reason."""
+    from unittest.mock import MagicMock
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    task = MagicMock()
+    task.artifacts = None
+
+    status = TaskStatus(state=TaskState.auth_required, message=None)
+    update_event = MagicMock(spec=TaskStatusUpdateEvent)
+    update_event.status = status
+
+    result = convert_response_to_agent_result((task, update_event))
+    assert result.stop_reason == "interrupt"
+    assert result.state.get("a2a_task_state") == "auth-required"
+
+
+def test_extract_task_state_from_status_update():
+    """Test _extract_task_state helper."""
+    from unittest.mock import MagicMock
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+    from strands.multiagent.a2a._converters import _extract_task_state
+
+    task = MagicMock()
+    status = TaskStatus(state=TaskState.failed, message=None)
+    update_event = MagicMock(spec=TaskStatusUpdateEvent)
+    update_event.status = status
+
+    state = _extract_task_state((task, update_event))
+    assert state == TaskState.failed
+
+
+def test_extract_task_state_from_message_returns_none():
+    """Test _extract_task_state returns None for Message responses."""
+    from unittest.mock import MagicMock
+    from a2a.types import Message
+    from strands.multiagent.a2a._converters import _extract_task_state
+
+    message = MagicMock(spec=Message)
+    state = _extract_task_state(message)
+    assert state is None

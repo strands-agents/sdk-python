@@ -583,7 +583,7 @@ async def test_execute_creates_task_when_none_exists(mock_strands_agent, mock_re
 async def test_execute_streaming_mode_handles_agent_exception(
     mock_strands_agent, mock_request_context, mock_event_queue
 ):
-    """Test that execute handles agent exceptions correctly in streaming mode."""
+    """Test that execute transitions to failed state when agent raises exception."""
 
     # Setup mock agent to raise exception when stream_async is called
     mock_strands_agent.stream_async = MagicMock(side_effect=Exception("Agent error"))
@@ -608,24 +608,30 @@ async def test_execute_streaming_mode_handles_agent_exception(
     mock_message.parts = [part]
     mock_request_context.message = mock_message
 
-    with pytest.raises(ServerError):
-        await executor.execute(mock_request_context, mock_event_queue)
+    # Should NOT raise - instead transitions to failed state
+    await executor.execute(mock_request_context, mock_event_queue)
 
     # Verify agent was called
     mock_strands_agent.stream_async.assert_called_once()
 
-
-@pytest.mark.asyncio
-async def test_cancel_raises_unsupported_operation_error(mock_strands_agent, mock_request_context, mock_event_queue):
-    """Test that cancel raises UnsupportedOperationError."""
+    # Verify a failed status event was enqueued
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    from a2a.types import TaskStatusUpdateEvent, TaskState
+    failed_events = [
+        e for e in enqueued_events
+        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+    ]
+    assert len(failed_events) == 1
+    assert "Agent execution failed" in failed_events[0].status.message.parts[0].root.text
     executor = StrandsA2AExecutor(mock_strands_agent)
 
+    # Cancel with no current_task raises UnsupportedOperationError
+    mock_request_context.current_task = None
     with pytest.raises(ServerError) as excinfo:
         await executor.cancel(mock_request_context, mock_event_queue)
 
     # Verify the error is a ServerError containing an UnsupportedOperationError
     assert isinstance(excinfo.value.error, UnsupportedOperationError)
-
 
 @pytest.mark.asyncio
 async def test_handle_agent_result_with_none_result(mock_strands_agent, mock_request_context, mock_event_queue):
@@ -1331,3 +1337,251 @@ async def test_invocation_state_with_a2a_compliant_streaming(
 
     assert invocation_state is not None
     assert invocation_state["a2a_request_context"] is mock_request_context
+
+
+# =========================================================================
+# NEW TESTS: A2A Lifecycle State Support
+# =========================================================================
+
+
+@pytest.mark.asyncio
+async def test_execute_transitions_to_failed_on_streaming_error(
+    mock_strands_agent, mock_request_context, mock_event_queue
+):
+    """Test that errors during streaming transition task to failed state."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TextPart
+
+    async def mock_stream(content_blocks, **kwargs):
+        """Mock streaming that raises mid-stream."""
+        yield {"data": "partial output"}
+        raise RuntimeError("Connection lost")
+
+    mock_strands_agent.stream_async = MagicMock(side_effect=mock_stream)
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-fail"
+    mock_task.context_id = "ctx-fail"
+    mock_request_context.current_task = mock_task
+
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "test"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    # Should not raise
+    await executor.execute(mock_request_context, mock_event_queue)
+
+    # Verify failed state was enqueued
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    failed_events = [
+        e for e in enqueued_events
+        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+    ]
+    assert len(failed_events) == 1
+    assert "Connection lost" in failed_events[0].status.message.parts[0].root.text
+
+
+@pytest.mark.asyncio
+async def test_cancel_with_valid_task(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that cancel transitions task to canceled state when task exists."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-cancel"
+    mock_task.context_id = "ctx-cancel"
+    mock_request_context.current_task = mock_task
+
+    await executor.cancel(mock_request_context, mock_event_queue)
+
+    # Verify canceled state was enqueued
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    canceled_events = [
+        e for e in enqueued_events
+        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.canceled
+    ]
+    assert len(canceled_events) == 1
+    assert "cancelled" in canceled_events[0].status.message.parts[0].root.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_cancel_without_task_raises_unsupported(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that cancel raises UnsupportedOperationError when no task exists."""
+    executor = StrandsA2AExecutor(mock_strands_agent)
+    mock_request_context.current_task = None
+
+    with pytest.raises(ServerError) as excinfo:
+        await executor.cancel(mock_request_context, mock_event_queue)
+
+    assert isinstance(excinfo.value.error, UnsupportedOperationError)
+
+
+@pytest.mark.asyncio
+async def test_execute_with_interrupt_transitions_to_input_required(
+    mock_strands_agent, mock_request_context, mock_event_queue
+):
+    """Test that agent interrupts map to input_required state."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TextPart
+    from strands.interrupt import Interrupt
+
+    # Create a mock result with interrupts
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.stop_reason = "interrupt"
+    mock_interrupt = Interrupt(id="int-1", name="approval", reason="Need user approval")
+    mock_result.interrupts = [mock_interrupt]
+
+    async def mock_stream(content_blocks, **kwargs):
+        yield {"data": "Processing..."}
+        yield {"result": mock_result}
+
+    mock_strands_agent.stream_async = MagicMock(side_effect=mock_stream)
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-interrupt"
+    mock_task.context_id = "ctx-interrupt"
+    mock_request_context.current_task = mock_task
+
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "delete file X"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    await executor.execute(mock_request_context, mock_event_queue)
+
+    # Verify input_required state was enqueued
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    input_required_events = [
+        e for e in enqueued_events
+        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.input_required
+    ]
+    assert len(input_required_events) == 1
+    msg_text = input_required_events[0].status.message.parts[0].root.text
+    assert "approval" in msg_text
+    assert "Need user approval" in msg_text
+
+
+@pytest.mark.asyncio
+async def test_execute_with_multiple_interrupts(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test handling of multiple interrupts in a single result."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TextPart
+    from strands.interrupt import Interrupt
+
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.stop_reason = "interrupt"
+    mock_result.interrupts = [
+        Interrupt(id="int-1", name="confirm_delete", reason="Confirm deletion of file X"),
+        Interrupt(id="int-2", name="select_backup", reason="Choose backup location"),
+    ]
+
+    async def mock_stream(content_blocks, **kwargs):
+        yield {"result": mock_result}
+
+    mock_strands_agent.stream_async = MagicMock(side_effect=mock_stream)
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-multi-int"
+    mock_task.context_id = "ctx-multi-int"
+    mock_request_context.current_task = mock_task
+
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "delete with backup"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    await executor.execute(mock_request_context, mock_event_queue)
+
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    input_required_events = [
+        e for e in enqueued_events
+        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.input_required
+    ]
+    assert len(input_required_events) == 1
+    msg_text = input_required_events[0].status.message.parts[0].root.text
+    assert "confirm_delete" in msg_text
+    assert "select_backup" in msg_text
+    assert "Confirm deletion of file X" in msg_text
+    assert "Choose backup location" in msg_text
+
+
+@pytest.mark.asyncio
+async def test_execute_normal_completion_no_interrupts(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that normal completion (no interrupts) still works as before."""
+    from a2a.types import TaskState, TaskStatusUpdateEvent, TextPart
+
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.stop_reason = "end_turn"
+    mock_result.interrupts = None
+    mock_result.__str__ = MagicMock(return_value="Task completed successfully")
+
+    async def mock_stream(content_blocks, **kwargs):
+        yield {"data": "Working..."}
+        yield {"result": mock_result}
+
+    mock_strands_agent.stream_async = MagicMock(side_effect=mock_stream)
+
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-normal"
+    mock_task.context_id = "ctx-normal"
+    mock_request_context.current_task = mock_task
+
+    mock_text_part = MagicMock(spec=TextPart)
+    mock_text_part.text = "do something"
+    mock_part = MagicMock()
+    mock_part.root = mock_text_part
+    mock_message = MagicMock()
+    mock_message.parts = [mock_part]
+    mock_request_context.message = mock_message
+
+    await executor.execute(mock_request_context, mock_event_queue)
+
+    # Verify completed state was enqueued (not input_required)
+    enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
+    completed_events = [
+        e for e in enqueued_events
+        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.completed
+    ]
+    assert len(completed_events) == 1
+
+    # Verify no input_required events
+    input_required_events = [
+        e for e in enqueued_events
+        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.input_required
+    ]
+    assert len(input_required_events) == 0
+
+
+@pytest.mark.asyncio
+async def test_execute_setup_failure_raises_server_error(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that setup failures (missing message) still raise ServerError."""
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    mock_task = MagicMock()
+    mock_task.id = "task-setup-fail"
+    mock_task.context_id = "ctx-setup-fail"
+    mock_request_context.current_task = mock_task
+
+    # No message at all
+    mock_request_context.message = None
+
+    with pytest.raises(ServerError) as excinfo:
+        await executor.execute(mock_request_context, mock_event_queue)
+
+    assert isinstance(excinfo.value.error, InternalError)

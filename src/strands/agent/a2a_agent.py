@@ -29,6 +29,20 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 300
 
+# A2A task states that indicate the task is complete (no more events expected)
+_TERMINAL_STATES = {
+    TaskState.completed,
+    TaskState.failed,
+    TaskState.canceled,
+    TaskState.rejected,
+}
+
+# A2A task states that pause execution awaiting external input
+_INPUT_STATES = {
+    TaskState.input_required,
+    TaskState.auth_required,
+}
+
 
 class A2AAgent(AgentBase):
     """Client wrapper for remote A2A agents."""
@@ -265,6 +279,9 @@ class A2AAgent(AgentBase):
     def _is_complete_event(self, event: A2AResponse) -> bool:
         """Check if an A2A event represents a complete response.
 
+        Recognizes all terminal states (completed, failed, canceled, rejected)
+        and pausing states (input_required, auth_required) as complete events.
+
         Args:
             event: A2A event.
 
@@ -289,9 +306,15 @@ class A2AAgent(AgentBase):
                     return update_event.last_chunk
                 return False
 
-            # Status update with completed state
+            # Status update - check for terminal or pausing states
             if isinstance(update_event, TaskStatusUpdateEvent):
                 if update_event.status and hasattr(update_event.status, "state"):
-                    return update_event.status.state == TaskState.completed
+                    state = update_event.status.state
+                    # Terminal states: task is done
+                    if state in _TERMINAL_STATES:
+                        return True
+                    # Input-required states: task is paused, waiting for user
+                    if state in _INPUT_STATES:
+                        return True
 
         return False

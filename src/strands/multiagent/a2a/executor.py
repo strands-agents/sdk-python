@@ -42,7 +42,9 @@ class StrandsA2AExecutor(AgentExecutor):
     """Executor that adapts a Strands Agent to the A2A protocol.
 
     This executor uses streaming mode to handle the execution of agent requests
-    and converts Strands Agent responses to A2A protocol events.
+    and converts Strands Agent responses to A2A protocol events. It supports the
+    full A2A task lifecycle including error handling (failed state), cancellation,
+    and interrupt-based input_required flows.
     """
 
     # Default formats for each file type when MIME type is unavailable or unrecognized
@@ -75,14 +77,18 @@ class StrandsA2AExecutor(AgentExecutor):
         """Execute a request using the Strands Agent and send the response as A2A events.
 
         This method executes the user's input using the Strands Agent in streaming mode
-        and converts the agent's response to A2A events.
+        and converts the agent's response to A2A events. If the agent raises an exception,
+        the task transitions to the `failed` state. If the agent returns with interrupts,
+        the task transitions to the `input_required` state.
 
         Args:
             context: The A2A request context, containing the user's input and task metadata.
             event_queue: The A2A event queue used to send response events back to the client.
 
         Raises:
-            ServerError: If an error occurs during agent execution
+            ServerError: If an unrecoverable error occurs during agent execution setup
+                (e.g., missing input). Agent execution errors are handled gracefully
+                by transitioning the task to the failed state.
         """
         task = context.current_task
         if not task:
@@ -93,8 +99,21 @@ class StrandsA2AExecutor(AgentExecutor):
 
         try:
             await self._execute_streaming(context, updater)
+        except ServerError:
+            # Re-raise ServerErrors (setup failures like missing input)
+            raise
         except Exception as e:
-            raise ServerError(error=InternalError()) from e
+            # Agent execution failures transition to failed state
+            logger.exception("Agent execution failed, transitioning task to failed state")
+            try:
+                await updater.failed(
+                    message=updater.new_agent_message(
+                        parts=[Part(root=TextPart(text=f"Agent execution failed: {e}"))]
+                    )
+                )
+            except RuntimeError:
+                # Task already in terminal state (e.g., completed before error in cleanup)
+                logger.debug("Task already in terminal state, cannot transition to failed")
 
     async def _execute_streaming(self, context: RequestContext, updater: TaskUpdater) -> None:
         """Execute request in streaming mode.
@@ -105,14 +124,17 @@ class StrandsA2AExecutor(AgentExecutor):
         Args:
             context: The A2A request context, containing the user's input and other metadata.
             updater: The task updater for managing task state and sending updates.
+
+        Raises:
+            ServerError: If input conversion fails (missing or empty content).
         """
         # Convert A2A message parts to Strands ContentBlocks
         if context.message and hasattr(context.message, "parts"):
             content_blocks = self._convert_a2a_parts_to_content_blocks(context.message.parts)
             if not content_blocks:
-                raise ValueError("No content blocks available")
+                raise ServerError(error=InternalError())
         else:
-            raise ValueError("No content blocks available")
+            raise ServerError(error=InternalError())
 
         if not self.enable_a2a_compliant_streaming:
             warnings.warn(
@@ -133,8 +155,18 @@ class StrandsA2AExecutor(AgentExecutor):
         invocation_state: dict[str, Any] = {"a2a_request_context": context}
 
         try:
+            result: SAAgentResult | None = None
             async for event in self.agent.stream_async(content_blocks, invocation_state=invocation_state):
-                await self._handle_streaming_event(event, updater)
+                if "result" in event:
+                    result = event["result"]
+                else:
+                    await self._handle_streaming_event(event, updater)
+
+            # Check if agent returned with interrupts (input_required)
+            if result is not None and result.stop_reason == "interrupt" and result.interrupts:
+                await self._handle_interrupt_result(result, updater)
+            else:
+                await self._handle_agent_result(result, updater)
         except Exception:
             logger.exception("Error in streaming execution")
             raise
@@ -142,6 +174,33 @@ class StrandsA2AExecutor(AgentExecutor):
             if self.enable_a2a_compliant_streaming:
                 self._current_artifact_id = None
                 self._is_first_chunk = True
+
+    async def _handle_interrupt_result(self, result: SAAgentResult, updater: TaskUpdater) -> None:
+        """Handle an agent result that contains interrupts.
+
+        When the Strands Agent returns with stop_reason="interrupt", this maps to
+        the A2A `input_required` state. The interrupt details are communicated to
+        the client via the status message.
+
+        Args:
+            result: The agent result containing interrupts.
+            updater: The task updater for managing task state.
+        """
+        # Build a descriptive message about what input is needed
+        interrupt_descriptions = []
+        for interrupt in result.interrupts or []:
+            desc = f"- {interrupt.name}"
+            if interrupt.reason:
+                desc += f": {interrupt.reason}"
+            interrupt_descriptions.append(desc)
+
+        input_message = "Agent requires input:\n" + "\n".join(interrupt_descriptions)
+
+        await updater.requires_input(
+            message=updater.new_agent_message(
+                parts=[Part(root=TextPart(text=input_message))]
+            )
+        )
 
     async def _handle_streaming_event(self, event: dict[str, Any], updater: TaskUpdater) -> None:
         """Handle a single streaming event from the Strands Agent.
@@ -175,8 +234,6 @@ class StrandsA2AExecutor(AgentExecutor):
                             updater.task_id,
                         ),
                     )
-        elif "result" in event:
-            await self._handle_agent_result(event["result"], updater)
 
     async def _handle_agent_result(self, result: SAAgentResult | None, updater: TaskUpdater) -> None:
         """Handle the final result from the Strands Agent.
@@ -219,20 +276,30 @@ class StrandsA2AExecutor(AgentExecutor):
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Cancel an ongoing execution.
 
-        This method is called when a request cancellation is requested. Currently,
-        cancellation is not supported by the Strands Agent executor, so this method
-        always raises an UnsupportedOperationError.
+        Transitions the task to the canceled state. If the agent supports cancellation
+        (e.g., via a stop mechanism), this will signal the agent to stop processing.
 
         Args:
             context: The A2A request context.
             event_queue: The A2A event queue.
-
-        Raises:
-            ServerError: Always raised with an UnsupportedOperationError, as cancellation
-                is not currently supported.
         """
-        logger.warning("Cancellation requested but not supported")
-        raise ServerError(error=UnsupportedOperationError())
+        task = context.current_task
+        if not task:
+            logger.warning("Cancellation requested but no current task found")
+            raise ServerError(error=UnsupportedOperationError())
+
+        updater = TaskUpdater(event_queue, task.id, task.context_id)
+
+        try:
+            await updater.cancel(
+                message=updater.new_agent_message(
+                    parts=[Part(root=TextPart(text="Task cancelled by client request"))]
+                )
+            )
+        except RuntimeError:
+            # Task already in terminal state
+            logger.warning("Cannot cancel task %s: already in terminal state", task.id)
+            raise ServerError(error=UnsupportedOperationError())
 
     def _get_file_type_from_mime_type(self, mime_type: str | None) -> Literal["document", "image", "video", "unknown"]:
         """Classify file type based on MIME type.
