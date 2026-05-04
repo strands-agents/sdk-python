@@ -107,9 +107,7 @@ class StrandsA2AExecutor(AgentExecutor):
             logger.exception("Agent execution failed, transitioning task to failed state")
             try:
                 await updater.failed(
-                    message=updater.new_agent_message(
-                        parts=[Part(root=TextPart(text=f"Agent execution failed: {e}"))]
-                    )
+                    message=updater.new_agent_message(parts=[Part(root=TextPart(text=f"Agent execution failed: {e}"))])
                 )
             except RuntimeError:
                 # Task already in terminal state (e.g., completed before error in cleanup)
@@ -196,11 +194,7 @@ class StrandsA2AExecutor(AgentExecutor):
 
         input_message = "Agent requires input:\n" + "\n".join(interrupt_descriptions)
 
-        await updater.requires_input(
-            message=updater.new_agent_message(
-                parts=[Part(root=TextPart(text=input_message))]
-            )
-        )
+        await updater.requires_input(message=updater.new_agent_message(parts=[Part(root=TextPart(text=input_message))]))
 
     async def _handle_streaming_event(self, event: dict[str, Any], updater: TaskUpdater) -> None:
         """Handle a single streaming event from the Strands Agent.
@@ -286,20 +280,18 @@ class StrandsA2AExecutor(AgentExecutor):
         task = context.current_task
         if not task:
             logger.warning("Cancellation requested but no current task found")
-            raise ServerError(error=UnsupportedOperationError())
+            raise ServerError(error=UnsupportedOperationError()) from None
 
         updater = TaskUpdater(event_queue, task.id, task.context_id)
 
         try:
             await updater.cancel(
-                message=updater.new_agent_message(
-                    parts=[Part(root=TextPart(text="Task cancelled by client request"))]
-                )
+                message=updater.new_agent_message(parts=[Part(root=TextPart(text="Task cancelled by client request"))])
             )
         except RuntimeError:
             # Task already in terminal state
             logger.warning("Cannot cancel task %s: already in terminal state", task.id)
-            raise ServerError(error=UnsupportedOperationError())
+            raise ServerError(error=UnsupportedOperationError()) from None
 
     def _get_file_type_from_mime_type(self, mime_type: str | None) -> Literal["document", "image", "video", "unknown"]:
         """Classify file type based on MIME type.

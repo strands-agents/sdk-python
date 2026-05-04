@@ -616,10 +616,10 @@ async def test_execute_streaming_mode_handles_agent_exception(
 
     # Verify a failed status event was enqueued
     enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
-    from a2a.types import TaskStatusUpdateEvent, TaskState
+    from a2a.types import TaskState, TaskStatusUpdateEvent
+
     failed_events = [
-        e for e in enqueued_events
-        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+        e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
     ]
     assert len(failed_events) == 1
     assert "Agent execution failed" in failed_events[0].status.message.parts[0].root.text
@@ -632,6 +632,7 @@ async def test_execute_streaming_mode_handles_agent_exception(
 
     # Verify the error is a ServerError containing an UnsupportedOperationError
     assert isinstance(excinfo.value.error, UnsupportedOperationError)
+
 
 @pytest.mark.asyncio
 async def test_handle_agent_result_with_none_result(mock_strands_agent, mock_request_context, mock_event_queue):
@@ -1379,8 +1380,7 @@ async def test_execute_transitions_to_failed_on_streaming_error(
     # Verify failed state was enqueued
     enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
     failed_events = [
-        e for e in enqueued_events
-        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
+        e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.failed
     ]
     assert len(failed_events) == 1
     assert "Connection lost" in failed_events[0].status.message.parts[0].root.text
@@ -1403,8 +1403,7 @@ async def test_cancel_with_valid_task(mock_strands_agent, mock_request_context, 
     # Verify canceled state was enqueued
     enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
     canceled_events = [
-        e for e in enqueued_events
-        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.canceled
+        e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.canceled
     ]
     assert len(canceled_events) == 1
     assert "cancelled" in canceled_events[0].status.message.parts[0].root.text.lower()
@@ -1428,6 +1427,7 @@ async def test_execute_with_interrupt_transitions_to_input_required(
 ):
     """Test that agent interrupts map to input_required state."""
     from a2a.types import TaskState, TaskStatusUpdateEvent, TextPart
+
     from strands.interrupt import Interrupt
 
     # Create a mock result with interrupts
@@ -1462,7 +1462,8 @@ async def test_execute_with_interrupt_transitions_to_input_required(
     # Verify input_required state was enqueued
     enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
     input_required_events = [
-        e for e in enqueued_events
+        e
+        for e in enqueued_events
         if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.input_required
     ]
     assert len(input_required_events) == 1
@@ -1475,6 +1476,7 @@ async def test_execute_with_interrupt_transitions_to_input_required(
 async def test_execute_with_multiple_interrupts(mock_strands_agent, mock_request_context, mock_event_queue):
     """Test handling of multiple interrupts in a single result."""
     from a2a.types import TaskState, TaskStatusUpdateEvent, TextPart
+
     from strands.interrupt import Interrupt
 
     mock_result = MagicMock(spec=SAAgentResult)
@@ -1508,7 +1510,8 @@ async def test_execute_with_multiple_interrupts(mock_strands_agent, mock_request
 
     enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
     input_required_events = [
-        e for e in enqueued_events
+        e
+        for e in enqueued_events
         if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.input_required
     ]
     assert len(input_required_events) == 1
@@ -1555,14 +1558,14 @@ async def test_execute_normal_completion_no_interrupts(mock_strands_agent, mock_
     # Verify completed state was enqueued (not input_required)
     enqueued_events = [call[0][0] for call in mock_event_queue.enqueue_event.call_args_list]
     completed_events = [
-        e for e in enqueued_events
-        if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.completed
+        e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.completed
     ]
     assert len(completed_events) == 1
 
     # Verify no input_required events
     input_required_events = [
-        e for e in enqueued_events
+        e
+        for e in enqueued_events
         if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.input_required
     ]
     assert len(input_required_events) == 0

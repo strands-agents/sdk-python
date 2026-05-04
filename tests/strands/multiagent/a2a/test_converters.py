@@ -253,7 +253,8 @@ def test_convert_response_handles_missing_data():
 def test_convert_response_completed_state_maps_to_end_turn():
     """Test that completed state maps to end_turn stop_reason."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus, Part, TextPart
+
+    from a2a.types import TaskState, TaskStatus, TaskStatusUpdateEvent
 
     task = MagicMock()
     task.artifacts = None
@@ -269,7 +270,8 @@ def test_convert_response_completed_state_maps_to_end_turn():
 def test_convert_response_failed_state_maps_to_end_turn():
     """Test that failed state maps to end_turn stop_reason with error content."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus, Message, Part, TextPart, Role
+
+    from a2a.types import Message, TaskState, TaskStatus, TaskStatusUpdateEvent
 
     task = MagicMock()
     task.artifacts = None
@@ -295,7 +297,8 @@ def test_convert_response_failed_state_maps_to_end_turn():
 def test_convert_response_input_required_maps_to_interrupt():
     """Test that input_required state maps to interrupt stop_reason."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus, Message, Part, TextPart, Role
+
+    from a2a.types import Message, TaskState, TaskStatus, TaskStatusUpdateEvent
 
     task = MagicMock()
     task.artifacts = None
@@ -320,7 +323,8 @@ def test_convert_response_input_required_maps_to_interrupt():
 def test_convert_response_canceled_state_maps_to_end_turn():
     """Test that canceled state maps to end_turn stop_reason."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    from a2a.types import TaskState, TaskStatus, TaskStatusUpdateEvent
 
     task = MagicMock()
     task.artifacts = None
@@ -337,7 +341,8 @@ def test_convert_response_canceled_state_maps_to_end_turn():
 def test_convert_response_rejected_state_maps_to_end_turn():
     """Test that rejected state maps to end_turn stop_reason."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    from a2a.types import TaskState, TaskStatus, TaskStatusUpdateEvent
 
     task = MagicMock()
     task.artifacts = None
@@ -354,7 +359,8 @@ def test_convert_response_rejected_state_maps_to_end_turn():
 def test_convert_response_auth_required_maps_to_interrupt():
     """Test that auth_required state maps to interrupt stop_reason."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    from a2a.types import TaskState, TaskStatus, TaskStatusUpdateEvent
 
     task = MagicMock()
     task.artifacts = None
@@ -371,7 +377,9 @@ def test_convert_response_auth_required_maps_to_interrupt():
 def test_extract_task_state_from_status_update():
     """Test _extract_task_state helper."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    from a2a.types import TaskState, TaskStatus, TaskStatusUpdateEvent
+
     from strands.multiagent.a2a._converters import _extract_task_state
 
     task = MagicMock()
@@ -386,7 +394,9 @@ def test_extract_task_state_from_status_update():
 def test_extract_task_state_from_message_returns_none():
     """Test _extract_task_state returns None for Message responses."""
     from unittest.mock import MagicMock
+
     from a2a.types import Message
+
     from strands.multiagent.a2a._converters import _extract_task_state
 
     message = MagicMock(spec=Message)

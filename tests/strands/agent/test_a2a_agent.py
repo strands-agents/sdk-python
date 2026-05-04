@@ -724,7 +724,8 @@ async def test_stream_async_falls_back_to_last_event(a2a_agent, mock_agent_card)
 def test_is_complete_event_failed_state(a2a_agent):
     """Test that failed state is recognized as complete."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    from a2a.types import TaskState, TaskStatusUpdateEvent
 
     task = MagicMock()
     status = MagicMock()
@@ -738,7 +739,8 @@ def test_is_complete_event_failed_state(a2a_agent):
 def test_is_complete_event_canceled_state(a2a_agent):
     """Test that canceled state is recognized as complete."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    from a2a.types import TaskState, TaskStatusUpdateEvent
 
     task = MagicMock()
     status = MagicMock()
@@ -752,7 +754,8 @@ def test_is_complete_event_canceled_state(a2a_agent):
 def test_is_complete_event_rejected_state(a2a_agent):
     """Test that rejected state is recognized as complete."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    from a2a.types import TaskState, TaskStatusUpdateEvent
 
     task = MagicMock()
     status = MagicMock()
@@ -766,7 +769,8 @@ def test_is_complete_event_rejected_state(a2a_agent):
 def test_is_complete_event_input_required_state(a2a_agent):
     """Test that input_required state is recognized as complete (pausing)."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    from a2a.types import TaskState, TaskStatusUpdateEvent
 
     task = MagicMock()
     status = MagicMock()
@@ -780,7 +784,8 @@ def test_is_complete_event_input_required_state(a2a_agent):
 def test_is_complete_event_auth_required_state(a2a_agent):
     """Test that auth_required state is recognized as complete (pausing)."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    from a2a.types import TaskState, TaskStatusUpdateEvent
 
     task = MagicMock()
     status = MagicMock()
@@ -794,7 +799,8 @@ def test_is_complete_event_auth_required_state(a2a_agent):
 def test_is_complete_event_working_state_not_complete(a2a_agent):
     """Test that working state is NOT recognized as complete."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    from a2a.types import TaskState, TaskStatusUpdateEvent
 
     task = MagicMock()
     status = MagicMock()
@@ -808,7 +814,8 @@ def test_is_complete_event_working_state_not_complete(a2a_agent):
 def test_is_complete_event_submitted_state_not_complete(a2a_agent):
     """Test that submitted state is NOT recognized as complete."""
     from unittest.mock import MagicMock
-    from a2a.types import TaskState, TaskStatusUpdateEvent, TaskStatus
+
+    from a2a.types import TaskState, TaskStatusUpdateEvent
 
     task = MagicMock()
     status = MagicMock()
