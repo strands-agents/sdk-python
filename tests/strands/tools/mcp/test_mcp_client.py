@@ -1,6 +1,6 @@
 import base64
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from mcp import ListToolsResult
@@ -199,8 +199,6 @@ def test_call_tool_sync_forwards_meta(mock_transport, mock_session):
 
 def test_call_tool_sync_forwards_instance_progress_callback(mock_transport, mock_session):
     """Test that call_tool_sync uses the instance-level progress callback when no per-call callback is given."""
-    from unittest.mock import AsyncMock
-
     mock_content = MCPTextContent(type="text", text="done")
     mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[mock_content])
     cb = AsyncMock()
@@ -216,8 +214,6 @@ def test_call_tool_sync_forwards_instance_progress_callback(mock_transport, mock
 
 def test_call_tool_sync_per_call_progress_callback_overrides_instance(mock_transport, mock_session):
     """Test that a per-call progress callback overrides the instance-level one."""
-    from unittest.mock import AsyncMock
-
     mock_content = MCPTextContent(type="text", text="done")
     mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[mock_content])
     instance_cb = AsyncMock()
