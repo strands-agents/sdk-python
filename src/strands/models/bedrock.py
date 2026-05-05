@@ -31,6 +31,7 @@ from ..types.exceptions import (
 )
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
+from ._defaults import resolve_config_metadata
 from ._strict_schema import ensure_strict_json_schema
 from ._validation import validate_config_keys
 from .model import BaseModelConfig, CacheConfig, Model
@@ -217,7 +218,7 @@ class BedrockModel(Model):
         Returns:
             The Bedrock model configuration.
         """
-        return self.config
+        return resolve_config_metadata(self.config, self.config.get("model_id", ""))
 
     def _format_request(
         self,

@@ -79,6 +79,30 @@ def test__init__context_window_limit(gemini_client):
     assert model.context_window_limit == 1_048_576
 
 
+def test__init__auto_populates_context_window_limit(gemini_client):
+    _ = gemini_client
+
+    model = GeminiModel(model_id="gemini-2.5-flash")
+
+    assert model.get_config().get("context_window_limit") == 1_048_576
+
+
+def test__init__explicit_context_window_limit_not_overridden(gemini_client):
+    _ = gemini_client
+
+    model = GeminiModel(model_id="gemini-2.5-flash", context_window_limit=500_000)
+
+    assert model.get_config().get("context_window_limit") == 500_000
+
+
+def test__init__unknown_model_no_context_window_limit(gemini_client):
+    _ = gemini_client
+
+    model = GeminiModel(model_id="unknown-model")
+
+    assert model.get_config().get("context_window_limit") is None
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 

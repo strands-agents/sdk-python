@@ -71,9 +71,27 @@ def test__init__(model_id):
     model = OpenAIResponsesModel(model_id=model_id, params={"max_output_tokens": 100})
 
     tru_config = model.get_config()
-    exp_config = {"model_id": "gpt-4o", "params": {"max_output_tokens": 100}}
+    exp_config = {"model_id": "gpt-4o", "params": {"max_output_tokens": 100}, "context_window_limit": 128_000}
 
     assert tru_config == exp_config
+
+
+def test__init__auto_populates_context_window_limit():
+    model = OpenAIResponsesModel(model_id="gpt-4o")
+
+    assert model.get_config().get("context_window_limit") == 128_000
+
+
+def test__init__explicit_context_window_limit_not_overridden():
+    model = OpenAIResponsesModel(model_id="gpt-4o", context_window_limit=50_000)
+
+    assert model.get_config().get("context_window_limit") == 50_000
+
+
+def test__init__unknown_model_no_context_window_limit():
+    model = OpenAIResponsesModel(model_id="unknown-model")
+
+    assert model.get_config().get("context_window_limit") is None
 
 
 def test_update_config(model, model_id):
