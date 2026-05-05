@@ -178,7 +178,12 @@ class MCPClient(ToolProvider):
         """
         return self.start()
 
-    def __exit__(self, exc_type: BaseException, exc_val: BaseException, exc_tb: TracebackType) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Context manager exit point that cleans up resources."""
         self.stop(exc_type, exc_val, exc_tb)
 
@@ -318,7 +323,7 @@ class MCPClient(ToolProvider):
 
     # MCP-specific methods
 
-    def stop(self, exc_type: BaseException | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> None:
+    def stop(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None) -> None:
         """Signals the background thread to stop and waits for it to complete, ensuring proper cleanup of all resources.
 
         This method is defensive and can handle partial initialization states that may occur
