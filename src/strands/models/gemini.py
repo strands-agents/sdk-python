@@ -19,6 +19,7 @@ from ..types.content import ContentBlock, ContentBlockStartToolUse, Messages, Sy
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException, ProviderTokenCountError
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
+from ._defaults import resolve_config_metadata
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -115,7 +116,7 @@ class GeminiModel(Model):
         Returns:
             The Gemini model configuration.
         """
-        return self.config
+        return resolve_config_metadata(self.config, self.config["model_id"])
 
     def _get_client(self) -> genai.Client:
         """Get a Gemini client for making requests.

@@ -296,6 +296,46 @@ def test__init__context_window_limit(bedrock_client):
     assert model.context_window_limit == 200_000
 
 
+def test__init__auto_populates_context_window_limit(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(model_id="anthropic.claude-sonnet-4-20250514-v1:0")
+
+    assert model.get_config().get("context_window_limit") == 1_000_000
+
+
+def test__init__auto_populates_context_window_limit_cross_region(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-6")
+
+    assert model.get_config().get("context_window_limit") == 1_000_000
+
+
+def test__init__auto_populates_context_window_limit_default_model(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel()
+
+    assert model.get_config().get("context_window_limit") == 1_000_000
+
+
+def test__init__explicit_context_window_limit_not_overridden(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(model_id="anthropic.claude-sonnet-4-20250514-v1:0", context_window_limit=100_000)
+
+    assert model.get_config().get("context_window_limit") == 100_000
+
+
+def test__init__unknown_model_no_context_window_limit(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(model_id="unknown.model-v1:0")
+
+    assert model.get_config().get("context_window_limit") is None
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 
