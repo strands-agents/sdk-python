@@ -19,6 +19,7 @@ from strands.models.bedrock import (
     DEFAULT_BEDROCK_MODEL_ID,
     DEFAULT_BEDROCK_REGION,
     DEFAULT_READ_TIMEOUT,
+    _clear_unsupported_count_tokens_cache,
 )
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from strands.types.tools import ToolSpec
@@ -3293,6 +3294,12 @@ async def test_non_streaming_citations_with_only_location(bedrock_client, model,
 class TestCountTokens:
     """Tests for BedrockModel.count_tokens native token counting."""
 
+    @pytest.fixture(autouse=True)
+    def clean_cache(self):
+        _clear_unsupported_count_tokens_cache()
+        yield
+        _clear_unsupported_count_tokens_cache()
+
     @pytest.fixture
     def model_with_client(self, bedrock_client, model_id):
         _ = bedrock_client
@@ -3409,3 +3416,31 @@ class TestCountTokens:
             await model_with_client.count_tokens(messages=messages)
 
         assert any("native token counting failed" in record.message for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_caches_model_id_when_count_tokens_unsupported(self, bedrock_client, messages):
+        model = BedrockModel(model_id="unsupported-cache-test-model")
+        bedrock_client.count_tokens.side_effect = ClientError(
+            {"Error": {"Code": "ValidationException", "Message": "The provided model doesn't support counting tokens"}},
+            "CountTokens",
+        )
+
+        # First call: hits API, gets error, caches
+        await model.count_tokens(messages=messages)
+        assert bedrock_client.count_tokens.call_count == 1
+
+        # Second call: skips API entirely
+        await model.count_tokens(messages=messages)
+        assert bedrock_client.count_tokens.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_does_not_cache_model_id_for_other_errors(self, bedrock_client, messages):
+        model = BedrockModel(model_id="transient-error-test-model")
+        bedrock_client.count_tokens.side_effect = RuntimeError("Transient network error")
+
+        await model.count_tokens(messages=messages)
+        assert bedrock_client.count_tokens.call_count == 1
+
+        # Second call should still attempt the API
+        await model.count_tokens(messages=messages)
+        assert bedrock_client.count_tokens.call_count == 2
