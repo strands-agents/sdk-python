@@ -17,6 +17,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
+from ._defaults import resolve_config_metadata
 from ._validation import _has_location_source, validate_config_keys, warn_on_tool_choice_not_supported
 from .model import BaseModelConfig, Model
 
@@ -114,7 +115,7 @@ class MistralModel(Model):
         Returns:
             The Mistral model configuration.
         """
-        return self.config
+        return resolve_config_metadata(self.config, self.config["model_id"])
 
     def _format_request_message_content(self, content: ContentBlock) -> str | dict[str, Any]:
         """Format a Mistral content block.

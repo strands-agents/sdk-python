@@ -59,6 +59,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
 from ._strict_schema import ensure_strict_json_schema  # noqa: E402
+from ._defaults import resolve_config_metadata  # noqa: E402
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
 from .model import BaseModelConfig, Model  # noqa: E402
@@ -211,7 +212,10 @@ class OpenAIResponsesModel(Model):
         Returns:
             The OpenAI Responses API model configuration.
         """
-        return cast(OpenAIResponsesModel.OpenAIResponsesConfig, self.config)
+        return cast(
+            OpenAIResponsesModel.OpenAIResponsesConfig,
+            resolve_config_metadata(self.config, str(self.config.get("model_id", ""))),
+        )
 
     @override
     async def count_tokens(

@@ -22,6 +22,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._strict_schema import ensure_strict_json_schema
+from ._defaults import resolve_config_metadata
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
@@ -151,7 +152,9 @@ class OpenAIModel(Model):
         Returns:
             The OpenAI model configuration.
         """
-        return cast(OpenAIModel.OpenAIConfig, self.config)
+        return cast(
+            OpenAIModel.OpenAIConfig, resolve_config_metadata(self.config, str(self.config.get("model_id", "")))
+        )
 
     @classmethod
     def format_request_message_content(cls, content: ContentBlock, **kwargs: Any) -> dict[str, Any]:

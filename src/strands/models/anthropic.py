@@ -21,6 +21,7 @@ from ..types.exceptions import ContextWindowOverflowException, ModelThrottledExc
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from ._strict_schema import ensure_strict_json_schema
+from ._defaults import resolve_config_metadata
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -96,7 +97,7 @@ class AnthropicModel(Model):
         Returns:
             The Anthropic model configuration.
         """
-        return self.config
+        return resolve_config_metadata(self.config, self.config["model_id"])
 
     def _format_request_message_content(self, content: ContentBlock) -> dict[str, Any]:
         """Format an Anthropic content block.

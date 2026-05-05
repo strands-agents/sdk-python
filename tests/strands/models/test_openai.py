@@ -99,6 +99,30 @@ def test__init__context_window_limit(openai_client):
     assert model.context_window_limit == 128_000
 
 
+def test__init__auto_populates_context_window_limit(openai_client):
+    _ = openai_client
+
+    model = OpenAIModel(model_id="gpt-4o")
+
+    assert model.get_config().get("context_window_limit") == 128_000
+
+
+def test__init__explicit_context_window_limit_not_overridden(openai_client):
+    _ = openai_client
+
+    model = OpenAIModel(model_id="gpt-4o", context_window_limit=50_000)
+
+    assert model.get_config().get("context_window_limit") == 50_000
+
+
+def test__init__unknown_model_no_context_window_limit(openai_client):
+    _ = openai_client
+
+    model = OpenAIModel(model_id="unknown-model")
+
+    assert model.get_config().get("context_window_limit") is None
+
+
 @pytest.mark.parametrize(
     "content, exp_result",
     [
