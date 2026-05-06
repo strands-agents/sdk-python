@@ -2942,9 +2942,9 @@ def test_cache_strategy_application_inference_profile_claude(mock_client_method,
     assert model._cache_strategy == "anthropic"
     bedrock_client.get_inference_profile.assert_called_once_with(inferenceProfileIdentifier=profile_arn)
 
-    # Verify the management client ("bedrock") was created, not the runtime client ("bedrock-runtime")
-    service_names = [str(c) for c in mock_client_method.call_args_list]
-    assert any("'bedrock'" in s and "'bedrock-runtime'" not in s.split("'bedrock'")[0] for s in service_names)
+    # Verify the management client ("bedrock") was used, not the runtime client ("bedrock-runtime")
+    bedrock_mgmt_calls = [c for c in mock_client_method.call_args_list if c.kwargs.get("service_name") == "bedrock"]
+    assert len(bedrock_mgmt_calls) == 1
 
 
 def test_cache_strategy_application_inference_profile_non_claude(bedrock_client):
