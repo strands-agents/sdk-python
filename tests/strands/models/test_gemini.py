@@ -1228,3 +1228,14 @@ class TestCountTokens:
             await model.count_tokens(messages=messages)
 
         assert any("native token counting failed" in record.message for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_when_use_native_token_count_false(self, gemini_client, messages):
+        _ = gemini_client
+        model = GeminiModel(model_id="m1", use_native_token_count=False)
+
+        result = await model.count_tokens(messages=messages)
+
+        gemini_client.aio.models.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0

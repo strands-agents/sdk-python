@@ -803,3 +803,14 @@ class TestCountTokens:
             await model.count_tokens(messages=messages)
 
         assert any("native token counting failed" in record.message for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_when_use_native_token_count_false(self, messages):
+        model = LlamaCppModel(base_url="http://localhost:8080", use_native_token_count=False)
+        model.client.post = AsyncMock()
+
+        result = await model.count_tokens(messages=messages)
+
+        model.client.post.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0

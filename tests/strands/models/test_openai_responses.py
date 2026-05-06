@@ -1318,6 +1318,17 @@ class TestCountTokens:
 
         assert any("native token counting failed" in record.message for record in caplog.records)
 
+    @pytest.mark.asyncio
+    async def test_skip_native_api_when_use_native_token_count_false(self, openai_client, messages):
+        _ = openai_client
+        model = OpenAIResponsesModel(model_id="gpt-4o", use_native_token_count=False)
+
+        result = await model.count_tokens(messages=messages)
+
+        openai_client.responses.input_tokens.count.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
+
 
 # =============================================================================
 # Bedrock Mantle (bedrock_mantle_config) integration with OpenAIResponsesModel

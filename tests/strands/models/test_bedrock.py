@@ -3484,3 +3484,14 @@ class TestCountTokens:
         # Second call should still attempt the API
         await model.count_tokens(messages=messages)
         assert bedrock_client.count_tokens.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_when_use_native_token_count_false(self, bedrock_client, model_id, messages):
+        _ = bedrock_client
+        model = BedrockModel(model_id=model_id, use_native_token_count=False)
+
+        result = await model.count_tokens(messages=messages)
+
+        bedrock_client.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
