@@ -2929,6 +2929,98 @@ def test_cache_strategy_none_for_non_claude(bedrock_client):
     assert model._cache_strategy is None
 
 
+def test_cache_strategy_application_inference_profile_claude(bedrock_client):
+    """ARN-based application inference profiles resolve to 'anthropic' when backed by a Claude model."""
+    bedrock_client.get_inference_profile.return_value = {
+        "models": [
+            {"modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"}
+        ]
+    }
+    profile_arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123"
+    model = BedrockModel(model_id=profile_arn)
+
+    assert model._cache_strategy == "anthropic"
+    bedrock_client.get_inference_profile.assert_called_once_with(inferenceProfileIdentifier=profile_arn)
+
+
+def test_cache_strategy_application_inference_profile_non_claude(bedrock_client):
+    """ARN-based application inference profiles backed by non-Claude models return None."""
+    bedrock_client.get_inference_profile.return_value = {
+        "models": [{"modelArn": "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-pro-v1:0"}]
+    }
+    profile_arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123"
+    model = BedrockModel(model_id=profile_arn)
+
+    assert model._cache_strategy is None
+
+
+def test_cache_strategy_application_inference_profile_api_error(bedrock_client):
+    """GetInferenceProfile failure is handled gracefully — returns None without raising."""
+    bedrock_client.get_inference_profile.side_effect = Exception("AccessDeniedException")
+    profile_arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123"
+    model = BedrockModel(model_id=profile_arn)
+
+    assert model._cache_strategy is None
+
+
+def test_cache_strategy_application_inference_profile_cached(bedrock_client):
+    """GetInferenceProfile is called only once per model instance, not on every _cache_strategy access."""
+    bedrock_client.get_inference_profile.return_value = {
+        "models": [
+            {"modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"}
+        ]
+    }
+    profile_arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123"
+    model = BedrockModel(model_id=profile_arn)
+
+    _ = model._cache_strategy
+    _ = model._cache_strategy
+    _ = model._cache_strategy
+
+    bedrock_client.get_inference_profile.assert_called_once()
+
+
+def test_cache_strategy_application_inference_profile_invalidated_on_model_id_change(bedrock_client):
+    """Cached resolution is cleared when update_config changes the model_id."""
+    bedrock_client.get_inference_profile.return_value = {
+        "models": [
+            {"modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"}
+        ]
+    }
+    profile_arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123"
+    model = BedrockModel(model_id=profile_arn)
+
+    assert model._cache_strategy == "anthropic"
+    assert bedrock_client.get_inference_profile.call_count == 1
+
+    # Switch to a different application inference profile
+    new_arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/xyz999"
+    bedrock_client.get_inference_profile.return_value = {
+        "models": [{"modelArn": "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-pro-v1:0"}]
+    }
+    model.update_config(model_id=new_arn)
+
+    assert model._cache_strategy is None
+    assert bedrock_client.get_inference_profile.call_count == 2
+
+
+def test_cache_strategy_application_inference_profile_auto_injects_cache_point(bedrock_client):
+    """End-to-end: auto strategy enables caching for messages when profile resolves to Claude."""
+    bedrock_client.get_inference_profile.return_value = {
+        "models": [
+            {"modelArn": "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"}
+        ]
+    }
+    profile_arn = "arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123"
+    model = BedrockModel(model_id=profile_arn, cache_config=CacheConfig(strategy="auto"))
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+
+    result = model._format_request(messages)
+
+    last_content = result["messages"][-1]["content"]
+    assert any("cachePoint" in block for block in last_content)
+
+
 def test_inject_cache_point_adds_to_last_user(bedrock_client):
     """Test that _inject_cache_point adds cache point to last user message."""
     model = BedrockModel(

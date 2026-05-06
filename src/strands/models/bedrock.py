@@ -208,6 +208,32 @@ class BedrockModel(Model):
         model_id = self.config.get("model_id", "").lower()
         if "claude" in model_id or "anthropic" in model_id:
             return "anthropic"
+        # ARN-based application inference profiles use opaque IDs that don't contain the model name.
+        # Resolve the underlying foundation model via GetInferenceProfile, then re-check.
+        if "application-inference-profile" in model_id:
+            if not hasattr(self, "_resolved_application_profile_strategy"):
+                self._resolved_application_profile_strategy = self._resolve_application_inference_profile_strategy()
+            return self._resolved_application_profile_strategy
+        return None
+
+    def _resolve_application_inference_profile_strategy(self) -> str | None:
+        """Resolve the cache strategy for an ARN-based application inference profile.
+
+        Calls GetInferenceProfile to discover the underlying foundation model, then checks whether
+        that model supports prompt caching.  Returns None (and logs a debug message) on any error.
+        """
+        try:
+            response = self.client.get_inference_profile(inferenceProfileIdentifier=self.config["model_id"])
+            for model_ref in response.get("models", []):
+                model_arn = model_ref.get("modelArn", "").lower()
+                if "claude" in model_arn or "anthropic" in model_arn:
+                    return "anthropic"
+        except Exception:
+            logger.debug(
+                "model_id=<%s> | could not resolve application inference profile for cache strategy detection; "
+                "use CacheConfig(strategy='anthropic') to force-enable caching",
+                self.config.get("model_id"),
+            )
         return None
 
     @override
@@ -218,6 +244,8 @@ class BedrockModel(Model):
             **model_config: Configuration overrides.
         """
         validate_config_keys(model_config, self.BedrockConfig)
+        if "model_id" in model_config:
+            self.__dict__.pop("_resolved_application_profile_strategy", None)
         self.config.update(model_config)
 
     @override
