@@ -55,6 +55,15 @@ _MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
 ]
 
+# Cache of model IDs that do not support the CountTokens API.
+_UNSUPPORTED_COUNT_TOKENS_MODELS: set[str] = set()
+
+
+def _clear_unsupported_count_tokens_cache() -> None:
+    """Clear the cache of model IDs that do not support the CountTokens API."""
+    _UNSUPPORTED_COUNT_TOKENS_MODELS.clear()
+
+
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
@@ -785,6 +794,11 @@ class BedrockModel(Model):
         Returns:
             Total input token count.
         """
+        model_id: str = self.config["model_id"]
+
+        if model_id in _UNSUPPORTED_COUNT_TOKENS_MODELS:
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
         try:
             if system_prompt and system_prompt_content is None:
                 system_prompt_content = [{"text": system_prompt}]
@@ -811,11 +825,23 @@ class BedrockModel(Model):
             logger.debug("model_id=<%s>, total_tokens=<%d> | native token count", self.config["model_id"], total_tokens)
             return total_tokens
         except Exception as e:
-            logger.debug(
-                "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
-                self.config["model_id"],
-                e,
-            )
+            if (
+                isinstance(e, ClientError)
+                and e.response.get("Error", {}).get("Code") == "ValidationException"
+                and "doesn't support counting tokens" in str(e)
+            ):
+                logger.debug(
+                    "model_id=<%s> | model does not support CountTokens, caching for future calls,"
+                    " falling back to estimation",
+                    model_id,
+                )
+                _UNSUPPORTED_COUNT_TOKENS_MODELS.add(model_id)
+            else:
+                logger.debug(
+                    "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
+                    model_id,
+                    e,
+                )
             return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
     @override
