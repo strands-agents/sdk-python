@@ -1164,11 +1164,11 @@ class TestCountTokens:
         assert any("native token counting failed" in record.message for record in caplog.records)
 
     @pytest.mark.asyncio
-    async def test_skip_native_api_when_native_token_counting_false(
+    async def test_skip_native_api_when_use_native_token_count_false(
         self, anthropic_client, model_id, max_tokens, messages
     ):
         _ = anthropic_client
-        model = AnthropicModel(model_id=model_id, max_tokens=max_tokens, native_token_counting=False)
+        model = AnthropicModel(model_id=model_id, max_tokens=max_tokens, use_native_token_count=False)
 
         result = await model.count_tokens(messages=messages)
 

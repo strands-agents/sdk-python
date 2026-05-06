@@ -3486,9 +3486,9 @@ class TestCountTokens:
         assert bedrock_client.count_tokens.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_skip_native_api_when_native_token_counting_false(self, bedrock_client, model_id, messages):
+    async def test_skip_native_api_when_use_native_token_count_false(self, bedrock_client, model_id, messages):
         _ = bedrock_client
-        model = BedrockModel(model_id=model_id, native_token_counting=False)
+        model = BedrockModel(model_id=model_id, use_native_token_count=False)
 
         result = await model.count_tokens(messages=messages)
 
