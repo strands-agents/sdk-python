@@ -505,40 +505,9 @@ async def test_count_tokens_all_inputs(model):
         system_prompt="Be helpful.",
         system_prompt_content=[{"text": "Additional system context."}],
     )
-    # system_prompt_content ceil(26/4)=7 + "hello world" ceil(11/4)=3 + "hi there" ceil(8/4)=2 + tool_spec ceil(75/2)=38 = 50
+    # system_prompt_content (7) + "hello world" (3) + "hi there" (2) + tool_spec (38) = 50
     assert result == 50
 
-
-def test__get_encoding_falls_back_without_tiktoken(monkeypatch):
-    """Test that _get_encoding returns None and count_tokens falls back to heuristic."""
-    import strands.models.model as model_module
-
-    model_module._get_encoding.cache_clear()
-    original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
-
-    def _block_tiktoken(name, *args, **kwargs):
-        if name == "tiktoken":
-            raise ImportError("No module named 'tiktoken'")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr("builtins.__import__", _block_tiktoken)
-
-    try:
-        assert model_module._get_encoding() is None
-
-        # _estimate_tokens_with_tiktoken should raise when tiktoken is unavailable
-        with pytest.raises(ImportError):
-            model_module._estimate_tokens_with_tiktoken(
-                messages=[{"role": "user", "content": [{"text": "hello world!"}]}],
-            )
-
-        # _estimate_tokens_with_heuristic uses chars/4 for text
-        result = model_module._estimate_tokens_with_heuristic(
-            messages=[{"role": "user", "content": [{"text": "hello world!"}]}],
-        )
-        assert result == 3  # ceil(12 / 4)
-    finally:
-        model_module._get_encoding.cache_clear()
 
 
 class TestHeuristicEstimation:
@@ -592,22 +561,7 @@ class TestHeuristicEstimation:
         assert result == 2  # only tool name counted: ceil(len("my_tool") / 4)
 
     @pytest.mark.asyncio
-    async def test_model_falls_back_to_heuristic(self, monkeypatch, model):
-        """Model.count_tokens falls back to heuristic when tiktoken unavailable."""
-        import strands.models.model as model_module
-
-        model_module._get_encoding.cache_clear()
-        original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
-
-        def _block_tiktoken(name, *args, **kwargs):
-            if name == "tiktoken":
-                raise ImportError("No module named 'tiktoken'")
-            return original_import(name, *args, **kwargs)
-
-        monkeypatch.setattr("builtins.__import__", _block_tiktoken)
-
-        try:
-            result = await model.count_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
-            assert result == 3  # ceil(12 / 4)
-        finally:
-            model_module._get_encoding.cache_clear()
+    async def test_model_uses_heuristic(self, model):
+        """Model.count_tokens uses heuristic estimation."""
+        result = await model.count_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
+        assert result == 3  # ceil(12 / 4)
