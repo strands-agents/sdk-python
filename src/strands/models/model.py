@@ -45,7 +45,7 @@ def _get_encoding() -> Any:
     """Get the default tiktoken encoding, caching to avoid repeated lookups.
 
     Returns:
-        The tiktoken encoding, or None if tiktoken is not installed.
+        The tiktoken encoding, or None if tiktoken is not installed or encoding download fails.
     """
     try:
         import tiktoken
@@ -53,6 +53,9 @@ def _get_encoding() -> Any:
         return tiktoken.get_encoding(_DEFAULT_ENCODING)
     except ImportError:
         logger.debug("tiktoken not available, falling back to heuristic token estimation")
+        return None
+    except Exception:
+        logger.debug("tiktoken encoding download failed, falling back to heuristic token estimation")
         return None
 
 
