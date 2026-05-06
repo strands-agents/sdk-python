@@ -296,8 +296,8 @@ class StrandsA2AExecutor(AgentExecutor):
         """Cancel an ongoing execution.
 
         Transitions the task to the canceled state and attempts to stop the agent.
-        The agent's cancel() method is called if available to signal cooperative
-        cancellation of in-flight execution.
+        The agent's cancel() method is called to signal cooperative cancellation
+        of in-flight execution.
 
         Note: This transitions the A2A task state. The underlying agent execution
         may still complete its current model call before stopping.
@@ -314,13 +314,10 @@ class StrandsA2AExecutor(AgentExecutor):
             logger.warning("context_id=<%s> | cancel requested but no current task found", context.context_id)
             raise ServerError(error=UnsupportedOperationError()) from None
 
-        # Attempt to cooperatively cancel the agent's execution (best-effort).
-        # Agent.cancel() may not exist on all implementations, so we guard with hasattr.
+        # Cooperatively cancel the agent's execution (best-effort).
+        # Agent.cancel() is always available since self.agent is typed as Agent.
         try:
             self.agent.cancel()
-        except (AttributeError, NotImplementedError):
-            # Agent doesn't support cancel — proceed with state transition only
-            pass
         except Exception:
             logger.debug("task_id=<%s> | agent cancel signal failed (non-critical)", task.id)
 
