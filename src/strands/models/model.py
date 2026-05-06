@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
+
 def _heuristic_estimate_text(text: str) -> int:
     """Estimate token count from text using characters / 4 heuristic."""
     return math.ceil(len(text) / 4)
@@ -82,7 +83,6 @@ def _count_content_block_tokens(
                     total += count_text(citation_item["text"])
 
     return total
-
 
 
 def _estimate_tokens_with_heuristic(
