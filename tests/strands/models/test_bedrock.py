@@ -2929,7 +2929,7 @@ def test_cache_strategy_none_for_non_claude(bedrock_client):
     assert model._cache_strategy is None
 
 
-def test_cache_strategy_application_inference_profile_claude(bedrock_client):
+def test_cache_strategy_application_inference_profile_claude(mock_client_method, bedrock_client):
     """ARN-based application inference profiles resolve to 'anthropic' when backed by a Claude model."""
     bedrock_client.get_inference_profile.return_value = {
         "models": [
@@ -2941,6 +2941,10 @@ def test_cache_strategy_application_inference_profile_claude(bedrock_client):
 
     assert model._cache_strategy == "anthropic"
     bedrock_client.get_inference_profile.assert_called_once_with(inferenceProfileIdentifier=profile_arn)
+
+    # Verify the management client ("bedrock") was created, not the runtime client ("bedrock-runtime")
+    service_names = [str(c) for c in mock_client_method.call_args_list]
+    assert any("'bedrock'" in s and "'bedrock-runtime'" not in s.split("'bedrock'")[0] for s in service_names)
 
 
 def test_cache_strategy_application_inference_profile_non_claude(bedrock_client):

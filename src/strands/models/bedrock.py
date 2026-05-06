@@ -196,6 +196,7 @@ class BedrockModel(Model):
             endpoint_url=endpoint_url,
             region_name=resolved_region,
         )
+        self._boto_session = session
 
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
@@ -219,11 +220,17 @@ class BedrockModel(Model):
     def _resolve_application_inference_profile_strategy(self) -> str | None:
         """Resolve the cache strategy for an ARN-based application inference profile.
 
-        Calls GetInferenceProfile to discover the underlying foundation model, then checks whether
-        that model supports prompt caching.  Returns None (and logs a debug message) on any error.
+        Calls GetInferenceProfile on the Bedrock management API to discover the underlying
+        foundation model, then checks whether that model supports prompt caching.
+        Returns None (and logs a debug message) on any error.
         """
         try:
-            response = self.client.get_inference_profile(inferenceProfileIdentifier=self.config["model_id"])
+            # GetInferenceProfile is a Bedrock management API, not available on bedrock-runtime.
+            bedrock_client = self._boto_session.client(
+                service_name="bedrock",
+                region_name=self.client.meta.region_name,
+            )
+            response = bedrock_client.get_inference_profile(inferenceProfileIdentifier=self.config["model_id"])
             for model_ref in response.get("models", []):
                 model_arn = model_ref.get("modelArn", "").lower()
                 if "claude" in model_arn or "anthropic" in model_arn:
