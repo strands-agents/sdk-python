@@ -57,11 +57,15 @@ class AnthropicModel(Model):
                 https://docs.anthropic.com/en/docs/about-claude/models/all-models.
             params: Additional model parameters (e.g., temperature).
                 For a complete list of supported parameters, see https://docs.anthropic.com/en/api/messages.
+            native_token_counting: Whether to use the native Anthropic count_tokens API.
+                When True (default), count_tokens() calls the Anthropic API for accurate counts.
+                When False, skips the API call and uses the local estimator.
         """
 
         max_tokens: Required[int]
         model_id: Required[str]
         params: dict[str, Any] | None
+        native_token_counting: bool
 
     def __init__(self, *, client_args: dict[str, Any] | None = None, **model_config: Unpack[AnthropicConfig]):
         """Initialize provider instance.
@@ -394,6 +398,9 @@ class AnthropicModel(Model):
         Returns:
             Total input token count.
         """
+        if self.config.get("native_token_counting") is False:
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
         try:
             # system_prompt_content is not used; this provider only accepts system_prompt as a plain string,
             # matching the behavior of stream(). The caller always provides system_prompt alongside

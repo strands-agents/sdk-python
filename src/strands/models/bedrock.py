@@ -117,6 +117,9 @@ class BedrockModel(Model):
                 See https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
+            native_token_counting: Whether to use the native Bedrock CountTokens API.
+                When True (default), count_tokens() calls the Bedrock API for accurate counts.
+                When False, skips the API call and uses the local estimator.
         """
 
         additional_args: dict[str, Any] | None
@@ -143,6 +146,7 @@ class BedrockModel(Model):
         strict_tools: bool | None
         temperature: float | None
         top_p: float | None
+        native_token_counting: bool
 
     def __init__(
         self,
@@ -794,6 +798,9 @@ class BedrockModel(Model):
         Returns:
             Total input token count.
         """
+        if self.config.get("native_token_counting") is False:
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
         model_id: str = self.config["model_id"]
 
         if model_id in _UNSUPPORTED_COUNT_TOKENS_MODELS:

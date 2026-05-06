@@ -49,11 +49,15 @@ class GeminiModel(Model):
                 Use the standard tools interface for function calling tools.
                 For a complete list of supported tools, see
                 https://ai.google.dev/api/caching#Tool
+            native_token_counting: Whether to use the native Gemini count_tokens API.
+                When True (default), count_tokens() calls the Gemini API for accurate counts.
+                When False, skips the API call and uses the local estimator.
         """
 
         model_id: Required[str]
         params: dict[str, Any]
         gemini_tools: list[genai.types.Tool]
+        native_token_counting: bool
 
     def __init__(
         self,
@@ -457,6 +461,9 @@ class GeminiModel(Model):
         Returns:
             Total input token count.
         """
+        if self.config.get("native_token_counting") is False:
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
         try:
             contents = list(self._format_request_content(messages))
 

@@ -509,7 +509,6 @@ async def test_count_tokens_all_inputs(model):
     assert result == 50
 
 
-
 class TestHeuristicEstimation:
     """Tests for _estimate_tokens_with_heuristic."""
 
