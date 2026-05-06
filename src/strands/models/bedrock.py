@@ -220,9 +220,10 @@ class BedrockModel(Model):
     def _resolve_application_inference_profile_strategy(self) -> str | None:
         """Resolve the cache strategy for an ARN-based application inference profile.
 
-        Calls GetInferenceProfile on the Bedrock management API to discover the underlying
+        Calls GetInferenceProfile on the Bedrock management API (requires the
+        ``bedrock:GetInferenceProfile`` IAM permission) to discover the underlying
         foundation model, then checks whether that model supports prompt caching.
-        Returns None (and logs a debug message) on any error.
+        Returns None and logs a debug message on any error, including missing permissions.
         """
         try:
             # GetInferenceProfile is a Bedrock management API, not available on bedrock-runtime.
