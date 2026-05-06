@@ -34,7 +34,7 @@ from ..types.tools import ToolChoice, ToolSpec
 from ._defaults import resolve_config_metadata
 from ._strict_schema import ensure_strict_json_schema
 from ._validation import validate_config_keys
-from .model import BaseModelConfig, CacheConfig, Model, _estimate_tokens_with_heuristic
+from .model import BaseModelConfig, CacheConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -812,11 +812,11 @@ class BedrockModel(Model):
             return total_tokens
         except Exception as e:
             logger.debug(
-                "model_id=<%s>, error=<%s> | native token counting failed, falling back to heuristic estimation",
+                "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
                 self.config["model_id"],
                 e,
             )
-            return _estimate_tokens_with_heuristic(messages, tool_specs, system_prompt, system_prompt_content)
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
     @override
     async def stream(

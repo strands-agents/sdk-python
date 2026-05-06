@@ -341,10 +341,7 @@ class Model(abc.ABC):
         Returns:
             Estimated total input tokens.
         """
-        try:
-            return _estimate_tokens_with_tiktoken(messages, tool_specs, system_prompt, system_prompt_content)
-        except ImportError:
-            return _estimate_tokens_with_heuristic(messages, tool_specs, system_prompt, system_prompt_content)
+        return _estimate_tokens_with_heuristic(messages, tool_specs, system_prompt, system_prompt_content)
 
 
 class _ModelPlugin(Plugin):
