@@ -12,7 +12,7 @@ from ...tools.registry import ToolRegistry
 from ...types.content import Message
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import AgentTool
-from .conversation_manager import ConversationManager
+from .conversation_manager import ConversationManager, ProactiveCompressionConfig
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -66,7 +66,7 @@ class SummarizingConversationManager(ConversationManager):
         summarization_agent: Optional["Agent"] = None,
         summarization_system_prompt: str | None = None,
         *,
-        compression_threshold: float | None = None,
+        proactive_compression: bool | ProactiveCompressionConfig | None = None,
     ):
         """Initialize the summarizing conversation manager.
 
@@ -79,10 +79,12 @@ class SummarizingConversationManager(ConversationManager):
                 If provided, this agent can use tools as part of the summarization process.
             summarization_system_prompt: Optional system prompt override for summarization.
                 If None, uses the default summarization prompt.
-            compression_threshold: Ratio of context window usage that triggers proactive compression.
-                See :class:`ConversationManager` for details.
+            proactive_compression: Enable proactive context compression before the model call.
+                - ``True``: compress when 70% of the context window is used (default threshold).
+                - ``{"compression_threshold": float}``: compress at the specified ratio (0, 1].
+                - ``False`` or ``None``: disabled, only reactive overflow recovery is used.
         """
-        super().__init__(compression_threshold=compression_threshold)
+        super().__init__(proactive_compression=proactive_compression)
         if summarization_agent is not None and summarization_system_prompt is not None:
             raise ValueError(
                 "Cannot provide both summarization_agent and summarization_system_prompt. "
@@ -130,33 +132,32 @@ class SummarizingConversationManager(ConversationManager):
     def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Reduce context using summarization.
 
+        When ``e`` is set (reactive overflow recovery), summarization failure is re-raised —
+        the agent loop must not proceed with an overflow.
+
+        When ``e`` is None (proactive compression), summarization failure is logged and
+        returns silently — the model call proceeds regardless.
+
         Args:
             agent: The agent whose conversation history will be reduced.
                 The agent's messages list is modified in-place.
             e: The exception that triggered the context reduction, if any.
+                When set, this is a reactive overflow recovery call.
+                When None, this is a proactive compression call (best-effort).
             **kwargs: Additional keyword arguments for future extensibility.
 
         Raises:
-            ContextWindowOverflowException: If the context cannot be summarized.
+            Exception: If summarization fails during reactive overflow recovery (e is set).
         """
         try:
             self._summarize_oldest(agent)
         except Exception as summarization_error:
-            logger.error("Summarization failed: %s", summarization_error)
-            raise summarization_error from e
-
-    def reduce_on_threshold(self, agent: "Agent", **kwargs: Any) -> bool:
-        """Proactively reduce context by summarizing oldest messages.
-
-        Args:
-            agent: The agent whose conversation history will be reduced.
-            **kwargs: Additional keyword arguments for future extensibility.
-
-        Returns:
-            True if the history was reduced, False otherwise.
-        """
-        self._summarize_oldest(agent)
-        return True
+            if e is not None:
+                # Reactive: rethrow so the ContextWindowOverflowException propagates
+                logger.error("Summarization failed: %s", summarization_error)
+                raise summarization_error from e
+            # Proactive: best-effort, swallow errors so the model call can still proceed.
+            logger.warning("Proactive summarization failed, continuing: %s", summarization_error)
 
     def _summarize_oldest(self, agent: "Agent") -> None:
         """Summarize the oldest messages and replace them with a summary.

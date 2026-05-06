@@ -301,7 +301,7 @@ def test_sliding_window_conversation_manager_with_tool_results_truncated():
     ]
     test_agent = Agent(messages=messages)
 
-    manager.reduce_context(test_agent)
+    manager.reduce_context(test_agent, e=RuntimeError("context overflow"))
 
     result_text = messages[1]["content"][0]["toolResult"]["content"][0]["text"]
     assert result_text.startswith("A" * 200)
@@ -311,8 +311,35 @@ def test_sliding_window_conversation_manager_with_tool_results_truncated():
     assert messages[1]["content"][0]["toolResult"]["status"] == "success"
 
 
-def test_null_conversation_manager_reduce_context_raises_context_window_overflow_exception():
-    """Test that NullConversationManager doesn't modify messages."""
+def test_sliding_window_proactive_compression_skips_tool_result_truncation():
+    """Proactive compression (e=None) should only trim messages, not truncate tool results."""
+    large_text = "A" * 300 + "B" * 300 + "C" * 300
+    manager = SlidingWindowConversationManager(window_size=2)
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "789", "content": [{"text": large_text}], "status": "success"}}],
+        },
+        {"role": "assistant", "content": [{"text": "Done"}]},
+        {"role": "user", "content": [{"text": "Next question"}]},
+    ]
+    test_agent = Agent(messages=messages)
+
+    manager.reduce_context(test_agent)  # e=None (proactive)
+
+    # Tool results should NOT be truncated during proactive compression
+    for msg in messages:
+        for content in msg.get("content", []):
+            if "toolResult" in content:
+                for item in content["toolResult"].get("content", []):
+                    if "text" in item:
+                        assert "... [truncated:" not in item["text"]
+
+
+def test_null_conversation_manager_reduce_context_proactive_returns_silently():
+    """Proactive compression (e=None) returns silently without raising."""
     manager = NullConversationManager()
     messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
@@ -323,10 +350,23 @@ def test_null_conversation_manager_reduce_context_raises_context_window_overflow
 
     manager.apply_management(test_agent)
 
-    with pytest.raises(ContextWindowOverflowException):
-        manager.reduce_context(messages)
+    # Proactive call (e=None) should not raise
+    manager.reduce_context(test_agent)
 
     assert messages == original_messages
+
+
+def test_null_conversation_manager_reduce_context_reactive_raises_overflow():
+    """Reactive overflow (e is not None) re-raises the exception."""
+    manager = NullConversationManager()
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there"}]},
+    ]
+    test_agent = Agent(messages=messages)
+
+    with pytest.raises(ContextWindowOverflowException):
+        manager.reduce_context(test_agent, e=ContextWindowOverflowException("overflow"))
 
 
 def test_null_conversation_manager_reduce_context_with_exception_raises_same_exception():
@@ -401,9 +441,10 @@ def test_derived_class_does_not_need_to_implement_register_hooks():
     manager = MinimalConversationManager()
     registry = HookRegistry()
 
-    # Should work without error
+    # Should work without error — the base class always registers the hook
     manager.register_hooks(registry)
-    assert not registry.has_callbacks()
+    # Base class always registers the proactive compression hook
+    assert registry.has_callbacks()
 
 
 def test_per_turn_hooks_registration():
@@ -556,7 +597,7 @@ def test_truncation_targets_oldest_message_first():
     ]
     test_agent = Agent(messages=messages)
 
-    manager.reduce_context(test_agent)
+    manager.reduce_context(test_agent, e=RuntimeError("context overflow"))
 
     # The oldest tool result (index 1) must be truncated
     oldest_text = messages[1]["content"][0]["toolResult"]["content"][0]["text"]
@@ -759,38 +800,24 @@ def test_window_size_zero_clears_on_overflow():
 
 
 # ==============================================================================
-# Compression Threshold Tests
+# Proactive Compression Tests (proactive_compression parameter)
 # ==============================================================================
 
 
 class _MinimalManager(ConversationManager):
-    """Manager that does NOT override reduce_on_threshold."""
-
-    def apply_management(self, agent, **kwargs):
-        pass
-
-    def reduce_context(self, agent, e=None, **kwargs):
-        pass
-
-
-class _ThresholdManager(ConversationManager):
-    """Manager that overrides reduce_on_threshold for testing."""
+    """Manager that only implements abstract methods."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.reduce_on_threshold_call_count = 0
+        self.reduce_context_call_count = 0
 
     def apply_management(self, agent, **kwargs):
         pass
 
     def reduce_context(self, agent, e=None, **kwargs):
-        pass
-
-    def reduce_on_threshold(self, agent, **kwargs):
-        self.reduce_on_threshold_call_count += 1
+        self.reduce_context_call_count += 1
         if agent.messages:
             agent.messages.pop(0)
-        return True
 
 
 def _make_mock_agent(messages=None, context_window_limit=1000):
@@ -809,57 +836,67 @@ def _make_threshold_event(agent, projected_input_tokens=None):
     )
 
 
-def test_compression_threshold_rejects_zero():
+def test_proactive_compression_rejects_zero():
     with pytest.raises(ValueError, match="compression_threshold must be between 0"):
-        _ThresholdManager(compression_threshold=0)
+        _MinimalManager(proactive_compression={"compression_threshold": 0})
 
 
-def test_compression_threshold_rejects_negative():
+def test_proactive_compression_rejects_negative():
     with pytest.raises(ValueError, match="compression_threshold must be between 0"):
-        _ThresholdManager(compression_threshold=-0.5)
+        _MinimalManager(proactive_compression={"compression_threshold": -0.5})
 
 
-def test_compression_threshold_rejects_greater_than_one():
+def test_proactive_compression_rejects_greater_than_one():
     with pytest.raises(ValueError, match="compression_threshold must be between 0"):
-        _ThresholdManager(compression_threshold=1.5)
+        _MinimalManager(proactive_compression={"compression_threshold": 1.5})
 
 
-def test_compression_threshold_accepts_exactly_one():
-    manager = _ThresholdManager(compression_threshold=1.0)
+def test_proactive_compression_accepts_exactly_one():
+    manager = _MinimalManager(proactive_compression={"compression_threshold": 1.0})
     assert manager._compression_threshold == 1.0
 
 
-def test_compression_threshold_none_by_default():
+def test_proactive_compression_none_by_default():
     manager = _MinimalManager()
     assert manager._compression_threshold is None
 
 
-def test_compression_threshold_registers_hook_when_override_present():
-    manager = _ThresholdManager(compression_threshold=0.7)
+def test_proactive_compression_true_uses_default_threshold():
+    """proactive_compression=True uses default threshold of 0.7."""
+    manager = _MinimalManager(proactive_compression=True)
+    assert manager._compression_threshold == 0.7
+
+
+def test_proactive_compression_false_disables():
+    """proactive_compression=False means no compression."""
+    manager = _MinimalManager(proactive_compression=False)
+    assert manager._compression_threshold is None
+
+
+def test_proactive_compression_always_registers_hook():
+    """Hook is always registered regardless of proactive_compression setting."""
+    manager = _MinimalManager()
     registry = HookRegistry()
     manager.register_hooks(registry)
+    # Always registers the hook
     assert registry.has_callbacks()
 
 
-def test_compression_threshold_no_hook_when_not_set():
-    manager = _ThresholdManager()
+def test_proactive_compression_hook_is_noop_when_not_configured():
+    """BeforeModelCallEvent handler is a no-op when proactive_compression is not set."""
+    manager = _MinimalManager()
+    agent = _make_mock_agent(context_window_limit=1000)
     registry = HookRegistry()
     manager.register_hooks(registry)
-    assert not registry.has_callbacks()
+
+    event = _make_threshold_event(agent, projected_input_tokens=900)
+    registry.invoke_callbacks(event)
+
+    assert manager.reduce_context_call_count == 0
 
 
-def test_compression_threshold_warns_when_no_override():
-    manager = _MinimalManager(compression_threshold=0.7)
-    registry = HookRegistry()
-    with patch("strands.agent.conversation_manager.conversation_manager.logger") as mock_logger:
-        manager.register_hooks(registry)
-        mock_logger.warning.assert_called_once()
-        assert "reduce_on_threshold is not implemented" in mock_logger.warning.call_args[0][0]
-    assert not registry.has_callbacks()
-
-
-def test_compression_threshold_calls_reduce_when_exceeded():
-    manager = _ThresholdManager(compression_threshold=0.7)
+def test_proactive_compression_calls_reduce_context_when_exceeded():
+    manager = _MinimalManager(proactive_compression={"compression_threshold": 0.7})
     agent = _make_mock_agent(messages=[{"role": "user", "content": [{"text": "msg"}]}], context_window_limit=1000)
     registry = HookRegistry()
     manager.register_hooks(registry)
@@ -867,11 +904,11 @@ def test_compression_threshold_calls_reduce_when_exceeded():
     event = _make_threshold_event(agent, projected_input_tokens=800)
     registry.invoke_callbacks(event)
 
-    assert manager.reduce_on_threshold_call_count == 1
+    assert manager.reduce_context_call_count == 1
 
 
-def test_compression_threshold_no_call_when_below():
-    manager = _ThresholdManager(compression_threshold=0.7)
+def test_proactive_compression_no_call_when_below():
+    manager = _MinimalManager(proactive_compression={"compression_threshold": 0.7})
     agent = _make_mock_agent(context_window_limit=1000)
     registry = HookRegistry()
     manager.register_hooks(registry)
@@ -879,11 +916,11 @@ def test_compression_threshold_no_call_when_below():
     event = _make_threshold_event(agent, projected_input_tokens=500)
     registry.invoke_callbacks(event)
 
-    assert manager.reduce_on_threshold_call_count == 0
+    assert manager.reduce_context_call_count == 0
 
 
-def test_compression_threshold_no_call_when_projected_tokens_none():
-    manager = _ThresholdManager(compression_threshold=0.7)
+def test_proactive_compression_no_call_when_projected_tokens_none():
+    manager = _MinimalManager(proactive_compression=True)
     agent = _make_mock_agent(context_window_limit=1000)
     registry = HookRegistry()
     manager.register_hooks(registry)
@@ -891,11 +928,11 @@ def test_compression_threshold_no_call_when_projected_tokens_none():
     event = _make_threshold_event(agent, projected_input_tokens=None)
     registry.invoke_callbacks(event)
 
-    assert manager.reduce_on_threshold_call_count == 0
+    assert manager.reduce_context_call_count == 0
 
 
-def test_compression_threshold_uses_default_when_context_window_limit_not_set():
-    manager = _ThresholdManager(compression_threshold=0.7)
+def test_proactive_compression_uses_default_when_context_window_limit_not_set():
+    manager = _MinimalManager(proactive_compression={"compression_threshold": 0.7})
     agent = _make_mock_agent(context_window_limit=None)
     registry = HookRegistry()
     manager.register_hooks(registry)
@@ -907,12 +944,12 @@ def test_compression_threshold_uses_default_when_context_window_limit_not_set():
         mock_logger.warning.assert_called_once()
         assert "using default" in mock_logger.warning.call_args[0][0]
 
-    assert manager.reduce_on_threshold_call_count == 1
+    assert manager.reduce_context_call_count == 1
 
 
-def test_compression_threshold_warns_only_once_per_instance():
+def test_proactive_compression_warns_only_once_per_instance():
     """Second invocation on the same manager instance suppresses the context_window_limit warning."""
-    manager = _ThresholdManager(compression_threshold=0.7)
+    manager = _MinimalManager(proactive_compression={"compression_threshold": 0.7})
     agent = _make_mock_agent(context_window_limit=None)
     registry = HookRegistry()
     manager.register_hooks(registry)
@@ -924,20 +961,17 @@ def test_compression_threshold_warns_only_once_per_instance():
         assert mock_logger.warning.call_count == 1
 
 
-def test_compression_threshold_exception_swallowed():
-    """Exceptions in reduce_on_threshold should not propagate from the hook."""
+def test_proactive_compression_exception_swallowed():
+    """Exceptions in reduce_context during proactive compression should not propagate."""
 
     class _FailingManager(ConversationManager):
         def apply_management(self, agent, **kwargs):
             pass
 
         def reduce_context(self, agent, e=None, **kwargs):
-            pass
-
-        def reduce_on_threshold(self, agent, **kwargs):
             raise RuntimeError("boom")
 
-    manager = _FailingManager(compression_threshold=0.7)
+    manager = _FailingManager(proactive_compression={"compression_threshold": 0.7})
     agent = _make_mock_agent(context_window_limit=1000)
     registry = HookRegistry()
     manager.register_hooks(registry)
@@ -946,8 +980,30 @@ def test_compression_threshold_exception_swallowed():
     registry.invoke_callbacks(event)
 
 
-def test_sliding_window_reduce_on_threshold_trims():
-    manager = SlidingWindowConversationManager(window_size=4, should_truncate_results=False, compression_threshold=0.7)
+def test_proactive_compression_true_default_threshold_behavior():
+    """proactive_compression=True uses 0.7 — triggered at 0.7+ but not below."""
+    manager = _MinimalManager(proactive_compression=True)
+    agent = _make_mock_agent(
+        messages=[{"role": "user", "content": [{"text": "msg"}]}], context_window_limit=1000
+    )
+    registry = HookRegistry()
+    manager.register_hooks(registry)
+
+    # 650/1000 = 0.65 < 0.7 — should NOT trigger
+    event = _make_threshold_event(agent, projected_input_tokens=650)
+    registry.invoke_callbacks(event)
+    assert manager.reduce_context_call_count == 0
+
+    # 800/1000 = 0.8 >= 0.7 — should trigger
+    event2 = _make_threshold_event(agent, projected_input_tokens=800)
+    registry.invoke_callbacks(event2)
+    assert manager.reduce_context_call_count == 1
+
+
+def test_sliding_window_proactive_compression_trims():
+    manager = SlidingWindowConversationManager(
+        window_size=4, should_truncate_results=False, proactive_compression={"compression_threshold": 0.7}
+    )
     messages = [
         {"role": "user", "content": [{"text": f"Message {i}"}]}
         if i % 2 == 0
@@ -964,8 +1020,10 @@ def test_sliding_window_reduce_on_threshold_trims():
     assert len(agent.messages) == 4
 
 
-def test_sliding_window_reduce_on_threshold_no_trim_below():
-    manager = SlidingWindowConversationManager(window_size=4, should_truncate_results=False, compression_threshold=0.7)
+def test_sliding_window_proactive_compression_no_trim_below():
+    manager = SlidingWindowConversationManager(
+        window_size=4, should_truncate_results=False, proactive_compression={"compression_threshold": 0.7}
+    )
     messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
         {"role": "assistant", "content": [{"text": "Hi"}]},

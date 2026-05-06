@@ -103,7 +103,7 @@ def test_init_clamps_summary_ratio():
 
 
 def test_reduce_context_raises_when_no_agent():
-    """Test that reduce_context raises exception when agent has no messages."""
+    """Test that reduce_context raises exception when agent has no messages (reactive mode)."""
     manager = SummarizingConversationManager()
 
     # Create a mock agent with no messages
@@ -111,8 +111,9 @@ def test_reduce_context_raises_when_no_agent():
     empty_messages: Messages = []
     mock_agent.messages = empty_messages
 
+    # Reactive mode (e is set) should raise
     with pytest.raises(ContextWindowOverflowException, match="insufficient messages for summarization"):
-        manager.reduce_context(mock_agent)
+        manager.reduce_context(mock_agent, e=RuntimeError("overflow"))
 
 
 def test_reduce_context_with_summarization(summarizing_manager, mock_agent):
@@ -157,8 +158,9 @@ def test_reduce_context_too_few_messages_raises_exception(summarizing_manager, m
     ]
     mock_agent.messages = insufficient_test_messages  # 5 messages, preserve_recent_messages=5, so nothing to summarize
 
+    # Reactive mode (e is set) should raise
     with pytest.raises(ContextWindowOverflowException, match="insufficient messages for summarization"):
-        manager.reduce_context(mock_agent)
+        manager.reduce_context(mock_agent, e=RuntimeError("overflow"))
 
 
 def test_reduce_context_insufficient_messages_for_summarization(mock_agent):
@@ -175,9 +177,9 @@ def test_reduce_context_insufficient_messages_for_summarization(mock_agent):
     ]
     mock_agent.messages = insufficient_messages
 
-    # This should raise an exception since there aren't enough messages to summarize
+    # Reactive mode (e is set) should raise
     with pytest.raises(ContextWindowOverflowException, match="insufficient messages for summarization"):
-        manager.reduce_context(mock_agent)
+        manager.reduce_context(mock_agent, e=RuntimeError("overflow"))
 
 
 def test_reduce_context_raises_on_summarization_failure():
@@ -199,8 +201,9 @@ def test_reduce_context_raises_on_summarization_failure():
     )
 
     with patch("strands.agent.conversation_manager.summarizing_conversation_manager.logger") as mock_logger:
+        # Reactive mode (e is set) should raise
         with pytest.raises(Exception, match="Agent failed"):
-            manager.reduce_context(failing_agent)
+            manager.reduce_context(failing_agent, e=RuntimeError("overflow"))
 
         # Should log the error
         mock_logger.error.assert_called_once()
@@ -677,9 +680,10 @@ def test_reduce_context_adjustment_returns_zero():
     ]
     mock_agent.messages = simple_messages
 
-    # The adjustment method will return 0, which should trigger line 122-123
+    # The adjustment method will return 0, which should trigger the <= 0 check
+    # Reactive mode (e is set) should raise
     with pytest.raises(ContextWindowOverflowException, match="insufficient messages for summarization"):
-        manager.reduce_context(mock_agent)
+        manager.reduce_context(mock_agent, e=RuntimeError("overflow"))
 
 
 def test_summarizing_conversation_manager_properly_records_removed_message_count():
@@ -820,11 +824,11 @@ def _make_summarizing_threshold_agent(messages, summary_response="Summary of con
     return agent
 
 
-def test_reduce_on_threshold_summarizes_when_exceeded():
+def test_proactive_compression_summarizes_when_exceeded():
     manager = SummarizingConversationManager(
         summary_ratio=0.5,
         preserve_recent_messages=2,
-        compression_threshold=0.7,
+        proactive_compression={"compression_threshold": 0.7},
     )
     messages = [
         {"role": "user", "content": [{"text": f"Message {i}"}]}
@@ -844,8 +848,8 @@ def test_reduce_on_threshold_summarizes_when_exceeded():
     assert agent.messages[0]["role"] == "user"
 
 
-def test_reduce_on_threshold_no_summarize_when_below():
-    manager = SummarizingConversationManager(compression_threshold=0.7)
+def test_proactive_compression_no_summarize_when_below():
+    manager = SummarizingConversationManager(proactive_compression={"compression_threshold": 0.7})
     messages = [
         {"role": "user", "content": [{"text": f"Message {i}"}]}
         if i % 2 == 0
@@ -862,11 +866,11 @@ def test_reduce_on_threshold_no_summarize_when_below():
     assert len(agent.messages) == 20
 
 
-def test_reduce_on_threshold_swallows_errors():
+def test_proactive_compression_swallows_errors():
     manager = SummarizingConversationManager(
         summary_ratio=0.5,
         preserve_recent_messages=2,
-        compression_threshold=0.7,
+        proactive_compression={"compression_threshold": 0.7},
     )
     messages = [
         {"role": "user", "content": [{"text": f"Message {i}"}]}
@@ -884,6 +888,6 @@ def test_reduce_on_threshold_swallows_errors():
     manager.register_hooks(registry)
 
     event = BeforeModelCallEvent(agent=agent, invocation_state={}, projected_input_tokens=800)
-    # Should not throw — reduce_on_threshold is best-effort
+    # Should not throw — proactive compression is best-effort
     registry.invoke_callbacks(event)
     assert len(agent.messages) == 20
