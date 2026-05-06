@@ -244,35 +244,35 @@ async def test_count_tokens_empty_messages(model):
 @pytest.mark.asyncio
 async def test_count_tokens_system_prompt_only(model):
     result = await model.count_tokens(messages=[], system_prompt="You are a helpful assistant.")
-    assert result == 6
+    assert result == 7  # ceil(28/4)
 
 
 @pytest.mark.asyncio
 async def test_count_tokens_text_messages(model, messages):
     result = await model.count_tokens(messages=messages)
-    assert result == 1  # "hello"
+    assert result == 2  # ceil(5/4)
 
 
 @pytest.mark.asyncio
 async def test_count_tokens_with_tool_specs(model, messages, tool_specs):
     without_tools = await model.count_tokens(messages=messages)
     with_tools = await model.count_tokens(messages=messages, tool_specs=tool_specs)
-    assert without_tools == 1  # "hello"
-    assert with_tools == 49  # "hello" (1) + tool_spec (48)
+    assert without_tools == 2  # ceil(5/4)
+    assert with_tools == 84  # ceil(5/4) + ceil(164/2)
 
 
 @pytest.mark.asyncio
 async def test_count_tokens_with_system_prompt(model, messages, system_prompt):
     without_prompt = await model.count_tokens(messages=messages)
     with_prompt = await model.count_tokens(messages=messages, system_prompt=system_prompt)
-    assert without_prompt == 1  # "hello"
-    assert with_prompt == 3  # "hello" (1) + "s1" (2)
+    assert without_prompt == 2  # ceil(5/4)
+    assert with_prompt == 3  # ceil(5/4) + ceil(2/4)
 
 
 @pytest.mark.asyncio
 async def test_count_tokens_combined(model, messages, tool_specs, system_prompt):
     result = await model.count_tokens(messages=messages, tool_specs=tool_specs, system_prompt=system_prompt)
-    assert result == 51  # "hello" (1) + tool_spec (48) + "s1" (2)
+    assert result == 85  # ceil(5/4) + ceil(164/2) + ceil(2/4)
 
 
 @pytest.mark.asyncio
@@ -292,8 +292,8 @@ async def test_count_tokens_tool_use_block(model):
         }
     ]
     result = await model.count_tokens(messages=messages)
-    # name "my_tool" (2) + json.dumps(input) (6) = 8
-    assert result == 8
+    # name "my_tool" ceil(7/4)=2 + json.dumps(input) ceil(17/2)=9 = 11
+    assert result == 11
 
 
 @pytest.mark.asyncio
@@ -313,7 +313,7 @@ async def test_count_tokens_tool_result_block(model):
         }
     ]
     result = await model.count_tokens(messages=messages)
-    assert result == 3  # "tool output here"
+    assert result == 4  # ceil(16/4)
 
 
 @pytest.mark.asyncio
@@ -333,7 +333,7 @@ async def test_count_tokens_reasoning_block(model):
         }
     ]
     result = await model.count_tokens(messages=messages)
-    assert result == 9  # "Let me think about this step by step."
+    assert result == 10  # ceil(37/4)
 
 
 @pytest.mark.asyncio
@@ -399,7 +399,7 @@ async def test_count_tokens_guard_content_block(model):
         }
     ]
     result = await model.count_tokens(messages=messages)
-    assert result == 8  # "This content was filtered by guardrails."
+    assert result == 10  # ceil(40/4)
 
 
 @pytest.mark.asyncio
@@ -420,7 +420,7 @@ async def test_count_tokens_tool_use_with_bytes(model):
     ]
     result = await model.count_tokens(messages=messages)
     # Should still count the tool name even though input has non-serializable bytes
-    assert result == 2  # "my_tool" name only
+    assert result == 2  # ceil(7/4) name only
 
 
 @pytest.mark.asyncio
@@ -434,7 +434,7 @@ async def test_count_tokens_non_serializable_tool_spec(model, messages):
     ]
     result = await model.count_tokens(messages=messages, tool_specs=tool_specs)
     # Should still count the message tokens even though tool spec fails
-    assert result == 1  # "hello" only, tool spec skipped
+    assert result == 2  # ceil(5/4) only, tool spec skipped
 
 
 @pytest.mark.asyncio
@@ -453,7 +453,7 @@ async def test_count_tokens_citations_block(model):
         }
     ]
     result = await model.count_tokens(messages=messages)
-    assert result == 11  # "According to the document, the answer is 42."
+    assert result == 11  # ceil(44/4)
 
 
 @pytest.mark.asyncio
@@ -462,7 +462,7 @@ async def test_count_tokens_system_prompt_content(model):
         messages=[],
         system_prompt_content=[{"text": "You are a helpful assistant."}],
     )
-    assert result == 6  # "You are a helpful assistant."
+    assert result == 7  # ceil(28/4)
 
 
 @pytest.mark.asyncio
@@ -474,7 +474,7 @@ async def test_count_tokens_system_prompt_content_with_cache_point(model):
             {"cachePoint": {"type": "default"}},
         ],
     )
-    assert result == 6  # "You are a helpful assistant.", cachePoint adds 0
+    assert result == 7  # ceil(28/4), cachePoint adds 0
 
 
 @pytest.mark.asyncio
@@ -489,7 +489,7 @@ async def test_count_tokens_system_prompt_content_takes_priority(model):
         system_prompt="This is a much longer system prompt that should have more tokens.",
         system_prompt_content=[{"text": "Short."}],
     )
-    assert content_only == 2  # "Short."
+    assert content_only == 2  # ceil(6/4)
     assert content_only == both
 
 
@@ -505,40 +505,9 @@ async def test_count_tokens_all_inputs(model):
         system_prompt="Be helpful.",
         system_prompt_content=[{"text": "Additional system context."}],
     )
-    # system_prompt_content (4) + "hello world" (2) + "hi there" (2) + tool_spec (23) = 31
-    assert result == 31
+    # system_prompt_content (7) + "hello world" (3) + "hi there" (2) + tool_spec (38) = 50
+    assert result == 50
 
-
-def test__get_encoding_falls_back_without_tiktoken(monkeypatch):
-    """Test that _get_encoding returns None and count_tokens falls back to heuristic."""
-    import strands.models.model as model_module
-
-    model_module._get_encoding.cache_clear()
-    original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
-
-    def _block_tiktoken(name, *args, **kwargs):
-        if name == "tiktoken":
-            raise ImportError("No module named 'tiktoken'")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr("builtins.__import__", _block_tiktoken)
-
-    try:
-        assert model_module._get_encoding() is None
-
-        # _estimate_tokens_with_tiktoken should raise when tiktoken is unavailable
-        with pytest.raises(ImportError):
-            model_module._estimate_tokens_with_tiktoken(
-                messages=[{"role": "user", "content": [{"text": "hello world!"}]}],
-            )
-
-        # _estimate_tokens_with_heuristic uses chars/4 for text
-        result = model_module._estimate_tokens_with_heuristic(
-            messages=[{"role": "user", "content": [{"text": "hello world!"}]}],
-        )
-        assert result == 3  # ceil(12 / 4)
-    finally:
-        model_module._get_encoding.cache_clear()
 
 
 class TestHeuristicEstimation:
@@ -592,22 +561,7 @@ class TestHeuristicEstimation:
         assert result == 2  # only tool name counted: ceil(len("my_tool") / 4)
 
     @pytest.mark.asyncio
-    async def test_model_falls_back_to_heuristic(self, monkeypatch, model):
-        """Model.count_tokens falls back to heuristic when tiktoken unavailable."""
-        import strands.models.model as model_module
-
-        model_module._get_encoding.cache_clear()
-        original_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
-
-        def _block_tiktoken(name, *args, **kwargs):
-            if name == "tiktoken":
-                raise ImportError("No module named 'tiktoken'")
-            return original_import(name, *args, **kwargs)
-
-        monkeypatch.setattr("builtins.__import__", _block_tiktoken)
-
-        try:
-            result = await model.count_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
-            assert result == 3  # ceil(12 / 4)
-        finally:
-            model_module._get_encoding.cache_clear()
+    async def test_model_uses_heuristic(self, model):
+        """Model.count_tokens uses heuristic estimation."""
+        result = await model.count_tokens(messages=[{"role": "user", "content": [{"text": "hello world!"}]}])
+        assert result == 3  # ceil(12 / 4)
