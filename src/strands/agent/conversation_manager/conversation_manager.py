@@ -1,13 +1,18 @@
 """Abstract interface for conversation history management."""
 
+import logging
+import warnings
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from ...hooks.events import AfterReduceContextEvent, BeforeReduceContextEvent
 from ...hooks.registry import HookProvider, HookRegistry
 from ...types.content import Message
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationManager(ABC, HookProvider):
@@ -24,6 +29,10 @@ class ConversationManager(ABC, HookProvider):
     lifecycle events. Derived classes that override register_hooks must call the base implementation to ensure proper
     hook registration.
 
+    Subclasses should override ``_reduce_context`` (not ``reduce_context``) to implement their reduction strategy.
+    The framework wraps ``_reduce_context`` with ``BeforeReduceContextEvent`` / ``AfterReduceContextEvent`` emission
+    automatically.
+
     Example:
         ```python
         class MyConversationManager(ConversationManager):
@@ -32,6 +41,21 @@ class ConversationManager(ABC, HookProvider):
                 # Register additional hooks here
         ```
     """
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Detect legacy subclasses that override reduce_context directly and re-wire them."""
+        super().__init_subclass__(**kwargs)
+        if "reduce_context" in cls.__dict__ and "_reduce_context" not in cls.__dict__:
+            warnings.warn(
+                f"{cls.__name__} overrides reduce_context() directly. "
+                f"This still works but the recommended pattern is to override _reduce_context(). "
+                f"Before/AfterReduceContextEvent will continue to fire because the framework "
+                f"wraps the override transparently.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            cls._reduce_context = cls.__dict__["reduce_context"]  # type: ignore[attr-defined]
+            del cls.reduce_context
 
     def __init__(self) -> None:
         """Initialize the ConversationManager.
@@ -97,12 +121,43 @@ class ConversationManager(ABC, HookProvider):
         """
         pass
 
-    @abstractmethod
     def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
-        """Called when the model's context window is exceeded.
+        """Reduce the conversation context, emitting Before/After hook events automatically.
 
-        This method should implement the specific strategy for reducing the window size when a context overflow occurs.
-        It is typically called after a ContextWindowOverflowException is caught.
+        This is a concrete template method. Subclasses should override ``_reduce_context`` instead.
+
+        Args:
+            agent: The agent whose conversation history will be reduced.
+            e: The exception that triggered the context reduction, if any.
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        message_count_before = len(agent.messages)
+        agent.hooks.invoke_callbacks(
+            BeforeReduceContextEvent(
+                agent=agent,
+                exception=e,
+                message_count=message_count_before,
+            )
+        )
+        self._reduce_context(agent, e=e, **kwargs)
+        message_count_after = len(agent.messages)
+        agent.hooks.invoke_callbacks(
+            AfterReduceContextEvent(
+                agent=agent,
+                exception=e,
+                messages_removed=message_count_before - message_count_after,
+                message_count_before=message_count_before,
+                message_count_after=message_count_after,
+            )
+        )
+
+    @abstractmethod
+    def _reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
+        """Subclass implementation of context reduction.
+
+        Called by the framework via ``reduce_context()``. Subclasses should not emit
+        ``BeforeReduceContextEvent`` / ``AfterReduceContextEvent`` themselves — the
+        framework does that automatically.
 
         Implementations might use strategies such as:
 

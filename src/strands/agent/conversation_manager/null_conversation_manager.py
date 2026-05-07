@@ -28,7 +28,7 @@ class NullConversationManager(ConversationManager):
         """
         pass
 
-    def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
+    def _reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Does not reduce context and raises an exception.
 
         Args:

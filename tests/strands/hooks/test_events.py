@@ -1,4 +1,4 @@
-"""Tests for multi-agent execution lifecycle events."""
+"""Tests for agent and multi-agent execution lifecycle events."""
 
 from unittest.mock import Mock
 
@@ -7,9 +7,12 @@ import pytest
 from strands.hooks import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
+    AfterReduceContextEvent,
     BaseHookEvent,
     BeforeMultiAgentInvocationEvent,
     BeforeNodeCallEvent,
+    BeforeReduceContextEvent,
+    HookEvent,
     MultiAgentInitializedEvent,
 )
 
@@ -105,3 +108,59 @@ def test_after_events_should_reverse_callbacks(orchestrator):
 
     assert after_node_event.should_reverse_callbacks is True
     assert after_invocation_event.should_reverse_callbacks is True
+
+
+@pytest.fixture
+def agent():
+    """Mock agent for testing."""
+    return Mock()
+
+
+def test_before_reduce_context_event_defaults(agent):
+    """BeforeReduceContextEvent has sensible defaults and inherits from HookEvent."""
+    event = BeforeReduceContextEvent(agent=agent)
+
+    assert event.agent is agent
+    assert event.exception is None
+    assert event.message_count == 0
+    assert event.should_reverse_callbacks is False
+    assert isinstance(event, HookEvent)
+
+
+def test_before_reduce_context_event_with_fields(agent):
+    """BeforeReduceContextEvent carries the trigger exception and message count."""
+    exc = RuntimeError("overflow")
+    event = BeforeReduceContextEvent(agent=agent, exception=exc, message_count=12)
+
+    assert event.exception is exc
+    assert event.message_count == 12
+
+
+def test_after_reduce_context_event_defaults(agent):
+    """AfterReduceContextEvent has sensible defaults and runs callbacks in reverse."""
+    event = AfterReduceContextEvent(agent=agent)
+
+    assert event.agent is agent
+    assert event.exception is None
+    assert event.messages_removed == 0
+    assert event.message_count_before == 0
+    assert event.message_count_after == 0
+    assert event.should_reverse_callbacks is True
+    assert isinstance(event, HookEvent)
+
+
+def test_after_reduce_context_event_with_fields(agent):
+    """AfterReduceContextEvent carries before/after counts and the original exception."""
+    exc = RuntimeError("overflow")
+    event = AfterReduceContextEvent(
+        agent=agent,
+        exception=exc,
+        messages_removed=3,
+        message_count_before=10,
+        message_count_after=7,
+    )
+
+    assert event.exception is exc
+    assert event.messages_removed == 3
+    assert event.message_count_before == 10
+    assert event.message_count_after == 7

@@ -308,6 +308,58 @@ class AfterModelCallEvent(HookEvent):
         return True
 
 
+@dataclass
+class BeforeReduceContextEvent(HookEvent):
+    """Event triggered before the agent's conversation context is reduced.
+
+    Fired whenever ``reduce_context()`` is about to run, regardless of trigger
+    (reactive overflow exception, proactive sliding-window overflow, or any
+    third-party manager's own logic).
+
+    Attributes:
+        exception: The exception that triggered context reduction, if any.
+            ``None`` when reduction was triggered proactively (e.g. sliding-window overflow).
+        message_count: The number of messages in the agent's conversation history
+            immediately before reduction is applied.
+    """
+
+    exception: Exception | None = None
+    message_count: int = 0
+
+
+@dataclass
+class AfterReduceContextEvent(HookEvent):
+    """Event triggered after the agent's conversation context has been reduced.
+
+    Fired only on successful completion of ``reduce_context()``. If the underlying
+    reduction raises, no ``AfterReduceContextEvent`` is emitted; the exception
+    propagates normally.
+
+    Note: This event uses reverse callback ordering, meaning callbacks registered
+    later will be invoked first during cleanup.
+
+    Attributes:
+        exception: The exception that triggered context reduction, if any.
+            ``None`` for proactive reductions.
+        messages_removed: Number of messages removed during this reduction
+            (``message_count_before - message_count_after``).
+        message_count_before: Number of messages in the conversation history before
+            reduction was applied.
+        message_count_after: Number of messages in the conversation history after
+            reduction completed.
+    """
+
+    exception: Exception | None = None
+    messages_removed: int = 0
+    message_count_before: int = 0
+    message_count_after: int = 0
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
+
+
 # Multiagent hook events start here
 @dataclass
 class MultiAgentInitializedEvent(BaseHookEvent):
