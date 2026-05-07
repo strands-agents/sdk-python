@@ -49,6 +49,8 @@ class _BidiAgentLoop:
         _invocation_state: Optional context to pass to tools during execution.
             This allows passing custom data (user_id, session_id, database connections, etc.)
             that tools can access via their invocation_state parameter.
+        _event_queue_size: Maximum size of the internal event queue. Controls backpressure
+            between the model receive loop and the output handler.
         _send_gate: Gate the sending of events to the model.
             Blocks when agent is reseting the model connection after timeout.
     """
@@ -65,6 +67,7 @@ class _BidiAgentLoop:
         self._started = False
         self._task_pool = _TaskPool()
         self._event_queue: asyncio.Queue
+        self._event_queue_size = agent._event_queue_size
         self._invocation_state: dict[str, Any]
 
         self._send_gate = asyncio.Event()
@@ -94,7 +97,7 @@ class _BidiAgentLoop:
             messages=self._agent.messages,
         )
 
-        self._event_queue = asyncio.Queue(maxsize=1)
+        self._event_queue = asyncio.Queue(maxsize=self._event_queue_size)
 
         self._task_pool = _TaskPool()
         self._task_pool.create(self._run_model())
