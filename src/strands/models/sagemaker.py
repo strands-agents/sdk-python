@@ -369,7 +369,10 @@ class SageMakerAIModel(OpenAIModel):
                             )
 
                         # Handle reasoning content
-                        if choice["delta"].get("reasoning_content"):
+                        # NOTE: Both `reasoning` and `reasoning_content` need to be handled as vLLM v0.16.0 deprecated
+                        # the `reasoning_content` in favour of `reasoning`
+                        # See https://github.com/vllm-project/vllm/pull/33402
+                        if any(k in choice["delta"] for k in {"reasoning_content", "reasoning"}):
                             if not reasoning_content_started:
                                 yield self.format_chunk(
                                     {"chunk_type": "content_start", "data_type": "reasoning_content"}
@@ -379,7 +382,7 @@ class SageMakerAIModel(OpenAIModel):
                                 {
                                     "chunk_type": "content_delta",
                                     "data_type": "reasoning_content",
-                                    "data": choice["delta"]["reasoning_content"],
+                                    "data": choice["delta"].get("reasoning_content", choice["delta"].get("reasoning")),
                                 }
                             )
 
