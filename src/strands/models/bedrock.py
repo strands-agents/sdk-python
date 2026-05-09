@@ -64,6 +64,12 @@ def _clear_unsupported_count_tokens_cache() -> None:
     _UNSUPPORTED_COUNT_TOKENS_MODELS.clear()
 
 
+def _suppress_task_exception(task: "asyncio.Task[None]") -> None:
+    """Consume exception from orphaned stream task to silence 'never retrieved' warning."""
+    if not task.cancelled():
+        task.exception()
+
+
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
@@ -898,14 +904,17 @@ class BedrockModel(Model):
         thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice)
         task = asyncio.create_task(thread)
 
-        while True:
-            event = await queue.get()
-            if event is None:
-                break
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
 
-            yield event
-
-        await task
+                yield event
+            await task
+        except BaseException:
+            task.add_done_callback(_suppress_task_exception)
+            raise
 
     def _stream(
         self,
