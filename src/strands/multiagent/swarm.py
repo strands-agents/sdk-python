@@ -14,7 +14,6 @@ Key Features:
 """
 
 import asyncio
-import copy
 import json
 import logging
 import time
@@ -54,6 +53,7 @@ from ..types.multiagent import MultiAgentInput
 from ..types.session import decode_bytes_values, encode_bytes_values
 from ..types.traces import AttributeValue
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
+from .graph import _copy_messages, _copy_model_state
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +74,9 @@ class SwarmNode:
     def __post_init__(self) -> None:
         """Capture initial executor state after initialization."""
         # Deep copy the initial messages and state to preserve them
-        self._initial_messages = copy.deepcopy(self.executor.messages)
+        self._initial_messages = _copy_messages(self.executor.messages)
         self._initial_state = AgentState(self.executor.state.get())
-        self._initial_model_state = copy.deepcopy(self.executor._model_state)
+        self._initial_model_state = _copy_model_state(self.executor._model_state)
 
     def __hash__(self) -> int:
         """Return hash for SwarmNode based on node_id."""
@@ -109,9 +109,9 @@ class SwarmNode:
             self.executor._model_state = context.get("model_state", {})
             return
 
-        self.executor.messages = copy.deepcopy(self._initial_messages)
+        self.executor.messages = _copy_messages(self._initial_messages)
         self.executor.state = AgentState(self._initial_state.get())
-        self.executor._model_state = copy.deepcopy(self._initial_model_state)
+        self.executor._model_state = _copy_model_state(self._initial_model_state)
 
 
 @dataclass

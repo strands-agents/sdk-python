@@ -2478,3 +2478,53 @@ def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
     ready = graph._find_newly_ready_nodes([node_d])
     ready_ids = {n.node_id for n in ready}
     assert ready_ids == {"E"}, f"Expected only E, got {ready_ids}"
+
+
+@pytest.mark.asyncio
+async def test_copy_messages_isolation():
+    """Test that _copy_messages produces an isolated copy.
+
+    The shallow copy must ensure that appending to the copy does not
+    affect the original, and that replacing values in copied message
+    dicts does not affect the original.
+    """
+    from strands.multiagent.graph import _copy_messages
+
+    original_messages = [
+        {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": "Hi"}]},
+    ]
+
+    copied = _copy_messages(original_messages)
+
+    # Appending to copy should not affect original
+    copied.append({"role": "user", "content": [{"type": "text", "text": "New"}]})
+    assert len(original_messages) == 2
+    assert len(copied) == 3
+
+    # Replacing a value in a copied message dict should not affect original
+    copied[0]["role"] = "system"
+    assert original_messages[0]["role"] == "user"
+
+
+@pytest.mark.asyncio
+async def test_copy_model_state_isolation():
+    """Test that _copy_model_state produces an isolated copy."""
+    from strands.multiagent.graph import _copy_model_state
+
+    original_state = {
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "tools": [{"name": "tool_1"}, {"name": "tool_2"}],
+    }
+
+    copied = _copy_model_state(original_state)
+
+    # Modifying scalar in copy should not affect original
+    copied["temperature"] = 0.9
+    assert original_state["temperature"] == 0.7
+
+    # Appending to tools in copy should not affect original
+    copied["tools"].append({"name": "tool_3"})
+    assert len(original_state["tools"]) == 2
+    assert len(copied["tools"]) == 3
