@@ -3130,7 +3130,7 @@ def test_inject_cache_point_dual_prefix_multi_turn(bedrock_client):
 
 
 def test_inject_cache_point_dual_prefix_single_user_message(bedrock_client):
-    """Test that anchor_first_message with a single user message only adds one cache point."""
+    """Test that anchor_first_message with a single user message adds both cache points."""
     model = BedrockModel(
         model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
         cache_config=CacheConfig(strategy="auto", anchor_first_message=True),
@@ -3142,9 +3142,10 @@ def test_inject_cache_point_dual_prefix_single_user_message(bedrock_client):
 
     model._inject_cache_point(cleaned_messages)
 
-    # Single user message: only one cache point (no duplicate)
-    assert len(cleaned_messages[0]["content"]) == 2
-    assert "cachePoint" in cleaned_messages[0]["content"][-1]
+    # Single user message gets both stable prefix and moving tail
+    assert len(cleaned_messages[0]["content"]) == 3
+    assert cleaned_messages[0]["content"][1] == {"cachePoint": {"type": "default"}}
+    assert cleaned_messages[0]["content"][2] == {"cachePoint": {"type": "default"}}
 
 
 def test_inject_cache_point_dual_prefix_strips_existing(bedrock_client):

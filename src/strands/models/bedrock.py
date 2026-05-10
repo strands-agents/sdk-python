@@ -412,11 +412,10 @@ class BedrockModel(Model):
             messages[first_user_idx]["content"].append({"cachePoint": {"type": "default"}})
             logger.debug("msg_idx=<%s> | added stable cache point to first user message", first_user_idx)
 
-        # Moving tail on last user message (skip if same as first to avoid duplicate)
+        # Moving tail on last user message
         if last_user_idx is not None and messages[last_user_idx].get("content"):
-            if not (anchor and last_user_idx == first_user_idx):
-                messages[last_user_idx]["content"].append({"cachePoint": {"type": "default"}})
-                logger.debug("msg_idx=<%s> | added moving tail cache point to last user message", last_user_idx)
+            messages[last_user_idx]["content"].append({"cachePoint": {"type": "default"}})
+            logger.debug("msg_idx=<%s> | added moving tail cache point to last user message", last_user_idx)
 
     def _find_last_user_text_message_index(self, messages: Messages) -> int | None:
         """Find the index of the last user message containing text or image content.
