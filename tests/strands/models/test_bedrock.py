@@ -3100,6 +3100,99 @@ def test_inject_cache_point_auto_strategy_resolves_to_anthropic_for_claude(bedro
     assert len(formatted[1]["content"]) == 1
 
 
+def test_inject_cache_point_dual_prefix_multi_turn(bedrock_client):
+    """Test that anchor_first_message adds cache points to both first and last user messages."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", anchor_first_message=True),
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there!"}]},
+        {"role": "user", "content": [{"text": "How are you?"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    # First user message should have stable prefix cache point
+    assert len(cleaned_messages[0]["content"]) == 2
+    assert "cachePoint" in cleaned_messages[0]["content"][-1]
+    assert cleaned_messages[0]["content"][-1]["cachePoint"]["type"] == "default"
+
+    # Assistant message should be unchanged
+    assert len(cleaned_messages[1]["content"]) == 1
+
+    # Last user message should have moving tail cache point
+    assert len(cleaned_messages[2]["content"]) == 2
+    assert "cachePoint" in cleaned_messages[2]["content"][-1]
+    assert cleaned_messages[2]["content"][-1]["cachePoint"]["type"] == "default"
+
+
+def test_inject_cache_point_dual_prefix_single_user_message(bedrock_client):
+    """Test that anchor_first_message with a single user message only adds one cache point."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", anchor_first_message=True),
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    # Single user message: only one cache point (no duplicate)
+    assert len(cleaned_messages[0]["content"]) == 2
+    assert "cachePoint" in cleaned_messages[0]["content"][-1]
+
+
+def test_inject_cache_point_dual_prefix_strips_existing(bedrock_client):
+    """Test that anchor_first_message strips existing cache points before adding dual prefixes."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto", anchor_first_message=True),
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}, {"cachePoint": {"type": "default"}}]},
+        {"role": "assistant", "content": [{"text": "Hi"}, {"cachePoint": {"type": "default"}}]},
+        {"role": "user", "content": [{"text": "Follow up"}, {"cachePoint": {"type": "default"}}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    # Old cache points stripped, new ones added at correct positions
+    assert len(cleaned_messages[0]["content"]) == 2  # text + stable prefix
+    assert cleaned_messages[0]["content"][-1] == {"cachePoint": {"type": "default"}}
+    assert len(cleaned_messages[1]["content"]) == 1  # assistant: only text
+    assert len(cleaned_messages[2]["content"]) == 2  # text + moving tail
+    assert cleaned_messages[2]["content"][-1] == {"cachePoint": {"type": "default"}}
+
+
+def test_inject_cache_point_without_anchor_no_stable_prefix(bedrock_client):
+    """Test that without anchor_first_message, only moving tail is added (backward compatible)."""
+    model = BedrockModel(
+        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
+        cache_config=CacheConfig(strategy="auto"),
+    )
+
+    cleaned_messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there!"}]},
+        {"role": "user", "content": [{"text": "How are you?"}]},
+    ]
+
+    model._inject_cache_point(cleaned_messages)
+
+    # First user message should NOT have a cache point
+    assert len(cleaned_messages[0]["content"]) == 1
+
+    # Last user message should have moving tail
+    assert len(cleaned_messages[2]["content"]) == 2
+    assert "cachePoint" in cleaned_messages[2]["content"][-1]
+
+
 def test_find_last_user_text_message_index_no_user_messages(bedrock_client):
     """Test _find_last_user_text_message_index returns None when no user text messages exist."""
     model = BedrockModel(model_id="test-model")

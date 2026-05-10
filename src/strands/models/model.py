@@ -134,9 +134,14 @@ class CacheConfig:
         strategy: Caching strategy to use.
             - "auto": Automatically detect model support and inject cachePoint to maximize cache coverage
             - "anthropic": Inject cachePoint in Anthropic-compatible format without model support check
+        anchor_first_message: When True, inject a stable cache prefix on the first user message in addition
+            to the moving tail on the last user message. The stable prefix covers system prompt + first user
+            message + tool descriptions and acts as a fallback when the moving tail is invalidated (e.g. by
+            context pruning or summarization). Defaults to False.
     """
 
     strategy: Literal["auto", "anthropic"] = "auto"
+    anchor_first_message: bool = False
 
 
 class Model(abc.ABC):

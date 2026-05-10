@@ -89,9 +89,7 @@ class ConversationManager(ABC, HookProvider):
             threshold = None
 
         if threshold is not None and (threshold <= 0 or threshold > 1):
-            raise ValueError(
-                f"compression_threshold must be between 0 (exclusive) and 1 (inclusive), got {threshold}"
-            )
+            raise ValueError(f"compression_threshold must be between 0 (exclusive) and 1 (inclusive), got {threshold}")
 
         self.removed_message_count = 0
         self._compression_threshold = threshold

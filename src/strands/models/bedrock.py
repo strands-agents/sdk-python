@@ -372,7 +372,14 @@ class BedrockModel(Model):
         return {"additionalModelRequestFields": additional_fields}
 
     def _inject_cache_point(self, messages: list[dict[str, Any]]) -> None:
-        """Inject a cache point at the end of the last user message.
+        """Inject cache points into user messages.
+
+        When anchor_first_message is enabled in cache_config, injects two cache points:
+        1. A stable prefix on the first user message (covers system prompt + first user message + tool descriptions)
+        2. A moving tail on the last user message (advances with the conversation)
+
+        The stable prefix acts as a fallback when the moving tail is invalidated (e.g. by context pruning
+        or summarization). When anchor_first_message is disabled (default), only the moving tail is injected.
 
         Args:
             messages: List of messages to inject cache point into (modified in place).
@@ -380,6 +387,7 @@ class BedrockModel(Model):
         if not messages:
             return
 
+        first_user_idx: int | None = None
         last_user_idx: int | None = None
         for msg_idx, msg in enumerate(messages):
             content = msg.get("content", [])
@@ -392,11 +400,23 @@ class BedrockModel(Model):
                         block_idx,
                     )
             if msg.get("role") == "user":
+                if first_user_idx is None:
+                    first_user_idx = msg_idx
                 last_user_idx = msg_idx
 
+        cache_config = self.config.get("cache_config")
+        anchor = cache_config and cache_config.anchor_first_message
+
+        # Stable prefix on first user message
+        if anchor and first_user_idx is not None and messages[first_user_idx].get("content"):
+            messages[first_user_idx]["content"].append({"cachePoint": {"type": "default"}})
+            logger.debug("msg_idx=<%s> | added stable cache point to first user message", first_user_idx)
+
+        # Moving tail on last user message (skip if same as first to avoid duplicate)
         if last_user_idx is not None and messages[last_user_idx].get("content"):
-            messages[last_user_idx]["content"].append({"cachePoint": {"type": "default"}})
-            logger.debug("msg_idx=<%s> | added cache point to last user message", last_user_idx)
+            if not (anchor and last_user_idx == first_user_idx):
+                messages[last_user_idx]["content"].append({"cachePoint": {"type": "default"}})
+                logger.debug("msg_idx=<%s> | added moving tail cache point to last user message", last_user_idx)
 
     def _find_last_user_text_message_index(self, messages: Messages) -> int | None:
         """Find the index of the last user message containing text or image content.
