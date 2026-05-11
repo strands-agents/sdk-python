@@ -6,11 +6,14 @@ plugins that have been initialized with an orchestrator instance.
 
 import logging
 import weakref
-from typing import Any
+from typing import TYPE_CHECKING
 
 from ..hooks.registry import HookRegistry
 from ._discovery import call_init_method, register_hooks
 from .multiagent_plugin import MultiAgentPlugin
+
+if TYPE_CHECKING:
+    from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
 
@@ -45,18 +48,26 @@ class _MultiAgentPluginRegistry:
         ```
     """
 
-    def __init__(self, orchestrator: Any) -> None:
+    def __init__(self, orchestrator: "MultiAgentBase") -> None:
         """Initialize a plugin registry with an orchestrator reference.
 
         Args:
             orchestrator: The orchestrator instance that plugins will be initialized with.
                 Must have a ``hooks`` attribute of type ``HookRegistry``.
+
+        Raises:
+            TypeError: If the orchestrator does not have a ``hooks`` attribute.
         """
+        if not hasattr(orchestrator, "hooks"):
+            raise TypeError(
+                f"{type(orchestrator).__name__} does not have a 'hooks' attribute; "
+                "plugins require an orchestrator with a HookRegistry"
+            )
         self._orchestrator_ref = weakref.ref(orchestrator)
         self._plugins: dict[str, MultiAgentPlugin] = {}
 
     @property
-    def _orchestrator(self) -> Any:
+    def _orchestrator(self) -> "MultiAgentBase":
         """Return the orchestrator, raising ReferenceError if it has been garbage collected."""
         orchestrator = self._orchestrator_ref()
         if orchestrator is None:
@@ -66,7 +77,7 @@ class _MultiAgentPluginRegistry:
     @property
     def _hook_registry(self) -> HookRegistry:
         """Return the orchestrator's hook registry."""
-        return self._orchestrator.hooks  # type: ignore[no-any-return]
+        return self._orchestrator.hooks  # type: ignore[attr-defined, no-any-return]
 
     def add_and_init(self, plugin: MultiAgentPlugin) -> None:
         """Add and initialize a plugin with the orchestrator.

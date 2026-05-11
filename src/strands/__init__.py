@@ -4,7 +4,7 @@ from . import agent, models, telemetry, types
 from .agent.agent import Agent
 from .agent.base import AgentBase
 from .event_loop._retry import ModelRetryStrategy
-from .plugins import Plugin
+from .plugins import MultiAgentPlugin, Plugin
 from .tools.decorator import tool
 from .types._snapshot import Snapshot
 from .types.tools import ToolContext
@@ -17,6 +17,7 @@ __all__ = [
     "agent",
     "models",
     "ModelRetryStrategy",
+    "MultiAgentPlugin",
     "Plugin",
     "Skill",
     "Snapshot",
