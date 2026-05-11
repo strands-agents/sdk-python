@@ -440,9 +440,9 @@ class Graph(MultiAgentBase):
         reset_on_revisit: bool = False,
         session_manager: SessionManager | None = None,
         hooks: list[HookProvider] | None = None,
-        plugins: list[MultiAgentPlugin] | None = None,
         id: str = _DEFAULT_GRAPH_ID,
         trace_attributes: Mapping[str, AttributeValue] | None = None,
+        plugins: list[MultiAgentPlugin] | None = None,
     ) -> None:
         """Initialize Graph with execution limits and reset behavior.
 
@@ -456,9 +456,9 @@ class Graph(MultiAgentBase):
             reset_on_revisit: Whether to reset node state when revisited (default: False)
             session_manager: Session manager for persisting graph state and execution history (default: None)
             hooks: List of hook providers for monitoring and extending graph execution behavior (default: None)
-            plugins: List of multi-agent plugins for extending graph behavior (default: None)
             id: Unique graph id (default: None)
             trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
+            plugins: List of multi-agent plugins for extending graph behavior (default: None)
         """
         super().__init__()
 

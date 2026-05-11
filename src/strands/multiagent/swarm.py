@@ -249,9 +249,9 @@ class Swarm(MultiAgentBase):
         repetitive_handoff_min_unique_agents: int = 0,
         session_manager: SessionManager | None = None,
         hooks: list[HookProvider] | None = None,
-        plugins: list[MultiAgentPlugin] | None = None,
         id: str = _DEFAULT_SWARM_ID,
         trace_attributes: Mapping[str, AttributeValue] | None = None,
+        plugins: list[MultiAgentPlugin] | None = None,
     ) -> None:
         """Initialize Swarm with agents and configuration.
 
@@ -269,8 +269,8 @@ class Swarm(MultiAgentBase):
                 Disabled by default (default: 0)
             session_manager: Session manager for persisting graph state and execution history (default: None)
             hooks: List of hook providers for monitoring and extending graph execution behavior (default: None)
-            plugins: List of multi-agent plugins for extending swarm behavior (default: None)
             trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
+            plugins: List of multi-agent plugins for extending swarm behavior (default: None)
         """
         super().__init__()
         self.id = id
