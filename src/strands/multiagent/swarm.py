@@ -34,7 +34,7 @@ from ..hooks.events import (
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
-from ..hooks.registry import HookProvider, HookRegistry
+from ..hooks.registry import HookCallback, HookProvider, HookRegistry
 from ..interrupt import Interrupt, _InterruptState
 from ..plugins.multiagent_plugin import MultiAgentPlugin
 from ..plugins.multiagent_registry import _MultiAgentPluginRegistry
@@ -313,6 +313,17 @@ class Swarm(MultiAgentBase):
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
         run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
+
+    def add_hook(self, callback: HookCallback, event_type: type | list[type] | None = None) -> None:
+        """Register a hook callback with the swarm.
+
+        Args:
+            callback: The callback function to invoke when events of this type occur.
+            event_type: The class type(s) of events this callback should handle.
+                Can be a single type, a list of types, or None to infer from
+                the callback's first parameter type hint.
+        """
+        self.hooks.add_callback(event_type, callback)
 
     def __call__(
         self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any

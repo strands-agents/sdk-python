@@ -8,8 +8,7 @@ import logging
 import weakref
 from typing import TYPE_CHECKING
 
-from ..hooks.registry import HookRegistry
-from ._discovery import call_init_method, register_hooks
+from ._discovery import call_init_method
 from .multiagent_plugin import MultiAgentPlugin
 
 if TYPE_CHECKING:
@@ -74,11 +73,6 @@ class _MultiAgentPluginRegistry:
             raise ReferenceError("Orchestrator has been garbage collected")
         return orchestrator
 
-    @property
-    def _hook_registry(self) -> HookRegistry:
-        """Return the orchestrator's hook registry."""
-        return self._orchestrator.hooks  # type: ignore[attr-defined, no-any-return]
-
     def add_and_init(self, plugin: MultiAgentPlugin) -> None:
         """Add and initialize a plugin with the orchestrator.
 
@@ -104,5 +98,25 @@ class _MultiAgentPluginRegistry:
         # Call user's init_multi_agent for custom initialization
         call_init_method(plugin.init_multi_agent, self._orchestrator)
 
-        # Auto-register discovered hooks with the orchestrator's hook registry
-        register_hooks(plugin.name, plugin.hooks, self._hook_registry)
+        # Auto-register discovered hooks with the orchestrator
+        self._register_hooks(plugin)
+
+    def _register_hooks(self, plugin: MultiAgentPlugin) -> None:
+        """Register all discovered hooks from the plugin with the orchestrator.
+
+        Uses orchestrator.add_hook() so that the orchestrator can track
+        registrations through its public API.
+
+        Args:
+            plugin: The plugin whose hooks should be registered.
+        """
+        for hook_callback in plugin.hooks:
+            event_types = getattr(hook_callback, "_hook_event_types", [])
+            for event_type in event_types:
+                self._orchestrator.add_hook(hook_callback, event_type)
+                logger.debug(
+                    "plugin=<%s>, hook=<%s>, event_type=<%s> | registered hook",
+                    plugin.name,
+                    getattr(hook_callback, "__name__", repr(hook_callback)),
+                    event_type.__name__,
+                )

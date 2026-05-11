@@ -228,3 +228,56 @@ def test_graph_builder_passes_plugins_to_graph(mock_graph_agent):
 
     assert init_called
     assert graph._plugin_registry is not None
+
+
+# --- add_hook method tests ---
+
+
+def test_swarm_add_hook_registers_callback(mock_swarm_agent):
+    """Test that Swarm.add_hook registers a callback directly."""
+    events_received = []
+
+    def on_before_node(event: BeforeNodeCallEvent):
+        events_received.append(event)
+
+    swarm = _make_swarm(mock_swarm_agent)
+    swarm.add_hook(on_before_node, BeforeNodeCallEvent)
+
+    assert len(swarm.hooks._registered_callbacks.get(BeforeNodeCallEvent, [])) == 1
+
+
+def test_graph_add_hook_registers_callback(mock_graph_agent):
+    """Test that Graph.add_hook registers a callback directly."""
+    events_received = []
+
+    def on_before_node(event: BeforeNodeCallEvent):
+        events_received.append(event)
+
+    graph = _make_graph(mock_graph_agent)
+    graph.add_hook(on_before_node, BeforeNodeCallEvent)
+
+    assert len(graph.hooks._registered_callbacks.get(BeforeNodeCallEvent, [])) == 1
+
+
+def test_swarm_add_hook_infers_event_type(mock_swarm_agent):
+    """Test that Swarm.add_hook can infer event type from type hint."""
+
+    def on_before_node(event: BeforeNodeCallEvent):
+        pass
+
+    swarm = _make_swarm(mock_swarm_agent)
+    swarm.add_hook(on_before_node)
+
+    assert len(swarm.hooks._registered_callbacks.get(BeforeNodeCallEvent, [])) == 1
+
+
+def test_graph_add_hook_infers_event_type(mock_graph_agent):
+    """Test that Graph.add_hook can infer event type from type hint."""
+
+    def on_before_node(event: BeforeNodeCallEvent):
+        pass
+
+    graph = _make_graph(mock_graph_agent)
+    graph.add_hook(on_before_node)
+
+    assert len(graph.hooks._registered_callbacks.get(BeforeNodeCallEvent, [])) == 1
