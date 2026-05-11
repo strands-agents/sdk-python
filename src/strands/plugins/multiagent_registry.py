@@ -52,16 +52,7 @@ class _MultiAgentPluginRegistry:
 
         Args:
             orchestrator: The orchestrator instance that plugins will be initialized with.
-                Must have a ``hooks`` attribute of type ``HookRegistry``.
-
-        Raises:
-            TypeError: If the orchestrator does not have a ``hooks`` attribute.
         """
-        if not hasattr(orchestrator, "hooks"):
-            raise TypeError(
-                f"{type(orchestrator).__name__} does not have a 'hooks' attribute; "
-                "plugins require an orchestrator with a HookRegistry"
-            )
         self._orchestrator_ref = weakref.ref(orchestrator)
         self._plugins: dict[str, MultiAgentPlugin] = {}
 

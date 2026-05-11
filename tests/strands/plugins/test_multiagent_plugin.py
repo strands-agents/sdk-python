@@ -498,17 +498,6 @@ def test_dual_plugin_tools_only_for_agent(mock_agent, mock_orchestrator):
     _MultiAgentPluginRegistry(mock_orchestrator).add_and_init(DualPlugin())
 
 
-# --- TypeError guard tests ---
-
-
-def test_registry_raises_type_error_if_orchestrator_missing_hooks():
-    """Test that _MultiAgentPluginRegistry raises TypeError if orchestrator has no hooks attribute."""
-    orchestrator_without_hooks = unittest.mock.MagicMock(spec=[])  # spec=[] means no attributes
-
-    with pytest.raises(TypeError, match="does not have a 'hooks' attribute"):
-        _MultiAgentPluginRegistry(orchestrator_without_hooks)
-
-
 # --- Double-discovery guard tests ---
 
 
