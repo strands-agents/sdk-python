@@ -409,8 +409,8 @@ class GraphBuilder:
             reset_on_revisit=self._reset_on_revisit,
             session_manager=self._session_manager,
             hooks=self._hooks,
-            plugins=self._plugins,
             id=self._id,
+            plugins=self._plugins,
         )
 
     def _validate_graph(self) -> None:

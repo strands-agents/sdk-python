@@ -496,3 +496,53 @@ def test_dual_plugin_tools_only_for_agent(mock_agent, mock_orchestrator):
 
     # Orchestrator has no tool registration
     _MultiAgentPluginRegistry(mock_orchestrator).add_and_init(DualPlugin())
+
+
+# --- TypeError guard tests ---
+
+
+def test_registry_raises_type_error_if_orchestrator_missing_hooks():
+    """Test that _MultiAgentPluginRegistry raises TypeError if orchestrator has no hooks attribute."""
+    orchestrator_without_hooks = unittest.mock.MagicMock(spec=[])  # spec=[] means no attributes
+
+    with pytest.raises(TypeError, match="does not have a 'hooks' attribute"):
+        _MultiAgentPluginRegistry(orchestrator_without_hooks)
+
+
+# --- Double-discovery guard tests ---
+
+
+def test_dual_plugin_hasattr_guard_prevents_double_discovery():
+    """Test that the hasattr guard in __init__ prevents hooks from being discovered twice."""
+
+    class DualPlugin(Plugin, MultiAgentPlugin):
+        name = "dual-plugin"
+
+        @hook
+        def shared_hook(self, event: BeforeNodeCallEvent):
+            pass
+
+    plugin = DualPlugin()
+    # If double-discovery occurred, we'd see 2 hooks instead of 1
+    assert len(plugin.hooks) == 1
+    assert plugin.hooks[0].__name__ == "shared_hook"
+
+
+def test_multiagent_plugin_hasattr_guard_with_pre_set_hooks():
+    """Test that MultiAgentPlugin.__init__ skips discovery if _hooks already set."""
+
+    class MyPlugin(MultiAgentPlugin):
+        name = "my-plugin"
+
+        def __init__(self):
+            # Pre-set _hooks before super().__init__
+            self._hooks = []
+            super().__init__()
+
+        @hook
+        def should_not_be_discovered(self, event: BeforeNodeCallEvent):
+            pass
+
+    plugin = MyPlugin()
+    # The guard should have skipped discovery since _hooks was already set
+    assert len(plugin.hooks) == 0
