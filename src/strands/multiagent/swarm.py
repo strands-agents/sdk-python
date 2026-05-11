@@ -36,6 +36,8 @@ from ..hooks.events import (
 )
 from ..hooks.registry import HookProvider, HookRegistry
 from ..interrupt import Interrupt, _InterruptState
+from ..plugins.multiagent_plugin import MultiAgentPlugin
+from ..plugins.multiagent_registry import _MultiAgentPluginRegistry
 from ..session import SessionManager
 from ..telemetry import get_tracer
 from ..tools.decorator import tool
@@ -247,6 +249,7 @@ class Swarm(MultiAgentBase):
         repetitive_handoff_min_unique_agents: int = 0,
         session_manager: SessionManager | None = None,
         hooks: list[HookProvider] | None = None,
+        plugins: list[MultiAgentPlugin] | None = None,
         id: str = _DEFAULT_SWARM_ID,
         trace_attributes: Mapping[str, AttributeValue] | None = None,
     ) -> None:
@@ -266,6 +269,7 @@ class Swarm(MultiAgentBase):
                 Disabled by default (default: 0)
             session_manager: Session manager for persisting graph state and execution history (default: None)
             hooks: List of hook providers for monitoring and extending graph execution behavior (default: None)
+            plugins: List of multi-agent plugins for extending swarm behavior (default: None)
             trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
         """
         super().__init__()
@@ -298,6 +302,11 @@ class Swarm(MultiAgentBase):
                 self.hooks.add_hook(hook)
         if self.session_manager:
             self.hooks.add_hook(self.session_manager)
+
+        self._plugin_registry = _MultiAgentPluginRegistry(self)
+        if plugins:
+            for plugin in plugins:
+                self._plugin_registry.add_and_init(plugin)
 
         self._resume_from_session = False
 

@@ -4,13 +4,11 @@ This module provides the _PluginRegistry class for tracking and managing
 plugins that have been initialized with an agent instance.
 """
 
-import inspect
 import logging
 import weakref
-from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-from .._async import run_async
+from ._discovery import call_init_method
 from .plugin import Plugin
 
 if TYPE_CHECKING:
@@ -91,13 +89,9 @@ class _PluginRegistry:
         self._plugins[plugin.name] = plugin
 
         # Call user's init_agent for custom initialization
-        if inspect.iscoroutinefunction(plugin.init_agent):
-            async_plugin_init = cast(Callable[..., Awaitable[None]], plugin.init_agent)
-            run_async(lambda: async_plugin_init(self._agent))
-        else:
-            plugin.init_agent(self._agent)
+        call_init_method(plugin.init_agent, self._agent)
 
-        # Auto-register discovered hooks with the agent's hook registry
+        # Auto-register discovered hooks with the agent
         self._register_hooks(plugin)
 
         # Auto-register discovered tools with the agent's tool registry
@@ -106,9 +100,8 @@ class _PluginRegistry:
     def _register_hooks(self, plugin: Plugin) -> None:
         """Register all discovered hooks from the plugin with the agent.
 
-        Warns if a hook callback is already registered for an event type,
-        which can happen when init_agent() manually registers a hook that
-        is also decorated with @hook.
+        Uses agent.add_hook() rather than the hook registry directly, so that
+        the agent can track registrations through its public API.
 
         Args:
             plugin: The plugin whose hooks should be registered.

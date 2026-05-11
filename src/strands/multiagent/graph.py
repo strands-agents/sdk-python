@@ -37,6 +37,8 @@ from ..hooks.events import (
 )
 from ..hooks.registry import HookProvider, HookRegistry
 from ..interrupt import Interrupt, _InterruptState
+from ..plugins.multiagent_plugin import MultiAgentPlugin
+from ..plugins.multiagent_registry import _MultiAgentPluginRegistry
 from ..session import SessionManager
 from ..telemetry import get_tracer
 from ..types._events import (
@@ -253,6 +255,7 @@ class GraphBuilder:
         self._id: str = _DEFAULT_GRAPH_ID
         self._session_manager: SessionManager | None = None
         self._hooks: list[HookProvider] | None = None
+        self._plugins: list[MultiAgentPlugin] | None = None
 
     def add_node(self, executor: AgentBase | MultiAgentBase, node_id: str | None = None) -> GraphNode:
         """Add an AgentBase or MultiAgentBase instance as a node to the graph."""
@@ -370,6 +373,15 @@ class GraphBuilder:
         self._hooks = hooks
         return self
 
+    def set_plugins(self, plugins: list[MultiAgentPlugin]) -> "GraphBuilder":
+        """Set plugins for the graph.
+
+        Args:
+            plugins: List of multi-agent plugins for extending graph behavior
+        """
+        self._plugins = plugins
+        return self
+
     def build(self) -> "Graph":
         """Build and validate the graph with configured settings."""
         if not self.nodes:
@@ -397,6 +409,7 @@ class GraphBuilder:
             reset_on_revisit=self._reset_on_revisit,
             session_manager=self._session_manager,
             hooks=self._hooks,
+            plugins=self._plugins,
             id=self._id,
         )
 
@@ -427,6 +440,7 @@ class Graph(MultiAgentBase):
         reset_on_revisit: bool = False,
         session_manager: SessionManager | None = None,
         hooks: list[HookProvider] | None = None,
+        plugins: list[MultiAgentPlugin] | None = None,
         id: str = _DEFAULT_GRAPH_ID,
         trace_attributes: Mapping[str, AttributeValue] | None = None,
     ) -> None:
@@ -442,6 +456,7 @@ class Graph(MultiAgentBase):
             reset_on_revisit: Whether to reset node state when revisited (default: False)
             session_manager: Session manager for persisting graph state and execution history (default: None)
             hooks: List of hook providers for monitoring and extending graph execution behavior (default: None)
+            plugins: List of multi-agent plugins for extending graph behavior (default: None)
             id: Unique graph id (default: None)
             trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
         """
@@ -468,6 +483,11 @@ class Graph(MultiAgentBase):
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
+
+        self._plugin_registry = _MultiAgentPluginRegistry(self)
+        if plugins:
+            for plugin in plugins:
+                self._plugin_registry.add_and_init(plugin)
 
         self._resume_next_nodes: list[GraphNode] = []
         self._resume_from_session = False
