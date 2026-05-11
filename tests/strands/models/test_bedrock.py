@@ -19,7 +19,7 @@ from strands.models.bedrock import (
     DEFAULT_BEDROCK_MODEL_ID,
     DEFAULT_BEDROCK_REGION,
     DEFAULT_READ_TIMEOUT,
-    _clear_unsupported_count_tokens_cache,
+    _clear_skip_count_tokens_cache,
 )
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from strands.types.tools import ToolSpec
@@ -3336,9 +3336,9 @@ class TestCountTokens:
 
     @pytest.fixture(autouse=True)
     def clean_cache(self):
-        _clear_unsupported_count_tokens_cache()
+        _clear_skip_count_tokens_cache()
         yield
-        _clear_unsupported_count_tokens_cache()
+        _clear_skip_count_tokens_cache()
 
     @pytest.fixture
     def model_with_client(self, bedrock_client, model_id):
@@ -3472,6 +3472,54 @@ class TestCountTokens:
         # Second call: skips API entirely
         await model.count_tokens(messages=messages)
         assert bedrock_client.count_tokens.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_caches_model_id_when_access_denied(self, bedrock_client, messages):
+        model = BedrockModel(model_id="access-denied-cache-test-model")
+        bedrock_client.count_tokens.side_effect = ClientError(
+            {
+                "Error": {
+                    "Code": "AccessDeniedException",
+                    "Message": "User: arn:aws:sts::123456789012:assumed-role/role is not authorized"
+                    " to perform: bedrock:CountTokens",
+                }
+            },
+            "CountTokens",
+        )
+
+        # First call: hits API, gets error, caches
+        await model.count_tokens(messages=messages)
+        bedrock_client.count_tokens.assert_called_once()
+
+        # Reset mock to clearly verify second call doesn't hit the API
+        bedrock_client.count_tokens.reset_mock()
+
+        # Second call: skips API entirely due to caching
+        result = await model.count_tokens(messages=messages)
+        bedrock_client.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_access_denied_logs_warning_with_full_error(
+        self, model_with_client, bedrock_client, messages, caplog
+    ):
+        error_message = (
+            "User: arn:aws:sts::123456789012:assumed-role/role is not authorized"
+            " to perform: bedrock:CountTokens"
+        )
+        bedrock_client.count_tokens.side_effect = ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": error_message}},
+            "CountTokens",
+        )
+
+        with caplog.at_level(logging.WARNING, logger="strands.models.bedrock"):
+            await model_with_client.count_tokens(messages=messages)
+
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warning_records) == 1
+        assert "bedrock:CountTokens permission denied" in warning_records[0].message
+        assert error_message in warning_records[0].message
 
     @pytest.mark.asyncio
     async def test_does_not_cache_model_id_for_other_errors(self, bedrock_client, messages):

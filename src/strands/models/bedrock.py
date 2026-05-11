@@ -55,13 +55,13 @@ _MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
 ]
 
-# Cache of model IDs that do not support the CountTokens API.
-_UNSUPPORTED_COUNT_TOKENS_MODELS: set[str] = set()
+# Cache of model IDs for which CountTokens API calls should be skipped.
+_SKIP_COUNT_TOKENS_MODELS: set[str] = set()
 
 
-def _clear_unsupported_count_tokens_cache() -> None:
-    """Clear the cache of model IDs that do not support the CountTokens API."""
-    _UNSUPPORTED_COUNT_TOKENS_MODELS.clear()
+def _clear_skip_count_tokens_cache() -> None:
+    """Clear the cache of model IDs for which CountTokens API calls should be skipped."""
+    _SKIP_COUNT_TOKENS_MODELS.clear()
 
 
 T = TypeVar("T", bound=BaseModel)
@@ -803,7 +803,7 @@ class BedrockModel(Model):
 
         model_id: str = self.config["model_id"]
 
-        if model_id in _UNSUPPORTED_COUNT_TOKENS_MODELS:
+        if model_id in _SKIP_COUNT_TOKENS_MODELS:
             return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
         try:
@@ -834,6 +834,17 @@ class BedrockModel(Model):
         except Exception as e:
             if (
                 isinstance(e, ClientError)
+                and e.response.get("Error", {}).get("Code") == "AccessDeniedException"
+            ):
+                logger.warning(
+                    "model_id=<%s> | bedrock:CountTokens permission denied,"
+                    " falling back to heuristic estimation: %s",
+                    model_id,
+                    e,
+                )
+                _SKIP_COUNT_TOKENS_MODELS.add(model_id)
+            elif (
+                isinstance(e, ClientError)
                 and e.response.get("Error", {}).get("Code") == "ValidationException"
                 and "doesn't support counting tokens" in str(e)
             ):
@@ -842,7 +853,7 @@ class BedrockModel(Model):
                     " falling back to estimation",
                     model_id,
                 )
-                _UNSUPPORTED_COUNT_TOKENS_MODELS.add(model_id)
+                _SKIP_COUNT_TOKENS_MODELS.add(model_id)
             else:
                 logger.debug(
                     "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
