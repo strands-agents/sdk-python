@@ -267,7 +267,7 @@ class MultiAgentBase(ABC):
                 Can be a single type, a list of types, or None to infer from
                 the callback's first parameter type hint.
         """
-        raise NotImplementedError
+        raise NotImplementedError(f"{type(self).__name__} must implement add_hook() to support plugins")
 
     def _parse_trace_attributes(
         self, attributes: Mapping[str, AttributeValue] | None = None

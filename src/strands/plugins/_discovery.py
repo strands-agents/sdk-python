@@ -11,7 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
 from .._async import run_async
-from ..hooks.registry import HookCallback, HookRegistry
+from ..hooks.registry import HookCallback
 from ..tools.decorator import DecoratedFunctionTool
 
 logger = logging.getLogger(__name__)
@@ -99,21 +99,3 @@ def call_init_method(init_method: Callable[..., Any], target: Any) -> None:
         init_method(target)
 
 
-def register_hooks(plugin_name: str, hooks: list[HookCallback], registry: HookRegistry) -> None:
-    """Register discovered hook callbacks with a hook registry.
-
-    Args:
-        plugin_name: The plugin name (used for debug logging).
-        hooks: List of hook callbacks to register.
-        registry: The HookRegistry to register callbacks with.
-    """
-    for hook_callback in hooks:
-        event_types = getattr(hook_callback, "_hook_event_types", [])
-        for event_type in event_types:
-            registry.add_callback(event_type, hook_callback)
-            logger.debug(
-                "plugin=<%s>, hook=<%s>, event_type=<%s> | registered hook",
-                plugin_name,
-                getattr(hook_callback, "__name__", repr(hook_callback)),
-                event_type.__name__,
-            )
