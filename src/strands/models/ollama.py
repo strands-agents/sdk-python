@@ -280,7 +280,7 @@ class OllamaModel(Model):
                             "totalTokens": event["data"].eval_count + event["data"].prompt_eval_count,
                         },
                         "metrics": {
-                            "latencyMs": event["data"].total_duration / 1e6,
+                            "latencyMs": int(event["data"].total_duration / 1e6),
                         },
                     },
                 }
