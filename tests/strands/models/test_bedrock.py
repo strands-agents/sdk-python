@@ -3343,7 +3343,7 @@ class TestCountTokens:
     @pytest.fixture
     def model_with_client(self, bedrock_client, model_id):
         _ = bedrock_client
-        return BedrockModel(model_id=model_id)
+        return BedrockModel(model_id=model_id, use_native_token_count=True)
 
     @pytest.fixture
     def messages(self):
@@ -3459,7 +3459,7 @@ class TestCountTokens:
 
     @pytest.mark.asyncio
     async def test_caches_model_id_when_count_tokens_unsupported(self, bedrock_client, messages):
-        model = BedrockModel(model_id="unsupported-cache-test-model")
+        model = BedrockModel(model_id="unsupported-cache-test-model", use_native_token_count=True)
         bedrock_client.count_tokens.side_effect = ClientError(
             {"Error": {"Code": "ValidationException", "Message": "The provided model doesn't support counting tokens"}},
             "CountTokens",
@@ -3475,7 +3475,7 @@ class TestCountTokens:
 
     @pytest.mark.asyncio
     async def test_caches_model_id_when_access_denied(self, bedrock_client, messages):
-        model = BedrockModel(model_id="access-denied-cache-test-model")
+        model = BedrockModel(model_id="access-denied-cache-test-model", use_native_token_count=True)
         bedrock_client.count_tokens.side_effect = ClientError(
             {
                 "Error": {
@@ -3523,7 +3523,7 @@ class TestCountTokens:
 
     @pytest.mark.asyncio
     async def test_does_not_cache_model_id_for_other_errors(self, bedrock_client, messages):
-        model = BedrockModel(model_id="transient-error-test-model")
+        model = BedrockModel(model_id="transient-error-test-model", use_native_token_count=True)
         bedrock_client.count_tokens.side_effect = RuntimeError("Transient network error")
 
         await model.count_tokens(messages=messages)
@@ -3537,6 +3537,17 @@ class TestCountTokens:
     async def test_skip_native_api_when_use_native_token_count_false(self, bedrock_client, model_id, messages):
         _ = bedrock_client
         model = BedrockModel(model_id=model_id, use_native_token_count=False)
+
+        result = await model.count_tokens(messages=messages)
+
+        bedrock_client.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_by_default(self, bedrock_client, model_id, messages):
+        _ = bedrock_client
+        model = BedrockModel(model_id=model_id)
 
         result = await model.count_tokens(messages=messages)
 
