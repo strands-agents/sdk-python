@@ -389,7 +389,10 @@ class SageMakerAIModel(OpenAIModel):
                                 {
                                     "chunk_type": "content_delta",
                                     "data_type": "reasoning_content",
-                                    "data": choice["delta"].get("reasoning_content", choice["delta"].get("reasoning")),
+                                    # SAFETY: Here we guarantee that at least one of `reasoning` or `reasoning_content`
+                                    # is not None and a  non-empty string
+                                    "data": choice["delta"].get("reasoning_content")
+                                    or choice["delta"].get("reasoning"),
                                 }
                             )
 
