@@ -450,9 +450,12 @@ class Swarm(MultiAgentBase):
             except asyncio.TimeoutError as err:
                 raise Exception(timeout_message) from err
         else:
-            start_time = asyncio.get_event_loop().time()
+            # Python 3.10 fallback: timeout is only checked between yielded events.
+            # A generator that hangs mid-await won't be interrupted until the next event.
+            # Remove once Python 3.10 support is dropped (Oct 2026).
+            start_time = asyncio.get_running_loop().time()
             async for event in async_generator:
-                elapsed = asyncio.get_event_loop().time() - start_time
+                elapsed = asyncio.get_running_loop().time() - start_time
                 if elapsed > timeout:
                     raise Exception(timeout_message)
                 yield event
