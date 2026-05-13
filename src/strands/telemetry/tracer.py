@@ -25,6 +25,8 @@ from ..types.traces import Attributes, AttributeValue
 
 logger = logging.getLogger(__name__)
 
+REDACTED_VALUE = "<Redacted>"
+
 
 class JSONEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles non-serializable types."""
@@ -85,6 +87,10 @@ class Tracer:
 
     Both attributes are controlled by including "gen_ai_latest_experimental", "gen_ai_tool_definitions",
     or "gen_ai_use_latest_invocation_tokens", respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
+
+    Span attribute redaction is opt-in via the ``gen_ai_unredacted_attributes=<list>`` token in the same
+    environment variable. The list uses ``;`` as a separator and supports trailing-``*`` glob patterns.
+    When the token is absent, all attributes are emitted unredacted (backward compatible).
     """
 
     def __init__(self) -> None:
@@ -96,20 +102,77 @@ class Tracer:
         ThreadingInstrumentor().instrument()
 
         # Read OTEL_SEMCONV_STABILITY_OPT_IN environment variable
-        opt_in_values = self._parse_semconv_opt_in()
+        opt_in_values, opt_in_kv = self._parse_semconv_opt_in()
         ## To-do: should not set below attributes directly, use env var instead
         self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
         self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
         self._use_latest_invocation_tokens = "gen_ai_use_latest_invocation_tokens" in opt_in_values
 
-    def _parse_semconv_opt_in(self) -> set[str]:
+        self._redaction_enabled = "gen_ai_unredacted_attributes" in opt_in_kv
+        self._unredacted_exact, self._unredacted_globs = self._compile_unredacted_patterns(
+            opt_in_kv.get("gen_ai_unredacted_attributes", "")
+        )
+
+    def _parse_semconv_opt_in(self) -> tuple[set[str], dict[str, str]]:
         """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
 
+        Tokens are comma-separated. A token is either a bare flag (e.g. ``gen_ai_latest_experimental``)
+        or a ``key=value`` pair (e.g. ``gen_ai_unredacted_attributes=gen_ai.input.message;gen_ai.output.*``).
+
         Returns:
-            A set of opt-in values from the environment variable.
+            A tuple of (bare-flag set, key/value mapping). Both views always include the bare key for
+            ``key=value`` tokens so that existing membership checks keep working.
         """
         opt_in_env = os.getenv("OTEL_SEMCONV_STABILITY_OPT_IN", "")
-        return {value.strip() for value in opt_in_env.split(",")}
+        flags: set[str] = set()
+        kv: dict[str, str] = {}
+        for raw in opt_in_env.split(","):
+            token = raw.strip()
+            if not token:
+                continue
+            if "=" in token:
+                key, _, value = token.partition("=")
+                key = key.strip()
+                if key:
+                    kv[key] = value.strip()
+                    flags.add(key)
+            else:
+                flags.add(token)
+        return flags, kv
+
+    @staticmethod
+    def _compile_unredacted_patterns(value: str) -> tuple[frozenset[str], tuple[str, ...]]:
+        """Split an unredacted-attributes value into exact names and glob prefixes.
+
+        Globs are limited to a single trailing ``*`` (e.g. ``gen_ai.output.*``). Empty entries are
+        ignored, which is how a value like ``gen_ai_unredacted_attributes=`` resolves to "redact
+        everything sensitive".
+        """
+        exact: set[str] = set()
+        globs: list[str] = []
+        for raw in value.split(";"):
+            entry = raw.strip()
+            if not entry:
+                continue
+            if entry.endswith("*"):
+                globs.append(entry[:-1])
+            else:
+                exact.add(entry)
+        return frozenset(exact), tuple(globs)
+
+    def _is_attribute_unredacted(self, attribute_name: str) -> bool:
+        """Return True if the attribute should be emitted as-is, False if it must be redacted."""
+        if not self._redaction_enabled:
+            return True
+        if attribute_name in self._unredacted_exact:
+            return True
+        return any(attribute_name.startswith(prefix) for prefix in self._unredacted_globs)
+
+    def _redact(self, attribute_name: str, value: AttributeValue) -> AttributeValue:
+        """Apply the redaction policy to a single attribute value."""
+        if self._is_attribute_unredacted(attribute_name):
+            return value
+        return REDACTED_VALUE
 
     @property
     def is_langfuse(self) -> bool:
@@ -352,27 +415,29 @@ class Tracer:
         self._add_optional_usage_and_metrics_attributes(attributes, usage, metrics)
 
         if self.use_latest_genai_conventions:
+            output_messages = serialize(
+                [
+                    {
+                        "role": message["role"],
+                        "parts": self._map_content_blocks_to_otel_parts(message["content"]),
+                        "finish_reason": str(stop_reason),
+                    }
+                ]
+            )
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {
-                    "gen_ai.output.messages": serialize(
-                        [
-                            {
-                                "role": message["role"],
-                                "parts": self._map_content_blocks_to_otel_parts(message["content"]),
-                                "finish_reason": str(stop_reason),
-                            }
-                        ]
-                    ),
-                },
+                {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
                 to_span_attributes=self.is_langfuse,
             )
         else:
             self._add_event(
                 span,
                 "gen_ai.choice",
-                event_attributes={"finish_reason": str(stop_reason), "message": serialize(message["content"])},
+                event_attributes={
+                    "finish_reason": str(stop_reason),
+                    "message": self._redact("gen_ai.output.messages", serialize(message["content"])),
+                },
             )
 
         self._end_span(span, attributes)
@@ -412,26 +477,25 @@ class Tracer:
         span = self._start_span(span_name, parent_span, attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL)
 
         if self.use_latest_genai_conventions:
+            input_messages = serialize(
+                [
+                    {
+                        "role": "tool",
+                        "parts": [
+                            {
+                                "type": "tool_call",
+                                "name": tool["name"],
+                                "id": tool["toolUseId"],
+                                "arguments": tool["input"],
+                            }
+                        ],
+                    }
+                ]
+            )
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {
-                    "gen_ai.input.messages": serialize(
-                        [
-                            {
-                                "role": "tool",
-                                "parts": [
-                                    {
-                                        "type": "tool_call",
-                                        "name": tool["name"],
-                                        "id": tool["toolUseId"],
-                                        "arguments": tool["input"],
-                                    }
-                                ],
-                            }
-                        ]
-                    )
-                },
+                {"gen_ai.input.messages": self._redact("gen_ai.input.messages", input_messages)},
                 to_span_attributes=self.is_langfuse,
             )
         else:
@@ -440,7 +504,7 @@ class Tracer:
                 "gen_ai.tool.message",
                 event_attributes={
                     "role": "tool",
-                    "content": serialize(tool["input"]),
+                    "content": self._redact("gen_ai.input.messages", serialize(tool["input"])),
                     "id": tool["toolUseId"],
                 },
             )
@@ -465,25 +529,24 @@ class Tracer:
             attributes["gen_ai.tool.status"] = str(status) if status is not None else ""
 
             if self.use_latest_genai_conventions:
+                output_messages = serialize(
+                    [
+                        {
+                            "role": "tool",
+                            "parts": [
+                                {
+                                    "type": "tool_call_response",
+                                    "id": tool_result.get("toolUseId", ""),
+                                    "response": content,
+                                }
+                            ],
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": "tool",
-                                    "parts": [
-                                        {
-                                            "type": "tool_call_response",
-                                            "id": tool_result.get("toolUseId", ""),
-                                            "response": content,
-                                        }
-                                    ],
-                                }
-                            ]
-                        )
-                    },
+                    {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
                     to_span_attributes=self.is_langfuse,
                 )
             else:
@@ -491,7 +554,7 @@ class Tracer:
                     span,
                     "gen_ai.choice",
                     event_attributes={
-                        "message": serialize(content),
+                        "message": self._redact("gen_ai.output.messages", serialize(content)),
                         "id": tool_result.get("toolUseId", ""),
                     },
                 )
@@ -559,25 +622,28 @@ class Tracer:
         if not span or not span.is_recording():
             return
 
-        event_attributes: dict[str, AttributeValue] = {"message": serialize(message["content"])}
+        event_attributes: dict[str, AttributeValue] = {
+            "message": self._redact("gen_ai.output.messages", serialize(message["content"])),
+        }
 
         if tool_result_message:
-            event_attributes["tool.result"] = serialize(tool_result_message["content"])
+            event_attributes["tool.result"] = self._redact(
+                "gen_ai.output.messages", serialize(tool_result_message["content"])
+            )
 
             if self.use_latest_genai_conventions:
+                output_messages = serialize(
+                    [
+                        {
+                            "role": tool_result_message["role"],
+                            "parts": self._map_content_blocks_to_otel_parts(tool_result_message["content"]),
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": tool_result_message["role"],
-                                    "parts": self._map_content_blocks_to_otel_parts(tool_result_message["content"]),
-                                }
-                            ]
-                        )
-                    },
+                    {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
                     to_span_attributes=self.is_langfuse,
                 )
             else:
@@ -661,27 +727,29 @@ class Tracer:
 
         if response:
             if self.use_latest_genai_conventions:
+                output_messages = serialize(
+                    [
+                        {
+                            "role": "assistant",
+                            "parts": [{"type": "text", "content": str(response)}],
+                            "finish_reason": str(response.stop_reason),
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": "assistant",
-                                    "parts": [{"type": "text", "content": str(response)}],
-                                    "finish_reason": str(response.stop_reason),
-                                }
-                            ]
-                        )
-                    },
+                    {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
                     to_span_attributes=self.is_langfuse,
                 )
             else:
                 self._add_event(
                     span,
                     "gen_ai.choice",
-                    event_attributes={"message": str(response), "finish_reason": str(response.stop_reason)},
+                    event_attributes={
+                        "message": self._redact("gen_ai.output.messages", str(response)),
+                        "finish_reason": str(response.stop_reason),
+                    },
                 )
 
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
@@ -750,17 +818,19 @@ class Tracer:
                 parts = self._map_content_blocks_to_otel_parts(task)
             else:
                 parts = [{"type": "text", "content": task}]
+            input_messages = serialize([{"role": "user", "parts": parts}])
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {"gen_ai.input.messages": serialize([{"role": "user", "parts": parts}])},
+                {"gen_ai.input.messages": self._redact("gen_ai.input.messages", input_messages)},
                 to_span_attributes=self.is_langfuse,
             )
         else:
+            content_value = serialize(task) if isinstance(task, list) else task
             self._add_event(
                 span,
                 "gen_ai.user.message",
-                event_attributes={"content": serialize(task) if isinstance(task, list) else task},
+                event_attributes={"content": self._redact("gen_ai.input.messages", content_value)},
             )
 
         return span
@@ -773,26 +843,25 @@ class Tracer:
         """End a swarm span with results."""
         if result:
             if self.use_latest_genai_conventions:
+                output_messages = serialize(
+                    [
+                        {
+                            "role": "assistant",
+                            "parts": [{"type": "text", "content": result}],
+                        }
+                    ]
+                )
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {
-                        "gen_ai.output.messages": serialize(
-                            [
-                                {
-                                    "role": "assistant",
-                                    "parts": [{"type": "text", "content": result}],
-                                }
-                            ]
-                        )
-                    },
+                    {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
                     to_span_attributes=self.is_langfuse,
                 )
             else:
                 self._add_event(
                     span,
                     "gen_ai.choice",
-                    event_attributes={"message": result},
+                    event_attributes={"message": self._redact("gen_ai.output.messages", result)},
                 )
 
     def _get_common_attributes(
@@ -852,14 +921,14 @@ class Tracer:
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {"gen_ai.system_instructions": serialize(parts)},
+                {"gen_ai.system_instructions": self._redact("gen_ai.system_instructions", serialize(parts))},
                 to_span_attributes=self.is_langfuse,
             )
         else:
             self._add_event(
                 span,
                 "gen_ai.system.message",
-                {"content": serialize(content_blocks)},
+                {"content": self._redact("gen_ai.system_instructions", serialize(content_blocks))},
             )
 
     def _add_event_messages(self, span: Span, messages: Messages) -> None:
@@ -878,7 +947,7 @@ class Tracer:
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {"gen_ai.input.messages": serialize(input_messages)},
+                {"gen_ai.input.messages": self._redact("gen_ai.input.messages", serialize(input_messages))},
                 to_span_attributes=self.is_langfuse,
             )
         else:
@@ -886,7 +955,7 @@ class Tracer:
                 self._add_event(
                     span,
                     self._get_event_name_for_message(message),
-                    {"content": serialize(message["content"])},
+                    {"content": self._redact("gen_ai.input.messages", serialize(message["content"]))},
                 )
 
     def _map_content_blocks_to_otel_parts(
