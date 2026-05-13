@@ -8,7 +8,7 @@ utilities for plugin initialization and hook registration.
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 from .._async import run_async
 from ..hooks.registry import HookCallback
@@ -16,12 +16,47 @@ from ..tools.decorator import DecoratedFunctionTool
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T")
+
+
+def _discover_methods(instance: object, plugin_name: str, predicate: Callable[[object], bool], label: str) -> list[Any]:
+    """Scan an instance's class hierarchy for methods matching a predicate.
+
+    Walks the MRO in reverse so parent class methods come first, but child
+    overrides win (only the child's version is included).
+
+    Args:
+        instance: The plugin instance to scan.
+        plugin_name: The plugin name (used for debug logging).
+        predicate: Function that returns True for attributes to collect.
+        label: Label for debug logging (e.g., "hook", "tool").
+
+    Returns:
+        List of matching bound methods/descriptors in declaration order.
+    """
+    results: list[Any] = []
+    seen: set[str] = set()
+
+    for cls in reversed(type(instance).__mro__):
+        for attr_name in cls.__dict__:
+            if attr_name in seen:
+                continue
+            seen.add(attr_name)
+
+            try:
+                bound = getattr(instance, attr_name)
+            except Exception:
+                continue
+
+            if predicate(bound):
+                results.append(bound)
+                logger.debug("plugin=<%s>, %s=<%s> | discovered", plugin_name, label, attr_name)
+
+    return results
+
 
 def discover_hooks(instance: object, plugin_name: str) -> list[HookCallback]:
     """Scan an instance's class hierarchy for @hook decorated methods.
-
-    Walks the MRO in reverse so parent class hooks come first, but child
-    overrides win (only the child's version is included).
 
     Args:
         instance: The plugin instance to scan.
@@ -30,32 +65,16 @@ def discover_hooks(instance: object, plugin_name: str) -> list[HookCallback]:
     Returns:
         List of bound hook callback methods in declaration order.
     """
-    hooks: list[HookCallback] = []
-    seen: set[str] = set()
-
-    for cls in reversed(type(instance).__mro__):
-        for attr_name in cls.__dict__:
-            if attr_name in seen:
-                continue
-            seen.add(attr_name)
-
-            try:
-                bound = getattr(instance, attr_name)
-            except Exception:
-                continue
-
-            if hasattr(bound, "_hook_event_types") and callable(bound):
-                hooks.append(bound)
-                logger.debug("plugin=<%s>, hook=<%s> | discovered hook method", plugin_name, attr_name)
-
-    return hooks
+    return _discover_methods(
+        instance,
+        plugin_name,
+        predicate=lambda bound: hasattr(bound, "_hook_event_types") and callable(bound),
+        label="hook",
+    )
 
 
 def discover_tools(instance: object, plugin_name: str) -> list[DecoratedFunctionTool]:
     """Scan an instance's class hierarchy for @tool decorated methods.
-
-    Walks the MRO in reverse so parent class tools come first, but child
-    overrides win (only the child's version is included).
 
     Args:
         instance: The plugin instance to scan.
@@ -64,25 +83,12 @@ def discover_tools(instance: object, plugin_name: str) -> list[DecoratedFunction
     Returns:
         List of DecoratedFunctionTool instances in declaration order.
     """
-    tools: list[DecoratedFunctionTool] = []
-    seen: set[str] = set()
-
-    for cls in reversed(type(instance).__mro__):
-        for attr_name in cls.__dict__:
-            if attr_name in seen:
-                continue
-            seen.add(attr_name)
-
-            try:
-                bound = getattr(instance, attr_name)
-            except Exception:
-                continue
-
-            if isinstance(bound, DecoratedFunctionTool):
-                tools.append(bound)
-                logger.debug("plugin=<%s>, tool=<%s> | discovered tool method", plugin_name, attr_name)
-
-    return tools
+    return _discover_methods(
+        instance,
+        plugin_name,
+        predicate=lambda bound: isinstance(bound, DecoratedFunctionTool),
+        label="tool",
+    )
 
 
 def call_init_method(init_method: Callable[..., Any], target: Any) -> None:
@@ -97,5 +103,3 @@ def call_init_method(init_method: Callable[..., Any], target: Any) -> None:
         run_async(lambda: async_init(target))
     else:
         init_method(target)
-
-

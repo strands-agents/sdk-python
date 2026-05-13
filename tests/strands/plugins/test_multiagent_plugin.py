@@ -409,6 +409,32 @@ def test_dual_plugin_discovers_hooks_once():
     assert len(DualPlugin().hooks) == 1
 
 
+def test_dual_plugin_discover_hooks_called_once(monkeypatch):
+    """Verify the hasattr guard prevents discover_hooks from running twice in dual inheritance."""
+    import strands.plugins.plugin as plugin_mod
+
+    call_count = 0
+    original = plugin_mod.discover_hooks
+
+    def counting_discover_hooks(instance, plugin_name):
+        nonlocal call_count
+        call_count += 1
+        return original(instance, plugin_name)
+
+    monkeypatch.setattr(plugin_mod, "discover_hooks", counting_discover_hooks)
+
+    class DualPlugin(Plugin, MultiAgentPlugin):
+        name = "dual-plugin"
+
+        @hook
+        def on_before_node(self, event: BeforeNodeCallEvent):
+            pass
+
+    DualPlugin()
+    # Plugin.__init__ calls discover_hooks once; MultiAgentPlugin.__init__ skips due to hasattr guard
+    assert call_count == 1
+
+
 def test_dual_plugin_has_both_init_methods(mock_agent, mock_orchestrator):
     agent_init_called = False
     multi_agent_init_called = False
