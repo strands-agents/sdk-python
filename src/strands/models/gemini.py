@@ -16,6 +16,7 @@ from google import genai
 from typing_extensions import Required, Unpack, override
 
 from ..types.content import ContentBlock, ContentBlockStartToolUse, Messages, SystemContentBlock
+from ..types.event_loop import Usage
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException, ProviderTokenCountError
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
@@ -423,13 +424,18 @@ class GeminiModel(Model):
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
+                usage_data: Usage = {
+                    "inputTokens": event["data"].prompt_token_count,
+                    "outputTokens": event["data"].total_token_count - event["data"].prompt_token_count,
+                    "totalTokens": event["data"].total_token_count,
+                }
+
+                if cached := event["data"].cached_content_token_count:
+                    usage_data["cacheReadInputTokens"] = cached
+
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": event["data"].prompt_token_count,
-                            "outputTokens": event["data"].total_token_count - event["data"].prompt_token_count,
-                            "totalTokens": event["data"].total_token_count,
-                        },
+                        "usage": usage_data,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },
