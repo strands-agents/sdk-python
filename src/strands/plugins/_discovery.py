@@ -8,15 +8,13 @@ utilities for plugin initialization and hook registration.
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
 from .._async import run_async
 from ..hooks.registry import HookCallback
 from ..tools.decorator import DecoratedFunctionTool
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
 
 
 def _discover_methods(instance: object, plugin_name: str, predicate: Callable[[object], bool], label: str) -> list[Any]:
