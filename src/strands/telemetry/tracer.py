@@ -169,7 +169,19 @@ class Tracer:
         return any(attribute_name.startswith(prefix) for prefix in self._unredacted_globs)
 
     def _redact(self, attribute_name: str, value: AttributeValue) -> AttributeValue:
-        """Apply the redaction policy to a single attribute value."""
+        """Apply the redaction policy to a single attribute value.
+
+        Args:
+            attribute_name: The canonical semantic attribute name used for policy lookup
+                (e.g. ``gen_ai.input.messages`` or ``gen_ai.output.messages``). This may
+                differ from the physical event field key emitted under legacy conventions
+                (which uses ``content``/``message``), but the canonical name is always
+                used so that allowlist entries are independent of the convention in use.
+            value: The attribute value to potentially redact.
+
+        Returns:
+            The original value if the attribute is unredacted, otherwise ``REDACTED_VALUE``.
+        """
         if self._is_attribute_unredacted(attribute_name):
             return value
         return REDACTED_VALUE
@@ -952,10 +964,13 @@ class Tracer:
             )
         else:
             for message in messages:
+                redact_key = (
+                    "gen_ai.output.messages" if message.get("role") == "assistant" else "gen_ai.input.messages"
+                )
                 self._add_event(
                     span,
                     self._get_event_name_for_message(message),
-                    {"content": self._redact("gen_ai.input.messages", serialize(message["content"]))},
+                    {"content": self._redact(redact_key, serialize(message["content"]))},
                 )
 
     def _map_content_blocks_to_otel_parts(
