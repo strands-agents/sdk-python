@@ -17,6 +17,7 @@ import asyncio
 import copy
 import json
 import logging
+import sys
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
@@ -439,28 +440,25 @@ class Swarm(MultiAgentBase):
             Exception: If total execution time exceeds timeout
         """
         if timeout is None:
-            # No timeout - just pass through
             async for event in async_generator:
                 yield event
+        elif sys.version_info >= (3, 11):
+            try:
+                async with asyncio.timeout(timeout):
+                    async for event in async_generator:
+                        yield event
+            except asyncio.TimeoutError as err:
+                raise Exception(timeout_message) from err
         else:
-            # Track start time for total timeout
-            start_time = asyncio.get_event_loop().time()
-
-            while True:
-                # Calculate remaining time from total timeout budget
-                elapsed = asyncio.get_event_loop().time() - start_time
-                remaining = timeout - elapsed
-
-                if remaining <= 0:
+            # Python 3.10 fallback: timeout is only checked between yielded events.
+            # A generator that hangs mid-await won't be interrupted until the next event.
+            # Remove once Python 3.10 support is dropped (Oct 2026).
+            start_time = asyncio.get_running_loop().time()
+            async for event in async_generator:
+                elapsed = asyncio.get_running_loop().time() - start_time
+                if elapsed > timeout:
                     raise Exception(timeout_message)
-
-                try:
-                    event = await asyncio.wait_for(async_generator.__anext__(), timeout=remaining)
-                    yield event
-                except StopAsyncIteration:
-                    break
-                except asyncio.TimeoutError as err:
-                    raise Exception(timeout_message) from err
+                yield event
 
     def _setup_swarm(self, nodes: list[Agent]) -> None:
         """Initialize swarm configuration."""
