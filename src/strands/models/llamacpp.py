@@ -126,8 +126,8 @@ class LlamaCppModel(Model):
                 - slot_id: Slot ID for parallel inference
                 - samplers: Custom sampler order
             use_native_token_count: Whether to use the native llama.cpp /tokenize endpoint.
-                When True (default), count_tokens() calls the server's tokenize endpoint for accurate counts.
-                When False, skips the API call and uses the local estimator.
+                When True, count_tokens() calls the server's tokenize endpoint for accurate counts.
+                When False (default), skips the API call and uses the local estimator.
         """
 
         model_id: str
@@ -537,7 +537,7 @@ class LlamaCppModel(Model):
         Returns:
             Total input token count.
         """
-        if self.config.get("use_native_token_count") is False:
+        if self.config.get("use_native_token_count") is not True:
             return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
         try:
