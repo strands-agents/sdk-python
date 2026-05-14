@@ -13,6 +13,7 @@ from strands.models.anthropic import AnthropicModel
 from strands.models.gemini import GeminiModel
 from strands.models.litellm import LiteLLMModel
 from strands.models.llamaapi import LlamaAPIModel
+from strands.models.minimax import MinimaxModel
 from strands.models.mistral import MistralModel
 from strands.models.ollama import OllamaModel
 from strands.models.openai import OpenAIModel
@@ -103,6 +104,16 @@ llama = ProviderInfo(
         },
     ),
 )
+minimax = ProviderInfo(
+    id="minimax",
+    environment_variable="MINIMAX_API_KEY",
+    factory=lambda: MinimaxModel(
+        model_id="MiniMax-M2.7",
+        client_args={
+            "api_key": os.getenv("MINIMAX_API_KEY"),
+        },
+    ),
+)
 mistral = ProviderInfo(
     id="mistral",
     environment_variable="MISTRAL_API_KEY",
@@ -169,6 +180,7 @@ all_providers = [
         gemini,
         llama,
         litellm,
+        minimax,
         mistral,
         openai,
         openai_responses,

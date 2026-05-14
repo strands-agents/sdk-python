@@ -44,6 +44,10 @@ def __getattr__(name: str) -> Any:
         from .llamacpp import LlamaCppModel
 
         return LlamaCppModel
+    if name == "MinimaxModel":
+        from .minimax import MinimaxModel
+
+        return MinimaxModel
     if name == "MistralModel":
         from .mistral import MistralModel
 
