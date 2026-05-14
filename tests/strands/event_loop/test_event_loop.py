@@ -159,6 +159,9 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock._model_state = {}
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
+    # Default cap high enough that the existing event_loop tests never trip it;
+    # the cap behavior itself is covered in tests/strands/agent/test_agent_max_iterations.py.
+    mock._max_iterations = 1000
 
     return mock
 
