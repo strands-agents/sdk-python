@@ -82,6 +82,30 @@ def test__init__model_configs(anthropic_client, model_id, max_tokens):
     assert tru_temperature == exp_temperature
 
 
+def test__init__auto_populates_context_window_limit(anthropic_client):
+    _ = anthropic_client
+
+    model = AnthropicModel(model_id="claude-sonnet-4-20250514", max_tokens=1)
+
+    assert model.get_config().get("context_window_limit") == 1_000_000
+
+
+def test__init__explicit_context_window_limit_not_overridden(anthropic_client):
+    _ = anthropic_client
+
+    model = AnthropicModel(model_id="claude-sonnet-4-20250514", max_tokens=1, context_window_limit=100_000)
+
+    assert model.get_config().get("context_window_limit") == 100_000
+
+
+def test__init__unknown_model_no_context_window_limit(anthropic_client):
+    _ = anthropic_client
+
+    model = AnthropicModel(model_id="unknown-model", max_tokens=1)
+
+    assert model.get_config().get("context_window_limit") is None
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 
@@ -1048,7 +1072,7 @@ class TestCountTokens:
     @pytest.fixture
     def model_with_client(self, anthropic_client, model_id, max_tokens):
         _ = anthropic_client
-        return AnthropicModel(model_id=model_id, max_tokens=max_tokens)
+        return AnthropicModel(model_id=model_id, max_tokens=max_tokens, use_native_token_count=True)
 
     @pytest.fixture
     def messages(self):
@@ -1138,3 +1162,27 @@ class TestCountTokens:
             await model_with_client.count_tokens(messages=messages)
 
         assert any("native token counting failed" in record.message for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_when_use_native_token_count_false(
+        self, anthropic_client, model_id, max_tokens, messages
+    ):
+        _ = anthropic_client
+        model = AnthropicModel(model_id=model_id, max_tokens=max_tokens, use_native_token_count=False)
+
+        result = await model.count_tokens(messages=messages)
+
+        anthropic_client.messages.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_by_default(self, anthropic_client, model_id, max_tokens, messages):
+        _ = anthropic_client
+        model = AnthropicModel(model_id=model_id, max_tokens=max_tokens)
+
+        result = await model.count_tokens(messages=messages)
+
+        anthropic_client.messages.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0

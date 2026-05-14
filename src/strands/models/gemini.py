@@ -19,6 +19,7 @@ from ..types.content import ContentBlock, ContentBlockStartToolUse, Messages, Sy
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException, ProviderTokenCountError
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
+from ._defaults import resolve_config_metadata
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -48,11 +49,15 @@ class GeminiModel(Model):
                 Use the standard tools interface for function calling tools.
                 For a complete list of supported tools, see
                 https://ai.google.dev/api/caching#Tool
+            use_native_token_count: Whether to use the native Gemini count_tokens API.
+                When True, count_tokens() calls the Gemini API for accurate counts.
+                When False (default), skips the API call and uses the local estimator.
         """
 
         model_id: Required[str]
         params: dict[str, Any]
         gemini_tools: list[genai.types.Tool]
+        use_native_token_count: bool
 
     def __init__(
         self,
@@ -115,7 +120,7 @@ class GeminiModel(Model):
         Returns:
             The Gemini model configuration.
         """
-        return self.config
+        return resolve_config_metadata(self.config, self.config["model_id"])
 
     def _get_client(self) -> genai.Client:
         """Get a Gemini client for making requests.
@@ -456,6 +461,9 @@ class GeminiModel(Model):
         Returns:
             Total input token count.
         """
+        if self.config.get("use_native_token_count") is not True:
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
         try:
             contents = list(self._format_request_content(messages))
 

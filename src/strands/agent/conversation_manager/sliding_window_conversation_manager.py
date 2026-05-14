@@ -10,7 +10,7 @@ from ...hooks import BeforeModelCallEvent, HookRegistry
 from ...types.content import ContentBlock, Messages
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import ToolResultContent
-from .conversation_manager import ConversationManager
+from .conversation_manager import ConversationManager, ProactiveCompressionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ class SlidingWindowConversationManager(ConversationManager):
         should_truncate_results: bool = True,
         *,
         per_turn: bool | int = False,
+        proactive_compression: bool | ProactiveCompressionConfig | None = None,
     ):
         """Initialize the sliding window conversation manager.
 
@@ -54,6 +55,10 @@ class SlidingWindowConversationManager(ConversationManager):
                 manage message history and prevent the agent loop from slowing down. Start with
                 per_turn=True and adjust to a specific frequency (e.g., per_turn=5) if needed
                 for performance tuning.
+            proactive_compression: Enable proactive context compression before the model call.
+                - ``True``: compress when 70% of the context window is used (default threshold).
+                - ``{"compression_threshold": float}``: compress at the specified ratio (0, 1].
+                - ``False`` or ``None``: disabled, only reactive overflow recovery is used.
 
         Raises:
             ValueError: If window_size is negative, or if per_turn is 0 or a negative integer.
@@ -63,7 +68,7 @@ class SlidingWindowConversationManager(ConversationManager):
         if isinstance(per_turn, int) and not isinstance(per_turn, bool) and per_turn <= 0:
             raise ValueError(f"per_turn must be a positive integer, True, or False, got {per_turn}")
 
-        super().__init__()
+        super().__init__(proactive_compression=proactive_compression)
 
         self.window_size = window_size
         self.should_truncate_results = should_truncate_results
@@ -158,6 +163,12 @@ class SlidingWindowConversationManager(ConversationManager):
     def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Trim the oldest messages to reduce the conversation context size.
 
+        When ``e`` is set (reactive overflow recovery), attempts to truncate large tool results
+        first before falling back to message trimming.
+
+        When ``e`` is None (proactive compression or routine management), only trims messages
+        without attempting tool result truncation.
+
         The method handles special cases where trimming the messages leads to:
          - toolResult with no corresponding toolUse
          - toolUse with no corresponding toolResult
@@ -166,12 +177,14 @@ class SlidingWindowConversationManager(ConversationManager):
             agent: The agent whose messages will be reduce.
                 This list is modified in-place.
             e: The exception that triggered the context reduction, if any.
+                When set, this is a reactive overflow recovery call.
+                When None, this is a proactive or routine management call.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Raises:
             ContextWindowOverflowException: If the context cannot be reduced further and a context overflow
-                error was provided (e is not None). When called during routine window management (e is None),
-                logs a warning and returns without modification.
+                error was provided (e is not None). When called during routine window management or
+                proactive compression (e is None), logs a warning and returns without modification.
         """
         messages = agent.messages
 
@@ -181,16 +194,18 @@ class SlidingWindowConversationManager(ConversationManager):
             messages[:] = []
             return
 
-        # Try to truncate the tool result first
-        oldest_message_idx_with_tool_results = self._find_oldest_message_with_tool_results(messages)
-        if oldest_message_idx_with_tool_results is not None and self.should_truncate_results:
-            logger.debug(
-                "message_index=<%s> | found message with tool results at index", oldest_message_idx_with_tool_results
-            )
-            results_truncated = self._truncate_tool_results(messages, oldest_message_idx_with_tool_results)
-            if results_truncated:
-                logger.debug("message_index=<%s> | tool results truncated", oldest_message_idx_with_tool_results)
-                return
+        # Try to truncate the tool result first (only for reactive overflow, not proactive compression)
+        if e is not None:
+            oldest_message_idx_with_tool_results = self._find_oldest_message_with_tool_results(messages)
+            if oldest_message_idx_with_tool_results is not None and self.should_truncate_results:
+                logger.debug(
+                    "message_index=<%s> | found message with tool results at index",
+                    oldest_message_idx_with_tool_results,
+                )
+                results_truncated = self._truncate_tool_results(messages, oldest_message_idx_with_tool_results)
+                if results_truncated:
+                    logger.debug("message_index=<%s> | tool results truncated", oldest_message_idx_with_tool_results)
+                    return
 
         # Try to trim index id when tool result cannot be truncated anymore
         # If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size

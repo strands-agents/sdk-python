@@ -80,6 +80,30 @@ def test__init__model_configs(mistral_client, model_id, max_tokens):
     assert actual_temperature == exp_temperature
 
 
+def test__init__auto_populates_context_window_limit(mistral_client):
+    _ = mistral_client
+
+    model = MistralModel(model_id="mistral-large-latest", max_tokens=1)
+
+    assert model.get_config().get("context_window_limit") == 262_144
+
+
+def test__init__explicit_context_window_limit_not_overridden(mistral_client):
+    _ = mistral_client
+
+    model = MistralModel(model_id="mistral-large-latest", max_tokens=1, context_window_limit=100_000)
+
+    assert model.get_config().get("context_window_limit") == 100_000
+
+
+def test__init__unknown_model_no_context_window_limit(mistral_client):
+    _ = mistral_client
+
+    model = MistralModel(model_id="unknown-model", max_tokens=1)
+
+    assert model.get_config().get("context_window_limit") is None
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 

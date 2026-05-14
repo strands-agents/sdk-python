@@ -31,6 +31,7 @@ from ..types.exceptions import (
 )
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
+from ._defaults import resolve_config_metadata
 from ._strict_schema import ensure_strict_json_schema
 from ._validation import validate_config_keys
 from .model import BaseModelConfig, CacheConfig, Model
@@ -53,6 +54,15 @@ BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
 _MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
 ]
+
+# Cache of model IDs for which CountTokens API calls should be skipped.
+_SKIP_COUNT_TOKENS_MODELS: set[str] = set()
+
+
+def _clear_skip_count_tokens_cache() -> None:
+    """Clear the cache of model IDs for which CountTokens API calls should be skipped."""
+    _SKIP_COUNT_TOKENS_MODELS.clear()
+
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -107,6 +117,9 @@ class BedrockModel(Model):
                 See https://docs.aws.amazon.com/bedrock/latest/userguide/structured-output.html
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
+            use_native_token_count: Whether to use the native Bedrock CountTokens API.
+                When True, count_tokens() calls the Bedrock API for accurate counts.
+                When False (default), skips the API call and uses the local estimator.
         """
 
         additional_args: dict[str, Any] | None
@@ -133,6 +146,7 @@ class BedrockModel(Model):
         strict_tools: bool | None
         temperature: float | None
         top_p: float | None
+        use_native_token_count: bool
 
     def __init__(
         self,
@@ -217,7 +231,7 @@ class BedrockModel(Model):
         Returns:
             The Bedrock model configuration.
         """
-        return self.config
+        return resolve_config_metadata(self.config, self.config.get("model_id", ""))
 
     def _format_request(
         self,
@@ -784,6 +798,14 @@ class BedrockModel(Model):
         Returns:
             Total input token count.
         """
+        if self.config.get("use_native_token_count") is not True:
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
+        model_id: str = self.config["model_id"]
+
+        if model_id in _SKIP_COUNT_TOKENS_MODELS:
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
         try:
             if system_prompt and system_prompt_content is None:
                 system_prompt_content = [{"text": system_prompt}]
@@ -810,11 +832,34 @@ class BedrockModel(Model):
             logger.debug("model_id=<%s>, total_tokens=<%d> | native token count", self.config["model_id"], total_tokens)
             return total_tokens
         except Exception as e:
-            logger.debug(
-                "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
-                self.config["model_id"],
-                e,
-            )
+            if (
+                isinstance(e, ClientError)
+                and e.response.get("Error", {}).get("Code") == "AccessDeniedException"
+            ):
+                logger.warning(
+                    "model_id=<%s> | bedrock:CountTokens permission denied,"
+                    " falling back to heuristic estimation: %s",
+                    model_id,
+                    e,
+                )
+                _SKIP_COUNT_TOKENS_MODELS.add(model_id)
+            elif (
+                isinstance(e, ClientError)
+                and e.response.get("Error", {}).get("Code") == "ValidationException"
+                and "doesn't support counting tokens" in str(e)
+            ):
+                logger.debug(
+                    "model_id=<%s> | model does not support CountTokens, caching for future calls,"
+                    " falling back to estimation",
+                    model_id,
+                )
+                _SKIP_COUNT_TOKENS_MODELS.add(model_id)
+            else:
+                logger.debug(
+                    "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",
+                    model_id,
+                    e,
+                )
             return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
     @override

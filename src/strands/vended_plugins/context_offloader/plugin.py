@@ -37,7 +37,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from ...hooks.events import AfterToolCallEvent
-from ...models.model import _get_encoding
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
 from ...types.content import Message
@@ -318,10 +317,7 @@ class ContextOffloader(Plugin):
         )
 
     def _slice_preview(self, text: str) -> str:
-        """Slice text to approximately preview_tokens.
-
-        Uses tiktoken for exact token-level slicing when available,
-        falls back to characters (tokens * 4) otherwise.
+        """Slice text to approximately preview_tokens using character-based estimation.
 
         Args:
             text: The full text to slice.
@@ -329,9 +325,4 @@ class ContextOffloader(Plugin):
         Returns:
             The preview text.
         """
-        encoding = _get_encoding()
-        if encoding is not None:
-            tokens = encoding.encode(text)
-            preview: str = encoding.decode(tokens[: self._preview_tokens])
-            return preview
         return text[: self._preview_tokens * _CHARS_PER_TOKEN]

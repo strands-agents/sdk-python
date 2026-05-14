@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
-from ...types.exceptions import ContextWindowOverflowException
 from .conversation_manager import ConversationManager
 
 
@@ -29,7 +28,10 @@ class NullConversationManager(ConversationManager):
         pass
 
     def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
-        """Does not reduce context and raises an exception.
+        """Does not reduce context.
+
+        When called reactively (e is not None), re-raises the overflow exception since this
+        manager cannot reduce context. When called proactively (e is None), returns silently.
 
         Args:
             agent: The agent whose conversation history will remain unmodified.
@@ -37,10 +39,7 @@ class NullConversationManager(ConversationManager):
             **kwargs: Additional keyword arguments for future extensibility.
 
         Raises:
-            e: If provided.
-            ContextWindowOverflowException: If e is None.
+            e: If provided (reactive overflow).
         """
         if e:
             raise e
-        else:
-            raise ContextWindowOverflowException("Context window overflowed!")

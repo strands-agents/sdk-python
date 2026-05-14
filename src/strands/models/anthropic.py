@@ -20,6 +20,7 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
+from ._defaults import resolve_config_metadata
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
 
@@ -56,11 +57,15 @@ class AnthropicModel(Model):
                 https://docs.anthropic.com/en/docs/about-claude/models/all-models.
             params: Additional model parameters (e.g., temperature).
                 For a complete list of supported parameters, see https://docs.anthropic.com/en/api/messages.
+            use_native_token_count: Whether to use the native Anthropic count_tokens API.
+                When True, count_tokens() calls the Anthropic API for accurate counts.
+                When False (default), skips the API call and uses the local estimator.
         """
 
         max_tokens: Required[int]
         model_id: Required[str]
         params: dict[str, Any] | None
+        use_native_token_count: bool
 
     def __init__(self, *, client_args: dict[str, Any] | None = None, **model_config: Unpack[AnthropicConfig]):
         """Initialize provider instance.
@@ -95,7 +100,7 @@ class AnthropicModel(Model):
         Returns:
             The Anthropic model configuration.
         """
-        return self.config
+        return resolve_config_metadata(self.config, self.config["model_id"])
 
     def _format_request_message_content(self, content: ContentBlock) -> dict[str, Any]:
         """Format an Anthropic content block.
@@ -393,6 +398,9 @@ class AnthropicModel(Model):
         Returns:
             Total input token count.
         """
+        if self.config.get("use_native_token_count") is not True:
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
         try:
             # system_prompt_content is not used; this provider only accepts system_prompt as a plain string,
             # matching the behavior of stream(). The caller always provides system_prompt alongside

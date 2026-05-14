@@ -58,6 +58,7 @@ from ..types.content import ContentBlock, Messages, Role, SystemContentBlock  # 
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException  # noqa: E402
 from ..types.streaming import StreamEvent  # noqa: E402
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse  # noqa: E402
+from ._defaults import resolve_config_metadata  # noqa: E402
 from ._openai_bedrock import BedrockMantleConfig, resolve_bedrock_client_args  # noqa: E402
 from ._validation import validate_config_keys  # noqa: E402
 from .model import BaseModelConfig, Model  # noqa: E402
@@ -135,11 +136,15 @@ class OpenAIResponsesModel(Model):
             stateful: Whether to enable server-side conversation state management.
                 When True, the server stores conversation history and the client does not need to
                 send the full message history with each request. Defaults to False.
+            use_native_token_count: Whether to use the native OpenAI input_tokens.count API.
+                When True, count_tokens() calls the OpenAI API for accurate counts.
+                When False (default), skips the API call and uses the local estimator.
         """
 
         model_id: str
         params: dict[str, Any] | None
         stateful: bool
+        use_native_token_count: bool
 
     def __init__(
         self,
@@ -210,7 +215,10 @@ class OpenAIResponsesModel(Model):
         Returns:
             The OpenAI Responses API model configuration.
         """
-        return cast(OpenAIResponsesModel.OpenAIResponsesConfig, self.config)
+        return cast(
+            OpenAIResponsesModel.OpenAIResponsesConfig,
+            resolve_config_metadata(self.config, str(self.config.get("model_id", ""))),
+        )
 
     @override
     async def count_tokens(
@@ -234,6 +242,9 @@ class OpenAIResponsesModel(Model):
         Returns:
             Total input token count.
         """
+        if self.config.get("use_native_token_count") is not True:
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
         try:
             # system_prompt_content is not used; this provider only accepts system_prompt as a plain string,
             # matching the behavior of stream(). The caller always provides system_prompt alongside

@@ -125,10 +125,14 @@ class LlamaCppModel(Model):
                 - cache_prompt: Cache the prompt for faster generation
                 - slot_id: Slot ID for parallel inference
                 - samplers: Custom sampler order
+            use_native_token_count: Whether to use the native llama.cpp /tokenize endpoint.
+                When True, count_tokens() calls the server's tokenize endpoint for accurate counts.
+                When False (default), skips the API call and uses the local estimator.
         """
 
         model_id: str
         params: dict[str, Any] | None
+        use_native_token_count: bool
 
     def __init__(
         self,
@@ -533,6 +537,9 @@ class LlamaCppModel(Model):
         Returns:
             Total input token count.
         """
+        if self.config.get("use_native_token_count") is not True:
+            return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
+
         try:
             # system_prompt_content is not used; this provider only accepts system_prompt as a plain string,
             # matching the behavior of stream(). The caller always provides system_prompt alongside

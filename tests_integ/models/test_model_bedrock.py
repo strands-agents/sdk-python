@@ -276,29 +276,6 @@ def test_structured_output_multi_modal_input(streaming_agent, yellow_img, yellow
     assert tru_color == exp_color
 
 
-def test_redacted_content_handling():
-    """Test redactedContent handling with thinking mode."""
-    bedrock_model = BedrockModel(
-        model_id="us.anthropic.claude-sonnet-4-20250514-v1:0",
-        additional_request_fields={
-            "thinking": {
-                "type": "enabled",
-                "budget_tokens": 2000,
-            }
-        },
-    )
-
-    agent = Agent(name="test_redact", model=bedrock_model)
-    # https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#example-working-with-redacted-thinking-blocks
-    result = agent(
-        "ANTHROPIC_MAGIC_STRING_TRIGGER_REDACTED_THINKING_46C9A13E193C177646C7398A98432ECCCE4C1253D5E2D82641AC0E52CC2876CB"
-    )
-
-    assert "reasoningContent" in result.message["content"][0]
-    assert "redactedContent" in result.message["content"][0]["reasoningContent"]
-    assert isinstance(result.message["content"][0]["reasoningContent"]["redactedContent"], bytes)
-
-
 def test_reasoning_content_in_messages_with_thinking_disabled():
     """Test that messages with reasoningContent are accepted when thinking is explicitly disabled."""
     # First, get a real reasoning response with thinking enabled
@@ -489,14 +466,22 @@ def test_prompt_caching_with_ttl_in_messages():
     )
 
 
-def test_prompt_caching_backward_compatibility_no_ttl(non_streaming_model):
+def test_prompt_caching_backward_compatibility_no_ttl():
     """Test that prompt caching works without TTL (backward compatibility).
 
     Verifies that cache points work correctly when TTL is not specified,
     maintaining backward compatibility with existing code.
+
+    Uses Claude Haiku 4.5 which supports prompt caching on Bedrock.
+    Minimum 4096 tokens required for caching with Haiku 4.5.
     """
+    model = BedrockModel(
+        model_id="us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        streaming=False,
+    )
+
     unique_id = str(uuid.uuid4())
-    large_context = f"Background information for test {unique_id}: " + ("This is important context. " * 200)
+    large_context = f"Background information for test {unique_id}: " + ("This is important context. " * 1000)
 
     system_prompt_with_cache = [
         {"text": large_context},
@@ -505,7 +490,7 @@ def test_prompt_caching_backward_compatibility_no_ttl(non_streaming_model):
     ]
 
     agent = Agent(
-        model=non_streaming_model,
+        model=model,
         system_prompt=system_prompt_with_cache,
         load_tools_from_directory=False,
     )

@@ -79,6 +79,30 @@ def test__init__context_window_limit(gemini_client):
     assert model.context_window_limit == 1_048_576
 
 
+def test__init__auto_populates_context_window_limit(gemini_client):
+    _ = gemini_client
+
+    model = GeminiModel(model_id="gemini-2.5-flash")
+
+    assert model.get_config().get("context_window_limit") == 1_048_576
+
+
+def test__init__explicit_context_window_limit_not_overridden(gemini_client):
+    _ = gemini_client
+
+    model = GeminiModel(model_id="gemini-2.5-flash", context_window_limit=500_000)
+
+    assert model.get_config().get("context_window_limit") == 500_000
+
+
+def test__init__unknown_model_no_context_window_limit(gemini_client):
+    _ = gemini_client
+
+    model = GeminiModel(model_id="unknown-model")
+
+    assert model.get_config().get("context_window_limit") is None
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 
@@ -1120,7 +1144,7 @@ class TestCountTokens:
     @pytest.fixture
     def model(self, gemini_client):
         _ = gemini_client
-        return GeminiModel(model_id="m1")
+        return GeminiModel(model_id="m1", use_native_token_count=True)
 
     @pytest.fixture
     def messages(self):
@@ -1204,3 +1228,25 @@ class TestCountTokens:
             await model.count_tokens(messages=messages)
 
         assert any("native token counting failed" in record.message for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_when_use_native_token_count_false(self, gemini_client, messages):
+        _ = gemini_client
+        model = GeminiModel(model_id="m1", use_native_token_count=False)
+
+        result = await model.count_tokens(messages=messages)
+
+        gemini_client.aio.models.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_by_default(self, gemini_client, messages):
+        _ = gemini_client
+        model = GeminiModel(model_id="m1")
+
+        result = await model.count_tokens(messages=messages)
+
+        gemini_client.aio.models.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0

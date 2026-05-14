@@ -19,6 +19,7 @@ from strands.models.bedrock import (
     DEFAULT_BEDROCK_MODEL_ID,
     DEFAULT_BEDROCK_REGION,
     DEFAULT_READ_TIMEOUT,
+    _clear_skip_count_tokens_cache,
 )
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from strands.types.tools import ToolSpec
@@ -294,6 +295,46 @@ def test__init__context_window_limit(bedrock_client):
 
     assert model.get_config().get("context_window_limit") == 200_000
     assert model.context_window_limit == 200_000
+
+
+def test__init__auto_populates_context_window_limit(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(model_id="anthropic.claude-sonnet-4-20250514-v1:0")
+
+    assert model.get_config().get("context_window_limit") == 1_000_000
+
+
+def test__init__auto_populates_context_window_limit_cross_region(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-6")
+
+    assert model.get_config().get("context_window_limit") == 1_000_000
+
+
+def test__init__auto_populates_context_window_limit_default_model(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel()
+
+    assert model.get_config().get("context_window_limit") == 1_000_000
+
+
+def test__init__explicit_context_window_limit_not_overridden(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(model_id="anthropic.claude-sonnet-4-20250514-v1:0", context_window_limit=100_000)
+
+    assert model.get_config().get("context_window_limit") == 100_000
+
+
+def test__init__unknown_model_no_context_window_limit(bedrock_client):
+    _ = bedrock_client
+
+    model = BedrockModel(model_id="unknown.model-v1:0")
+
+    assert model.get_config().get("context_window_limit") is None
 
 
 def test_update_config(model, model_id):
@@ -3293,10 +3334,16 @@ async def test_non_streaming_citations_with_only_location(bedrock_client, model,
 class TestCountTokens:
     """Tests for BedrockModel.count_tokens native token counting."""
 
+    @pytest.fixture(autouse=True)
+    def clean_cache(self):
+        _clear_skip_count_tokens_cache()
+        yield
+        _clear_skip_count_tokens_cache()
+
     @pytest.fixture
     def model_with_client(self, bedrock_client, model_id):
         _ = bedrock_client
-        return BedrockModel(model_id=model_id)
+        return BedrockModel(model_id=model_id, use_native_token_count=True)
 
     @pytest.fixture
     def messages(self):
@@ -3409,3 +3456,101 @@ class TestCountTokens:
             await model_with_client.count_tokens(messages=messages)
 
         assert any("native token counting failed" in record.message for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_caches_model_id_when_count_tokens_unsupported(self, bedrock_client, messages):
+        model = BedrockModel(model_id="unsupported-cache-test-model", use_native_token_count=True)
+        bedrock_client.count_tokens.side_effect = ClientError(
+            {"Error": {"Code": "ValidationException", "Message": "The provided model doesn't support counting tokens"}},
+            "CountTokens",
+        )
+
+        # First call: hits API, gets error, caches
+        await model.count_tokens(messages=messages)
+        assert bedrock_client.count_tokens.call_count == 1
+
+        # Second call: skips API entirely
+        await model.count_tokens(messages=messages)
+        assert bedrock_client.count_tokens.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_caches_model_id_when_access_denied(self, bedrock_client, messages):
+        model = BedrockModel(model_id="access-denied-cache-test-model", use_native_token_count=True)
+        bedrock_client.count_tokens.side_effect = ClientError(
+            {
+                "Error": {
+                    "Code": "AccessDeniedException",
+                    "Message": "User: arn:aws:sts::123456789012:assumed-role/role is not authorized"
+                    " to perform: bedrock:CountTokens",
+                }
+            },
+            "CountTokens",
+        )
+
+        # First call: hits API, gets error, caches
+        await model.count_tokens(messages=messages)
+        bedrock_client.count_tokens.assert_called_once()
+
+        # Reset mock to clearly verify second call doesn't hit the API
+        bedrock_client.count_tokens.reset_mock()
+
+        # Second call: skips API entirely due to caching
+        result = await model.count_tokens(messages=messages)
+        bedrock_client.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_access_denied_logs_warning_with_full_error(
+        self, model_with_client, bedrock_client, messages, caplog
+    ):
+        error_message = (
+            "User: arn:aws:sts::123456789012:assumed-role/role is not authorized"
+            " to perform: bedrock:CountTokens"
+        )
+        bedrock_client.count_tokens.side_effect = ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": error_message}},
+            "CountTokens",
+        )
+
+        with caplog.at_level(logging.WARNING, logger="strands.models.bedrock"):
+            await model_with_client.count_tokens(messages=messages)
+
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warning_records) == 1
+        assert "bedrock:CountTokens permission denied" in warning_records[0].message
+        assert error_message in warning_records[0].message
+
+    @pytest.mark.asyncio
+    async def test_does_not_cache_model_id_for_other_errors(self, bedrock_client, messages):
+        model = BedrockModel(model_id="transient-error-test-model", use_native_token_count=True)
+        bedrock_client.count_tokens.side_effect = RuntimeError("Transient network error")
+
+        await model.count_tokens(messages=messages)
+        assert bedrock_client.count_tokens.call_count == 1
+
+        # Second call should still attempt the API
+        await model.count_tokens(messages=messages)
+        assert bedrock_client.count_tokens.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_when_use_native_token_count_false(self, bedrock_client, model_id, messages):
+        _ = bedrock_client
+        model = BedrockModel(model_id=model_id, use_native_token_count=False)
+
+        result = await model.count_tokens(messages=messages)
+
+        bedrock_client.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_by_default(self, bedrock_client, model_id, messages):
+        _ = bedrock_client
+        model = BedrockModel(model_id=model_id)
+
+        result = await model.count_tokens(messages=messages)
+
+        bedrock_client.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
