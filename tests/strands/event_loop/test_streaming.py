@@ -481,6 +481,27 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
                 "redactedContent": b"",
             },
         ),
+        # Reasoning with empty text but non-empty signature
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "signature": "123",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [{"reasoningContent": {"reasoningText": {"text": "", "signature": "123"}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "signature": "123",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
         # redactedContent
         (
             {
