@@ -731,8 +731,8 @@ def test_call_tool_sync_embedded_image_blob(mock_transport, mock_session):
         assert "bytes" in result["content"][0]["image"]["source"]
 
 
-def test_call_tool_sync_embedded_non_textual_blob_dropped(mock_transport, mock_session):
-    """EmbeddedResource.resource (blob with non-textual/unknown MIME) should be dropped."""
+def test_call_tool_sync_embedded_non_textual_blob_falls_back_to_json(mock_transport, mock_session):
+    """EmbeddedResource.resource (blob with non-textual/unknown MIME) should fall back to json."""
     payload = base64.b64encode(b"\x00\x01\x02\x03").decode()
 
     embedded_resource = {
@@ -750,7 +750,77 @@ def test_call_tool_sync_embedded_non_textual_blob_dropped(mock_transport, mock_s
 
         mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, meta=None)
         assert result["status"] == "success"
-        assert len(result["content"]) == 0  # Content should be dropped
+        assert len(result["content"]) == 1
+        assert "json" in result["content"][0]
+        assert result["content"][0]["json"]["resource"]["mimeType"] == "application/octet-stream"
+        assert result["content"][0]["json"]["resource"]["blob"] == payload
+
+
+def test_call_tool_sync_image_content_supported_mime(mock_transport, mock_session):
+    """MCPImageContent with a supported MIME type should map to image content."""
+    payload = base64.b64encode(b"\x89PNG\r\n\x1a\n").decode()
+
+    image_content = {
+        "type": "image",
+        "data": payload,
+        "mimeType": "image/png",
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[image_content])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="img-png", name="get_image", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_image", {}, None, meta=None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 1
+        assert "image" in result["content"][0]
+        assert result["content"][0]["image"]["format"] == "png"
+        assert "bytes" in result["content"][0]["image"]["source"]
+
+
+def test_call_tool_sync_image_content_unsupported_mime_falls_back_to_json(mock_transport, mock_session):
+    """MCPImageContent with an unsupported MIME (e.g. image/bmp) should fall back to json instead of crashing."""
+    payload = base64.b64encode(b"\x00\x01\x02\x03").decode()
+
+    image_content = {
+        "type": "image",
+        "data": payload,
+        "mimeType": "image/bmp",
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[image_content])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="img-bmp", name="get_image", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_image", {}, None, meta=None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 1
+        assert "json" in result["content"][0]
+        assert result["content"][0]["json"]["mimeType"] == "image/bmp"
+        assert result["content"][0]["json"]["data"] == payload
+
+
+def test_call_tool_sync_embedded_blob_decode_failure_falls_back_to_json(mock_transport, mock_session):
+    """EmbeddedResource.resource with an undecodable blob should fall back to json."""
+    embedded_resource = {
+        "type": "resource",
+        "resource": {
+            "uri": "mcp://resource/bad-blob",
+            "blob": "!!!not-valid-base64!!!",
+            "mimeType": "image/png",
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-bad", name="get_file_contents", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, meta=None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 1
+        assert "json" in result["content"][0]
+        assert result["content"][0]["json"]["resource"]["mimeType"] == "image/png"
+        assert result["content"][0]["json"]["resource"]["blob"] == "!!!not-valid-base64!!!"
 
 
 def test_call_tool_sync_embedded_multiple_textual_mimes(mock_transport, mock_session):

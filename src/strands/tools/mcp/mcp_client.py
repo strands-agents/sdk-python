@@ -884,6 +884,11 @@ class MCPClient(ToolProvider):
             return {"text": content.text}
         elif isinstance(content, MCPImageContent):
             self._log_debug_with_thread("mapping MCP image content with mime type: %s", content.mimeType)
+            if content.mimeType not in MIME_TO_FORMAT:
+                logger.warning(
+                    "mime_type=<%s> | unsupported mcp image mime type, falling back to json", content.mimeType
+                )
+                return {"json": content.model_dump(exclude_none=True)}
             return {
                 "image": {
                     "format": MIME_TO_FORMAT[content.mimeType],
@@ -910,8 +915,10 @@ class MCPClient(ToolProvider):
                 try:
                     raw_bytes = base64.b64decode(resource.blob)
                 except Exception:
-                    self._log_debug_with_thread("embedded resource blob could not be decoded - dropping")
-                    return None
+                    logger.warning(
+                        "uri=<%s> | embedded resource blob could not be decoded, falling back to json", resource.uri
+                    )
+                    return {"json": content.model_dump(exclude_none=True)}
 
                 if resource.mimeType and (
                     resource.mimeType.startswith("text/")
@@ -938,8 +945,11 @@ class MCPClient(ToolProvider):
                         }
                     }
 
-                self._log_debug_with_thread("embedded resource blob with non-textual/unknown mimeType - dropping")
-                return None
+                logger.warning(
+                    "mime_type=<%s> | unsupported mcp resource blob mime type, falling back to json",
+                    resource.mimeType,
+                )
+                return {"json": content.model_dump(exclude_none=True)}
 
             return None  # type: ignore[unreachable]  # Defensive: future MCP resource types
         else:
