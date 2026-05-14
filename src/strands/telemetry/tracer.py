@@ -644,8 +644,10 @@ class Tracer:
         }
 
         if tool_result_message:
+            # tool results are conceptually fed back to the model as input, so they are
+            # policied under gen_ai.input.messages even when the emitted attribute key differs
             event_attributes["tool.result"] = self._redact(
-                "gen_ai.output.messages", serialize(tool_result_message["content"])
+                "gen_ai.input.messages", serialize(tool_result_message["content"])
             )
 
             if self.use_latest_genai_conventions:
@@ -660,7 +662,7 @@ class Tracer:
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {"gen_ai.output.messages": self._redact("gen_ai.output.messages", output_messages)},
+                    {"gen_ai.output.messages": self._redact("gen_ai.input.messages", output_messages)},
                     to_span_attributes=self.is_langfuse,
                 )
             else:
