@@ -4,18 +4,16 @@ This module defines the Plugin base class, which provides a composable way to
 add behavior changes to agents through automatic hook and tool registration.
 """
 
-import logging
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable
 from typing import TYPE_CHECKING
 
 from ..hooks.registry import HookCallback
 from ..tools.decorator import DecoratedFunctionTool
+from ._discovery import discover_hooks, discover_tools
 
 if TYPE_CHECKING:
     from ..agent import Agent
-
-logger = logging.getLogger(__name__)
 
 
 class Plugin(ABC):
@@ -79,10 +77,14 @@ class Plugin(ABC):
 
         Scans the class for methods decorated with @hook and @tool and stores
         references for later registration when the plugin is attached to an agent.
+
+        Uses a guard to prevent double-discovery when used with multiple inheritance
+        (e.g., a class that inherits from both Plugin and MultiAgentPlugin).
         """
-        self._hooks: list[HookCallback] = []
-        self._tools: list[DecoratedFunctionTool] = []
-        self._discover_decorated_methods()
+        if not hasattr(self, "_hooks"):
+            self._hooks: list[HookCallback] = discover_hooks(self, self.name)
+        if not hasattr(self, "_tools"):
+            self._tools: list[DecoratedFunctionTool] = discover_tools(self, self.name)
 
     @property
     def hooks(self) -> list[HookCallback]:
@@ -93,32 +95,6 @@ class Plugin(ABC):
     def tools(self) -> list[DecoratedFunctionTool]:
         """List of tools the plugin provides, auto-discovered from @tool decorated methods."""
         return self._tools
-
-    def _discover_decorated_methods(self) -> None:
-        """Scan class for @hook and @tool decorated methods in declaration order."""
-        seen: set[str] = set()
-        # Walk MRO so parent class hooks come first, child overrides win
-        for cls in reversed(type(self).__mro__):
-            for name in cls.__dict__:
-                if name in seen:
-                    continue
-                seen.add(name)
-
-                # Get the bound method from self
-                try:
-                    bound = getattr(self, name)
-                except Exception:
-                    continue
-
-                # Check for @hook decorated methods
-                if hasattr(bound, "_hook_event_types") and callable(bound):
-                    self._hooks.append(bound)
-                    logger.debug("plugin=<%s>, hook=<%s> | discovered hook method", self.name, name)
-
-                # Check for @tool decorated methods (DecoratedFunctionTool instances)
-                if isinstance(bound, DecoratedFunctionTool):
-                    self._tools.append(bound)
-                    logger.debug("plugin=<%s>, tool=<%s> | discovered tool method", self.name, name)
 
     def init_agent(self, agent: "Agent") -> None | Awaitable[None]:
         """Initialize the agent instance.
