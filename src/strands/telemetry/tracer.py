@@ -106,43 +106,29 @@ class Tracer:
         ThreadingInstrumentor().instrument()
 
         # Read OTEL_SEMCONV_STABILITY_OPT_IN environment variable
-        opt_in_values, opt_in_kv = self._parse_semconv_opt_in()
+        opt_in_values = self._parse_semconv_opt_in()
         ## To-do: should not set below attributes directly, use env var instead
         self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
         self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
         self._use_latest_invocation_tokens = "gen_ai_use_latest_invocation_tokens" in opt_in_values
 
-        self._redaction_enabled = "gen_ai_unredacted_attributes" in opt_in_kv
+        unredacted_token = next(
+            (t for t in opt_in_values if t.startswith("gen_ai_unredacted_attributes=")),
+            None,
+        )
+        self._redaction_enabled = unredacted_token is not None
         self._unredacted_exact, self._unredacted_globs = self._compile_unredacted_patterns(
-            opt_in_kv.get("gen_ai_unredacted_attributes", "")
+            unredacted_token.partition("=")[2] if unredacted_token else ""
         )
 
-    def _parse_semconv_opt_in(self) -> tuple[set[str], dict[str, str]]:
+    def _parse_semconv_opt_in(self) -> set[str]:
         """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
 
-        Tokens are comma-separated. A token is either a bare flag (e.g. ``gen_ai_latest_experimental``)
-        or a ``key=value`` pair (e.g. ``gen_ai_unredacted_attributes=gen_ai.input.message;gen_ai.output.*``).
-
         Returns:
-            A tuple of (bare-flag set, key/value mapping). Both views always include the bare key for
-            ``key=value`` tokens so that existing membership checks keep working.
+            A set of opt-in tokens from the environment variable.
         """
         opt_in_env = os.getenv("OTEL_SEMCONV_STABILITY_OPT_IN", "")
-        flags: set[str] = set()
-        kv: dict[str, str] = {}
-        for raw in opt_in_env.split(","):
-            token = raw.strip()
-            if not token:
-                continue
-            if "=" in token:
-                key, _, value = token.partition("=")
-                key = key.strip()
-                if key:
-                    kv[key] = value.strip()
-                    flags.add(key)
-            else:
-                flags.add(token)
-        return flags, kv
+        return {value.strip() for value in opt_in_env.split(",")}
 
     @staticmethod
     def _compile_unredacted_patterns(value: str) -> tuple[frozenset[str], tuple[str, ...]]:
