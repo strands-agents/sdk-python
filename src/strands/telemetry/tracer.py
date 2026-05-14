@@ -91,6 +91,10 @@ class Tracer:
     Span attribute redaction is opt-in via the ``gen_ai_unredacted_attributes=<list>`` token in the same
     environment variable. The list uses ``;`` as a separator and supports trailing-``*`` glob patterns.
     When the token is absent, all attributes are emitted unredacted (backward compatible).
+
+    Sensitive attributes subject to the redaction policy are: ``gen_ai.input.messages`` (user messages
+    and tool inputs/results being fed into the model), ``gen_ai.output.messages`` (agent/model responses
+    and tool call responses), and ``gen_ai.system_instructions`` (system prompts).
     """
 
     def __init__(self) -> None:
@@ -168,16 +172,17 @@ class Tracer:
             return True
         return any(attribute_name.startswith(prefix) for prefix in self._unredacted_globs)
 
-    def _redact(self, attribute_name: str, value: AttributeValue) -> AttributeValue:
-        """Apply the redaction policy to a single attribute value.
+    def _redact(self, attribute_name: str, value: str) -> str:
+        """Apply the redaction policy to a single sensitive attribute value.
 
         Args:
             attribute_name: The canonical semantic attribute name used for policy lookup
-                (e.g. ``gen_ai.input.messages`` or ``gen_ai.output.messages``). This may
-                differ from the physical event field key emitted under legacy conventions
-                (which uses ``content``/``message``), but the canonical name is always
-                used so that allowlist entries are independent of the convention in use.
-            value: The attribute value to potentially redact.
+                (one of ``gen_ai.input.messages``, ``gen_ai.output.messages``, or
+                ``gen_ai.system_instructions``). This may differ from the physical event
+                field key emitted under legacy conventions (which uses ``content``/``message``),
+                but the canonical name is always used so that allowlist entries are
+                independent of the convention in use.
+            value: The serialized attribute value to potentially redact.
 
         Returns:
             The original value if the attribute is unredacted, otherwise ``REDACTED_VALUE``.
