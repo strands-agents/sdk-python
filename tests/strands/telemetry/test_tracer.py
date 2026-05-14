@@ -2120,8 +2120,28 @@ class TestSpanAttributeRedaction:
                 "gen_ai.client.inference.operation.details",
                 attributes={"gen_ai.input.messages": expected_payload},
             )
+            all_attr_keys = set()
             for call in mock_span.add_event.call_args_list:
-                attrs = call[1].get("attributes", call[0][1] if len(call[0]) > 1 else {})
-                assert "gen_ai.output.messages" not in attrs, (
-                    "tool_result_message must not be emitted under gen_ai.output.messages"
-                )
+                attrs = call.kwargs.get("attributes") or (call.args[1] if len(call.args) > 1 else {})
+                all_attr_keys.update(attrs.keys())
+            assert "gen_ai.output.messages" not in all_attr_keys, (
+                "tool_result_message must not be emitted under gen_ai.output.messages"
+            )
+
+    def test_legacy_tool_result_redacts_under_input_messages_policy(self, mock_tracer, monkeypatch):
+        """Legacy gen_ai.choice path: tool.result field redacted under gen_ai.input.messages policy."""
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_unredacted_attributes=")
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_span.is_recording.return_value = True
+            message = {"role": "assistant", "content": [{"text": "visible"}]}
+            tool_result_message = {"role": "tool", "content": [{"text": "secret result"}]}
+            tracer.end_event_loop_cycle_span(mock_span, message, tool_result_message)
+            call_kwargs = {
+                k: v
+                for call in mock_span.add_event.call_args_list
+                for k, v in (call.kwargs.get("attributes") or {}).items()
+            }
+            assert call_kwargs.get("tool.result") == "<Redacted>"

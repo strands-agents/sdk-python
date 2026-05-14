@@ -651,7 +651,7 @@ class Tracer:
             )
 
             if self.use_latest_genai_conventions:
-                output_messages = serialize(
+                tool_result_messages = serialize(
                     [
                         {
                             "role": tool_result_message["role"],
@@ -662,7 +662,7 @@ class Tracer:
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {"gen_ai.input.messages": self._redact("gen_ai.input.messages", output_messages)},
+                    {"gen_ai.input.messages": self._redact("gen_ai.input.messages", tool_result_messages)},
                     to_span_attributes=self.is_langfuse,
                 )
             else:
@@ -945,6 +945,7 @@ class Tracer:
                 to_span_attributes=self.is_langfuse,
             )
         else:
+            # system prompts are sensitive and policed under gen_ai.system_instructions
             self._add_event(
                 span,
                 "gen_ai.system.message",
