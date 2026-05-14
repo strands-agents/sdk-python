@@ -845,7 +845,7 @@ def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
     mock_span.add_event.assert_called_with(
         "gen_ai.client.inference.operation.details",
         attributes={
-            "gen_ai.output.messages": serialize(
+            "gen_ai.input.messages": serialize(
                 [
                     {
                         "role": "assistant",
@@ -2090,3 +2090,38 @@ class TestSpanAttributeRedaction:
         assert tracer._is_attribute_unredacted("gen_ai.output.anything.else")
         assert tracer._is_attribute_unredacted("gen_ai.exact.name")
         assert not tracer._is_attribute_unredacted("gen_ai.input.messages")
+
+    def test_tool_result_cycle_span_uses_input_messages_key(self, mock_tracer, monkeypatch):
+        """tool_result_message in end_event_loop_cycle_span emits under gen_ai.input.messages, not gen_ai.output.messages."""
+        monkeypatch.setenv(
+            "OTEL_SEMCONV_STABILITY_OPT_IN",
+            "gen_ai_latest_experimental,gen_ai_unredacted_attributes=gen_ai.input.messages",
+        )
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_span.is_recording.return_value = True
+
+            message = {"role": "assistant", "content": [{"text": "calling tool"}]}
+            tool_result_message = {"role": "tool", "content": [{"text": "tool output"}]}
+
+            tracer.end_event_loop_cycle_span(mock_span, message, tool_result_message)
+
+            expected_payload = serialize(
+                [
+                    {
+                        "role": "tool",
+                        "parts": tracer._map_content_blocks_to_otel_parts([{"text": "tool output"}]),
+                    }
+                ]
+            )
+            mock_span.add_event.assert_any_call(
+                "gen_ai.client.inference.operation.details",
+                attributes={"gen_ai.input.messages": expected_payload},
+            )
+            for call in mock_span.add_event.call_args_list:
+                attrs = call[1].get("attributes", call[0][1] if len(call[0]) > 1 else {})
+                assert "gen_ai.output.messages" not in attrs, (
+                    "tool_result_message must not be emitted under gen_ai.output.messages"
+                )

@@ -662,7 +662,7 @@ class Tracer:
                 self._add_event(
                     span,
                     "gen_ai.client.inference.operation.details",
-                    {"gen_ai.output.messages": self._redact("gen_ai.input.messages", output_messages)},
+                    {"gen_ai.input.messages": self._redact("gen_ai.input.messages", output_messages)},
                     to_span_attributes=self.is_langfuse,
                 )
             else:
@@ -937,6 +937,7 @@ class Tracer:
 
         if self.use_latest_genai_conventions:
             parts = self._map_content_blocks_to_otel_parts(content_blocks)
+            # system prompts are sensitive and policed under gen_ai.system_instructions
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
