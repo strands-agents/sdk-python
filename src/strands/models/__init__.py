@@ -68,4 +68,12 @@ def __getattr__(name: str) -> Any:
         from .writer import WriterModel
 
         return WriterModel
+    if name == "AstraflowModel":
+        from .astraflow import AstraflowModel
+
+        return AstraflowModel
+    if name == "AstraflowCNModel":
+        from .astraflow import AstraflowCNModel
+
+        return AstraflowCNModel
     raise AttributeError(f"cannot import name '{name}' from '{__name__}' ({__file__})")
