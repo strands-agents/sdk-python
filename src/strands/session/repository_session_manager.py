@@ -282,13 +282,34 @@ class RepositorySessionManager(SessionManager):
                     ]
 
                     # Check if there are more messages after the current toolUse message
-                    tool_result_ids = [
-                        content["toolResult"]["toolUseId"]
-                        for content in messages[index + 1]["content"]
-                        if "toolResult" in content
-                    ]
+                    next_message_content = messages[index + 1]["content"]
+                    seen_tool_result_ids: set[str] = set()
+                    cleaned_next_message_content = []
+                    removed_orphaned_tool_results = False
+                    for content in next_message_content:
+                        if "toolResult" not in content:
+                            cleaned_next_message_content.append(content)
+                            continue
 
-                    missing_tool_use_ids = list(set(tool_use_ids) - set(tool_result_ids))
+                        tool_result_id = content["toolResult"]["toolUseId"]
+                        if tool_result_id in tool_use_ids and tool_result_id not in seen_tool_result_ids:
+                            seen_tool_result_ids.add(tool_result_id)
+                            cleaned_next_message_content.append(content)
+                        else:
+                            removed_orphaned_tool_results = True
+
+                    if removed_orphaned_tool_results:
+                        logger.warning(
+                            "Session message history has orphaned or duplicate toolResult blocks. "
+                            "Removing them to keep toolUse/toolResult pairs valid."
+                        )
+                        messages[index + 1]["content"] = cleaned_next_message_content
+
+                    tool_result_ids = list(seen_tool_result_ids)
+
+                    missing_tool_use_ids = [
+                        tool_use_id for tool_use_id in tool_use_ids if tool_use_id not in tool_result_ids
+                    ]
                     # If there are missing tool use ids, that means the messages history is broken
                     if missing_tool_use_ids:
                         logger.warning(
