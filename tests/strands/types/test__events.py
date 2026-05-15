@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, Mock
 
 from pydantic import BaseModel
 
+from strands.experimental.checkpoint import Checkpoint
 from strands.telemetry import EventLoopMetrics
 from strands.types._events import (
     AgentAsToolStreamEvent,
@@ -279,7 +280,7 @@ class TestEventLoopStopEvent:
         request_state = {"state": "final"}
 
         event = EventLoopStopEvent(stop_reason, message, metrics, request_state)
-        assert event["stop"] == (stop_reason, message, metrics, request_state, None, None)
+        assert event["stop"] == (stop_reason, message, metrics, request_state, None, None, None)
         assert event.is_callback_event is False
 
     def test_initialization_with_structured_output(self):
@@ -291,7 +292,7 @@ class TestEventLoopStopEvent:
         structured_output = SampleModel(name="test", value=42)
 
         event = EventLoopStopEvent(stop_reason, message, metrics, request_state, structured_output)
-        assert event["stop"] == (stop_reason, message, metrics, request_state, structured_output, None)
+        assert event["stop"] == (stop_reason, message, metrics, request_state, structured_output, None, None)
         assert event.is_callback_event is False
 
 
@@ -502,3 +503,35 @@ class TestAgentAsToolStreamEvent:
         assert isinstance(event, ToolStreamEvent)
         assert isinstance(event, TypedEvent)
         assert type(event) is AgentAsToolStreamEvent
+
+
+# =========================================================================
+# EventLoopStopEvent checkpoint kwarg (Part B)
+# =========================================================================
+
+
+def test_event_loop_stop_event_carries_checkpoint() -> None:
+    checkpoint = Checkpoint(position="after_model", cycle_index=0)
+    event = EventLoopStopEvent(
+        "checkpoint",
+        {"role": "assistant", "content": [{"text": "hi"}]},
+        EventLoopMetrics(),
+        {},
+        checkpoint=checkpoint,
+    )
+    stop = event["stop"]
+    assert len(stop) == 7
+    assert stop[0] == "checkpoint"
+    assert stop[6] is checkpoint
+
+
+def test_event_loop_stop_event_checkpoint_defaults_to_none() -> None:
+    event = EventLoopStopEvent(
+        "end_turn",
+        {"role": "assistant", "content": [{"text": "done"}]},
+        EventLoopMetrics(),
+        {},
+    )
+    stop = event["stop"]
+    assert len(stop) == 7
+    assert stop[6] is None
