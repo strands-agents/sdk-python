@@ -210,10 +210,19 @@ def handle_content_block_delta(
     typed_event: ModelStreamEvent = ModelStreamEvent({})
 
     if "toolUse" in delta_content:
+        tool_use_delta = delta_content["toolUse"]
         if "input" not in state["current_tool_use"]:
             state["current_tool_use"]["input"] = ""
 
-        state["current_tool_use"]["input"] += delta_content["toolUse"]["input"]
+        state["current_tool_use"]["input"] += tool_use_delta.get("input", "")
+
+        # Some models provide toolUseId and name in contentBlockDelta instead of contentBlockStart.
+        # Capture them here if not already set from a prior contentBlockStart event.
+        if "toolUseId" not in state["current_tool_use"] and "toolUseId" in tool_use_delta:
+            state["current_tool_use"]["toolUseId"] = tool_use_delta["toolUseId"]
+        if "name" not in state["current_tool_use"] and "name" in tool_use_delta:
+            state["current_tool_use"]["name"] = tool_use_delta["name"]
+
         typed_event = ToolUseStreamEvent(delta_content, state["current_tool_use"])
 
     elif "text" in delta_content:
@@ -281,8 +290,16 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
         except ValueError:
             current_tool_use["input"] = {}
 
-        tool_use_id = current_tool_use["toolUseId"]
-        tool_use_name = current_tool_use["name"]
+        tool_use_id = current_tool_use.get("toolUseId", "")
+        tool_use_name = current_tool_use.get("name", "")
+
+        if not tool_use_id or not tool_use_name:
+            logger.warning(
+                "Incomplete tool use block (missing toolUseId or name); skipping content block. "
+                "The model may be using a non-standard streaming format."
+            )
+            state["current_tool_use"] = {}
+            return state
 
         tool_use = ToolUse(
             toolUseId=tool_use_id,
