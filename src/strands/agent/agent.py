@@ -65,7 +65,15 @@ from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
 from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
-from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
+from ..types._events import (
+    AgentResultEvent,
+    EventLoopStopEvent,
+    InitEventLoopEvent,
+    ModelStreamChunkEvent,
+    StartEventLoopEvent,
+    TextStreamEvent,
+    TypedEvent,
+)
 from ..types.agent import AgentInput, ConcurrentInvocationMode
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
@@ -776,6 +784,7 @@ class Agent(AgentBase):
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        stream_final_turn_only: bool = False,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -795,6 +804,11 @@ class Agent(AgentBase):
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
+            stream_final_turn_only: When True, buffers text events from intermediate turns and only yields
+                text events from the final turn (where stop_reason is "end_turn"). Non-text events such as
+                lifecycle, tool use, reasoning, and citation events are yielded normally regardless of this
+                setting. When False (default), all events are yielded as they are produced with no change
+                in behavior.
             **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
@@ -811,10 +825,20 @@ class Agent(AgentBase):
             Exception: Any exceptions from the agent invocation will be propagated to the caller.
 
         Example:
+            Stream all events (default behavior):
+
             ```python
             async for event in agent.stream_async("Analyze this data"):
                 if "data" in event:
                     yield event["data"]
+            ```
+
+            Stream only the final answer (skip intermediate tool-use turns):
+
+            ```python
+            async for event in agent.stream_async("Analyze this data", stream_final_turn_only=True):
+                if "data" in event:
+                    yield event["data"]  # Only receives final turn text
             ```
         """
         # Conditionally acquire lock based on concurrent_invocation_mode
@@ -855,8 +879,24 @@ class Agent(AgentBase):
                 try:
                     events = self._run_loop(messages, merged_state, structured_output_model, structured_output_prompt)
 
+                    text_event_buffer: list[dict[str, Any]] = []
+
                     async for event in events:
                         event.prepare(invocation_state=merged_state)
+
+                        if stream_final_turn_only:
+                            if isinstance(event, StartEventLoopEvent):
+                                text_event_buffer.clear()
+                            elif isinstance(event, TextStreamEvent):
+                                text_event_buffer.append(event.as_dict())
+                                continue
+                            elif isinstance(event, EventLoopStopEvent):
+                                stop_reason = event["stop"][0]
+                                if stop_reason == "end_turn":
+                                    for buffered in text_event_buffer:
+                                        callback_handler(**buffered)
+                                        yield buffered
+                                text_event_buffer.clear()
 
                         if event.is_callback_event:
                             as_dict = event.as_dict()
