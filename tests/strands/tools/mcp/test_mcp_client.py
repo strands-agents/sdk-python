@@ -1,6 +1,6 @@
 import base64
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from mcp import ListToolsResult
@@ -124,7 +124,7 @@ def test_call_tool_sync_status(mock_transport, mock_session, is_error, expected_
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
-        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, meta=None)
+        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, progress_callback=None, meta=None)
 
         assert result["status"] == expected_status
         assert result["toolUseId"] == "test-123"
@@ -155,7 +155,7 @@ def test_call_tool_sync_with_structured_content(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
-        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, meta=None)
+        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, progress_callback=None, meta=None)
 
         assert result["status"] == "success"
         assert result["toolUseId"] == "test-123"
@@ -193,8 +193,54 @@ def test_call_tool_sync_forwards_meta(mock_transport, mock_session):
             tool_use_id="test-123", name="test_tool", arguments={"param": "value"}, meta=meta
         )
 
-        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, meta=meta)
+        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, progress_callback=None, meta=meta)
         assert result["status"] == "success"
+
+
+def test_call_tool_sync_forwards_instance_progress_callback(mock_transport, mock_session):
+    """Test that call_tool_sync uses the instance-level progress callback when no per-call callback is given."""
+    mock_content = MCPTextContent(type="text", text="done")
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[mock_content])
+    cb = AsyncMock()
+
+    with MCPClient(mock_transport["transport_callable"], progress_callback=cb) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
+
+        mock_session.call_tool.assert_called_once_with(
+            "test_tool", {}, None, progress_callback=cb, meta=None
+        )
+        assert result["status"] == "success"
+
+
+def test_call_tool_sync_per_call_progress_callback_overrides_instance(mock_transport, mock_session):
+    """Test that a per-call progress callback overrides the instance-level one."""
+    mock_content = MCPTextContent(type="text", text="done")
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[mock_content])
+    instance_cb = AsyncMock()
+    per_call_cb = AsyncMock()
+
+    with MCPClient(mock_transport["transport_callable"], progress_callback=instance_cb) as client:
+        result = client.call_tool_sync(
+            tool_use_id="test-123", name="test_tool", arguments={}, progress_callback=per_call_cb
+        )
+
+        mock_session.call_tool.assert_called_once_with(
+            "test_tool", {}, None, progress_callback=per_call_cb, meta=None
+        )
+        assert result["status"] == "success"
+
+
+def test_call_tool_sync_no_progress_callback_by_default(mock_transport, mock_session):
+    """Test that progress_callback defaults to None when not set on instance or per-call."""
+    mock_content = MCPTextContent(type="text", text="done")
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[mock_content])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
+
+        mock_session.call_tool.assert_called_once_with(
+            "test_tool", {}, None, progress_callback=None, meta=None
+        )
 
 
 @pytest.mark.asyncio
@@ -672,7 +718,7 @@ def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-text", name="get_file_contents", arguments={})
 
-        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, meta=None)
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, progress_callback=None, meta=None)
         assert result["status"] == "success"
         assert len(result["content"]) == 1
         assert result["content"][0]["text"] == "inner text"
@@ -697,7 +743,7 @@ def test_call_tool_sync_embedded_nested_base64_textual_mime(mock_transport, mock
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-blob", name="get_file_contents", arguments={})
 
-        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, meta=None)
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, progress_callback=None, meta=None)
         assert result["status"] == "success"
         assert len(result["content"]) == 1
         assert result["content"][0]["text"] == '{"k":"v"}'
@@ -723,7 +769,7 @@ def test_call_tool_sync_embedded_image_blob(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-image", name="get_file_contents", arguments={})
 
-        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, meta=None)
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, progress_callback=None, meta=None)
         assert result["status"] == "success"
         assert len(result["content"]) == 1
         assert "image" in result["content"][0]
@@ -748,7 +794,7 @@ def test_call_tool_sync_embedded_non_textual_blob_dropped(mock_transport, mock_s
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-binary", name="get_file_contents", arguments={})
 
-        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, meta=None)
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, progress_callback=None, meta=None)
         assert result["status"] == "success"
         assert len(result["content"]) == 0  # Content should be dropped
 
@@ -771,7 +817,7 @@ def test_call_tool_sync_embedded_multiple_textual_mimes(mock_transport, mock_ses
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-yaml", name="get_file_contents", arguments={})
 
-        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, meta=None)
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, progress_callback=None, meta=None)
         assert result["status"] == "success"
         assert len(result["content"]) == 1
         assert "key: value" in result["content"][0]["text"]
@@ -798,7 +844,7 @@ def test_call_tool_sync_embedded_unknown_resource_type_dropped(mock_transport, m
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-unknown", name="get_file_contents", arguments={})
 
-        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, meta=None)
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None, progress_callback=None, meta=None)
         assert result["status"] == "success"
         assert len(result["content"]) == 0  # Unknown resource type should be dropped
 
@@ -850,7 +896,7 @@ def test_call_tool_sync_with_meta_and_structured_content(mock_transport, mock_se
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
-        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, meta=None)
+        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, progress_callback=None, meta=None)
 
         assert result["status"] == "success"
         assert result["toolUseId"] == "test-123"
