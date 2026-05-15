@@ -845,7 +845,7 @@ def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
     mock_span.add_event.assert_called_with(
         "gen_ai.client.inference.operation.details",
         attributes={
-            "gen_ai.output.messages": serialize(
+            "gen_ai.input.messages": serialize(
                 [
                     {
                         "role": "assistant",
@@ -1827,3 +1827,321 @@ class TestIsLangfuse:
         monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
         tracer = Tracer()
         assert tracer.is_langfuse is False
+
+
+class TestSpanAttributeRedaction:
+    """Tests for GDPR-compliant redaction of sensitive span attributes."""
+
+    def _user_message(self):
+        return [{"role": "user", "content": [{"text": "secret user input"}]}]
+
+    def _assistant_message(self):
+        return {"role": "assistant", "content": [{"text": "secret model output"}]}
+
+    def test_redaction_disabled_by_default(self, mock_tracer, monkeypatch):
+        """No env var set: sensitive content is emitted verbatim (backward compatible)."""
+        monkeypatch.delenv("OTEL_SEMCONV_STABILITY_OPT_IN", raising=False)
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_tracer.start_span.return_value = mock_span
+
+            tracer.start_model_invoke_span(messages=self._user_message(), model_id="m")
+
+            mock_span.add_event.assert_any_call(
+                "gen_ai.user.message",
+                attributes={"content": json.dumps([{"text": "secret user input"}])},
+            )
+
+    def test_redaction_disabled_when_other_tokens_present(self, mock_tracer, monkeypatch):
+        """Other opt-in tokens must not accidentally enable redaction."""
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental,gen_ai_tool_definitions")
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_tracer.start_span.return_value = mock_span
+
+            tracer.start_model_invoke_span(messages=self._user_message(), model_id="m")
+
+            input_messages = serialize([{"role": "user", "parts": [{"type": "text", "content": "secret user input"}]}])
+            mock_span.add_event.assert_any_call(
+                "gen_ai.client.inference.operation.details",
+                attributes={"gen_ai.input.messages": input_messages},
+            )
+
+    def test_empty_unredacted_list_redacts_everything(self, mock_tracer, monkeypatch):
+        """gen_ai_unredacted_attributes= (empty) redacts all sensitive attributes."""
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_unredacted_attributes=")
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_tracer.start_span.return_value = mock_span
+
+            tracer.start_model_invoke_span(messages=self._user_message(), model_id="m", system_prompt="secret system")
+            tracer.end_model_invoke_span(
+                mock_span,
+                self._assistant_message(),
+                Usage(inputTokens=1, outputTokens=2, totalTokens=3),
+                Metrics(latencyMs=0, timeToFirstByteMs=0),
+                "end_turn",
+            )
+
+            mock_span.add_event.assert_any_call("gen_ai.system.message", attributes={"content": "<Redacted>"})
+            mock_span.add_event.assert_any_call("gen_ai.user.message", attributes={"content": "<Redacted>"})
+            mock_span.add_event.assert_any_call(
+                "gen_ai.choice",
+                attributes={"finish_reason": "end_turn", "message": "<Redacted>"},
+            )
+
+    def test_explicit_allowlist_with_semicolon(self, mock_tracer, monkeypatch):
+        """Allowlisted attributes pass through; others redact."""
+        monkeypatch.setenv(
+            "OTEL_SEMCONV_STABILITY_OPT_IN",
+            "gen_ai_latest_experimental,gen_ai_unredacted_attributes=gen_ai.input.messages;gen_ai.system_instructions",
+        )
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_tracer.start_span.return_value = mock_span
+
+            tracer.start_model_invoke_span(messages=self._user_message(), model_id="m", system_prompt="visible system")
+            tracer.end_model_invoke_span(
+                mock_span,
+                self._assistant_message(),
+                Usage(inputTokens=1, outputTokens=2, totalTokens=3),
+                Metrics(latencyMs=0, timeToFirstByteMs=0),
+                "end_turn",
+            )
+
+            visible_input = serialize([{"role": "user", "parts": [{"type": "text", "content": "secret user input"}]}])
+            visible_system = serialize([{"type": "text", "content": "visible system"}])
+            mock_span.add_event.assert_any_call(
+                "gen_ai.client.inference.operation.details",
+                attributes={"gen_ai.system_instructions": visible_system},
+            )
+            mock_span.add_event.assert_any_call(
+                "gen_ai.client.inference.operation.details",
+                attributes={"gen_ai.input.messages": visible_input},
+            )
+            mock_span.add_event.assert_any_call(
+                "gen_ai.client.inference.operation.details",
+                attributes={"gen_ai.output.messages": "<Redacted>"},
+            )
+
+    def test_glob_match_for_output_messages(self, mock_tracer, monkeypatch):
+        """A trailing `*` glob matches by prefix."""
+        monkeypatch.setenv(
+            "OTEL_SEMCONV_STABILITY_OPT_IN",
+            "gen_ai_latest_experimental,gen_ai_unredacted_attributes=gen_ai.output.*",
+        )
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_tracer.start_span.return_value = mock_span
+
+            tracer.start_model_invoke_span(messages=self._user_message(), model_id="m")
+            tracer.end_model_invoke_span(
+                mock_span,
+                self._assistant_message(),
+                Usage(inputTokens=1, outputTokens=2, totalTokens=3),
+                Metrics(latencyMs=0, timeToFirstByteMs=0),
+                "end_turn",
+            )
+
+            visible_output = serialize(
+                [
+                    {
+                        "role": "assistant",
+                        "parts": [{"type": "text", "content": "secret model output"}],
+                        "finish_reason": "end_turn",
+                    }
+                ]
+            )
+            mock_span.add_event.assert_any_call(
+                "gen_ai.client.inference.operation.details",
+                attributes={"gen_ai.input.messages": "<Redacted>"},
+            )
+            mock_span.add_event.assert_any_call(
+                "gen_ai.client.inference.operation.details",
+                attributes={"gen_ai.output.messages": visible_output},
+            )
+
+    def test_redaction_preserves_tool_metadata(self, mock_tracer, monkeypatch):
+        """Tool name, ID, and status are preserved; only payload content is redacted."""
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_unredacted_attributes=")
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_tracer.start_span.return_value = mock_span
+
+            tool = {"name": "calculator", "toolUseId": "abc", "input": {"expression": "2+2"}}
+            tracer.start_tool_call_span(tool)
+            tracer.end_tool_call_span(
+                mock_span,
+                {"toolUseId": "abc", "status": "success", "content": [{"text": "4"}]},
+            )
+
+            start_attrs = mock_span.set_attributes.call_args_list[0][0][0]
+            assert start_attrs["gen_ai.tool.name"] == "calculator"
+            assert start_attrs["gen_ai.tool.call.id"] == "abc"
+
+            mock_span.add_event.assert_any_call(
+                "gen_ai.tool.message",
+                attributes={"role": "tool", "content": "<Redacted>", "id": "abc"},
+            )
+            mock_span.add_event.assert_any_call(
+                "gen_ai.choice",
+                attributes={"message": "<Redacted>", "id": "abc"},
+            )
+
+    def test_parser_handles_kv_and_bare_tokens(self, monkeypatch):
+        """Parser keeps bare flags working alongside the new key=value token."""
+        monkeypatch.setenv(
+            "OTEL_SEMCONV_STABILITY_OPT_IN",
+            " gen_ai_latest_experimental ,gen_ai_unredacted_attributes=gen_ai.input.messages ,gen_ai_tool_definitions",
+        )
+        tracer = Tracer()
+        assert tracer.use_latest_genai_conventions is True
+        assert tracer._include_tool_definitions is True
+        assert tracer._redaction_enabled is True
+        assert "gen_ai.input.messages" in tracer._unredacted_exact
+
+    def test_assistant_message_uses_output_key_for_redaction(self, mock_tracer, monkeypatch):
+        """Assistant messages in legacy `_add_event_messages` use the output-messages policy."""
+        monkeypatch.setenv(
+            "OTEL_SEMCONV_STABILITY_OPT_IN",
+            "gen_ai_unredacted_attributes=gen_ai.output.*",
+        )
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_span.is_recording.return_value = True
+
+            messages = [
+                {"role": "user", "content": [{"text": "user query"}]},
+                {"role": "assistant", "content": [{"text": "assistant reply"}]},
+            ]
+            tracer._add_event_messages(mock_span, messages)
+
+            mock_span.add_event.assert_any_call("gen_ai.user.message", attributes={"content": "<Redacted>"})
+            mock_span.add_event.assert_any_call(
+                "gen_ai.assistant.message",
+                attributes={"content": serialize([{"text": "assistant reply"}])},
+            )
+
+    def test_system_instructions_redacted_in_latest_conventions(self, mock_tracer, monkeypatch):
+        """gen_ai.system_instructions must be redacted under an empty allowlist (latest conventions)."""
+        monkeypatch.setenv(
+            "OTEL_SEMCONV_STABILITY_OPT_IN",
+            "gen_ai_latest_experimental,gen_ai_unredacted_attributes=",
+        )
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_span.is_recording.return_value = True
+            mock_tracer.start_span.return_value = mock_span
+
+            tracer.start_model_invoke_span(
+                messages=[{"role": "user", "content": [{"text": "hi"}]}],
+                model_id="m",
+                system_prompt="confidential system prompt",
+            )
+
+            mock_span.add_event.assert_any_call(
+                "gen_ai.client.inference.operation.details",
+                attributes={"gen_ai.system_instructions": "<Redacted>"},
+            )
+
+    def test_model_id_and_operation_never_redacted(self, mock_tracer, monkeypatch):
+        """Structural span attributes (model id, tool name, operation) are never replaced."""
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_unredacted_attributes=")
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_tracer.start_span.return_value = mock_span
+
+            tracer.start_model_invoke_span(
+                messages=[{"role": "user", "content": [{"text": "hi"}]}],
+                model_id="anthropic.claude-v3",
+            )
+
+            set_attrs_call = mock_span.set_attributes.call_args_list[0][0][0]
+            assert set_attrs_call["gen_ai.request.model"] == "anthropic.claude-v3"
+            assert set_attrs_call["gen_ai.operation.name"] == "chat"
+            assert "<Redacted>" not in set_attrs_call.values()
+
+    def test_glob_only_trailing_star(self, monkeypatch):
+        """Only trailing `*` is treated as a glob; other entries are exact-match."""
+        monkeypatch.setenv(
+            "OTEL_SEMCONV_STABILITY_OPT_IN",
+            "gen_ai_unredacted_attributes=gen_ai.output.*;gen_ai.exact.name",
+        )
+        tracer = Tracer()
+        assert tracer._is_attribute_unredacted("gen_ai.output.messages")
+        assert tracer._is_attribute_unredacted("gen_ai.output.anything.else")
+        assert tracer._is_attribute_unredacted("gen_ai.exact.name")
+        assert not tracer._is_attribute_unredacted("gen_ai.input.messages")
+
+    def test_tool_result_cycle_span_uses_input_messages_key(self, mock_tracer, monkeypatch):
+        """tool_result_message in end_event_loop_cycle_span emits under gen_ai.input.messages, not gen_ai.output.messages."""
+        monkeypatch.setenv(
+            "OTEL_SEMCONV_STABILITY_OPT_IN",
+            "gen_ai_latest_experimental,gen_ai_unredacted_attributes=gen_ai.input.messages",
+        )
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_span.is_recording.return_value = True
+
+            message = {"role": "assistant", "content": [{"text": "calling tool"}]}
+            tool_result_message = {"role": "tool", "content": [{"text": "tool output"}]}
+
+            tracer.end_event_loop_cycle_span(mock_span, message, tool_result_message)
+
+            expected_payload = serialize(
+                [
+                    {
+                        "role": "tool",
+                        "parts": tracer._map_content_blocks_to_otel_parts([{"text": "tool output"}]),
+                    }
+                ]
+            )
+            mock_span.add_event.assert_any_call(
+                "gen_ai.client.inference.operation.details",
+                attributes={"gen_ai.input.messages": expected_payload},
+            )
+            all_attr_keys = set()
+            for call in mock_span.add_event.call_args_list:
+                attrs = call.kwargs.get("attributes") or (call.args[1] if len(call.args) > 1 else {})
+                all_attr_keys.update(attrs.keys())
+            assert "gen_ai.output.messages" not in all_attr_keys, (
+                "tool_result_message must not be emitted under gen_ai.output.messages"
+            )
+
+    def test_legacy_tool_result_redacts_under_input_messages_policy(self, mock_tracer, monkeypatch):
+        """Legacy gen_ai.choice path: tool.result field redacted under gen_ai.input.messages policy."""
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_unredacted_attributes=")
+        with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+            tracer = Tracer()
+            tracer.tracer = mock_tracer
+            mock_span = mock.MagicMock()
+            mock_span.is_recording.return_value = True
+            message = {"role": "assistant", "content": [{"text": "visible"}]}
+            tool_result_message = {"role": "tool", "content": [{"text": "secret result"}]}
+            tracer.end_event_loop_cycle_span(mock_span, message, tool_result_message)
+            call_kwargs = {
+                k: v
+                for call in mock_span.add_event.call_args_list
+                for k, v in (call.kwargs.get("attributes") or {}).items()
+            }
+            assert call_kwargs.get("tool.result") == "<Redacted>"
