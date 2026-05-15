@@ -930,9 +930,25 @@ class Graph(MultiAgentBase):
                 cancel_message = (
                     before_event.cancel_node if isinstance(before_event.cancel_node, str) else "node cancelled by user"
                 )
-                logger.debug("reason=<%s> | cancelling execution", cancel_message)
+                logger.debug("reason=<%s> | node skipped, graph continues", cancel_message)
                 yield MultiAgentNodeCancelEvent(node.node_id, cancel_message)
-                raise RuntimeError(cancel_message)
+                node_result = NodeResult(
+                    result=RuntimeError(cancel_message),
+                    execution_time=0,
+                    status=Status.COMPLETED,
+                    accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
+                    accumulated_metrics=Metrics(latencyMs=0),
+                    execution_count=0,
+                )
+                node.result = node_result
+                node.execution_time = 0
+                node.execution_status = Status.COMPLETED
+                self.state.completed_nodes.add(node)
+                self.state.results[node.node_id] = node_result
+                self.state.execution_order.append(node)
+                self._accumulate_metrics(node_result)
+                yield MultiAgentNodeStopEvent(node_id=node.node_id, node_result=node_result)
+                return
 
             # Build node input from satisfied dependencies
             node_input = self._build_node_input(node)

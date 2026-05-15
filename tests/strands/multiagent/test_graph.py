@@ -2113,20 +2113,53 @@ async def test_graph_cancel_node(cancel_node, cancel_message):
     graph = builder.build()
     graph.hooks.add_callback(BeforeNodeCallEvent, cancel_callback)
 
-    stream = graph.stream_async("test task")
-
     tru_cancel_event = None
-    with pytest.raises(RuntimeError, match=cancel_message):
-        async for event in stream:
-            if event.get("type") == "multiagent_node_cancel":
-                tru_cancel_event = event
+    async for event in graph.stream_async("test task"):
+        if event.get("type") == "multiagent_node_cancel":
+            tru_cancel_event = event
 
     exp_cancel_event = MultiAgentNodeCancelEvent(node_id="test_agent", message=cancel_message)
     assert tru_cancel_event == exp_cancel_event
 
-    tru_status = graph.state.status
-    exp_status = Status.FAILED
-    assert tru_status == exp_status
+    assert graph.state.status == Status.COMPLETED
+    assert any(n.node_id == "test_agent" for n in graph.state.completed_nodes)
+    assert "test_agent" in graph.state.results
+    agent.__call__.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_graph_cancel_node_downstream_executes():
+    """Downstream nodes must run after an upstream node is skipped via cancel_node."""
+    cancelled_nodes: list[str] = []
+
+    def cancel_step_a(event):
+        if event.node_id == "step_a":
+            event.cancel_node = "step_a skipped"
+        return event
+
+    step_a = create_mock_agent("step_a", "Should not run")
+    step_b = create_mock_agent("step_b", "Step B completed")
+
+    builder = GraphBuilder()
+    builder.add_node(step_a, "step_a")
+    builder.add_node(step_b, "step_b")
+    builder.add_edge("step_a", "step_b")
+    builder.set_entry_point("step_a")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, cancel_step_a)
+
+    async for event in graph.stream_async("test task"):
+        if event.get("type") == "multiagent_node_cancel":
+            cancelled_nodes.append(event["node_id"])
+
+    assert cancelled_nodes == ["step_a"]
+    assert graph.state.status == Status.COMPLETED
+    step_a.__call__.assert_not_called()
+    step_b.__call__.assert_not_called()  # stream_async uses stream_async on agent, not __call__
+    assert any(n.node_id == "step_a" for n in graph.state.completed_nodes)
+    assert any(n.node_id == "step_b" for n in graph.state.completed_nodes)
+    assert "step_a" in graph.state.results
+    assert "step_b" in graph.state.results
 
 
 def test_graph_interrupt_on_before_node_call_event(interrupt_hook):

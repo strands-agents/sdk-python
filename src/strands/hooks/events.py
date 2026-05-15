@@ -330,9 +330,9 @@ class BeforeNodeCallEvent(BaseHookEvent, _Interruptible):
         source: The multi-agent orchestrator instance
         node_id: ID of the node about to execute
         invocation_state: Configuration that user passes in
-        cancel_node: A user defined message that when set, will cancel the node execution with status FAILED.
-            The message will be emitted under a MultiAgentNodeCancel event. If set to `True`, Strands will cancel the
-            node using a default cancel message.
+        cancel_node: A user defined message that when set, will skip the node and mark it as completed, allowing
+            downstream nodes to continue executing. The message will be emitted under a MultiAgentNodeCancel event.
+            If set to `True`, Strands will skip the node using a default cancel message.
     """
 
     source: "MultiAgentBase"
