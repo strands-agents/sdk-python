@@ -369,7 +369,17 @@ class SageMakerAIModel(OpenAIModel):
                             )
 
                         # Handle reasoning content
-                        if choice["delta"].get("reasoning_content"):
+                        # NOTE: Both `reasoning` and `reasoning_content` need to be handled as vLLM v0.16.0 deprecated
+                        # the `reasoning_content` in favour of `reasoning`
+                        # See https://github.com/vllm-project/vllm/pull/33402
+                        if any(
+                            k in choice["delta"]
+                            and choice["delta"].get(k) is not None
+                            # NOTE: Here we call `strip()` for safety, as some models will skip the reasoning
+                            # autonomously by just emitting line breaks e.g., `\n\n`
+                            and choice["delta"][k].strip() != ""
+                            for k in {"reasoning_content", "reasoning"}
+                        ):
                             if not reasoning_content_started:
                                 yield self.format_chunk(
                                     {"chunk_type": "content_start", "data_type": "reasoning_content"}
@@ -379,7 +389,10 @@ class SageMakerAIModel(OpenAIModel):
                                 {
                                     "chunk_type": "content_delta",
                                     "data_type": "reasoning_content",
-                                    "data": choice["delta"]["reasoning_content"],
+                                    # SAFETY: Here we guarantee that at least one of `reasoning` or `reasoning_content`
+                                    # is not None and a  non-empty string
+                                    "data": choice["delta"].get("reasoning_content")
+                                    or choice["delta"].get("reasoning"),
                                 }
                             )
 
