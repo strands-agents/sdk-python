@@ -569,6 +569,57 @@ async def test_stream_response_text(gemini_client, model, messages, agenerator, 
     assert tru_chunks == exp_chunks
 
 
+def test_format_chunk_metadata_with_cache_tokens(model):
+    """Test _format_chunk for metadata with cache tokens present."""
+    event = {
+        "chunk_type": "metadata",
+        "data": genai.types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=100,
+            total_token_count=150,
+            cached_content_token_count=25,
+        ),
+    }
+
+    result = model._format_chunk(event)
+
+    assert result == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "totalTokens": 150,
+                "cacheReadInputTokens": 25,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
+
+
+def test_format_chunk_metadata_with_zero_cached_tokens(model):
+    """Test _format_chunk for metadata when cached_content_token_count is 0."""
+    event = {
+        "chunk_type": "metadata",
+        "data": genai.types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=100,
+            total_token_count=150,
+            cached_content_token_count=0,
+        ),
+    }
+
+    result = model._format_chunk(event)
+
+    assert result == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "totalTokens": 150,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
+
+
 @pytest.mark.asyncio
 async def test_stream_response_tool_use(gemini_client, model, messages, agenerator, alist):
     gemini_client.aio.models.generate_content_stream.return_value = agenerator(
