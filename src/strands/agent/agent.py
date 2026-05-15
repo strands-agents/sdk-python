@@ -268,6 +268,9 @@ class Agent(AgentBase):
         # Create internal cancel signal for graceful cancellation using threading.Event
         self._cancel_signal = threading.Event()
 
+        self._invocations = 0
+        self._invocations_lock = threading.Lock()
+
         self.tool_registry = ToolRegistry()
 
         # Process tool list if provided
@@ -368,6 +371,14 @@ class Agent(AgentBase):
 
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
+    def _track_invocation(self) -> None:
+        with self._invocations_lock:
+            self._invocations += 1
+
+    def _untrack_invocation(self) -> None:
+        with self._invocations_lock:
+            self._invocations -= 1
+
     def cancel(self) -> None:
         """Cancel the currently running agent invocation.
 
@@ -397,7 +408,9 @@ class Agent(AgentBase):
         Note:
             Multiple calls to cancel() are safe and idempotent.
         """
-        self._cancel_signal.set()
+        with self._invocations_lock:
+            if self._invocations > 0:
+                self._cancel_signal.set()
 
     @property
     def system_prompt(self) -> str | None:
@@ -982,6 +995,7 @@ class Agent(AgentBase):
             structured_output_context.register_tool(self.tool_registry)
 
         try:
+            self._track_invocation()
             events = event_loop_cycle(
                 agent=self,
                 invocation_state=invocation_state,
@@ -1003,6 +1017,7 @@ class Agent(AgentBase):
                 yield event
 
         finally:
+            self._untrack_invocation()
             if structured_output_context:
                 structured_output_context.cleanup(self.tool_registry)
 
