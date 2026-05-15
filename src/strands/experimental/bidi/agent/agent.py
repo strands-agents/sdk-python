@@ -74,6 +74,7 @@ class BidiAgent:
         state: AgentState | dict | None = None,
         session_manager: "SessionManager | None" = None,
         tool_executor: ToolExecutor | None = None,
+        event_queue_size: int = 1,
         **kwargs: Any,
     ):
         """Initialize bidirectional agent.
@@ -93,6 +94,11 @@ class BidiAgent:
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
+            event_queue_size: Maximum size of the internal event queue between the model receive loop
+                and the output handler. Higher values provide more buffer for bursty audio delivery
+                (e.g., Gemini Live) at the cost of slightly higher memory usage. Lower values apply
+                more backpressure. Default of 32 provides ~640ms of audio buffer at typical chunk rates.
+                Set to 1 for legacy behavior (may cause choppy audio with fast-delivering models).
             **kwargs: Additional configuration for future extensibility.
 
         Raises:
@@ -108,6 +114,7 @@ class BidiAgent:
 
         self.system_prompt = system_prompt
         self.messages = messages or []
+        self._event_queue_size = event_queue_size
 
         # Agent identification
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
