@@ -34,6 +34,7 @@ from strands.types.exceptions import (
 )
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
+from tests.strands.event_loop.helpers import apply_execution_limit_defaults
 
 
 @pytest.fixture
@@ -159,6 +160,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock._model_state = {}
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
+    apply_execution_limit_defaults(mock)
 
     return mock
 
@@ -826,6 +828,7 @@ async def test_request_state_initialization(alist):
     mock_agent._cancel_signal = threading.Event()
     mock_agent.event_loop_metrics.start_cycle.return_value = (0, MagicMock())
     mock_agent.hooks.invoke_callbacks_async = AsyncMock()
+    apply_execution_limit_defaults(mock_agent)
 
     # Call without providing request_state
     stream = strands.event_loop.event_loop.event_loop_cycle(

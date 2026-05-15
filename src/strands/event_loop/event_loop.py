@@ -183,7 +183,25 @@ async def event_loop_cycle(
 
     with trace_api.use_span(cycle_span, end_on_exit=False):
         try:
+            if agent.max_turns is not None and agent._invocation_turn_count >= agent.max_turns:
+                last_message = agent.messages[-1]
+                agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
+                tracer.end_event_loop_cycle_span(cycle_span, last_message)
+                yield EventLoopStopEvent(
+                    "max_turns", last_message, agent.event_loop_metrics, invocation_state["request_state"]
+                )
+                return
+            if agent.max_token_budget is not None and agent._invocation_token_count >= agent.max_token_budget:
+                last_message = agent.messages[-1]
+                agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
+                tracer.end_event_loop_cycle_span(cycle_span, last_message)
+                yield EventLoopStopEvent(
+                    "max_token_budget", last_message, agent.event_loop_metrics, invocation_state["request_state"]
+                )
+                return
             # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
+            # Neither this path nor the existing-tool-use path below increments _invocation_turn_count
+            # because no model call is made — max_turns limits model invocations only.
             if agent._interrupt_state.activated:
                 stop_reason: StopReason = "tool_use"
                 message = agent._interrupt_state.context["tool_use_message"]
@@ -200,6 +218,13 @@ async def event_loop_cycle(
                         yield model_event
 
                 stop_reason, message, *_ = model_event["stop"]
+                agent._invocation_turn_count += 1
+                # metadata is attached to message inside _handle_model_execution before the
+                # stop event is the last item yielded, so it is populated by the time the
+                # async-for loop above finishes and we read model_event["stop"] here.
+                agent._invocation_token_count += (
+                    message.get("metadata", {}).get("usage", {}).get("totalTokens", 0)
+                )
                 yield ModelMessageEvent(message=message)
         except Exception as e:
             tracer.end_span_with_error(cycle_span, str(e), e)

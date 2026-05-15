@@ -20,6 +20,7 @@ from strands.tools.structured_output._structured_output_context import (
 )
 from strands.types._events import EventLoopStopEvent, StructuredOutputEvent
 from strands.types.exceptions import EventLoopException, StructuredOutputException
+from tests.strands.event_loop.helpers import apply_execution_limit_defaults
 
 
 class UserModel(BaseModel):
@@ -60,6 +61,7 @@ def mock_agent():
     agent._interrupt_state.activated = False
     agent._interrupt_state.context = {}
     agent._cancel_signal = threading.Event()
+    apply_execution_limit_defaults(agent)
 
     return agent
 
