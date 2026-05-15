@@ -79,6 +79,7 @@ from .conversation_manager import (
     NullConversationManager,
     SlidingWindowConversationManager,
 )
+from .manifest import AgentManifest
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -146,6 +147,7 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
+        manifest: AgentManifest | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -227,6 +229,7 @@ class Agent(AgentBase):
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
+        self.manifest = manifest
 
         # If not provided, create a new PrintingCallbackHandler instance
         # If explicitly set to None, use null_callback_handler
