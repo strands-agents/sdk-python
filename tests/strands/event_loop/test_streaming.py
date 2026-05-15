@@ -366,6 +366,25 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
                 "redactedContent": b"",
             },
         ),
+        # Tool Use - Malformed input JSON
+        (
+            {
+                "content": [],
+                "current_tool_use": {"toolUseId": "123", "name": "test", "input": "{invalid json}"},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
         # Text
         (
             {
@@ -525,6 +544,25 @@ def test_handle_content_block_stop(state, exp_updated_state):
     tru_updated_state = strands.event_loop.streaming.handle_content_block_stop(state)
 
     assert tru_updated_state == exp_updated_state
+
+
+@unittest.mock.patch("strands.event_loop.streaming.logger")
+def test_handle_content_block_stop_logs_warning_on_malformed_json(mock_logger):
+    state = {
+        "content": [],
+        "current_tool_use": {"toolUseId": "123", "name": "test_tool", "input": "{invalid json}"},
+        "text": "",
+        "reasoningText": "",
+        "citationsContent": [],
+        "redactedContent": b"",
+    }
+
+    strands.event_loop.streaming.handle_content_block_stop(state)
+
+    mock_logger.warning.assert_called_once()
+    call_args = mock_logger.warning.call_args
+    assert "test_tool" in str(call_args)
+    assert "{invalid json}" in str(call_args)
 
 
 def test_handle_message_stop():
