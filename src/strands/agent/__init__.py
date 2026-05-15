@@ -19,16 +19,21 @@ from .conversation_manager import (
     SlidingWindowConversationManager,
     SummarizingConversationManager,
 )
+from .manifest import AgentManifest, InputContract, OutputContract, Trigger
 
 __all__ = [
     "Agent",
     "AgentBase",
+    "AgentManifest",
     "AgentResult",
     "ConversationManager",
+    "InputContract",
+    "ModelRetryStrategy",
     "NullConversationManager",
+    "OutputContract",
     "SlidingWindowConversationManager",
     "SummarizingConversationManager",
-    "ModelRetryStrategy",
+    "Trigger",
 ]
 
 
