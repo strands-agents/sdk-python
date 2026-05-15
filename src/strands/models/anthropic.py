@@ -20,6 +20,7 @@ from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
+from ._strict_schema import ensure_strict_json_schema
 from ._defaults import resolve_config_metadata
 from ._validation import _has_location_source, validate_config_keys
 from .model import BaseModelConfig, Model
@@ -236,7 +237,12 @@ class AnthropicModel(Model):
                 {
                     "name": tool_spec["name"],
                     "description": tool_spec["description"],
-                    "input_schema": tool_spec["inputSchema"]["json"],
+                    "input_schema": (
+                        ensure_strict_json_schema(tool_spec["inputSchema"]["json"])
+                        if tool_spec.get("strict")
+                        else tool_spec["inputSchema"]["json"]
+                    ),
+                    **({"strict": tool_spec["strict"]} if "strict" in tool_spec else {}),
                 }
                 for tool_spec in tool_specs or []
             ],

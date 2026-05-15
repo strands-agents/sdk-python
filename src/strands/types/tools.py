@@ -30,12 +30,19 @@ class ToolSpec(TypedDict):
         outputSchema: Optional JSON Schema defining the expected output format.
             Note: Not all model providers support this field. Providers that don't
             support it should filter it out before sending to their API.
+        strict: Optional Boolean that ensures the model will only output tool calls
+            containing parameters that perfectly match the defined input schema.
+            Note: When using strict mode, optional parameters must be explicitly typed
+            as nullable (e.g., `Optional[str]`), otherwise the model will be forced
+            to generate a value for them. Not all model providers support this field.
+            Providers that don't support it should filter it out before sending to their API.
     """
 
     description: str
     inputSchema: JSONSchema
     name: str
     outputSchema: NotRequired[JSONSchema]
+    strict: NotRequired[bool]
 
 
 class Tool(TypedDict):

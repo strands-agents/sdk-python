@@ -716,6 +716,68 @@ def test_format_request_strict_tools_applies_to_all_tools(bedrock_client, model_
             assert tool["toolSpec"]["inputSchema"]["json"]["additionalProperties"] is False
 
 
+def test_format_request_strict_tools_overridden_by_tool_spec(bedrock_client, model_id, messages):
+    tool_specs = [
+        {"name": "strict_tool", "description": "Tool A", "inputSchema": {"json": {"type": "object", "properties": {}}}},
+        {
+            "name": "non_strict_tool",
+            "description": "Tool B",
+            "inputSchema": {"json": {"type": "object", "properties": {}}},
+            "strict": False,
+        },
+    ]
+    model = BedrockModel(model_id=model_id, strict_tools=True)
+    request = model._format_request(messages, tool_specs=tool_specs)
+
+    tool_a = request["toolConfig"]["tools"][0]["toolSpec"]
+    tool_b = request["toolConfig"]["tools"][1]["toolSpec"]
+
+    assert tool_a.get("strict") is True
+    assert tool_a["inputSchema"]["json"]["additionalProperties"] is False
+
+    assert "strict" not in tool_b
+    assert "additionalProperties" not in tool_b["inputSchema"]["json"]
+
+
+def test_format_request_tool_specs_with_strict(model, messages, model_id):
+    strict_tool_spec = {
+        "description": "description",
+        "name": "name",
+        "inputSchema": {"json": {"type": "object", "properties": {"key": {"type": "string"}}}},
+        "strict": True,
+    }
+    tru_request = model._format_request(messages, tool_specs=[strict_tool_spec])
+    tool_in_request = tru_request["toolConfig"]["tools"][0]["toolSpec"]
+
+    assert tool_in_request["strict"] is True
+    assert tool_in_request["inputSchema"]["json"]["additionalProperties"] is False
+
+
+def test_format_request_tool_specs_with_strict_false(model, messages, model_id):
+    strict_false_tool_spec = {
+        "description": "description",
+        "name": "name",
+        "inputSchema": {"json": {"type": "object", "properties": {"key": {"type": "string"}}}},
+        "strict": False,
+    }
+    tru_request = model._format_request(messages, tool_specs=[strict_false_tool_spec])
+    tool_in_request = tru_request["toolConfig"]["tools"][0]["toolSpec"]
+
+    assert "strict" not in tool_in_request
+
+
+def test_format_request_tool_specs_without_strict(model, messages, model_id):
+    tool_spec_no_strict = {
+        "description": "description",
+        "name": "name",
+        "inputSchema": {"json": {"type": "object", "properties": {"key": {"type": "string"}}}},
+    }
+    tru_request = model._format_request(messages, tool_specs=[tool_spec_no_strict])
+    tool_in_request = tru_request["toolConfig"]["tools"][0]["toolSpec"]
+
+    assert "strict" not in tool_in_request
+
+
 def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):
     tool_choice = {"auto": {}}
     tru_request = model._format_request(messages, [tool_spec], tool_choice=tool_choice)

@@ -483,6 +483,41 @@ def test_format_request_tool_choice_auto(model, messages, model_id, max_tokens):
     assert tru_request == exp_request
 
 
+def test_format_request_tool_specs_with_strict(model, messages, model_id, max_tokens):
+    strict_tool_spec = {
+        "description": "description",
+        "name": "name",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {"x": {"type": "string"}},
+            }
+        },
+        "strict": True,
+    }
+    tru_request = model.format_request(messages, tool_specs=[strict_tool_spec])
+    tool_in_request = tru_request["tools"][0]
+
+    assert tool_in_request["strict"] is True
+    assert tool_in_request["input_schema"]["additionalProperties"] is False
+
+
+def test_format_request_tool_specs_with_strict_false(model, messages, model_id, max_tokens):
+    tool_specs = [
+        {"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}, "strict": False}
+    ]
+    tru_request = model.format_request(messages, tool_specs)
+
+    assert tru_request["tools"][0]["strict"] is False
+
+
+def test_format_request_tool_specs_without_strict(model, messages, model_id, max_tokens):
+    tool_specs = [{"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}}]
+    tru_request = model.format_request(messages, tool_specs)
+
+    assert "strict" not in tru_request["tools"][0]
+
+
 def test_format_request_tool_choice_any(model, messages, model_id, max_tokens):
     tool_specs = [{"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}}]
     tool_choice = {"any": {}}
