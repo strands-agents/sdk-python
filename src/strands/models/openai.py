@@ -473,6 +473,12 @@ class OpenAIModel(Model):
 
         return [message for message in formatted_messages if "content" in message or "tool_calls" in message]
 
+    def _default_stop_tokens(self) -> list[str] | None:
+        model_id = str(self.config.get("model_id", "")).lower()
+        if "gpt-oss" in model_id:
+            return ["<|call|>", "<|return|>", "<|end|>"]
+        return None
+
     def format_request(
         self,
         messages: Messages,
@@ -500,6 +506,12 @@ class OpenAIModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an OpenAI-compatible
                 format.
         """
+        params = dict(cast(dict[str, Any], self.config.get("params", {})))
+        if "stop" not in params:
+            default_stop = self._default_stop_tokens()
+            if default_stop:
+                params["stop"] = default_stop
+
         return {
             "messages": self.format_request_messages(
                 messages, system_prompt, system_prompt_content=system_prompt_content
@@ -519,7 +531,7 @@ class OpenAIModel(Model):
                 for tool_spec in tool_specs or []
             ],
             **(self._format_request_tool_choice(tool_choice)),
-            **cast(dict[str, Any], self.config.get("params", {})),
+            **params,
         }
 
     def format_chunk(self, event: dict[str, Any], **kwargs: Any) -> StreamEvent:
