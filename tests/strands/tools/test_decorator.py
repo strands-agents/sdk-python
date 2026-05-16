@@ -2101,3 +2101,35 @@ def test_tool_nullable_optional_field_simplifies_anyof():
     # Since tag is not required, anyOf should be simplified away
     assert "anyOf" not in schema["properties"]["tag"]
     assert schema["properties"]["tag"]["type"] == "string"
+
+
+def test_tool_field_default_factory_no_pydantic_warning():
+    """Test that Field(default_factory=...) does not emit PydanticJsonSchemaWarning.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1914.
+    When a parameter default is a FieldInfo with default_factory, the decorator
+    must unwrap it and pass default_factory to the new Field() rather than passing
+    the FieldInfo object itself as default= (which is not JSON-serializable).
+    """
+    import warnings
+    from pydantic import Field
+
+    @strands.tool
+    def example(
+        items: list[str] = Field(default_factory=list, description="items"),
+    ) -> int:
+        """Example tool."""
+        return len(items)
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("error", category=UserWarning)
+        # Accessing tool_spec triggers schema generation — must not raise
+        spec = example.tool_spec
+
+    schema = spec["inputSchema"]["json"]
+    # items should not be required (has a default)
+    assert "items" not in schema.get("required", [])
+    # The non-serializable default should have been stripped, not present
+    assert "default" not in schema["properties"]["items"]
+    # Description and type should still be present
+    assert schema["properties"]["items"]["description"] == "items"

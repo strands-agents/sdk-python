@@ -63,6 +63,7 @@ import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticSerializationError
+from pydantic_core import PydanticUndefined
 from typing_extensions import override
 
 from ..interrupt import InterruptException
@@ -163,8 +164,25 @@ class FunctionToolMetadata:
         final_description = description
         if final_description is None:
             final_description = self.param_descriptions.get(param_name) or f"Parameter {param_name}"
-        # Create FieldInfo object from scratch
-        final_field = Field(default=param_default, description=final_description)
+        # Create FieldInfo object from scratch.
+        # If param_default is itself a FieldInfo (e.g. the user wrote
+        # `items: list[str] = Field(default_factory=list, description="...")`)
+        # we must forward its default/default_factory rather than wrapping the
+        # FieldInfo object as a default value, which would make it non-JSON-
+        # serializable and trigger PydanticJsonSchemaWarning.
+        if isinstance(param_default, FieldInfo):
+            # Also inherit description from the FieldInfo if no higher-priority
+            # description was found (Annotated string or docstring).
+            if final_description == f"Parameter {param_name}" and param_default.description:
+                final_description = param_default.description
+            if param_default.default_factory is not None:
+                final_field = Field(default_factory=param_default.default_factory, description=final_description)
+            elif param_default.default is not PydanticUndefined:
+                final_field = Field(default=param_default.default, description=final_description)
+            else:
+                final_field = Field(..., description=final_description)
+        else:
+            final_field = Field(default=param_default, description=final_description)
 
         return actual_type, final_field
 
@@ -360,6 +378,8 @@ class FunctionToolMetadata:
                 for key in keys_to_remove:
                     if key in prop_schema:
                         del prop_schema[key]
+
+
 
     def validate_input(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Validate input data using the Pydantic model.
