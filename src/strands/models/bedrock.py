@@ -443,11 +443,15 @@ class BedrockModel(Model):
         filtered_unknown_members = False
         dropped_deepseek_reasoning_content = False
 
-        # Pre-compute the index of the last user message containing text or image content.
-        # This ensures guardContent wrapping is maintained across tool execution cycles, where
-        # the final message in the list is a toolResult (role=user) rather than text/image content.
+        # Determine guardrail wrapping strategy.
+        # When guardrails are enabled, user text/image content blocks must be wrapped in
+        # guardContent so the guardrail evaluates ONLY those blocks, excluding tool results
+        # (which also have role="user") from guardrail scanning. Without wrapping, tool results
+        # can trigger false-positive prompt injection detections (see #1671).
+        has_guardrail = bool(self.config.get("guardrail_id") and self.config.get("guardrail_version"))
+        guardrail_latest = self.config.get("guardrail_latest_message", False)
         last_user_text_idx = None
-        if self.config.get("guardrail_latest_message", False):
+        if has_guardrail and guardrail_latest:
             last_user_text_idx = self._find_last_user_text_message_index(messages)
 
         for idx, message in enumerate(messages):
@@ -470,12 +474,19 @@ class BedrockModel(Model):
                 if formatted_content is None:
                     continue
 
-                # Wrap text or image content in guardContent if this is the last user text/image message
-                if idx == last_user_text_idx and ("text" in formatted_content or "image" in formatted_content):
-                    if "text" in formatted_content:
-                        formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
-                    elif "image" in formatted_content:
-                        formatted_content = {"guardContent": {"image": formatted_content["image"]}}
+                # Wrap user text/image in guardContent for guardrail evaluation.
+                # When guardrail_latest_message is True, only the latest user text/image is wrapped.
+                # Otherwise, ALL user text/image blocks are wrapped, excluding tool results from
+                # guardrail scanning to prevent false positives on system-generated content.
+                if has_guardrail and message["role"] == "user" and (
+                    "text" in formatted_content or "image" in formatted_content
+                ):
+                    should_wrap = (idx == last_user_text_idx) if guardrail_latest else True
+                    if should_wrap:
+                        if "text" in formatted_content:
+                            formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
+                        elif "image" in formatted_content:
+                            formatted_content = {"guardContent": {"image": formatted_content["image"]}}
 
                 cleaned_content.append(formatted_content)
 
