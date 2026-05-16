@@ -336,6 +336,87 @@ def test_format_request_message_content_role_user():
     assert result == {"type": "input_text", "text": "question"}
 
 
+def test_format_request_messages_strips_reasoning_content():
+    """reasoningContent blocks from Gemini are silently dropped when formatting for OpenAI.
+
+    In multi-provider Swarms a Gemini agent may store reasoningContent blocks in the shared
+    conversation history. These blocks have no OpenAI equivalent and must be filtered out
+    before the request is sent, otherwise _format_request_message_content raises TypeError.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1993
+    """
+    messages = [
+        {
+            "role": "user",
+            "content": [{"text": "What is AI?"}],
+        },
+        {
+            # Simulates an assistant message produced by a Gemini agent in a Swarm —
+            # contains both a reasoningContent block and the visible text response.
+            "role": "assistant",
+            "content": [
+                {
+                    "reasoningContent": {
+                        "reasoningText": {
+                            "text": "The user asked about AI. I should give a brief answer.",
+                            "signature": "SGVsbG8gV29ybGQ=",  # base64 blob Gemini attaches
+                        }
+                    }
+                },
+                {"text": "AI is the simulation of human intelligence by machines."},
+            ],
+        },
+    ]
+
+    # Must not raise TypeError
+    result = OpenAIResponsesModel._format_request_messages(messages)
+
+    # The reasoningContent block is dropped; only the visible text survives
+    assert result == [
+        {
+            "role": "user",
+            "content": [{"type": "input_text", "text": "What is AI?"}],
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "output_text", "text": "AI is the simulation of human intelligence by machines."}
+            ],
+        },
+    ]
+
+
+def test_format_request_messages_reasoning_content_only_message_is_dropped():
+    """An assistant message consisting solely of a reasoningContent block is removed entirely.
+
+    When Gemini emits a turn that is pure reasoning (no visible text), the resulting
+    formatted message would have an empty content list and should be omitted.
+    """
+    messages = [
+        {"role": "user", "content": [{"text": "Think first."}]},
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "reasoningContent": {
+                        "reasoningText": {"text": "Let me think...", "signature": ""}
+                    }
+                }
+            ],
+        },
+        {"role": "user", "content": [{"text": "Now answer."}]},
+    ]
+
+    result = OpenAIResponsesModel._format_request_messages(messages)
+
+    # The pure-reasoning assistant message is dropped entirely (empty content filtered at line 498-502)
+    roles = [item.get("role") for item in result if "role" in item]
+    assert roles == ["user", "user"]
+    assert all(
+        "reasoningContent" not in str(item) for item in result
+    )
+
+
 def test_format_request(model, messages, tool_specs, system_prompt):
     tru_request = model._format_request(messages, tool_specs, system_prompt)
     exp_request = {
