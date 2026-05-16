@@ -517,3 +517,69 @@ def test_update_nonexistent_multi_agent(s3_manager, sample_session):
     nonexistent_mock.id = "nonexistent"
     with pytest.raises(SessionException):
         s3_manager.update_multi_agent(sample_session.session_id, nonexistent_mock)
+
+
+# --- s3_client reuse (issue #1163) ---
+
+
+def test_s3_client_kwarg_reuses_supplied_client(mocked_aws, s3_bucket):
+    """When ``s3_client`` is passed, S3SessionManager must reuse it directly
+    instead of building a new boto3.Session + client.
+    """
+    supplied = boto3.client("s3", region_name="us-west-2")
+    manager = S3SessionManager(
+        session_id="test-reuse",
+        bucket=s3_bucket,
+        prefix="sessions/",
+        s3_client=supplied,
+    )
+    assert manager.client is supplied
+
+
+def test_s3_client_kwarg_ignores_session_and_config(mocked_aws, s3_bucket):
+    """When ``s3_client`` is supplied, boto_session / boto_client_config /
+    region_name are ignored. We assert by checking that no extra boto3.Session
+    is constructed when those args are also passed.
+    """
+    supplied = boto3.client("s3", region_name="us-west-2")
+
+    # boto_session is the sentinel that would otherwise become self.client;
+    # supplying it together with s3_client should NOT override s3_client.
+    bogus_session = Mock(spec=boto3.Session)
+    manager = S3SessionManager(
+        session_id="test-reuse-2",
+        bucket=s3_bucket,
+        prefix="sessions/",
+        boto_session=bogus_session,
+        boto_client_config=BotocoreConfig(retries={"max_attempts": 99}),
+        region_name="us-east-1",
+        s3_client=supplied,
+    )
+    assert manager.client is supplied
+    bogus_session.client.assert_not_called()
+
+
+def test_s3_client_kwarg_supports_session_round_trip(mocked_aws, s3_bucket, sample_session):
+    """End-to-end smoke: a manager built with s3_client= can write and read."""
+    supplied = boto3.client("s3", region_name="us-west-2")
+    manager = S3SessionManager(
+        session_id="test-roundtrip",
+        bucket=s3_bucket,
+        prefix="sessions/",
+        s3_client=supplied,
+    )
+    manager.create_session(sample_session)
+    fetched = manager.read_session(sample_session.session_id)
+    assert fetched.session_id == sample_session.session_id
+
+
+def test_default_path_still_works(mocked_aws, s3_bucket):
+    """Sanity: omitting s3_client still goes through the boto3.Session path."""
+    manager = S3SessionManager(
+        session_id="test-default",
+        bucket=s3_bucket,
+        prefix="sessions/",
+        region_name="us-west-2",
+    )
+    # client is built by session.client("s3", ...); only check it's there
+    assert manager.client is not None

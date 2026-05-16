@@ -54,6 +54,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         boto_client_config: BotocoreConfig | None = None,
         region_name: str | None = None,
         endpoint_url: str | None = None,
+        s3_client: Any = None,
         **kwargs: Any,
     ):
         """Initialize S3SessionManager with S3 storage.
@@ -63,31 +64,44 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
                 ID is not allowed to contain path separators (e.g., a/b).
             bucket: S3 bucket name (required)
             prefix: S3 key prefix for storage organization
-            boto_session: Optional boto3 session
-            boto_client_config: Optional boto3 client configuration
-            region_name: AWS region for S3 storage
+            boto_session: Optional boto3 session. Ignored if ``s3_client`` is supplied.
+            boto_client_config: Optional boto3 client configuration. Ignored if ``s3_client`` is supplied.
+            region_name: AWS region for S3 storage. Ignored if ``s3_client`` is supplied.
             endpoint_url: Custom endpoint URL for S3-compatible storage backends (e.g., MinIO, LocalStack)
-                or VPC endpoints (PrivateLink)
+                or VPC endpoints (PrivateLink). Ignored if ``s3_client`` is supplied.
+            s3_client: Optional pre-built boto3 S3 client. When provided, S3SessionManager
+                reuses it directly instead of constructing a new boto3.Session and S3 client.
+                This avoids per-instance boto initialization overhead (HTTP connection pool,
+                endpoint discovery) when many managers are created in the same process, and
+                gives callers full control over the underlying client (credentials, retry
+                config, custom endpoints). When ``s3_client`` is provided, ``boto_session``,
+                ``boto_client_config``, ``region_name``, and ``endpoint_url`` are ignored.
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.bucket = bucket
         self.prefix = prefix
 
-        session = boto_session or boto3.Session(region_name=region_name)
-
-        # Add strands-agents to the request user agent
-        if boto_client_config:
-            existing_user_agent = getattr(boto_client_config, "user_agent_extra", None)
-            # Append 'strands-agents' to existing user_agent_extra or set it if not present
-            if existing_user_agent:
-                new_user_agent = f"{existing_user_agent} strands-agents"
-            else:
-                new_user_agent = "strands-agents"
-            client_config = boto_client_config.merge(BotocoreConfig(user_agent_extra=new_user_agent))
+        if s3_client is not None:
+            # Reuse the caller's pre-built client. We deliberately do not modify
+            # its user_agent_extra; the caller owns the client's configuration.
+            self.client = s3_client
         else:
-            client_config = BotocoreConfig(user_agent_extra="strands-agents")
+            session = boto_session or boto3.Session(region_name=region_name)
 
-        self.client = session.client(service_name="s3", config=client_config, endpoint_url=endpoint_url)
+            # Add strands-agents to the request user agent
+            if boto_client_config:
+                existing_user_agent = getattr(boto_client_config, "user_agent_extra", None)
+                # Append 'strands-agents' to existing user_agent_extra or set it if not present
+                if existing_user_agent:
+                    new_user_agent = f"{existing_user_agent} strands-agents"
+                else:
+                    new_user_agent = "strands-agents"
+                client_config = boto_client_config.merge(BotocoreConfig(user_agent_extra=new_user_agent))
+            else:
+                client_config = BotocoreConfig(user_agent_extra="strands-agents")
+
+            self.client = session.client(service_name="s3", config=client_config, endpoint_url=endpoint_url)
+
         super().__init__(session_id=session_id, session_repository=self)
 
     def _get_session_path(self, session_id: str) -> str:
