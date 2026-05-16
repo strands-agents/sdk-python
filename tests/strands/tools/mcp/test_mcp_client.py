@@ -128,6 +128,7 @@ def test_call_tool_sync_status(mock_transport, mock_session, is_error, expected_
 
         assert result["status"] == expected_status
         assert result["toolUseId"] == "test-123"
+        assert result["isError"] == is_error
         assert len(result["content"]) == 1
         assert result["content"][0]["text"] == "Test message"
         # No structured content should be present when not provided by MCP
@@ -178,6 +179,7 @@ def test_call_tool_sync_exception(mock_transport, mock_session):
 
         assert result["status"] == "error"
         assert result["toolUseId"] == "test-123"
+        assert result["isError"] is True
         assert len(result["content"]) == 1
         assert "Test exception" in result["content"][0]["text"]
 
@@ -261,6 +263,7 @@ async def test_call_tool_async_status(mock_transport, mock_session, is_error, ex
 
         assert result["status"] == expected_status
         assert result["toolUseId"] == "test-123"
+        assert result["isError"] == is_error
         assert len(result["content"]) == 1
         assert result["content"][0]["text"] == "Test message"
         # isError mirrors the MCP server's explicit value; absent only for protocol/client exceptions
@@ -290,6 +293,7 @@ async def test_call_tool_async_exception(mock_transport, mock_session):
 
         assert result["status"] == "error"
         assert result["toolUseId"] == "test-123"
+        assert result["isError"] is True
         assert len(result["content"]) == 1
         assert "Test exception" in result["content"][0]["text"]
 

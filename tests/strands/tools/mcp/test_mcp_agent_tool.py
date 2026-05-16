@@ -1,21 +1,11 @@
 from datetime import timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from mcp.types import Tool as MCPTool
 
 from strands.tools.mcp import MCPAgentTool, MCPClient
 from strands.types._events import ToolResultEvent
-
-
-@pytest.fixture
-def mock_mcp_tool():
-    mock_tool = MagicMock(spec=MCPTool)
-    mock_tool.name = "test_tool"
-    mock_tool.description = "A test tool"
-    mock_tool.inputSchema = {"type": "object", "properties": {}}
-    mock_tool.outputSchema = None  # MCP tools can have optional outputSchema
-    return mock_tool
 
 
 @pytest.fixture
@@ -26,7 +16,30 @@ def mock_mcp_client():
         "toolUseId": "test-123",
         "content": [{"text": "Success result"}],
     }
+    # Mock internal methods used by MCPAgentTool.stream()
+    mock_server._create_call_tool_coroutine.return_value = MagicMock()
+    mock_server._handle_tool_result.return_value = {
+        "status": "success",
+        "toolUseId": "test-123",
+        "content": [{"text": "Success result"}],
+    }
+    mock_server._handle_tool_execution_error.return_value = {
+        "status": "error",
+        "toolUseId": "test-123",
+        "content": [{"text": "error"}],
+        "isError": True,
+    }
     return mock_server
+
+
+@pytest.fixture
+def mock_mcp_tool():
+    mock_tool = MagicMock(spec=MCPTool)
+    mock_tool.name = "test_tool"
+    mock_tool.description = "A test tool"
+    mock_tool.inputSchema = {"type": "object", "properties": {}}
+    mock_tool.outputSchema = None  # MCP tools can have optional outputSchema
+    return mock_tool
 
 
 @pytest.fixture
@@ -84,13 +97,25 @@ def test_tool_spec_without_output_schema(mock_mcp_tool, mock_mcp_client):
 async def test_stream(mcp_agent_tool, mock_mcp_client, alist):
     tool_use = {"toolUseId": "test-123", "name": "test_tool", "input": {"param": "value"}}
 
-    tru_events = await alist(mcp_agent_tool.stream(tool_use, {}))
-    exp_events = [ToolResultEvent(mock_mcp_client.call_tool_async.return_value)]
+    mock_result = mock_mcp_client._handle_tool_result.return_value
 
-    assert tru_events == exp_events
-    mock_mcp_client.call_tool_async.assert_called_once_with(
-        tool_use_id="test-123", name="test_tool", arguments={"param": "value"}, read_timeout_seconds=None
+    with patch("asyncio.wrap_future") as mock_wrap_future:
+        # Make wrap_future return a coroutine that resolves to the mock call_tool result
+        async def mock_awaitable(_):
+            return MagicMock()  # call_tool_result (raw MCP response)
+
+        mock_wrap_future.side_effect = mock_awaitable
+
+        tru_events = await alist(mcp_agent_tool.stream(tool_use, {}))
+
+    assert len(tru_events) == 1
+    event = tru_events[0]
+    assert event.exception is None
+    assert event.tool_result == mock_result
+    mock_mcp_client._create_call_tool_coroutine.assert_called_once_with(
+        "test_tool", {"param": "value"}, None
     )
+    mock_mcp_client._handle_tool_result.assert_called_once()
 
 
 def test_timeout_initialization(mock_mcp_tool, mock_mcp_client):
@@ -110,10 +135,70 @@ async def test_stream_with_timeout(mock_mcp_tool, mock_mcp_client, alist):
     agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client, timeout=timeout)
     tool_use = {"toolUseId": "test-456", "name": "test_tool", "input": {"param": "value"}}
 
-    tru_events = await alist(agent_tool.stream(tool_use, {}))
-    exp_events = [ToolResultEvent(mock_mcp_client.call_tool_async.return_value)]
+    mock_result = mock_mcp_client._handle_tool_result.return_value
 
-    assert tru_events == exp_events
-    mock_mcp_client.call_tool_async.assert_called_once_with(
-        tool_use_id="test-456", name="test_tool", arguments={"param": "value"}, read_timeout_seconds=timeout
+    with patch("asyncio.wrap_future") as mock_wrap_future:
+
+        async def mock_awaitable(_):
+            return MagicMock()
+
+        mock_wrap_future.side_effect = mock_awaitable
+
+        tru_events = await alist(agent_tool.stream(tool_use, {}))
+
+    assert len(tru_events) == 1
+    assert tru_events[0].exception is None
+    assert tru_events[0].tool_result == mock_result
+    mock_mcp_client._create_call_tool_coroutine.assert_called_once_with(
+        "test_tool", {"param": "value"}, timeout
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_propagates_exception(mock_mcp_tool, mock_mcp_client, alist):
+    """Test that stream() passes the original exception via ToolResultEvent.exception.
+
+    This ensures parity with decorated tools, where the exception is accessible
+    via event.exception for debugging and conditional handling.
+    """
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_use = {"toolUseId": "test-123", "name": "test_tool", "input": {"param": "value"}}
+
+    test_exception = RuntimeError("MCP server connection failed")
+    with patch("asyncio.wrap_future", side_effect=test_exception):
+        mock_error_result = {
+            "status": "error", "toolUseId": "test-123",
+            "content": [{"text": "Tool execution failed: MCP server connection failed"}],
+            "isError": True,
+        }
+        mock_mcp_client._handle_tool_execution_error.return_value = mock_error_result
+
+        tru_events = await alist(agent_tool.stream(tool_use, {}))
+
+        assert len(tru_events) == 1
+        event = tru_events[0]
+        assert event.exception is test_exception
+        assert event.tool_result == mock_error_result
+        mock_mcp_client._handle_tool_execution_error.assert_called_once_with("test-123", test_exception)
+
+
+@pytest.mark.asyncio
+async def test_stream_no_exception_on_success(mock_mcp_tool, mock_mcp_client, alist):
+    """Test that stream() sets exception=None on successful execution."""
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_use = {"toolUseId": "test-123", "name": "test_tool", "input": {"param": "value"}}
+
+    mock_result = mock_mcp_client._handle_tool_result.return_value
+
+    with patch("asyncio.wrap_future") as mock_wrap_future:
+
+        async def mock_awaitable(_):
+            return MagicMock()
+
+        mock_wrap_future.side_effect = mock_awaitable
+
+        tru_events = await alist(agent_tool.stream(tool_use, {}))
+
+    assert len(tru_events) == 1
+    assert tru_events[0].exception is None
+    assert tru_events[0].tool_result == mock_result
