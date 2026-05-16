@@ -130,15 +130,21 @@ def test_process_tools_flattens_lists_and_tuples_and_sets():
 def test_register_tool_duplicate_name_without_hot_reload():
     """Test that registering a tool with duplicate name raises ValueError when hot reload is not supported."""
     # Create mock tools that don't support hot reload
-    tool_1 = MagicMock()
+    tool_1 = MagicMock(spec=PythonAgentTool)
     tool_1.tool_name = "duplicate_tool"
     tool_1.supports_hot_reload = False
     tool_1.is_dynamic = False
+    tool_1.is_read_only = False
+    tool_1.is_destructive = False
+    tool_1.requires_confirmation = False
 
-    tool_2 = MagicMock()
+    tool_2 = MagicMock(spec=PythonAgentTool)
     tool_2.tool_name = "duplicate_tool"
     tool_2.supports_hot_reload = False
     tool_2.is_dynamic = False
+    tool_2.is_read_only = False
+    tool_2.is_destructive = False
+    tool_2.requires_confirmation = False
 
     tool_registry = ToolRegistry()
     tool_registry.register_tool(tool_1)
@@ -156,11 +162,17 @@ def test_register_tool_duplicate_name_with_hot_reload():
     tool_1.tool_name = "hot_reload_tool"
     tool_1.supports_hot_reload = True
     tool_1.is_dynamic = False
+    tool_1.is_read_only = False
+    tool_1.is_destructive = False
+    tool_1.requires_confirmation = False
 
     tool_2 = MagicMock(spec=PythonAgentTool)
     tool_2.tool_name = "hot_reload_tool"
     tool_2.supports_hot_reload = True
     tool_2.is_dynamic = False
+    tool_2.is_read_only = False
+    tool_2.is_destructive = False
+    tool_2.requires_confirmation = False
 
     tool_registry = ToolRegistry()
     tool_registry.register_tool(tool_1)
@@ -519,10 +531,16 @@ def test_tool_registry_replace_existing_tool():
     old_tool.tool_name = "my_tool"
     old_tool.is_dynamic = False
     old_tool.supports_hot_reload = False
+    old_tool.is_read_only = False
+    old_tool.is_destructive = False
+    old_tool.requires_confirmation = False
 
     new_tool = MagicMock()
     new_tool.tool_name = "my_tool"
     new_tool.is_dynamic = False
+    new_tool.is_read_only = False
+    new_tool.is_destructive = False
+    new_tool.requires_confirmation = False
 
     registry = ToolRegistry()
     registry.register_tool(old_tool)
@@ -535,6 +553,9 @@ def test_tool_registry_replace_nonexistent_tool():
     """Test replacing a tool that doesn't exist raises ValueError."""
     new_tool = MagicMock()
     new_tool.tool_name = "my_tool"
+    new_tool.is_read_only = False
+    new_tool.is_destructive = False
+    new_tool.requires_confirmation = False
 
     registry = ToolRegistry()
 
@@ -548,10 +569,16 @@ def test_tool_registry_replace_dynamic_tool():
     old_tool.tool_name = "dynamic_tool"
     old_tool.is_dynamic = True
     old_tool.supports_hot_reload = True
+    old_tool.is_read_only = False
+    old_tool.is_destructive = False
+    old_tool.requires_confirmation = False
 
     new_tool = MagicMock()
     new_tool.tool_name = "dynamic_tool"
     new_tool.is_dynamic = True
+    new_tool.is_read_only = False
+    new_tool.is_destructive = False
+    new_tool.requires_confirmation = False
 
     registry = ToolRegistry()
     registry.register_tool(old_tool)
@@ -567,10 +594,16 @@ def test_tool_registry_replace_dynamic_with_non_dynamic():
     old_tool.tool_name = "my_tool"
     old_tool.is_dynamic = True
     old_tool.supports_hot_reload = True
+    old_tool.is_read_only = False
+    old_tool.is_destructive = False
+    old_tool.requires_confirmation = False
 
     new_tool = MagicMock()
     new_tool.tool_name = "my_tool"
     new_tool.is_dynamic = False
+    new_tool.is_read_only = False
+    new_tool.is_destructive = False
+    new_tool.requires_confirmation = False
 
     registry = ToolRegistry()
     registry.register_tool(old_tool)
@@ -589,10 +622,16 @@ def test_tool_registry_replace_non_dynamic_with_dynamic():
     old_tool.tool_name = "my_tool"
     old_tool.is_dynamic = False
     old_tool.supports_hot_reload = False
+    old_tool.is_read_only = False
+    old_tool.is_destructive = False
+    old_tool.requires_confirmation = False
 
     new_tool = MagicMock()
     new_tool.tool_name = "my_tool"
     new_tool.is_dynamic = True
+    new_tool.is_read_only = False
+    new_tool.is_destructive = False
+    new_tool.requires_confirmation = False
 
     registry = ToolRegistry()
     registry.register_tool(old_tool)
