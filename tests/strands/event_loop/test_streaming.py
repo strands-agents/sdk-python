@@ -1422,3 +1422,116 @@ async def test_process_stream_keeps_tool_use_stop_reason_unchanged(agenerator, a
     last_event = cast(ModelStopReason, (await alist(stream))[-1])
 
     assert last_event["stop"][0] == "tool_use"
+
+
+@pytest.mark.asyncio
+async def test_process_stream_invokes_model_stream_chunk_hook(agenerator, alist):
+    """Test that ModelStreamChunkEvent hook is invoked for each chunk."""
+    mock_agent = unittest.mock.MagicMock()
+    mock_hooks = unittest.mock.MagicMock()
+    mock_agent.hooks = mock_hooks
+    mock_hooks.invoke_callbacks_async = unittest.mock.AsyncMock()
+
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "Hello"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 5, "outputTokens": 10, "totalTokens": 15},
+                "metrics": {"latencyMs": 50},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response), agent=mock_agent)
+    await alist(stream)
+
+    # Verify hook was invoked for each chunk (5 chunks)
+    assert mock_hooks.invoke_callbacks_async.call_count == 5
+
+    # Verify each call was with ModelStreamChunkEvent containing correct agent and chunk
+    from strands.hooks.events import ModelStreamChunkEvent as ModelStreamChunkHookEvent
+
+    for i, call in enumerate(mock_hooks.invoke_callbacks_async.call_args_list):
+        event = call[0][0]
+        assert isinstance(event, ModelStreamChunkHookEvent)
+        assert event.agent is mock_agent
+        assert event.chunk == response[i]
+
+
+@pytest.mark.asyncio
+async def test_process_stream_without_agent_does_not_invoke_hook(agenerator, alist):
+    """Test that no hook is invoked when agent is not provided."""
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "Hello"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+    ]
+
+    # This should not raise any errors when agent is None (default)
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+    events = await alist(stream)
+
+    # Verify we still get the expected events
+    assert len(events) > 0
+
+
+@pytest.mark.asyncio
+async def test_stream_messages_with_agent_invokes_hook(agenerator, alist):
+    """Test that stream_messages passes agent to process_stream for hook invocation."""
+    mock_model = unittest.mock.MagicMock()
+    mock_agent = unittest.mock.MagicMock()
+    mock_hooks = unittest.mock.MagicMock()
+    mock_agent.hooks = mock_hooks
+    mock_hooks.invoke_callbacks_async = unittest.mock.AsyncMock()
+
+    mock_model.stream.return_value = agenerator(
+        [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockDelta": {"delta": {"text": "test"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    stream = strands.event_loop.streaming.stream_messages(
+        mock_model,
+        system_prompt="test prompt",
+        messages=[{"role": "user", "content": [{"text": "hello"}]}],
+        tool_specs=None,
+        system_prompt_content=[{"text": "test prompt"}],
+        agent=mock_agent,
+    )
+
+    await alist(stream)
+
+    # Verify hook was invoked for each chunk (4 chunks)
+    assert mock_hooks.invoke_callbacks_async.call_count == 4
+
+
+@pytest.mark.asyncio
+async def test_stream_messages_without_agent_works(agenerator, alist):
+    """Test that stream_messages works without agent parameter."""
+    mock_model = unittest.mock.MagicMock()
+    mock_model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+
+    stream = strands.event_loop.streaming.stream_messages(
+        mock_model,
+        system_prompt="test prompt",
+        messages=[{"role": "user", "content": [{"text": "hello"}]}],
+        tool_specs=None,
+        system_prompt_content=[{"text": "test prompt"}],
+    )
+
+    events = await alist(stream)
+
+    # Verify we still get events
+    assert len(events) > 0

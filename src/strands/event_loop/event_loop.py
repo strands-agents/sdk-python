@@ -398,6 +398,7 @@ async def _handle_model_execution(
                     invocation_state=invocation_state,
                     model_state=agent._model_state,
                     cancel_signal=agent._cancel_signal,
+                    agent=agent,
                 ):
                     yield event
 
