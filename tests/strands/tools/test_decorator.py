@@ -2101,3 +2101,45 @@ def test_tool_nullable_optional_field_simplifies_anyof():
     # Since tag is not required, anyOf should be simplified away
     assert "anyOf" not in schema["properties"]["tag"]
     assert schema["properties"]["tag"]["type"] == "string"
+
+
+def test_tool_field_default_factory_no_warning():
+    """Field(default_factory=...) must not trigger PydanticJsonSchemaWarning.
+
+    Regression test for https://github.com/strands-agents/sdk-python/issues/1914.
+    """
+    import warnings
+
+    from pydantic import Field
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+
+        @strands.tool
+        def factory_tool(items: list = Field(default_factory=list), tags: list = Field(default_factory=list)):  # noqa: B008
+            """Tool with default_factory params."""
+            return items + tags
+
+    pydantic_warnings = [w for w in caught if "PydanticJsonSchema" in w.category.__name__]
+    assert pydantic_warnings == [], f"Unexpected warnings: {pydantic_warnings}"
+
+    schema = factory_tool.tool_spec["inputSchema"]["json"]
+    # items and tags should be optional (not in required)
+    assert "items" not in schema.get("required", [])
+    assert "tags" not in schema.get("required", [])
+    assert schema["properties"]["items"]["type"] == "array"
+    assert schema["properties"]["tags"]["type"] == "array"
+
+
+def test_tool_field_default_value():
+    """Field(default=...) as a parameter default is handled correctly."""
+    from pydantic import Field
+
+    @strands.tool
+    def default_val_tool(name: str = Field(default="world", description="A name")):
+        """Tool with Field default value."""
+        return name
+
+    schema = default_val_tool.tool_spec["inputSchema"]["json"]
+    assert "name" not in schema.get("required", [])
+    assert schema["properties"]["name"]["description"] == "A name"
