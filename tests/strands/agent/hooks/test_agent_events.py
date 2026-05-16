@@ -129,6 +129,7 @@ async def test_stream_e2e_success(alist):
             "delta": {"text": "Okay invoking normal tool"},
         },
         {"event": {"contentBlockStop": {}}},
+        {"complete": True},
         {"event": {"contentBlockStart": {"start": {"toolUse": {"name": "normal_tool", "toolUseId": "123"}}}}},
         {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": "{}"}}}}},
         {
@@ -183,6 +184,7 @@ async def test_stream_e2e_success(alist):
             "tool_config": tool_config,
         },
         {"event": {"contentBlockStop": {}}},
+        {"complete": True},
         {"event": {"contentBlockStart": {"start": {"toolUse": {"name": "async_tool", "toolUseId": "1234"}}}}},
         {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": "{}"}}}}},
         {
@@ -242,6 +244,7 @@ async def test_stream_e2e_success(alist):
             "tool_config": tool_config,
         },
         {"event": {"contentBlockStop": {}}},
+        {"complete": True},
         {"event": {"contentBlockStart": {"start": {"toolUse": {"name": "streaming_tool", "toolUseId": "12345"}}}}},
         {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": "{}"}}}}},
         {
@@ -309,6 +312,7 @@ async def test_stream_e2e_success(alist):
             "tool_config": tool_config,
         },
         {"event": {"contentBlockStop": {}}},
+        {"complete": True},
         {"event": {"messageStop": {"stopReason": "end_turn"}}},
         {"message": {"content": [{"text": "I invoked the tools!"}], "role": "assistant", "metadata": ANY}},
         {
@@ -373,6 +377,7 @@ async def test_stream_e2e_throttle_and_redact(alist, mock_sleep):
             "delta": {"text": "INPUT BLOCKED!"},
         },
         {"event": {"contentBlockStop": {}}},
+        {"complete": True},
         {"event": {"messageStop": {"stopReason": "guardrail_intervened"}}},
         {"message": {"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant", "metadata": ANY}},
         {
@@ -437,6 +442,7 @@ async def test_stream_e2e_reasoning_redacted_content(alist):
             "delta": {"text": "Response with redacted reasoning"},
         },
         {"event": {"contentBlockStop": {}}},
+        {"complete": True},
         {"event": {"messageStop": {"stopReason": "end_turn"}}},
         {
             "message": {
