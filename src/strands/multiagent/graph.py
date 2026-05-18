@@ -35,8 +35,10 @@ from ..hooks.events import (
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
-from ..hooks.registry import HookProvider, HookRegistry
+from ..hooks.registry import HookCallback, HookProvider, HookRegistry
 from ..interrupt import Interrupt, _InterruptState
+from ..plugins.multiagent_plugin import MultiAgentPlugin
+from ..plugins.multiagent_registry import _MultiAgentPluginRegistry
 from ..session import SessionManager
 from ..telemetry import get_tracer
 from ..types._events import (
@@ -253,6 +255,7 @@ class GraphBuilder:
         self._id: str = _DEFAULT_GRAPH_ID
         self._session_manager: SessionManager | None = None
         self._hooks: list[HookProvider] | None = None
+        self._plugins: list[MultiAgentPlugin] | None = None
 
     def add_node(self, executor: AgentBase | MultiAgentBase, node_id: str | None = None) -> GraphNode:
         """Add an AgentBase or MultiAgentBase instance as a node to the graph."""
@@ -370,6 +373,15 @@ class GraphBuilder:
         self._hooks = hooks
         return self
 
+    def set_plugins(self, plugins: list[MultiAgentPlugin]) -> "GraphBuilder":
+        """Set plugins for the graph.
+
+        Args:
+            plugins: List of multi-agent plugins for extending graph behavior
+        """
+        self._plugins = plugins
+        return self
+
     def build(self) -> "Graph":
         """Build and validate the graph with configured settings."""
         if not self.nodes:
@@ -398,6 +410,7 @@ class GraphBuilder:
             session_manager=self._session_manager,
             hooks=self._hooks,
             id=self._id,
+            plugins=self._plugins,
         )
 
     def _validate_graph(self) -> None:
@@ -429,6 +442,7 @@ class Graph(MultiAgentBase):
         hooks: list[HookProvider] | None = None,
         id: str = _DEFAULT_GRAPH_ID,
         trace_attributes: Mapping[str, AttributeValue] | None = None,
+        plugins: list[MultiAgentPlugin] | None = None,
     ) -> None:
         """Initialize Graph with execution limits and reset behavior.
 
@@ -444,6 +458,7 @@ class Graph(MultiAgentBase):
             hooks: List of hook providers for monitoring and extending graph execution behavior (default: None)
             id: Unique graph id (default: None)
             trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
+            plugins: List of multi-agent plugins for extending graph behavior (default: None)
         """
         super().__init__()
 
@@ -469,11 +484,27 @@ class Graph(MultiAgentBase):
             for hook in hooks:
                 self.hooks.add_hook(hook)
 
+        self._plugin_registry = _MultiAgentPluginRegistry(self)
+        if plugins:
+            for plugin in plugins:
+                self._plugin_registry.add_and_init(plugin)
+
         self._resume_next_nodes: list[GraphNode] = []
         self._resume_from_session = False
         self.id = id
 
         run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
+
+    def add_hook(self, callback: HookCallback, event_type: type | list[type] | None = None) -> None:
+        """Register a hook callback with the graph.
+
+        Args:
+            callback: The callback function to invoke when events of this type occur.
+            event_type: The class type(s) of events this callback should handle.
+                Can be a single type, a list of types, or None to infer from
+                the callback's first parameter type hint.
+        """
+        self.hooks.add_callback(event_type, callback)
 
     def __call__(
         self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any

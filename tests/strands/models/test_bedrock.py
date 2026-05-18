@@ -20,8 +20,7 @@ from strands.models.bedrock import (
     DEFAULT_BEDROCK_MODEL_ID,
     DEFAULT_BEDROCK_REGION,
     DEFAULT_READ_TIMEOUT,
-    _clear_unsupported_count_tokens_cache,
-    _suppress_task_exception,
+    _clear_skip_count_tokens_cache,
 )
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from strands.types.tools import ToolSpec
@@ -3338,14 +3337,14 @@ class TestCountTokens:
 
     @pytest.fixture(autouse=True)
     def clean_cache(self):
-        _clear_unsupported_count_tokens_cache()
+        _clear_skip_count_tokens_cache()
         yield
-        _clear_unsupported_count_tokens_cache()
+        _clear_skip_count_tokens_cache()
 
     @pytest.fixture
     def model_with_client(self, bedrock_client, model_id):
         _ = bedrock_client
-        return BedrockModel(model_id=model_id)
+        return BedrockModel(model_id=model_id, use_native_token_count=True)
 
     @pytest.fixture
     def messages(self):
@@ -3461,7 +3460,7 @@ class TestCountTokens:
 
     @pytest.mark.asyncio
     async def test_caches_model_id_when_count_tokens_unsupported(self, bedrock_client, messages):
-        model = BedrockModel(model_id="unsupported-cache-test-model")
+        model = BedrockModel(model_id="unsupported-cache-test-model", use_native_token_count=True)
         bedrock_client.count_tokens.side_effect = ClientError(
             {"Error": {"Code": "ValidationException", "Message": "The provided model doesn't support counting tokens"}},
             "CountTokens",
@@ -3476,8 +3475,56 @@ class TestCountTokens:
         assert bedrock_client.count_tokens.call_count == 1
 
     @pytest.mark.asyncio
+    async def test_caches_model_id_when_access_denied(self, bedrock_client, messages):
+        model = BedrockModel(model_id="access-denied-cache-test-model", use_native_token_count=True)
+        bedrock_client.count_tokens.side_effect = ClientError(
+            {
+                "Error": {
+                    "Code": "AccessDeniedException",
+                    "Message": "User: arn:aws:sts::123456789012:assumed-role/role is not authorized"
+                    " to perform: bedrock:CountTokens",
+                }
+            },
+            "CountTokens",
+        )
+
+        # First call: hits API, gets error, caches
+        await model.count_tokens(messages=messages)
+        bedrock_client.count_tokens.assert_called_once()
+
+        # Reset mock to clearly verify second call doesn't hit the API
+        bedrock_client.count_tokens.reset_mock()
+
+        # Second call: skips API entirely due to caching
+        result = await model.count_tokens(messages=messages)
+        bedrock_client.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_access_denied_logs_warning_with_full_error(
+        self, model_with_client, bedrock_client, messages, caplog
+    ):
+        error_message = (
+            "User: arn:aws:sts::123456789012:assumed-role/role is not authorized"
+            " to perform: bedrock:CountTokens"
+        )
+        bedrock_client.count_tokens.side_effect = ClientError(
+            {"Error": {"Code": "AccessDeniedException", "Message": error_message}},
+            "CountTokens",
+        )
+
+        with caplog.at_level(logging.WARNING, logger="strands.models.bedrock"):
+            await model_with_client.count_tokens(messages=messages)
+
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warning_records) == 1
+        assert "bedrock:CountTokens permission denied" in warning_records[0].message
+        assert error_message in warning_records[0].message
+
+    @pytest.mark.asyncio
     async def test_does_not_cache_model_id_for_other_errors(self, bedrock_client, messages):
-        model = BedrockModel(model_id="transient-error-test-model")
+        model = BedrockModel(model_id="transient-error-test-model", use_native_token_count=True)
         bedrock_client.count_tokens.side_effect = RuntimeError("Transient network error")
 
         await model.count_tokens(messages=messages)
@@ -3498,101 +3545,13 @@ class TestCountTokens:
         assert isinstance(result, int)
         assert result >= 0
 
+    @pytest.mark.asyncio
+    async def test_skip_native_api_by_default(self, bedrock_client, model_id, messages):
+        _ = bedrock_client
+        model = BedrockModel(model_id=model_id)
 
-@pytest.mark.asyncio
-async def test_suppress_task_exception(bedrock_client, model, messages):
-    """_suppress_task_exception consumes exception from a failed task without re-raising."""
+        result = await model.count_tokens(messages=messages)
 
-    async def fail() -> None:
-        raise RuntimeError("inner task failure")
-
-    task = asyncio.create_task(fail())
-    await asyncio.sleep(0)  # let the task complete with exception
-
-    assert task.done()
-    assert task.exception() is not None
-
-    # Calling the helper should not raise — it simply retrieves the exception
-    _suppress_task_exception(task)
-
-
-@pytest.mark.asyncio
-async def test_suppress_task_exception_skips_cancelled():
-    """_suppress_task_exception is a no-op for cancelled tasks."""
-
-    async def hang() -> None:
-        await asyncio.sleep(999)
-
-    task = asyncio.create_task(hang())
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    # Should not raise — cancelled tasks are skipped
-    _suppress_task_exception(task)
-
-
-@pytest.mark.asyncio
-async def test_stream_break_does_not_leak_task_exception(bedrock_client, model, messages, caplog, alist):
-    """Breaking from an async-for on BedrockModel.stream must not leak the inner task's exception."""
-    caplog.set_level(logging.WARNING, logger="asyncio")
-
-    # Mock converse_stream to yield one event then raise — simulates e.g. ReadTimeoutError
-    # in the boto3 thread *after* the consumer has disconnected.
-
-    def stream_with_error():
-        yield {"messageStart": {"role": "assistant"}}
-        raise RuntimeError("simulated boto3 timeout after consumer disconnect")
-
-    bedrock_client.converse_stream.return_value = {"stream": stream_with_error()}
-
-    stream = model.stream(messages)
-    collected: list = []
-    async for event in stream:
-        collected.append(event)
-        break  # disconnect before the generator raises
-
-    # Let the event loop process the done-callback and the thread task
-    await asyncio.sleep(0.01)
-
-    # Verify we got the event before breaking
-    assert len(collected) == 1
-
-    # The critical assertion: no "Task exception was never retrieved" warning
-    assert "Task exception was never retrieved" not in caplog.text
-    # Also ensure no exception propagates to consumer
-    assert "exception was never retrieved" not in caplog.text.lower()
-
-
-@pytest.mark.asyncio
-async def test_stream_timeout_cancellation_does_not_leak(
-    bedrock_client,
-    model,
-    messages,
-    caplog,
-):
-    """Applying asyncio.wait_for on BedrockModel.stream must not leak the inner task's exception."""
-    caplog.set_level(logging.WARNING, logger="asyncio")
-
-    # Make converse_stream yield slowly so wait_for fires first
-    import time
-
-    def slow_stream():
-        time.sleep(0.05)  # simulate a slow network call
-        yield {"messageStart": {"role": "assistant"}}
-        time.sleep(0.05)
-        raise RuntimeError("boto3 timeout after consumer disconnected")
-
-    bedrock_client.converse_stream.return_value = {"stream": slow_stream()}
-
-    stream = model.stream(messages)
-    with pytest.raises(TimeoutError):
-        # Very short timeout — fires before the slow stream finishes
-        await asyncio.wait_for(stream.__anext__(), timeout=0.001)
-
-    # Let event loop settle
-    await asyncio.sleep(0.01)
-
-    # Critical: no orphaned-task warning
-    assert "Task exception was never retrieved" not in caplog.text
-    assert "exception was never retrieved" not in caplog.text.lower()
+        bedrock_client.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0

@@ -1224,7 +1224,7 @@ class TestCountTokens:
     @pytest.fixture
     def model(self, openai_client):
         _ = openai_client
-        return OpenAIResponsesModel(model_id="gpt-4o")
+        return OpenAIResponsesModel(model_id="gpt-4o", use_native_token_count=True)
 
     @pytest.fixture
     def messages(self):
@@ -1322,6 +1322,17 @@ class TestCountTokens:
     async def test_skip_native_api_when_use_native_token_count_false(self, openai_client, messages):
         _ = openai_client
         model = OpenAIResponsesModel(model_id="gpt-4o", use_native_token_count=False)
+
+        result = await model.count_tokens(messages=messages)
+
+        openai_client.responses.input_tokens.count.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_by_default(self, openai_client, messages):
+        _ = openai_client
+        model = OpenAIResponsesModel(model_id="gpt-4o")
 
         result = await model.count_tokens(messages=messages)
 

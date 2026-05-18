@@ -55,13 +55,13 @@ _MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
 ]
 
-# Cache of model IDs that do not support the CountTokens API.
-_UNSUPPORTED_COUNT_TOKENS_MODELS: set[str] = set()
+# Cache of model IDs for which CountTokens API calls should be skipped.
+_SKIP_COUNT_TOKENS_MODELS: set[str] = set()
 
 
-def _clear_unsupported_count_tokens_cache() -> None:
-    """Clear the cache of model IDs that do not support the CountTokens API."""
-    _UNSUPPORTED_COUNT_TOKENS_MODELS.clear()
+def _clear_skip_count_tokens_cache() -> None:
+    """Clear the cache of model IDs for which CountTokens API calls should be skipped."""
+    _SKIP_COUNT_TOKENS_MODELS.clear()
 
 
 def _suppress_task_exception(task: "asyncio.Task[None]") -> None:
@@ -124,8 +124,8 @@ class BedrockModel(Model):
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
             use_native_token_count: Whether to use the native Bedrock CountTokens API.
-                When True (default), count_tokens() calls the Bedrock API for accurate counts.
-                When False, skips the API call and uses the local estimator.
+                When True, count_tokens() calls the Bedrock API for accurate counts.
+                When False (default), skips the API call and uses the local estimator.
         """
 
         additional_args: dict[str, Any] | None
@@ -804,12 +804,12 @@ class BedrockModel(Model):
         Returns:
             Total input token count.
         """
-        if self.config.get("use_native_token_count") is False:
+        if self.config.get("use_native_token_count") is not True:
             return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
         model_id: str = self.config["model_id"]
 
-        if model_id in _UNSUPPORTED_COUNT_TOKENS_MODELS:
+        if model_id in _SKIP_COUNT_TOKENS_MODELS:
             return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
         try:
@@ -840,6 +840,17 @@ class BedrockModel(Model):
         except Exception as e:
             if (
                 isinstance(e, ClientError)
+                and e.response.get("Error", {}).get("Code") == "AccessDeniedException"
+            ):
+                logger.warning(
+                    "model_id=<%s> | bedrock:CountTokens permission denied,"
+                    " falling back to heuristic estimation: %s",
+                    model_id,
+                    e,
+                )
+                _SKIP_COUNT_TOKENS_MODELS.add(model_id)
+            elif (
+                isinstance(e, ClientError)
                 and e.response.get("Error", {}).get("Code") == "ValidationException"
                 and "doesn't support counting tokens" in str(e)
             ):
@@ -848,7 +859,7 @@ class BedrockModel(Model):
                     " falling back to estimation",
                     model_id,
                 )
-                _UNSUPPORTED_COUNT_TOKENS_MODELS.add(model_id)
+                _SKIP_COUNT_TOKENS_MODELS.add(model_id)
             else:
                 logger.debug(
                     "model_id=<%s>, error=<%s> | native token counting failed, falling back to estimation",

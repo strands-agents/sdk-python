@@ -1072,7 +1072,7 @@ class TestCountTokens:
     @pytest.fixture
     def model_with_client(self, anthropic_client, model_id, max_tokens):
         _ = anthropic_client
-        return AnthropicModel(model_id=model_id, max_tokens=max_tokens)
+        return AnthropicModel(model_id=model_id, max_tokens=max_tokens, use_native_token_count=True)
 
     @pytest.fixture
     def messages(self):
@@ -1169,6 +1169,17 @@ class TestCountTokens:
     ):
         _ = anthropic_client
         model = AnthropicModel(model_id=model_id, max_tokens=max_tokens, use_native_token_count=False)
+
+        result = await model.count_tokens(messages=messages)
+
+        anthropic_client.messages.count_tokens.assert_not_called()
+        assert isinstance(result, int)
+        assert result >= 0
+
+    @pytest.mark.asyncio
+    async def test_skip_native_api_by_default(self, anthropic_client, model_id, max_tokens, messages):
+        _ = anthropic_client
+        model = AnthropicModel(model_id=model_id, max_tokens=max_tokens)
 
         result = await model.count_tokens(messages=messages)
 
