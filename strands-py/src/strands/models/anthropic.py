@@ -371,14 +371,27 @@ class AnthropicModel(Model):
 
             case "metadata":
                 usage = event["usage"]
+                input_tokens = usage["input_tokens"]
+                output_tokens = usage["output_tokens"]
+                cache_read = usage.get("cache_read_input_tokens") or 0
+                cache_write = usage.get("cache_creation_input_tokens") or 0
+                # Anthropic reports `input_tokens` as the NON-CACHED portion only.
+                # `totalTokens` should reflect everything billed on the input side:
+                # uncached + cache reads + cache writes.
+                total_input = input_tokens + cache_read + cache_write
+                usage_chunk: dict[str, int] = {
+                    "inputTokens": input_tokens,
+                    "outputTokens": output_tokens,
+                    "totalTokens": total_input + output_tokens,
+                }
+                if cache_read:
+                    usage_chunk["cacheReadInputTokens"] = cache_read
+                if cache_write:
+                    usage_chunk["cacheWriteInputTokens"] = cache_write
 
                 return {
                     "metadata": {
-                        "usage": {
-                            "inputTokens": usage["input_tokens"],
-                            "outputTokens": usage["output_tokens"],
-                            "totalTokens": usage["input_tokens"] + usage["output_tokens"],
-                        },
+                        "usage": usage_chunk,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },
