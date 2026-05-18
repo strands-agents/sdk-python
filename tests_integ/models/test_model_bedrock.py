@@ -6,7 +6,7 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.models import BedrockModel, CacheConfig
+from strands.models import BedrockModel, CacheConfig, CacheToolsConfig
 from strands.types.content import ContentBlock
 
 # Model ID used for prompt-caching TTL integration tests. Per
@@ -573,9 +573,9 @@ def test_strict_tools_with_complex_schema():
 
 
 def test_prompt_caching_cache_tools_ttl():
-    """Test that cache_tools_ttl propagates into the auto-injected toolConfig cache point.
+    """Test that CacheToolsConfig(ttl=...) propagates into the auto-injected toolConfig cache point.
 
-    Verifies that BedrockModel(cache_tools="default", cache_tools_ttl="5m") produces a
+    Verifies that BedrockModel(cache_tools=CacheToolsConfig(type="default", ttl="5m")) produces a
     Bedrock request with cachePoint.ttl on the toolConfig checkpoint, and that the call
     completes without a ValidationException on the TTL field.
 
@@ -590,8 +590,7 @@ def test_prompt_caching_cache_tools_ttl():
     model = BedrockModel(
         model_id=_CACHE_TTL_MODEL_ID,
         streaming=False,
-        cache_tools="default",
-        cache_tools_ttl="5m",
+        cache_tools=CacheToolsConfig(type="default", ttl="5m"),
     )
 
     @strands.tool
@@ -665,8 +664,7 @@ def test_prompt_caching_aligned_1h_ttl_across_checkpoints():
     model = BedrockModel(
         model_id=_CACHE_TTL_MODEL_ID,
         streaming=False,
-        cache_tools="default",
-        cache_tools_ttl="1h",
+        cache_tools=CacheToolsConfig(type="default", ttl="1h"),
         cache_config=CacheConfig(strategy="auto", ttl="1h"),
     )
 

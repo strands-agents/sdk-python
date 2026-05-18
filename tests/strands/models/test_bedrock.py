@@ -14,7 +14,7 @@ from botocore.exceptions import ClientError, EventStreamError
 
 import strands
 from strands import _exception_notes
-from strands.models import BedrockModel, CacheConfig
+from strands.models import BedrockModel, CacheConfig, CacheToolsConfig
 from strands.models.bedrock import (
     DEFAULT_BEDROCK_MODEL_ID,
     DEFAULT_BEDROCK_REGION,
@@ -3592,9 +3592,9 @@ def test_inject_cache_point_without_ttl(bedrock_client):
     assert "ttl" not in cache_point
 
 
-def test_format_request_cache_tools_with_ttl(model, messages, model_id, tool_spec, cache_type):
-    """Test that cache_tools_ttl propagates into toolConfig cachePoint."""
-    model.update_config(cache_tools=cache_type, cache_tools_ttl="5m")
+def test_format_request_cache_tools_config_with_ttl(model, messages, model_id, tool_spec, cache_type):
+    """Test that CacheToolsConfig propagates type and ttl into toolConfig cachePoint."""
+    model.update_config(cache_tools=CacheToolsConfig(type=cache_type, ttl="5m"))
 
     tru_request = model._format_request(messages, tool_specs=[tool_spec])
 
@@ -3602,8 +3602,18 @@ def test_format_request_cache_tools_with_ttl(model, messages, model_id, tool_spe
     assert tru_request["toolConfig"]["tools"][-1] == exp_cache_point
 
 
-def test_format_request_cache_tools_without_ttl(model, messages, model_id, tool_spec, cache_type):
-    """Test that toolConfig cachePoint omits TTL when cache_tools_ttl is not set."""
+def test_format_request_cache_tools_config_without_ttl(model, messages, model_id, tool_spec, cache_type):
+    """Test that CacheToolsConfig without ttl produces a cachePoint with only type."""
+    model.update_config(cache_tools=CacheToolsConfig(type=cache_type))
+
+    tru_request = model._format_request(messages, tool_specs=[tool_spec])
+
+    exp_cache_point = {"cachePoint": {"type": cache_type}}
+    assert tru_request["toolConfig"]["tools"][-1] == exp_cache_point
+
+
+def test_format_request_cache_tools_string_backward_compat(model, messages, model_id, tool_spec, cache_type):
+    """Test that passing cache_tools as a string still produces a cachePoint with only type."""
     model.update_config(cache_tools=cache_type)
 
     tru_request = model._format_request(messages, tool_specs=[tool_spec])
