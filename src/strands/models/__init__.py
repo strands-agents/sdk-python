@@ -6,7 +6,7 @@ This package includes an abstract base Model class along with concrete implement
 from typing import Any
 
 from . import bedrock, model
-from .bedrock import BedrockModel, CacheToolsConfig
+from .bedrock import BedrockModel
 from .model import BaseModelConfig, CacheConfig, Model
 
 __all__ = [
@@ -15,7 +15,6 @@ __all__ = [
     "BaseModelConfig",
     "BedrockModel",
     "CacheConfig",
-    "CacheToolsConfig",
     "Model",
 ]
 
