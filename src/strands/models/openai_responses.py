@@ -137,8 +137,8 @@ class OpenAIResponsesModel(Model):
                 When True, the server stores conversation history and the client does not need to
                 send the full message history with each request. Defaults to False.
             use_native_token_count: Whether to use the native OpenAI input_tokens.count API.
-                When True (default), count_tokens() calls the OpenAI API for accurate counts.
-                When False, skips the API call and uses the local estimator.
+                When True, count_tokens() calls the OpenAI API for accurate counts.
+                When False (default), skips the API call and uses the local estimator.
         """
 
         model_id: str
@@ -242,7 +242,7 @@ class OpenAIResponsesModel(Model):
         Returns:
             Total input token count.
         """
-        if self.config.get("use_native_token_count") is False:
+        if self.config.get("use_native_token_count") is not True:
             return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
         try:

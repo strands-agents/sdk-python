@@ -12,7 +12,7 @@ from ...tools.registry import ToolRegistry
 from ...types.content import Message
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import AgentTool
-from .conversation_manager import ConversationManager
+from .conversation_manager import ConversationManager, ProactiveCompressionConfig
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -65,6 +65,8 @@ class SummarizingConversationManager(ConversationManager):
         preserve_recent_messages: int = 10,
         summarization_agent: Optional["Agent"] = None,
         summarization_system_prompt: str | None = None,
+        *,
+        proactive_compression: bool | ProactiveCompressionConfig | None = None,
     ):
         """Initialize the summarizing conversation manager.
 
@@ -77,8 +79,12 @@ class SummarizingConversationManager(ConversationManager):
                 If provided, this agent can use tools as part of the summarization process.
             summarization_system_prompt: Optional system prompt override for summarization.
                 If None, uses the default summarization prompt.
+            proactive_compression: Enable proactive context compression before the model call.
+                - ``True``: compress when 70% of the context window is used (default threshold).
+                - ``{"compression_threshold": float}``: compress at the specified ratio (0, 1].
+                - ``False`` or ``None``: disabled, only reactive overflow recovery is used.
         """
-        super().__init__()
+        super().__init__(proactive_compression=proactive_compression)
         if summarization_agent is not None and summarization_system_prompt is not None:
             raise ValueError(
                 "Cannot provide both summarization_agent and summarization_system_prompt. "
@@ -126,54 +132,76 @@ class SummarizingConversationManager(ConversationManager):
     def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
         """Reduce context using summarization.
 
+        When ``e`` is set (reactive overflow recovery), summarization failure is re-raised —
+        the agent loop must not proceed with an overflow.
+
+        When ``e`` is None (proactive compression), summarization failure is logged and
+        returns silently — the model call proceeds regardless.
+
         Args:
             agent: The agent whose conversation history will be reduced.
                 The agent's messages list is modified in-place.
             e: The exception that triggered the context reduction, if any.
+                When set, this is a reactive overflow recovery call.
+                When None, this is a proactive compression call (best-effort).
             **kwargs: Additional keyword arguments for future extensibility.
 
         Raises:
-            ContextWindowOverflowException: If the context cannot be summarized.
+            Exception: If summarization fails during reactive overflow recovery (e is set).
         """
         try:
-            # Calculate how many messages to summarize
-            messages_to_summarize_count = max(1, int(len(agent.messages) * self.summary_ratio))
-
-            # Ensure we don't summarize recent messages
-            messages_to_summarize_count = min(
-                messages_to_summarize_count, len(agent.messages) - self.preserve_recent_messages
-            )
-
-            if messages_to_summarize_count <= 0:
-                raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
-
-            # Adjust split point to avoid breaking ToolUse/ToolResult pairs
-            messages_to_summarize_count = self._adjust_split_point_for_tool_pairs(
-                agent.messages, messages_to_summarize_count
-            )
-
-            if messages_to_summarize_count <= 0:
-                raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
-
-            # Extract messages to summarize
-            messages_to_summarize = agent.messages[:messages_to_summarize_count]
-            remaining_messages = agent.messages[messages_to_summarize_count:]
-
-            # Keep track of the number of messages that have been summarized thus far.
-            self.removed_message_count += len(messages_to_summarize)
-            # If there is a summary message, don't count it in the removed_message_count.
-            if self._summary_message:
-                self.removed_message_count -= 1
-
-            # Generate summary
-            self._summary_message = self._generate_summary(messages_to_summarize, agent)
-
-            # Replace the summarized messages with the summary
-            agent.messages[:] = [self._summary_message] + remaining_messages
-
+            self._summarize_oldest(agent)
         except Exception as summarization_error:
-            logger.error("Summarization failed: %s", summarization_error)
-            raise summarization_error from e
+            if e is not None:
+                # Reactive: rethrow so the ContextWindowOverflowException propagates
+                logger.error("Summarization failed: %s", summarization_error)
+                raise summarization_error from e
+            # Proactive: best-effort, swallow errors so the model call can still proceed.
+            logger.warning("Proactive summarization failed, continuing: %s", summarization_error)
+
+    def _summarize_oldest(self, agent: "Agent") -> None:
+        """Summarize the oldest messages and replace them with a summary.
+
+        Args:
+            agent: The agent instance.
+
+        Raises:
+            ContextWindowOverflowException: If there are insufficient messages for summarization.
+        """
+        # Calculate how many messages to summarize
+        messages_to_summarize_count = max(1, int(len(agent.messages) * self.summary_ratio))
+
+        # Ensure we don't summarize recent messages
+        messages_to_summarize_count = min(
+            messages_to_summarize_count, len(agent.messages) - self.preserve_recent_messages
+        )
+
+        if messages_to_summarize_count <= 0:
+            raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
+
+        # Adjust split point to avoid breaking ToolUse/ToolResult pairs
+        messages_to_summarize_count = self._adjust_split_point_for_tool_pairs(
+            agent.messages, messages_to_summarize_count
+        )
+
+        if messages_to_summarize_count <= 0:
+            raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
+
+        # Extract messages to summarize
+        messages_to_summarize = agent.messages[:messages_to_summarize_count]
+        remaining_messages = agent.messages[messages_to_summarize_count:]
+
+        # Keep track of the number of messages that have been summarized thus far.
+        self.removed_message_count += len(messages_to_summarize)
+        # If there is a summary message, don't count it in the removed_message_count.
+        if self._summary_message:
+            self.removed_message_count -= 1
+
+        # Generate summary
+        self._summary_message = self._generate_summary(messages_to_summarize, agent)
+
+        # Replace the summarized messages with the summary
+        agent.messages[:] = [self._summary_message] + remaining_messages
 
     def _generate_summary(self, messages: list[Message], agent: "Agent") -> Message:
         """Generate a summary of the provided messages.

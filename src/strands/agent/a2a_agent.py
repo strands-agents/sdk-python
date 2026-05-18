@@ -15,10 +15,14 @@ from typing import Any
 
 import httpx
 from a2a.client import A2ACardResolver, ClientConfig, ClientFactory
-from a2a.types import AgentCard, Message, TaskArtifactUpdateEvent, TaskState, TaskStatusUpdateEvent
+from a2a.types import AgentCard, Message, TaskArtifactUpdateEvent, TaskStatusUpdateEvent
 
 from .._async import run_async
-from ..multiagent.a2a._converters import convert_input_to_message, convert_response_to_agent_result
+from ..multiagent.a2a._converters import (
+    _STATE_TO_STOP_REASON,
+    convert_input_to_message,
+    convert_response_to_agent_result,
+)
 from ..types._events import AgentResultEvent
 from ..types.a2a import A2AResponse, A2AStreamEvent
 from ..types.agent import AgentInput
@@ -28,6 +32,13 @@ from .base import AgentBase
 logger = logging.getLogger(__name__)
 
 _DEFAULT_TIMEOUT = 300
+
+# A2A task states that indicate the response stream is complete.
+# Derived from the canonical _STATE_TO_STOP_REASON mapping in _converters.
+# Terminal states (end_turn) mean no more events; input states (interrupt) mean execution is paused.
+_TERMINAL_STATES = {state for state, reason in _STATE_TO_STOP_REASON.items() if reason == "end_turn"}
+_INPUT_STATES = {state for state, reason in _STATE_TO_STOP_REASON.items() if reason == "interrupt"}
+_COMPLETE_STATES = _TERMINAL_STATES | _INPUT_STATES
 
 
 class A2AAgent(AgentBase):
@@ -265,6 +276,9 @@ class A2AAgent(AgentBase):
     def _is_complete_event(self, event: A2AResponse) -> bool:
         """Check if an A2A event represents a complete response.
 
+        Recognizes all terminal states (completed, failed, canceled, rejected)
+        and pausing states (input_required, auth_required) as complete events.
+
         Args:
             event: A2A event.
 
@@ -289,9 +303,10 @@ class A2AAgent(AgentBase):
                     return update_event.last_chunk
                 return False
 
-            # Status update with completed state
+            # Status update - check for terminal or pausing states
             if isinstance(update_event, TaskStatusUpdateEvent):
                 if update_event.status and hasattr(update_event.status, "state"):
-                    return update_event.status.state == TaskState.completed
+                    state = update_event.status.state
+                    return state in _COMPLETE_STATES
 
         return False

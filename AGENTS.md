@@ -130,8 +130,11 @@ strands-agents/
 │   │
 │   ├── plugins/                          # Plugin system
 │   │   ├── plugin.py                     # Plugin base class
+│   │   ├── multiagent_plugin.py          # MultiAgentPlugin base class
 │   │   ├── decorator.py                  # @hook decorator
-│   │   └── registry.py                   # PluginRegistry for tracking plugins
+│   │   ├── registry.py                   # PluginRegistry for tracking agent plugins
+│   │   ├── multiagent_registry.py        # Registry for tracking orchestrator plugins
+│   │   └── _discovery.py                 # Shared hook/tool discovery utilities
 │   │
 │   ├── handlers/                         # Event handlers
 │   │   └── callback_handler.py           # Callback handling

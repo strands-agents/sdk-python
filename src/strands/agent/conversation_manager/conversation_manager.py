@@ -1,13 +1,32 @@
 """Abstract interface for conversation history management."""
 
+import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict, Union
 
+from ...hooks.events import BeforeModelCallEvent
 from ...hooks.registry import HookProvider, HookRegistry
 from ...types.content import Message
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_COMPRESSION_THRESHOLD = 0.7
+DEFAULT_CONTEXT_WINDOW_LIMIT = 200_000
+
+
+class ProactiveCompressionConfig(TypedDict, total=False):
+    """Configuration for proactive compression when passed as an object.
+
+    Attributes:
+        compression_threshold: Ratio of context window usage that triggers proactive compression.
+            Value between 0 (exclusive) and 1 (inclusive).
+            Defaults to 0.7 (compress when 70% of the context window is used).
+    """
+
+    compression_threshold: float
 
 
 class ConversationManager(ABC, HookProvider):
@@ -22,29 +41,67 @@ class ConversationManager(ABC, HookProvider):
 
     ConversationManager implements the HookProvider protocol, allowing derived classes to register hooks for agent
     lifecycle events. Derived classes that override register_hooks must call the base implementation to ensure proper
-    hook registration.
+    hook registration chain.
+
+    The primary responsibility of a ConversationManager is overflow recovery: when the model encounters a context
+    window overflow, :meth:`reduce_context` is called with ``e`` set and MUST reduce the history enough for the next
+    model call to succeed.
+
+    Subclasses can enable proactive compression by passing ``proactive_compression`` in the constructor.
+    When enabled, the base class registers a ``BeforeModelCallEvent`` hook that checks projected input tokens
+    against the model's context window limit and calls :meth:`reduce_context` (without ``e``) when the
+    threshold is exceeded. This is a best-effort operation — errors are swallowed so the model call can
+    still proceed.
 
     Example:
         ```python
-        class MyConversationManager(ConversationManager):
-            def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
-                super().register_hooks(registry, **kwargs)
-                # Register additional hooks here
+        # Enable proactive compression with default threshold (0.7)
+        SlidingWindowConversationManager(window_size=50, proactive_compression=True)
+
+        # Enable proactive compression with custom threshold
+        SummarizingConversationManager(proactive_compression={"compression_threshold": 0.8})
         ```
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, proactive_compression: Union[bool, "ProactiveCompressionConfig", None] = None) -> None:
         """Initialize the ConversationManager.
+
+        Args:
+            proactive_compression: Enable proactive context compression before the model call.
+                - ``True``: compress when 70% of the context window is used (default threshold).
+                - ``{"compression_threshold": float}``: compress at the specified ratio (0, 1].
+                - ``False`` or ``None``: disabled, only reactive overflow recovery is used.
+
+        Raises:
+            ValueError: If compression_threshold is not in the valid range (0, 1].
 
         Attributes:
           removed_message_count: The messages that have been removed from the agents messages array.
               These represent messages provided by the user or LLM that have been removed, not messages
               included by the conversation manager through something like summarization.
         """
+        # Resolve the threshold from proactive_compression parameter
+        if proactive_compression is True:
+            threshold: float | None = DEFAULT_COMPRESSION_THRESHOLD
+        elif isinstance(proactive_compression, dict):
+            threshold = proactive_compression.get("compression_threshold", DEFAULT_COMPRESSION_THRESHOLD)
+        else:
+            threshold = None
+
+        if threshold is not None and (threshold <= 0 or threshold > 1):
+            raise ValueError(
+                f"compression_threshold must be between 0 (exclusive) and 1 (inclusive), got {threshold}"
+            )
+
         self.removed_message_count = 0
+        self._compression_threshold = threshold
+        self._context_window_limit_warned = False
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hooks for agent lifecycle events.
+
+        Always registers a ``BeforeModelCallEvent`` hook for proactive compression.
+        When ``proactive_compression`` is not configured, the handler is a no-op (early return).
 
         Derived classes that override this method must call the base implementation to ensure proper hook
         registration chain.
@@ -52,15 +109,54 @@ class ConversationManager(ABC, HookProvider):
         Args:
             registry: The hook registry to register callbacks with.
             **kwargs: Additional keyword arguments for future extensibility.
-
-        Example:
-            ```python
-            def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
-                super().register_hooks(registry, **kwargs)
-                registry.add_callback(SomeEvent, self.on_some_event)
-            ```
         """
-        pass
+        # Always subscribe — the threshold check happens inside the handler
+        registry.add_callback(BeforeModelCallEvent, self._on_before_model_call_threshold)
+
+    def _on_before_model_call_threshold(self, event: BeforeModelCallEvent) -> None:
+        """Handle BeforeModelCallEvent for proactive compression.
+
+        When proactive compression is not configured, this is a no-op.
+        When configured, checks projected input tokens against the context window limit
+        and calls reduce_context() without error (best-effort) when threshold is exceeded.
+
+        Args:
+            event: The before model call event.
+        """
+        # Early return if proactive compression is not enabled
+        if self._compression_threshold is None:
+            return
+
+        context_window_limit = event.agent.model.context_window_limit
+        if context_window_limit is None:
+            context_window_limit = DEFAULT_CONTEXT_WINDOW_LIMIT
+            if not self._context_window_limit_warned:
+                self._context_window_limit_warned = True
+                logger.warning(
+                    "context_window_limit=<%s> | context_window_limit not set on model, using default."
+                    " Set context_window_limit in your model config for accurate proactive compression",
+                    DEFAULT_CONTEXT_WINDOW_LIMIT,
+                )
+
+        if event.projected_input_tokens is None:
+            logger.debug("projected_input_tokens=<None> | skipping proactive compression")
+            return
+
+        ratio = event.projected_input_tokens / context_window_limit
+        if ratio >= self._compression_threshold:
+            logger.debug(
+                "projected_tokens=<%s>, limit=<%s>, ratio=<%.2f>, compression_threshold=<%s>"
+                " | compression threshold exceeded, reducing context",
+                event.projected_input_tokens,
+                context_window_limit,
+                ratio,
+                self._compression_threshold,
+            )
+            # Proactive compression is best-effort: swallow errors so the model call can still proceed.
+            try:
+                self.reduce_context(agent=event.agent)
+            except Exception:
+                logger.debug("proactive compression failed, will proceed with model call", exc_info=True)
 
     def restore_from_session(self, state: dict[str, Any]) -> list[Message] | None:
         """Restore the Conversation Manager's state from a session.
@@ -99,22 +195,24 @@ class ConversationManager(ABC, HookProvider):
 
     @abstractmethod
     def reduce_context(self, agent: "Agent", e: Exception | None = None, **kwargs: Any) -> None:
-        """Called when the model's context window is exceeded.
+        """Reduce the conversation history.
 
-        This method should implement the specific strategy for reducing the window size when a context overflow occurs.
-        It is typically called after a ContextWindowOverflowException is caught.
+        Called in two scenarios:
+        1. **Reactive** (e is set): A context window overflow occurred. The implementation
+           MUST remove enough history for the next model call to succeed, or re-raise the error.
+        2. **Proactive** (e is None): The compression threshold was exceeded. This is best-effort —
+           returning without reduction or raising is acceptable; the model call proceeds regardless.
 
-        Implementations might use strategies such as:
-
-        - Removing the N oldest messages
-        - Summarizing older context
-        - Applying importance-based filtering
-        - Maintaining critical conversation markers
+        Implementations should modify ``agent.messages`` in-place.
 
         Args:
             agent: The agent whose conversation history will be reduced.
                 This list is modified in-place.
             e: The exception that triggered the context reduction, if any.
+                When set, this is a reactive overflow recovery call — the implementation MUST
+                reduce enough history for the next model call to succeed.
+                When None, this is a proactive compression call — best-effort reduction to avoid
+                hitting the context window limit.
             **kwargs: Additional keyword arguments for future extensibility.
         """
         pass

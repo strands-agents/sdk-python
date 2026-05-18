@@ -58,8 +58,8 @@ class AnthropicModel(Model):
             params: Additional model parameters (e.g., temperature).
                 For a complete list of supported parameters, see https://docs.anthropic.com/en/api/messages.
             use_native_token_count: Whether to use the native Anthropic count_tokens API.
-                When True (default), count_tokens() calls the Anthropic API for accurate counts.
-                When False, skips the API call and uses the local estimator.
+                When True, count_tokens() calls the Anthropic API for accurate counts.
+                When False (default), skips the API call and uses the local estimator.
         """
 
         max_tokens: Required[int]
@@ -398,7 +398,7 @@ class AnthropicModel(Model):
         Returns:
             Total input token count.
         """
-        if self.config.get("use_native_token_count") is False:
+        if self.config.get("use_native_token_count") is not True:
             return await super().count_tokens(messages, tool_specs, system_prompt, system_prompt_content)
 
         try:
