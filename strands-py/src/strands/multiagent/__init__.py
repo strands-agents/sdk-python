@@ -9,10 +9,12 @@ Submodules:
 """
 
 from .base import MultiAgentBase, MultiAgentResult, Status
-from .graph import GraphBuilder, GraphResult
+from .graph import EdgeCondition, EdgeConditionWithContext, GraphBuilder, GraphResult
 from .swarm import Swarm, SwarmResult
 
 __all__ = [
+    "EdgeCondition",
+    "EdgeConditionWithContext",
     "GraphBuilder",
     "GraphResult",
     "MultiAgentBase",
