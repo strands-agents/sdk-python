@@ -142,6 +142,19 @@ class CacheConfig:
     ttl: str | None = None
 
 
+@dataclass
+class CacheToolsConfig:
+    """Configuration for the toolConfig cache point.
+
+    Attributes:
+        type: Cache point type (e.g. "default").
+        ttl: Optional TTL duration for the cache entry (e.g. "5m", "1h").
+    """
+
+    type: str = "default"
+    ttl: str | None = None
+
+
 class Model(abc.ABC):
     """Abstract base class for Agent model providers.
 

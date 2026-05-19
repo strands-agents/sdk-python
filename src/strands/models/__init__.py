@@ -6,8 +6,8 @@ This package includes an abstract base Model class along with concrete implement
 from typing import Any
 
 from . import bedrock, model
-from .bedrock import BedrockModel, CacheToolsConfig
-from .model import BaseModelConfig, CacheConfig, Model
+from .bedrock import BedrockModel
+from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
 
 __all__ = [
     "bedrock",

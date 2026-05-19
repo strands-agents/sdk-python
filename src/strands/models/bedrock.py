@@ -9,7 +9,6 @@ import logging
 import os
 import warnings
 from collections.abc import AsyncGenerator, Callable, Iterable, ValuesView
-from dataclasses import dataclass
 from typing import Any, Literal, TypeVar, cast
 
 import boto3
@@ -35,7 +34,7 @@ from ..types.tools import ToolChoice, ToolSpec
 from ._defaults import resolve_config_metadata
 from ._strict_schema import ensure_strict_json_schema
 from ._validation import validate_config_keys
-from .model import BaseModelConfig, CacheConfig, Model
+from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
 
 logger = logging.getLogger(__name__)
 
@@ -68,19 +67,6 @@ def _clear_skip_count_tokens_cache() -> None:
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
-
-
-@dataclass
-class CacheToolsConfig:
-    """Configuration for the Bedrock toolConfig cache point.
-
-    Attributes:
-        type: Cache point type (e.g. "default").
-        ttl: Optional TTL duration for the cache entry (e.g. "5m", "1h").
-    """
-
-    type: str = "default"
-    ttl: str | None = None
 
 
 class BedrockModel(Model):
