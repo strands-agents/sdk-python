@@ -9,6 +9,7 @@ import logging
 import os
 import warnings
 from collections.abc import AsyncGenerator, Callable, Iterable, ValuesView
+from dataclasses import dataclass
 from typing import Any, Literal, TypeVar, cast
 
 import boto3
@@ -69,6 +70,19 @@ T = TypeVar("T", bound=BaseModel)
 DEFAULT_READ_TIMEOUT = 120
 
 
+@dataclass
+class CacheToolsConfig:
+    """Configuration for the Bedrock toolConfig cache point.
+
+    Attributes:
+        type: Cache point type (e.g. "default").
+        ttl: Optional TTL duration for the cache entry (e.g. "5m", "1h").
+    """
+
+    type: str = "default"
+    ttl: str | None = None
+
+
 class BedrockModel(Model):
     """AWS Bedrock model provider implementation.
 
@@ -90,10 +104,8 @@ class BedrockModel(Model):
             additional_response_field_paths: Additional response field paths to extract
             cache_prompt: Cache point type for the system prompt (deprecated, use cache_config)
             cache_config: Configuration for prompt caching. Use CacheConfig(strategy="auto") for automatic caching.
-                When set, ``cache_config.ttl`` is also applied to the ``cache_tools`` checkpoint (if configured)
-                to satisfy Bedrock's non-increasing TTL ordering rule across checkpoints.
-            cache_tools: Cache point type for tools (e.g. "default"). The TTL on this checkpoint is taken
-                from ``cache_config.ttl`` when set.
+            cache_tools: Cache point type for tools. Pass a string (e.g. "default") for the default 5m TTL,
+                or a CacheToolsConfig instance to set both type and TTL (e.g. "1h").
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
             guardrail_version: Version of the guardrail to apply
@@ -130,7 +142,7 @@ class BedrockModel(Model):
         additional_response_field_paths: list[str] | None
         cache_prompt: str | None
         cache_config: CacheConfig | None
-        cache_tools: str | None
+        cache_tools: str | CacheToolsConfig | None
         guardrail_id: str | None
         guardrail_trace: Literal["enabled", "disabled", "enabled_full"] | None
         guardrail_stream_processing_mode: Literal["sync", "async"] | None
@@ -373,9 +385,6 @@ class BedrockModel(Model):
     def _build_tools_cache_point(self) -> list[dict[str, Any]]:
         """Build the cache point block appended to ``toolConfig.tools`` if ``cache_tools`` is configured.
 
-        TTL is sourced from ``cache_config.ttl`` so that all SDK-managed cache checkpoints (toolConfig,
-        message) share a single TTL — Bedrock requires TTLs across checkpoints to be non-increasing.
-
         Returns:
             A single-element list containing the cache point block, or an empty list if no cache_tools is set.
         """
@@ -383,10 +392,12 @@ class BedrockModel(Model):
         if not cache_tools:
             return []
 
-        cache_point: dict[str, Any] = {"type": cache_tools}
-        cache_config = self.config.get("cache_config")
-        if cache_config and cache_config.ttl:
-            cache_point["ttl"] = cache_config.ttl
+        if isinstance(cache_tools, CacheToolsConfig):
+            cache_point: dict[str, Any] = {"type": cache_tools.type}
+            if cache_tools.ttl:
+                cache_point["ttl"] = cache_tools.ttl
+        else:
+            cache_point = {"type": cache_tools}
 
         return [{"cachePoint": cache_point}]
 
