@@ -17,11 +17,13 @@ Key Features:
 import asyncio
 import copy
 import inspect
+import json
 import logging
 import time
+import weakref
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Protocol, TypeGuard, cast, runtime_checkable
+from typing import Any, Protocol, TypeGuard, cast
 
 from opentelemetry import trace as trace_api
 
@@ -63,7 +65,6 @@ logger = logging.getLogger(__name__)
 _DEFAULT_GRAPH_ID = "default_graph"
 
 
-@runtime_checkable
 class EdgeConditionWithContext(Protocol):
     """Protocol for edge conditions that receive invocation_state.
 
@@ -72,6 +73,9 @@ class EdgeConditionWithContext(Protocol):
     environment-specific configuration.
 
     Designed with **kwargs for future extensibility without breaking changes.
+
+    Note: not @runtime_checkable — isinstance() cannot distinguish callable signatures
+    structurally; use _is_context_condition() for dispatch instead.
     """
 
     def __call__(self, state: "GraphState", *, invocation_state: dict[str, Any], **kwargs: Any) -> bool:
@@ -82,18 +86,34 @@ class EdgeConditionWithContext(Protocol):
 LegacyEdgeCondition = Callable[["GraphState"], bool]
 EdgeCondition = LegacyEdgeCondition | EdgeConditionWithContext
 
+# GIL-protected: concurrent async graphs may read/write simultaneously, but
+# CPython's GIL ensures dict mutation is atomic.  Ephemeral callables (e.g.
+# lambdas recreated per-call) will bypass the cache — this is benign; the
+# fallback path is a single inspect.signature() call.
+_context_condition_cache: weakref.WeakKeyDictionary[EdgeCondition, bool] = weakref.WeakKeyDictionary()
+
 
 def _is_context_condition(condition: EdgeCondition) -> TypeGuard[EdgeConditionWithContext]:
     """Check if a condition function accepts invocation_state parameter.
 
     Uses inspect.signature() for reliable detection, returning a TypeGuard
-    so mypy can narrow the type at call sites.
+    so mypy can narrow the type at call sites. Results are cached per condition
+    using weak references so entries are evicted when the function is collected.
     """
     try:
+        return _context_condition_cache[condition]
+    except (KeyError, TypeError):
+        pass
+    try:
         sig = inspect.signature(condition)
-        return "invocation_state" in sig.parameters
+        result = "invocation_state" in sig.parameters
     except (ValueError, TypeError):
-        return False
+        result = False
+    try:
+        _context_condition_cache[condition] = result
+    except TypeError:
+        pass
+    return result
 
 
 @dataclass
@@ -620,6 +640,8 @@ class Graph(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
+        if self.session_manager is not None:
+            self._validate_invocation_state(invocation_state)
         self._current_invocation_state = invocation_state
 
         await self.hooks.invoke_callbacks_async(BeforeMultiAgentInvocationEvent(self, invocation_state))
@@ -1239,6 +1261,20 @@ class Graph(MultiAgentBase):
             interrupts=interrupts,
         )
 
+    @staticmethod
+    def _validate_invocation_state(invocation_state: dict[str, Any]) -> None:
+        """Validate that invocation_state is JSON-serializable.
+
+        Raises:
+            TypeError: If invocation_state contains non-JSON-serializable values.
+        """
+        try:
+            json.dumps(invocation_state)
+        except (TypeError, ValueError) as e:
+            raise TypeError(
+                f"invocation_state must be JSON-serializable for session persistence: {e}"
+            ) from e
+
     def serialize_state(self) -> dict[str, Any]:
         """Serialize the current graph state to a dictionary."""
         compute_nodes = self._compute_ready_nodes_for_resume()
@@ -1277,7 +1313,9 @@ class Graph(MultiAgentBase):
             internal_state = payload["_internal_state"]
             self._interrupt_state = _InterruptState.from_dict(internal_state["interrupt_state"])
 
-        self._current_invocation_state = payload.get("invocation_state", {})
+        invocation_state = payload.get("invocation_state", {})
+        self._validate_invocation_state(invocation_state)
+        self._current_invocation_state = invocation_state
 
         if not payload.get("next_nodes_to_execute"):
             # Reset all nodes
@@ -1318,10 +1356,16 @@ class Graph(MultiAgentBase):
         A node is ready if all TRAVERSABLE incoming edges have their source completed.
         Edges whose condition evaluates to False are excluded from the check — they
         represent paths that were intentionally skipped.
+
+        Re-evaluates conditions (rather than caching traversal results) intentionally:
+        invocation_state may change between invocations, so conditions must reflect
+        current runtime context. This means condition logic changes between serialize
+        and resume will also take effect — consistent with the graph being defined in code.
         """
         traversable_edges = [
             e
             for e in incoming
+            # Short-circuit: skip signature inspection + cache lookup for unconditional edges.
             if e.condition is None or e.should_traverse(self.state, invocation_state=self._current_invocation_state)
         ]
 

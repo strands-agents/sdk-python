@@ -16,6 +16,26 @@ from strands.session.session_manager import SessionManager
 from strands.types._events import MultiAgentNodeCancelEvent
 
 
+def _make_graph(
+    nodes: dict,
+    edges=None,
+    state=None,
+    invocation_state=None,
+    interrupt_state=None,
+) -> Graph:
+    """Create a minimally-valid Graph instance for unit tests without invoking __init__."""
+    graph = Graph.__new__(Graph)
+    graph.nodes = nodes
+    graph.edges = edges if edges is not None else set()
+    graph.state = state or GraphState()
+    graph._current_invocation_state = invocation_state or {}
+    graph._interrupt_state = interrupt_state or _InterruptState()
+    graph._resume_from_session = False
+    graph._resume_next_nodes = []
+    graph.id = "test_graph"
+    return graph
+
+
 def create_mock_agent(name, response_text="Default response", metrics=None, agent_id=None):
     """Create a mock Agent with specified properties."""
     agent = Mock(spec=Agent)
@@ -2460,15 +2480,14 @@ def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
     node_d = GraphNode(node_id="D", executor=create_mock_agent("D"))
     node_e = GraphNode(node_id="E", executor=create_mock_agent("E"))
 
-    graph = Graph.__new__(Graph)
-    graph.nodes = {"A": node_a, "B": node_b, "C": node_c, "D": node_d, "E": node_e}
-    graph.edges = [
-        GraphEdge(from_node=node_a, to_node=node_b),
-        GraphEdge(from_node=node_b, to_node=node_c),
-        GraphEdge(from_node=node_d, to_node=node_e),
-    ]
-    graph.state = GraphState()
-    graph._current_invocation_state = {}
+    graph = _make_graph(
+        nodes={"A": node_a, "B": node_b, "C": node_c, "D": node_d, "E": node_e},
+        edges={
+            GraphEdge(from_node=node_a, to_node=node_b),
+            GraphEdge(from_node=node_b, to_node=node_c),
+            GraphEdge(from_node=node_d, to_node=node_e),
+        },
+    )
 
     # When A completes, only B should be ready (not E)
     ready = graph._find_newly_ready_nodes([node_a])
@@ -2588,11 +2607,12 @@ class TestInvocationStatePropagation:
 
         edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
 
-        graph = Graph.__new__(Graph)
-        graph.nodes = {"A": node_a, "B": node_b}
-        graph.edges = [edge]
-        graph.state = GraphState(completed_nodes={node_a})
-        graph._current_invocation_state = {"activate": True}
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={edge},
+            state=GraphState(completed_nodes={node_a}),
+            invocation_state={"activate": True},
+        )
 
         assert graph._is_node_ready_with_conditions(node_b, [node_a])
         assert received_state == {"activate": True}
@@ -2608,11 +2628,12 @@ class TestInvocationStatePropagation:
 
         edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
 
-        graph = Graph.__new__(Graph)
-        graph.nodes = {"A": node_a, "B": node_b}
-        graph.edges = [edge]
-        graph.state = GraphState(completed_nodes={node_a})
-        graph._current_invocation_state = {"activate": False}
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={edge},
+            state=GraphState(completed_nodes={node_a}),
+            invocation_state={"activate": False},
+        )
 
         assert not graph._is_node_ready_with_conditions(node_b, [node_a])
 
@@ -2637,16 +2658,16 @@ class TestInvocationStatePropagation:
             ),
         )
 
-        graph = Graph.__new__(Graph)
-        graph.nodes = {"A": node_a, "B": node_b}
-        graph.edges = [edge]
-        graph.state = GraphState(
-            task="test task",
-            completed_nodes={node_a},
-            results={"A": NodeResult(result=mock_result)},
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={edge},
+            state=GraphState(
+                task="test task",
+                completed_nodes={node_a},
+                results={"A": NodeResult(result=mock_result)},
+            ),
+            invocation_state={"include_dep": False},
         )
-        graph._current_invocation_state = {"include_dep": False}
-        graph._interrupt_state = _InterruptState()
 
         # With condition=False, dependency is excluded -> gets raw task
         node_input = graph._build_node_input(node_b)
@@ -2673,14 +2694,14 @@ class TestResumeDeadlockFix:
         def always_false(state: GraphState) -> bool:
             return False
 
-        graph = Graph.__new__(Graph)
-        graph.nodes = {"A": node_a, "B": node_b, "C": node_c}
-        graph.edges = [
-            GraphEdge(from_node=node_a, to_node=node_b, condition=always_false),
-            GraphEdge(from_node=node_a, to_node=node_c),  # unconditional
-        ]
-        graph.state = GraphState(status=Status.INTERRUPTED, completed_nodes={node_a})
-        graph._current_invocation_state = {}
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=always_false),
+                GraphEdge(from_node=node_a, to_node=node_c),  # unconditional
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a}),
+        )
 
         ready = graph._compute_ready_nodes_for_resume()
         ready_ids = {n.node_id for n in ready}
@@ -2716,15 +2737,16 @@ class TestResumeDeadlockFix:
         def skip_direct(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
             return not invocation_state.get("fast", False)
 
-        graph = Graph.__new__(Graph)
-        graph.nodes = {"A": node_a, "B": node_b, "C": node_c}
-        graph.edges = [
-            GraphEdge(from_node=node_a, to_node=node_b, condition=use_fast_path),
-            GraphEdge(from_node=node_a, to_node=node_c, condition=skip_direct),
-            GraphEdge(from_node=node_b, to_node=node_c),
-        ]
-        graph.state = GraphState(status=Status.INTERRUPTED, completed_nodes={node_a, node_b})
-        graph._current_invocation_state = {"fast": True}
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=use_fast_path),
+                GraphEdge(from_node=node_a, to_node=node_c, condition=skip_direct),
+                GraphEdge(from_node=node_b, to_node=node_c),
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a, node_b}),
+            invocation_state={"fast": True},
+        )
 
         ready = graph._compute_ready_nodes_for_resume()
         ready_ids = {n.node_id for n in ready}
@@ -2740,13 +2762,13 @@ class TestResumeDeadlockFix:
         def always_false(state: GraphState) -> bool:
             return False
 
-        graph = Graph.__new__(Graph)
-        graph.nodes = {"A": node_a, "B": node_b}
-        graph.edges = [
-            GraphEdge(from_node=node_a, to_node=node_b, condition=always_false),
-        ]
-        graph.state = GraphState(status=Status.INTERRUPTED, completed_nodes={node_a})
-        graph._current_invocation_state = {}
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=always_false),
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a}),
+        )
 
         ready = graph._compute_ready_nodes_for_resume()
         ready_ids = {n.node_id for n in ready}
@@ -2766,13 +2788,14 @@ class TestResumeDeadlockFix:
         def check_not_admin(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
             return invocation_state.get("role") != "admin"
 
-        graph = Graph.__new__(Graph)
-        graph.nodes = {"A": node_a, "B": node_b, "C": node_c}
-        graph.edges = [
-            GraphEdge(from_node=node_a, to_node=node_b, condition=check_role),
-            GraphEdge(from_node=node_a, to_node=node_c, condition=check_not_admin),
-        ]
-        graph.state = GraphState(status=Status.INTERRUPTED, completed_nodes={node_a})
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=check_role),
+                GraphEdge(from_node=node_a, to_node=node_c, condition=check_not_admin),
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a}),
+        )
 
         # As admin: only B should be ready
         graph._current_invocation_state = {"role": "admin"}
@@ -2798,15 +2821,15 @@ class TestResumeDeadlockFix:
         def always_false(state: GraphState) -> bool:
             return False
 
-        graph = Graph.__new__(Graph)
-        graph.nodes = {"A": node_a, "B": node_b, "C": node_c}
-        graph.edges = [
-            GraphEdge(from_node=node_a, to_node=node_b),  # unconditional
-            GraphEdge(from_node=node_a, to_node=node_c, condition=always_false),  # conditional (False)
-            GraphEdge(from_node=node_b, to_node=node_c),  # unconditional
-        ]
-        graph.state = GraphState(status=Status.INTERRUPTED, completed_nodes={node_a, node_b})
-        graph._current_invocation_state = {}
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b),  # unconditional
+                GraphEdge(from_node=node_a, to_node=node_c, condition=always_false),  # conditional (False)
+                GraphEdge(from_node=node_b, to_node=node_c),  # unconditional
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a, node_b}),
+        )
 
         ready = graph._compute_ready_nodes_for_resume()
         ready_ids = {n.node_id for n in ready}
@@ -2821,13 +2844,11 @@ class TestSerializationWithInvocationState:
         """Verify invocation_state appears in serialized payload."""
         node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
 
-        graph = Graph.__new__(Graph)
-        graph.nodes = {"A": node_a}
-        graph.edges = []
-        graph.state = GraphState(status=Status.COMPLETED, completed_nodes={node_a}, task="test")
-        graph._current_invocation_state = {"feature_flag": True, "user_id": "123"}
-        graph._interrupt_state = _InterruptState()
-        graph.id = "test_graph"
+        graph = _make_graph(
+            nodes={"A": node_a},
+            state=GraphState(status=Status.COMPLETED, completed_nodes={node_a}, task="test"),
+            invocation_state={"feature_flag": True, "user_id": "123"},
+        )
 
         serialized = graph.serialize_state()
         assert "invocation_state" in serialized
@@ -2837,13 +2858,7 @@ class TestSerializationWithInvocationState:
         """Verify invocation_state is restored on deserialization."""
         node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
 
-        graph = Graph.__new__(Graph)
-        graph.nodes = {"A": node_a}
-        graph.edges = set()
-        graph.state = GraphState()
-        graph._interrupt_state = _InterruptState()
-        graph._resume_from_session = False
-        graph._resume_next_nodes = []
+        graph = _make_graph(nodes={"A": node_a})
 
         payload = {
             "status": "completed",
@@ -2858,13 +2873,7 @@ class TestSerializationWithInvocationState:
         """Backwards compat: old serialized payloads without invocation_state still work."""
         node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
 
-        graph = Graph.__new__(Graph)
-        graph.nodes = {"A": node_a}
-        graph.edges = set()
-        graph.state = GraphState()
-        graph._interrupt_state = _InterruptState()
-        graph._resume_from_session = False
-        graph._resume_next_nodes = []
+        graph = _make_graph(nodes={"A": node_a})
 
         payload = {
             "status": "completed",
