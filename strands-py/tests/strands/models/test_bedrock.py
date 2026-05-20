@@ -2254,6 +2254,28 @@ def test_format_request_video_s3_location(model, model_id):
     assert video_source == {"s3Location": {"uri": "s3://my-bucket/video.mp4"}}
 
 
+@pytest.mark.parametrize("video_format", ["3gp", "3g2", "3gpp"])
+def test_format_request_maps_3gp_video_formats(model, model_id, video_format):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "video": {
+                        "format": video_format,
+                        "source": {"bytes": b"video_data"},
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    video_block = formatted_request["messages"][0]["content"][0]["video"]
+    assert video_block == {"format": "three_gp", "source": {"bytes": b"video_data"}}
+
+
 def test_format_request_filters_document_content_blocks(model, model_id):
     """Test that format_request filters extra fields from document content blocks."""
     messages = [
