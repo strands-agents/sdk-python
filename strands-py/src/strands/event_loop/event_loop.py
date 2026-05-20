@@ -36,6 +36,7 @@ from ..types.content import Message, Messages
 from ..types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
+    MaxIterationsReachedException,
     MaxTokensReachedException,
     StructuredOutputException,
 )
@@ -161,6 +162,24 @@ async def event_loop_cycle(
     # Initialize cycle state
     invocation_state["event_loop_cycle_id"] = uuid.uuid4()
 
+    # Track number of cycles executed in this invocation. Incremented here so the very first
+    # cycle is iteration 1.
+    iteration = invocation_state.get("event_loop_iteration", 0) + 1
+    invocation_state["event_loop_iteration"] = iteration
+
+    # Enforce the optional max_iterations limit configured on the agent. We check before any
+    # model invocation so an over-limit cycle never makes an additional request to the model.
+    max_iterations = getattr(agent, "max_iterations", None)
+    if max_iterations is not None and iteration > max_iterations:
+        raise MaxIterationsReachedException(
+            (
+                f"Agent reached the configured max_iterations limit of {max_iterations} before producing a final "
+                "response. Increase max_iterations or inspect the conversation history to diagnose the loop."
+            ),
+            iterations=iteration - 1,
+            max_iterations=max_iterations,
+        )
+
     # Initialize state and get cycle trace
     if "request_state" not in invocation_state:
         invocation_state["request_state"] = {}
@@ -270,6 +289,7 @@ async def event_loop_cycle(
             EventLoopException,
             ContextWindowOverflowException,
             MaxTokensReachedException,
+            MaxIterationsReachedException,
         ) as e:
             # These exceptions should bubble up directly rather than get wrapped in an EventLoopException
             tracer.end_span_with_error(cycle_span, str(e), e)

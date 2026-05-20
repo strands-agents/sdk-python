@@ -146,6 +146,7 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
+        max_iterations: int | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -214,9 +215,13 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
+            max_iterations: Maximum number of model invocation cycles allowed per
+                invocation. When the limit is exceeded the event loop is terminated and a
+                ``MaxIterationsReachedException`` is raised, protecting against runaway tool-calling loops
+                and unbounded latency/cost. ``None`` (the default) disables the limit.
 
         Raises:
-            ValueError: If agent id contains path separators.
+            ValueError: If agent id contains path separators or if ``max_iterations`` is not a positive integer.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
@@ -264,6 +269,12 @@ class Agent(AgentBase):
 
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
+
+        if max_iterations is not None and (
+            isinstance(max_iterations, bool) or not isinstance(max_iterations, int) or max_iterations <= 0
+        ):
+            raise ValueError("max_iterations must be a positive integer or None")
+        self.max_iterations = max_iterations
 
         # Create internal cancel signal for graceful cancellation using threading.Event
         self._cancel_signal = threading.Event()

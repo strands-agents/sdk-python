@@ -29,7 +29,7 @@ from strands.telemetry.tracer import serialize
 from strands.types._events import EventLoopStopEvent, ModelStreamEvent
 from strands.types.agent import ConcurrentInvocationMode
 from strands.types.content import Messages
-from strands.types.exceptions import ConcurrencyException, ContextWindowOverflowException, EventLoopException
+from strands.types.exceptions import ConcurrencyException, ContextWindowOverflowException, EventLoopException, MaxIterationsReachedException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -289,6 +289,22 @@ def test_agent__init__deeply_nested_tools(tool_decorated, tool_module, tool_impo
 def test_agent__init__invalid_id(agent_id):
     with pytest.raises(ValueError, match=f"agent_id={agent_id} | id cannot contain path separators"):
         Agent(agent_id=agent_id)
+
+
+def test_agent__init__max_iterations_defaults_to_none():
+    agent = Agent()
+    assert agent.max_iterations is None
+
+
+def test_agent__init__max_iterations_accepts_positive_int():
+    agent = Agent(max_iterations=5)
+    assert agent.max_iterations == 5
+
+
+@pytest.mark.parametrize("invalid_value", [0, -1, 1.5, "5", True])
+def test_agent__init__max_iterations_rejects_invalid_values(invalid_value):
+    with pytest.raises(ValueError, match="max_iterations must be a positive integer or None"):
+        Agent(max_iterations=invalid_value)
 
 
 def test_agent__call__(
@@ -734,6 +750,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             event_loop_cycle_id=unittest.mock.ANY,
             event_loop_cycle_span=unittest.mock.ANY,
             event_loop_cycle_trace=unittest.mock.ANY,
+            event_loop_iteration=unittest.mock.ANY,
             request_state={},
         ),
         unittest.mock.call(event={"contentBlockStop": {}}),
@@ -745,6 +762,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             event_loop_cycle_id=unittest.mock.ANY,
             event_loop_cycle_span=unittest.mock.ANY,
             event_loop_cycle_trace=unittest.mock.ANY,
+            event_loop_iteration=unittest.mock.ANY,
             reasoning=True,
             reasoningText="value",
             request_state={},
@@ -756,6 +774,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             event_loop_cycle_id=unittest.mock.ANY,
             event_loop_cycle_span=unittest.mock.ANY,
             event_loop_cycle_trace=unittest.mock.ANY,
+            event_loop_iteration=unittest.mock.ANY,
             reasoning=True,
             reasoning_signature="value",
             request_state={},
@@ -770,6 +789,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             event_loop_cycle_id=unittest.mock.ANY,
             event_loop_cycle_span=unittest.mock.ANY,
             event_loop_cycle_trace=unittest.mock.ANY,
+            event_loop_iteration=unittest.mock.ANY,
             request_state={},
         ),
         unittest.mock.call(event={"contentBlockStop": {}}),
@@ -2800,3 +2820,210 @@ def test_as_tool_defaults_description_when_agent_has_none():
     tool = agent.as_tool()
 
     assert tool.tool_spec["description"] == "Use the researcher agent as a tool by providing a natural language input"
+
+
+def test_agent_max_iterations_raises_on_runaway_tool_loop():
+    """Agent stops with MaxIterationsReachedException when tool-calling loops past the configured limit."""
+
+    @strands.tools.tool
+    def echo(value: str) -> str:
+        return value
+
+    tool_use_response = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "loop",
+                    "name": "echo",
+                    "input": {"value": "again"},
+                }
+            }
+        ],
+    }
+    # Repeatedly request the same tool to simulate a runaway agent.
+    mocked_model = MockedModelProvider([tool_use_response, tool_use_response, tool_use_response, tool_use_response])
+
+    agent = Agent(
+        model=mocked_model,
+        tools=[echo],
+        callback_handler=None,
+        max_iterations=2,
+    )
+
+    with pytest.raises(MaxIterationsReachedException) as exc_info:
+        agent("loop forever")
+
+    assert exc_info.value.max_iterations == 2
+    assert exc_info.value.iterations == 2
+
+
+def test_agent_max_iterations_allows_completion_within_limit():
+    """Agent should complete normally when it produces a final answer within the iteration budget."""
+
+    @strands.tools.tool
+    def echo(value: str) -> str:
+        return value
+
+    tool_use_response = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "t1",
+                    "name": "echo",
+                    "input": {"value": "hi"},
+                }
+            }
+        ],
+    }
+    final_response = {"role": "assistant", "content": [{"text": "all done"}]}
+    mocked_model = MockedModelProvider([tool_use_response, final_response])
+
+    agent = Agent(
+        model=mocked_model,
+        tools=[echo],
+        callback_handler=None,
+        max_iterations=5,
+    )
+
+    result = agent("do the thing")
+
+    assert result.stop_reason == "end_turn"
+    assert result.message["content"][0]["text"] == "all done"
+
+
+def test_agent_max_iterations_counter_resets_between_invocations():
+    """The per-invocation iteration counter must not leak across separate agent calls."""
+
+    responses = [
+        {"role": "assistant", "content": [{"text": "first"}]},
+        {"role": "assistant", "content": [{"text": "second"}]},
+    ]
+    mocked_model = MockedModelProvider(responses)
+
+    agent = Agent(model=mocked_model, callback_handler=None, max_iterations=1)
+
+    result1 = agent("hello")
+    result2 = agent("again")
+
+    assert result1.message["content"][0]["text"] == "first"
+    assert result2.message["content"][0]["text"] == "second"
+
+
+def test_agent_max_iterations_none_does_not_raise():
+    """max_iterations=None (the default) must never raise regardless of tool-call depth."""
+
+    @strands.tools.tool
+    def echo(value: str) -> str:
+        return value
+
+    tool_use_response = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "t1",
+                    "name": "echo",
+                    "input": {"value": "hi"},
+                }
+            }
+        ],
+    }
+    final_response = {"role": "assistant", "content": [{"text": "done"}]}
+    mocked_model = MockedModelProvider(
+        [tool_use_response, tool_use_response, tool_use_response, tool_use_response, tool_use_response, final_response]
+    )
+
+    agent = Agent(model=mocked_model, tools=[echo], callback_handler=None)
+
+    result = agent("run many cycles")
+
+    assert result.stop_reason == "end_turn"
+    assert result.message["content"][0]["text"] == "done"
+
+
+def test_agent_max_iterations_exception_message_is_informative():
+    """MaxIterationsReachedException message should contain the configured limit."""
+
+    @strands.tools.tool
+    def echo(value: str) -> str:
+        return value
+
+    tool_use_response = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "t1",
+                    "name": "echo",
+                    "input": {"value": "hi"},
+                }
+            }
+        ],
+    }
+    mocked_model = MockedModelProvider([tool_use_response, tool_use_response, tool_use_response])
+
+    agent = Agent(model=mocked_model, tools=[echo], callback_handler=None, max_iterations=1)
+
+    with pytest.raises(MaxIterationsReachedException, match="max_iterations limit of 1"):
+        agent("keep going")
+
+
+def test_agent_max_iterations_raises_on_second_cycle_when_limit_is_one():
+    """With max_iterations=1, an agent that calls a tool raises on the second cycle attempt."""
+
+    @strands.tools.tool
+    def echo(value: str) -> str:
+        return value
+
+    tool_use_response = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "t1",
+                    "name": "echo",
+                    "input": {"value": "hi"},
+                }
+            }
+        ],
+    }
+    final_response = {"role": "assistant", "content": [{"text": "done"}]}
+    mocked_model = MockedModelProvider([tool_use_response, final_response])
+
+    agent = Agent(model=mocked_model, tools=[echo], callback_handler=None, max_iterations=1)
+
+    with pytest.raises(MaxIterationsReachedException) as exc_info:
+        agent("one cycle only")
+
+    assert exc_info.value.iterations == 1
+    assert exc_info.value.max_iterations == 1
+
+
+@pytest.mark.asyncio
+async def test_agent_max_iterations_raises_in_async_invocation():
+    """MaxIterationsReachedException must propagate through invoke_async as well."""
+
+    @strands.tools.tool
+    def echo(value: str) -> str:
+        return value
+
+    tool_use_response = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "t1",
+                    "name": "echo",
+                    "input": {"value": "hi"},
+                }
+            }
+        ],
+    }
+    mocked_model = MockedModelProvider([tool_use_response, tool_use_response, tool_use_response])
+
+    agent = Agent(model=mocked_model, tools=[echo], callback_handler=None, max_iterations=1)
+
+    with pytest.raises(MaxIterationsReachedException):
+        await agent.invoke_async("loop")

@@ -29,6 +29,7 @@ from strands.types._events import EventLoopStopEvent
 from strands.types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
+    MaxIterationsReachedException,
     MaxTokensReachedException,
     ModelThrottledException,
 )
@@ -159,6 +160,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock._model_state = {}
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
+    mock.max_iterations = None
 
     return mock
 
@@ -826,6 +828,7 @@ async def test_request_state_initialization(alist):
     mock_agent._cancel_signal = threading.Event()
     mock_agent.event_loop_metrics.start_cycle.return_value = (0, MagicMock())
     mock_agent.hooks.invoke_callbacks_async = AsyncMock()
+    mock_agent.max_iterations = None
 
     # Call without providing request_state
     stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -1279,3 +1282,142 @@ class TestEstimateInputTokens:
 
         with pytest.raises(Exception, match="API unavailable"):
             await strands.event_loop.event_loop._estimate_input_tokens(agent)
+
+
+class TestMaxIterations:
+    """Unit tests for the max_iterations guard inside event_loop_cycle."""
+
+    @pytest.mark.asyncio
+    async def test_raises_when_iteration_exceeds_limit(self, agent, model, agenerator, alist):
+        """event_loop_cycle raises MaxIterationsReachedException when the iteration count exceeds max_iterations."""
+        agent.max_iterations = 2
+        # Pre-seed the counter so this call becomes iteration 3 (> 2).
+        invocation_state = {"event_loop_iteration": 2}
+
+        with pytest.raises(MaxIterationsReachedException) as exc_info:
+            stream = strands.event_loop.event_loop.event_loop_cycle(
+                agent=agent,
+                invocation_state=invocation_state,
+            )
+            await alist(stream)
+
+        assert exc_info.value.iterations == 2
+        assert exc_info.value.max_iterations == 2
+
+    @pytest.mark.asyncio
+    async def test_check_occurs_before_model_call(self, agent, model, agenerator, alist):
+        """The limit guard fires before any model call so no extra request is made."""
+        agent.max_iterations = 1
+        # iteration 1 already consumed; next call would be iteration 2 > 1.
+        invocation_state = {"event_loop_iteration": 1}
+
+        with pytest.raises(MaxIterationsReachedException):
+            stream = strands.event_loop.event_loop.event_loop_cycle(
+                agent=agent,
+                invocation_state=invocation_state,
+            )
+            await alist(stream)
+
+        model.stream.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_counter_initialises_to_one_on_first_cycle(self, agent, model, agenerator, alist):
+        """invocation_state['event_loop_iteration'] starts at 1 when no prior value exists."""
+        agent.max_iterations = None
+
+        model.stream.return_value = agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "hi"}}},
+                {"contentBlockStop": {}},
+            ]
+        )
+
+        invocation_state = {}
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state=invocation_state,
+        )
+        await alist(stream)
+
+        assert invocation_state["event_loop_iteration"] == 1
+
+    @pytest.mark.asyncio
+    async def test_counter_increments_each_cycle(self, agent, model, agenerator, alist):
+        """The counter advances by 1 per cycle when called with a pre-existing value."""
+        agent.max_iterations = None
+
+        model.stream.return_value = agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "hi"}}},
+                {"contentBlockStop": {}},
+            ]
+        )
+
+        invocation_state = {"event_loop_iteration": 4}
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state=invocation_state,
+        )
+        await alist(stream)
+
+        assert invocation_state["event_loop_iteration"] == 5
+
+    @pytest.mark.asyncio
+    async def test_none_max_iterations_never_raises(self, agent, model, agenerator, alist):
+        """max_iterations=None disables the guard even at a very high iteration count."""
+        agent.max_iterations = None
+
+        model.stream.return_value = agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "done"}}},
+                {"contentBlockStop": {}},
+            ]
+        )
+
+        invocation_state = {"event_loop_iteration": 9999}
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state=invocation_state,
+        )
+        events = await alist(stream)
+
+        tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
+        assert tru_stop_reason == "end_turn"
+        assert invocation_state["event_loop_iteration"] == 10000
+
+    @pytest.mark.asyncio
+    async def test_completes_normally_at_exact_limit(self, agent, model, agenerator, alist):
+        """A cycle whose iteration number equals max_iterations is allowed to complete."""
+        agent.max_iterations = 3
+        # iteration 2 already done; this call is iteration 3 == limit (not > limit).
+        invocation_state = {"event_loop_iteration": 2}
+
+        model.stream.return_value = agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "result"}}},
+                {"contentBlockStop": {}},
+            ]
+        )
+
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            invocation_state=invocation_state,
+        )
+        events = await alist(stream)
+
+        tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
+        assert tru_stop_reason == "end_turn"
+        assert invocation_state["event_loop_iteration"] == 3
+
+    @pytest.mark.asyncio
+    async def test_exception_message_contains_limit(self, agent, model, agenerator, alist):
+        """The exception message includes the configured max_iterations value."""
+        agent.max_iterations = 5
+        invocation_state = {"event_loop_iteration": 5}
+
+        with pytest.raises(MaxIterationsReachedException, match="max_iterations limit of 5"):
+            stream = strands.event_loop.event_loop.event_loop_cycle(
+                agent=agent,
+                invocation_state=invocation_state,
+            )
+            await alist(stream)

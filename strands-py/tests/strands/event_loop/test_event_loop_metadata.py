@@ -57,6 +57,7 @@ def agent(model, messages, tool_registry, hook_registry):
     mock._cancel_signal = threading.Event()
     mock.trace_attributes = {}
     mock.retry_strategy = ModelRetryStrategy()
+    mock.max_iterations = None
     return mock
 
 

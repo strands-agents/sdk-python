@@ -35,6 +35,28 @@ class MaxTokensReachedException(Exception):
         super().__init__(message)
 
 
+class MaxIterationsReachedException(Exception):
+    """Exception raised when the agent reaches its configured ``max_iterations`` limit.
+
+    The event loop tracks the number of "model turn -> tool call -> tool result" cycles executed during a single
+    agent invocation. When this counter exceeds the limit configured on the agent, the loop is terminated
+    and this exception is raised so callers can handle the situation gracefully (e.g. return a partial response,
+    surface a timeout to the user, or apply a retry policy with a different strategy).
+    """
+
+    def __init__(self, message: str, *, iterations: int | None = None, max_iterations: int | None = None) -> None:
+        """Initialize the exception.
+
+        Args:
+            message: The error message describing the iteration limit.
+            iterations: Number of cycles that were executed before the limit was hit.
+            max_iterations: The configured maximum iteration limit.
+        """
+        self.iterations = iterations
+        self.max_iterations = max_iterations
+        super().__init__(message)
+
+
 class ContextWindowOverflowException(Exception):
     """Exception raised when the context window is exceeded.
 

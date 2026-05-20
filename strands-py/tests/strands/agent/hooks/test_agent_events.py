@@ -43,6 +43,7 @@ any_props = {
     "event_loop_cycle_id": ANY,
     "event_loop_cycle_span": ANY,
     "event_loop_cycle_trace": ANY,
+    "event_loop_iteration": ANY,
     "request_state": {},
 }
 

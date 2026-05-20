@@ -5,6 +5,7 @@ import pytest
 from strands.types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
+    MaxIterationsReachedException,
     MaxTokensReachedException,
     MCPClientInitializationError,
     ModelThrottledException,
@@ -98,6 +99,77 @@ class TestMaxTokensReachedException:
             raise MaxTokensReachedException("Token limit exceeded")
 
         assert str(exc_info.value) == "Token limit exceeded"
+
+
+class TestMaxIterationsReachedException:
+    """Tests for MaxIterationsReachedException class."""
+
+    def test_initialization_with_message_only(self):
+        """Test initialization with only a message; iteration attrs default to None."""
+        message = "Agent reached the max_iterations limit"
+        exception = MaxIterationsReachedException(message)
+
+        assert str(exception) == message
+        assert exception.args[0] == message
+        assert exception.iterations is None
+        assert exception.max_iterations is None
+
+    def test_initialization_with_all_args(self):
+        """Test initialization with message, iterations, and max_iterations."""
+        message = "Limit reached"
+        exception = MaxIterationsReachedException(message, iterations=5, max_iterations=5)
+
+        assert str(exception) == message
+        assert exception.iterations == 5
+        assert exception.max_iterations == 5
+
+    def test_iterations_and_max_iterations_are_keyword_only(self):
+        """iterations and max_iterations must be passed as keyword arguments."""
+        with pytest.raises(TypeError):
+            MaxIterationsReachedException("msg", 3, 5)  # type: ignore[call-arg]
+
+    def test_iterations_defaults_to_none(self):
+        """iterations attribute defaults to None when not provided."""
+        exception = MaxIterationsReachedException("msg", max_iterations=10)
+
+        assert exception.iterations is None
+
+    def test_max_iterations_defaults_to_none(self):
+        """max_iterations attribute defaults to None when not provided."""
+        exception = MaxIterationsReachedException("msg", iterations=3)
+
+        assert exception.max_iterations is None
+
+    def test_inheritance(self):
+        """Test that MaxIterationsReachedException inherits from Exception."""
+        exception = MaxIterationsReachedException("Test message")
+
+        assert isinstance(exception, Exception)
+        assert issubclass(MaxIterationsReachedException, Exception)
+
+    def test_exception_raised_and_caught_properly(self):
+        """Test that the exception can be raised and caught, preserving all attributes."""
+        with pytest.raises(MaxIterationsReachedException) as exc_info:
+            raise MaxIterationsReachedException(
+                "Agent looped too many times",
+                iterations=7,
+                max_iterations=7,
+            )
+
+        assert str(exc_info.value) == "Agent looped too many times"
+        assert exc_info.value.iterations == 7
+        assert exc_info.value.max_iterations == 7
+
+    def test_caught_as_base_exception(self):
+        """Test that MaxIterationsReachedException can be caught as a generic Exception."""
+        caught = None
+        try:
+            raise MaxIterationsReachedException("limit hit", iterations=2, max_iterations=2)
+        except Exception as e:
+            caught = e
+
+        assert isinstance(caught, MaxIterationsReachedException)
+        assert isinstance(caught, Exception)
 
 
 class TestContextWindowOverflowException:
@@ -284,6 +356,7 @@ class TestExceptionInheritance:
         """Test that all custom exceptions inherit from Exception."""
         exception_classes = [
             EventLoopException,
+            MaxIterationsReachedException,
             MaxTokensReachedException,
             ContextWindowOverflowException,
             MCPClientInitializationError,
@@ -299,6 +372,7 @@ class TestExceptionInheritance:
         """Test that all exception instances are instances of Exception."""
         exceptions = [
             EventLoopException(ValueError("test")),
+            MaxIterationsReachedException("test"),
             MaxTokensReachedException("test"),
             ContextWindowOverflowException("test"),
             MCPClientInitializationError("test"),
@@ -314,6 +388,7 @@ class TestExceptionInheritance:
         """Test that all custom exceptions can be caught as generic Exception."""
         exceptions_to_raise = [
             (EventLoopException, ValueError("test"), None),
+            (MaxIterationsReachedException, "test", None),
             (MaxTokensReachedException, "test", None),
             (ContextWindowOverflowException, "test", None),
             (MCPClientInitializationError, "test", None),
@@ -340,6 +415,7 @@ class TestExceptionMessages:
         """Test string representations of all exceptions."""
         exceptions = [
             (EventLoopException(ValueError("event loop error")), "event loop error"),
+            (MaxIterationsReachedException("max iterations"), "max iterations"),
             (MaxTokensReachedException("max tokens"), "max tokens"),
             (ContextWindowOverflowException("overflow"), "overflow"),
             (MCPClientInitializationError("init error"), "init error"),
@@ -355,6 +431,7 @@ class TestExceptionMessages:
         """Test that repr contains the exception class name."""
         exceptions = [
             EventLoopException(ValueError("test")),
+            MaxIterationsReachedException("test"),
             MaxTokensReachedException("test"),
             ContextWindowOverflowException("test"),
             MCPClientInitializationError("test"),

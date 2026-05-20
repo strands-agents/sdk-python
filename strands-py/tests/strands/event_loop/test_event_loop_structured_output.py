@@ -54,6 +54,7 @@ def mock_agent():
     agent.trace_attributes = {}
     agent.tool_executor = Mock()
     agent._append_messages = AsyncMock()
+    agent.max_iterations = None
 
     # Set up _interrupt_state properly
     agent._interrupt_state = Mock()
