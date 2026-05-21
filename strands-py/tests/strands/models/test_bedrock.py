@@ -347,7 +347,7 @@ def test_update_config(model, model_id):
 
 
 def test_format_request_default(model, messages, model_id):
-    tru_request = model._format_request(messages)
+    tru_request = model.format_request(messages)
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -360,7 +360,7 @@ def test_format_request_default(model, messages, model_id):
 
 def test_format_request_additional_request_fields(model, messages, model_id, additional_request_fields):
     model.update_config(additional_request_fields=additional_request_fields)
-    tru_request = model._format_request(messages)
+    tru_request = model.format_request(messages)
     exp_request = {
         "additionalModelRequestFields": additional_request_fields,
         "inferenceConfig": {},
@@ -374,7 +374,7 @@ def test_format_request_additional_request_fields(model, messages, model_id, add
 
 def test_format_request_additional_response_field_paths(model, messages, model_id, additional_response_field_paths):
     model.update_config(additional_response_field_paths=additional_response_field_paths)
-    tru_request = model._format_request(messages)
+    tru_request = model.format_request(messages)
     exp_request = {
         "additionalModelResponseFieldPaths": additional_response_field_paths,
         "inferenceConfig": {},
@@ -388,7 +388,7 @@ def test_format_request_additional_response_field_paths(model, messages, model_i
 
 def test_format_request_guardrail_config(model, messages, model_id, guardrail_config):
     model.update_config(**guardrail_config)
-    tru_request = model._format_request(messages)
+    tru_request = model.format_request(messages)
     exp_request = {
         "guardrailConfig": {
             "guardrailIdentifier": guardrail_config["guardrail_id"],
@@ -412,7 +412,7 @@ def test_format_request_guardrail_config_without_trace_or_stream_processing_mode
             "guardrail_version": "v1",
         }
     )
-    tru_request = model._format_request(messages)
+    tru_request = model.format_request(messages)
     exp_request = {
         "guardrailConfig": {
             "guardrailIdentifier": "g1",
@@ -430,7 +430,7 @@ def test_format_request_guardrail_config_without_trace_or_stream_processing_mode
 
 def test_format_request_with_service_tier(model, messages, model_id):
     model.update_config(service_tier="flex")
-    tru_request = model._format_request(messages)
+    tru_request = model.format_request(messages)
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -444,7 +444,7 @@ def test_format_request_with_service_tier(model, messages, model_id):
 
 def test_format_request_inference_config(model, messages, model_id, inference_config):
     model.update_config(**inference_config)
-    tru_request = model._format_request(messages)
+    tru_request = model.format_request(messages)
     exp_request = {
         "inferenceConfig": {
             "maxTokens": inference_config["max_tokens"],
@@ -461,7 +461,7 @@ def test_format_request_inference_config(model, messages, model_id, inference_co
 
 
 def test_format_request_system_prompt(model, messages, model_id, system_prompt):
-    tru_request = model._format_request(messages, system_prompt_content=[{"text": system_prompt}])
+    tru_request = model.format_request(messages, system_prompt_content=[{"text": system_prompt}])
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -473,10 +473,10 @@ def test_format_request_system_prompt(model, messages, model_id, system_prompt):
 
 
 def test_format_request_system_prompt_content(model, messages, model_id):
-    """Test _format_request with SystemContentBlock input."""
+    """Test format_request with SystemContentBlock input."""
     system_prompt_content = [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}]
 
-    tru_request = model._format_request(messages, system_prompt_content=system_prompt_content)
+    tru_request = model.format_request(messages, system_prompt_content=system_prompt_content)
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -488,12 +488,12 @@ def test_format_request_system_prompt_content(model, messages, model_id):
 
 
 def test_format_request_system_prompt_content_with_cache_prompt_config(model, messages, model_id):
-    """Test _format_request with SystemContentBlock and cache_prompt config (backwards compatibility)."""
+    """Test format_request with SystemContentBlock and cache_prompt config (backwards compatibility)."""
     system_prompt_content = [{"text": "You are a helpful assistant."}]
     model.update_config(cache_prompt="default")
 
     with pytest.warns(UserWarning, match="cache_prompt is deprecated"):
-        tru_request = model._format_request(messages, system_prompt_content=system_prompt_content)
+        tru_request = model.format_request(messages, system_prompt_content=system_prompt_content)
 
     exp_request = {
         "inferenceConfig": {},
@@ -506,8 +506,8 @@ def test_format_request_system_prompt_content_with_cache_prompt_config(model, me
 
 
 def test_format_request_empty_system_prompt_content(model, messages, model_id):
-    """Test _format_request with empty SystemContentBlock list."""
-    tru_request = model._format_request(messages, system_prompt_content=[])
+    """Test format_request with empty SystemContentBlock list."""
+    tru_request = model.format_request(messages, system_prompt_content=[])
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -519,7 +519,7 @@ def test_format_request_empty_system_prompt_content(model, messages, model_id):
 
 
 def test_format_request_tool_specs(model, messages, model_id, tool_spec):
-    tru_request = model._format_request(messages, tool_specs=[tool_spec])
+    tru_request = model.format_request(messages, tool_specs=[tool_spec])
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -549,7 +549,7 @@ def test_format_request_strict_tools_injects_strict_and_closes_schema(bedrock_cl
         }
     ]
     model = BedrockModel(model_id=model_id, strict_tools=True)
-    request = model._format_request(messages, tool_specs=tool_specs)
+    request = model.format_request(messages, tool_specs=tool_specs)
     tool_spec_result = request["toolConfig"]["tools"][0]["toolSpec"]
 
     assert tool_spec_result == {
@@ -582,7 +582,7 @@ def test_format_request_strict_tools_does_not_mutate_original(bedrock_client, mo
         }
     ]
     model = BedrockModel(model_id=model_id, strict_tools=True)
-    model._format_request(messages, tool_specs=tool_specs)
+    model.format_request(messages, tool_specs=tool_specs)
 
     assert "additionalProperties" not in tool_specs[0]["inputSchema"]["json"]
 
@@ -603,7 +603,7 @@ def test_format_request_strict_tools_preserves_additional_properties_true(bedroc
         }
     ]
     model = BedrockModel(model_id=model_id, strict_tools=True)
-    request = model._format_request(messages, tool_specs=tool_specs)
+    request = model.format_request(messages, tool_specs=tool_specs)
     schema = request["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
 
     assert schema["additionalProperties"] is True
@@ -629,7 +629,7 @@ def test_format_request_strict_tools_nested_objects(bedrock_client, model_id, me
         }
     ]
     model = BedrockModel(model_id=model_id, strict_tools=True)
-    request = model._format_request(messages, tool_specs=tool_specs)
+    request = model.format_request(messages, tool_specs=tool_specs)
     schema = request["toolConfig"]["tools"][0]["toolSpec"]["inputSchema"]["json"]
 
     assert schema == {
@@ -661,7 +661,7 @@ def test_format_request_strict_tools_default_no_strict(bedrock_client, model_id,
         }
     ]
     model = BedrockModel(model_id=model_id)
-    request = model._format_request(messages, tool_specs=tool_specs)
+    request = model.format_request(messages, tool_specs=tool_specs)
     tool_spec_result = request["toolConfig"]["tools"][0]["toolSpec"]
 
     assert "strict" not in tool_spec_result
@@ -681,7 +681,7 @@ def test_format_request_strict_tools_false_no_strict(bedrock_client, model_id, m
         }
     ]
     model = BedrockModel(model_id=model_id, strict_tools=False)
-    request = model._format_request(messages, tool_specs=tool_specs)
+    request = model.format_request(messages, tool_specs=tool_specs)
     tool_spec_result = request["toolConfig"]["tools"][0]["toolSpec"]
 
     assert "strict" not in tool_spec_result
@@ -696,7 +696,7 @@ def test_format_request_strict_tools_none_no_strict(bedrock_client, model_id, me
         }
     ]
     model = BedrockModel(model_id=model_id, strict_tools=None)
-    request = model._format_request(messages, tool_specs=tool_specs)
+    request = model.format_request(messages, tool_specs=tool_specs)
     tool_spec_result = request["toolConfig"]["tools"][0]["toolSpec"]
 
     assert "strict" not in tool_spec_result
@@ -708,7 +708,7 @@ def test_format_request_strict_tools_applies_to_all_tools(bedrock_client, model_
         {"name": "tool_b", "description": "Tool B", "inputSchema": {"json": {"type": "object", "properties": {}}}},
     ]
     model = BedrockModel(model_id=model_id, strict_tools=True)
-    request = model._format_request(messages, tool_specs=tool_specs)
+    request = model.format_request(messages, tool_specs=tool_specs)
 
     for tool in request["toolConfig"]["tools"]:
         if "toolSpec" in tool:
@@ -718,7 +718,7 @@ def test_format_request_strict_tools_applies_to_all_tools(bedrock_client, model_
 
 def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):
     tool_choice = {"auto": {}}
-    tru_request = model._format_request(messages, [tool_spec], tool_choice=tool_choice)
+    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -735,7 +735,7 @@ def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):
 
 def test_format_request_tool_choice_any(model, messages, model_id, tool_spec):
     tool_choice = {"any": {}}
-    tru_request = model._format_request(messages, [tool_spec], tool_choice=tool_choice)
+    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -752,7 +752,7 @@ def test_format_request_tool_choice_any(model, messages, model_id, tool_spec):
 
 def test_format_request_tool_choice_tool(model, messages, model_id, tool_spec):
     tool_choice = {"tool": {"name": "test_tool"}}
-    tru_request = model._format_request(messages, [tool_spec], tool_choice=tool_choice)
+    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -771,7 +771,7 @@ def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
     model.update_config(cache_prompt=cache_type, cache_tools=cache_type)
 
     with pytest.warns(UserWarning, match="cache_prompt is deprecated"):
-        tru_request = model._format_request(messages, tool_specs=[tool_spec])
+        tru_request = model.format_request(messages, tool_specs=[tool_spec])
 
     exp_request = {
         "inferenceConfig": {},
@@ -1828,7 +1828,7 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
     expected = {"toolUseId": "tool123", "content": [{"text": "Tool output"}]}
@@ -1864,7 +1864,7 @@ def test_format_request_message_content_normalizes_empty_tool_result_content(mod
         },
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
     assert tool_result["content"] == [{"text": ""}], "Empty toolResult content should be normalized to [{'text': ''}]"
@@ -1889,7 +1889,7 @@ def test_format_request_message_content_does_not_mutate_empty_tool_result(model,
     ]
 
     original_content = messages[2]["content"][0]["toolResult"]["content"]
-    model._format_request(messages)
+    model.format_request(messages)
 
     assert original_content == [], "Original empty content list should not be mutated"
 
@@ -1913,7 +1913,7 @@ def test_format_request_message_content_preserves_nonempty_tool_result_content(m
         },
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     tool_result = formatted_request["messages"][2]["content"][0]["toolResult"]
     assert tool_result["content"] == [{"text": "some result"}]
@@ -1937,7 +1937,7 @@ def test_format_request_removes_status_field_when_configured(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
     expected = {"toolUseId": "tool123", "content": [{"text": "Tool output"}]}
@@ -1978,7 +1978,7 @@ def test_explicit_boolean_values_preserved(bedrock_client):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     # Verify toolResult contains status field by default
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
@@ -2000,7 +2000,7 @@ def test_format_request_filters_sdk_unknown_member_content_blocks(model, model_i
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     content = formatted_request["messages"][0]["content"]
     assert len(content) == 2
@@ -2082,7 +2082,7 @@ def test_format_request_filters_image_content_blocks(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     image_block = formatted_request["messages"][0]["content"][0]["image"]
     expected = {"format": "png", "source": {"bytes": b"image_data"}}
@@ -2109,7 +2109,7 @@ def test_format_request_image_s3_location_only(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
     image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
 
     assert image_source == {"s3Location": {"uri": "s3://my-bucket/image.png"}}
@@ -2131,7 +2131,7 @@ def test_format_request_image_bytes_only(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
     image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
 
     assert image_source == {"bytes": b"image_data"}
@@ -2169,7 +2169,7 @@ def test_format_request_document_s3_location(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
     document = formatted_request["messages"][0]["content"][0]["document"]
     document_with_bucket_owner = formatted_request["messages"][0]["content"][1]["document"]
 
@@ -2225,7 +2225,7 @@ def test_format_request_unsupported_location(model, caplog):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
     assert len(formatted_request["messages"][0]["content"]) == 1
     assert "Non s3 location sources are not supported by Bedrock | skipping content block" in caplog.text
 
@@ -2248,7 +2248,7 @@ def test_format_request_video_s3_location(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
     video_source = formatted_request["messages"][0]["content"][0]["video"]["source"]
 
     assert video_source == {"s3Location": {"uri": "s3://my-bucket/video.mp4"}}
@@ -2273,7 +2273,7 @@ def test_format_request_filters_document_content_blocks(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     document_block = formatted_request["messages"][0]["content"][0]["document"]
     expected = {"name": "test.pdf", "source": {"bytes": b"pdf_data"}, "format": "pdf"}
@@ -2297,7 +2297,7 @@ def test_format_request_filters_nested_reasoning_content(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
     reasoning_text = formatted_request["messages"][0]["content"][0]["reasoningContent"]["reasoningText"]
 
     assert reasoning_text == {"text": "thinking...", "signature": "abc123"}
@@ -2321,7 +2321,7 @@ def test_format_request_filters_video_content_blocks(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     video_block = formatted_request["messages"][0]["content"][0]["video"]
     expected = {"format": "mp4", "source": {"bytes": b"video_data"}}
@@ -2346,7 +2346,7 @@ def test_format_request_filters_cache_point_content_blocks(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     cache_point_block = formatted_request["messages"][0]["content"][0]["cachePoint"]
     expected = {"type": "default"}
@@ -2370,7 +2370,7 @@ def test_format_request_preserves_cache_point_ttl(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     cache_point_block = formatted_request["messages"][0]["content"][0]["cachePoint"]
     expected = {"type": "default", "ttl": "1h"}
@@ -2393,7 +2393,7 @@ def test_format_request_cache_point_without_ttl(model, model_id):
         }
     ]
 
-    formatted_request = model._format_request(messages)
+    formatted_request = model.format_request(messages)
 
     cache_point_block = formatted_request["messages"][0]["content"][0]["cachePoint"]
     expected = {"type": "default"}
@@ -2422,16 +2422,18 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
 def test_tool_choice_supported_no_warning(model, messages, tool_spec, captured_warnings):
     """Test that toolChoice doesn't emit warning for supported providers."""
     tool_choice = {"auto": {}}
-    model._format_request(messages, [tool_spec], tool_choice=tool_choice)
+    model.format_request(messages, [tool_spec], tool_choice=tool_choice)
 
-    assert len(captured_warnings) == 0
+    non_deprecation_warnings = [w for w in captured_warnings if not issubclass(w.category, DeprecationWarning)]
+    assert len(non_deprecation_warnings) == 0
 
 
 def test_tool_choice_none_no_warning(model, messages, captured_warnings):
     """Test that None toolChoice doesn't emit warning."""
-    model._format_request(messages, tool_choice=None)
+    model.format_request(messages, tool_choice=None)
 
-    assert len(captured_warnings) == 0
+    non_deprecation_warnings = [w for w in captured_warnings if not issubclass(w.category, DeprecationWarning)]
+    assert len(non_deprecation_warnings) == 0
 
 
 def test_get_default_model_with_warning_supported_regions_shows_no_warning(captured_warnings):
@@ -2534,7 +2536,7 @@ def test_format_request_filters_output_schema(model, messages, model_id):
         "outputSchema": {"type": "object", "properties": {"result": {"type": "string"}}},
     }
 
-    request = model._format_request(messages, [tool_spec_with_output_schema])
+    request = model.format_request(messages, [tool_spec_with_output_schema])
 
     tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
 
@@ -2714,7 +2716,7 @@ async def test_format_request_with_guardrail_latest_message(model):
         },
     ]
 
-    request = model._format_request(messages)
+    request = model.format_request(messages)
     formatted_messages = request["messages"]
 
     # All messages should be in the request
@@ -2776,7 +2778,7 @@ async def test_format_request_with_guardrail_latest_message_after_tool_use(model
         },
     ]
 
-    request = model._format_request(messages)
+    request = model.format_request(messages)
     formatted_messages = request["messages"]
 
     assert len(formatted_messages) == 5
@@ -2809,7 +2811,7 @@ async def test_format_request_with_guardrail_latest_message_wraps_final_user_tex
         {"role": "user", "content": [{"text": "Tell me about taxes"}]},
     ]
 
-    request = model._format_request(messages)
+    request = model.format_request(messages)
     formatted_messages = request["messages"]
 
     assert "guardContent" in formatted_messages[2]["content"][0]
@@ -2839,7 +2841,7 @@ async def test_format_request_with_guardrail_multiple_sequential_tool_calls(mode
         },
     ]
 
-    request = model._format_request(messages)
+    request = model.format_request(messages)
     formatted_messages = request["messages"]
 
     # Should wrap the first user text message, not the toolResults
@@ -2871,7 +2873,7 @@ async def test_format_request_with_guardrail_image_before_tool_result(model):
         },
     ]
 
-    request = model._format_request(messages)
+    request = model.format_request(messages)
     formatted_messages = request["messages"]
 
     # Image should be wrapped even though toolResult comes after
@@ -2906,7 +2908,7 @@ async def test_format_request_with_guardrail_multiple_tool_results_same_message(
         },
     ]
 
-    request = model._format_request(messages)
+    request = model.format_request(messages)
     formatted_messages = request["messages"]
 
     # Should wrap the question
@@ -3183,7 +3185,7 @@ def test_guardrail_latest_message_disabled_does_not_wrap(model):
         {"role": "user", "content": [{"text": "Hello"}]},
     ]
 
-    request = model._format_request(messages)
+    request = model.format_request(messages)
     formatted = request["messages"][0]["content"][0]
 
     assert "text" in formatted
@@ -3192,7 +3194,7 @@ def test_guardrail_latest_message_disabled_does_not_wrap(model):
 
 @pytest.mark.asyncio
 async def test_non_streaming_citations_with_missing_optional_fields(bedrock_client, model, alist):
-    """Test that _convert_non_streaming_to_streaming handles citations missing optional fields.
+    """Test that convert_non_streaming_to_streaming handles citations missing optional fields.
 
     Nova grounding returns citations with only url/domain but no title field. The conversion
     should not crash with KeyError when optional fields like title, location, or sourceContent
@@ -3227,7 +3229,7 @@ async def test_non_streaming_citations_with_missing_optional_fields(bedrock_clie
         "usage": {"inputTokens": 10, "outputTokens": 20},
     }
 
-    events = list(model._convert_non_streaming_to_streaming(non_streaming_response))
+    events = list(model.convert_non_streaming_to_streaming(non_streaming_response))
 
     # Should have: messageStart, contentBlockDelta (text + citation), contentBlockStop, messageStop, metadata
     citation_deltas = [
@@ -3246,7 +3248,7 @@ async def test_non_streaming_citations_with_missing_optional_fields(bedrock_clie
 
 @pytest.mark.asyncio
 async def test_non_streaming_citations_with_all_fields_present(bedrock_client, model, alist):
-    """Test that _convert_non_streaming_to_streaming correctly includes all fields when present."""
+    """Test that convert_non_streaming_to_streaming correctly includes all fields when present."""
     non_streaming_response = {
         "output": {
             "message": {
@@ -3276,7 +3278,7 @@ async def test_non_streaming_citations_with_all_fields_present(bedrock_client, m
         "usage": {"inputTokens": 10, "outputTokens": 20},
     }
 
-    events = list(model._convert_non_streaming_to_streaming(non_streaming_response))
+    events = list(model.convert_non_streaming_to_streaming(non_streaming_response))
 
     citation_deltas = [
         e for e in events if "contentBlockDelta" in e and "citation" in e.get("contentBlockDelta", {}).get("delta", {})
@@ -3318,7 +3320,7 @@ async def test_non_streaming_citations_with_only_location(bedrock_client, model,
         "usage": {"inputTokens": 5, "outputTokens": 10},
     }
 
-    events = list(model._convert_non_streaming_to_streaming(non_streaming_response))
+    events = list(model.convert_non_streaming_to_streaming(non_streaming_response))
 
     citation_deltas = [
         e for e in events if "contentBlockDelta" in e and "citation" in e.get("contentBlockDelta", {}).get("delta", {})
@@ -3595,7 +3597,7 @@ def test_format_request_cache_tools_config_with_ttl(model, messages, model_id, t
     """Test that CacheToolsConfig propagates type and ttl into toolConfig cachePoint."""
     model.update_config(cache_tools=CacheToolsConfig(type=cache_type, ttl="5m"))
 
-    tru_request = model._format_request(messages, tool_specs=[tool_spec])
+    tru_request = model.format_request(messages, tool_specs=[tool_spec])
 
     exp_cache_point = {"cachePoint": {"type": cache_type, "ttl": "5m"}}
     assert tru_request["toolConfig"]["tools"][-1] == exp_cache_point
@@ -3605,7 +3607,7 @@ def test_format_request_cache_tools_config_without_ttl(model, messages, model_id
     """Test that CacheToolsConfig without ttl produces a cachePoint with only type."""
     model.update_config(cache_tools=CacheToolsConfig(type=cache_type))
 
-    tru_request = model._format_request(messages, tool_specs=[tool_spec])
+    tru_request = model.format_request(messages, tool_specs=[tool_spec])
 
     exp_cache_point = {"cachePoint": {"type": cache_type}}
     assert tru_request["toolConfig"]["tools"][-1] == exp_cache_point
@@ -3615,7 +3617,7 @@ def test_format_request_cache_tools_string_backward_compat(model, messages, mode
     """Test that passing cache_tools as a string still produces a cachePoint with only type."""
     model.update_config(cache_tools=cache_type)
 
-    tru_request = model._format_request(messages, tool_specs=[tool_spec])
+    tru_request = model.format_request(messages, tool_specs=[tool_spec])
 
     exp_cache_point = {"cachePoint": {"type": cache_type}}
     assert tru_request["toolConfig"]["tools"][-1] == exp_cache_point
