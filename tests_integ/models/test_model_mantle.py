@@ -40,13 +40,13 @@ def test_chat_completions_agent_invoke(chat_completions_model):
     """OpenAIModel (Chat Completions) reaches Mantle via bedrock_mantle_config."""
     agent = Agent(model=chat_completions_model, system_prompt="Reply in one short sentence.", callback_handler=None)
     result = agent("What is 2+2?")
-    assert "4" in str(result)
+    assert "4" in str(result) or "four" in str(result).lower()
 
 
 def test_agent_invoke(model):
     agent = Agent(model=model, system_prompt="Reply in one short sentence.", callback_handler=None)
     result = agent("What is 2+2?")
-    assert "4" in str(result)
+    assert "4" in str(result) or "four" in str(result).lower()
 
 
 def test_responses_server_side_conversation(stateful_model):
