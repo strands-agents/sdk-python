@@ -408,6 +408,7 @@ class TestOpenAIResponsesCountTokens:
         return OpenAIResponsesModel(
             model_id="gpt-4o",
             client_args={"api_key": os.environ["OPENAI_API_KEY"]},
+            use_native_token_count=True,
         )
 
     @pytest.fixture

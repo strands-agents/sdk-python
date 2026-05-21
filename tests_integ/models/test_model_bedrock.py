@@ -516,7 +516,7 @@ def test_prompt_caching_backward_compatibility_no_ttl():
 class TestCountTokens:
     @pytest.fixture
     def model(self):
-        return BedrockModel(model_id="anthropic.claude-sonnet-4-20250514-v1:0")
+        return BedrockModel(model_id="anthropic.claude-sonnet-4-20250514-v1:0", use_native_token_count=True)
 
     @pytest.fixture
     def messages(self):
