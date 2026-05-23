@@ -370,6 +370,59 @@ def test_fix_broken_tool_use_extends_partial_tool_results(existing_session_manag
     assert missing_result["toolResult"]["content"][0]["text"] == "Tool was interrupted."
 
 
+def test_fix_broken_tool_use_drops_extra_tool_results(session_manager):
+    """Keep valid toolResults, drop stale duplicates, and fill missing ones."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "complete-123", "name": "test_tool", "input": {"input": "test1"}}},
+                {"toolUse": {"toolUseId": "missing-456", "name": "test_tool", "input": {"input": "test2"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "complete-123", "status": "success", "content": [{"text": "ok"}]}},
+                {"toolResult": {"toolUseId": "stale-789", "status": "error", "content": [{"text": "old"}]}},
+                {"toolResult": {"toolUseId": "complete-123", "status": "success", "content": [{"text": "dup"}]}},
+            ],
+        },
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    tool_results = [content["toolResult"] for content in fixed_messages[1]["content"]]
+    assert [tool_result["toolUseId"] for tool_result in tool_results] == ["complete-123", "missing-456"]
+    assert tool_results[0]["content"] == [{"text": "ok"}]
+    assert tool_results[1]["status"] == "error"
+
+
+def test_fix_broken_tool_use_drops_stale_results_with_no_missing_ids(session_manager):
+    """Drop stale toolResults even when every toolUse already has a valid result."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "complete-123", "name": "test_tool", "input": {"input": "test1"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "complete-123", "status": "success", "content": [{"text": "ok"}]}},
+                {"toolResult": {"toolUseId": "stale-789", "status": "error", "content": [{"text": "old"}]}},
+            ],
+        },
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    tool_results = [content["toolResult"] for content in fixed_messages[1]["content"]]
+    assert [tool_result["toolUseId"] for tool_result in tool_results] == ["complete-123"]
+    assert tool_results[0]["content"] == [{"text": "ok"}]
+
+
 def test_fix_broken_tool_use_handles_multiple_orphaned_tools(existing_session_manager):
     """Test fixing multiple orphaned toolUse messages."""
 

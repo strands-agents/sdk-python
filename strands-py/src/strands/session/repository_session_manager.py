@@ -281,26 +281,46 @@ class RepositorySessionManager(SessionManager):
                         content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content
                     ]
 
-                    # Check if there are more messages after the current toolUse message
-                    tool_result_ids = [
-                        content["toolResult"]["toolUseId"]
-                        for content in messages[index + 1]["content"]
-                        if "toolResult" in content
-                    ]
+                    # Keep only the toolResults that belong to this assistant turn.
+                    next_message = messages[index + 1]
+                    tool_use_id_set = set(tool_use_ids)
+                    tool_result_ids = []
+                    filtered_content = []
+                    removed_tool_results = False
 
-                    missing_tool_use_ids = list(set(tool_use_ids) - set(tool_result_ids))
-                    # If there are missing tool use ids, that means the messages history is broken
-                    if missing_tool_use_ids:
-                        logger.warning(
-                            "Session message history has an orphaned toolUse with no toolResult. "
-                            "Adding toolResult content blocks to create valid conversation."
-                        )
+                    for content in next_message["content"]:
+                        if "toolResult" not in content:
+                            filtered_content.append(content)
+                            continue
+
+                        tool_use_id = content["toolResult"]["toolUseId"]
+                        if tool_use_id in tool_use_id_set and tool_use_id not in tool_result_ids:
+                            tool_result_ids.append(tool_use_id)
+                            filtered_content.append(content)
+                        else:
+                            removed_tool_results = True
+
+                    missing_tool_use_ids = [
+                        tool_use_id for tool_use_id in tool_use_ids if tool_use_id not in tool_result_ids
+                    ]
+                    if missing_tool_use_ids or removed_tool_results:
+                        if missing_tool_use_ids:
+                            logger.warning(
+                                "Session message history has an orphaned toolUse with no toolResult. "
+                                "Adding toolResult content blocks to create valid conversation."
+                            )
+                        if removed_tool_results:
+                            logger.warning(
+                                "Session message history has duplicate or unrelated toolResult blocks. "
+                                "Removing extra toolResult content blocks to create valid conversation."
+                            )
+
                         # Create the missing toolResult content blocks
                         missing_content_blocks = generate_missing_tool_result_content(missing_tool_use_ids)
 
-                        if tool_result_ids:
-                            # If there were any toolResult ids, that means only some of the content blocks are missing
-                            messages[index + 1]["content"].extend(missing_content_blocks)
+                        if tool_result_ids or removed_tool_results:
+                            # Keep only toolResults that match the previous assistant toolUse blocks.
+                            next_message["content"] = filtered_content + missing_content_blocks
                         else:
                             # The message following the toolUse was not a toolResult, so lets insert it
                             messages.insert(index + 1, {"role": "user", "content": missing_content_blocks})
