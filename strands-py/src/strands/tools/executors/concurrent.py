@@ -49,6 +49,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         stop_event = object()
 
         tasks = []
+        ordered_tool_results: list[list[ToolResult]] = [[] for _ in tool_uses]
         try:
             for task_id, tool_use in enumerate(tool_uses):
                 tasks.append(
@@ -56,7 +57,7 @@ class ConcurrentToolExecutor(ToolExecutor):
                         self._task(
                             agent,
                             tool_use,
-                            tool_results,
+                            ordered_tool_results[task_id],
                             cycle_trace,
                             cycle_span,
                             invocation_state,
@@ -81,6 +82,9 @@ class ConcurrentToolExecutor(ToolExecutor):
 
                 yield event
                 task_events[task_id].set()
+
+            for task_results in ordered_tool_results:
+                tool_results.extend(task_results)
         finally:
             for task in tasks:
                 task.cancel()
