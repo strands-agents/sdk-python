@@ -1,6 +1,8 @@
 import pytest
+from pydantic import BaseModel
 
 from strands.agent import AgentResult
+from strands.interrupt import Interrupt
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 
@@ -240,3 +242,117 @@ def test_serialize_node_result_for_persist(agent_result):
     assert "result" in serialized_exception
     assert serialized_exception["result"]["type"] == "exception"
     assert serialized_exception["result"]["message"] == "Test error"
+
+
+def test_multi_agent_result_str_single_node():
+    """Test MultiAgentResult __str__ with a single node result."""
+    agent_result = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Hello from agent"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    node_result = NodeResult(result=agent_result, status=Status.COMPLETED)
+    multi_result = MultiAgentResult(status=Status.COMPLETED, results={"node1": node_result})
+
+    assert str(multi_result) == "Hello from agent\n"
+
+
+def test_multi_agent_result_str_multiple_nodes():
+    """Test MultiAgentResult __str__ with multiple node results."""
+    agent_result1 = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Response 1"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    agent_result2 = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Response 2"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    node1 = NodeResult(result=agent_result1, status=Status.COMPLETED)
+    node2 = NodeResult(result=agent_result2, status=Status.COMPLETED)
+    multi_result = MultiAgentResult(status=Status.COMPLETED, results={"node1": node1, "node2": node2})
+
+    result_str = str(multi_result)
+    assert "Response 1" in result_str
+    assert "Response 2" in result_str
+
+
+def test_multi_agent_result_str_empty():
+    """Test MultiAgentResult __str__ with no results."""
+    multi_result = MultiAgentResult(status=Status.COMPLETED, results={})
+    assert str(multi_result) == ""
+
+
+def test_multi_agent_result_str_with_exception_node():
+    """Test MultiAgentResult __str__ skips exception nodes."""
+    agent_result = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Good response"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    node_ok = NodeResult(result=agent_result, status=Status.COMPLETED)
+    node_fail = NodeResult(result=Exception("Something failed"), status=Status.FAILED)
+    multi_result = MultiAgentResult(status=Status.COMPLETED, results={"ok": node_ok, "fail": node_fail})
+
+    result_str = str(multi_result)
+    assert "Good response" in result_str
+    assert "Something failed" not in result_str
+
+
+def test_multi_agent_result_str_nested():
+    """Test MultiAgentResult __str__ with nested MultiAgentResult."""
+    inner_agent = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Nested response"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
+    inner_node = NodeResult(result=inner_agent, status=Status.COMPLETED)
+    inner_multi = MultiAgentResult(status=Status.COMPLETED, results={"inner": inner_node})
+    outer_node = NodeResult(result=inner_multi, status=Status.COMPLETED)
+    outer_multi = MultiAgentResult(status=Status.COMPLETED, results={"outer": outer_node})
+
+    assert "Nested response" in str(outer_multi)
+
+
+def test_multi_agent_result_str_with_interrupts():
+    """Test MultiAgentResult __str__ returns interrupt info when agent result has interrupts."""
+    interrupt = Interrupt(id="i1", name="human_approval", reason="Needs review")
+    agent_result = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Some text"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+        interrupts=[interrupt],
+    )
+    node_result = NodeResult(result=agent_result, status=Status.COMPLETED)
+    multi_result = MultiAgentResult(status=Status.COMPLETED, results={"node1": node_result})
+
+    result_str = str(multi_result)
+    assert "human_approval" in result_str
+    assert "Needs review" in result_str
+
+
+def test_multi_agent_result_str_structured_output_fallback():
+    """Test MultiAgentResult __str__ falls back to structured output when no text content."""
+
+    class OutputModel(BaseModel):
+        answer: str
+
+    structured = OutputModel(answer="42")
+    agent_result = AgentResult(
+        message={"role": "assistant", "content": []},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+        structured_output=structured,
+    )
+    node_result = NodeResult(result=agent_result, status=Status.COMPLETED)
+    multi_result = MultiAgentResult(status=Status.COMPLETED, results={"node1": node_result})
+
+    assert "42" in str(multi_result)
