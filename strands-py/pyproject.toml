@@ -58,6 +58,7 @@ sagemaker = [
     "openai>=1.68.0,<3.0.0",  # SageMaker uses OpenAI-compatible interface
 ]
 otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
+otel-grpc = ["opentelemetry-exporter-otlp-proto-grpc>=1.30.0,<2.0.0"]
 docs = [
     "sphinx>=5.0.0,<10.0.0",
     "sphinx-rtd-theme>=1.0.0,<4.0.0",
@@ -86,8 +87,8 @@ bidi-openai = ["websockets>=15.0.0,<17.0.0"]
 
 cedar = ["cedarpy==4.8.5", "cedar-policy-mcp-schema-generator==0.6.0"]
 
-all = ["strands-agents[a2a,anthropic,cedar,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
-bidi-all = ["strands-agents[a2a,bidi,bidi-io,bidi-gemini,bidi-openai,docs,otel]"]
+all = ["strands-agents[a2a,anthropic,cedar,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel,otel-grpc]"]
+bidi-all = ["strands-agents[a2a,bidi,bidi-io,bidi-gemini,bidi-openai,docs,otel,otel-grpc]"]
 
 dev = [
     "commitizen>=4.4.0,<5.0.0",
