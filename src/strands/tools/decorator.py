@@ -65,7 +65,7 @@ from pydantic.fields import FieldInfo
 from pydantic_core import PydanticSerializationError
 from typing_extensions import override
 
-from ..interrupt import InterruptException
+from ..interrupt import CascadedInterruptException, InterruptException
 from ..types._events import ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 from ..types.tools import AgentTool, JSONSchema, ToolContext, ToolGenerator, ToolResult, ToolSpec, ToolUse
 
@@ -635,6 +635,10 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
 
         except InterruptException as e:
             yield ToolInterruptEvent(tool_use, [e.interrupt])
+            return
+
+        except CascadedInterruptException as e:
+            yield ToolInterruptEvent(tool_use, e.interrupts)
             return
 
         except ValueError as e:

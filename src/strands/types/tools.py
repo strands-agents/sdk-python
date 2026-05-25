@@ -13,7 +13,8 @@ from typing import Any, Literal, Protocol
 
 from typing_extensions import NotRequired, TypedDict
 
-from .interrupt import _Interruptible
+from ..interrupt import CascadedInterruptException, Interrupt
+from .interrupt import InterruptResponseContent, _Interruptible
 from .media import DocumentContent, ImageContent
 
 JSONSchema = dict
@@ -160,6 +161,61 @@ class ToolContext(_Interruptible):
             Interrupt id.
         """
         return f"v1:tool_call:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
+
+    def cascade_interrupts(self, interrupts: list[Interrupt]) -> None:
+        """Cascade interrupts from a sub-agent tool to the orchestrator.
+
+        This method stores interrupts on the orchestrator interrupt state and tracks
+        which interrupt IDs were raised for the current tool use. It always raises
+        a `CascadedInterruptException` so the tool execution pipeline can emit a
+        `ToolInterruptEvent`.
+
+        Args:
+            interrupts: Interrupts raised by a sub-agent.
+
+        Raises:
+            CascadedInterruptException: Always raised to stop tool execution and
+                return interrupts to the orchestrator.
+        """
+        interrupt_state = self.agent._interrupt_state
+        for interrupt in interrupts:
+            interrupt_state.interrupts[interrupt.id] = interrupt
+
+        context_key = f"cascaded:{self.tool_use['toolUseId']}"
+        interrupt_state.context[context_key] = [interrupt.id for interrupt in interrupts]
+        raise CascadedInterruptException(interrupts)
+
+    def get_cascaded_interrupt_responses(self) -> list[InterruptResponseContent] | None:
+        """Get interrupt responses for cascaded sub-agent interrupts on resume.
+
+        Returns:
+            Formatted interrupt response contents when resuming from a cascaded
+            interrupt, otherwise None.
+
+        Raises:
+            KeyError: If a tracked cascaded interrupt ID is missing from state.
+        """
+        context_key = f"cascaded:{self.tool_use['toolUseId']}"
+        cascaded_interrupt_ids = self.agent._interrupt_state.context.get(context_key)
+        if not cascaded_interrupt_ids:
+            return None
+
+        responses: list[InterruptResponseContent] = []
+        for interrupt_id in cascaded_interrupt_ids:
+            if interrupt_id not in self.agent._interrupt_state.interrupts:
+                raise KeyError(f"interrupt_id=<{interrupt_id}> | no interrupt found")
+
+            interrupt = self.agent._interrupt_state.interrupts[interrupt_id]
+            responses.append(
+                {
+                    "interruptResponse": {
+                        "interruptId": interrupt.id,
+                        "response": interrupt.response,
+                    }
+                }
+            )
+
+        return responses
 
 
 # Individual ToolChoice type aliases

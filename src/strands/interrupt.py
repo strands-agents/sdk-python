@@ -37,6 +37,14 @@ class InterruptException(Exception):
         self.interrupt = interrupt
 
 
+class CascadedInterruptException(Exception):
+    """Exception raised when a tool cascades one or more interrupts."""
+
+    def __init__(self, interrupts: list[Interrupt]) -> None:
+        """Set the cascaded interrupts."""
+        self.interrupts = interrupts
+
+
 @dataclass
 class _InterruptState:
     """Track the state of interrupt events raised by the user.
