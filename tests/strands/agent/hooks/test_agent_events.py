@@ -40,6 +40,7 @@ def mock_sleep():
 
 any_props = {
     "agent": ANY,
+    "event_loop_cycle_count": ANY,
     "event_loop_cycle_id": ANY,
     "event_loop_cycle_span": ANY,
     "event_loop_cycle_trace": ANY,

@@ -33,6 +33,7 @@ from ..types._events import (
     TypedEvent,
 )
 from ..types.content import Message, Messages
+from ..types.event_loop import MAX_ITERATIONS_STOP_REASON, Metrics, Usage
 from ..types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
@@ -192,6 +193,14 @@ async def event_loop_cycle(
                 stop_reason = "tool_use"
                 message = agent.messages[-1]
             else:
+                # Only count cycles that actually invoke the model. Cycles that
+                # skip model invocation (interrupt-resume, tool_use replay) are
+                # not real "iterations" for the purposes of the max_iterations
+                # cap and shouldn't consume the user's budget. First
+                # model-invoking cycle sets count=1. Exposed on invocation_state
+                # for HookProviders to observe progress.
+                invocation_state["event_loop_cycle_count"] = invocation_state.get("event_loop_cycle_count", 0) + 1
+
                 model_events = _handle_model_execution(
                     agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
                 )
@@ -634,6 +643,71 @@ async def _handle_tool_execution(
         yield EventLoopStopEvent(
             stop_reason,
             message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+            structured_output=structured_output_result,
+        )
+        return
+
+    # Enforce max_iterations cap to prevent unbounded tool-call recursion.
+    # Without this guard, a degenerate model (or a model stuck on a sticky prompt /
+    # fuzzy fixture) can drive the loop forever: each cycle it re-emits the same
+    # tool_use, the tool result is appended, and we recurse again indefinitely.
+    #
+    # Access `_max_iterations` directly rather than via `getattr(..., None)`
+    # fallback: `Agent.__init__` always sets this attribute, so any missing-attr
+    # case is a bug we want to surface loudly (AttributeError) rather than
+    # silently disabling the cap.
+    max_iterations = agent._max_iterations
+    # Read with a 0 default so interrupt-resume / tool-use-replay paths (which
+    # reach tool execution without a preceding model invocation in this cycle)
+    # don't KeyError — those paths legitimately skip the counter bump.
+    if invocation_state.get("event_loop_cycle_count", 0) >= max_iterations:
+        logger.warning(
+            "cycle_count=<%d>, max_iterations=<%d> | max_iterations cap reached; "
+            "halting event loop and returning partial result",
+            invocation_state.get("event_loop_cycle_count", 0),
+            max_iterations,
+        )
+
+        # Inject a synthetic assistant message so consumers see a terminal turn
+        # in the conversation rather than a trailing tool_result with no response.
+        # Populate `metadata` with zeroed usage/metrics shape matching normal
+        # assistant messages so downstream consumers that read
+        # `message["metadata"]["usage"]` / `["metrics"]` don't KeyError on the
+        # synthetic halt message. Include a `"synthetic": True` marker so
+        # token-budgeting / analytics code that sums across history can filter
+        # out this terminal (it is NOT a real model call — zero usage reflects
+        # that, but the marker makes the distinction unambiguous and keeps the
+        # zeros out of per-call cost/latency percentiles).
+        synthetic_message: Message = {
+            "role": "assistant",
+            "content": [
+                {
+                    "text": (
+                        f"[Agent halted: reached max_iterations={max_iterations}. "
+                        "The model kept requesting tool calls without terminating. "
+                        "Returning with the information gathered so far.]"
+                    )
+                }
+            ],
+            "metadata": {
+                "usage": Usage(inputTokens=0, outputTokens=0, totalTokens=0),
+                "metrics": Metrics(latencyMs=0),
+                "synthetic": True,
+            },
+        }
+        agent.messages.append(synthetic_message)
+        await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=synthetic_message))
+
+        # Intentionally DO NOT yield ModelMessageEvent here — no model invocation
+        # occurred on the halt path. Consumers tracking 1:1 model-call correspondence
+        # via ModelMessageEvent would miscount if we emitted one. The MessageAddedEvent
+        # hook above and the terminal EventLoopStopEvent below together provide the
+        # full signal that a synthetic message was appended and the loop has stopped.
+        yield EventLoopStopEvent(
+            MAX_ITERATIONS_STOP_REASON,
+            synthetic_message,
             agent.event_loop_metrics,
             invocation_state["request_state"],
             structured_output=structured_output_result,
