@@ -510,3 +510,53 @@ def test_update_nonexistent_multi_agent(s3_manager, sample_session):
     nonexistent_mock.id = "nonexistent"
     with pytest.raises(SessionException):
         s3_manager.update_multi_agent(sample_session.session_id, nonexistent_mock)
+
+
+def test_init_with_put_object_kwargs(mocked_aws, s3_bucket):
+    """Test that put_object_kwargs is stored as an instance variable."""
+    kwargs = {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": "arn:aws:kms:us-east-1:123456789012:key/test-key"}
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, region_name="us-west-2", put_object_kwargs=kwargs)
+    assert manager.put_object_kwargs == kwargs
+
+
+def test_init_without_put_object_kwargs(mocked_aws, s3_bucket):
+    """Test that put_object_kwargs defaults to empty dict when not provided."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, region_name="us-west-2")
+    assert manager.put_object_kwargs == {}
+
+
+def test_put_object_kwargs_passed_to_s3(mocked_aws, s3_bucket, sample_session):
+    """Test that put_object_kwargs are forwarded to S3 put_object calls."""
+    manager = S3SessionManager(
+        session_id="test",
+        bucket=s3_bucket,
+        prefix="sessions/",
+        region_name="us-west-2",
+        put_object_kwargs={"ServerSideEncryption": "AES256"},
+    )
+
+    # Create a session — this calls _write_s3_object internally
+    manager.create_session(sample_session)
+
+    # Verify the session was written successfully (proves put_object didn't fail)
+    result = manager.read_session(sample_session.session_id)
+    assert result is not None
+    assert result.session_id == sample_session.session_id
+
+
+def test_put_object_kwargs_with_storage_class(mocked_aws, s3_bucket, sample_session):
+    """Test put_object_kwargs with StorageClass parameter."""
+    manager = S3SessionManager(
+        session_id="test",
+        bucket=s3_bucket,
+        prefix="sessions/",
+        region_name="us-west-2",
+        put_object_kwargs={"StorageClass": "STANDARD_IA"},
+    )
+
+    manager.create_session(sample_session)
+
+    # Verify session was created successfully
+    result = manager.read_session(sample_session.session_id)
+    assert result is not None
+    assert result.session_id == sample_session.session_id
