@@ -459,6 +459,10 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         tool_spec: ToolSpec,
         tool_func: Callable[P, R],
         metadata: FunctionToolMetadata,
+        *,
+        read_only: bool = False,
+        destructive: bool = False,
+        requires_confirmation: bool = False,
     ):
         """Initialize the decorated function tool.
 
@@ -467,6 +471,9 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             tool_spec: The tool specification containing metadata for Agent integration.
             tool_func: The original function being decorated.
             metadata: The FunctionToolMetadata object with extracted function information.
+            read_only: Whether this tool only reads state without modification.
+            destructive: Whether this tool performs irreversible actions.
+            requires_confirmation: Whether this tool should require user confirmation before execution.
         """
         super().__init__()
 
@@ -474,6 +481,9 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         self._tool_spec = tool_spec
         self._tool_func = tool_func
         self._metadata = metadata
+        self._read_only = read_only
+        self._destructive = destructive
+        self._requires_confirmation = requires_confirmation
 
         functools.update_wrapper(wrapper=self, wrapped=self._tool_func)
 
@@ -506,7 +516,15 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         if instance is not None and not inspect.ismethod(self._tool_func):
             # Create a bound method
             tool_func = self._tool_func.__get__(instance, instance.__class__)
-            return DecoratedFunctionTool(self._tool_name, self._tool_spec, tool_func, self._metadata)
+            return DecoratedFunctionTool(
+                self._tool_name,
+                self._tool_spec,
+                tool_func,
+                self._metadata,
+                read_only=self._read_only,
+                destructive=self._destructive,
+                requires_confirmation=self._requires_confirmation,
+            )
 
         return self
 
@@ -576,6 +594,24 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             The string "function" indicating this is a function-based tool.
         """
         return "function"
+
+    @property
+    @override
+    def is_read_only(self) -> bool:
+        """Whether this tool only reads state without modification."""
+        return self._read_only
+
+    @property
+    @override
+    def is_destructive(self) -> bool:
+        """Whether this tool performs irreversible actions."""
+        return self._destructive
+
+    @property
+    @override
+    def requires_confirmation(self) -> bool:
+        """Whether this tool should require user confirmation before execution."""
+        return self._requires_confirmation
 
     @override
     async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
@@ -725,6 +761,9 @@ def tool(
     inputSchema: JSONSchema | None = None,
     name: str | None = None,
     context: bool | str = False,
+    read_only: bool = False,
+    destructive: bool = False,
+    requires_confirmation: bool = False,
 ) -> Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]: ...
 # Suppressing the type error because we want callers to be able to use both `tool` and `tool()` at the
 # call site, but the actual implementation handles that and it's not representable via the type-system
@@ -734,6 +773,9 @@ def tool(  # type: ignore
     inputSchema: JSONSchema | None = None,
     name: str | None = None,
     context: bool | str = False,
+    read_only: bool = False,
+    destructive: bool = False,
+    requires_confirmation: bool = False,
 ) -> DecoratedFunctionTool[P, R] | Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]:
     """Decorator that transforms a Python function into a Strands tool.
 
@@ -762,6 +804,10 @@ def tool(  # type: ignore
         context: When provided, places an object in the designated parameter. If True, the param name
             defaults to 'tool_context', or if an override is needed, set context equal to a string to designate
             the param name.
+        read_only: Whether this tool only reads state without modification. Defaults to False.
+        destructive: Whether this tool performs irreversible actions. Defaults to False.
+        requires_confirmation: Whether this tool should require user confirmation before execution.
+            Defaults to False.
 
     Returns:
         An AgentTool that also mimics the original function when invoked
@@ -816,13 +862,27 @@ def tool(  # type: ignore
             tool_spec["description"] = description
         if inputSchema is not None:
             tool_spec["inputSchema"] = inputSchema
+        if read_only:
+            tool_spec["readOnly"] = True
+        if destructive:
+            tool_spec["destructive"] = True
+        if requires_confirmation:
+            tool_spec["requiresConfirmation"] = True
 
         tool_name = tool_spec.get("name", f.__name__)
 
         if not isinstance(tool_name, str):
             raise ValueError(f"Tool name must be a string, got {type(tool_name)}")
 
-        return DecoratedFunctionTool(tool_name, tool_spec, f, tool_meta)
+        return DecoratedFunctionTool(
+            tool_name,
+            tool_spec,
+            f,
+            tool_meta,
+            read_only=read_only,
+            destructive=destructive,
+            requires_confirmation=requires_confirmation,
+        )
 
     # Handle both @tool and @tool() syntax
     if func is None:

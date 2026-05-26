@@ -35,6 +35,10 @@ class MCPAgentTool(AgentTool):
         mcp_client: "MCPClient",
         name_override: str | None = None,
         timeout: timedelta | None = None,
+        *,
+        read_only: bool | None = None,
+        destructive: bool | None = None,
+        requires_confirmation: bool | None = None,
     ) -> None:
         """Initialize a new MCPAgentTool instance.
 
@@ -44,6 +48,12 @@ class MCPAgentTool(AgentTool):
             name_override: Optional name to use for the agent tool (for disambiguation)
                            If None, uses the original MCP tool name
             timeout: Optional timeout duration for tool execution
+            read_only: Override for read-only classification. When None, falls back to the
+                tool spec's ``readOnly`` field if present, otherwise False.
+            destructive: Override for destructive classification. When None, falls back to the
+                tool spec's ``destructive`` field if present, otherwise False.
+            requires_confirmation: Override for confirmation requirement. When None, falls back
+                to the tool spec's ``requiresConfirmation`` field if present, otherwise False.
         """
         super().__init__()
         logger.debug("tool_name=<%s> | creating mcp agent tool", mcp_tool.name)
@@ -51,6 +61,9 @@ class MCPAgentTool(AgentTool):
         self.mcp_client = mcp_client
         self._agent_tool_name = name_override or mcp_tool.name
         self.timeout = timeout
+        self._read_only_override = read_only
+        self._destructive_override = destructive
+        self._requires_confirmation_override = requires_confirmation
 
     @property
     def tool_name(self) -> str:
@@ -92,6 +105,24 @@ class MCPAgentTool(AgentTool):
             str: The type of the tool, always "python" for MCP tools
         """
         return "python"
+
+    @property
+    @override
+    def is_read_only(self) -> bool:
+        """Whether this tool only reads state. Set via constructor override."""
+        return self._read_only_override if self._read_only_override is not None else False
+
+    @property
+    @override
+    def is_destructive(self) -> bool:
+        """Whether this tool performs irreversible actions. Set via constructor override."""
+        return self._destructive_override if self._destructive_override is not None else False
+
+    @property
+    @override
+    def requires_confirmation(self) -> bool:
+        """Whether this tool requires user confirmation. Set via constructor override."""
+        return self._requires_confirmation_override if self._requires_confirmation_override is not None else False
 
     @override
     async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:

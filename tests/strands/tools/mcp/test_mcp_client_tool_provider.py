@@ -54,6 +54,9 @@ def create_mock_tool(tool_name: str, mcp_tool_name: str | None = None) -> MagicM
     tool.mcp_tool = MagicMock(spec=MCPTool)
     tool.mcp_tool.name = mcp_tool_name or tool_name
     tool.mcp_tool.description = f"Description for {tool_name}"
+    tool.is_read_only = False
+    tool.is_destructive = False
+    tool.requires_confirmation = False
     return tool
 
 

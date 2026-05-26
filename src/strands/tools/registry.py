@@ -270,6 +270,8 @@ class ToolRegistry:
                     " Cannot add a duplicate tool which differs by a '-' or '_'"
                 )
 
+        self._validate_security_metadata(tool)
+
         # Register in main registry
         self.registry[tool.tool_name] = tool
 
@@ -288,6 +290,24 @@ class ToolRegistry:
                 list(self.dynamic_tools.keys()),
             )
 
+    def _validate_security_metadata(self, tool: AgentTool) -> None:
+        """Validate that a tool's security metadata is internally consistent.
+
+        Args:
+            tool: The tool to validate.
+
+        Raises:
+            ValueError: If the tool has contradictory security metadata.
+        """
+        if tool.is_read_only and tool.is_destructive:
+            raise ValueError(f"Tool '{tool.tool_name}' cannot be both read_only and destructive")
+
+        if tool.is_destructive and not tool.requires_confirmation:
+            logger.warning(
+                "tool_name=<%s> | tool is marked destructive but does not require confirmation",
+                tool.tool_name,
+            )
+
     def replace(self, new_tool: AgentTool) -> None:
         """Replace an existing tool with a new implementation.
 
@@ -304,6 +324,8 @@ class ToolRegistry:
 
         if tool_name not in self.registry:
             raise ValueError(f"Cannot replace tool '{tool_name}' - tool does not exist")
+
+        self._validate_security_metadata(new_tool)
 
         # Update main registry
         self.registry[tool_name] = new_tool

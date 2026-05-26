@@ -147,6 +147,12 @@ class BeforeToolCallEvent(HookEvent, _Interruptible):
         cancel_tool: A user defined message that when set, will cancel the tool call.
             The message will be placed into a tool result with an error status. If set to `True`, Strands will cancel
             the tool call and use a default cancel message.
+        tool_is_read_only: Convenience property. True if the selected tool is read-only, False otherwise
+            (including when selected_tool is None).
+        tool_is_destructive: Convenience property. True if the selected tool is destructive, False otherwise
+            (including when selected_tool is None).
+        tool_requires_confirmation: Convenience property. True if the selected tool requires confirmation,
+            False otherwise (including when selected_tool is None).
     """
 
     selected_tool: AgentTool | None
@@ -156,6 +162,21 @@ class BeforeToolCallEvent(HookEvent, _Interruptible):
 
     def _can_write(self, name: str) -> bool:
         return name in ["cancel_tool", "selected_tool", "tool_use"]
+
+    @property
+    def tool_is_read_only(self) -> bool:
+        """Whether the selected tool only reads state. False when selected_tool is None."""
+        return self.selected_tool is not None and self.selected_tool.is_read_only
+
+    @property
+    def tool_is_destructive(self) -> bool:
+        """Whether the selected tool performs irreversible actions. False when selected_tool is None."""
+        return self.selected_tool is not None and self.selected_tool.is_destructive
+
+    @property
+    def tool_requires_confirmation(self) -> bool:
+        """Whether the selected tool requires user confirmation. False when selected_tool is None."""
+        return self.selected_tool is not None and self.selected_tool.requires_confirmation
 
     @override
     def _interrupt_id(self, name: str) -> str:
