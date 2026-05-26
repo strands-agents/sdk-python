@@ -64,9 +64,15 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             boto_client_config: Optional boto3 client configuration
             region_name: AWS region for S3 storage
             **kwargs: Additional keyword arguments for future extensibility.
+                put_object_kwargs: Optional dictionary of additional keyword arguments
+                    to pass to all S3 put_object calls. Useful for configuring server-side
+                    encryption (SSE-KMS), storage class, tagging, or other S3 PutObject
+                    parameters. Example: {"ServerSideEncryption": "aws:kms",
+                    "SSEKMSKeyId": "arn:aws:kms:..."}
         """
         self.bucket = bucket
         self.prefix = prefix
+        self.put_object_kwargs: dict[str, Any] = kwargs.get("put_object_kwargs") or {}
 
         session = boto_session or boto3.Session(region_name=region_name)
 
@@ -152,9 +158,14 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         """Write JSON object to S3."""
         try:
             content = json.dumps(data, indent=2, ensure_ascii=False)
-            self.client.put_object(
-                Bucket=self.bucket, Key=key, Body=content.encode("utf-8"), ContentType="application/json"
-            )
+            put_params: dict[str, Any] = {
+                "Bucket": self.bucket,
+                "Key": key,
+                "Body": content.encode("utf-8"),
+                "ContentType": "application/json",
+                **self.put_object_kwargs,
+            }
+            self.client.put_object(**put_params)
         except ClientError as e:
             raise SessionException(f"Failed to write S3 object {key}: {e}") from e
 
