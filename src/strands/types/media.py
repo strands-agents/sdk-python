@@ -47,18 +47,32 @@ class S3Location(Location, total=False):
 SourceLocation: TypeAlias = Location | S3Location
 
 
+class DocumentBlockContent(TypedDict, total=False):
+    """An inline content block within a document source.
+
+    Attributes:
+        text: The text content of the block.
+    """
+
+    text: str
+
+
 class DocumentSource(TypedDict, total=False):
     """Contains the content of a document.
 
-    Only one of `bytes` or `s3Location` should be specified.
+    Only one of `bytes`, `content`, `location`, or `text` should be specified.
 
     Attributes:
         bytes: The binary content of the document.
+        content: List of content blocks.
         location: Location of the document.
+        text: Text contents of the document.
     """
 
     bytes: bytes
+    content: list[DocumentBlockContent]
     location: SourceLocation
+    text: str
 
 
 class DocumentContent(TypedDict, total=False):

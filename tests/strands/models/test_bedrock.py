@@ -2282,6 +2282,58 @@ def test_format_request_filters_document_content_blocks(model, model_id):
     assert "metadata" not in document_block
 
 
+def test_format_request_document_text_source(model, model_id):
+    """Test that document with text source is properly formatted."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "notes.txt",
+                        "format": "txt",
+                        "source": {"text": "plain text content"},
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    document_source = formatted_request["messages"][0]["content"][0]["document"]["source"]
+    assert document_source == {"text": "plain text content"}
+
+
+def test_format_request_document_content_source(model, model_id):
+    """Test that document with content source is properly formatted, filtering items without text."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "doc.txt",
+                        "format": "txt",
+                        "source": {
+                            "content": [
+                                {"text": "block one"},
+                                {"text": "block two"},
+                                {},  # This should be filtered out
+                            ]
+                        },
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+
+    document_source = formatted_request["messages"][0]["content"][0]["document"]["source"]
+    assert document_source == {"content": [{"text": "block one"}, {"text": "block two"}]}
+
+
 def test_format_request_filters_nested_reasoning_content(model, model_id):
     """Test deep filtering of nested reasoningText fields."""
     messages = [
