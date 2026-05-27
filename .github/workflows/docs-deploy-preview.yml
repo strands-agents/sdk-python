@@ -79,7 +79,7 @@ jobs:
         run: npm run cms:build
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ env.AWS_DEPLOY_ROLE }}
           role-session-name: GitHubActions-Docs-${{ env.RUN_ID }}
