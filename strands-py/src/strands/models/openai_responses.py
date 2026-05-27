@@ -488,10 +488,13 @@ class OpenAIResponsesModel(Model):
         """
         async with openai.AsyncOpenAI(**self._resolve_client_args()) as client:
             try:
+                request = self._format_request(prompt, system_prompt=system_prompt)
+                parse_kwargs = {key: value for key, value in request.items() if key not in {"model", "input", "stream"}}
                 response = await client.responses.parse(
                     model=self.get_config()["model_id"],
-                    input=self._format_request(prompt, system_prompt=system_prompt)["input"],
+                    input=request["input"],
                     text_format=output_model,
+                    **parse_kwargs,
                 )
             except openai.BadRequestError as e:
                 if hasattr(e, "code") and e.code == "context_length_exceeded":

@@ -743,6 +743,29 @@ async def test_structured_output(openai_client, model, test_output_model_cls, al
 
 
 @pytest.mark.asyncio
+async def test_structured_output_forwards_formatted_request_params(
+    openai_client, model_id, test_output_model_cls, alist
+):
+    model = OpenAIResponsesModel(
+        model_id=model_id,
+        params={"max_output_tokens": 1000, "reasoning": {"effort": "high"}},
+    )
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    mock_response = unittest.mock.Mock(output_parsed=test_output_model_cls(name="John", age=30))
+
+    openai_client.responses.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    await alist(model.structured_output(test_output_model_cls, messages, system_prompt="Follow the schema"))
+
+    _, kwargs = openai_client.responses.parse.call_args
+    assert kwargs["max_output_tokens"] == 1000
+    assert kwargs["reasoning"] == {"effort": "high"}
+    assert kwargs["instructions"] == "Follow the schema"
+    assert kwargs["store"] is False
+    assert "stream" not in kwargs
+
+
+@pytest.mark.asyncio
 async def test_stream_context_overflow_exception(openai_client, model, messages):
     """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
     mock_error = openai.BadRequestError(
