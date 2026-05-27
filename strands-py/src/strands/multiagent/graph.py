@@ -20,7 +20,6 @@ import inspect
 import json
 import logging
 import time
-import weakref
 from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypeGuard, cast
@@ -74,8 +73,9 @@ class EdgeConditionWithContext(Protocol):
 
     Designed with **kwargs for future extensibility without breaking changes.
 
-    Note: not @runtime_checkable — isinstance() cannot distinguish callable signatures
-    structurally; use _is_context_condition() for dispatch instead.
+    Not @runtime_checkable because the expected use case is a function or lambda,
+    and isinstance() checks cannot structurally distinguish callable signatures.
+    Dispatch uses _is_context_condition() with inspect.signature() instead.
     """
 
     def __call__(self, state: "GraphState", *, invocation_state: dict[str, Any], **kwargs: Any) -> bool:
@@ -86,34 +86,18 @@ class EdgeConditionWithContext(Protocol):
 LegacyEdgeCondition = Callable[["GraphState"], bool]
 EdgeCondition = LegacyEdgeCondition | EdgeConditionWithContext
 
-# GIL-protected: concurrent async graphs may read/write simultaneously, but
-# CPython's GIL ensures dict mutation is atomic.  Ephemeral callables (e.g.
-# lambdas recreated per-call) will bypass the cache — this is benign; the
-# fallback path is a single inspect.signature() call.
-_context_condition_cache: weakref.WeakKeyDictionary[EdgeCondition, bool] = weakref.WeakKeyDictionary()
-
 
 def _is_context_condition(condition: EdgeCondition) -> TypeGuard[EdgeConditionWithContext]:
     """Check if a condition function accepts invocation_state parameter.
 
     Uses inspect.signature() for reliable detection, returning a TypeGuard
-    so mypy can narrow the type at call sites. Results are cached per condition
-    using weak references so entries are evicted when the function is collected.
+    so mypy can narrow the type at call sites.
     """
     try:
-        return _context_condition_cache[condition]
-    except (KeyError, TypeError):
-        pass
-    try:
         sig = inspect.signature(condition)
-        result = "invocation_state" in sig.parameters
+        return "invocation_state" in sig.parameters
     except (ValueError, TypeError):
-        result = False
-    try:
-        _context_condition_cache[condition] = result
-    except TypeError:
-        pass
-    return result
+        return False
 
 
 @dataclass
@@ -202,6 +186,7 @@ class GraphEdge:
     from_node: "GraphNode"
     to_node: "GraphNode"
     condition: EdgeCondition | None = None
+    _is_context_condition_cached: bool | None = field(default=None, init=False, repr=False, compare=False)
 
     def __hash__(self) -> int:
         """Return hash for GraphEdge based on from_node and to_node."""
@@ -219,10 +204,16 @@ class GraphEdge:
         condition = self.condition
         if condition is None:
             return True
-        if _is_context_condition(condition):
+        if self._check_is_context_condition(condition):
             return condition(state, invocation_state=invocation_state or {})
         legacy_condition = cast(LegacyEdgeCondition, condition)
         return legacy_condition(state)
+
+    def _check_is_context_condition(self, condition: EdgeCondition) -> TypeGuard[EdgeConditionWithContext]:
+        """Check and cache whether this edge's condition accepts invocation_state."""
+        if self._is_context_condition_cached is None:
+            self._is_context_condition_cached = _is_context_condition(condition)
+        return self._is_context_condition_cached
 
 
 @dataclass
