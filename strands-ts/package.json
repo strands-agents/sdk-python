@@ -95,6 +95,10 @@
     "./vended-plugins": {
       "types": "./dist/src/vended-plugins/index.d.ts",
       "default": "./dist/src/vended-plugins/index.js"
+    },
+    "./vended-interventions/cedar": {
+      "types": "./dist/src/vended-interventions/cedar/index.d.ts",
+      "default": "./dist/src/vended-interventions/cedar/index.js"
     }
   },
   "scripts": {
@@ -145,6 +149,7 @@
     "@aws-sdk/client-sts": "^3.996.0",
     "@aws-sdk/credential-providers": "^3.943.0",
     "@aws/bedrock-token-generator": "^1.1.0",
+    "@cedar-policy/cedar-wasm": "^4.11.0",
     "@eslint/js": "^9.39.4",
     "@google/genai": "^1.40.0",
     "@opentelemetry/api": "^1.9.0",
@@ -195,6 +200,7 @@
     "@anthropic-ai/sdk": "^0.92.0",
     "@aws-sdk/client-s3": "^3.943.0",
     "@aws/bedrock-token-generator": "^1.1.0",
+    "@cedar-policy/cedar-wasm": "^4.0.0",
     "@google/genai": "^1.40.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@opentelemetry/api": "^1.9.0",
@@ -253,6 +259,9 @@
       "optional": true
     },
     "@opentelemetry/exporter-metrics-otlp-http": {
+      "optional": true
+    },
+    "@cedar-policy/cedar-wasm": {
       "optional": true
     }
   },

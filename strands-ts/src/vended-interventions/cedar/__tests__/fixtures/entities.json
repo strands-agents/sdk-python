@@ -1,0 +1,4 @@
+[
+  { "uid": { "type": "McpServer", "id": "test-server" }, "attrs": {}, "parents": [] },
+  { "uid": { "type": "User", "id": "alice" }, "attrs": { "role": "admin" }, "parents": [] }
+]
