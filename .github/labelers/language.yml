@@ -9,7 +9,7 @@ instructions: |
   If the issue is language-agnostic or unclear, do not assign a label.
 
 labels:
-  lang-python:
+  python:
     description: "Issue relates to the Python SDK (strands-py/, .py files, pip, pyproject.toml)"
-  lang-typescript:
-    description: "Issue relates to the TypeScript SDK (strands-ts/, .ts files, npm, package.json)"
+  javascript:
+    description: "Issue relates to the TypeScript/JavaScript SDK (strands-ts/, .ts files, npm, package.json)"
