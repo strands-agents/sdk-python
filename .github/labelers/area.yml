@@ -4,6 +4,9 @@
 instructions: |
   This is the Strands Agents SDK repository (Python + TypeScript monorepo).
   CI dependency bumps (dependabot, renovate) should be labeled area-community.
+  MCP tools should be labeled area-mcp, not area-tool.
+  Provider-specific async/streaming bugs belong to area-provider, not area-async.
+  Issues about hook lifecycle events belong to area-hooks even if they mention tools or agents.
 
 labels:
   area-a2a:
