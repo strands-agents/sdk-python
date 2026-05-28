@@ -103,15 +103,11 @@ export interface CedarAuthorizationConfig {
   principalResolver: (invocationState: Record<string, JSONValue>) => CedarEntityUid | undefined
 
   /**
-   * Maps tool calls to Cedar resources. When omitted, all tools resolve
-   * to `McpServer::"<resourceId>"`.
+   * Maps tool calls to Cedar resources. When omitted, the resource is
+   * unconstrained (`Resource::"agent"`). Use this to map tools to
+   * domain-specific entities (e.g. `Record::"42"`).
    */
   resourceResolver?: ResourceResolver | undefined
-
-  /**
-   * ID of the agent/server resource entity. Defaults to `'strands-agent'`.
-   */
-  resourceId?: string | undefined
 
   /**
    * Adds extra fields to the `context.session` object passed to Cedar.
@@ -139,7 +135,7 @@ export interface CedarAuthorizationConfig {
  * Uses the {@link https://github.com/cedar-policy/cedar-for-agents | cedar-for-agents}
  * schema generator conventions:
  * - One Cedar action per tool (e.g. `Action::"search"`)
- * - Resource defaults to `McpServer::"<resourceId>"`
+ * - Resource is unconstrained by default (use `resourceResolver` for domain objects)
  * - Context is nested: `{ input: <tool args>, session: { hour_utc, call_count, ... } }`
  *
  * @see {@link https://docs.cedarpolicy.com/syntax-policy.html | Cedar policy syntax}
@@ -172,7 +168,6 @@ export class CedarAuthorization extends InterventionHandler {
   private readonly _entities: CedarEntity[]
   private readonly _principalResolver: (invocationState: Record<string, JSONValue>) => CedarEntityUid | undefined
   private readonly _resourceResolver: ResourceResolver | undefined
-  private readonly _resourceId: string
   private readonly _contextEnricher: CedarAuthorizationConfig['contextEnricher']
   private readonly _callCounts = new Map<string, Map<string, number>>()
   private readonly _maxSessions = 1000
@@ -183,7 +178,6 @@ export class CedarAuthorization extends InterventionHandler {
     this._entities = loadEntities(config.entities)
     this._principalResolver = config.principalResolver
     this._resourceResolver = config.resourceResolver
-    this._resourceId = config.resourceId ?? 'strands-agent'
     this._contextEnricher = config.contextEnricher
     this.onError = config.onError ?? 'throw'
   }
@@ -241,14 +235,14 @@ export class CedarAuthorization extends InterventionHandler {
 
   private _resolveResource(toolName: string, toolInput: Record<string, JSONValue>): CedarEntityUid {
     if (!this._resourceResolver) {
-      return { type: 'McpServer', id: this._resourceId }
+      return { type: 'Resource', id: 'agent' }
     }
     if (typeof this._resourceResolver === 'function') {
       return this._resourceResolver(toolName, toolInput)
     }
     const mapping = this._resourceResolver[toolName]
     if (!mapping) {
-      return { type: 'McpServer', id: this._resourceId }
+      return { type: 'Resource', id: 'agent' }
     }
     const id = toolInput[mapping.key]
     return { type: mapping.type, id: String(id ?? toolName) }

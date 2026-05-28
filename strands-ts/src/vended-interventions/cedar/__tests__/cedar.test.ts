@@ -11,7 +11,7 @@ describe('CedarAuthorization', () => {
   describe('real Cedar evaluation', () => {
 
     const entities = [
-      { uid: { type: 'McpServer', id: 'strands-agent' }, attrs: {}, parents: [] },
+      { uid: { type: 'Resource', id: 'agent' }, attrs: {}, parents: [] },
       { uid: { type: 'User', id: 'alice' }, attrs: { role: 'admin' }, parents: [] },
       { uid: { type: 'User', id: 'bob' }, attrs: { role: 'analyst' }, parents: [] },
       { uid: { type: 'User', id: 'eve' }, attrs: { role: 'viewer' }, parents: [] },
@@ -254,7 +254,7 @@ describe('CedarAuthorization', () => {
   })
 
   describe('resource resolution', () => {
-    it('defaults resource to McpServer', async () => {
+    it('defaults resource to Resource::"agent"', async () => {
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: {} })
         .addTurn({ type: 'textBlock', text: 'Done' })
@@ -265,35 +265,11 @@ describe('CedarAuthorization', () => {
         return 'ok'
       })
 
-      // Policy permits on McpServer resource
+      // Policy permits any resource — works with the default
       const cedar = new CedarAuthorization({
-        policies: 'permit(principal, action == Action::"search", resource is McpServer);',
-        entities: [{ uid: { type: 'McpServer', id: 'strands-agent' }, attrs: {}, parents: [] }],
+        policies: 'permit(principal, action == Action::"search", resource);',
+        entities: [{ uid: { type: 'Resource', id: 'agent' }, attrs: {}, parents: [] }],
         principalResolver: () => ({ type: 'User', id: 'alice' }),
-      })
-
-      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
-      await agent.invoke('Go', { invocationState: {} })
-      expect(toolExecuted).toBe(true)
-    })
-
-    it('uses custom resourceId', async () => {
-      const model = new MockMessageModel()
-        .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: {} })
-        .addTurn({ type: 'textBlock', text: 'Done' })
-
-      let toolExecuted = false
-      const tool = createMockTool('search', () => {
-        toolExecuted = true
-        return 'ok'
-      })
-
-      // Policy permits only on specific McpServer
-      const cedar = new CedarAuthorization({
-        policies: 'permit(principal, action, resource == McpServer::"my-agent");',
-        entities: [{ uid: { type: 'McpServer', id: 'my-agent' }, attrs: {}, parents: [] }],
-        principalResolver: () => ({ type: 'User', id: 'alice' }),
-        resourceId: 'my-agent',
       })
 
       const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
@@ -368,7 +344,7 @@ describe('CedarAuthorization', () => {
       // Policy checks custom context field
       const cedar = new CedarAuthorization({
         policies: 'permit(principal, action, resource) when { context.session.department == "engineering" };',
-        entities: [{ uid: { type: 'McpServer', id: 'strands-agent' }, attrs: {}, parents: [] }],
+        entities: [{ uid: { type: 'Resource', id: 'agent' }, attrs: {}, parents: [] }],
         principalResolver: () => ({ type: 'User', id: 'alice' }),
         contextEnricher: () => ({ department: 'engineering' }),
       })
@@ -391,7 +367,7 @@ describe('CedarAuthorization', () => {
 
       const cedar = new CedarAuthorization({
         policies: 'permit(principal, action, resource) when { context.session.department == "engineering" };',
-        entities: [{ uid: { type: 'McpServer', id: 'strands-agent' }, attrs: {}, parents: [] }],
+        entities: [{ uid: { type: 'Resource', id: 'agent' }, attrs: {}, parents: [] }],
         principalResolver: () => ({ type: 'User', id: 'alice' }),
         contextEnricher: () => ({ department: 'marketing' }),
       })
@@ -496,7 +472,7 @@ describe('CedarAuthorization', () => {
       const cedar = new CedarAuthorization({
         policies: `${fixturesDir}/test.cedar`,
         entities: [
-          { uid: { type: 'McpServer', id: 'strands-agent' }, attrs: {}, parents: [] },
+          { uid: { type: 'Resource', id: 'agent' }, attrs: {}, parents: [] },
           { uid: { type: 'User', id: 'alice' }, attrs: { role: 'analyst' }, parents: [] },
         ],
         principalResolver: () => ({ type: 'User', id: 'alice' }),
@@ -551,7 +527,7 @@ describe('CedarAuthorization', () => {
       // Rate limit: < 2 calls allowed
       const cedar = new CedarAuthorization({
         policies: 'permit(principal, action, resource) when { context.session.call_count < 2 };',
-        entities: [{ uid: { type: 'McpServer', id: 'strands-agent' }, attrs: {}, parents: [] }],
+        entities: [{ uid: { type: 'Resource', id: 'agent' }, attrs: {}, parents: [] }],
         principalResolver: () => ({ type: 'User', id: 'alice' }),
       })
 

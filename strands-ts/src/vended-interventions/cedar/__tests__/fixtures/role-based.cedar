@@ -2,7 +2,7 @@
 permit(
   principal is User,
   action,
-  resource is McpServer
+  resource
 ) when {
   principal.role == "admin"
 };
@@ -11,7 +11,7 @@ permit(
 permit(
   principal is User,
   action == Action::"search",
-  resource is McpServer
+  resource
 ) when {
   principal.role == "analyst"
 };
@@ -19,7 +19,7 @@ permit(
 permit(
   principal is User,
   action == Action::"query_database",
-  resource is McpServer
+  resource
 ) when {
   principal.role == "analyst"
 };
