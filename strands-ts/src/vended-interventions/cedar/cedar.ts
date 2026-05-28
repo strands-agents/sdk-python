@@ -4,7 +4,7 @@ import type { InterventionAction } from '../../interventions/actions.js'
 import type { BeforeToolCallEvent } from '../../hooks/events.js'
 import type { OnError } from '../../interventions/handler.js'
 import type { JSONValue } from '../../types/json.js'
-import { isAuthorized } from '@cedar-policy/cedar-wasm/nodejs'
+import { isAuthorized, type Entities } from '@cedar-policy/cedar-wasm/nodejs'
 import { readFileSync, existsSync } from 'node:fs'
 
 /**
@@ -216,11 +216,7 @@ export class CedarAuthorization extends InterventionHandler {
         },
       },
       policies: { staticPolicies: this._policies },
-      entities: this._entities.map((e) => ({
-        uid: e.uid,
-        attrs: e.attrs as Record<string, unknown>,
-        parents: e.parents,
-      })),
+      entities: this._entities as unknown as Entities,
     })
 
     if (result.type === 'failure') {
