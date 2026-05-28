@@ -1,0 +1,55 @@
+name: Issue Labeler
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+  id-token: write
+  contents: read
+
+jobs:
+  label-area:
+    name: "Label: Area"
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/labelers
+          sparse-checkout-cone-mode: false
+      - uses: strands-agents/devtools/issue-labeler@main
+        with:
+          aws_role_arn: ${{ secrets.AWS_ROLE_ARN }}
+          config_path: '.github/labelers/area.yml'
+
+  label-type:
+    name: "Label: Type"
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/labelers
+          sparse-checkout-cone-mode: false
+      - uses: strands-agents/devtools/issue-labeler@main
+        with:
+          aws_role_arn: ${{ secrets.AWS_ROLE_ARN }}
+          config_path: '.github/labelers/type.yml'
+          max_labels: '1'
+
+  label-language:
+    name: "Label: Language"
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/labelers
+          sparse-checkout-cone-mode: false
+      - uses: strands-agents/devtools/issue-labeler@main
+        with:
+          aws_role_arn: ${{ secrets.AWS_ROLE_ARN }}
+          config_path: '.github/labelers/language.yml'
+          max_labels: '1'

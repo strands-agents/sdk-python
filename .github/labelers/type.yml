@@ -1,0 +1,18 @@
+# .github/labelers/type.yml
+# Classifies issues by type (bug, feature, etc.)
+# Use max_labels: 1 in the workflow since these are mutually exclusive.
+
+instructions: |
+  Choose exactly one type. If the title starts with [BUG] it is a bug.
+  If the title starts with [FEATURE] it is an enhancement.
+  CI/dependency PRs that open as issues are chores.
+
+labels:
+  bug:
+    description: "Something is broken or not working as documented"
+  enhancement:
+    description: "New feature request or improvement to existing functionality"
+  question:
+    description: "User asking for help, clarification, or how to do something"
+  chore:
+    description: "Maintenance tasks, dependency updates, CI changes, refactoring with no user-facing impact"

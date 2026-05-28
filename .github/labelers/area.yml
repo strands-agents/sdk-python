@@ -1,0 +1,42 @@
+# .github/labelers/area.yml
+# Classifies issues by technical area/subsystem.
+
+instructions: |
+  This is the Strands Agents SDK repository (Python + TypeScript monorepo).
+  CI dependency bumps (dependabot, renovate) should be labeled area-community.
+
+labels:
+  area-a2a:
+    description: "Agent-to-Agent protocol, A2AAgent, A2AClient, A2AServer, agent cards"
+  area-async:
+    description: "Asynchronous flows, multi-threading, asyncio, concurrent execution, event loops"
+  area-bidirectional-streaming:
+    description: "Bidirectional streaming, BidiAgent, real-time audio/video, WebRTC, WebSocket, Nova Sonic"
+  area-community:
+    description: "Community health, monorepo consolidation, contributor guides, governance, CI dependency bumps"
+  area-config:
+    description: "Config-based agents, agent config files, mcp-config, declarative definitions"
+  area-context:
+    description: "Conversation management, context windows, context reduction, sliding window, token management"
+  area-devx:
+    description: "Developer experience, better APIs, ergonomics, helper methods, error messages, usability"
+  area-hil:
+    description: "Human-in-the-loop, interrupt/resume, suspend/resume, approval workflows"
+  area-hooks:
+    description: "Hook events, hook registry, callbacks, lifecycle events, BeforeEvent/AfterEvent"
+  area-language:
+    description: "New language SDKs (Ruby, .NET, Rust, Go, etc.)"
+  area-mcp:
+    description: "Model Context Protocol, MCP servers/clients/transport/tools"
+  area-multiagent:
+    description: "Multi-agent patterns, swarm, graph, orchestrator, agent-as-tool, arena"
+  area-otel:
+    description: "OpenTelemetry, tracing, metrics, spans, observability, OTLP"
+  area-persistence:
+    description: "Session storage, checkpointing, S3SessionManager, DynamoDB sessions, state serialization"
+  area-provider:
+    description: "Model providers (Bedrock, OpenAI, Anthropic, Ollama, LiteLLM, SageMaker, vLLM, Mistral)"
+  area-structured-output:
+    description: "Structured output API, JSON schema enforcement, Pydantic output models"
+  area-tool:
+    description: "Tool behavior, tool definitions, tool execution, @tool decorator, tool results"
