@@ -507,12 +507,14 @@ describe('CedarAuthorization', () => {
       expect(toolExecuted).toBe(true)
     })
 
-    it('treats non-existent .cedar path as inline policy text', () => {
-      const cedar = new CedarAuthorization({
-        policies: '/nonexistent/path.cedar',
-        principalResolver: () => ({ type: 'User', id: 'alice' }),
-      })
-      expect(cedar.name).toBe('cedar-authorization')
+    it('throws when .cedar file does not exist', () => {
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: '/nonexistent/path.cedar',
+            principalResolver: () => ({ type: 'User', id: 'alice' }),
+          })
+      ).toThrow('Cedar policy file not found: /nonexistent/path.cedar')
     })
   })
 

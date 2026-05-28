@@ -14,7 +14,7 @@ import { readFileSync, existsSync } from 'node:fs'
  * @example
  * ```typescript
  * const principal: CedarEntityUid = { type: 'User', id: 'alice@acme.com' }
- * const resource: CedarEntityUid = { type: 'McpServer', id: 'my-agent' }
+ * const resource: CedarEntityUid = { type: 'Record', id: '42' }
  * ```
  */
 export interface CedarEntityUid {
@@ -183,7 +183,6 @@ export class CedarAuthorization extends InterventionHandler {
   }
 
   override beforeToolCall(event: BeforeToolCallEvent): InterventionAction {
-
     const invocationState = event.invocationState as Record<string, JSONValue>
     const principal = this._principalResolver(invocationState)
     if (!principal) {
@@ -210,6 +209,7 @@ export class CedarAuthorization extends InterventionHandler {
         },
       },
       policies: { staticPolicies: this._policies },
+      // JSONValue and CedarValueJson are structurally equivalent but TypeScript can't prove it
       entities: this._entities as unknown as Entities,
     })
 
@@ -266,7 +266,10 @@ export class CedarAuthorization extends InterventionHandler {
 }
 
 function loadPolicies(policies: string): string {
-  if (policies.endsWith('.cedar') && existsSync(policies)) {
+  if (policies.endsWith('.cedar')) {
+    if (!existsSync(policies)) {
+      throw new Error(`Cedar policy file not found: ${policies}`)
+    }
     return readFileSync(policies, 'utf-8')
   }
   return policies
