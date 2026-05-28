@@ -3,8 +3,7 @@ import { proceed, deny } from '../../interventions/actions.js'
 import type { InterventionAction } from '../../interventions/actions.js'
 import type { BeforeToolCallEvent } from '../../hooks/events.js'
 import type { OnError } from '../../interventions/handler.js'
-import type { JSONValue } from '../../types/json.js'
-import { isAuthorized, type Entities } from '@cedar-policy/cedar-wasm/nodejs'
+import { isAuthorized, type Entities, type CedarValueJson } from '@cedar-policy/cedar-wasm/nodejs'
 import { readFileSync, existsSync } from 'node:fs'
 
 /**
@@ -37,7 +36,7 @@ export interface CedarEntityUid {
  */
 export interface CedarEntity {
   uid: CedarEntityUid
-  attrs: Record<string, JSONValue>
+  attrs: Record<string, CedarValueJson>
   parents: CedarEntityUid[]
 }
 
@@ -60,7 +59,7 @@ export interface CedarEntity {
  */
 export type ResourceResolver =
   | Record<string, { key: string; type: string }>
-  | ((toolName: string, toolInput: Record<string, JSONValue>) => CedarEntityUid)
+  | ((toolName: string, toolInput: Record<string, CedarValueJson>) => CedarEntityUid)
 
 /**
  * Configuration for the {@link CedarAuthorization} intervention handler.
@@ -100,7 +99,7 @@ export interface CedarAuthorizationConfig {
    * }
    * ```
    */
-  principalResolver: (invocationState: Record<string, JSONValue>) => CedarEntityUid | undefined
+  principalResolver: (invocationState: Record<string, CedarValueJson>) => CedarEntityUid | undefined
 
   /**
    * Maps tool calls to Cedar resources. When omitted, the resource is
@@ -114,7 +113,7 @@ export interface CedarAuthorizationConfig {
    * Called on every tool invocation.
    */
   contextEnricher?:
-    | ((context: { toolName: string; toolInput: Record<string, JSONValue> }) => Record<string, JSONValue>)
+    | ((context: { toolName: string; toolInput: Record<string, CedarValueJson> }) => Record<string, CedarValueJson>)
     | undefined
 
   /**
@@ -166,7 +165,7 @@ export class CedarAuthorization extends InterventionHandler {
 
   private readonly _policies: string
   private readonly _entities: CedarEntity[]
-  private readonly _principalResolver: (invocationState: Record<string, JSONValue>) => CedarEntityUid | undefined
+  private readonly _principalResolver: (invocationState: Record<string, CedarValueJson>) => CedarEntityUid | undefined
   private readonly _resourceResolver: ResourceResolver | undefined
   private readonly _contextEnricher: CedarAuthorizationConfig['contextEnricher']
   private readonly _callCounts = new Map<string, Map<string, number>>()
@@ -183,7 +182,7 @@ export class CedarAuthorization extends InterventionHandler {
   }
 
   override beforeToolCall(event: BeforeToolCallEvent): InterventionAction {
-    const invocationState = event.invocationState as Record<string, JSONValue>
+    const invocationState = event.invocationState as Record<string, CedarValueJson>
     const principal = this._principalResolver(invocationState)
     if (!principal) {
       return deny('No principal identity found in invocation state')
@@ -191,7 +190,7 @@ export class CedarAuthorization extends InterventionHandler {
 
     const sessionId = (invocationState.session_id as string | undefined) ?? '_default'
     const callCount = this._incrementCallCount(sessionId, event.toolUse.name)
-    const toolInput = (event.toolUse.input ?? {}) as Record<string, JSONValue>
+    const toolInput = (event.toolUse.input ?? {}) as Record<string, CedarValueJson>
     const resource = this._resolveResource(event.toolUse.name, toolInput)
     const env = invocationState.environment as string | undefined
 
@@ -209,8 +208,7 @@ export class CedarAuthorization extends InterventionHandler {
         },
       },
       policies: { staticPolicies: this._policies },
-      // JSONValue and CedarValueJson are structurally equivalent but TypeScript can't prove it
-      entities: this._entities as unknown as Entities,
+      entities: this._entities as Entities,
     })
 
     if (result.type === 'failure') {
@@ -233,7 +231,7 @@ export class CedarAuthorization extends InterventionHandler {
     this._callCounts.delete(sessionId)
   }
 
-  private _resolveResource(toolName: string, toolInput: Record<string, JSONValue>): CedarEntityUid {
+  private _resolveResource(toolName: string, toolInput: Record<string, CedarValueJson>): CedarEntityUid {
     if (!this._resourceResolver) {
       return { type: 'Resource', id: 'agent' }
     }
