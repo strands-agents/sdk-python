@@ -68,6 +68,10 @@
       "types": "./dist/src/session/s3-storage.d.ts",
       "default": "./dist/src/session/s3-storage.js"
     },
+    "./memory/stores/bedrock-knowledge-base": {
+      "types": "./dist/src/memory/stores/bedrock-knowledge-base-store.d.ts",
+      "default": "./dist/src/memory/stores/bedrock-knowledge-base-store.js"
+    },
     "./telemetry": {
       "types": "./dist/src/telemetry/index.d.ts",
       "default": "./dist/src/telemetry/index.js"
@@ -140,6 +144,8 @@
     "@ai-sdk/provider": "^3.0.0",
     "@anthropic-ai/sdk": "^0.92.0",
     "@aws-sdk/client-bedrock": "^3.943.0",
+    "@aws-sdk/client-bedrock-agent": "^3.943.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.943.0",
     "@aws-sdk/client-s3": "^3.943.0",
     "@aws-sdk/client-secrets-manager": "^3.943.0",
     "@aws-sdk/client-sts": "^3.996.0",
@@ -193,6 +199,8 @@
     "@a2a-js/sdk": "^0.3.10",
     "@ai-sdk/provider": "^3.0.0",
     "@anthropic-ai/sdk": "^0.92.0",
+    "@aws-sdk/client-bedrock-agent": "^3.943.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.943.0",
     "@aws-sdk/client-s3": "^3.943.0",
     "@aws/bedrock-token-generator": "^1.1.0",
     "@google/genai": "^1.40.0",
@@ -229,6 +237,12 @@
       "optional": true
     },
     "@aws-sdk/client-s3": {
+      "optional": true
+    },
+    "@aws-sdk/client-bedrock-agent": {
+      "optional": true
+    },
+    "@aws-sdk/client-bedrock-agent-runtime": {
       "optional": true
     },
     "@google/genai": {

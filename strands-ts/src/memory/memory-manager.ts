@@ -156,7 +156,9 @@ export class MemoryManager implements Plugin {
 
     const limit = options?.limit
     const settled = await Promise.allSettled(
-      targetStores.map((store) => store.search(query, { limit: limit ?? store.limit ?? DEFAULT_RESULTS_PER_STORE }))
+      targetStores.map((store) =>
+        store.search(query, { limit: limit ?? store.maxSearchResults ?? DEFAULT_RESULTS_PER_STORE })
+      )
     )
 
     const results: MemoryEntry[] = []
