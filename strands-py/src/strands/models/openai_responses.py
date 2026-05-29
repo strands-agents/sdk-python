@@ -488,11 +488,9 @@ class OpenAIResponsesModel(Model):
         """
         async with openai.AsyncOpenAI(**self._resolve_client_args()) as client:
             try:
-                response = await client.responses.parse(
-                    model=self.get_config()["model_id"],
-                    input=self._format_request(prompt, system_prompt=system_prompt)["input"],
-                    text_format=output_model,
-                )
+                request = self._format_request(prompt, system_prompt=system_prompt)
+                request.pop("stream", None)
+                response = await client.responses.parse(**request, text_format=output_model)
             except openai.BadRequestError as e:
                 if hasattr(e, "code") and e.code == "context_length_exceeded":
                     logger.warning(_CONTEXT_WINDOW_OVERFLOW_MSG)

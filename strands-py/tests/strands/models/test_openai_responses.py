@@ -743,6 +743,31 @@ async def test_structured_output(openai_client, model, test_output_model_cls, al
 
 
 @pytest.mark.asyncio
+async def test_structured_output_forwards_request_params(openai_client, model_id, test_output_model_cls, alist):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+    model = OpenAIResponsesModel(
+        model_id=model_id,
+        params={"max_output_tokens": 100, "reasoning": {"effort": "low"}},
+    )
+
+    mock_parsed_instance = test_output_model_cls(name="John", age=30)
+    mock_response = unittest.mock.Mock(output_parsed=mock_parsed_instance)
+    openai_client.responses.parse = unittest.mock.AsyncMock(return_value=mock_response)
+
+    events = await alist(model.structured_output(test_output_model_cls, messages, system_prompt="Be precise."))
+
+    assert events[-1] == {"output": mock_parsed_instance}
+    parse_kwargs = openai_client.responses.parse.call_args.kwargs
+    assert parse_kwargs["model"] == model_id
+    assert parse_kwargs["max_output_tokens"] == 100
+    assert parse_kwargs["reasoning"] == {"effort": "low"}
+    assert parse_kwargs["instructions"] == "Be precise."
+    assert parse_kwargs["store"] is False
+    assert parse_kwargs["text_format"] is test_output_model_cls
+    assert "stream" not in parse_kwargs
+
+
+@pytest.mark.asyncio
 async def test_stream_context_overflow_exception(openai_client, model, messages):
     """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
     mock_error = openai.BadRequestError(
