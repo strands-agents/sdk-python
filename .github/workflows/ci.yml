@@ -80,6 +80,7 @@ jobs:
     if: always()
     needs: [detect-changes, python, typescript, docs]
     runs-on: ubuntu-latest
+    permissions: {}
     steps:
       - uses: re-actors/alls-green@release/v1
         with:
