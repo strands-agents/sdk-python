@@ -281,14 +281,32 @@ class RepositorySessionManager(SessionManager):
                         content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content
                     ]
 
-                    # Check if there are more messages after the current toolUse message
+                    next_message = messages[index + 1]
+                    next_content = next_message["content"]
+                    next_message_had_tool_results = any("toolResult" in content for content in next_content)
                     tool_result_ids = [
-                        content["toolResult"]["toolUseId"]
-                        for content in messages[index + 1]["content"]
-                        if "toolResult" in content
+                        content["toolResult"]["toolUseId"] for content in next_content if "toolResult" in content
                     ]
 
-                    missing_tool_use_ids = list(set(tool_use_ids) - set(tool_result_ids))
+                    if any(tool_result_id not in tool_use_ids for tool_result_id in tool_result_ids):
+                        logger.warning(
+                            "Session message history has orphaned toolResult blocks that do not match the preceding "
+                            "toolUse. Removing them to maintain valid conversation structure."
+                        )
+                        next_message["content"] = [
+                            content
+                            for content in next_content
+                            if "toolResult" not in content or content["toolResult"]["toolUseId"] in tool_use_ids
+                        ]
+                        tool_result_ids = [
+                            content["toolResult"]["toolUseId"]
+                            for content in next_message["content"]
+                            if "toolResult" in content
+                        ]
+
+                    missing_tool_use_ids = [
+                        tool_use_id for tool_use_id in tool_use_ids if tool_use_id not in tool_result_ids
+                    ]
                     # If there are missing tool use ids, that means the messages history is broken
                     if missing_tool_use_ids:
                         logger.warning(
@@ -300,7 +318,11 @@ class RepositorySessionManager(SessionManager):
 
                         if tool_result_ids:
                             # If there were any toolResult ids, that means only some of the content blocks are missing
-                            messages[index + 1]["content"].extend(missing_content_blocks)
+                            next_message["content"].extend(missing_content_blocks)
+                        elif next_message_had_tool_results and not next_message["content"]:
+                            # The following message only had orphaned toolResults. Reuse it instead of leaving
+                            # an empty user message behind.
+                            next_message["content"] = missing_content_blocks
                         else:
                             # The message following the toolUse was not a toolResult, so lets insert it
                             messages.insert(index + 1, {"role": "user", "content": missing_content_blocks})

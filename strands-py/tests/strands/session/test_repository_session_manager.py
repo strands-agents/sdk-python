@@ -370,6 +370,55 @@ def test_fix_broken_tool_use_extends_partial_tool_results(existing_session_manag
     assert missing_result["toolResult"]["content"][0]["text"] == "Tool was interrupted."
 
 
+def test_fix_broken_tool_use_removes_extra_tool_results(session_manager):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "wanted-123", "name": "test_tool", "input": {"input": "test"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "stale-456", "status": "error", "content": [{"text": "old"}]}},
+            ],
+        },
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    assert len(fixed_messages) == 2
+    assert fixed_messages[1]["content"] == [
+        {"toolResult": {"toolUseId": "wanted-123", "status": "error", "content": [{"text": "Tool was interrupted."}]}}
+    ]
+
+
+def test_fix_broken_tool_use_removes_extra_partial_tool_results(session_manager):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "wanted-123", "name": "test_tool", "input": {"input": "test"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "stale-456", "status": "error", "content": [{"text": "old"}]}},
+                {"toolResult": {"toolUseId": "wanted-123", "status": "success", "content": [{"text": "ok"}]}},
+            ],
+        },
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    assert len(fixed_messages) == 2
+    assert fixed_messages[1]["content"] == [
+        {"toolResult": {"toolUseId": "wanted-123", "status": "success", "content": [{"text": "ok"}]}},
+    ]
+
+
 def test_fix_broken_tool_use_handles_multiple_orphaned_tools(existing_session_manager):
     """Test fixing multiple orphaned toolUse messages."""
 
