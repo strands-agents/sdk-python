@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { CedarAuthorization } from '../cedar.js'
 import { Agent } from '../../../agent/agent.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
@@ -327,6 +327,29 @@ describe('CedarAuthorization', () => {
       await agent.invoke('Delete 99', { invocationState: {} })
       expect(toolExecuted).toBe(false)
     })
+
+    it('uses function-based resource resolver', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'delete', toolUseId: 'tool-1', input: { record_id: '42' } })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('delete', () => {
+        toolExecuted = true
+        return 'deleted'
+      })
+
+      const cedar = new CedarAuthorization({
+        policies: 'permit(principal, action == Action::"delete", resource == Record::"42");',
+        entities: [{ uid: { type: 'Record', id: '42' }, attrs: {}, parents: [] }],
+        principalResolver: () => ({ type: 'User', id: 'alice' }),
+        resourceResolver: (_toolName, input) => ({ type: 'Record', id: String(input.record_id) }),
+      })
+
+      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
+      await agent.invoke('Delete', { invocationState: {} })
+      expect(toolExecuted).toBe(true)
+    })
   })
 
   describe('context enricher', () => {
@@ -380,11 +403,6 @@ describe('CedarAuthorization', () => {
 
   describe('onError behavior', () => {
     it('throws by default when handler errors', async () => {
-      vi.mock('@cedar-policy/cedar-wasm/nodejs', async (importOriginal) => {
-        const orig = await importOriginal<typeof import('@cedar-policy/cedar-wasm/nodejs')>()
-        return { ...orig }
-      })
-
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'tool', toolUseId: 'tool-1', input: {} })
         .addTurn({ type: 'textBlock', text: 'Done' })
@@ -457,7 +475,7 @@ describe('CedarAuthorization', () => {
 
   describe('file-based config', () => {
     it('reads .cedar file from disk', async () => {
-      const fixturesDir = import.meta.url.replace('file://', '').replace('/cedar.test.ts', '/fixtures')
+      const fixturesDir = FIXTURES
 
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: {} })
@@ -484,7 +502,7 @@ describe('CedarAuthorization', () => {
     })
 
     it('reads .json entity file from disk', async () => {
-      const fixturesDir = import.meta.url.replace('file://', '').replace('/cedar.test.ts', '/fixtures')
+      const fixturesDir = FIXTURES
 
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: {} })
