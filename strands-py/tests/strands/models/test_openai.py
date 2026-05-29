@@ -661,6 +661,31 @@ def test_format_request(model, messages, tool_specs, system_prompt):
     assert tru_request == exp_request
 
 
+def test_format_request_can_disable_stream(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIModel(model_id=model_id, stream=False, params={"max_tokens": 1})
+
+    tru_request = model.format_request(messages)
+    exp_request = {
+        "messages": [{"role": "user", "content": [{"text": "test", "type": "text"}]}],
+        "model": model_id,
+        "stream": False,
+        "tools": [],
+        "max_tokens": 1,
+    }
+    assert tru_request == exp_request
+
+
+def test_format_request_respects_legacy_stream_param(openai_client, model_id, messages):
+    _ = openai_client
+    model = OpenAIModel(model_id=model_id, params={"max_tokens": 1, "stream": False})
+
+    tru_request = model.format_request(messages)
+
+    assert tru_request["stream"] is False
+    assert "stream_options" not in tru_request
+
+
 def test_format_request_with_tool_choice_auto(model, messages, tool_specs, system_prompt):
     tool_choice = {"auto": {}}
     tru_request = model.format_request(messages, tool_specs, system_prompt, tool_choice)
@@ -1141,6 +1166,41 @@ async def test_stream_with_empty_choices(openai_client, model, agenerator, alist
         "tools": [],
     }
     openai_client.chat.completions.create.assert_called_once_with(**expected_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_can_use_non_streaming_chat_completion(openai_client, model_id, messages, alist):
+    mock_usage = unittest.mock.Mock(prompt_tokens=7, completion_tokens=3, total_tokens=10, prompt_tokens_details=None)
+    mock_message = unittest.mock.Mock(content="done", tool_calls=None, reasoning_content=None, reasoning=None)
+    mock_choice = unittest.mock.Mock(message=mock_message, finish_reason="stop")
+    mock_response = unittest.mock.Mock(choices=[mock_choice], usage=mock_usage)
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=mock_response)
+    model = OpenAIModel(model_id=model_id, stream=False, params={"max_tokens": 1})
+
+    tru_events = await alist(model.stream(messages))
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "done"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 7, "outputTokens": 3, "totalTokens": 10},
+                "metrics": {"latencyMs": 0},
+            }
+        },
+    ]
+
+    assert tru_events == exp_events
+    openai_client.chat.completions.create.assert_called_once_with(
+        max_tokens=1,
+        model=model_id,
+        messages=[{"role": "user", "content": [{"text": "test", "type": "text"}]}],
+        stream=False,
+        tools=[],
+    )
 
 
 @pytest.mark.asyncio

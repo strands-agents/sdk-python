@@ -64,10 +64,12 @@ class OpenAIModel(Model):
             params: Model parameters (e.g., max_tokens).
                 For a complete list of supported parameters, see
                 https://platform.openai.com/docs/api-reference/chat/create.
+            stream: Whether to use OpenAI chat completion streaming. Defaults to True.
         """
 
         model_id: str
         params: dict[str, Any] | None
+        stream: bool
 
     def __init__(
         self,
@@ -500,13 +502,16 @@ class OpenAIModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an OpenAI-compatible
                 format.
         """
-        return {
+        params = dict(cast(dict[str, Any], self.config.get("params") or {}))
+        stream = bool(self.config.get("stream", params.pop("stream", True)))
+        stream_options = params.pop("stream_options", {"include_usage": True})
+
+        request = {
             "messages": self.format_request_messages(
                 messages, system_prompt, system_prompt_content=system_prompt_content
             ),
             "model": self.config["model_id"],
-            "stream": True,
-            "stream_options": {"include_usage": True},
+            "stream": stream,
             "tools": [
                 {
                     "type": "function",
@@ -519,8 +524,13 @@ class OpenAIModel(Model):
                 for tool_spec in tool_specs or []
             ],
             **(self._format_request_tool_choice(tool_choice)),
-            **cast(dict[str, Any], self.config.get("params", {})),
+            **params,
         }
+
+        if stream:
+            request["stream_options"] = stream_options
+
+        return request
 
     def format_chunk(self, event: dict[str, Any], **kwargs: Any) -> StreamEvent:
         """Format an OpenAI response event into a standardized message chunk.
@@ -600,6 +610,44 @@ class OpenAIModel(Model):
 
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
+
+    def _format_non_streaming_response(self, response: Any) -> list[StreamEvent]:
+        """Convert a non-streaming OpenAI chat completion into Strands stream events."""
+        chunks = [self.format_chunk({"chunk_type": "message_start"})]
+        choices = getattr(response, "choices", None) or []
+        choice = choices[0] if choices else None
+        message = getattr(choice, "message", None)
+
+        reasoning_content = getattr(message, "reasoning_content", None) or getattr(message, "reasoning", None)
+        if reasoning_content:
+            chunks.append(self.format_chunk({"chunk_type": "content_start", "data_type": "reasoning_content"}))
+            chunks.append(
+                self.format_chunk(
+                    {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": reasoning_content}
+                )
+            )
+            chunks.append(self.format_chunk({"chunk_type": "content_stop", "data_type": "reasoning_content"}))
+
+        if content := getattr(message, "content", None):
+            chunks.append(self.format_chunk({"chunk_type": "content_start", "data_type": "text"}))
+            chunks.append(self.format_chunk({"chunk_type": "content_delta", "data_type": "text", "data": content}))
+            chunks.append(self.format_chunk({"chunk_type": "content_stop", "data_type": "text"}))
+
+        for tool_call in getattr(message, "tool_calls", None) or []:
+            chunks.append(self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_call}))
+            chunks.append(self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_call}))
+            chunks.append(self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"}))
+
+        chunks.append(
+            self.format_chunk(
+                {"chunk_type": "message_stop", "data": getattr(choice, "finish_reason", None) or "end_turn"}
+            )
+        )
+
+        if usage := getattr(response, "usage", None):
+            chunks.append(self.format_chunk({"chunk_type": "metadata", "data": usage}))
+
+        return chunks
 
     @asynccontextmanager
     async def _get_client(self) -> AsyncIterator[Any]:
@@ -686,6 +734,11 @@ class OpenAIModel(Model):
                     raise ContextWindowOverflowException(error_message) from e
                 # Re-raise other APIError exceptions
                 raise
+
+            if not request["stream"]:
+                for chunk in self._format_non_streaming_response(response):
+                    yield chunk
+                return
 
             logger.debug("got response from model")
             yield self.format_chunk({"chunk_type": "message_start"})
