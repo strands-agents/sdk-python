@@ -1,4 +1,5 @@
 from strands.tools import _validator
+from strands.tools._validator import TOOL_INPUT_PARSE_ERROR_KEY
 from strands.types.content import Message
 
 
@@ -49,3 +50,33 @@ def test_validate_and_prepare_tools():
     assert tru_tool_uses == exp_tool_uses
     assert tru_tool_results == exp_tool_results
     assert tru_invalid_tool_use_ids == exp_invalid_tool_use_ids
+
+
+def test_validate_and_prepare_tools_turns_malformed_input_into_tool_result():
+    message: Message = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "t1",
+                    "name": "search",
+                    "input": {TOOL_INPUT_PARSE_ERROR_KEY: "Invalid JSON in tool input for 'search'"},
+                }
+            }
+        ],
+    }
+
+    tool_uses = []
+    tool_results = []
+    invalid_tool_use_ids = []
+
+    _validator.validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
+
+    assert invalid_tool_use_ids == ["t1"]
+    assert tool_results == [
+        {
+            "toolUseId": "t1",
+            "status": "error",
+            "content": [{"text": "Error: Invalid JSON in tool input for 'search'"}],
+        }
+    ]

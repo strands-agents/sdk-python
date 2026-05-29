@@ -4,6 +4,8 @@ from ..tools.tools import InvalidToolUseNameException, validate_tool_use
 from ..types.content import Message
 from ..types.tools import ToolResult, ToolUse
 
+TOOL_INPUT_PARSE_ERROR_KEY = "__strands_tool_input_parse_error__"
+
 
 def validate_and_prepare_tools(
     message: Message,
@@ -28,6 +30,22 @@ def validate_and_prepare_tools(
     # Avoid modifying original `tool_uses` variable during iteration
     tool_uses_copy = tool_uses.copy()
     for tool in tool_uses_copy:
+        parse_error = (
+            tool.get("input", {}).get(TOOL_INPUT_PARSE_ERROR_KEY) if isinstance(tool.get("input"), dict) else None
+        )
+        if parse_error:
+            tool_uses.remove(tool)
+            invalid_tool_use_ids.append(tool["toolUseId"])
+            tool_uses.append(tool)
+            tool_results.append(
+                {
+                    "toolUseId": tool["toolUseId"],
+                    "status": "error",
+                    "content": [{"text": f"Error: {parse_error}"}],
+                }
+            )
+            continue
+
         try:
             validate_tool_use(tool)
         except InvalidToolUseNameException as e:

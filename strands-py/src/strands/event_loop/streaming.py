@@ -10,6 +10,7 @@ from typing import Any
 
 from ..models.model import Model
 from ..tools import InvalidToolUseNameException
+from ..tools._validator import TOOL_INPUT_PARSE_ERROR_KEY
 from ..tools.tools import validate_tool_use_name
 from ..types._events import (
     CitationStreamEvent,
@@ -282,12 +283,22 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
 
     if current_tool_use:
         if "input" not in current_tool_use:
-            current_tool_use["input"] = ""
-
-        try:
-            current_tool_use["input"] = json.loads(current_tool_use["input"])
-        except ValueError:
             current_tool_use["input"] = {}
+        else:
+            try:
+                current_tool_use["input"] = json.loads(current_tool_use["input"])
+            except ValueError as e:
+                logger.warning(
+                    "tool_name=<%s>, tool_use_id=<%s> | failed to parse tool input JSON",
+                    current_tool_use.get("name"),
+                    current_tool_use.get("toolUseId"),
+                )
+                current_tool_use["input"] = {
+                    TOOL_INPUT_PARSE_ERROR_KEY: (
+                        f"Invalid JSON in tool input for '{current_tool_use.get('name', 'unknown')}': {e}. "
+                        "Retry with a valid JSON object."
+                    )
+                }
 
         tool_use_id = current_tool_use["toolUseId"]
         tool_use_name = current_tool_use["name"]

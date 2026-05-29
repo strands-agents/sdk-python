@@ -5,6 +5,7 @@ import pytest
 
 import strands
 import strands.event_loop
+from strands.tools._validator import TOOL_INPUT_PARSE_ERROR_KEY
 from strands.types._events import ModelStopReason, TypedEvent
 from strands.types.content import Message, Messages
 from strands.types.streaming import (
@@ -308,6 +309,25 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, s
 
     assert tru_updated_state == exp_updated_state
     assert tru_callback_event == exp_callback_event
+
+
+def test_handle_content_block_stop_marks_malformed_tool_input(caplog):
+    state = {
+        "content": [],
+        "current_tool_use": {"toolUseId": "123", "name": "search", "input": '{"query": "unterminated'},
+        "text": "",
+        "reasoningText": "",
+        "citationsContent": [],
+        "redactedContent": b"",
+    }
+
+    with caplog.at_level("WARNING", logger="strands.event_loop.streaming"):
+        updated_state = strands.event_loop.streaming.handle_content_block_stop(state)
+
+    tool_input = updated_state["content"][0]["toolUse"]["input"]
+    assert TOOL_INPUT_PARSE_ERROR_KEY in tool_input
+    assert "Invalid JSON in tool input for 'search'" in tool_input[TOOL_INPUT_PARSE_ERROR_KEY]
+    assert "tool_name=<search>, tool_use_id=<123> | failed to parse tool input JSON" in caplog.text
 
 
 @pytest.mark.parametrize(
