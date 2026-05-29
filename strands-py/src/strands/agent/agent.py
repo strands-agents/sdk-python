@@ -66,7 +66,7 @@ from ..tools.registry import ToolRegistry
 from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
-from ..types.agent import AgentInput, ConcurrentInvocationMode
+from ..types.agent import AgentInput, ConcurrentInvocationMode, Limits
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.tools import AgentTool
@@ -472,6 +472,7 @@ class Agent(AgentBase):
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        limits: Limits | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -491,6 +492,12 @@ class Agent(AgentBase):
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
+            limits: Per-invocation budget caps (turns / output_tokens / total_tokens).
+                See :class:`~strands.types.agent.Limits`. When a cap is reached, the loop
+                terminates gracefully at the next turn boundary with a corresponding
+                ``stop_reason`` (e.g. ``"limit_turns"``); no exception is raised. Token
+                caps are soft — a single oversized model response can overshoot the budget
+                by one turn, since checks run at turn boundaries, not within a model call.
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -508,6 +515,7 @@ class Agent(AgentBase):
                 invocation_state=invocation_state,
                 structured_output_model=structured_output_model,
                 structured_output_prompt=structured_output_prompt,
+                limits=limits,
                 **kwargs,
             )
         )
@@ -519,6 +527,7 @@ class Agent(AgentBase):
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        limits: Limits | None = None,
         **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -538,6 +547,12 @@ class Agent(AgentBase):
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
+            limits: Per-invocation budget caps (turns / output_tokens / total_tokens).
+                See :class:`~strands.types.agent.Limits`. When a cap is reached, the loop
+                terminates gracefully at the next turn boundary with a corresponding
+                ``stop_reason`` (e.g. ``"limit_turns"``); no exception is raised. Token
+                caps are soft — a single oversized model response can overshoot the budget
+                by one turn, since checks run at turn boundaries, not within a model call.
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -553,6 +568,7 @@ class Agent(AgentBase):
             invocation_state=invocation_state,
             structured_output_model=structured_output_model,
             structured_output_prompt=structured_output_prompt,
+            limits=limits,
             **kwargs,
         )
         async for event in events:
@@ -776,6 +792,7 @@ class Agent(AgentBase):
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        limits: Limits | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -795,6 +812,12 @@ class Agent(AgentBase):
             invocation_state: Additional parameters to pass through the event loop.
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
+            limits: Per-invocation budget caps (turns / output_tokens / total_tokens).
+                See :class:`~strands.types.agent.Limits`. When a cap is reached, the loop
+                terminates gracefully at the next turn boundary with a corresponding
+                ``stop_reason`` (e.g. ``"limit_turns"``); no exception is raised. Token
+                caps are soft — a single oversized model response can overshoot the budget
+                by one turn, since checks run at turn boundaries, not within a model call.
             **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
@@ -808,6 +831,7 @@ class Agent(AgentBase):
 
         Raises:
             ConcurrencyException: If another invocation is already in progress on this agent instance.
+            TypeError: If a value in ``limits`` is not a positive integer.
             Exception: Any exceptions from the agent invocation will be propagated to the caller.
 
         Example:
@@ -817,6 +841,7 @@ class Agent(AgentBase):
                     yield event["data"]
             ```
         """
+        self._validate_limits(limits)
         # Conditionally acquire lock based on concurrent_invocation_mode
         # Using threading.Lock instead of asyncio.Lock because run_async() creates
         # separate event loops in different threads
@@ -853,7 +878,9 @@ class Agent(AgentBase):
 
             with trace_api.use_span(self.trace_span):
                 try:
-                    events = self._run_loop(messages, merged_state, structured_output_model, structured_output_prompt)
+                    events = self._run_loop(
+                        messages, merged_state, structured_output_model, structured_output_prompt, limits
+                    )
 
                     async for event in events:
                         event.prepare(invocation_state=merged_state)
@@ -886,6 +913,7 @@ class Agent(AgentBase):
         invocation_state: dict[str, Any],
         structured_output_model: type[BaseModel] | None = None,
         structured_output_prompt: str | None = None,
+        limits: Limits | None = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
 
@@ -894,6 +922,7 @@ class Agent(AgentBase):
             invocation_state: Additional parameters to pass to the event loop.
             structured_output_model: Optional Pydantic model type for structured output.
             structured_output_prompt: Optional custom prompt for forcing structured output.
+            limits: Optional per-invocation budget caps. See :class:`~strands.types.agent.Limits`.
 
         Yields:
             Events from the event loop cycle.
@@ -920,7 +949,7 @@ class Agent(AgentBase):
                 )
 
                 # Execute the event loop cycle with retry logic for context limits
-                events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
+                events = self._execute_event_loop_cycle(invocation_state, structured_output_context, limits)
                 async for event in events:
                     # Signal from the model provider that the message sent by the user should be redacted,
                     # likely due to a guardrail.
@@ -960,7 +989,10 @@ class Agent(AgentBase):
                 current_messages = None
 
     async def _execute_event_loop_cycle(
-        self, invocation_state: dict[str, Any], structured_output_context: StructuredOutputContext | None = None
+        self,
+        invocation_state: dict[str, Any],
+        structured_output_context: StructuredOutputContext | None = None,
+        limits: Limits | None = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
@@ -971,6 +1003,7 @@ class Agent(AgentBase):
         Args:
             invocation_state: Additional parameters to pass to the event loop.
             structured_output_context: Optional structured output context for this invocation.
+            limits: Optional per-invocation budget caps. See :class:`~strands.types.agent.Limits`.
 
         Yields:
             Events of the loop cycle.
@@ -986,6 +1019,7 @@ class Agent(AgentBase):
                 agent=self,
                 invocation_state=invocation_state,
                 structured_output_context=structured_output_context,
+                limits=limits,
             )
             async for event in events:
                 yield event
@@ -998,7 +1032,7 @@ class Agent(AgentBase):
             if self._session_manager:
                 self._session_manager.sync_agent(self)
 
-            events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
+            events = self._execute_event_loop_cycle(invocation_state, structured_output_context, limits)
             async for event in events:
                 yield event
 
@@ -1092,6 +1126,30 @@ class Agent(AgentBase):
                 trace_attributes["error"] = error
 
             self.tracer.end_agent_span(**trace_attributes)
+
+    @staticmethod
+    def _validate_limits(limits: Limits | None) -> None:
+        """Validate per-invocation budget caps before any model work begins.
+
+        Each cap, when set, must be a positive ``int``. Booleans are rejected because
+        ``bool`` is a subclass of ``int`` in Python and ``True``/``False`` would
+        otherwise pass through as ``1``/``0``, silently no-op'ing or tripping
+        immediately.
+
+        Args:
+            limits: The caps to validate, or ``None`` to skip.
+
+        Raises:
+            TypeError: If any value is not a positive int.
+        """
+        if not limits:
+            return
+        for key in ("turns", "output_tokens", "total_tokens"):
+            if key not in limits:
+                continue
+            value = limits[key]
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise TypeError(f"limits[{key!r}] must be a positive int, got {value!r}")
 
     def _initialize_system_prompt(
         self, system_prompt: str | list[SystemContentBlock] | None

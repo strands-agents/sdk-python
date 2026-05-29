@@ -1,0 +1,313 @@
+# Navigation configuration for Strands Agents SDK documentation
+# This file combines navbar, sidebar, and GitHub dropdown configuration.
+#
+# STRUCTURE:
+# - navbar: Top navigation bar links
+# - sidebar: Hierarchical sidebar structure (slugs only for files - labels from frontmatter)
+# - github: GitHub dropdown sections
+#
+# NOTE: Badges (like "new", "community") should come from page frontmatter only,
+# not from this configuration file.
+
+navbar:
+  - label: Home
+    href: /
+  - label: Docs
+    href: /docs/user-guide/quickstart/typescript/
+    basePath: /docs/user-guide/
+  - label: Examples
+    href: /docs/examples/
+    basePath: /docs/examples/
+  - label: Community
+    href: /docs/community/community-packages/
+    basePath:
+      - /docs/community/
+      - /docs/labs/
+      - /docs/contribute/
+  - label: API Reference
+    href: /docs/api/typescript/
+    basePath: /docs/api/
+  - label: Blog
+    href: /blog/
+    basePath: /blog/
+    align: right
+  - label: Labs
+    href: https://github.com/strands-labs
+    external: true
+    align: right
+
+sidebar:
+  - label: Docs
+    items:
+      - docs/index
+      - label: Get Started
+        items:
+          - docs/user-guide/quickstart/overview
+          - label: "Quickstart: Python"
+            slug: docs/user-guide/quickstart/python
+          - label: "Quickstart: TypeScript"
+            slug: docs/user-guide/quickstart/typescript
+      - docs/user-guide/build-with-ai
+      - label: Build
+        items:
+          - label: "Adding Tools"
+            slug: docs/user-guide/concepts/tools
+          - label: "Creating Custom Tools"
+            slug: docs/user-guide/concepts/tools/custom-tools
+          - label: "Using MCP Tools"
+            slug: docs/user-guide/concepts/tools/mcp-tools
+          - label: "Multi-Agent Systems"
+            slug: docs/user-guide/concepts/multi-agent/multi-agent-patterns
+          - label: "Structured Output"
+            slug: docs/user-guide/concepts/agents/structured-output
+          - label: "Streaming Responses"
+            slug: docs/user-guide/concepts/streaming
+          - label: "Voice & Realtime"
+            slug: docs/user-guide/concepts/bidirectional-streaming/quickstart
+      - label: Concepts
+        items:
+          - docs/user-guide/concepts/agents/agent-loop
+          - docs/user-guide/concepts/agents/state
+          - docs/user-guide/concepts/agents/session-management
+          - docs/user-guide/concepts/agents/snapshots
+          - docs/user-guide/concepts/agents/prompts
+          - docs/user-guide/concepts/agents/hooks
+          - docs/user-guide/concepts/agents/conversation-management
+          - docs/user-guide/concepts/agents/retry-strategies
+          - docs/user-guide/concepts/interrupts
+          - label: Tools
+            items:
+              - docs/user-guide/concepts/tools/executors
+              - docs/user-guide/concepts/tools/community-tools-package
+              - docs/user-guide/concepts/tools/vended-tools
+          - label: Plugins
+            items:
+              - docs/user-guide/concepts/plugins
+              - docs/user-guide/concepts/plugins/skills
+              - docs/user-guide/concepts/plugins/steering
+              - docs/user-guide/concepts/plugins/context-offloader
+          - label: Streaming
+            items:
+              - docs/user-guide/concepts/streaming/async-iterators
+              - docs/user-guide/concepts/streaming/callback-handlers
+          - label: Multi-agent
+            items:
+              - docs/user-guide/concepts/multi-agent/agent-to-agent
+              - docs/user-guide/concepts/multi-agent/agents-as-tools
+              - docs/user-guide/concepts/multi-agent/swarm
+              - docs/user-guide/concepts/multi-agent/graph
+              - docs/user-guide/concepts/multi-agent/workflow
+          - label: Bidirectional Streaming
+            items:
+              - docs/user-guide/concepts/bidirectional-streaming/agent
+              - label: Models
+                items:
+                  - docs/user-guide/concepts/bidirectional-streaming/models/nova_sonic
+                  - docs/user-guide/concepts/bidirectional-streaming/models/gemini_live
+                  - docs/user-guide/concepts/bidirectional-streaming/models/openai_realtime
+              - docs/user-guide/concepts/bidirectional-streaming/io
+              - docs/user-guide/concepts/bidirectional-streaming/events
+              - docs/user-guide/concepts/bidirectional-streaming/interruption
+              - docs/user-guide/concepts/bidirectional-streaming/hooks
+              - docs/user-guide/concepts/bidirectional-streaming/session-management
+          - label: Experimental
+            items:
+              - docs/user-guide/concepts/experimental/agent-config
+      - label: Model Providers
+        collapsed: true
+        items:
+          - docs/user-guide/concepts/model-providers
+          - docs/user-guide/concepts/model-providers/amazon-bedrock
+          - docs/user-guide/concepts/model-providers/amazon-nova
+          - docs/user-guide/concepts/model-providers/anthropic
+          - docs/user-guide/concepts/model-providers/google
+          - docs/user-guide/concepts/model-providers/litellm
+          - docs/user-guide/concepts/model-providers/llamacpp
+          - docs/user-guide/concepts/model-providers/llamaapi
+          - docs/user-guide/concepts/model-providers/mistral
+          - docs/user-guide/concepts/model-providers/ollama
+          - docs/user-guide/concepts/model-providers/openai
+          - docs/user-guide/concepts/model-providers/openai-responses
+          - docs/user-guide/concepts/model-providers/sagemaker
+          - docs/user-guide/concepts/model-providers/vercel
+          - docs/user-guide/concepts/model-providers/writer
+          - docs/user-guide/concepts/model-providers/custom_model_provider
+      - label: Deploy
+        items:
+          - docs/user-guide/deploy/operating-agents-in-production
+          - label: Amazon Bedrock AgentCore
+            items:
+              - docs/user-guide/deploy/deploy_to_bedrock_agentcore
+              - docs/user-guide/deploy/deploy_to_bedrock_agentcore/python
+              - docs/user-guide/deploy/deploy_to_bedrock_agentcore/typescript
+          - docs/user-guide/deploy/deploy_to_aws_lambda
+          - docs/user-guide/deploy/deploy_to_aws_fargate
+          - docs/user-guide/deploy/deploy_to_aws_apprunner
+          - docs/user-guide/deploy/deploy_to_amazon_eks
+          - docs/user-guide/deploy/deploy_to_amazon_ec2
+          - label: Docker
+            items:
+              - docs/user-guide/deploy/deploy_to_docker
+              - docs/user-guide/deploy/deploy_to_docker/python
+              - docs/user-guide/deploy/deploy_to_docker/typescript
+          - docs/user-guide/deploy/deploy_to_kubernetes
+          - docs/user-guide/deploy/deploy_to_terraform
+      - label: Safety & Security
+        items:
+          - docs/user-guide/safety-security/responsible-ai
+          - docs/user-guide/safety-security/guardrails
+          - docs/user-guide/safety-security/prompt-engineering
+          - docs/user-guide/safety-security/pii-redaction
+      - label: Observability & Debugging
+        items:
+          - docs/user-guide/observability-evaluation/observability
+          - docs/user-guide/observability-evaluation/metrics
+          - docs/user-guide/observability-evaluation/traces
+          - docs/user-guide/observability-evaluation/logs
+      - label: Strands Evals SDK
+        items:
+          - docs/user-guide/evals-sdk/quickstart
+          - docs/user-guide/evals-sdk/eval-sop
+          - label: Evaluators
+            items:
+              - docs/user-guide/evals-sdk/evaluators
+              - docs/user-guide/evals-sdk/evaluators/output_evaluator
+              - docs/user-guide/evals-sdk/evaluators/trajectory_evaluator
+              - docs/user-guide/evals-sdk/evaluators/interactions_evaluator
+              - docs/user-guide/evals-sdk/evaluators/helpfulness_evaluator
+              - docs/user-guide/evals-sdk/evaluators/faithfulness_evaluator
+              - docs/user-guide/evals-sdk/evaluators/correctness_evaluator
+              - docs/user-guide/evals-sdk/evaluators/coherence_evaluator
+              - docs/user-guide/evals-sdk/evaluators/conciseness_evaluator
+              - docs/user-guide/evals-sdk/evaluators/response_relevance_evaluator
+              - docs/user-guide/evals-sdk/evaluators/harmfulness_evaluator
+              - docs/user-guide/evals-sdk/evaluators/refusal_evaluator
+              - docs/user-guide/evals-sdk/evaluators/stereotyping_evaluator
+              - docs/user-guide/evals-sdk/evaluators/instruction_following_evaluator
+              - docs/user-guide/evals-sdk/evaluators/multimodal_output_evaluator
+              - docs/user-guide/evals-sdk/evaluators/multimodal_overall_quality_evaluator
+              - docs/user-guide/evals-sdk/evaluators/multimodal_correctness_evaluator
+              - docs/user-guide/evals-sdk/evaluators/multimodal_faithfulness_evaluator
+              - docs/user-guide/evals-sdk/evaluators/multimodal_instruction_following_evaluator
+              - docs/user-guide/evals-sdk/evaluators/goal_success_rate_evaluator
+              - docs/user-guide/evals-sdk/evaluators/tool_selection_evaluator
+              - docs/user-guide/evals-sdk/evaluators/tool_parameter_evaluator
+              - docs/user-guide/evals-sdk/evaluators/deterministic_evaluators
+              - docs/user-guide/evals-sdk/evaluators/custom_evaluator
+          - label: Detectors
+            items:
+              - docs/user-guide/evals-sdk/detectors
+              - docs/user-guide/evals-sdk/detectors/failure_detection
+              - docs/user-guide/evals-sdk/detectors/root_cause_analysis
+              - docs/user-guide/evals-sdk/detectors/diagnosis
+          - docs/user-guide/evals-sdk/experiment_generator
+          - label: Simulators
+            items:
+              - docs/user-guide/evals-sdk/simulators
+              - docs/user-guide/evals-sdk/simulators/user_simulation
+              - docs/user-guide/evals-sdk/simulators/tool_simulation
+          - label: Remote Trace Providers
+            items:
+              - docs/user-guide/evals-sdk/how-to/trace_providers
+          - label: How-To Guides
+            items:
+              - docs/user-guide/evals-sdk/how-to/eval_task
+              - docs/user-guide/evals-sdk/how-to/result_caching
+              - docs/user-guide/evals-sdk/how-to/experiment_management
+              - docs/user-guide/evals-sdk/how-to/serialization
+      - docs/user-guide/versioning-and-support
+
+  - label: Examples
+    items:
+      - docs/examples
+      - docs/examples/python/cli-reference-agent
+      - docs/examples/python/weather_forecaster
+      - docs/examples/python/memory_agent
+      - docs/examples/python/file_operations
+      - docs/examples/python/agents_workflows
+      - docs/examples/python/knowledge_base_agent
+      - docs/examples/structured_output
+      - docs/examples/python/multi_agent_example/multi_agent_example
+      - docs/examples/python/graph_loops_example
+      - docs/examples/python/meta_tooling
+      - docs/examples/python/mcp_calculator
+      - docs/examples/python/multimodal
+
+  - label: Community
+    items:
+      - docs/community/community-packages
+      - docs/community/get-featured
+      - label: Contribute
+        items:
+          - docs/contribute
+          - label: Contribution Types
+            items:
+              - docs/contribute/contributing/core-sdk
+              - docs/contribute/contributing/documentation
+              - docs/contribute/contributing/feature-proposals
+              - docs/contribute/contributing/extensions
+      - label: Labs
+        items:
+          - docs/labs
+          - label: Projects
+            items:
+              - docs/labs/robots
+              - docs/labs/robots-sim
+              - docs/labs/ai-functions
+      - label: Integrations
+        items:
+          - docs/community/integrations/ag-ui
+      - label: Agent Extensions
+        items:
+          - docs/community/agent-extensions/strands-code-agent
+      - label: Plugins
+        items:
+          - docs/community/plugins/agent-control
+          - docs/community/plugins/agentcore-payments
+          - docs/community/plugins/datadog-ai-guard
+          - docs/community/plugins/s3-vectors-memory
+      - label: Model Providers
+        items:
+          - docs/community/model-providers/cohere
+          - docs/community/model-providers/clova-studio
+          - docs/community/model-providers/fireworksai
+          - docs/community/model-providers/nebius-token-factory
+          - docs/community/model-providers/nvidia-nim
+          - docs/community/model-providers/sglang
+          - docs/community/model-providers/vllm
+          - docs/community/model-providers/mlx
+          - docs/community/model-providers/ovhcloud-ai-endpoints
+          - docs/community/model-providers/xai
+      - label: Session Managers
+        items:
+          - docs/community/session-managers/agentcore-memory
+          - docs/community/session-managers/strands-valkey-session-manager
+      - label: Tool Protocols
+        items:
+          - docs/community/tools/utcp
+      - label: Tools
+        items:
+          - docs/community/tools/strands-deepgram
+          - docs/community/tools/strands-hubspot
+          - docs/community/tools/strands-spraay
+          - docs/community/tools/strands-sql
+          - docs/community/tools/strands-teams
+          - docs/community/tools/strands-telegram
+          - docs/community/tools/strands-telegram-listener             
+
+github:
+  sections:
+    - title: SDKs
+      links:
+        - label: sdk-python
+          href: https://github.com/strands-agents/sdk-python
+          icon: PY
+        - label: sdk-typescript
+          href: https://github.com/strands-agents/sdk-typescript
+          icon: TS
+    - title: Organizations
+      links:
+        - label: strands-agents
+          href: https://github.com/strands-agents
+        - label: strands-labs
+          href: https://github.com/strands-labs

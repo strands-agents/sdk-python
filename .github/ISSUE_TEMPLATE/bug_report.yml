@@ -19,6 +19,16 @@ body:
           required: true
         - label: "I have searched [./issues](./issues?q=) and there are no duplicates of my issue"
           required: true
+  - type: dropdown
+    id: sdk-language
+    attributes:
+      label: SDK Language
+      description: Which Strands SDK are you using?
+      options:
+        - Python
+        - TypeScript
+    validations:
+      required: true
   - type: input
     id: strands-version
     attributes:
@@ -28,11 +38,11 @@ body:
     validations:
       required: true
   - type: input
-    id: python-version
+    id: language-version
     attributes:
-      label: Python Version
-      description: Which version of Python are you using?
-      placeholder: e.g., 3.10.5
+      label: Language Runtime Version
+      description: Which version of Python or Node.js are you using?
+      placeholder: e.g., Python 3.10.5 or Node.js 20.17.0
     validations:
       required: true
   - type: input
@@ -50,8 +60,10 @@ body:
       description: How did you install Strands?
       options:
         - pip
+        - npm
+        - yarn
+        - pnpm
         - git clone
-        - binary
         - other
     validations:
       required: true

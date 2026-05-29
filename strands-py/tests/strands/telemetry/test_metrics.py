@@ -503,6 +503,44 @@ def test_use_ProxyMeter_if_no_global_meter_provider():
     assert isinstance(metrics_client.meter, _ProxyMeter)
 
 
+def test_metrics_client_singleton_is_thread_safe():
+    """Test that MetricsClient singleton is safe under concurrent access.
+
+    Multiple threads creating MetricsClient simultaneously should all get the same
+    fully-initialized instance without AttributeError on instrument attributes.
+    """
+    import concurrent.futures
+    import threading
+
+    # Reset the singleton so threads race to create it
+    strands.telemetry.metrics.MetricsClient._instance = None
+
+    num_threads = 20
+    barrier = threading.Barrier(num_threads)
+    instances = []
+    errors = []
+
+    def create_and_use_client():
+        try:
+            # Synchronize all threads to maximize contention
+            barrier.wait()
+            client = MetricsClient()
+            # Access an instrument attribute that would fail if initialization is incomplete
+            _ = client.event_loop_cycle_count
+            instances.append(client)
+        except Exception as e:
+            errors.append(e)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [executor.submit(create_and_use_client) for _ in range(num_threads)]
+        concurrent.futures.wait(futures)
+
+    assert not errors, f"Threads raised errors: {errors}"
+    assert len(instances) == num_threads
+    # All threads should have received the same singleton instance
+    assert all(inst is instances[0] for inst in instances)
+
+
 def test_latest_agent_invocation_property(usage, event_loop_metrics, mock_get_meter_provider):
     """Test the latest_agent_invocation property getter"""
     # Initially, no invocations exist

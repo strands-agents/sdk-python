@@ -51,6 +51,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         boto_session: boto3.Session | None = None,
         boto_client_config: BotocoreConfig | None = None,
         region_name: str | None = None,
+        endpoint_url: str | None = None,
         **kwargs: Any,
     ):
         """Initialize S3SessionManager with S3 storage.
@@ -63,6 +64,8 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             boto_session: Optional boto3 session
             boto_client_config: Optional boto3 client configuration
             region_name: AWS region for S3 storage
+            endpoint_url: Custom endpoint URL for S3-compatible storage backends (e.g., MinIO, LocalStack)
+                or VPC endpoints (PrivateLink)
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.bucket = bucket
@@ -82,7 +85,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         else:
             client_config = BotocoreConfig(user_agent_extra="strands-agents")
 
-        self.client = session.client(service_name="s3", config=client_config)
+        self.client = session.client(service_name="s3", config=client_config, endpoint_url=endpoint_url)
         super().__init__(session_id=session_id, session_repository=self)
 
     def _get_session_path(self, session_id: str) -> str:

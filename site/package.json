@@ -1,0 +1,93 @@
+{
+  "name": "docs",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "astro build",
+    "build:all": "npm run sdk:clone && npm run sdk:generate && npm run build",
+    "dev": "astro dev",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "typecheck:snippets": "npm run typecheck --prefix test-snippets",
+    "format": "prettier --write docs 'src/content/docs/**/*.ts'",
+    "format:check": "prettier --check docs 'src/content/docs/**/*.ts'",
+    "clean": "rm -rf .build && rm -rf .astro",
+    "preview": "astro preview",
+    "cms:build": "npm run build:all",
+    "sdk:clone": "tsx scripts/clone-sdks.ts",
+    "sdk:generate:py": "command -v uv >/dev/null 2>&1 && uv run scripts/api-generation-python.py || (pip install pydoc-markdown>=4.8.2 && python scripts/api-generation-python.py)",
+    "sdk:generate:ts": "tsx scripts/api-generation-typescript.ts",
+    "sdk:generate": "npm run sdk:generate:py && npm run sdk:generate:ts",
+    "sdk:sync": "npm run sdk:clone && npm run sdk:generate && npm install",
+    "routes:update": "tsx scripts/update-known-routes.ts",
+    "astro": "astro"
+  },
+  "author": "",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@a2a-js/sdk": "^0.3.10",
+    "@astrojs/rss": "^4.0.15",
+    "@aws-sdk/client-s3": "^3.943.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
+    "@opentelemetry/sdk-trace-node": "^2.6.1",
+    "@strands-agents/sdk": "file:.build/sdk-typescript/strands-ts",
+    "@types/express": "^5.0.5",
+    "@types/markdown-it": "^14.1.2",
+    "@types/sanitize-html": "^2.16.0",
+    "@types/turndown": "^5.0.6",
+    "astro-og-canvas": "^0.10.1",
+    "express": "^5.1.0",
+    "fast-glob": "^3.3.3",
+    "markdown-it": "^14.1.1",
+    "mdast-util-to-string": "^4.0.0",
+    "node-fetch": "^3.3.2",
+    "node-html-parser": "^7.1.0",
+    "p-limit": "^7.3.0",
+    "prettier": "^3.6.2",
+    "reading-time": "^1.5.0",
+    "sanitize-html": "^2.17.1",
+    "turndown": "^7.2.2",
+    "turndown-plugin-gfm": "^1.0.2",
+    "typedoc": "^0.28.14",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.0"
+  },
+  "devDependencies": {
+    "@astrojs/starlight": "^0.38.1",
+    "@types/js-yaml": "^4.0.9",
+    "@types/mdast": "^4.0.4",
+    "@types/node": "^24.10.1",
+    "acorn": "^8.14.0",
+    "astro": "^6.0.5",
+    "js-yaml": "^4.1.1",
+    "pino": "^9.7.0",
+    "pino-pretty": "^13.0.0",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "sitemapper": "^4.1.4",
+    "tsx": "^4.21.0",
+    "typedoc": "^0.28.14",
+    "typedoc-plugin-markdown": "^4.10.0",
+    "unified": "^11.0.5",
+    "unist-util-visit": "^5.1.0",
+    "vitest": "^4.0.18"
+  },
+  "overrides": {
+    "zod": "4.3.6"
+  },
+  "prettier": {
+    "semi": false,
+    "singleQuote": true,
+    "printWidth": 120,
+    "tabWidth": 2,
+    "trailingComma": "es5",
+    "overrides": [
+      {
+        "files": "src/content/docs/**/*.ts",
+        "options": {
+          "printWidth": 90
+        }
+      }
+    ]
+  }
+}

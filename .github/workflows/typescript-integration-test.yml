@@ -1,0 +1,81 @@
+name: "TypeScript: Secure Integration Test"
+
+on:
+  pull_request_target:
+    branches: [main]
+    paths:
+      - 'strands-ts/**'
+      - 'strands-wasm/**'
+      - 'strands-py-wasm/**'
+      - 'strandly/**'
+      - 'wit/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/typescript-*'
+  merge_group:
+    types: [checks_requested]
+jobs:
+  authorization-check:
+    name: Check access
+    permissions: read-all
+    runs-on: ubuntu-latest
+    outputs:
+      approval-env: ${{ steps.auth.outputs.approval-env }}
+    steps:
+      - name: Check Authorization
+        id: auth
+        uses: strands-agents/devtools/authorization-check@main
+        with:
+          skip-check: ${{ github.event_name == 'merge_group' }}
+          username: ${{ github.event.pull_request.user.login || 'invalid' }}
+          allowed-roles: 'triage,write,maintain,admin'
+
+  run-integration-tests:
+    name: Run integration tests
+    runs-on: ubuntu-latest
+    needs: authorization-check
+    environment: ${{ needs.authorization-check.outputs.approval-env }}
+    permissions:
+      id-token: write
+      pull-requests: read
+      contents: read
+    steps:
+      - name: Configure Credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+         aws-region: us-east-1
+         mask-aws-account-id: true
+
+      - name: Checkout head commit
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }} # Pull the commit from the forked repo
+          persist-credentials: false  # Don't persist credentials for subsequent actions
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm run test:browser:install
+
+      - name: Build the package
+        run: npm run build
+
+      - name: Run integration tests
+        run: npm run test:integ:all
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-artifacts-integ
+          path: ./strands-ts/test/.artifacts/
+          retention-days: 4
+          include-hidden-files: true # needed because the path has a directory starting with a '.'
+          if-no-files-found: ignore

@@ -7,7 +7,7 @@
 
 ## Documentation PR
 
-<!-- Link to related associated PR in the agent-docs repo -->
+<!-- If this PR requires documentation changes, include them in this PR under site/ -->
 
 ## Type of Change
 

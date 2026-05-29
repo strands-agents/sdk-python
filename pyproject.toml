@@ -1,0 +1,62 @@
+[project]
+name = "strands-monorepo-tools"
+version = "0.0.0"
+description = "Shared Python tooling for the Strands monorepo. Not published."
+requires-python = ">=3.10"
+dependencies = [
+    # Build-time codegen: parses WIT and emits Python bindings.
+    "componentize-py>=0.23.0,<1.0.0",
+    # Linter/formatter used by ``strandly check --py`` and ``strandly fmt``.
+    "ruff>=0.13.0,<0.15.0",
+    # Type checker used by ``strandly check --py``.
+    "pyright>=1.1.400",
+    # Test runner for the shared venv.
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    # Optional runtime extras used by strands-py-wasm integration tests.
+    "pydantic>=2.13.3",
+    "docstring-parser>=0.18.0",
+    "boto3>=1.43.2",
+    "tenacity>=9.1.4",
+]
+
+[tool.setuptools]
+# We don't ship a distribution. Suppress the auto-discovery warning.
+packages = []
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+cache_dir = ".pytest_cache"
+
+
+# Ruff config lives here because ruff walks up from the file it's linting
+# and the monorepo has a single style. strands-py-wasm/pyproject.toml does not
+# carry its own ruff table.
+[tool.ruff]
+line-length = 120
+include = ["strands-py-wasm/src/**/*.py", "strandly/scripts/**/*.py"]
+# _generated.py is machine-written; neither lint nor format enforce rules on it.
+extend-exclude = ["strands-py-wasm/src/strands/_generated.py"]
+
+[tool.ruff.lint]
+select = [
+  "B",   # flake8-bugbear
+  "E",   # pycodestyle
+  "F",   # pyflakes
+  "I",   # isort
+  "UP",  # pyupgrade
+]
+
+
+# Pyright config lives here for the same reason as ruff: one rule for
+# the whole monorepo. Pyright walks up to find the nearest pyproject.
+# `exclude` is omitted so pyright inherits its built-in defaults
+# (**/node_modules, **/__pycache__, **/.*); setting it would replace
+# those, not merge.
+[tool.pyright]
+include = ["strands-py-wasm/src/strands"]
+pythonVersion = "3.10"
+pythonPlatform = "All"
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false
+reportMissingImports = "warning"

@@ -1,0 +1,20 @@
+---
+import '@astrojs/starlight/style/markdown.css';
+import CommunityContributionAside from '../CommunityContributionAside.astro';
+import LanguageSupportAside from '../LanguageSupportAside.astro';
+import ExperimentalAside from '../ExperimentalAside.astro';
+import PageTags from '../PageTags.astro';
+
+const { starlightRoute } = Astro.locals;
+const { languages, community, experimental } = starlightRoute.entry.data;
+---
+
+<div class="sl-markdown-content">
+  {experimental && <ExperimentalAside />}
+  {community && <CommunityContributionAside />}
+  {/* Language support aside is omitted for community pages — the CommunityContributionAside already
+      contextualizes the page, and language support is listed in the community catalog table instead. */}
+  {languages && !community && <LanguageSupportAside languages={languages} />}
+  <slot />
+  <PageTags />
+</div>

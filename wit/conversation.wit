@@ -1,0 +1,41 @@
+package strands:agent@0.1.0;
+
+/// Conversation history management.
+interface conversation {
+  use models.{model-config};
+
+  /// Sliding-window strategy: trim oldest messages once the conversation
+  /// exceeds `window-size`.
+  record sliding-window-config {
+    /// Maximum number of messages retained.
+    window-size: s32,
+    /// Drop older tool results when trimming.
+    should-truncate-results: bool,
+  }
+
+  /// Summarizing strategy: once the conversation grows, summarize older
+  /// messages into a single summary message and keep the rest verbatim.
+  record summarizing-config {
+    /// Fraction of messages to summarize. Must be between 0.1 and 0.8;
+    /// out-of-range values surface on the first `generate` call as
+    /// `agent-error::invalid-input`.
+    summary-ratio: f64,
+    /// Minimum number of recent messages preserved verbatim.
+    preserve-recent-messages: s32,
+    /// System prompt used for the summarizer model.
+    summarization-system-prompt: option<string>,
+    /// Summarizer model. Defaults to the agent's primary model when absent.
+    summarization-model: option<model-config>,
+  }
+
+  /// Which conversation manager the agent uses.
+  variant conversation-manager-config {
+    /// No conversation management. History grows without bound and
+    /// context-overflow errors propagate to the caller.
+    none,
+    /// Sliding-window trimming.
+    sliding-window(sliding-window-config),
+    /// Summarization of older messages.
+    summarizing(summarizing-config),
+  }
+}

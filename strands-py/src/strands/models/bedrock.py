@@ -852,13 +852,9 @@ class BedrockModel(Model):
             logger.debug("model_id=<%s>, total_tokens=<%d> | native token count", self.config["model_id"], total_tokens)
             return total_tokens
         except Exception as e:
-            if (
-                isinstance(e, ClientError)
-                and e.response.get("Error", {}).get("Code") == "AccessDeniedException"
-            ):
+            if isinstance(e, ClientError) and e.response.get("Error", {}).get("Code") == "AccessDeniedException":
                 logger.warning(
-                    "model_id=<%s> | bedrock:CountTokens permission denied,"
-                    " falling back to heuristic estimation: %s",
+                    "model_id=<%s> | bedrock:CountTokens permission denied, falling back to heuristic estimation: %s",
                     model_id,
                     e,
                 )

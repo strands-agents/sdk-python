@@ -1,9 +1,84 @@
-.DS_Store
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test lock files
+**/test/packages/**/package-lock.json
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+target/
+
+# Python
+__pycache__/
 __pycache__*
+.pycache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.egg-info/
+*.pyd
+*.so
+*.dylib
+*.pdb
+
+# Generated type bindings (committed only for strands-py-wasm/src/strands/_generated.py)
+strands-ts/generated/
+strands-wasm/generated/
+
+# Coverage reports
+coverage/
+
+# IDE files
+.claude/*
+!.claude/skills
+!.claude/references
+.kiro/*
+!.kiro/skills
+!.kiro/references
+.vscode/
+.idea/
+*.swp
+*.swo
+.gradle/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment files
 .env
-.venv
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Github workflow artifacts
+.artifact
+
+# Test artifacts
+**/test/.artifacts
+
+# Misc
 *.bak
-.vscode
-.kiro
+*.backup
+**/mutants.out*/
+bin/
+
+# LLM
 CLAUDE.md
 .claude/settings.local.json
+
+# dev
+.vitest*
+
+# Files copied into strands-ts/ during prepack (originals live at repo root)
+strands-ts/README.md
+strands-ts/LICENSE

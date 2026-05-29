@@ -600,6 +600,26 @@ def test_public_agent_card_with_http_url(mock_strands_agent):
     assert card.description == "A test agent for unit testing"
 
 
+def test_agent_card_url_defaults_to_http_url(mock_strands_agent):
+    """Test that agent_card_url defaults to http_url."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    a2a_agent = A2AServer(mock_strands_agent, http_url="https://my-alb.amazonaws.com/agent1", skills=[])
+    assert a2a_agent.agent_card_url == "https://my-alb.amazonaws.com/agent1/"  # Adds trailing slash at the end
+
+
+def test_agent_card_url_override(mock_strands_agent):
+    """Test that agent_card_url can be overridden to a custom value."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    a2a_agent = A2AServer(mock_strands_agent, http_url="https://my-alb.amazonaws.com/agent1", skills=[])
+    a2a_agent.agent_card_url = "https://my-alb.amazonaws.com/agent1"  # Override to URL without trailing slash
+
+    assert a2a_agent.agent_card_url == "https://my-alb.amazonaws.com/agent1"
+    card = a2a_agent.public_agent_card
+    assert card.url == "https://my-alb.amazonaws.com/agent1"
+
+
 def test_to_starlette_app_with_mounting(mock_strands_agent):
     """Test that to_starlette_app creates mounted app when mount_path exists."""
     mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}

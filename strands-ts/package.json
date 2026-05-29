@@ -1,0 +1,262 @@
+{
+  "name": "@strands-agents/sdk",
+  "version": "0.0.1-development",
+  "description": "TypeScript SDK for Strands Agents framework",
+  "main": "dist/src/index.js",
+  "module": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "type": "module",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./models/anthropic": {
+      "types": "./dist/src/models/anthropic.d.ts",
+      "default": "./dist/src/models/anthropic.js"
+    },
+    "./models/openai": {
+      "types": "./dist/src/models/openai/index.d.ts",
+      "default": "./dist/src/models/openai/index.js"
+    },
+    "./models/bedrock": {
+      "types": "./dist/src/models/bedrock.d.ts",
+      "default": "./dist/src/models/bedrock.js"
+    },
+    "./models/google": {
+      "types": "./dist/src/models/google/index.d.ts",
+      "default": "./dist/src/models/google/index.js"
+    },
+    "./models/vercel": {
+      "types": "./dist/src/models/vercel.d.ts",
+      "default": "./dist/src/models/vercel.js"
+    },
+    "./multiagent": {
+      "types": "./dist/src/multiagent/index.d.ts",
+      "default": "./dist/src/multiagent/index.js"
+    },
+    "./vended-tools/notebook": {
+      "types": "./dist/src/vended-tools/notebook/index.d.ts",
+      "default": "./dist/src/vended-tools/notebook/index.js"
+    },
+    "./vended-tools/file-editor": {
+      "types": "./dist/src/vended-tools/file-editor/index.d.ts",
+      "default": "./dist/src/vended-tools/file-editor/index.js"
+    },
+    "./vended-tools/http-request": {
+      "types": "./dist/src/vended-tools/http-request/index.d.ts",
+      "default": "./dist/src/vended-tools/http-request/index.js"
+    },
+    "./vended-tools/bash": {
+      "types": "./dist/src/vended-tools/bash/index.d.ts",
+      "default": "./dist/src/vended-tools/bash/index.js"
+    },
+    "./a2a": {
+      "types": "./dist/src/a2a/index.d.ts",
+      "default": "./dist/src/a2a/index.js"
+    },
+    "./a2a/express": {
+      "types": "./dist/src/a2a/express-server.d.ts",
+      "default": "./dist/src/a2a/express-server.js"
+    },
+    "./session/s3-storage": {
+      "types": "./dist/src/session/s3-storage.d.ts",
+      "default": "./dist/src/session/s3-storage.js"
+    },
+    "./telemetry": {
+      "types": "./dist/src/telemetry/index.d.ts",
+      "default": "./dist/src/telemetry/index.js"
+    },
+    "./vended-plugins/skills": {
+      "types": "./dist/src/vended-plugins/skills/index.d.ts",
+      "default": "./dist/src/vended-plugins/skills/index.js"
+    },
+    "./vended-plugins/context-offloader": {
+      "types": "./dist/src/vended-plugins/context-offloader/index.d.ts",
+      "default": "./dist/src/vended-plugins/context-offloader/index.js"
+    },
+    "./vended-interventions/hitl": {
+      "types": "./dist/src/vended-interventions/hitl/index.d.ts",
+      "default": "./dist/src/vended-interventions/hitl/index.js"
+    },
+    "./vended-interventions/steering": {
+      "types": "./dist/src/vended-interventions/steering/index.d.ts",
+      "default": "./dist/src/vended-interventions/steering/index.js"
+    },
+    "./vended-tools": {
+      "types": "./dist/src/vended-tools/index.d.ts",
+      "default": "./dist/src/vended-tools/index.js"
+    },
+    "./vended-plugins": {
+      "types": "./dist/src/vended-plugins/index.d.ts",
+      "default": "./dist/src/vended-plugins/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --project src/tsconfig.json",
+    "prepack": "npm run build && cp ../README.md . && cp ../LICENSE.APACHE LICENSE",
+    "postpack": "rm -f README.md LICENSE",
+    "check": "npm run lint && npm run format && npm run type-check && npm run check:browser-bundle && npm run test:coverage && npm run test:package",
+    "check:browser-bundle": "esbuild src/index.ts --bundle --platform=browser --format=esm --packages=external --outfile=/dev/null",
+    "clean": "rm -rf node_modules dist",
+    "lock:refresh": "rm -rf node_modules && npm install --ignore-scripts --os=linux --os=darwin --os=win32 --cpu=x64 --cpu=arm64 --cpu=wasm32",
+    "test": "vitest run --project unit-node",
+    "test:watch": "vitest --project unit-node",
+    "test:coverage": "vitest run --coverage --project unit-node",
+    "test:types": "vitest run --project types",
+    "test:integ": "vitest run --project integ-node",
+    "test:integ:browser": "vitest run --project integ-browser",
+    "test:integ:all": "vitest run --project integ-node --project integ-browser",
+    "test:browser": "vitest run --project unit-browser",
+    "test:browser:install": "npx playwright install --with-deps chromium",
+    "test:all": "vitest run --project unit-node --project unit-browser",
+    "test:all:coverage": "vitest run --coverage --project unit-node --project unit-browser",
+    "test:package": "cd test/packages/esm-module && npm install && node esm.js && cd ../cjs-module && npm install && node cjs.js",
+    "lint": "eslint src test/integ",
+    "lint:fix": "eslint src test/integ --fix",
+    "format": "prettier --write src test/integ",
+    "format:check": "prettier --check src test/integ",
+    "type-check": "tsc --noEmit --project src/tsconfig.json && tsc --noEmit --project test/integ/tsconfig.json",
+    "type-check:watch": "tsc --noEmit --watch"
+  },
+  "keywords": [
+    "agents",
+    "ai",
+    "typescript",
+    "sdk",
+    "strands"
+  ],
+  "author": "Strands Agents",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@a2a-js/sdk": "^0.3.10",
+    "@ai-sdk/amazon-bedrock": "^4.0.77",
+    "@ai-sdk/openai": "^3.0.41",
+    "@ai-sdk/provider": "^3.0.0",
+    "@anthropic-ai/sdk": "^0.92.0",
+    "@aws-sdk/client-bedrock": "^3.943.0",
+    "@aws-sdk/client-s3": "^3.943.0",
+    "@aws-sdk/client-secrets-manager": "^3.943.0",
+    "@aws-sdk/client-sts": "^3.996.0",
+    "@aws-sdk/credential-providers": "^3.943.0",
+    "@aws/bedrock-token-generator": "^1.1.0",
+    "@eslint/js": "^9.39.4",
+    "@google/genai": "^1.40.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.214.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
+    "@opentelemetry/resources": "^2.6.1",
+    "@opentelemetry/sdk-metrics": "^2.6.1",
+    "@opentelemetry/sdk-trace-base": "^2.6.1",
+    "@opentelemetry/sdk-trace-node": "^2.6.1",
+    "@smithy/types": "^4.0.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.6.0",
+    "@types/uuid": "^11.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.48.1",
+    "@typescript-eslint/parser": "^8.0.0",
+    "@vitest/browser": "^4.0.15",
+    "@vitest/browser-playwright": "^4.0.15",
+    "@vitest/coverage-v8": "^4.0.15",
+    "eslint": "^10.2.0",
+    "eslint-plugin-tsdoc": "^0.5.0",
+    "express": "^5.2.1",
+    "openai": "^6.7.0",
+    "playwright": "^1.60.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.0.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/strands-agents/sdk-python.git"
+  },
+  "bugs": {
+    "url": "https://github.com/strands-agents/sdk-python/issues"
+  },
+  "homepage": "https://github.com/strands-agents/sdk-python#readme",
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.1037.0",
+    "@types/json-schema": "^7.0.15",
+    "uuid": "^14.0.0",
+    "yaml": "^2.8.3"
+  },
+  "peerDependencies": {
+    "@a2a-js/sdk": "^0.3.10",
+    "@ai-sdk/provider": "^3.0.0",
+    "@anthropic-ai/sdk": "^0.92.0",
+    "@aws-sdk/client-s3": "^3.943.0",
+    "@aws/bedrock-token-generator": "^1.1.0",
+    "@google/genai": "^1.40.0",
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.214.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.214.0",
+    "@opentelemetry/resources": "^2.6.1",
+    "@opentelemetry/sdk-metrics": "^2.6.1",
+    "@opentelemetry/sdk-trace-base": "^2.6.1",
+    "@opentelemetry/sdk-trace-node": "^2.6.1",
+    "@smithy/types": "^4.0.0",
+    "express": "^5.1.0",
+    "openai": "^6.7.0",
+    "zod": "^4.1.12"
+  },
+  "peerDependenciesMeta": {
+    "@a2a-js/sdk": {
+      "optional": true
+    },
+    "@ai-sdk/provider": {
+      "optional": true
+    },
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "@aws/bedrock-token-generator": {
+      "optional": true
+    },
+    "@smithy/types": {
+      "optional": true
+    },
+    "express": {
+      "optional": true
+    },
+    "@aws-sdk/client-s3": {
+      "optional": true
+    },
+    "@google/genai": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-trace-base": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-trace-node": {
+      "optional": true
+    },
+    "@opentelemetry/sdk-metrics": {
+      "optional": true
+    },
+    "@opentelemetry/resources": {
+      "optional": true
+    },
+    "@opentelemetry/exporter-trace-otlp-http": {
+      "optional": true
+    },
+    "@opentelemetry/exporter-metrics-otlp-http": {
+      "optional": true
+    }
+  },
+  "overrides": {
+    "fast-xml-parser": ">=5.3.6"
+  }
+}

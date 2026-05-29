@@ -1,0 +1,20 @@
+{
+  "name": "@strands-agents/strandly",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "strandly": "./src/cli.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^14",
+    "tsx": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.5.0"
+  }
+}

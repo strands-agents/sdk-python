@@ -1,0 +1,84 @@
+package strands:agent@0.1.0;
+
+/// Opt-in configuration for bundled tools and plugins that ship with the
+/// agent. Enabling one of these is sufficient. No separate registration
+/// or implementation is required on your side.
+interface vended {
+  /// Built-in tools.
+  variant vended-tool {
+    /// Run shell commands in a persistent bash session.
+    bash(bash-tool-config),
+    /// Create, view, and edit files on disk.
+    file-editor(file-editor-tool-config),
+    /// Make HTTP requests.
+    http-request(http-request-tool-config),
+    /// Read and execute Jupyter notebook cells.
+    notebook(notebook-tool-config),
+  }
+
+  /// Bash tool configuration.
+  record bash-tool-config {
+    /// Default timeout for `execute` calls, in seconds.
+    default-timeout-s: option<s32>,
+  }
+
+  /// File editor tool configuration.
+  record file-editor-tool-config {
+    /// Directory outside of which the tool refuses to operate. Absent
+    /// permits any path the sandbox grants.
+    workspace-root: option<string>,
+  }
+
+  /// HTTP request tool configuration.
+  record http-request-tool-config {
+    /// Hosts the tool is allowed to reach. Empty permits any host the
+    /// sandbox permits.
+    allowed-hosts: list<string>,
+    /// Upper bound on response size, in bytes. 0 means unbounded.
+    max-response-bytes: u64,
+  }
+
+  /// Notebook tool configuration.
+  record notebook-tool-config {
+    /// Directory outside of which the tool refuses to operate. Absent
+    /// permits any path the sandbox grants.
+    workspace-root: option<string>,
+  }
+
+  /// Location of a skill definition on disk.
+  record skill-source {
+    /// Path to the skill directory.
+    path: string,
+  }
+
+  /// Skills plugin configuration.
+  record skills-plugin-config {
+    /// Skill sources to load.
+    skills: list<skill-source>,
+    /// Fail if a skill cannot be loaded.
+    strict: bool,
+    /// Maximum resource files loaded per skill.
+    max-resource-files: option<s32>,
+    /// State-store key used to track active skills.
+    state-key: option<string>,
+  }
+
+  /// Context offloader plugin configuration.
+  record context-offloader-plugin-config {
+    /// Token threshold at which tool results are offloaded.
+    max-result-tokens: option<s32>,
+    /// Tokens to keep inline when offloading (as a preview).
+    preview-tokens: option<s32>,
+    /// Whether to register a retrieval tool the model can call to pull
+    /// offloaded content back in.
+    include-retrieval-tool: bool,
+  }
+
+  /// Built-in plugins.
+  variant vended-plugin {
+    /// Load and activate Anthropic-style skills from disk.
+    skills(skills-plugin-config),
+    /// Offload large tool results to external storage.
+    context-offloader(context-offloader-plugin-config),
+  }
+}

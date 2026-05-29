@@ -43,6 +43,9 @@ StopReason = Literal[
     "end_turn",
     "guardrail_intervened",
     "interrupt",
+    "limit_output_tokens",
+    "limit_total_tokens",
+    "limit_turns",
     "max_tokens",
     "stop_sequence",
     "tool_use",
@@ -55,7 +58,10 @@ StopReason = Literal[
 - "end_turn": Normal completion of the response
 - "guardrail_intervened": Guardrail system intervened
 - "interrupt": Agent was interrupted for human input
-- "max_tokens": Maximum token limit reached
+- "limit_output_tokens": Agent loop stopped because the ``limits["output_tokens"]`` cap was reached
+- "limit_total_tokens": Agent loop stopped because the ``limits["total_tokens"]`` cap was reached
+- "limit_turns": Agent loop stopped because the ``limits["turns"]`` cap was reached
+- "max_tokens": The model provider's per-call output cap was reached
 - "stop_sequence": Stop sequence encountered
 - "tool_use": Model requested to use a tool
 """

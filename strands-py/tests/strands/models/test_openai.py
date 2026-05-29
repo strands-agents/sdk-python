@@ -1021,6 +1021,40 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_accepts_vllm_reasoning_delta(openai_client, model, messages, agenerator, alist):
+    reasoning_delta = unittest.mock.Mock(spec=["reasoning", "content", "tool_calls"])
+    reasoning_delta.reasoning = "\nI'm thinking"
+    reasoning_delta.content = None
+    reasoning_delta.tool_calls = None
+
+    stop_delta = unittest.mock.Mock(spec=["reasoning", "content", "tool_calls"])
+    stop_delta.reasoning = None
+    stop_delta.content = None
+    stop_delta.tool_calls = None
+
+    usage_event = unittest.mock.Mock(usage=None)
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator(
+            [
+                unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=reasoning_delta)]),
+                unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=stop_delta)]),
+                usage_event,
+            ]
+        )
+    )
+
+    response = model.stream(messages)
+
+    assert await alist(response) == [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "\nI'm thinking"}}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_stream_empty(openai_client, model_id, model, agenerator, alist):
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
 

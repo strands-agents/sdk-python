@@ -32,6 +32,7 @@ from ..types._events import (
     ToolResultMessageEvent,
     TypedEvent,
 )
+from ..types.agent import Limits
 from ..types.content import Message, Messages
 from ..types.exceptions import (
     ContextWindowOverflowException,
@@ -53,6 +54,42 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 6
 INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
+
+
+def _check_limits(agent: "Agent", limits: Limits | None) -> StopReason | None:
+    """Evaluate per-invocation budget caps against the current invocation's metrics.
+
+    Reads from ``EventLoopMetrics.latest_agent_invocation`` (scoped to the current
+    invocation) so caps don't fire prematurely on the second invoke against a reused
+    agent. Priority on simultaneous trip: turns -> total_tokens -> output_tokens.
+
+    Args:
+        agent: The agent whose metrics to read.
+        limits: The configured caps, or ``None`` for no caps.
+
+    Returns:
+        The matching ``StopReason`` if a cap has been reached, otherwise ``None``.
+    """
+    if not limits:
+        return None
+    invocation = agent.event_loop_metrics.latest_agent_invocation
+    if invocation is None:
+        return None
+
+    cycle_count = len(invocation.cycles)
+    output_tokens = invocation.usage.get("outputTokens", 0)
+    total_tokens = invocation.usage.get("totalTokens", 0)
+
+    turns_cap = limits.get("turns")
+    if turns_cap is not None and cycle_count >= turns_cap:
+        return "limit_turns"
+    total_cap = limits.get("total_tokens")
+    if total_cap is not None and total_tokens >= total_cap:
+        return "limit_total_tokens"
+    output_cap = limits.get("output_tokens")
+    if output_cap is not None and output_tokens >= output_cap:
+        return "limit_output_tokens"
+    return None
 
 
 def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
@@ -121,6 +158,7 @@ async def event_loop_cycle(
     agent: "Agent",
     invocation_state: dict[str, Any],
     structured_output_context: StructuredOutputContext | None = None,
+    limits: Limits | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Execute a single cycle of the event loop.
 
@@ -143,6 +181,9 @@ async def event_loop_cycle(
             - event_loop_cycle_id: Unique ID for this cycle
             - event_loop_cycle_span: Current tracing Span for this cycle
         structured_output_context: Optional context for structured output management.
+        limits: Optional per-invocation budget caps. Checked at the top of this cycle
+            (after tools from the previous cycle have run to completion). See
+            :class:`~strands.types.agent.Limits`.
 
     Yields:
         Model and tool stream events. The last event is a tuple containing:
@@ -157,6 +198,20 @@ async def event_loop_cycle(
         ContextWindowOverflowException: If the input is too large for the model
     """
     structured_output_context = structured_output_context or StructuredOutputContext()
+
+    # Caps are positive and use >= semantics, so a trip implies at least one prior cycle
+    # ran — meaning agent.messages[-1] exists.
+    limit_stop_reason = _check_limits(agent, limits)
+    if limit_stop_reason is not None:
+        if "request_state" not in invocation_state:
+            invocation_state["request_state"] = {}
+        yield EventLoopStopEvent(
+            limit_stop_reason,
+            agent.messages[-1],
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+        )
+        return
 
     # Initialize cycle state
     invocation_state["event_loop_cycle_id"] = uuid.uuid4()
@@ -234,6 +289,7 @@ async def event_loop_cycle(
                     invocation_state=invocation_state,
                     tracer=tracer,
                     structured_output_context=structured_output_context,
+                    limits=limits,
                 )
                 async for tool_event in tool_events:
                     yield tool_event
@@ -257,7 +313,10 @@ async def event_loop_cycle(
 
                 tracer.end_event_loop_cycle_span(cycle_span, message)
                 events = recurse_event_loop(
-                    agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+                    agent=agent,
+                    invocation_state=invocation_state,
+                    structured_output_context=structured_output_context,
+                    limits=limits,
                 )
                 async for typed_event in events:
                     yield typed_event
@@ -286,6 +345,7 @@ async def recurse_event_loop(
     agent: "Agent",
     invocation_state: dict[str, Any],
     structured_output_context: StructuredOutputContext | None = None,
+    limits: Limits | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Make a recursive call to event_loop_cycle with the current state.
 
@@ -295,6 +355,7 @@ async def recurse_event_loop(
         agent: Agent for which the recursive call is being made.
         invocation_state: Arguments to pass through event_loop_cycle
         structured_output_context: Optional context for structured output management.
+        limits: Optional per-invocation budget caps. See :class:`~strands.types.agent.Limits`.
 
     Yields:
         Results from event_loop_cycle where the last result contains:
@@ -313,7 +374,10 @@ async def recurse_event_loop(
     yield StartEvent()
 
     events = event_loop_cycle(
-        agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+        agent=agent,
+        invocation_state=invocation_state,
+        structured_output_context=structured_output_context,
+        limits=limits,
     )
     async for event in events:
         yield event
@@ -497,6 +561,7 @@ async def _handle_tool_execution(
     invocation_state: dict[str, Any],
     tracer: Tracer,
     structured_output_context: StructuredOutputContext,
+    limits: Limits | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Handles the execution of tools requested by the model during an event loop cycle.
 
@@ -510,6 +575,7 @@ async def _handle_tool_execution(
         invocation_state: Additional keyword arguments, including request state.
         tracer: Tracer instance for span management.
         structured_output_context: Optional context for structured output management.
+        limits: Optional per-invocation budget caps. See :class:`~strands.types.agent.Limits`.
 
     Yields:
         Tool stream events along with events yielded from a recursive call to the event loop. The last event is a tuple
@@ -641,7 +707,10 @@ async def _handle_tool_execution(
         return
 
     events = recurse_event_loop(
-        agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+        agent=agent,
+        invocation_state=invocation_state,
+        structured_output_context=structured_output_context,
+        limits=limits,
     )
     async for event in events:
         yield event
