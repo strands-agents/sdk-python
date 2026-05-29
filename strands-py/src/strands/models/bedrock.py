@@ -37,6 +37,7 @@ from ._validation import validate_config_keys
 from .model import BaseModelConfig, CacheConfig, CacheToolsConfig, Model
 
 logger = logging.getLogger(__name__)
+_VIDEO_FORMAT_ALIASES = {"3gp": "three_gp"}
 
 # See: `BedrockModel._get_default_model_with_warning` for why we need both
 DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-6"
@@ -702,7 +703,10 @@ class BedrockModel(Model):
                     return None
             elif "bytes" in source:
                 formatted_video_source = {"bytes": source["bytes"]}
-            result = {"format": video["format"], "source": formatted_video_source}
+            result = {
+                "format": _VIDEO_FORMAT_ALIASES.get(video["format"], video["format"]),
+                "source": formatted_video_source,
+            }
             return {"video": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html

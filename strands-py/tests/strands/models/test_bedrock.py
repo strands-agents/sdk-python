@@ -2254,6 +2254,27 @@ def test_format_request_video_s3_location(model, model_id):
     assert video_source == {"s3Location": {"uri": "s3://my-bucket/video.mp4"}}
 
 
+def test_format_request_video_3gp_maps_bedrock_enum(model, model_id):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "video": {
+                        "format": "3gp",
+                        "source": {"bytes": b"video_data"},
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model._format_request(messages)
+    video_block = formatted_request["messages"][0]["content"][0]["video"]
+
+    assert video_block == {"format": "three_gp", "source": {"bytes": b"video_data"}}
+
+
 def test_format_request_filters_document_content_blocks(model, model_id):
     """Test that format_request filters extra fields from document content blocks."""
     messages = [

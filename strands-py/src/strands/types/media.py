@@ -107,7 +107,7 @@ class ImageContent(TypedDict):
     source: ImageSource
 
 
-VideoFormat = Literal["flv", "mkv", "mov", "mpeg", "mpg", "mp4", "three_gp", "webm", "wmv"]
+VideoFormat = Literal["flv", "mkv", "mov", "mpeg", "mpg", "mp4", "3gp", "three_gp", "webm", "wmv"]
 """Supported video formats."""
 
 
