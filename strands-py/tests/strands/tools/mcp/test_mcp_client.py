@@ -1165,3 +1165,29 @@ async def test_call_tool_async_elicitation_error(mock_transport, mock_session):
         assert "https://example.com/auth" in result["content"][0]["text"]
         assert "Please authorize the application" in result["content"][0]["text"]
         assert "elicit-123" in result["content"][0]["text"]
+
+
+def test_map_mcp_content_subclass_override(mock_transport, mock_session):
+    """Subclass override of map_mcp_content_to_tool_result_content is invoked by the call site."""
+
+    class CustomMCPClient(MCPClient):
+        def map_mcp_content_to_tool_result_content(self, content):
+            result = super().map_mcp_content_to_tool_result_content(content)
+            if result and "text" in result:
+                result = {"text": "[intercepted]"}
+            return result
+
+    embedded_resource = {
+        "type": "resource",
+        "resource": {
+            "uri": "mcp://resource/test",
+            "text": "original text",
+            "mimeType": "text/plain",
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
+
+    with CustomMCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="override-test", name="test_tool", arguments={})
+
+    assert result["content"][0]["text"] == "[intercepted]"
