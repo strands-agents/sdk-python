@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
+from ..experimental.checkpoint import Checkpoint
 from ..interrupt import Interrupt
 from ..telemetry.metrics import EventLoopMetrics
 from ..types.content import Message
@@ -26,6 +27,9 @@ class AgentResult:
         state: Additional state information from the event loop.
         interrupts: List of interrupts if raised by user.
         structured_output: Parsed structured output when structured_output_model was specified.
+        checkpoint: Checkpoint captured when the agent paused for durable execution.
+            Populated only when stop_reason == "checkpoint". See
+            strands.experimental.checkpoint for usage.
     """
 
     stop_reason: StopReason
@@ -34,6 +38,7 @@ class AgentResult:
     state: Any
     interrupts: Sequence[Interrupt] | None = None
     structured_output: BaseModel | None = None
+    checkpoint: Checkpoint | None = None
 
     @property
     def context_size(self) -> int | None:
@@ -94,15 +99,23 @@ class AgentResult:
         Returns:
             AgentResult instance
         Raises:
-            TypeError: If the data format is invalid@
+            TypeError: If the data format is invalid
         """
         if data.get("type") != "agent_result":
             raise TypeError(f"AgentResult.from_dict: unexpected type {data.get('type')!r}")
 
         message = cast(Message, data.get("message"))
         stop_reason = cast(StopReason, data.get("stop_reason"))
+        checkpoint_data = data.get("checkpoint")
+        checkpoint = Checkpoint.from_dict(checkpoint_data) if checkpoint_data else None
 
-        return cls(message=message, stop_reason=stop_reason, metrics=EventLoopMetrics(), state={})
+        return cls(
+            message=message,
+            stop_reason=stop_reason,
+            metrics=EventLoopMetrics(),
+            state={},
+            checkpoint=checkpoint,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert this AgentResult to JSON-serializable dictionary.
@@ -114,4 +127,5 @@ class AgentResult:
             "type": "agent_result",
             "message": self.message,
             "stop_reason": self.stop_reason,
+            "checkpoint": self.checkpoint.to_dict() if self.checkpoint else None,
         }

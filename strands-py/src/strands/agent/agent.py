@@ -29,6 +29,7 @@ from .. import _identifier
 from .._async import run_async
 from ..event_loop._retry import ModelRetryStrategy
 from ..event_loop.event_loop import INITIAL_DELAY, MAX_ATTEMPTS, MAX_DELAY, event_loop_cycle
+from ..experimental.checkpoint import Checkpoint, CheckpointPosition
 from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types._snapshot import (
     SNAPSHOT_SCHEMA_VERSION,
@@ -146,6 +147,7 @@ class Agent(AgentBase):
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
+        checkpointing: bool = False,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -214,6 +216,13 @@ class Agent(AgentBase):
                 Set to "unsafe_reentrant" to skip lock acquisition entirely, allowing concurrent invocations.
                 Warning: "unsafe_reentrant" makes no guarantees about resulting behavior and is provided
                 only for advanced use cases where the caller understands the risks.
+            checkpointing: When True, the event loop pauses at cycle boundaries
+                (after_model, after_tools) and returns ``stop_reason="checkpoint"``
+                with a populated ``checkpoint`` field. Resume by passing the
+                checkpoint back as ``{"checkpointResume": {"checkpoint": ...}}``.
+                The SDK does not capture conversation state in the checkpoint;
+                pair with a SessionManager for cross-process state continuity.
+                Defaults to False. See :mod:`strands.experimental.checkpoint`.
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -304,6 +313,12 @@ class Agent(AgentBase):
 
         self._interrupt_state = _InterruptState()
 
+        # Checkpointing: pause at cycle boundaries when enabled.
+        self._checkpointing: bool = checkpointing
+        self._checkpoint: Checkpoint | None = None
+        self._checkpoint_cycle_index: int = 0
+        self._checkpoint_resume_position: CheckpointPosition | None = None
+
         # Runtime state for model providers (e.g., server-side response ids)
         self._model_state: dict[str, Any] = {}
 
@@ -374,7 +389,7 @@ class Agent(AgentBase):
         This method is thread-safe and can be called from any context
         (e.g., another thread, web request handler, background task).
 
-        The agent will stop gracefully at the next checkpoint:
+        The agent will stop gracefully at the next cancellation-safe point:
         - During model response streaming
         - Before tool execution
 
@@ -832,6 +847,12 @@ class Agent(AgentBase):
 
             self.event_loop_metrics.reset_usage_metrics()
 
+            # Reset invocation-scoped checkpoint state. On resume, the event loop's
+            # priming step re-derives the cycle index from the resumed checkpoint,
+            # so this reset only affects the fresh-prompt path.
+            self._checkpoint_cycle_index = 0
+            self._checkpoint_resume_position = None
+
             merged_state = {}
             if kwargs:
                 warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
@@ -1006,8 +1027,34 @@ class Agent(AgentBase):
             if structured_output_context:
                 structured_output_context.cleanup(self.tool_registry)
 
+    def _try_consume_checkpoint_resume(self, prompt: Any) -> bool:
+        """Consume a ``checkpointResume`` prompt block, returning True if found.
+
+        The block is a dict of the form ``{"checkpointResume": {"checkpoint": ...}}``.
+        A missing ``checkpoint`` key raises ``KeyError``; ``checkpointing=False``
+        raises ``ValueError``; a schema mismatch raises ``CheckpointException``.
+        """
+        if not (isinstance(prompt, dict) and "checkpointResume" in prompt):
+            return False
+
+        if not self._checkpointing:
+            raise ValueError(
+                "Received checkpointResume block but agent was created with checkpointing=False. "
+                "Pass checkpointing=True when constructing the Agent."
+            )
+
+        payload = prompt["checkpointResume"]
+        if not isinstance(payload, dict) or "checkpoint" not in payload:
+            raise KeyError("checkpoint | missing required key in checkpointResume block")
+
+        self._checkpoint = Checkpoint.from_dict(payload["checkpoint"])
+        return True
+
     async def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         if self._interrupt_state.activated:
+            return []
+
+        if self._try_consume_checkpoint_resume(prompt):
             return []
 
         messages: Messages | None = None

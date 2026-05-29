@@ -22,6 +22,7 @@ from .tools import ToolResult, ToolUse
 if TYPE_CHECKING:
     from ..agent import AgentResult
     from ..agent._agent_as_tool import _AgentAsTool
+    from ..experimental.checkpoint import Checkpoint
     from ..multiagent.base import MultiAgentResult, NodeResult
 
 
@@ -227,6 +228,7 @@ class EventLoopStopEvent(TypedEvent):
         request_state: Any,
         interrupts: Sequence[Interrupt] | None = None,
         structured_output: BaseModel | None = None,
+        checkpoint: "Checkpoint | None" = None,
     ) -> None:
         """Initialize with the final execution results.
 
@@ -237,8 +239,11 @@ class EventLoopStopEvent(TypedEvent):
             request_state: Final state of the agent execution
             interrupts: Interrupts raised by user during agent execution.
             structured_output: Optional structured output result
+            checkpoint: Optional checkpoint when stop_reason == "checkpoint".
         """
-        super().__init__({"stop": (stop_reason, message, metrics, request_state, interrupts, structured_output)})
+        super().__init__(
+            {"stop": (stop_reason, message, metrics, request_state, interrupts, structured_output, checkpoint)}
+        )
 
     @property
     @override
