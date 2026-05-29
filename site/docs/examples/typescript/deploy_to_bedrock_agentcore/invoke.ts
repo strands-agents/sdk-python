@@ -11,7 +11,7 @@ const client = new BedrockAgentCoreClient({
 
 const input = {
   // Generate unique session ID
-  runtimeSessionId: 'test-session-' + Date.now() + '-' + Math.random().toString(36).substring(7),
+  runtimeSessionId: 'test-session-' + Date.now() + '-' + crypto.randomUUID().slice(0, 7),
   // Replace with your actual runtime ARN
   agentRuntimeArn:
     'arn:aws:bedrock-agentcore:ap-southeast-2:YOUR_ACCOUNT_ID:runtime/my-agent-service-XXXXXXXXXX',

@@ -45,14 +45,11 @@ function searchByPattern(
   scopeLabel: string
 ): string {
   let regex: RegExp
-  const safeInput =
-    pattern.length > MAX_PATTERN_LENGTH
-      ? pattern.slice(0, MAX_PATTERN_LENGTH).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      : pattern
+  const truncated = pattern.length > MAX_PATTERN_LENGTH ? pattern.slice(0, MAX_PATTERN_LENGTH) : pattern
   try {
-    regex = new RegExp(safeInput)
+    regex = new RegExp(truncated)
   } catch {
-    regex = new RegExp(safeInput.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    regex = new RegExp(truncated.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   }
 
   const matchedSet = new Set<number>()

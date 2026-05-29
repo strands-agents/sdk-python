@@ -35,6 +35,8 @@ async function expressExample() {
     console.log(`Got Request: ${JSON.stringify(req.body)}`)
     const { prompt } = req.body as PromptRequest
 
+    res.setHeader('Content-Type', 'application/x-ndjson')
+
     const agent = new Agent({
       tools: [notebook],
       printer: false,
