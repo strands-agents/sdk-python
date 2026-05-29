@@ -16,6 +16,26 @@ from strands.session.session_manager import SessionManager
 from strands.types._events import MultiAgentNodeCancelEvent
 
 
+def _make_graph(
+    nodes: dict,
+    edges=None,
+    state=None,
+    invocation_state=None,
+    interrupt_state=None,
+) -> Graph:
+    """Create a minimally-valid Graph instance for unit tests without invoking __init__."""
+    graph = Graph.__new__(Graph)
+    graph.nodes = nodes
+    graph.edges = edges if edges is not None else set()
+    graph.state = state or GraphState()
+    graph._current_invocation_state = invocation_state or {}
+    graph._interrupt_state = interrupt_state or _InterruptState()
+    graph._resume_from_session = False
+    graph._resume_next_nodes = []
+    graph.id = "test_graph"
+    return graph
+
+
 def create_mock_agent(name, response_text="Default response", metrics=None, agent_id=None):
     """Create a mock Agent with specified properties."""
     agent = Mock(spec=Agent)
@@ -2460,14 +2480,14 @@ def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
     node_d = GraphNode(node_id="D", executor=create_mock_agent("D"))
     node_e = GraphNode(node_id="E", executor=create_mock_agent("E"))
 
-    graph = Graph.__new__(Graph)
-    graph.nodes = {"A": node_a, "B": node_b, "C": node_c, "D": node_d, "E": node_e}
-    graph.edges = [
-        GraphEdge(from_node=node_a, to_node=node_b),
-        GraphEdge(from_node=node_b, to_node=node_c),
-        GraphEdge(from_node=node_d, to_node=node_e),
-    ]
-    graph.state = GraphState()
+    graph = _make_graph(
+        nodes={"A": node_a, "B": node_b, "C": node_c, "D": node_d, "E": node_e},
+        edges={
+            GraphEdge(from_node=node_a, to_node=node_b),
+            GraphEdge(from_node=node_b, to_node=node_c),
+            GraphEdge(from_node=node_d, to_node=node_e),
+        },
+    )
 
     # When A completes, only B should be ready (not E)
     ready = graph._find_newly_ready_nodes([node_a])
@@ -2478,3 +2498,425 @@ def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
     ready = graph._find_newly_ready_nodes([node_d])
     ready_ids = {n.node_id for n in ready}
     assert ready_ids == {"E"}, f"Expected only E, got {ready_ids}"
+
+
+# =============================================================================
+# Tests for EdgeConditionWithContext (invocation_state in edge conditions)
+# =============================================================================
+
+
+class TestEdgeConditionProtocol:
+    """Tests for the EdgeConditionWithContext protocol and dispatch logic."""
+
+    def test_legacy_condition_still_works(self):
+        """Verify Callable[[GraphState], bool] conditions work unchanged."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        def legacy_condition(state: GraphState) -> bool:
+            return len(state.completed_nodes) > 0
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=legacy_condition)
+
+        assert not edge.should_traverse(GraphState())
+        assert edge.should_traverse(GraphState(completed_nodes={node_a}))
+
+    def test_legacy_condition_not_affected_by_invocation_state(self):
+        """Legacy conditions should work even when invocation_state is passed."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        def legacy_condition(state: GraphState) -> bool:
+            return True
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=legacy_condition)
+        assert edge.should_traverse(GraphState(), invocation_state={"key": "value"})
+
+    def test_new_style_condition_receives_invocation_state(self):
+        """Verify EdgeConditionWithContext receives invocation_state kwarg."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        received_invocation_state = {}
+
+        def context_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            received_invocation_state.update(invocation_state)
+            return invocation_state.get("enable_path", False)
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
+
+        # Without the flag, should not traverse
+        assert not edge.should_traverse(GraphState(), invocation_state={"enable_path": False})
+        assert received_invocation_state == {"enable_path": False}
+
+        # With the flag, should traverse
+        received_invocation_state.clear()
+        assert edge.should_traverse(GraphState(), invocation_state={"enable_path": True})
+        assert received_invocation_state == {"enable_path": True}
+
+    def test_condition_none_always_traverses(self):
+        """Verify edges without conditions always traverse."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=None)
+        assert edge.should_traverse(GraphState())
+        assert edge.should_traverse(GraphState(), invocation_state={"anything": True})
+
+    def test_new_style_condition_with_kwargs_extensibility(self):
+        """Verify conditions with **kwargs work for future extensibility."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        def extensible_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return True
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=extensible_condition)
+        assert edge.should_traverse(GraphState(), invocation_state={})
+
+    def test_invocation_state_defaults_to_empty_dict_when_none(self):
+        """Verify graceful behavior when invocation_state is None."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+
+        received = []
+
+        def context_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            received.append(invocation_state)
+            return True
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
+        assert edge.should_traverse(GraphState(), invocation_state=None)
+        assert received == [{}]
+
+
+class TestInvocationStatePropagation:
+    """Tests that invocation_state flows correctly through graph execution paths."""
+
+    def test_is_node_ready_with_conditions_passes_invocation_state(self):
+        """Verify _is_node_ready_with_conditions passes invocation_state to edge conditions."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_b.dependencies.add(node_a)
+
+        received_state = {}
+
+        def context_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            received_state.update(invocation_state)
+            return invocation_state.get("activate", False)
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={edge},
+            state=GraphState(completed_nodes={node_a}),
+            invocation_state={"activate": True},
+        )
+
+        assert graph._is_node_ready_with_conditions(node_b, [node_a])
+        assert received_state == {"activate": True}
+
+    def test_is_node_ready_with_conditions_invocation_state_false(self):
+        """Verify condition returning False blocks node readiness."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_b.dependencies.add(node_a)
+
+        def context_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return invocation_state.get("activate", False)
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={edge},
+            state=GraphState(completed_nodes={node_a}),
+            invocation_state={"activate": False},
+        )
+
+        assert not graph._is_node_ready_with_conditions(node_b, [node_a])
+
+    def test_build_node_input_passes_invocation_state(self):
+        """Verify _build_node_input uses invocation_state for edge condition evaluation."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_b.dependencies.add(node_a)
+
+        def context_condition(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return invocation_state.get("include_dep", False)
+
+        edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
+
+        mock_result = AgentResult(
+            message={"role": "assistant", "content": [{"text": "result from A"}]},
+            stop_reason="end_turn",
+            state={},
+            metrics=Mock(
+                accumulated_usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                accumulated_metrics={"latencyMs": 100.0},
+            ),
+        )
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={edge},
+            state=GraphState(
+                task="test task",
+                completed_nodes={node_a},
+                results={"A": NodeResult(result=mock_result)},
+            ),
+            invocation_state={"include_dep": False},
+        )
+
+        # With condition=False, dependency is excluded -> gets raw task
+        node_input = graph._build_node_input(node_b)
+        assert any("test task" in str(block) for block in node_input)
+
+        # With condition=True, dependency result is included
+        graph._current_invocation_state = {"include_dep": True}
+        node_input = graph._build_node_input(node_b)
+        input_text = " ".join(str(block) for block in node_input)
+        assert "result from A" in input_text
+
+
+class TestResumeDeadlockFix:
+    """Tests for the _compute_ready_nodes_for_resume deadlock fix with conditional edges."""
+
+    def test_resume_skips_false_condition_edges(self):
+        """Graph: A->(cond=False)->B, A->(unconditional)->C. C should be ready on resume."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_c = GraphNode(node_id="C", executor=create_mock_agent("C"))
+        node_b.dependencies.add(node_a)
+        node_c.dependencies.add(node_a)
+
+        def always_false(state: GraphState) -> bool:
+            return False
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=always_false),
+                GraphEdge(from_node=node_a, to_node=node_c),  # unconditional
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a}),
+        )
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        # C should be ready (unconditional edge from A), B should not (condition=False)
+        assert "C" in ready_ids
+        assert "B" not in ready_ids
+
+    def test_resume_diamond_with_conditional_skip(self):
+        """Exact scenario from issue comment: A->(cond=True)->B->C, A->(cond=False)->C.
+
+        When condition is False, B is skipped. C has two incoming edges:
+        - B->C (unconditional, but B never ran)
+        - A->C (condition=False, should be excluded from readiness check)
+
+        Without the fix, C is stuck because all() requires both edges satisfied.
+        With the fix, the A->C edge is excluded (condition=False), and since there
+        are no other traversable edges with incomplete sources, we need B->C.
+        But B never ran, so C can't be ready via B->C either.
+
+        The correct fix scenario: when condition selects the FAST path (True),
+        B runs and C should be ready via B->C (excluding A->C which is False).
+        """
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_c = GraphNode(node_id="C", executor=create_mock_agent("C"))
+        node_b.dependencies.add(node_a)
+        node_c.dependencies.add(node_a)
+        node_c.dependencies.add(node_b)
+
+        def use_fast_path(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return invocation_state.get("fast", False)
+
+        def skip_direct(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return not invocation_state.get("fast", False)
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=use_fast_path),
+                GraphEdge(from_node=node_a, to_node=node_c, condition=skip_direct),
+                GraphEdge(from_node=node_b, to_node=node_c),
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a, node_b}),
+            invocation_state={"fast": True},
+        )
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        # C should be ready: A->C edge excluded (condition=False), B->C is unconditional and B completed
+        assert "C" in ready_ids
+
+    def test_resume_all_conditions_false_blocks_node(self):
+        """If ALL incoming edges have conditions that are False, node should not be ready."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_b.dependencies.add(node_a)
+
+        def always_false(state: GraphState) -> bool:
+            return False
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=always_false),
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a}),
+        )
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        assert "B" not in ready_ids
+
+    def test_resume_with_invocation_state_condition(self):
+        """Condition uses invocation_state; on resume with same state, correct routing."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_c = GraphNode(node_id="C", executor=create_mock_agent("C"))
+        node_b.dependencies.add(node_a)
+        node_c.dependencies.add(node_a)
+
+        def check_role(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return invocation_state.get("role") == "admin"
+
+        def check_not_admin(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return invocation_state.get("role") != "admin"
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b, condition=check_role),
+                GraphEdge(from_node=node_a, to_node=node_c, condition=check_not_admin),
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a}),
+        )
+
+        # As admin: only B should be ready
+        graph._current_invocation_state = {"role": "admin"}
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        assert ready_ids == {"B"}
+
+        # As non-admin: only C should be ready
+        graph._current_invocation_state = {"role": "user"}
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        assert ready_ids == {"C"}
+
+    def test_resume_mixed_conditional_unconditional_edges(self):
+        """Node with both conditional (False) and unconditional edges: ready if unconditional source completed."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+        node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
+        node_c = GraphNode(node_id="C", executor=create_mock_agent("C"))
+        node_b.dependencies.add(node_a)
+        node_c.dependencies.add(node_a)
+        node_c.dependencies.add(node_b)
+
+        def always_false(state: GraphState) -> bool:
+            return False
+
+        graph = _make_graph(
+            nodes={"A": node_a, "B": node_b, "C": node_c},
+            edges={
+                GraphEdge(from_node=node_a, to_node=node_b),  # unconditional
+                GraphEdge(from_node=node_a, to_node=node_c, condition=always_false),  # conditional (False)
+                GraphEdge(from_node=node_b, to_node=node_c),  # unconditional
+            },
+            state=GraphState(status=Status.INTERRUPTED, completed_nodes={node_a, node_b}),
+        )
+
+        ready = graph._compute_ready_nodes_for_resume()
+        ready_ids = {n.node_id for n in ready}
+        # C should be ready: A->C is excluded (condition=False), B->C is unconditional and B completed
+        assert "C" in ready_ids
+
+
+class TestSerializationWithInvocationState:
+    """Tests for serialization/deserialization of invocation_state."""
+
+    def test_serialize_includes_invocation_state(self):
+        """Verify invocation_state appears in serialized payload."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+
+        graph = _make_graph(
+            nodes={"A": node_a},
+            state=GraphState(status=Status.COMPLETED, completed_nodes={node_a}, task="test"),
+            invocation_state={"feature_flag": True, "user_id": "123"},
+        )
+
+        serialized = graph.serialize_state()
+        assert "invocation_state" in serialized
+        assert serialized["invocation_state"] == {"feature_flag": True, "user_id": "123"}
+
+    def test_deserialize_restores_invocation_state(self):
+        """Verify invocation_state is restored on deserialization."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+
+        graph = _make_graph(nodes={"A": node_a})
+
+        payload = {
+            "status": "completed",
+            "completed_nodes": [],
+            "next_nodes_to_execute": [],
+            "invocation_state": {"role": "admin"},
+        }
+        graph.deserialize_state(payload)
+        assert graph._current_invocation_state == {"role": "admin"}
+
+    def test_deserialize_missing_invocation_state_defaults_empty(self):
+        """Backwards compat: old serialized payloads without invocation_state still work."""
+        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
+
+        graph = _make_graph(nodes={"A": node_a})
+
+        payload = {
+            "status": "completed",
+            "completed_nodes": [],
+            "next_nodes_to_execute": [],
+        }
+        graph.deserialize_state(payload)
+        assert graph._current_invocation_state == {}
+
+
+class TestConditionSignatureDetection:
+    """Tests for the _is_context_condition helper."""
+
+    def test_detects_legacy_condition(self):
+        """Legacy condition without invocation_state param."""
+        from strands.multiagent.graph import _is_context_condition
+
+        def legacy(state: GraphState) -> bool:
+            return True
+
+        assert not _is_context_condition(legacy)
+
+    def test_detects_new_style_condition(self):
+        """New-style condition with invocation_state param."""
+        from strands.multiagent.graph import _is_context_condition
+
+        def new_style(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+            return True
+
+        assert _is_context_condition(new_style)
+
+    def test_detects_positional_invocation_state(self):
+        """Condition with invocation_state as positional param (also supported)."""
+        from strands.multiagent.graph import _is_context_condition
+
+        def positional(state: GraphState, invocation_state: dict) -> bool:
+            return True
+
+        assert _is_context_condition(positional)
+
+    def test_lambda_without_invocation_state(self):
+        """Lambda conditions (legacy pattern)."""
+        from strands.multiagent.graph import _is_context_condition
+
+        cond = lambda state: len(state.completed_nodes) > 0  # noqa: E731
+        assert not _is_context_condition(cond)
