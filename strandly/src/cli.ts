@@ -99,6 +99,7 @@ program
     linkCli()
     generate()
     build()
+    installPyWasm()
     test()
   })
 
@@ -183,8 +184,11 @@ function setup(opts?: { node?: boolean; python?: boolean }): void {
   if (all || opts?.python) {
     run('python3 -m venv .venv', { cwd: ROOT })
     run(`${VENV}/bin/pip install -e .`, { cwd: ROOT })
-    run(`${VENV}/bin/pip install -e strands-py-wasm/`, { cwd: ROOT })
   }
+}
+
+function installPyWasm(): void {
+  run(`${VENV}/bin/pip install -e strands-py-wasm/`, { cwd: ROOT })
 }
 
 function linkCli(): void {
@@ -250,6 +254,7 @@ function generate(opts?: { check?: boolean }): void {
   // Output is a package: one module per WIT interface plus an __init__.py.
   // The hand-written ``strands.types`` module re-exports the curated public
   // subset from this private ``_generated`` package.
+  run('rm -rf strands-py-wasm/src/strands/_generated')
   run(`${VENV}/bin/python -m wasmtime.component.bindgen wit -o strands-py-wasm/src/strands/_generated`)
 
   // Ensure TS + WASM are built first.

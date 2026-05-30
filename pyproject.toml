@@ -6,6 +6,9 @@ requires-python = ">=3.10"
 dependencies = [
     # Build-time codegen: parses WIT and emits Python bindings.
     "componentize-py>=0.23.0,<1.0.0",
+    # Forked wasmtime-py with async component model support.
+    # Used by ``strandly generate`` (wasmtime.component.bindgen) and at runtime by strands-py-wasm.
+    "pgrayy-wasmtime @ git+https://github.com/pgrayy/wasm-deps.git@4b5dc41512109ebafe4c4f1edd592c739872c640#subdirectory=wasmtime-py",
     # Linter/formatter used by ``strandly check --py`` and ``strandly fmt``.
     "ruff>=0.13.0,<0.15.0",
     # Type checker used by ``strandly check --py``.

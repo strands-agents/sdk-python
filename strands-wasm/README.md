@@ -19,7 +19,6 @@ In WIT terminology, the WASM component is the "guest" and Python is the "host". 
 
 - Node.js 20+
 - Python 3.10+
-- [wasmtime-py](https://github.com/bytecodealliance/wasmtime-py) (forked build with async component model support)
 
 ### First-time setup
 
@@ -30,7 +29,7 @@ npm install
 npm run dev -- bootstrap
 ```
 
-`bootstrap` installs toolchains, generates type bindings, builds all layers, and runs all tests. If this command doesn't enable development out of the box, file an issue.
+`bootstrap` installs toolchains, links `strandly` to your PATH, generates type bindings, builds all layers, installs `strands-py-wasm`, and runs all tests. If this command doesn't enable development out of the box, file an issue.
 
 ## Architecture
 
@@ -56,26 +55,25 @@ graph TD
 | `strands-ts/`  | TypeScript | Agent runtime: event loop, model providers, tools, hooks, streaming |
 | `strands-wasm/` | TypeScript | Bridges the TS SDK to WIT exports, compiles to a WASM component    |
 | `strands-py-wasm/`  | Python     | Python wrapper: Agent class, @tool decorator, direct WASM host      |
-| `strands-dev/` | TypeScript | Dev CLI that orchestrates build, test, lint, and CI                 |
-| `dev-docs/`    | Markdown   | Design proposal and team decisions                                  |
+| `strandly/`    | TypeScript | Dev CLI that orchestrates build, test, lint, and CI                 |
+| `dev-docs/`    | Markdown   | Design proposals and team decisions                                 |
 
 ### Generated code
 
-`npm run dev -- generate` produces type bindings from `wit/agent.wit` into:
+`strandly generate` produces type bindings from `wit/agent.wit` into:
 
-- `strands-ts/generated/`
-- `strands-wasm/generated/`
+- `strands-ts/generated/` (gitignored)
+- `strands-wasm/generated/` (gitignored)
+- `strands-py-wasm/src/strands/_generated/` (committed)
 
-Generated files are created by running `npm run dev -- generate` (or `bootstrap`) and are gitignored. Do not edit them by hand. CI runs `generate --check` and fails if they are stale.
-
-Python types are auto-generated into `strands-py-wasm/strands/_generated/types.py` by `strands-py-wasm/scripts/generate_types.py`.
+Generated files are created by running `strandly generate` (or `bootstrap`). Do not edit them by hand. CI runs `strandly generate --check` and fails if they are stale.
 
 ### Tests
 
 | Layer          | Framework | Location                                                          |
 | -------------- | --------- | ----------------------------------------------------------------- |
 | TypeScript SDK | vitest    | `strands-ts/src/**/__tests__/` (unit), `strands-ts/test/` (integ) |
-| Python wrapper | pytest    | `strands-py-wasm/tests_integ/`                                         |
+| Python wrapper | pytest    | `strands-py-wasm/tests/`                                          |
 
 Add tests alongside the code you change. Bug fixes should include a test that reproduces the original issue.
 
@@ -83,13 +81,13 @@ Add tests alongside the code you change. Bug fixes should include a test that re
 
 Each layer depends on the layers above it in the pipeline. The `validate` command rebuilds and tests exactly the layers your change affects.
 
-| What you changed                      | Validate command                      |
-| ------------------------------------- | ------------------------------------- |
-| WIT contract (`wit/agent.wit`)        | `npm run dev -- validate wit`         |
-| TS SDK internals                      | `npm run dev -- validate ts`          |
-| TS SDK public API                     | `npm run dev -- validate ts-api`      |
-| WASM bridge (`strands-wasm/entry.ts`) | `npm run dev -- validate wasm`        |
-| Pure Python (`strands-py-wasm/`)           | `npm run dev -- validate py`          |
+| What you changed                      | Validate command              |
+| ------------------------------------- | ----------------------------- |
+| WIT contract (`wit/agent.wit`)        | `strandly validate wit`       |
+| TS SDK internals                      | `strandly validate ts`        |
+| TS SDK public API                     | `strandly validate ts-api`    |
+| WASM bridge (`strands-wasm/entry.ts`) | `strandly validate wasm`      |
+| Pure Python (`strands-py-wasm/`)      | `strandly validate py`        |
 
 **TS internals vs. public API:** The WASM bridge (`strands-wasm/entry.ts`) imports specific types and functions from `strands-ts/`. If your change modifies something the bridge imports, it is a public API change — use `validate ts-api`. If the bridge does not import it, use `validate ts`.
 
@@ -98,19 +96,20 @@ Each layer depends on the layers above it in the pipeline. The `validate` comman
 ## Dev CLI
 
 ```bash
-npm run dev -- <command> [options]
+strandly <command> [options]
 ```
 
 Most commands accept layer flags (`--ts`, `--wasm`, `--py`). No flags means all layers.
 
 | Command            | What it does                                                           |
 | ------------------ | ---------------------------------------------------------------------- |
-| `bootstrap`        | First-time setup: install, generate, build, test                       |
+| `bootstrap`        | First-time setup: install, link, generate, build, install py-wasm, test |
 | `setup`            | Install toolchains (`--node`, `--python`)                              |
+| `link`             | Install `strandly` on PATH as a live symlink to this repo              |
 | `generate`         | Regenerate type bindings from WIT (`--check`)                          |
-| `build`            | Compile layers (`--ts`, `--wasm`, `--py`, `--release`)                 |
+| `build`            | Compile layers (`--ts`, `--wasm`, `--py`)                              |
 | `test`             | Run tests (`--py`, `--ts`, or a specific `[file]`)                     |
-| `check`            | Lint and type-check (`--ts`, `--py`)                                   |
+| `check`            | Lint and type-check (`--ts`, `--wasm`, `--py`)                         |
 | `fmt`              | Format all code (`--check` to verify without writing)                  |
 | `validate <layer>` | Rebuild and test the layers affected by a change                       |
 | `ci`               | Full pipeline: generate, format, lint, build, test                     |
@@ -126,14 +125,14 @@ Most commands accept layer flags (`--ts`, `--wasm`, `--py`). No flags means all 
 | Python     | `ruff format` | `ruff check`   |
 
 ```bash
-npm run dev -- fmt       # format everything
-npm run dev -- check     # lint everything
+strandly fmt       # format everything
+strandly check     # lint everything
 ```
 
 Comments are normative statements that describe what code does or why a decision was made. Avoid TODO's without associated issues, notes-to-self, and parenthetical asides.
 
 ## Submitting a PR
 
-- Run `npm run dev -- ci` before pushing. This is the same pipeline CI runs.
+- Run `strandly ci` before pushing. This is the same pipeline CI runs.
 - Keep PRs focused on a single change.
 - Use conventional commit messages: `feat:`, `fix:`, `refactor:`, `docs:`, etc.

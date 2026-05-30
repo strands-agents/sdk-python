@@ -1,6 +1,6 @@
 import pytest
 
-from strands import Agent, BedrockModel, StreamEvent, StreamEvent_Stop
+from strands import Agent, BedrockModel, types
 
 
 @pytest.fixture
@@ -16,6 +16,6 @@ def agent(model):
 @pytest.mark.asyncio
 async def test_stream_async_hello_world(agent):
     async for event in agent.stream_async("Say hello world"):
-        assert isinstance(event, StreamEvent)
+        assert isinstance(event, types.StreamEvent)
 
-    assert isinstance(event, StreamEvent_Stop)
+    assert isinstance(event, types.StreamEvent.Stop)
