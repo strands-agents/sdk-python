@@ -110,7 +110,8 @@ class GraphState:
 
     Attributes:
         status: Current execution status of the graph.
-        completed_nodes: Set of nodes that have completed execution.
+        completed_nodes: Set of nodes whose execution is settled — either completed normally or skipped via cancel_node.
+            Both statuses satisfy downstream readiness checks; inspect node.execution_status to distinguish them.
         failed_nodes: Set of nodes that failed during execution.
         interrupted_nodes: Set of nodes that user interrupted during execution.
         execution_order: List of nodes in the order they were executed.
@@ -176,6 +177,7 @@ class GraphResult(MultiAgentResult):
 
     total_nodes: int = 0
     completed_nodes: int = 0
+    skipped_nodes: int = 0
     failed_nodes: int = 0
     interrupted_nodes: int = 0
     execution_order: list["GraphNode"] = field(default_factory=list)
@@ -1006,16 +1008,16 @@ class Graph(MultiAgentBase):
                 logger.debug("reason=<%s> | node skipped, graph continues", cancel_message)
                 yield MultiAgentNodeCancelEvent(node.node_id, cancel_message)
                 node_result = NodeResult(
-                    result=RuntimeError(cancel_message),
+                    result=None,
                     execution_time=0,
-                    status=Status.COMPLETED,
+                    status=Status.SKIPPED,
                     accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
                     accumulated_metrics=Metrics(latencyMs=0),
                     execution_count=0,
                 )
                 node.result = node_result
                 node.execution_time = 0
-                node.execution_status = Status.COMPLETED
+                node.execution_status = Status.SKIPPED
                 self.state.completed_nodes.add(node)
                 self.state.results[node.node_id] = node_result
                 self.state.execution_order.append(node)
@@ -1209,7 +1211,7 @@ class Graph(MultiAgentBase):
 
                     return node_responses
 
-        # Get satisfied dependencies
+        # Get satisfied dependencies, excluding skipped nodes (they produced no output)
         dependency_results = {}
         for edge in self.edges:
             if (
@@ -1218,7 +1220,9 @@ class Graph(MultiAgentBase):
                 and edge.from_node.node_id in self.state.results
             ):
                 if edge.should_traverse(self.state, invocation_state=self._current_invocation_state):
-                    dependency_results[edge.from_node.node_id] = self.state.results[edge.from_node.node_id]
+                    node_result = self.state.results[edge.from_node.node_id]
+                    if node_result.status != Status.SKIPPED:
+                        dependency_results[edge.from_node.node_id] = node_result
 
         if not dependency_results:
             # No dependencies - return task as ContentBlocks
@@ -1269,7 +1273,12 @@ class Graph(MultiAgentBase):
             execution_count=self.state.execution_count,
             execution_time=self._execution_time_with_active_interval(self.state.execution_time),
             total_nodes=self.state.total_nodes,
-            completed_nodes=len(self.state.completed_nodes),
+            completed_nodes=sum(
+                1 for n in self.state.completed_nodes if n.execution_status == Status.COMPLETED
+            ),
+            skipped_nodes=sum(
+                1 for n in self.state.completed_nodes if n.execution_status == Status.SKIPPED
+            ),
             failed_nodes=len(self.state.failed_nodes),
             interrupted_nodes=len(self.state.interrupted_nodes),
             execution_order=self.state.execution_order,
@@ -1496,7 +1505,8 @@ class Graph(MultiAgentBase):
             self.nodes[node_id] for node_id in (payload.get("completed_nodes") or []) if node_id in self.nodes
         )
         for node in self.state.completed_nodes:
-            node.execution_status = Status.COMPLETED
+            nr = results.get(node.node_id)
+            node.execution_status = Status.SKIPPED if (nr and nr.status == Status.SKIPPED) else Status.COMPLETED
 
         # Execution order (only nodes that still exist)
         order_node_ids = payload.get("execution_order") or []

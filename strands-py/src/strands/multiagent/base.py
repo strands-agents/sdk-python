@@ -30,6 +30,7 @@ class Status(Enum):
         PENDING: Task has not started execution yet.
         EXECUTING: Task is currently running.
         COMPLETED: Task finished successfully.
+        SKIPPED: Task was intentionally bypassed via cancel_node; downstream nodes still execute.
         FAILED: Task encountered an error and could not complete.
         INTERRUPTED: Task was interrupted by user.
     """
@@ -37,6 +38,7 @@ class Status(Enum):
     PENDING = "pending"
     EXECUTING = "executing"
     COMPLETED = "completed"
+    SKIPPED = "skipped"
     FAILED = "failed"
     INTERRUPTED = "interrupted"
 
@@ -45,8 +47,8 @@ class Status(Enum):
 class NodeResult:
     """Unified result from node execution - handles both Agent and nested MultiAgentBase results."""
 
-    # Core result data - single AgentResult, nested MultiAgentResult, or Exception
-    result: Union[AgentResult, "MultiAgentResult", Exception]
+    # Core result data - single AgentResult, nested MultiAgentResult, Exception, or None (skipped)
+    result: Union[AgentResult, "MultiAgentResult", Exception, None]
 
     # Execution metadata
     execution_time: int = 0
@@ -73,8 +75,8 @@ class NodeResult:
 
     def get_agent_results(self) -> list[AgentResult]:
         """Get all AgentResult objects from this node, flattened if nested."""
-        if isinstance(self.result, Exception):
-            return []  # No agent results for exceptions
+        if self.result is None or isinstance(self.result, Exception):
+            return []
         elif isinstance(self.result, AgentResult):
             return [self.result]
         else:
@@ -86,8 +88,10 @@ class NodeResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert NodeResult to JSON-serializable dict, ignoring state field."""
-        if isinstance(self.result, Exception):
-            result_data: dict[str, Any] = {"type": "exception", "message": str(self.result)}
+        if self.result is None:
+            result_data: dict[str, Any] = {"type": "skipped"}
+        elif isinstance(self.result, Exception):
+            result_data = {"type": "exception", "message": str(self.result)}
         elif isinstance(self.result, AgentResult):
             result_data = self.result.to_dict()
         else:
@@ -111,8 +115,10 @@ class NodeResult:
             raise TypeError("NodeResult.from_dict: missing 'result'")
         raw = data["result"]
 
-        result: AgentResult | MultiAgentResult | Exception
-        if isinstance(raw, dict) and raw.get("type") == "agent_result":
+        result: AgentResult | MultiAgentResult | Exception | None
+        if isinstance(raw, dict) and raw.get("type") == "skipped":
+            result = None
+        elif isinstance(raw, dict) and raw.get("type") == "agent_result":
             result = AgentResult.from_dict(raw)
         elif isinstance(raw, dict) and raw.get("type") == "exception":
             result = Exception(str(raw.get("message", "node failed")))

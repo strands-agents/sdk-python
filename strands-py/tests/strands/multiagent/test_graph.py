@@ -2225,6 +2225,9 @@ async def test_graph_cancel_node(cancel_node, cancel_message):
     assert graph.state.status == Status.COMPLETED
     assert any(n.node_id == "test_agent" for n in graph.state.completed_nodes)
     assert "test_agent" in graph.state.results
+    assert graph.state.results["test_agent"].status == Status.SKIPPED
+    skipped_node = next(n for n in graph.state.completed_nodes if n.node_id == "test_agent")
+    assert skipped_node.execution_status == Status.SKIPPED
     agent.__call__.assert_not_called()
 
 
@@ -2249,18 +2252,38 @@ async def test_graph_cancel_node_downstream_executes():
     graph = builder.build()
     graph.hooks.add_callback(BeforeNodeCallEvent, cancel_step_a)
 
+    graph_result = None
     async for event in graph.stream_async("test task"):
         if event.get("type") == "multiagent_node_cancel":
             cancelled_nodes.append(event["node_id"])
+        elif event.get("type") == "multiagent_result":
+            graph_result = event["result"]
 
     assert cancelled_nodes == ["step_a"]
     assert graph.state.status == Status.COMPLETED
     step_a.__call__.assert_not_called()
-    step_b.__call__.assert_not_called()  # stream_async uses stream_async on agent, not __call__
+    step_b.stream_async.assert_called_once()
+
     assert any(n.node_id == "step_a" for n in graph.state.completed_nodes)
     assert any(n.node_id == "step_b" for n in graph.state.completed_nodes)
     assert "step_a" in graph.state.results
     assert "step_b" in graph.state.results
+
+    # step_a was skipped — its NodeResult must carry Status.SKIPPED, not COMPLETED
+    assert graph.state.results["step_a"].status == Status.SKIPPED
+    assert graph.state.results["step_b"].status == Status.COMPLETED
+    skipped_node = next(n for n in graph.state.completed_nodes if n.node_id == "step_a")
+    assert skipped_node.execution_status == Status.SKIPPED
+
+    # step_b must receive only the original task — no orphaned "From step_a:" header
+    step_b_input = step_b.stream_async.call_args.args[0]
+    assert len(step_b_input) == 1
+    assert step_b_input[0]["text"] == "test task"
+
+    # GraphResult counters must separate skipped from completed
+    assert graph_result is not None
+    assert graph_result.completed_nodes == 1  # only step_b ran
+    assert graph_result.skipped_nodes == 1  # only step_a was skipped
 
 
 def test_graph_interrupt_on_before_node_call_event(interrupt_hook):
