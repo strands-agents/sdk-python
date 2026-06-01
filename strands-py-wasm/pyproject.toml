@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 
 [project]
-name = "strands-agents"
-version = "2.0.0a1"
+name = "strands-agents-wasm"
+version = "0.0.1"
 description = "A model-driven approach to building AI agents in just a few lines of code"
 requires-python = ">=3.10"
 license = "Apache-2.0"
