@@ -3,7 +3,13 @@ import { proceed, deny } from '../../interventions/actions.js'
 import type { InterventionAction } from '../../interventions/actions.js'
 import type { BeforeToolCallEvent } from '../../hooks/events.js'
 import type { OnError } from '../../interventions/handler.js'
-import { isAuthorized, type Entities, type CedarValueJson } from '@cedar-policy/cedar-wasm/nodejs'
+import {
+  isAuthorized,
+  checkParsePolicySet,
+  validate,
+  type Entities,
+  type CedarValueJson,
+} from '@cedar-policy/cedar-wasm/nodejs'
 import { readFileSync, existsSync } from 'node:fs'
 
 /**
@@ -88,6 +94,23 @@ export interface CedarAuthorizationConfig {
   entities?: CedarEntity[] | string
 
   /**
+   * Cedar schema text, or a path to a `.cedarschema` file on disk.
+   * When provided, policies are validated against the schema at construction
+   * time — catching type errors, unknown attributes, and invalid action names
+   * before any tool call happens.
+   *
+   * Generate a schema from your tool definitions using the
+   * {@link https://github.com/cedar-policy/cedar-for-agents | cedar-for-agents}
+   * schema generator.
+   *
+   * TODO: Auto-generate schema from agent tool definitions via
+   * `@cedar-policy/mcp-schema-generator-wasm` once published to npm.
+   * This would enable type-checking context.input field access
+   * (catching typos and type mismatches in policies at construction time).
+   */
+  schema?: string
+
+  /**
    * Resolves the Cedar principal from the agent's invocationState.
    * Return `undefined` to deny the request (fail-closed).
    *
@@ -110,7 +133,8 @@ export interface CedarAuthorizationConfig {
 
   /**
    * Adds extra fields to the `context.session` object passed to Cedar.
-   * Called on every tool invocation.
+   * Called on every tool invocation. Cannot overwrite built-in fields
+   * (`hour_utc`, `call_count`, `environment`).
    */
   contextEnricher?:
     | ((context: { toolName: string; toolInput: Record<string, CedarValueJson> }) => Record<string, CedarValueJson>)
@@ -136,6 +160,11 @@ export interface CedarAuthorizationConfig {
  * - One Cedar action per tool (e.g. `Action::"search"`)
  * - Resource is unconstrained by default (use `resourceResolver` for domain objects)
  * - Context is nested: `{ input: <tool args>, session: { hour_utc, call_count, ... } }`
+ *
+ * Rate-limit counters are scoped to the handler instance. If you share one
+ * `CedarAuthorization` across multiple agents, they share counters (keyed by
+ * `session_id` from invocationState). Call {@link resetSession} when a session
+ * ends to free memory.
  *
  * @see {@link https://docs.cedarpolicy.com/syntax-policy.html | Cedar policy syntax}
  * @see {@link https://docs.cedarpolicy.com/syntax-entity.html | Cedar entity model}
@@ -163,8 +192,12 @@ export class CedarAuthorization extends InterventionHandler {
   readonly name = 'cedar-authorization'
   override readonly onError: OnError
 
-  private readonly _policies: string
-  private readonly _entities: CedarEntity[]
+  private _policies: string
+  private _entities: CedarEntity[]
+  private _schema: string | undefined
+  private readonly _policySource: string
+  private readonly _entitySource: CedarEntity[] | string | undefined
+  private readonly _schemaSource: string | undefined
   private readonly _principalResolver: (invocationState: Record<string, CedarValueJson>) => CedarEntityUid | undefined
   private readonly _resourceResolver: ResourceResolver | undefined
   private readonly _contextEnricher: CedarAuthorizationConfig['contextEnricher']
@@ -173,12 +206,18 @@ export class CedarAuthorization extends InterventionHandler {
 
   constructor(config: CedarAuthorizationConfig) {
     super()
+    this._policySource = config.policies
+    this._entitySource = config.entities
+    this._schemaSource = config.schema
     this._policies = loadPolicies(config.policies)
     this._entities = loadEntities(config.entities)
+    this._schema = config.schema ? loadSchema(config.schema) : undefined
     this._principalResolver = config.principalResolver
     this._resourceResolver = config.resourceResolver
     this._contextEnricher = config.contextEnricher
     this.onError = config.onError ?? 'throw'
+
+    validatePolicies(this._policies, this._schema)
   }
 
   override beforeToolCall(event: BeforeToolCallEvent): InterventionAction {
@@ -229,6 +268,19 @@ export class CedarAuthorization extends InterventionHandler {
     this._callCounts.delete(sessionId)
   }
 
+  /**
+   * Reloads policies and entities from their original sources (file paths or inline).
+   * Use this to pick up policy file changes at runtime without recreating the handler.
+   *
+   * @throws If the policy file no longer exists or contains invalid Cedar syntax.
+   */
+  reload(): void {
+    this._policies = loadPolicies(this._policySource)
+    this._entities = loadEntities(this._entitySource)
+    this._schema = this._schemaSource ? loadSchema(this._schemaSource) : undefined
+    validatePolicies(this._policies, this._schema)
+  }
+
   private _resolveResource(toolName: string, toolInput: Record<string, CedarValueJson>): CedarEntityUid {
     if (!this._resourceResolver) {
       return { type: 'Resource', id: 'agent' }
@@ -258,7 +310,39 @@ export class CedarAuthorization extends InterventionHandler {
     session.set(toolName, next)
     return next
   }
+}
 
+function validatePolicies(policies: string, schema?: string): void {
+  const parseResult = checkParsePolicySet({ staticPolicies: policies })
+  if (parseResult.type === 'failure') {
+    const errors = parseResult.errors.map((e) => e.message).join(', ')
+    throw new Error(`Invalid Cedar policy: ${errors}`)
+  }
+
+  if (schema) {
+    const validationResult = validate({
+      schema,
+      policies: { staticPolicies: policies },
+    })
+    if (validationResult.type === 'failure') {
+      const errors = validationResult.errors.map((e) => e.message).join(', ')
+      throw new Error(`Cedar policy validation failed: ${errors}`)
+    }
+    if (validationResult.validationErrors.length > 0) {
+      const errors = validationResult.validationErrors.map((e) => `${e.policyId}: ${e.error.message}`).join(', ')
+      throw new Error(`Cedar policy validation failed: ${errors}`)
+    }
+  }
+}
+
+function loadSchema(schema: string): string {
+  if (schema.endsWith('.cedarschema')) {
+    if (!existsSync(schema)) {
+      throw new Error(`Cedar schema file not found: ${schema}`)
+    }
+    return readFileSync(schema, 'utf-8')
+  }
+  return schema
 }
 
 function loadPolicies(policies: string): string {

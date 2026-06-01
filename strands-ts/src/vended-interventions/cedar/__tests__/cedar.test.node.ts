@@ -230,26 +230,15 @@ describe('CedarAuthorization', () => {
       expect(toolExecuted).toBe(false)
     })
 
-    it('denies on malformed policy (evaluation failure)', async () => {
-      const model = new MockMessageModel()
-        .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: {} })
-        .addTurn({ type: 'textBlock', text: 'Ok' })
-
-      let toolExecuted = false
-      const tool = createMockTool('search', () => {
-        toolExecuted = true
-        return 'results'
-      })
-
-      const cedar = new CedarAuthorization({
-        policies: 'this is not valid cedar syntax at all!!!',
-        entities,
-        principalResolver: () => ({ type: 'User', id: 'alice' }),
-      })
-
-      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
-      await agent.invoke('Search', { invocationState: {} })
-      expect(toolExecuted).toBe(false)
+    it('throws on malformed policy at construction time', () => {
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: 'this is not valid cedar syntax at all!!!',
+            entities,
+            principalResolver: () => ({ type: 'User', id: 'alice' }),
+          })
+      ).toThrow('Invalid Cedar policy')
     })
   })
 
@@ -572,6 +561,112 @@ describe('CedarAuthorization', () => {
       const agent2 = new Agent({ model: model2, tools: [tool2], interventions: [cedar], printer: false })
       await agent2.invoke('Send again', { invocationState: { session_id: 'sess1' } })
       expect(toolExecuted).toBe(true)
+    })
+  })
+
+  describe('reload', () => {
+    it('reloads policies from file', () => {
+      const cedar = new CedarAuthorization({
+        policies: `${FIXTURES}/test.cedar`,
+        principalResolver: () => ({ type: 'User', id: 'alice' }),
+      })
+
+      // reload() should not throw — file still exists and is valid
+      expect(() => cedar.reload()).not.toThrow()
+    })
+
+    it('throws on reload if policy file was deleted', () => {
+      const { writeFileSync, unlinkSync } = require('node:fs') as typeof import('node:fs')
+      const tmpFile = `${FIXTURES}/_tmp_reload_test.cedar`
+      writeFileSync(tmpFile, 'permit(principal, action, resource);')
+
+      const cedar = new CedarAuthorization({
+        policies: tmpFile,
+        principalResolver: () => ({ type: 'User', id: 'alice' }),
+      })
+
+      unlinkSync(tmpFile)
+      expect(() => cedar.reload()).toThrow('Cedar policy file not found')
+    })
+
+    it('validates policies on reload', () => {
+      const { writeFileSync, unlinkSync } = require('node:fs') as typeof import('node:fs')
+      const tmpFile = `${FIXTURES}/_tmp_reload_invalid.cedar`
+      writeFileSync(tmpFile, 'permit(principal, action, resource);')
+
+      const cedar = new CedarAuthorization({
+        policies: tmpFile,
+        principalResolver: () => ({ type: 'User', id: 'alice' }),
+      })
+
+      // Overwrite with invalid content
+      writeFileSync(tmpFile, 'this is broken!!!')
+      expect(() => cedar.reload()).toThrow('Invalid Cedar policy')
+
+      // Cleanup
+      unlinkSync(tmpFile)
+    })
+  })
+
+  describe('schema validation', () => {
+    it('passes validation when policies match schema', () => {
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: 'permit(principal is User, action == Action::"search", resource is Resource);',
+            schema: `${FIXTURES}/test.cedarschema`,
+            principalResolver: () => ({ type: 'User', id: 'alice' }),
+          })
+      ).not.toThrow()
+    })
+
+    it('throws when policy references unknown action', () => {
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: 'permit(principal, action == Action::"nonexistent_tool", resource);',
+            schema: `${FIXTURES}/test.cedarschema`,
+            principalResolver: () => ({ type: 'User', id: 'alice' }),
+          })
+      ).toThrow('Cedar policy validation failed')
+    })
+
+    it('throws when policy references unknown attribute', () => {
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: 'permit(principal, action == Action::"search", resource) when { principal.nonexistent == "x" };',
+            schema: `${FIXTURES}/test.cedarschema`,
+            principalResolver: () => ({ type: 'User', id: 'alice' }),
+          })
+      ).toThrow('Cedar policy validation failed')
+    })
+
+    it('accepts inline schema string', () => {
+      const schema = `
+        entity User = { role: String };
+        entity Resource;
+        action "search" appliesTo { principal: [User], resource: [Resource] };
+      `
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: 'permit(principal is User, action == Action::"search", resource is Resource);',
+            schema,
+            principalResolver: () => ({ type: 'User', id: 'alice' }),
+          })
+      ).not.toThrow()
+    })
+
+    it('skips schema validation when schema is not provided', () => {
+      // This policy references an unknown entity type — without schema, it passes parse check
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: 'permit(principal, action == Action::"anything", resource);',
+            principalResolver: () => ({ type: 'User', id: 'alice' }),
+          })
+      ).not.toThrow()
     })
   })
 })
