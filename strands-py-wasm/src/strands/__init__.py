@@ -269,7 +269,7 @@ class InterruptResponse(types.RespondArgs):
 class DecoratedTool:
     """A Python function exposed to the agent as a tool.
 
-    Build one with the :func:`tool` decorator, then pass it to
+    Build one with the ``@tool`` decorator, then pass it to
     :class:`Agent` via ``tools=[...]``. The agent will call the function
     when the model invokes the tool by name.
 
@@ -308,10 +308,10 @@ class DecoratedTool:
     def invoke(self, raw_input: str) -> list[types.ToolResultContent]:
         """Run the tool with a JSON object of keyword arguments."""
         kwargs = json.loads(raw_input) if raw_input else {}
-        return _coerce_tool_result(self.func(**kwargs))
+        return _normalize_tool_result(self.func(**kwargs))
 
 
-def _coerce_tool_result(result: Any) -> list[types.ToolResultContent]:
+def _normalize_tool_result(result: Any) -> list[types.ToolResultContent]:
     if isinstance(result, str):
         return [types.ToolResultContent.Text(types.TextBlock(text=result))]
     if isinstance(result, types.TextBlock):
