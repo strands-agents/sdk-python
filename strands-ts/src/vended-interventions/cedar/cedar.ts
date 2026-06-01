@@ -192,8 +192,6 @@ export class CedarAuthorization extends InterventionHandler {
     const callCount = this._incrementCallCount(sessionId, event.toolUse.name)
     const toolInput = (event.toolUse.input ?? {}) as Record<string, CedarValueJson>
     const resource = this._resolveResource(event.toolUse.name, toolInput)
-    const env = invocationState.environment as string | undefined
-
     const result = isAuthorized({
       principal,
       action: { type: 'Action', id: event.toolUse.name },
@@ -203,7 +201,7 @@ export class CedarAuthorization extends InterventionHandler {
         session: {
           hour_utc: new Date().getUTCHours(),
           call_count: callCount,
-          ...(env !== undefined && { environment: env }),
+          environment: (invocationState.environment as string | undefined) ?? 'unknown',
           ...(this._contextEnricher ? this._contextEnricher({ toolName: event.toolUse.name, toolInput }) : {}),
         },
       },
