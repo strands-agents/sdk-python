@@ -199,10 +199,10 @@ export class CedarAuthorization extends InterventionHandler {
       context: {
         input: toolInput,
         session: {
+          ...(this._contextEnricher ? this._contextEnricher({ toolName: event.toolUse.name, toolInput }) : {}),
           hour_utc: new Date().getUTCHours(),
           call_count: callCount,
           environment: (invocationState.environment as string | undefined) ?? 'unknown',
-          ...(this._contextEnricher ? this._contextEnricher({ toolName: event.toolUse.name, toolInput }) : {}),
         },
       },
       policies: { staticPolicies: this._policies },
