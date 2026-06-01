@@ -310,3 +310,16 @@ export type { StreamType, StreamChunk, FileInfo, OutputFile, ExecutionResult } f
 // Multi-agent orchestration
 export { Graph } from './multiagent/index.js'
 export { Swarm } from './multiagent/index.js'
+
+// Memory management
+export { MemoryManager } from './memory/index.js'
+export type {
+  MemoryEntry,
+  MemoryStore,
+  MemoryStoreConfig,
+  SearchOptions,
+  SearchMemoryOptions,
+  AddMemoryOptions,
+  MemoryToolConfig,
+  MemoryManagerConfig,
+} from './memory/index.js'
