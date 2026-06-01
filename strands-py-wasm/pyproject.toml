@@ -28,8 +28,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    # Imports as `wasmtime`. Pinned to pgrayy/wasm-deps git URL until upstream PRs land.
-    "pgrayy-wasmtime @ git+https://github.com/pgrayy/wasm-deps.git@4b5dc41512109ebafe4c4f1edd592c739872c640#subdirectory=wasmtime-py",
+    "pgrayy-wasmtime>=46.0.7",
     "botocore>=1.29.0,<2.0.0",
 ]
 
@@ -43,10 +42,6 @@ Homepage = "https://github.com/strands-agents/sdk-python"
 "Bug Tracker" = "https://github.com/strands-agents/sdk-python/issues"
 Documentation = "https://strandsagents.com"
 
-
-[tool.hatch.metadata]
-# pgrayy-wasmtime is pinned via a git URL until upstream PRs land.
-allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/strands"]
