@@ -44,6 +44,8 @@ import { PluginRegistry } from '../plugins/registry.js'
 import { SlidingWindowConversationManager } from '../conversation-manager/sliding-window-conversation-manager.js'
 import { NullConversationManager } from '../conversation-manager/null-conversation-manager.js'
 import { ConversationManager } from '../conversation-manager/conversation-manager.js'
+import type { ContextManagerParam } from '../context-manager/context-manager.js'
+import { resolveContextManager } from '../context-manager/context-manager.js'
 import { HookRegistryImplementation } from '../hooks/registry.js'
 import type { HookableEventConstructor, HookCallback, HookCallbackOptions, HookCleanup } from '../hooks/types.js'
 import {
@@ -168,8 +170,23 @@ export type AgentConfig = {
    */
   printer?: boolean
   /**
+   * Pre-composed context management strategy.
+   *
+   * - `"auto"`: enables tool result caching and proactive compression with defaults.
+   * - Object: fine-grained control over strategy, storage, caching, and compression settings.
+   * - `undefined` (default): no context management facade; use `conversationManager`
+   *   and `plugins` directly.
+   *
+   * When set, takes priority over `conversationManager` — `NullConversationManager` is used.
+   */
+  contextManager?: ContextManagerParam
+  /**
    * Conversation manager for handling message history and context overflow.
    * Defaults to SlidingWindowConversationManager with windowSize of 40.
+   *
+   * @remarks Pending deprecation — use `contextManager` instead. The `contextManager` parameter
+   * composes compression, tool result caching, and token estimation into a single
+   * configuration surface. This field will be deprecated in a future version.
    */
   conversationManager?: ConversationManager
   /**
@@ -331,15 +348,29 @@ export class Agent implements LocalAgent, InvokableAgent {
       this.model = config?.model ?? new BedrockModel()
     }
 
-    // Validate and assign conversation manager
+    let contextManagerPlugin: Plugin | undefined
+    if (config?.contextManager) {
+      contextManagerPlugin = resolveContextManager(config.contextManager, config.plugins)
+    }
+
+    // Validate and assign conversation manager.
+    // When contextManager is set, ContextCompression owns compression — use NullConversationManager.
     if (this.model.stateful) {
-      if (config?.conversationManager) {
+      if (config?.conversationManager || config?.contextManager) {
         throw new Error(
-          'Cannot use a conversationManager with a stateful model. The model manages conversation state server-side.'
+          'Cannot use a conversationManager or contextManager with a stateful model. The model manages conversation state server-side.'
         )
       }
       this._conversationManager = new NullConversationManager()
+    } else if (contextManagerPlugin) {
+      if (config?.conversationManager) {
+        logger.warn('contextManager takes priority over conversationManager — conversationManager will be ignored')
+      }
+      this._conversationManager = new NullConversationManager()
     } else {
+      if (config?.conversationManager) {
+        logger.warn('conversationManager is deprecated and will be removed in v2. Use contextManager instead.')
+      }
       this._conversationManager =
         config?.conversationManager ?? new SlidingWindowConversationManager({ windowSize: 40 })
     }
@@ -372,9 +403,12 @@ export class Agent implements LocalAgent, InvokableAgent {
     // - Retry-strategy ordering is not load-bearing for correctness: `DefaultModelRetryStrategy`
     //   guards on `event.retry`, so a user hook that already set it short-circuits
     //   the strategy regardless of registration order.
+    // - contextManager plugin goes before user plugins so the offloader's AfterToolCallEvent
+    //   hook fires first, ensuring large results are cached before user hooks see the event.
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
       ...retryStrategies,
+      ...(contextManagerPlugin ? [contextManagerPlugin] : []),
       ...(config?.plugins ?? []),
       ...(config?.sessionManager ? [config.sessionManager] : []),
       new ModelPlugin(this.model),
@@ -1397,7 +1431,8 @@ export class Agent implements LocalAgent, InvokableAgent {
 
     let attemptCount = 1
     while (true) {
-      // Estimate input tokens for the upcoming model call (non-fatal if estimation fails)
+      // Pending deprecation: token estimation will move fully to ContextManager.
+      // This remains for backward compat with standalone ConversationManager.proactiveCompression.
       let projectedInputTokens: number | undefined
       try {
         projectedInputTokens = await this._estimateInputTokens(streamOptions)

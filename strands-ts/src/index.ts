@@ -19,6 +19,10 @@ export type { ToolCaller, ToolCallerProxy, ToolHandle, DirectToolCallOptions } f
 export type { InvocationState, InvokeArgs, InvokeOptions, LocalAgent } from './types/agent.js'
 export type { LifecycleObserver } from './types/lifecycle-observer.js'
 
+// Context Manager
+export type { ContextManagerParam } from './context-manager/context-manager.js'
+export { pinMessageTool } from './context-manager/compression/protection.js'
+
 // Snapshot types
 export { SNAPSHOT_SCHEMA_VERSION } from './types/snapshot.js'
 export type { Scope, Snapshot } from './types/snapshot.js'
