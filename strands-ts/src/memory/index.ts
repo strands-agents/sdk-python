@@ -4,8 +4,9 @@ export type {
   MemoryStore,
   MemoryStoreConfig,
   SearchOptions,
-  MemorySearchOptions,
-  MemoryStoreOptions,
+  SearchMemoryOptions,
+  AddMemoryOptions,
   MemoryToolConfig,
   MemoryManagerConfig,
+  InjectionConfig,
 } from './types.js'

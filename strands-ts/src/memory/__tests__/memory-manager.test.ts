@@ -1,23 +1,48 @@
 import { describe, it, expect, vi } from 'vitest'
+import { z } from 'zod'
 import { Agent } from '../../agent/agent.js'
 import { MemoryManager } from '../memory-manager.js'
+import { tool } from '../../tools/tool-factory.js'
 import type { MemoryStore, MemoryEntry } from '../types.js'
-import type { InvokableTool } from '../../tools/tool.js'
+import type { InvokableTool, Tool } from '../../tools/tool.js'
+import { logger } from '../../logging/logger.js'
+import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '../../types/messages.js'
+import { BeforeModelCallEvent } from '../../hooks/events.js'
+import type { LocalAgent } from '../../types/agent.js'
 
 function createMockStore(
   name: string,
-  options?: { entries?: MemoryEntry[]; writable?: boolean; description?: string; limit?: number }
+  options?: {
+    entries?: MemoryEntry[]
+    writable?: boolean
+    description?: string
+    maxSearchResults?: number
+    tools?: Tool[]
+  }
 ): MemoryStore {
   const store: MemoryStore = {
     name,
+    writable: !!options?.writable,
     ...(options?.description && { description: options.description }),
-    ...(options?.limit != null && { limit: options.limit }),
+    ...(options?.maxSearchResults != null && { maxSearchResults: options.maxSearchResults }),
     search: vi.fn().mockResolvedValue(options?.entries ?? []),
   }
   if (options?.writable) {
     store.add = vi.fn().mockResolvedValue(undefined)
   }
+  if (options?.tools) {
+    store.getTools = vi.fn().mockReturnValue(options.tools)
+  }
   return store
+}
+
+function createNamedTool(name: string): Tool {
+  return tool({
+    name,
+    description: `test tool ${name}`,
+    inputSchema: z.object({}),
+    callback: () => 'ok',
+  })
 }
 
 describe('MemoryManager', () => {
@@ -37,42 +62,35 @@ describe('MemoryManager', () => {
       )
     })
 
-    it('throws when storeToolConfig references non-existent store', () => {
+    it('throws when a store is writable but has no add method', () => {
+      const broken: MemoryStore = { name: 'broken', writable: true, search: vi.fn().mockResolvedValue([]) }
+      expect(() => new MemoryManager({ stores: [broken] })).toThrow("store 'broken' is writable but has no add method")
+    })
+
+    it('throws when addToolConfig is enabled but no stores are writable', () => {
       expect(
         () =>
           new MemoryManager({
             stores: [createMockStore('a')],
-            storeToolConfig: { stores: ['nonexistent'] },
+            addToolConfig: true,
           })
-      ).toThrow("store 'nonexistent' not found")
+      ).toThrow('addToolConfig is enabled but no stores are writable')
     })
 
-    it('throws when storeToolConfig targets no writable stores', () => {
-      expect(
-        () =>
-          new MemoryManager({
-            stores: [createMockStore('a')],
-            storeToolConfig: true,
-          })
-      ).toThrow('storeToolConfig targets no writable stores')
-    })
-
-    it('throws when storeToolConfig is true with multiple writable stores and no explicit stores', () => {
-      expect(
-        () =>
-          new MemoryManager({
-            stores: [createMockStore('a', { writable: true }), createMockStore('b', { writable: true })],
-            storeToolConfig: true,
-          })
-      ).toThrow('must specify `stores` when multiple writable stores are configured')
-    })
-
-    it('allows storeToolConfig true with single writable store', () => {
+    it('allows addToolConfig true with a single writable store', () => {
       const mm = new MemoryManager({
         stores: [createMockStore('a', { writable: true })],
-        storeToolConfig: true,
+        addToolConfig: true,
       })
-      expect(mm.getTools().map((t) => t.name)).toContain('store_memory')
+      expect(mm.getTools().map((t) => t.name)).toContain('add_memory')
+    })
+
+    it('allows addToolConfig true with multiple writable stores', () => {
+      const mm = new MemoryManager({
+        stores: [createMockStore('a', { writable: true }), createMockStore('b', { writable: true })],
+        addToolConfig: true,
+      })
+      expect(mm.getTools().map((t) => t.name)).toContain('add_memory')
     })
   })
 
@@ -84,26 +102,26 @@ describe('MemoryManager', () => {
       expect(tools[0]!.name).toBe('search_memory')
     })
 
-    it('registers store tool when storeToolConfig is enabled', () => {
+    it('registers add tool when addToolConfig is enabled', () => {
       const mm = new MemoryManager({
         stores: [createMockStore('test', { writable: true })],
-        storeToolConfig: true,
+        addToolConfig: true,
       })
       const tools = mm.getTools()
-      expect(tools.map((t) => t.name)).toStrictEqual(['search_memory', 'store_memory'])
+      expect(tools.map((t) => t.name)).toStrictEqual(['search_memory', 'add_memory'])
     })
 
-    it('does not register store tool by default', () => {
+    it('does not register add tool by default', () => {
       const mm = new MemoryManager({ stores: [createMockStore('test', { writable: true })] })
       const tools = mm.getTools()
       expect(tools.map((t) => t.name)).toStrictEqual(['search_memory'])
     })
 
-    it('returns empty array when searchToolConfig is false and storeToolConfig is false', () => {
+    it('returns empty array when searchToolConfig is false and addToolConfig is false', () => {
       const mm = new MemoryManager({
         stores: [createMockStore('test', { writable: true })],
         searchToolConfig: false,
-        storeToolConfig: false,
+        addToolConfig: false,
       })
       expect(mm.getTools()).toStrictEqual([])
     })
@@ -112,7 +130,7 @@ describe('MemoryManager', () => {
       const mm = new MemoryManager({
         stores: [createMockStore('test', { writable: true })],
         searchToolConfig: { name: 'recall' },
-        storeToolConfig: { name: 'remember', stores: ['test'] },
+        addToolConfig: { name: 'remember' },
       })
       const tools = mm.getTools()
       expect(tools.map((t) => t.name)).toStrictEqual(['recall', 'remember'])
@@ -126,13 +144,35 @@ describe('MemoryManager', () => {
       expect(tools[0]!.description).toContain('target one or more memory stores by name')
     })
 
-    it('includes store descriptions in store tool description', () => {
+    it('includes store descriptions in add tool description', () => {
       const store = createMockStore('notes', { writable: true, description: 'Personal notes' })
-      const mm = new MemoryManager({ stores: [store], storeToolConfig: true })
+      const mm = new MemoryManager({ stores: [store], addToolConfig: true })
       const tools = mm.getTools()
-      const storeTool = tools.find((t) => t.name === 'store_memory')!
-      expect(storeTool.description).toContain('notes: Personal notes')
-      expect(storeTool.description).toContain('target a specific store by name')
+      const addTool = tools.find((t) => t.name === 'add_memory')!
+      expect(addTool.description).toContain('notes: Personal notes')
+      expect(addTool.description).toContain('target a specific store by name')
+    })
+
+    it('aggregates tools provided by stores via getTools', () => {
+      const store = createMockStore('kb', { tools: [createNamedTool('kb_query')] })
+      const mm = new MemoryManager({ stores: [store] })
+
+      expect(mm.getTools().map((t) => t.name)).toStrictEqual(['search_memory', 'kb_query'])
+    })
+
+    it('aggregates store tools across multiple stores alongside the manager tools', () => {
+      const a = createMockStore('a', { writable: true, tools: [createNamedTool('a_tool')] })
+      const b = createMockStore('b', { tools: [createNamedTool('b_tool')] })
+      const mm = new MemoryManager({ stores: [a, b], addToolConfig: true })
+
+      expect(mm.getTools().map((t) => t.name)).toStrictEqual(['search_memory', 'add_memory', 'a_tool', 'b_tool'])
+    })
+
+    it('includes store tools even when the manager registers no tools of its own', () => {
+      const store = createMockStore('kb', { tools: [createNamedTool('kb_query')] })
+      const mm = new MemoryManager({ stores: [store], searchToolConfig: false })
+
+      expect(mm.getTools().map((t) => t.name)).toStrictEqual(['kb_query'])
     })
   })
 
@@ -146,28 +186,28 @@ describe('MemoryManager', () => {
       expect(results).toStrictEqual([{ content: 'fact one' }, { content: 'fact two' }])
     })
 
-    it('passes limit to each store', async () => {
-      const store = createMockStore('a', { limit: 5 })
+    it('passes maxSearchResults to each store', async () => {
+      const store = createMockStore('a', { maxSearchResults: 5 })
       const mm = new MemoryManager({ stores: [store] })
 
       await mm.search('query')
-      expect(store.search).toHaveBeenCalledWith('query', { limit: 5 })
+      expect(store.search).toHaveBeenCalledWith('query', { maxSearchResults: 5 })
     })
 
-    it('overrides per-store limit with options.limit', async () => {
-      const store = createMockStore('a', { limit: 5 })
+    it('overrides per-store maxSearchResults with options.maxSearchResults', async () => {
+      const store = createMockStore('a', { maxSearchResults: 5 })
       const mm = new MemoryManager({ stores: [store] })
 
-      await mm.search('query', { limit: 2 })
-      expect(store.search).toHaveBeenCalledWith('query', { limit: 2 })
+      await mm.search('query', { maxSearchResults: 2 })
+      expect(store.search).toHaveBeenCalledWith('query', { maxSearchResults: 2 })
     })
 
-    it('defaults to limit of 3 when no limit configured', async () => {
+    it('defaults to 3 results when no maxSearchResults configured', async () => {
       const store = createMockStore('a')
       const mm = new MemoryManager({ stores: [store] })
 
       await mm.search('query')
-      expect(store.search).toHaveBeenCalledWith('query', { limit: 3 })
+      expect(store.search).toHaveBeenCalledWith('query', { maxSearchResults: 3 })
     })
 
     it('filters to named stores when options.stores is provided', async () => {
@@ -181,7 +221,11 @@ describe('MemoryManager', () => {
     })
 
     it('gracefully handles store failures', async () => {
-      const store1: MemoryStore = { name: 'failing', search: vi.fn().mockRejectedValue(new Error('network error')) }
+      const store1: MemoryStore = {
+        name: 'failing',
+        writable: false,
+        search: vi.fn().mockRejectedValue(new Error('network error')),
+      }
       const store2 = createMockStore('ok', { entries: [{ content: 'fact' }] })
       const mm = new MemoryManager({ stores: [store1, store2] })
 
@@ -210,13 +254,13 @@ describe('MemoryManager', () => {
     })
   })
 
-  describe('store', () => {
+  describe('add', () => {
     it('writes to all writable stores', async () => {
       const store1 = createMockStore('a', { writable: true })
       const store2 = createMockStore('b', { writable: true })
       const mm = new MemoryManager({ stores: [store1, store2] })
 
-      await mm.store('user likes coffee')
+      await mm.add('user likes coffee')
       expect(store1.add).toHaveBeenCalledWith('user likes coffee', undefined)
       expect(store2.add).toHaveBeenCalledWith('user likes coffee', undefined)
     })
@@ -225,7 +269,7 @@ describe('MemoryManager', () => {
       const store = createMockStore('a', { writable: true })
       const mm = new MemoryManager({ stores: [store] })
 
-      await mm.store('fact', { metadata: { source: 'user' } })
+      await mm.add('fact', { metadata: { source: 'user' } })
       expect(store.add).toHaveBeenCalledWith('fact', { source: 'user' })
     })
 
@@ -234,101 +278,205 @@ describe('MemoryManager', () => {
       const store2 = createMockStore('team', { writable: true })
       const mm = new MemoryManager({ stores: [store1, store2] })
 
-      await mm.store('my preference', { stores: ['personal'] })
+      await mm.add('my preference', { stores: ['personal'] })
       expect(store1.add).toHaveBeenCalledWith('my preference', undefined)
       expect(store2.add).not.toHaveBeenCalled()
     })
 
     it('throws when no writable stores match', async () => {
       const mm = new MemoryManager({ stores: [createMockStore('a')] })
-      await expect(mm.store('fact')).rejects.toThrow('no writable store matched')
+      await expect(mm.add('fact')).rejects.toThrow('no writable store matched')
     })
 
     it('throws a not-found error when a named store does not exist', async () => {
       const mm = new MemoryManager({ stores: [createMockStore('a', { writable: true })] })
-      await expect(mm.store('fact', { stores: ['nonexistent'] })).rejects.toThrow("store 'nonexistent' not found")
+      await expect(mm.add('fact', { stores: ['nonexistent'] })).rejects.toThrow("store 'nonexistent' not found")
     })
 
     it('throws a read-only error when a named store cannot be written', async () => {
       const mm = new MemoryManager({ stores: [createMockStore('readonly')] })
-      await expect(mm.store('fact', { stores: ['readonly'] })).rejects.toThrow("store 'readonly' is read-only")
+      await expect(mm.add('fact', { stores: ['readonly'] })).rejects.toThrow("store 'readonly' is read-only")
     })
 
     it('succeeds with partial write failures (some stores fail, some succeed)', async () => {
       const store1: MemoryStore = {
         name: 'failing',
+        writable: true,
         search: vi.fn().mockResolvedValue([]),
         add: vi.fn().mockRejectedValue(new Error('write error')),
       }
       const store2 = createMockStore('ok', { writable: true })
       const mm = new MemoryManager({ stores: [store1, store2] })
 
-      await mm.store('fact')
+      await mm.add('fact')
       expect(store2.add).toHaveBeenCalledWith('fact', undefined)
     })
 
     it('throws AggregateError naming the failed stores when all writes fail', async () => {
       const store: MemoryStore = {
         name: 'failing',
+        writable: true,
         search: vi.fn().mockResolvedValue([]),
         add: vi.fn().mockRejectedValue(new Error('write error')),
       }
       const mm = new MemoryManager({ stores: [store] })
 
-      await expect(mm.store('fact')).rejects.toThrow('all store writes failed: failing')
+      await expect(mm.add('fact')).rejects.toThrow('all store writes failed: failing')
     })
   })
 
   describe('tool store scoping', () => {
     function searchTool(
       mm: MemoryManager
-    ): InvokableTool<{ query: string; limit?: number; stores?: string[] }, unknown> {
+    ): InvokableTool<{ query: string; maxSearchResults?: number; stores?: string[] }, unknown> {
       return mm.getTools().find((t) => t.name === 'search_memory') as never
     }
 
-    function storeTool(mm: MemoryManager): InvokableTool<{ entries: string[]; stores?: string[] }, unknown> {
-      return mm.getTools().find((t) => t.name === 'store_memory') as never
+    function addTool(mm: MemoryManager): InvokableTool<{ entries: string[]; stores?: string[] }, unknown> {
+      return mm.getTools().find((t) => t.name === 'add_memory') as never
     }
 
-    it('search tool only queries scoped stores when model omits stores', async () => {
+    it('search tool queries all stores when model omits stores', async () => {
       const personal = createMockStore('personal', { entries: [{ content: 'personal fact' }] })
       const team = createMockStore('team', { entries: [{ content: 'team fact' }] })
-      const mm = new MemoryManager({ stores: [personal, team], searchToolConfig: { stores: ['personal'] } })
+      const mm = new MemoryManager({ stores: [personal, team] })
 
       await searchTool(mm).invoke({ query: 'q' })
+      expect(personal.search).toHaveBeenCalled()
+      expect(team.search).toHaveBeenCalled()
+    })
+
+    it('search tool treats an empty stores array as omitted (searches all)', async () => {
+      const personal = createMockStore('personal', { entries: [{ content: 'personal fact' }] })
+      const team = createMockStore('team', { entries: [{ content: 'team fact' }] })
+      const mm = new MemoryManager({ stores: [personal, team] })
+
+      await searchTool(mm).invoke({ query: 'q', stores: [] })
+      expect(personal.search).toHaveBeenCalled()
+      expect(team.search).toHaveBeenCalled()
+    })
+
+    it('search tool targets only the requested store when in scope', async () => {
+      const personal = createMockStore('personal', { entries: [{ content: 'personal fact' }] })
+      const team = createMockStore('team', { entries: [{ content: 'team fact' }] })
+      const mm = new MemoryManager({ stores: [personal, team] })
+
+      await searchTool(mm).invoke({ query: 'q', stores: ['personal'] })
       expect(personal.search).toHaveBeenCalled()
       expect(team.search).not.toHaveBeenCalled()
     })
 
-    it('search tool drops out-of-scope store names supplied by the model', async () => {
+    it('search tool keeps valid names and warns on out-of-scope names', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
       const personal = createMockStore('personal', { entries: [{ content: 'personal fact' }] })
       const team = createMockStore('team', { entries: [{ content: 'team fact' }] })
-      const mm = new MemoryManager({ stores: [personal, team], searchToolConfig: { stores: ['personal'] } })
+      const mm = new MemoryManager({ stores: [personal, team] })
 
-      await searchTool(mm).invoke({ query: 'q', stores: ['team'] })
-      expect(personal.search).not.toHaveBeenCalled()
+      await searchTool(mm).invoke({ query: 'q', stores: ['personal', 'nonexistent'] })
+      expect(personal.search).toHaveBeenCalled()
       expect(team.search).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nonexistent'))
+      warnSpy.mockRestore()
     })
 
-    it('store tool only writes to scoped stores when model omits stores', async () => {
+    it('search tool throws when every requested store is out of scope', async () => {
+      const personal = createMockStore('personal', { entries: [{ content: 'personal fact' }] })
+      const mm = new MemoryManager({ stores: [personal] })
+
+      await expect(searchTool(mm).invoke({ query: 'q', stores: ['nonexistent'] })).rejects.toThrow(
+        'none of the requested memory stores are available'
+      )
+      expect(personal.search).not.toHaveBeenCalled()
+    })
+
+    it('add tool writes to all writable stores when model omits stores', async () => {
       const personal = createMockStore('personal', { writable: true })
       const team = createMockStore('team', { writable: true })
-      const mm = new MemoryManager({ stores: [personal, team], storeToolConfig: { stores: ['personal'] } })
+      const mm = new MemoryManager({ stores: [personal, team], addToolConfig: true })
 
-      await storeTool(mm).invoke({ entries: ['fact'] })
+      await addTool(mm).invoke({ entries: ['fact'] })
+      expect(personal.add).toHaveBeenCalledWith('fact', undefined)
+      expect(team.add).toHaveBeenCalledWith('fact', undefined)
+    })
+
+    it('add tool treats an empty stores array as omitted (writes to all writable)', async () => {
+      const personal = createMockStore('personal', { writable: true })
+      const team = createMockStore('team', { writable: true })
+      const mm = new MemoryManager({ stores: [personal, team], addToolConfig: true })
+
+      await addTool(mm).invoke({ entries: ['fact'], stores: [] })
+      expect(personal.add).toHaveBeenCalled()
+      expect(team.add).toHaveBeenCalled()
+    })
+
+    it('add tool excludes read-only stores from its scope', async () => {
+      const personal = createMockStore('personal', { writable: true })
+      const readonly = createMockStore('readonly')
+      const mm = new MemoryManager({ stores: [personal, readonly], addToolConfig: true })
+
+      // A read-only store is out of the add tool's scope, so naming it throws.
+      await expect(addTool(mm).invoke({ entries: ['fact'], stores: ['readonly'] })).rejects.toThrow(
+        'none of the requested memory stores are available'
+      )
+      expect(personal.add).not.toHaveBeenCalled()
+    })
+
+    it('add tool keeps valid names and warns on out-of-scope names', async () => {
+      const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {})
+      const personal = createMockStore('personal', { writable: true })
+      const team = createMockStore('team', { writable: true })
+      const mm = new MemoryManager({ stores: [personal, team], addToolConfig: true })
+
+      await addTool(mm).invoke({ entries: ['fact'], stores: ['personal', 'nonexistent'] })
       expect(personal.add).toHaveBeenCalledWith('fact', undefined)
       expect(team.add).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('nonexistent'))
+      warnSpy.mockRestore()
     })
 
-    it('store tool drops out-of-scope store names supplied by the model', async () => {
+    it('add tool throws when every requested store is out of scope', async () => {
       const personal = createMockStore('personal', { writable: true })
-      const team = createMockStore('team', { writable: true })
-      const mm = new MemoryManager({ stores: [personal, team], storeToolConfig: { stores: ['personal'] } })
+      const mm = new MemoryManager({ stores: [personal], addToolConfig: true })
 
-      const result = await storeTool(mm).invoke({ entries: ['fact'], stores: ['team'] })
+      await expect(addTool(mm).invoke({ entries: ['fact'], stores: ['nonexistent'] })).rejects.toThrow(
+        'none of the requested memory stores are available'
+      )
       expect(personal.add).not.toHaveBeenCalled()
-      expect(team.add).not.toHaveBeenCalled()
-      expect(result).toStrictEqual({ stored: 0, failed: 1 })
+    })
+
+    it('add tool rejects an empty entries array', async () => {
+      const personal = createMockStore('personal', { writable: true })
+      const mm = new MemoryManager({ stores: [personal], addToolConfig: true })
+
+      await expect(addTool(mm).invoke({ entries: [] })).rejects.toThrow()
+      expect(personal.add).not.toHaveBeenCalled()
+    })
+
+    it('add tool throws when every entry fails to write', async () => {
+      const failing: MemoryStore = {
+        name: 'failing',
+        writable: true,
+        search: vi.fn().mockResolvedValue([]),
+        add: vi.fn().mockRejectedValue(new Error('write error')),
+      }
+      const mm = new MemoryManager({ stores: [failing], addToolConfig: true })
+
+      await expect(addTool(mm).invoke({ entries: ['a', 'b'] })).rejects.toThrow('failed to add all 2 entries')
+    })
+
+    it('add tool returns counts when some entries succeed and some fail', async () => {
+      const flaky: MemoryStore = {
+        name: 'flaky',
+        writable: true,
+        search: vi.fn().mockResolvedValue([]),
+        // First entry's write resolves; second entry's write rejects (its only store), so that entry
+        // fails entirely while the first succeeds — a genuine per-entry partial outcome.
+        add: vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('write error')),
+      }
+      const mm = new MemoryManager({ stores: [flaky], addToolConfig: true })
+
+      const result = await addTool(mm).invoke({ entries: ['a', 'b'] })
+      expect(result).toStrictEqual({ stored: 1, failed: 1 })
     })
   })
 
@@ -336,6 +484,155 @@ describe('MemoryManager', () => {
     it('does not throw', () => {
       const mm = new MemoryManager({ stores: [createMockStore('test')] })
       expect(() => mm.initAgent({} as any)).not.toThrow()
+    })
+  })
+
+  describe('injection', () => {
+    // Builds a fake agent that captures hooks registered against BeforeModelCallEvent, and returns a
+    // `runInjection` helper that fires the captured callback with the current messages.
+    function harness(mm: MemoryManager, messages: Message[]) {
+      const agent = { messages } as unknown as LocalAgent
+      let injectionCallback: ((event: { agent: LocalAgent }) => unknown) | undefined
+      agent.addHook = ((eventType: unknown, callback: (event: { agent: LocalAgent }) => unknown) => {
+        if (eventType === BeforeModelCallEvent) injectionCallback = callback
+        return () => {}
+      }) as LocalAgent['addHook']
+
+      mm.initAgent(agent)
+      return {
+        agent,
+        registered: injectionCallback !== undefined,
+        runInjection: async () => {
+          await injectionCallback?.({ agent })
+        },
+      }
+    }
+
+    const assistant = (text: string) => new Message({ role: 'assistant', content: [new TextBlock(text)] })
+    const user = (text: string) => new Message({ role: 'user', content: [new TextBlock(text)] })
+    const injectedTag = (m: Message) => m.metadata?.custom?.['strands:memory-injection'] === true
+
+    it('registers a model-call hook only when injection is enabled', () => {
+      const off = harness(new MemoryManager({ stores: [createMockStore('s')] }), [])
+      expect(off.registered).toBe(false)
+
+      const on = harness(new MemoryManager({ stores: [createMockStore('s')], injection: true }), [])
+      expect(on.registered).toBe(true)
+    })
+
+    it('queries with the last assistant text and injects one tagged user message before the last user ask', async () => {
+      const store = createMockStore('s', { entries: [{ content: 'remembered learning' }] })
+      const mm = new MemoryManager({ stores: [store], injection: true })
+      const messages = [user('original task'), assistant('prior step output'), user('next ask')]
+      const h = harness(mm, messages)
+
+      await h.runInjection()
+
+      expect(store.search).toHaveBeenCalledWith('prior step output', { maxSearchResults: 1 })
+      expect(h.agent.messages.map((m) => m.role)).toStrictEqual(['user', 'assistant', 'user', 'user'])
+      const injected = h.agent.messages[2]!
+      expect(injectedTag(injected)).toBe(true)
+      expect((injected.content[0] as TextBlock).text).toContain('remembered learning')
+      // The user's ask remains the final message.
+      expect(h.agent.messages[h.agent.messages.length - 1]).toBe(messages[2])
+    })
+
+    it('skips injection when the last message is a tool result', async () => {
+      const store = createMockStore('s', { entries: [{ content: 'learning' }] })
+      const mm = new MemoryManager({ stores: [store], injection: true })
+      const toolResult = new Message({
+        role: 'user',
+        content: [new ToolResultBlock({ toolUseId: 't1', status: 'success', content: [new TextBlock('result')] })],
+      })
+      const messages = [
+        user('task'),
+        new Message({ role: 'assistant', content: [new ToolUseBlock({ name: 'x', toolUseId: 't1', input: {} })] }),
+        toolResult,
+      ]
+      const h = harness(mm, messages)
+
+      await h.runInjection()
+
+      expect(store.search).not.toHaveBeenCalled()
+      expect(h.agent.messages).toHaveLength(3)
+    })
+
+    it('skips the first model call (no prior assistant message)', async () => {
+      const store = createMockStore('s', { entries: [{ content: 'learning' }] })
+      const mm = new MemoryManager({ stores: [store], injection: true })
+      const h = harness(mm, [user('first ask')])
+
+      await h.runInjection()
+
+      expect(store.search).not.toHaveBeenCalled()
+      expect(h.agent.messages).toHaveLength(1)
+    })
+
+    it('skips when the last assistant message has no text (pure tool use)', async () => {
+      const store = createMockStore('s', { entries: [{ content: 'learning' }] })
+      const mm = new MemoryManager({ stores: [store], injection: true })
+      const messages = [
+        new Message({ role: 'assistant', content: [new ToolUseBlock({ name: 'x', toolUseId: 't1', input: {} })] }),
+        user('ask'),
+      ]
+      const h = harness(mm, messages)
+
+      await h.runInjection()
+
+      expect(store.search).not.toHaveBeenCalled()
+      expect(h.agent.messages).toHaveLength(2)
+    })
+
+    it('skips injection when search returns no entries', async () => {
+      const store = createMockStore('s', { entries: [] })
+      const mm = new MemoryManager({ stores: [store], injection: true })
+      const h = harness(mm, [assistant('prior'), user('ask')])
+
+      await h.runInjection()
+
+      expect(store.search).toHaveBeenCalled()
+      expect(h.agent.messages).toHaveLength(2)
+    })
+
+    it('strips the prior injection before re-injecting (no accumulation)', async () => {
+      const store = createMockStore('s', { entries: [{ content: 'learning' }] })
+      const mm = new MemoryManager({ stores: [store], injection: true })
+      const h = harness(mm, [assistant('prior'), user('ask')])
+
+      await h.runInjection()
+      await h.runInjection()
+
+      expect(h.agent.messages.filter(injectedTag)).toHaveLength(1)
+      expect(h.agent.messages).toHaveLength(3)
+    })
+
+    it('honors a custom query and format', async () => {
+      const store = createMockStore('s', { entries: [{ content: 'A' }, { content: 'B' }] })
+      const mm = new MemoryManager({
+        stores: [store],
+        injection: {
+          maxResults: 2,
+          query: () => 'custom query',
+          format: (entries) => entries.map((e) => e.content).join(','),
+        },
+      })
+      const h = harness(mm, [assistant('prior'), user('ask')])
+
+      await h.runInjection()
+
+      expect(store.search).toHaveBeenCalledWith('custom query', { maxSearchResults: 2 })
+      expect((h.agent.messages[1]!.content[0] as TextBlock).text).toBe('A,B')
+    })
+
+    it('skips when a custom query returns undefined', async () => {
+      const store = createMockStore('s', { entries: [{ content: 'learning' }] })
+      const mm = new MemoryManager({ stores: [store], injection: { query: () => undefined } })
+      const h = harness(mm, [assistant('prior'), user('ask')])
+
+      await h.runInjection()
+
+      expect(store.search).not.toHaveBeenCalled()
+      expect(h.agent.messages).toHaveLength(2)
     })
   })
 

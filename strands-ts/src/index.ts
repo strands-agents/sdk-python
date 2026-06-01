@@ -291,11 +291,13 @@ export { MemoryManager } from './memory/index.js'
 export type {
   MemoryEntry,
   MemoryStore,
+  MemoryStoreConfig,
   SearchOptions,
-  MemorySearchOptions,
-  MemoryStoreOptions,
+  SearchMemoryOptions,
+  AddMemoryOptions,
   MemoryToolConfig,
   MemoryManagerConfig,
+  InjectionConfig,
 } from './memory/index.js'
 
 // Session management

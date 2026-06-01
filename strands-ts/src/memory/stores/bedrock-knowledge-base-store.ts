@@ -72,7 +72,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   }
 
   async search(query: string, options?: SearchOptions): Promise<MemoryEntry[]> {
-    const limit = options?.limit ?? this.maxSearchResults ?? 10
+    const limit = options?.maxSearchResults ?? this.maxSearchResults ?? 10
 
     const response = await this._runtimeClient.send(
       new RetrieveCommand({

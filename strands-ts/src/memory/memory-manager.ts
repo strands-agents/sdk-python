@@ -4,29 +4,38 @@ import type { Tool } from '../tools/tool.js'
 import type {
   MemoryEntry,
   MemoryManagerConfig,
-  MemorySearchOptions,
+  SearchMemoryOptions,
   MemoryStore,
-  MemoryStoreOptions,
+  AddMemoryOptions,
   MemoryToolConfig,
+  InjectionConfig,
 } from './types.js'
 import type { JSONValue } from '../types/json.js'
 import { tool } from '../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../logging/logger.js'
+import { BeforeModelCallEvent } from '../hooks/events.js'
+import { Message, TextBlock } from '../types/messages.js'
 
 const SEARCH_TOOL_DESCRIPTION =
   'Search long-term memory for facts, preferences, or context from previous conversations. Use when you need background about the user or topic that may have been discussed before.'
 
-const STORE_TOOL_DESCRIPTION =
-  'Store facts, preferences, or decisions that should be remembered across conversations. Use when the user shares something worth recalling later.'
+const ADD_TOOL_DESCRIPTION =
+  'Add facts, preferences, or decisions to long-term memory so they are remembered across conversations. Use when the user shares something worth recalling later.'
 
 const DEFAULT_RESULTS_PER_STORE = 3
+
+const DEFAULT_INJECTION_RESULTS = 1
+
+/** Marks a message as manager-injected memory context, so it can be stripped before re-injection. */
+const INJECTION_METADATA_KEY = 'strands:memory-injection'
 
 /**
  * Provides cross-session knowledge retrieval and storage for agents.
  *
  * Manages one or more {@link MemoryStore} backends, exposing `search_memory` and
- * `store_memory` tools for agent-driven recall and persistence.
+ * `add_memory` tools for agent-driven recall and persistence. Any tools the stores
+ * themselves provide (via {@link MemoryStore.getTools}) are registered alongside these.
  *
  * @example
  * ```typescript
@@ -35,11 +44,11 @@ const DEFAULT_RESULTS_PER_STORE = 3
  * // Config shorthand
  * const agent = new Agent({
  *   model,
- *   memoryManager: { stores: [myStore], storeToolConfig: true },
+ *   memoryManager: { stores: [myStore], addToolConfig: true },
  * })
  *
  * // Class instance (for programmatic access)
- * const memoryManager = new MemoryManager({ stores: [myStore], storeToolConfig: true })
+ * const memoryManager = new MemoryManager({ stores: [myStore], addToolConfig: true })
  * const agent = new Agent({ model, memoryManager })
  * await memoryManager.search('user preferences')
  * ```
@@ -48,9 +57,10 @@ export class MemoryManager implements Plugin {
   readonly name = 'strands:memory-manager'
   private readonly _config: MemoryManagerConfig
   private readonly _searchStores: MemoryStore[]
-  private readonly _storeStores: MemoryStore[]
+  private readonly _addStores: MemoryStore[]
   private readonly _searchToolConfig: MemoryToolConfig | false
-  private readonly _storeToolConfig: MemoryToolConfig | false
+  private readonly _addToolConfig: MemoryToolConfig | false
+  private readonly _injectionConfig: InjectionConfig | false
 
   constructor(config: MemoryManagerConfig) {
     if (config.stores.length === 0) {
@@ -63,54 +73,65 @@ export class MemoryManager implements Plugin {
         throw new Error(`MemoryManager: duplicate store name '${store.name}'`)
       }
       seenNames.add(store.name)
+
+      if (store.writable && !store.add) {
+        throw new Error(`MemoryManager: store '${store.name}' is writable but has no add method`)
+      }
     }
 
     this._config = config
+
+    // Every store is searchable; the add tool only targets writable stores.
+    const writableStores = config.stores.filter((s) => s.writable)
 
     if (config.searchToolConfig === false) {
       this._searchToolConfig = false
       this._searchStores = []
     } else {
-      const toolConfig = typeof config.searchToolConfig === 'object' ? config.searchToolConfig : {}
-      this._searchStores = this._resolveStores(config.stores, toolConfig.stores)
-      this._searchToolConfig = toolConfig
+      this._searchToolConfig = typeof config.searchToolConfig === 'object' ? config.searchToolConfig : {}
+      this._searchStores = config.stores
     }
 
-    if (config.storeToolConfig === undefined || config.storeToolConfig === false) {
-      this._storeToolConfig = false
-      this._storeStores = []
+    if (config.addToolConfig === undefined || config.addToolConfig === false) {
+      this._addToolConfig = false
+      this._addStores = []
     } else {
-      const toolConfig = typeof config.storeToolConfig === 'object' ? config.storeToolConfig : {}
-      const resolved = this._resolveStores(config.stores, toolConfig.stores).filter((s) => s.add)
-
-      if (resolved.length === 0) {
-        throw new Error('MemoryManager: storeToolConfig targets no writable stores')
+      if (writableStores.length === 0) {
+        throw new Error('MemoryManager: addToolConfig is enabled but no stores are writable')
       }
 
-      if (config.storeToolConfig === true && resolved.length > 1 && !toolConfig.stores) {
-        throw new Error(
-          'MemoryManager: storeToolConfig must specify `stores` when multiple writable stores are configured'
-        )
-      }
+      this._addToolConfig = typeof config.addToolConfig === 'object' ? config.addToolConfig : {}
+      this._addStores = writableStores
+    }
 
-      this._storeStores = resolved
-      this._storeToolConfig = toolConfig
+    if (config.injection === undefined || config.injection === false) {
+      this._injectionConfig = false
+    } else {
+      this._injectionConfig = typeof config.injection === 'object' ? config.injection : {}
     }
   }
 
   /**
    * Initializes the plugin with the agent.
    *
-   * No lifecycle hooks are registered in this version; context injection and extraction
-   * triggers are deferred to a follow-up PR. Tool registration is handled automatically
-   * by the PluginRegistry via {@link getTools}.
+   * When injection is enabled, registers a {@link BeforeModelCallEvent} hook that searches memory
+   * and injects results before each model call. Tool registration is handled automatically by the
+   * PluginRegistry via {@link getTools}. Extraction triggers are deferred to a follow-up PR.
    *
-   * @param _agent - The agent this plugin is being attached to
+   * @param agent - The agent this plugin is being attached to
    */
-  initAgent(_agent: LocalAgent): void {}
+  initAgent(agent: LocalAgent): void {
+    if (this._injectionConfig !== false) {
+      const injectionConfig = this._injectionConfig
+      agent.addHook(BeforeModelCallEvent, (event) => this._injectContext(event.agent, injectionConfig))
+    }
+  }
 
   /**
    * Returns tools registered by this plugin.
+   *
+   * Includes the manager's own `search_memory` / `add_memory` tools (per their config) plus any
+   * tools the configured stores expose via {@link MemoryStore.getTools}.
    *
    * @returns Array of tools to register with the agent
    */
@@ -121,8 +142,13 @@ export class MemoryManager implements Plugin {
       tools.push(this._createSearchTool(this._searchToolConfig))
     }
 
-    if (this._storeToolConfig !== false) {
-      tools.push(this._createStoreTool(this._storeToolConfig))
+    if (this._addToolConfig !== false) {
+      tools.push(this._createAddTool(this._addToolConfig))
+    }
+
+    for (const store of this._config.stores) {
+      const storeTools = store.getTools?.() ?? []
+      tools.push(...storeTools)
     }
 
     return tools
@@ -135,15 +161,17 @@ export class MemoryManager implements Plugin {
    * programmatic escape hatch. Tool-level store scoping is applied by the search tool callback.
    * When `options.stores` is omitted, all stores are searched; an empty array searches none.
    *
-   * Each store receives the `limit` individually — results are concatenated in store config order.
-   * Stores that fail are logged and skipped.
+   * Each store receives `maxSearchResults` individually — results are concatenated in store config
+   * order. Stores that fail are logged and skipped.
    *
    * @param query - The search query string
-   * @param options - Optional limit per-store and store name filter
+   * @param options - Optional max results per-store and store name filter
    * @returns Array of memory entries from matching stores
    */
-  async search(query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]> {
-    logger.debug(`query=<${query}>, limit=<${options?.limit}>, stores=<${options?.stores}> | searching stores`)
+  async search(query: string, options?: SearchMemoryOptions): Promise<MemoryEntry[]> {
+    logger.debug(
+      `query=<${query}>, max_search_results=<${options?.maxSearchResults}>, stores=<${options?.stores}> | searching stores`
+    )
 
     const targetStores =
       options?.stores !== undefined
@@ -154,10 +182,12 @@ export class MemoryManager implements Plugin {
       logger.warn(`stores=<${options.stores.join(', ')}> | no stores matched filter`)
     }
 
-    const limit = options?.limit
+    const maxSearchResults = options?.maxSearchResults
     const settled = await Promise.allSettled(
       targetStores.map((store) =>
-        store.search(query, { limit: limit ?? store.maxSearchResults ?? DEFAULT_RESULTS_PER_STORE })
+        store.search(query, {
+          maxSearchResults: maxSearchResults ?? store.maxSearchResults ?? DEFAULT_RESULTS_PER_STORE,
+        })
       )
     )
 
@@ -178,18 +208,18 @@ export class MemoryManager implements Plugin {
   }
 
   /**
-   * Store content in writable stores. If `stores` is provided, only writes to those named stores.
+   * Add content to writable stores. If `stores` is provided, only writes to those named stores.
    *
    * This method is intentionally unscoped (full access to all configured writable stores); it is
-   * the programmatic escape hatch. Tool-level store scoping is applied by the store tool callback.
+   * the programmatic escape hatch. Tool-level store scoping is applied by the add tool callback.
    * When `options.stores` is omitted, all writable stores are targeted; an empty array targets none.
    *
    * Partial failures are logged. If all writes fail, throws an `AggregateError`.
    *
-   * @param content - The text content to store
+   * @param content - The text content to add
    * @param options - Optional metadata and store name filter
    */
-  async store(content: string, options?: MemoryStoreOptions): Promise<void> {
+  async add(content: string, options?: AddMemoryOptions): Promise<void> {
     let writableStores: MemoryStore[]
 
     if (options?.stores !== undefined) {
@@ -198,13 +228,13 @@ export class MemoryManager implements Plugin {
         if (!found) {
           throw new Error(`MemoryManager: store '${name}' not found`)
         }
-        if (!found.add) {
+        if (!found.writable) {
           throw new Error(`MemoryManager: store '${name}' is read-only`)
         }
         return found
       })
     } else {
-      writableStores = this._config.stores.filter((s) => s.add)
+      writableStores = this._config.stores.filter((s) => s.writable)
     }
 
     if (writableStores.length === 0) {
@@ -230,16 +260,111 @@ export class MemoryManager implements Plugin {
     }
   }
 
-  private _resolveStores(allStores: MemoryStore[], scoped?: string[]): MemoryStore[] {
-    if (!scoped || scoped.length === 0) return allStores
+  /**
+   * Searches memory and injects the results as a `user` message before the latest user message.
+   *
+   * Runs before each model call. Previously injected messages are stripped first so only the
+   * current results are present. Injection is skipped unless the latest message is a user ask
+   * (not a tool result), which keeps the user's ask the final message the model sees.
+   *
+   * @param agent - The agent whose messages are being injected into
+   * @param config - The resolved injection configuration
+   */
+  private async _injectContext(agent: LocalAgent, config: InjectionConfig): Promise<void> {
+    // Strip prior injections so only the latest results are present.
+    agent.messages = agent.messages.filter((m) => m.metadata?.custom?.[INJECTION_METADATA_KEY] !== true)
 
-    return scoped.map((name) => {
-      const found = allStores.find((s) => s.name === name)
-      if (!found) {
-        throw new Error(`MemoryManager: store '${name}' not found`)
-      }
-      return found
+    // Only inject when the latest message is a user ask, not a tool result, so the ask stays last.
+    const last = agent.messages[agent.messages.length - 1]
+    if (!last || last.role !== 'user' || last.content.some((b) => b.type === 'toolResultBlock')) {
+      return
+    }
+
+    const query = this._resolveInjectionQuery(agent.messages, config)
+    if (!query?.trim()) {
+      return
+    }
+
+    const maxSearchResults = config.maxResults ?? DEFAULT_INJECTION_RESULTS
+    const entries = (await this.search(query, { maxSearchResults })).slice(0, maxSearchResults)
+    if (entries.length === 0) {
+      return
+    }
+
+    const text = (config.format ?? this._defaultInjectionFormat)(entries)
+    const message = new Message({
+      role: 'user',
+      content: [new TextBlock(text)],
+      metadata: { custom: { [INJECTION_METADATA_KEY]: true } },
     })
+
+    // Insert immediately before the latest user message.
+    agent.messages.splice(agent.messages.length - 1, 0, message)
+  }
+
+  /**
+   * Derives the injection search query. Uses the configured `query` if provided, otherwise the text
+   * of the most recent assistant message.
+   *
+   * @returns The query string, or undefined when none is available
+   */
+  private _resolveInjectionQuery(messages: Message[], config: InjectionConfig): string | undefined {
+    if (config.query) {
+      return config.query(messages.map((m) => m.toJSON()))
+    }
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i]!
+      if (message.role !== 'assistant') {
+        continue
+      }
+      const text = message.content
+        .filter((b): b is TextBlock => b.type === 'textBlock')
+        .map((b) => b.text)
+        .join('\n')
+        .trim()
+      return text.length > 0 ? text : undefined
+    }
+
+    return undefined
+  }
+
+  /** Default injection format: wraps entry contents in an XML block. */
+  private _defaultInjectionFormat(entries: MemoryEntry[]): string {
+    return `<memory>\n${entries.map((e) => e.content).join('\n')}\n</memory>`
+  }
+
+  /**
+   * Resolves the store names a tool callback should target against the tool's scoped set.
+   *
+   * - Omitting `requested` (or passing an empty array) targets all scoped stores.
+   * - Names that are in scope are kept; out-of-scope names are dropped with a warning.
+   * - When every requested name is out of scope, throws so the model receives an actionable error
+   *   (the tool layer turns the thrown error into a model-visible result it can correct from).
+   *
+   * @param scopedNames - Store names available to this tool
+   * @param requested - Store names the model asked for, if any
+   * @returns A non-empty list of in-scope store names to target
+   */
+  private _resolveToolTargets(scopedNames: string[], requested?: string[]): string[] {
+    if (requested === undefined || requested.length === 0) {
+      return scopedNames
+    }
+
+    const inScope = requested.filter((name) => scopedNames.includes(name))
+    const outOfScope = requested.filter((name) => !scopedNames.includes(name))
+
+    if (inScope.length === 0) {
+      throw new Error(
+        `MemoryManager: requested=<${requested.join(', ')}> | none of the requested memory stores are available; available stores: ${scopedNames.join(', ')}`
+      )
+    }
+
+    if (outOfScope.length > 0) {
+      logger.warn(`requested=<${outOfScope.join(', ')}> | ignoring memory stores outside this tool's scope`)
+    }
+
+    return inScope
   }
 
   private _createSearchTool(config: MemoryToolConfig): Tool {
@@ -257,13 +382,11 @@ export class MemoryManager implements Plugin {
 
     const inputSchema = z.object({
       query: z.string().describe('What to search for'),
-      limit: z.number().optional().describe('Maximum number of results per store'),
+      maxSearchResults: z.number().optional().describe('Maximum number of results per store'),
       stores: z
         .array(z.string())
         .optional()
-        .describe(
-          'Filter to specific stores by name. Omit entirely to search all available stores (do not pass an empty array).'
-        ),
+        .describe('Filter to specific stores by name. Omit to search all available stores.'),
     })
 
     return tool({
@@ -271,9 +394,9 @@ export class MemoryManager implements Plugin {
       description,
       inputSchema,
       callback: async (input) => {
-        const stores = input.stores != null ? input.stores.filter((name) => scopedNames.includes(name)) : scopedNames
+        const stores = this._resolveToolTargets(scopedNames, input.stores)
         const results = await this.search(input.query, {
-          ...(input.limit != null && { limit: input.limit }),
+          ...(input.maxSearchResults != null && { maxSearchResults: input.maxSearchResults }),
           stores,
         })
         return results.map((entry) => ({
@@ -284,37 +407,43 @@ export class MemoryManager implements Plugin {
     })
   }
 
-  private _createStoreTool(config: MemoryToolConfig): Tool {
-    let description = config.description ?? STORE_TOOL_DESCRIPTION
-    const storeDescriptions = this._storeStores.filter((s) => s.description).map((s) => `- ${s.name}: ${s.description}`)
+  private _createAddTool(config: MemoryToolConfig): Tool {
+    let description = config.description ?? ADD_TOOL_DESCRIPTION
+    const storeDescriptions = this._addStores.filter((s) => s.description).map((s) => `- ${s.name}: ${s.description}`)
     if (storeDescriptions.length > 0) {
       description += `\n\nAvailable writable stores:\n${storeDescriptions.join('\n')}`
       description +=
-        '\n\nYou can target a specific store by name to route facts to the right place, or omit to store in all writable stores.'
+        '\n\nYou can target a specific store by name to route facts to the right place, or omit to add to all writable stores.'
     }
 
-    const scopedNames = this._storeStores.map((s) => s.name)
+    const scopedNames = this._addStores.map((s) => s.name)
 
     const inputSchema = z.object({
-      entries: z.array(z.string()).describe('Data to store in long-term memory'),
+      entries: z.array(z.string()).min(1).describe('Data to add to long-term memory'),
       stores: z
         .array(z.string())
         .optional()
-        .describe(
-          'Target specific stores by name. Omit entirely to store in all writable stores (do not pass an empty array).'
-        ),
+        .describe('Target specific stores by name. Omit to add to all writable stores.'),
     })
 
     return tool({
-      name: config.name ?? 'store_memory',
+      name: config.name ?? 'add_memory',
       description,
       inputSchema,
       callback: async (input) => {
-        const stores = input.stores != null ? input.stores.filter((name) => scopedNames.includes(name)) : scopedNames
-        const settled = await Promise.allSettled(input.entries.map((content) => this.store(content, { stores })))
+        const stores = this._resolveToolTargets(scopedNames, input.stores)
+        const settled = await Promise.allSettled(input.entries.map((content) => this.add(content, { stores })))
         const stored = settled.filter((r) => r.status === 'fulfilled').length
-        const failed = settled.filter((r) => r.status === 'rejected').length
-        return { stored, failed } as JSONValue
+        const failures = settled.filter((r) => r.status === 'rejected') as PromiseRejectedResult[]
+
+        if (stored === 0 && failures.length > 0) {
+          throw new AggregateError(
+            failures.map((f) => f.reason),
+            `MemoryManager: failed to add all ${failures.length} entries`
+          )
+        }
+
+        return { stored, failed: failures.length } as JSONValue
       },
     })
   }
