@@ -254,7 +254,9 @@ export class CedarAuthorization extends InterventionHandler {
 
     if (result.response.decision === 'deny') {
       const reasons = result.response.diagnostics.reason
-      return deny(`Access denied by Cedar policy${reasons.length ? `: ${reasons.join(', ')}` : ''}`)
+      const errors = result.response.diagnostics.errors.map((e) => e.error.message)
+      const details = [...reasons, ...errors].filter(Boolean)
+      return deny(`Access denied by Cedar policy${details.length ? `: ${details.join(', ')}` : ''}`)
     }
 
     return proceed()
