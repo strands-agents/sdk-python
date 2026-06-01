@@ -18,7 +18,13 @@
 /// <reference path="./generated/interfaces/strands-agent-tool-provider.d.ts" />
 
 import type { AgentConfig, InvokeArgs, RespondArgs, AgentError } from 'strands:agent/api@0.1.0'
-import type { Message as WitMessage, PromptInput } from 'strands:agent/messages@0.1.0'
+import type {
+  ContentBlock as WitContentBlock,
+  Message as WitMessage,
+  PromptInput,
+  ToolResultBlock as WitToolResultBlock,
+  ToolResultContent as WitToolResultContent,
+} from 'strands:agent/messages@0.1.0'
 import type {
   StreamEvent as WitStreamEvent,
   StopEvent as WitStopEvent,
@@ -52,6 +58,8 @@ import type {
   ToolChoice,
   ModelStreamEvent,
   ContentBlock,
+  ToolResultBlock,
+  ToolResultContent,
   SaveLatestStrategy,
   JSONValue,
 } from '@strands-agents/sdk'
@@ -129,25 +137,58 @@ function mapMessage(message: Message): WitMessage {
   } as WitMessage
 }
 
-/** Serialize a TS SDK ContentBlock to the WIT tagged-variant shape. */
-function mapContentBlock(block: ContentBlock): import('strands:agent/messages@0.1.0').ContentBlock {
-  type WitBlock = import('strands:agent/messages@0.1.0').ContentBlock
-  // block.type is the SDK class discriminator; toJSON drops class identity but keeps fields.
+/**
+ * Serialize a TS SDK ContentBlock to the WIT `content-block` tagged variant.
+ *
+ * Most SDK blocks `toJSON()` to `{<discriminator>: <inner-data>}` (e.g.
+ * `{toolUse: {...}}`). The matching WIT record is the inner shape only;
+ * the discriminator already lives in `tag`. We strip that outer wrapper
+ * here so the WIT marshaler sees the right fields. `text` and `json` are
+ * the exception: their toJSON is already the inner shape.
+ */
+function mapContentBlock(block: ContentBlock): WitContentBlock {
   const payload = JSON.parse(JSON.stringify(block))
   switch (block.type) {
-    case 'textBlock': return { tag: 'text', val: payload } as WitBlock
-    case 'toolUseBlock': return { tag: 'tool-use', val: payload } as WitBlock
-    case 'toolResultBlock': return { tag: 'tool-result', val: payload } as WitBlock
-    case 'reasoningBlock': return { tag: 'reasoning', val: payload } as WitBlock
-    case 'cachePointBlock': return { tag: 'cache-point', val: payload } as WitBlock
-    case 'imageBlock': return { tag: 'image', val: payload } as WitBlock
-    case 'videoBlock': return { tag: 'video', val: payload } as WitBlock
-    case 'documentBlock': return { tag: 'document', val: payload } as WitBlock
-    case 'citationsBlock': return { tag: 'citations', val: payload } as WitBlock
-    case 'guardContentBlock': return { tag: 'guard-content', val: payload } as WitBlock
+    case 'textBlock': return { tag: 'text', val: payload } as WitContentBlock
+    case 'toolUseBlock':
+      return { tag: 'tool-use', val: { ...payload.toolUse, input: JSON.stringify(payload.toolUse.input) } } as WitContentBlock
+    case 'toolResultBlock':
+      return { tag: 'tool-result', val: mapToolResultBlock(block) } as WitContentBlock
+    case 'reasoningBlock': return { tag: 'reasoning', val: payload.reasoning } as WitContentBlock
+    case 'cachePointBlock': return { tag: 'cache-point', val: payload.cachePoint } as WitContentBlock
+    case 'imageBlock': return { tag: 'image', val: payload.image } as WitContentBlock
+    case 'videoBlock': return { tag: 'video', val: payload.video } as WitContentBlock
+    case 'documentBlock': return { tag: 'document', val: payload.document } as WitContentBlock
+    case 'citationsBlock': return { tag: 'citations', val: payload.citations } as WitContentBlock
+    case 'guardContentBlock': return { tag: 'guard-content', val: payload.guardContent } as WitContentBlock
     default: {
       block satisfies never
       throw new Error(`unknown content block: ${(block as { type: string }).type}`)
+    }
+  }
+}
+
+/** Serialize a TS SDK `ToolResultBlock` to the WIT `tool-result-block` record. */
+function mapToolResultBlock(block: ToolResultBlock): WitToolResultBlock {
+  return {
+    toolUseId: block.toolUseId,
+    status: block.status,
+    content: block.content.map(mapToolResultContent),
+  }
+}
+
+/** Serialize a TS SDK `ToolResultContent` to the WIT `tool-result-content` tagged variant. */
+function mapToolResultContent(block: ToolResultContent): WitToolResultContent {
+  const payload = JSON.parse(JSON.stringify(block))
+  switch (block.type) {
+    case 'textBlock': return { tag: 'text', val: payload } as WitToolResultContent
+    case 'jsonBlock': return { tag: 'json', val: payload } as WitToolResultContent
+    case 'imageBlock': return { tag: 'image', val: payload.image } as WitToolResultContent
+    case 'videoBlock': return { tag: 'video', val: payload.video } as WitToolResultContent
+    case 'documentBlock': return { tag: 'document', val: payload.document } as WitToolResultContent
+    default: {
+      block satisfies never
+      throw new Error(`unsupported tool-result-content type: ${(block as { type: string }).type}`)
     }
   }
 }
@@ -211,7 +252,7 @@ function mapEvent(event: AgentStreamEvent): WitStreamEvent | null {
             toolUseId: event.toolUse.toolUseId,
             input: JSON.stringify(event.toolUse.input ?? {}),
           },
-          toolResult: mapContentBlock(event.result) as unknown as import('strands:agent/messages@0.1.0').ToolResultBlock,
+          toolResult: mapToolResultBlock(event.result),
           error: event.error ? { tag: 'execution-failed', val: event.error.message } : undefined,
         },
       }
@@ -225,7 +266,7 @@ function mapEvent(event: AgentStreamEvent): WitStreamEvent | null {
     case 'toolResultEvent':
       return {
         tag: 'tool-result-hook',
-        val: { toolResult: mapContentBlock(event.result) as unknown as import('strands:agent/messages@0.1.0').ToolResultBlock },
+        val: { toolResult: mapToolResultBlock(event.result) },
       }
     case 'toolStreamUpdateEvent':
       return { tag: 'tool-update', val: { data: JSON.stringify(event.event.data ?? null) } }
@@ -365,8 +406,17 @@ function createTools(specs: ToolSpec[] | undefined): FunctionTool[] | undefined 
               case 'data':
                 // Streaming tool progress is not surfaced to the SDK caller today.
                 continue
-              case 'complete':
-                return value.val as unknown as JSONValue
+              case 'complete': {
+                // The host pushes WIT `tool-result-content` variant arms; the
+                // TS FunctionTool expects the single-key data shape that
+                // `toolResultContentFromData` accepts. text/json arms already
+                // carry that shape inline; other arms need an explicit wrap.
+                const content = (value.val as Array<{ tag: string; val: unknown }>).map((c) => {
+                  if (c.tag === 'text' || c.tag === 'json') return c.val
+                  return { [c.tag]: c.val }
+                })
+                return content as unknown as JSONValue
+              }
               case 'error':
                 throw new Error(`tool ${spec.name} failed: ${value.val.tag}`)
             }

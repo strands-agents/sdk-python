@@ -28,8 +28,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    # Imports as `wasmtime`. Pinned to pgrayy/wasm-deps git URL until upstream PRs land.
-    "pgrayy-wasmtime @ git+https://github.com/pgrayy/wasm-deps.git@4b5dc41512109ebafe4c4f1edd592c739872c640#subdirectory=wasmtime-py",
+    # Imports as `wasmtime`. Pinned to a pgrayy/wasm-deps release wheel until upstream PRs land.
+    "pgrayy-wasmtime @ https://github.com/pgrayy/wasm-deps/releases/download/wasmtime-v46.0.7/pgrayy_wasmtime-46.0.7-py3-none-macosx_11_0_arm64.whl",
     "botocore>=1.29.0,<2.0.0",
 ]
 
