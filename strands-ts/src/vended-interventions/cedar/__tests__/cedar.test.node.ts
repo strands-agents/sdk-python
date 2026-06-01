@@ -4,6 +4,7 @@ import { Agent } from '../../../agent/agent.js'
 import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
 import { createMockTool } from '../../../__fixtures__/tool-helpers.js'
 import { resolve } from 'node:path'
+import { writeFileSync, unlinkSync, existsSync } from 'node:fs'
 
 const FIXTURES = resolve(import.meta.dirname!, 'fixtures')
 
@@ -576,35 +577,35 @@ describe('CedarAuthorization', () => {
     })
 
     it('throws on reload if policy file was deleted', () => {
-      const { writeFileSync, unlinkSync } = require('node:fs') as typeof import('node:fs')
       const tmpFile = `${FIXTURES}/_tmp_reload_test.cedar`
       writeFileSync(tmpFile, 'permit(principal, action, resource);')
+      try {
+        const cedar = new CedarAuthorization({
+          policies: tmpFile,
+          principalResolver: () => ({ type: 'User', id: 'alice' }),
+        })
 
-      const cedar = new CedarAuthorization({
-        policies: tmpFile,
-        principalResolver: () => ({ type: 'User', id: 'alice' }),
-      })
-
-      unlinkSync(tmpFile)
-      expect(() => cedar.reload()).toThrow('Cedar policy file not found')
+        unlinkSync(tmpFile)
+        expect(() => cedar.reload()).toThrow('Cedar policy file not found')
+      } finally {
+        if (existsSync(tmpFile)) unlinkSync(tmpFile)
+      }
     })
 
     it('validates policies on reload', () => {
-      const { writeFileSync, unlinkSync } = require('node:fs') as typeof import('node:fs')
       const tmpFile = `${FIXTURES}/_tmp_reload_invalid.cedar`
       writeFileSync(tmpFile, 'permit(principal, action, resource);')
+      try {
+        const cedar = new CedarAuthorization({
+          policies: tmpFile,
+          principalResolver: () => ({ type: 'User', id: 'alice' }),
+        })
 
-      const cedar = new CedarAuthorization({
-        policies: tmpFile,
-        principalResolver: () => ({ type: 'User', id: 'alice' }),
-      })
-
-      // Overwrite with invalid content
-      writeFileSync(tmpFile, 'this is broken!!!')
-      expect(() => cedar.reload()).toThrow('Invalid Cedar policy')
-
-      // Cleanup
-      unlinkSync(tmpFile)
+        writeFileSync(tmpFile, 'this is broken!!!')
+        expect(() => cedar.reload()).toThrow('Invalid Cedar policy')
+      } finally {
+        if (existsSync(tmpFile)) unlinkSync(tmpFile)
+      }
     })
   })
 

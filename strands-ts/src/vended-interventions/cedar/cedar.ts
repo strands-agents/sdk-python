@@ -277,10 +277,13 @@ export class CedarAuthorization extends InterventionHandler {
    * @throws If the policy file no longer exists or contains invalid Cedar syntax.
    */
   reload(): void {
-    this._policies = loadPolicies(this._policySource)
-    this._entities = loadEntities(this._entitySource)
-    this._schema = this._schemaSource ? loadSchema(this._schemaSource) : undefined
-    validatePolicies(this._policies, this._schema)
+    const policies = loadPolicies(this._policySource)
+    const entities = loadEntities(this._entitySource)
+    const schema = this._schemaSource ? loadSchema(this._schemaSource) : undefined
+    validatePolicies(policies, schema)
+    this._policies = policies
+    this._entities = entities
+    this._schema = schema
   }
 
   private _resolveResource(toolName: string, toolInput: Record<string, CedarValueJson>): CedarEntityUid {
