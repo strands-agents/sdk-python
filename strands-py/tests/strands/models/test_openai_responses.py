@@ -451,11 +451,11 @@ def test_format_request(model, messages, tool_specs, system_prompt):
             {"chunk_type": "message_stop", "data": "stop"},
             {"messageStop": {"stopReason": "end_turn"}},
         ),
-        # Metadata
+        # Metadata - no cache tokens
         (
             {
                 "chunk_type": "metadata",
-                "data": unittest.mock.Mock(input_tokens=100, output_tokens=50, total_tokens=150),
+                "data": unittest.mock.Mock(input_tokens=100, output_tokens=50, total_tokens=150, input_tokens_details=None),
             },
             {
                 "metadata": {
@@ -463,6 +463,31 @@ def test_format_request(model, messages, tool_specs, system_prompt):
                         "inputTokens": 100,
                         "outputTokens": 50,
                         "totalTokens": 150,
+                    },
+                    "metrics": {
+                        "latencyMs": 0,
+                    },
+                },
+            },
+        ),
+        # Metadata - with cache read tokens
+        (
+            {
+                "chunk_type": "metadata",
+                "data": unittest.mock.Mock(
+                    input_tokens=100,
+                    output_tokens=50,
+                    total_tokens=150,
+                    input_tokens_details=unittest.mock.Mock(cached_tokens=80),
+                ),
+            },
+            {
+                "metadata": {
+                    "usage": {
+                        "inputTokens": 100,
+                        "outputTokens": 50,
+                        "totalTokens": 150,
+                        "cacheReadInputTokens": 80,
                     },
                     "metrics": {
                         "latencyMs": 0,
@@ -490,7 +515,7 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
     mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="Hello")
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -527,6 +552,67 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_cache_tokens_propagated(openai_client, model, agenerator, alist):
+    """Cache read tokens from input_tokens_details are surfaced in the metadata event."""
+    mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="Hi")
+    mock_complete_event = unittest.mock.Mock(
+        type="response.completed",
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(
+                input_tokens=100,
+                output_tokens=10,
+                total_tokens=110,
+                input_tokens_details=unittest.mock.Mock(cached_tokens=80),
+            )
+        ),
+    )
+
+    openai_client.responses.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_text_event, mock_complete_event])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    metadata_events = [e for e in tru_events if "metadata" in e]
+    assert len(metadata_events) == 1
+    usage = metadata_events[0]["metadata"]["usage"]
+    assert usage["inputTokens"] == 100
+    assert usage["outputTokens"] == 10
+    assert usage["totalTokens"] == 110
+    assert usage["cacheReadInputTokens"] == 80
+
+
+@pytest.mark.asyncio
+async def test_stream_no_cache_tokens_when_absent(openai_client, model, agenerator, alist):
+    """cacheReadInputTokens is omitted from metadata when input_tokens_details is absent."""
+    mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="Hi")
+    mock_complete_event = unittest.mock.Mock(
+        type="response.completed",
+        response=unittest.mock.Mock(
+            usage=unittest.mock.Mock(
+                input_tokens=100,
+                output_tokens=10,
+                total_tokens=110,
+                input_tokens_details=None,
+            )
+        ),
+    )
+
+    openai_client.responses.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_text_event, mock_complete_event])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    tru_events = await alist(model.stream(messages))
+
+    metadata_events = [e for e in tru_events if "metadata" in e]
+    assert len(metadata_events) == 1
+    usage = metadata_events[0]["metadata"]["usage"]
+    assert "cacheReadInputTokens" not in usage
+
+
+@pytest.mark.asyncio
 async def test_stream_with_tool_calls(openai_client, model, agenerator, alist):
     # Mock tool call events
     mock_tool_event = unittest.mock.Mock(
@@ -538,7 +624,7 @@ async def test_stream_with_tool_calls(openai_client, model, agenerator, alist):
     )
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -571,7 +657,7 @@ async def test_stream_with_tool_calls_done_event(openai_client, model, agenerato
     )
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -594,7 +680,7 @@ async def test_stream_response_incomplete(openai_client, model, agenerator, alis
     mock_incomplete_event = unittest.mock.Mock(
         type="response.incomplete",
         response=unittest.mock.Mock(
-            usage=unittest.mock.Mock(input_tokens=10, output_tokens=100, total_tokens=110),
+            usage=unittest.mock.Mock(input_tokens=10, output_tokens=100, total_tokens=110, input_tokens_details=None),
             incomplete_details=unittest.mock.Mock(reason="max_output_tokens"),
         ),
     )
@@ -628,7 +714,7 @@ async def test_stream_reasoning_content(openai_client, model, agenerator, alist,
     mock_text_event = unittest.mock.Mock(type="response.output_text.delta", delta="The answer is 42")
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=20, total_tokens=30)),
+        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=20, total_tokens=30, input_tokens_details=None)),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -672,7 +758,7 @@ async def test_stream_citation_annotations(openai_client, model, agenerator, ali
     )
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -708,7 +794,7 @@ async def test_stream_unsupported_annotation_type(openai_client, model, agenerat
     )
     mock_complete_event = unittest.mock.Mock(
         type="response.completed",
-        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15)),
+        response=unittest.mock.Mock(usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None)),
     )
 
     openai_client.responses.create = unittest.mock.AsyncMock(
@@ -1152,7 +1238,7 @@ async def test_stream_stateful(openai_client, model_id, agenerator, alist):
             type="response.completed",
             response=unittest.mock.Mock(
                 id="resp_abc123",
-                usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15),
+                usage=unittest.mock.Mock(input_tokens=10, output_tokens=5, total_tokens=15, input_tokens_details=None),
             ),
         ),
     ]
