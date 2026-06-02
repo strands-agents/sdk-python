@@ -181,8 +181,8 @@ describe('MemoryManager', () => {
 
       const results = await mm.search('query')
       expect(results).toStrictEqual([
-        { content: 'fact one', store: 'a' },
-        { content: 'fact two', store: 'b' },
+        { content: 'fact one', storeName: 'a' },
+        { content: 'fact two', storeName: 'b' },
       ])
     })
 
@@ -216,7 +216,7 @@ describe('MemoryManager', () => {
       const mm = new MemoryManager({ stores: [store1, store2] })
 
       const results = await mm.search('query', { stores: ['personal'] })
-      expect(results).toStrictEqual([{ content: 'personal fact', store: 'personal' }])
+      expect(results).toStrictEqual([{ content: 'personal fact', storeName: 'personal' }])
       expect(store2.search).not.toHaveBeenCalled()
     })
 
@@ -230,7 +230,7 @@ describe('MemoryManager', () => {
       const mm = new MemoryManager({ stores: [store1, store2] })
 
       const results = await mm.search('query')
-      expect(results).toStrictEqual([{ content: 'fact', store: 'ok' }])
+      expect(results).toStrictEqual([{ content: 'fact', storeName: 'ok' }])
     })
 
     it('searches all stores when stores option is omitted', async () => {
@@ -240,8 +240,8 @@ describe('MemoryManager', () => {
 
       const results = await mm.search('query')
       expect(results).toStrictEqual([
-        { content: 'fact one', store: 'a' },
-        { content: 'fact two', store: 'b' },
+        { content: 'fact one', storeName: 'a' },
+        { content: 'fact two', storeName: 'b' },
       ])
     })
 
@@ -392,8 +392,8 @@ describe('MemoryManager', () => {
 
       const result = await searchTool(mm).invoke({ query: 'q' })
       expect(result).toStrictEqual([
-        { content: 'personal fact', store: 'personal' },
-        { content: 'team fact', store: 'team' },
+        { content: 'personal fact', storeName: 'personal' },
+        { content: 'team fact', storeName: 'team' },
       ])
     })
 

@@ -4,9 +4,9 @@ import type { Tool } from '../tools/tool.js'
 import type {
   MemoryEntry,
   MemoryManagerConfig,
-  SearchMemoryOptions,
+  MemorySearchOptions,
   MemoryStore,
-  AddMemoryOptions,
+  MemoryAddOptions,
   MemoryToolConfig,
 } from './types.js'
 import type { JSONValue } from '../types/json.js'
@@ -154,7 +154,7 @@ export class MemoryManager implements Plugin {
    * @param options - Optional max results (forwarded to all stores) and store name filter
    * @returns Array of memory entries from matching stores
    */
-  async search(query: string, options?: SearchMemoryOptions): Promise<MemoryEntry[]> {
+  async search(query: string, options?: MemorySearchOptions): Promise<MemoryEntry[]> {
     logger.debug(
       `query=<${query}>, max_search_results=<${options?.maxSearchResults}>, stores=<${options?.stores}> | searching stores`
     )
@@ -190,7 +190,7 @@ export class MemoryManager implements Plugin {
       }
       for (const entry of settledResult.value) {
         // Stamp provenance so callers can tell which store produced each result.
-        results.push({ ...entry, store: storeName })
+        results.push({ ...entry, storeName })
       }
     }
 
@@ -210,7 +210,7 @@ export class MemoryManager implements Plugin {
    * @param content - The text content to add
    * @param options - Optional metadata and store name filter
    */
-  async add(content: string, options?: AddMemoryOptions): Promise<void> {
+  async add(content: string, options?: MemoryAddOptions): Promise<void> {
     let writableStores: MemoryStore[]
 
     if (options?.stores !== undefined) {
@@ -320,7 +320,7 @@ export class MemoryManager implements Plugin {
         })
         return results.map((entry) => ({
           content: entry.content,
-          ...(entry.store && { store: entry.store }),
+          ...(entry.storeName && { storeName: entry.storeName }),
           ...(entry.metadata && { metadata: entry.metadata }),
         })) as JSONValue
       },

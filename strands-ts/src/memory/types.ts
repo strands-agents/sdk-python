@@ -12,7 +12,7 @@ export interface MemoryEntry {
    * (and the model, via `search_memory`) can tell which store produced each result and refine
    * targeting. Stores need not set this themselves.
    */
-  store?: string
+  storeName?: string
   /** Optional metadata (e.g., score, source, id, timestamp). */
   metadata?: Record<string, JSONValue>
 }
@@ -92,10 +92,10 @@ export interface MemoryStore extends MemoryStoreConfig {
 
 /**
  * Options for {@link MemoryManager.search}.
+ *
+ * Extends the store primitive {@link SearchOptions} with manager-level store routing.
  */
-export interface SearchMemoryOptions {
-  /** Maximum number of results per store. */
-  maxSearchResults?: number
+export interface MemorySearchOptions extends SearchOptions {
   /** Filter to specific stores by name. Omit to search all. */
   stores?: string[]
 }
@@ -103,7 +103,7 @@ export interface SearchMemoryOptions {
 /**
  * Options for {@link MemoryManager.add}.
  */
-export interface AddMemoryOptions {
+export interface MemoryAddOptions {
   /** Metadata to associate with the added entry. */
   metadata?: Record<string, JSONValue>
   /** Filter to specific writable stores by name. Omit to write to all. */
