@@ -35,7 +35,7 @@ jobs:
           npm install --package-lock-only --ignore-scripts
           if ! git diff --quiet -- package-lock.json; then
             echo "::error::package-lock.json drifted from package.json -- run 'npm install' and commit the lockfile"
-            git diff -- package-lock.json
+            git diff --stat -- package-lock.json
             exit 1
           fi
 
