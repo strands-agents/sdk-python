@@ -281,9 +281,9 @@ async def test_context_callbacks_receive_steering_context():
     event.tool_use = {"name": "test_tool", "input": {}}
 
     # Call all callbacks, handling both sync and async
-    for cb in callbacks:
+    for entry in callbacks:
         try:
-            result = await cb(event)
+            result = await entry.callback(event)
             if inspect.iscoroutine(result):
                 await result
         except Exception:
