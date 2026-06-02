@@ -2629,7 +2629,7 @@ def test_agent_add_hook_delegates_to_hooks_add_callback():
     # Spy on the hooks.add_callback method
     with unittest.mock.patch.object(agent.hooks, "add_callback") as mock_add_callback:
         agent.add_hook(callback, BeforeInvocationEvent)
-        mock_add_callback.assert_called_once_with(BeforeInvocationEvent, callback)
+        mock_add_callback.assert_called_once_with(BeforeInvocationEvent, callback, order=0)
 
 
 @pytest.mark.asyncio

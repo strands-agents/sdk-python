@@ -46,6 +46,7 @@ from ..hooks import (
     AgentInitializedEvent,
     BeforeInvocationEvent,
     HookCallback,
+    HookOrder,
     HookProvider,
     HookRegistry,
     MessageAddedEvent,
@@ -725,7 +726,11 @@ class Agent(AgentBase):
         self.tool_registry.cleanup()
 
     def add_hook(
-        self, callback: HookCallback[TEvent], event_type: type[TEvent] | list[type[TEvent]] | None = None
+        self,
+        callback: HookCallback[TEvent],
+        event_type: type[TEvent] | list[type[TEvent]] | None = None,
+        *,
+        order: int = HookOrder.DEFAULT,
     ) -> None:
         """Register a callback function for a specific event type.
 
@@ -745,6 +750,8 @@ class Agent(AgentBase):
                 Can be a single type, a list of types, or None to infer from
                 the callback's first parameter type hint. If a list is provided,
                 the callback is registered for each type in the list.
+            order: Execution priority. Lower values execute first.
+                Use HookOrder.FIRST (-100), HookOrder.DEFAULT (0), or HookOrder.LAST (100).
 
         Raises:
             ValueError: If event_type is not provided and cannot be inferred from
@@ -776,7 +783,7 @@ class Agent(AgentBase):
         Docs:
             https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/hooks/
         """
-        self.hooks.add_callback(event_type, callback)
+        self.hooks.add_callback(event_type, callback, order=order)
 
     def __del__(self) -> None:
         """Clean up resources when agent is garbage collected."""
