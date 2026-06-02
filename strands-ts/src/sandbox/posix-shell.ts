@@ -11,7 +11,20 @@ import { Sandbox } from './base.js'
 import type { ExecuteOptions } from './base.js'
 import { LANGUAGE_PATTERN } from './constants.js'
 import type { ExecutionResult, FileInfo, StreamChunk } from './types.js'
-import { shellQuote } from '../utils/shell-quote.js'
+
+/**
+ * Shell-escape a string for safe inclusion in a shell command.
+ *
+ * Wraps the value in single quotes and escapes any embedded single quotes
+ * using the '\'' pattern. Single quotes disable all shell expansion
+ * (variables, backticks, globbing), making this safe against injection.
+ *
+ * @param value - The string to escape.
+ * @returns The shell-escaped string wrapped in single quotes.
+ */
+export function shellQuote(value: string): string {
+  return "'" + value.replace(/'/g, "'\\''") + "'"
+}
 
 /**
  * Abstract sandbox that provides shell-based defaults for file and code operations.

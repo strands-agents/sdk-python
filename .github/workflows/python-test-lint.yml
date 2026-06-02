@@ -88,10 +88,6 @@ jobs:
         run: |
           # Windows typically has audio libraries available by default
           echo "Windows audio dependencies handled by PyAudio wheels"
-      - name: Copy root LICENSE and NOTICE
-        run: |
-          cp ../LICENSE.APACHE LICENSE
-          cp ../NOTICE .
       - name: Install dependencies
         run: |
           pip install --no-cache-dir hatch 'virtualenv<21'
@@ -101,7 +97,7 @@ jobs:
         continue-on-error: false
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
   lint:
@@ -130,11 +126,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y portaudio19-dev libasound2-dev
-
-      - name: Copy root LICENSE and NOTICE
-        run: |
-          cp ../LICENSE.APACHE LICENSE
-          cp ../NOTICE .
 
       - name: Install dependencies
         run: |

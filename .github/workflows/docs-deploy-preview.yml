@@ -107,7 +107,7 @@ jobs:
 
       - name: Comment on PR (success)
         if: success()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const prNumber = context.payload.pull_request.number;
@@ -153,7 +153,7 @@ jobs:
 
       - name: Comment on PR (failure)
         if: failure()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const prNumber = context.payload.pull_request.number;

@@ -185,11 +185,14 @@ Traces provide detailed insight into the agent's reasoning process. You can acce
 
 :::note[Example result.metrics.get_summary() output]
 
+<details>
+<summary>Click to expand</summary>
+
 ```python
 result = agent("What is the square root of 144?")
 print(result.metrics.get_summary())
 ```
-```python
+```json
 {
   "accumulated_metrics": {
     "latencyMs": 6253
@@ -342,6 +345,8 @@ print(result.metrics.get_summary())
   ]
 }
 ```
+</details>
+
 :::
 
 This observability data helps you debug agent behavior, optimize performance, and understand the agent's reasoning process. For detailed information, see [Observability](../observability-evaluation/observability.md), [Traces](../observability-evaluation/traces.md), and [Metrics](../observability-evaluation/metrics.md).

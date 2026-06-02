@@ -86,6 +86,7 @@ sidebar:
               - docs/user-guide/concepts/plugins/skills
               - docs/user-guide/concepts/plugins/steering
               - docs/user-guide/concepts/plugins/context-offloader
+          - docs/user-guide/concepts/agents/interventions
           - label: Streaming
             items:
               - docs/user-guide/concepts/streaming/async-iterators
@@ -152,6 +153,7 @@ sidebar:
               - docs/user-guide/deploy/deploy_to_docker/typescript
           - docs/user-guide/deploy/deploy_to_kubernetes
           - docs/user-guide/deploy/deploy_to_terraform
+          - docs/user-guide/deploy/deploy_with_nx_plugin_for_aws
       - label: Safety & Security
         items:
           - docs/user-guide/safety-security/responsible-ai

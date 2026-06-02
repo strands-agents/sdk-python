@@ -80,6 +80,10 @@
       "types": "./dist/src/vended-plugins/context-offloader/index.d.ts",
       "default": "./dist/src/vended-plugins/context-offloader/index.js"
     },
+    "./vended-plugins/goal": {
+      "types": "./dist/src/vended-plugins/goal/index.d.ts",
+      "default": "./dist/src/vended-plugins/goal/index.js"
+    },
     "./vended-interventions/hitl": {
       "types": "./dist/src/vended-interventions/hitl/index.d.ts",
       "default": "./dist/src/vended-interventions/hitl/index.js"
@@ -87,6 +91,10 @@
     "./vended-interventions/steering": {
       "types": "./dist/src/vended-interventions/steering/index.d.ts",
       "default": "./dist/src/vended-interventions/steering/index.js"
+    },
+    "./vended-interventions/cedar": {
+      "types": "./dist/src/vended-interventions/cedar/index.d.ts",
+      "default": "./dist/src/vended-interventions/cedar/index.js"
     },
     "./vended-tools": {
       "types": "./dist/src/vended-tools/index.d.ts",
@@ -96,15 +104,22 @@
       "types": "./dist/src/vended-plugins/index.d.ts",
       "default": "./dist/src/vended-plugins/index.js"
     },
-    "./vended-interventions/cedar": {
-      "types": "./dist/src/vended-interventions/cedar/index.d.ts",
-      "default": "./dist/src/vended-interventions/cedar/index.js"
+    "./sandbox": {
+      "types": "./dist/src/sandbox/index.d.ts",
+      "default": "./dist/src/sandbox/index.js"
+    },
+    "./sandbox/docker": {
+      "types": "./dist/src/sandbox/docker.d.ts",
+      "default": "./dist/src/sandbox/docker.js"
+    },
+    "./sandbox/ssh": {
+      "types": "./dist/src/sandbox/ssh.d.ts",
+      "default": "./dist/src/sandbox/ssh.js"
     }
   },
   "scripts": {
     "build": "tsc --project src/tsconfig.json",
-    "prepack": "npm run build && cp ../LICENSE.APACHE LICENSE",
-    "postpack": "rm -f LICENSE",
+    "prepack": "npm run build",
     "check": "npm run lint && npm run format && npm run type-check && npm run check:browser-bundle && npm run test:coverage && npm run test:package",
     "check:browser-bundle": "esbuild src/index.ts --bundle --platform=browser --format=esm --packages=external --outfile=/dev/null",
     "clean": "rm -rf node_modules dist",

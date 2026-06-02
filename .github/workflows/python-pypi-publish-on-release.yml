@@ -7,7 +7,7 @@ on:
 
 jobs:
   call-test-lint:
-    if: startsWith(github.event.release.tag_name, 'python/v')
+    if: startsWith(github.event.release.tag_name, 'python/v1.')
     uses: ./.github/workflows/python-test-lint.yml
     permissions:
       contents: read
@@ -18,7 +18,7 @@ jobs:
 
   build:
     name: Build distribution
-    if: startsWith(github.event.release.tag_name, 'python/v')
+    if: startsWith(github.event.release.tag_name, 'python/v1.')
     permissions:
       contents: read
     needs:
@@ -54,11 +54,6 @@ jobs:
             echo "Invalid version format"
             exit 1
         fi
-
-    - name: Copy root LICENSE and NOTICE
-      run: |
-        cp ../LICENSE.APACHE LICENSE
-        cp ../NOTICE .
 
     - name: Build
       run: |
