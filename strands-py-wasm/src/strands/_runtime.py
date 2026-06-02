@@ -339,10 +339,8 @@ class _AgentRuntime:
         self._handle: ResourceAny | None = None
         self._current_response: ResourceAny | None = None
 
-    async def async_init(self) -> None:
-        if self._handle is not None:
-            return
-        self._handle = await self._funcs.constructor.call_async(self._store, self._agent._config)
+    def init(self) -> None:
+        self._handle = self._funcs.constructor(self._store, self._agent._config)
         self._funcs.constructor.post_return(self._store)
 
     async def generate(self, args: _t.InvokeArgs) -> EventStream:
@@ -381,14 +379,14 @@ class _AgentRuntime:
         self._funcs.set_messages.post_return(self._store)
         _raise_on_err(res)
 
-    async def get_app_state(self) -> dict[str, Any]:
-        raw = await self._funcs.get_app_state.call_async(self._store, self._handle)
+    def get_app_state(self) -> dict[str, Any]:
+        raw = self._funcs.get_app_state(self._store, self._handle)
         self._funcs.get_app_state.post_return(self._store)
         return json.loads(raw) if raw else {}
 
-    async def set_app_state(self, state: dict[str, Any]) -> None:
+    def set_app_state(self, state: dict[str, Any]) -> None:
         payload = json.dumps(state)
-        res = await self._funcs.set_app_state.call_async(self._store, self._handle, payload)
+        res = self._funcs.set_app_state(self._store, self._handle, payload)
         self._funcs.set_app_state.post_return(self._store)
         _raise_on_err(res)
 

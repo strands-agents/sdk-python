@@ -23,6 +23,7 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, Protocol, TypeVar, get_type_hints, runtime_checkable
 
 from strands import _marshalling, types
+from strands._runtime import _AgentRuntime
 
 # First-class types users construct when wiring up an agent. Anything reached
 # only through return values or pattern matching (StreamEvent, Interrupt,
@@ -428,23 +429,12 @@ class Agent:
             app_state=json.dumps(app_state) if app_state else None,
             model_state=json.dumps(model_state) if model_state else None,
         )
-        self._runtime: Any = None
+        self._runtime = _AgentRuntime(self)
+        self._runtime.init()
 
     @property
     def config(self) -> types.AgentConfig:
         return self._config
-
-    def _ensure_runtime(self) -> Any:
-        if self._runtime is None:
-            from ._runtime import _AgentRuntime
-
-            self._runtime = _AgentRuntime(self)
-        return self._runtime
-
-    async def _ensure_runtime_async(self) -> Any:
-        rt = self._ensure_runtime()
-        await rt.async_init()
-        return rt
 
     def _lookup_tool(self, name: str) -> DecoratedTool:
         for t in self._tools:
@@ -476,9 +466,8 @@ class Agent:
         structured_output_schema: str | None = None,
     ) -> AsyncIterator[types.StreamEvent]:
         """Yield :class:`StreamEvent` arms as the agent runs."""
-        runtime = await self._ensure_runtime_async()
         args = self._build_invoke_args(prompt, tools, tool_choice, structured_output_schema)
-        stream = await runtime.generate(args)
+        stream = await self._runtime.generate(args)
         async for event in stream:
             yield event
 
@@ -533,31 +522,29 @@ class Agent:
 
     def cancel(self) -> None:
         """Cancel the in-flight invocation. Fire-and-forget."""
-        if self._runtime is not None:
-            self._runtime.cancel()
+        self._runtime.cancel()
 
     async def respond(self, interrupt_id: str, response: Any) -> None:
-        runtime = await self._ensure_runtime_async()
         payload = response if isinstance(response, str) else json.dumps(response)
-        await runtime.respond(types.RespondArgs(interrupt_id=interrupt_id, response=payload))
+        await self._runtime.respond(types.RespondArgs(interrupt_id=interrupt_id, response=payload))
 
     async def get_messages(self) -> list[types.Message]:
-        return await (await self._ensure_runtime_async()).get_messages()
+        return await self._runtime.get_messages()
 
     async def set_messages(self, messages: list[types.Message]) -> None:
-        await (await self._ensure_runtime_async()).set_messages(messages)
+        await self._runtime.set_messages(messages)
 
-    async def get_app_state(self) -> dict[str, Any]:
-        return await (await self._ensure_runtime_async()).get_app_state()
+    def get_app_state(self) -> dict[str, Any]:
+        return self._runtime.get_app_state()
 
-    async def set_app_state(self, state: dict[str, Any]) -> None:
-        await (await self._ensure_runtime_async()).set_app_state(state)
+    def set_app_state(self, state: dict[str, Any]) -> None:
+        self._runtime.set_app_state(state)
 
     async def get_model_state(self) -> dict[str, Any]:
-        return await (await self._ensure_runtime_async()).get_model_state()
+        return await self._runtime.get_model_state()
 
     async def set_model_state(self, state: dict[str, Any]) -> None:
-        await (await self._ensure_runtime_async()).set_model_state(state)
+        await self._runtime.set_model_state(state)
 
 
 class _AgentResultAccumulator:

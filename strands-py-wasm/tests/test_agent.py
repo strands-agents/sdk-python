@@ -19,3 +19,9 @@ async def test_stream_async_hello_world(agent):
         assert isinstance(event, types.StreamEvent)
 
     assert isinstance(event, types.StreamEvent.Stop)
+
+
+def test_app_state(agent):
+    assert agent.get_app_state() == {}
+    agent.set_app_state({"foo": "bar", "count": 1})
+    assert agent.get_app_state() == {"foo": "bar", "count": 1}
