@@ -79,5 +79,3 @@ CLAUDE.md
 # dev
 .vitest*
 
-# LICENSE copied into strands-ts/ during prepack (original lives at repo root)
-strands-ts/LICENSE

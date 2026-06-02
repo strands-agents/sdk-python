@@ -20,8 +20,11 @@ import {
 import {
   AgentSkills,
   ContextOffloader,
+  GoalLoop,
   InMemoryStorage,
 } from '@strands-agents/sdk/vended-plugins'
+
+import { GoalLoop as GoalLoopFromSubpath } from '@strands-agents/sdk/vended-plugins/goal'
 
 // Verify model subpath exports
 import { BedrockModel as BedrockFromSubpath } from '@strands-agents/sdk/models/bedrock'
@@ -131,7 +134,18 @@ if (barrelBash !== bash || barrelFileEditor !== fileEditor || barrelHttpRequest 
 console.log('✓ Barrel vended-tools exports verified')
 
 // Verify barrel vended-plugins exports are constructible
-if (typeof AgentSkills !== 'function' || typeof ContextOffloader !== 'function' || typeof InMemoryStorage !== 'function') {
+if (
+  typeof AgentSkills !== 'function' ||
+  typeof ContextOffloader !== 'function' ||
+  typeof GoalLoop !== 'function' ||
+  typeof InMemoryStorage !== 'function'
+) {
   throw new Error('Barrel vended-plugins exports are not constructible')
 }
 console.log('✓ Barrel vended-plugins exports verified')
+
+// Verify the goal subpath export matches the barrel export
+if (GoalLoopFromSubpath !== GoalLoop) {
+  throw new Error('GoalLoop from subpath should match barrel export')
+}
+console.log('✓ GoalLoop subpath export verified')

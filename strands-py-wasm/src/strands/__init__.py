@@ -266,40 +266,24 @@ class InterruptResponse(types.RespondArgs):
         super().__init__(interrupt_id=interrupt_id, response=payload)
 
 
-class PydanticTool:
-    """Tool whose input schema is derived from a pydantic ``BaseModel``."""
+class DecoratedTool:
+    """A Python function exposed to the agent as a tool.
 
-    def __init__(
-        self,
-        *,
-        name: str,
-        description: str,
-        input_model: type,
-        func: Callable[..., Any],
-    ) -> None:
-        if not hasattr(input_model, "model_json_schema") or not hasattr(input_model, "model_validate"):
-            raise TypeError(f"input_model must be a pydantic BaseModel subclass; got {input_model!r}")
-        self.name = name
-        self.description = description
-        self._input_model = input_model
-        self.input_schema = input_model.model_json_schema()
-        self.func = func
+    Build one with the ``@tool`` decorator, then pass it to
+    :class:`Agent` via ``tools=[...]``. The agent will call the function
+    when the model invokes the tool by name.
 
-    def to_spec(self) -> types.ToolSpec:
-        return types.ToolSpec(
-            name=self.name,
-            description=self.description,
-            input_schema=json.dumps(self.input_schema),
-        )
+    Callbacks must be synchronous. Async functions are not yet supported.
 
-    def invoke(self, raw_input: str) -> list[Any]:
-        payload = json.loads(raw_input) if raw_input else {}
-        validated = self._input_model.model_validate(payload)
-        return _coerce_tool_result(self.func(validated))
+    Example::
 
+        @tool
+        def get_weather(city: str) -> str:
+            \"\"\"Return the current weather for a city.\"\"\"
+            return f"It is 72F and sunny in {city}."
 
-class Tool:
-    """Registered tool: spec plus Python callable."""
+        agent = Agent(model=BedrockModel(...), tools=[get_weather])
+    """
 
     def __init__(
         self,
@@ -321,12 +305,13 @@ class Tool:
             input_schema=json.dumps(self.input_schema),
         )
 
-    def invoke(self, raw_input: str) -> list[Any]:
+    def invoke(self, raw_input: str) -> list[types.ToolResultContent]:
+        """Run the tool with a JSON object of keyword arguments."""
         kwargs = json.loads(raw_input) if raw_input else {}
-        return _coerce_tool_result(self.func(**kwargs))
+        return _normalize_tool_result(self.func(**kwargs))
 
 
-def _coerce_tool_result(result: Any) -> list[Any]:
+def _normalize_tool_result(result: Any) -> list[types.ToolResultContent]:
     if isinstance(result, str):
         return [types.ToolResultContent.Text(types.TextBlock(text=result))]
     if isinstance(result, types.TextBlock):
@@ -348,9 +333,12 @@ def tool(
     name: str | None = None,
     description: str | None = None,
 ) -> Any:
-    """Decorator that turns a Python function into a :class:`Tool`."""
+    """Decorator that turns a Python function into a :class:`DecoratedTool`.
 
-    def wrap(f: Callable[..., Any]) -> Tool:
+    Only synchronous functions are supported at this time.
+    """
+
+    def wrap(f: Callable[..., Any]) -> DecoratedTool:
         hints = get_type_hints(f)
         sig = inspect.signature(f)
         properties: dict[str, Any] = {}
@@ -362,7 +350,7 @@ def tool(
         schema: dict[str, Any] = {"type": "object", "properties": properties}
         if required:
             schema["required"] = required
-        return Tool(
+        return DecoratedTool(
             name=name or f.__name__,
             description=description or (f.__doc__ or "").strip() or f.__name__,
             input_schema=schema,
@@ -372,17 +360,8 @@ def tool(
     return wrap(func) if func is not None else wrap
 
 
-_ToolInput = Tool | PydanticTool | Callable[..., Any]
 # String shorthand picks a tool by name; otherwise pass a tagged ToolChoice arm.
 _ToolChoiceInput = str | types.ToolChoice | None
-
-
-def _coerce_tool(item: _ToolInput) -> Tool | PydanticTool:
-    if isinstance(item, (Tool, PydanticTool)):
-        return item
-    if callable(item):
-        return tool(item)
-    raise TypeError(f"unsupported tool: {type(item).__name__}")
 
 
 class Agent:
@@ -394,7 +373,7 @@ class Agent:
         model: types.ModelInput | None = None,
         messages: list[types.Message] | None = None,
         system_prompt: PromptInput | None = None,
-        tools: list[_ToolInput] | None = None,
+        tools: list[DecoratedTool] | None = None,
         agent_tools: list[types.AgentAsToolConfig] | None = None,
         vended_tools: list[types.VendedToolInput] | None = None,
         vended_plugins: list[types.VendedPluginInput] | None = None,
@@ -413,7 +392,7 @@ class Agent:
         app_state: dict[str, Any] | None = None,
         model_state: dict[str, Any] | None = None,
     ) -> None:
-        self._tools: list[Tool | PydanticTool] = [_coerce_tool(t) for t in (tools or [])]
+        self._tools: list[DecoratedTool] = list(tools or [])
         identity = None
         if name is not None or id is not None or description is not None:
             identity = types.AgentIdentity(name=name, id=id, description=description)
@@ -467,7 +446,7 @@ class Agent:
         await rt.async_init()
         return rt
 
-    def _lookup_tool(self, name: str) -> Tool | PydanticTool:
+    def _lookup_tool(self, name: str) -> DecoratedTool:
         for t in self._tools:
             if getattr(t, "name", None) == name:
                 return t
@@ -476,11 +455,11 @@ class Agent:
     def _build_invoke_args(
         self,
         prompt: PromptInput,
-        tools: list[_ToolInput] | None,
+        tools: list[DecoratedTool] | None,
         tool_choice: _ToolChoiceInput,
         structured_output_schema: str | None,
     ) -> types.InvokeArgs:
-        extra_tools = [_coerce_tool(t).to_spec() for t in (tools or [])] or None
+        extra_tools = [t.to_spec() for t in (tools or [])] or None
         return types.InvokeArgs(
             input=_marshalling.coerce_prompt(prompt),
             tools=extra_tools,
@@ -492,7 +471,7 @@ class Agent:
         self,
         prompt: PromptInput,
         *,
-        tools: list[_ToolInput] | None = None,
+        tools: list[DecoratedTool] | None = None,
         tool_choice: _ToolChoiceInput = None,
         structured_output_schema: str | None = None,
     ) -> AsyncIterator[types.StreamEvent]:
@@ -507,7 +486,7 @@ class Agent:
         self,
         prompt: PromptInput,
         *,
-        tools: list[_ToolInput] | None = None,
+        tools: list[DecoratedTool] | None = None,
         tool_choice: _ToolChoiceInput = None,
         structured_output_schema: str | None = None,
     ) -> AgentResult:
@@ -526,7 +505,7 @@ class Agent:
         self,
         prompt: PromptInput,
         *,
-        tools: list[_ToolInput] | None = None,
+        tools: list[DecoratedTool] | None = None,
         tool_choice: _ToolChoiceInput = None,
         structured_output_schema: str | None = None,
     ) -> AgentResult:

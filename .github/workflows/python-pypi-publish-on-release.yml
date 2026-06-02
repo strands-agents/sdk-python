@@ -55,11 +55,6 @@ jobs:
             exit 1
         fi
 
-    - name: Copy root LICENSE and NOTICE
-      run: |
-        cp ../LICENSE.APACHE LICENSE
-        cp ../NOTICE .
-
     - name: Build
       run: |
         hatch build

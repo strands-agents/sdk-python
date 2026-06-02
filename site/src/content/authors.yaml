@@ -137,3 +137,18 @@
   name: Xuan Qi
   role: "Applied Scientist, AWS"
   bio: Xuan Qi is an Applied Scientist at Amazon Web Services focusing on ML modeling and simulation, translating scientific concepts into practical AI applications.
+
+- id: sangmin-woo
+  name: Sangmin Woo
+  role: "Applied Scientist, AWS"
+  bio: Sangmin Woo is an Applied Scientist at AWS AI Labs working on machine learning for agentic AI, with a focus on evaluation frameworks and improving agent behavior and performance. His interests span agentic AI, generative models, and multimodal AI.
+
+- id: sungyeon-kim
+  name: Sungyeon Kim
+  role: "Applied Scientist, Amazon"
+  bio: Sungyeon Kim is an Applied Scientist at Amazon Agentic AI with a research background in computer vision, multimodal learning, and retrieval systems, currently focused on multimodal understanding and evaluation frameworks for AI agents.
+
+- id: haibo-ding
+  name: Haibo Ding
+  role: "Principal Applied Scientist, Amazon"
+  bio: Haibo Ding is a Principal Applied Scientist at Amazon Agentic AI working on agent evaluation, tool optimization, and foundation model evaluation and critic models. He holds a Ph.D. from the University of Utah and has served as an area chair for AAAI and ACL.
