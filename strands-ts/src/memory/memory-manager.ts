@@ -62,6 +62,7 @@ export class MemoryManager implements Plugin {
   private readonly _addStores: MemoryStore[]
   private readonly _searchToolConfig: MemoryToolConfig | false
   private readonly _addToolConfig: MemoryToolConfig | false
+  private readonly _awaitWrites: boolean
 
   constructor(config: MemoryManagerConfig) {
     if (config.stores.length === 0) {
@@ -83,6 +84,7 @@ export class MemoryManager implements Plugin {
     this._config = config
     this._searchStores = config.stores
     this._addStores = config.stores.filter((s) => s.writable)
+    this._awaitWrites = config.awaitWrites ?? false
 
     this._searchToolConfig =
       config.searchToolConfig === false
@@ -205,10 +207,14 @@ export class MemoryManager implements Plugin {
    * Tool-level store scoping is applied by the add tool callback.
    * When `options.stores` is omitted, all writable stores are targeted.
    *
-   * Partial failures are logged. If all writes fail, throws an `AggregateError`.
+   * Target stores are always validated synchronously (an unknown or read-only named store throws
+   * immediately). The store writes themselves follow `awaitWrites` (resolved from
+   * {@link MemoryAddOptions.awaitWrites} then {@link MemoryManagerConfig.awaitWrites}.
+   * - fire-and-forget (default): resolves once writes are dispatched; per-store failures are logged.
+   * - awaited: resolves after all writes settle and throws an `AggregateError` if any store fails.
    *
    * @param content - The text content to add
-   * @param options - Optional metadata and store name filter
+   * @param options - Optional metadata, store name filter, and per-call `awaitWrites` override
    */
   async add(content: string, options?: MemoryAddOptions): Promise<void> {
     let writableStores: MemoryStore[]
@@ -232,23 +238,43 @@ export class MemoryManager implements Plugin {
       throw new Error('MemoryManager: no writable store matched')
     }
 
-    const settled = await Promise.allSettled(writableStores.map((store) => store.add!(content, options?.metadata)))
+    const write = this._writeToStores(writableStores, content, options?.metadata)
+
+    if (options?.awaitWrites ?? this._awaitWrites) {
+      await write
+    } else {
+      // Fire-and-forget: failures are already logged inside _writeToStores; swallow the rejection
+      // here so the detached promise never surfaces as an unhandled rejection.
+      write.catch(() => {})
+    }
+  }
+
+  /**
+   * Writes content to every given store, logging per-store failures. Throws an `AggregateError` if
+   * any store fails. Callers decide whether to await (observe failures) or fire-and-forget.
+   */
+  private async _writeToStores(
+    stores: MemoryStore[],
+    content: string,
+    metadata: Record<string, JSONValue> | undefined
+  ): Promise<void> {
+    const settled = await Promise.allSettled(stores.map((store) => store.add!(content, metadata)))
 
     const failures: { store: string; reason: unknown }[] = []
     for (let i = 0; i < settled.length; i++) {
       const settledResult = settled[i]!
       if (settledResult.status === 'rejected') {
-        const storeName = writableStores[i]!.name
+        const storeName = stores[i]!.name
         logger.warn(
           `store=<${storeName}>, reason=<${normalizeError(settledResult.reason).message}> | store write failed`
         )
         failures.push({ store: storeName, reason: settledResult.reason })
       }
     }
-    if (failures.length === writableStores.length) {
+    if (failures.length > 0) {
       throw new AggregateError(
         failures.map((failure) => failure.reason),
-        `MemoryManager: all store writes failed: ${failures.map((failure) => failure.store).join(', ')}`
+        `MemoryManager: store writes failed: ${failures.map((failure) => failure.store).join(', ')}`
       )
     }
   }
@@ -353,22 +379,19 @@ export class MemoryManager implements Plugin {
       callback: async (input) => {
         const stores = this._resolveToolTargets(scopedNames, input.stores)
         const settled = await Promise.allSettled(input.entries.map((content) => this.add(content, { stores })))
-        const stored = settled.filter((settledResult) => settledResult.status === 'fulfilled').length
         const failures = settled.filter(
           (settledResult) => settledResult.status === 'rejected'
         ) as PromiseRejectedResult[]
 
-        if (stored === 0 && failures.length > 0) {
-          // Flatten so the leaves are concrete reasons (add() throws its own AggregateError when all
-          // of an entry's stores fail), and summarize them in the model-visible message.
+        if (failures.length > 0) {
           const reasons = _flattenReasons(failures.map((failure) => failure.reason))
           throw new AggregateError(
             reasons,
-            `MemoryManager: failed to add all ${failures.length} entries: ${reasons.map((reason) => normalizeError(reason).message).join('; ')}`
+            `MemoryManager: failed to add ${failures.length} of ${input.entries.length} entries: ${reasons.map((reason) => normalizeError(reason).message).join('; ')}`
           )
         }
 
-        return { stored, failed: failures.length } as JSONValue
+        return (this._awaitWrites ? { stored: input.entries.length } : { accepted: input.entries.length }) as JSONValue
       },
     })
   }
