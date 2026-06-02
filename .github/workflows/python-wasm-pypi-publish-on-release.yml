@@ -12,22 +12,6 @@ on:
         type: string
 
 jobs:
-  call-ts-check:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'python-wasm/v')
-    uses: ./.github/workflows/typescript-ts-check.yml
-    permissions:
-      contents: read
-    with:
-      ref: ${{ github.event.release.target_commitish || github.sha }}
-
-  call-ts-test:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'python-wasm/v')
-    uses: ./.github/workflows/typescript-ts-test.yml
-    permissions:
-      contents: read
-    with:
-      ref: ${{ github.event.release.target_commitish || github.sha }}
-
   call-py-check:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'python-wasm/v')
     uses: ./.github/workflows/wasm-py-check.yml
@@ -39,9 +23,6 @@ jobs:
   build-wasm:
     name: Build WASM component
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'python-wasm/v')
-    needs:
-      - call-ts-check
-      - call-ts-test
     runs-on: ubuntu-latest
     permissions:
       contents: read
