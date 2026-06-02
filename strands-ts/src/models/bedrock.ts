@@ -53,7 +53,7 @@ import {
   type StreamOptions,
   resolveConfigMetadata,
 } from '../models/model.js'
-import type { ContentBlock, Message, StopReason, ToolUseBlock } from '../types/messages.js'
+import type { ContentBlock, Message, Role, StopReason, ToolUseBlock } from '../types/messages.js'
 import type { ImageSource, VideoSource, DocumentSource } from '../types/media.js'
 import type { CitationsDelta, ModelStreamEvent, ReasoningContentDelta, Usage } from '../models/streaming.js'
 import type { Citation, CitationLocation, CitationsBlockData } from '../types/citations.js'
@@ -1247,7 +1247,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     // Message start
     const output = ensureDefined(event.output, 'event.output')
     const message = ensureDefined(output.message, 'output.message')
-    const role = ensureDefined(message.role, 'message.role')
+    const role = ensureDefined(message.role, 'message.role') as Role
     events.push({
       type: 'modelMessageStartEvent',
       role,
@@ -1386,7 +1386,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
         const data = eventData as BedrockMessageStartEvent
         events.push({
           type: 'modelMessageStartEvent',
-          role: ensureDefined(data.role, 'messageStart.role'),
+          role: ensureDefined(data.role, 'messageStart.role') as Role,
         })
         break
       }
