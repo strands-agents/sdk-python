@@ -392,10 +392,33 @@ Most event properties are read-only to prevent unintended modifications. However
 <Tabs>
 <Tab label="Python">
 
-After event callbacks run in reverse registration order for cleanup symmetry:
+By default, After event callbacks run in reverse registration order for cleanup symmetry. You can override this with explicit priority using the `order` option — lower values run first.
 
-- **Before**: A, B, C (registration order)
-- **After**: C, B, A (reverse registration order)
+The SDK exports convenience presets:
+
+- `HookOrder.FIRST` (-100)
+- `HookOrder.DEFAULT` (0) — implicit when no order is specified
+- `HookOrder.LAST` (100)
+
+These are not enforced bounds — any numeric value works.
+
+```python
+from strands import Agent
+from strands.hooks import BeforeModelCallEvent, HookOrder
+
+agent = Agent()
+
+def early_hook(event: BeforeModelCallEvent) -> None:
+    print("I run first")
+
+def late_hook(event: BeforeModelCallEvent) -> None:
+    print("I run last")
+
+agent.add_hook(early_hook, order=HookOrder.FIRST)
+agent.add_hook(late_hook, order=HookOrder.LAST)
+```
+
+Within the same order group, Before events preserve registration order and After events reverse it.
 
 </Tab>
 <Tab label="TypeScript">
