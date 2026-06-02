@@ -1,0 +1,114 @@
+---
+/**
+ * Language-aware code block that switches between Python and TypeScript
+ * based on the global language preference (localStorage).
+ *
+ * Uses the same localStorage key as LanguageToggle.astro from
+ * PR #653: 'starlight-synced-tabs__jarkqt'
+ *
+ * Pass both languages to get switching. Pass only pythonCode for
+ * Python-only sections (e.g., steering) — renders with a subtle badge.
+ */
+import CodeBlock from './CodeBlock.astro'
+
+interface Props {
+  pythonCode: string
+  pythonFilename?: string
+  tsCode?: string
+  tsFilename?: string
+}
+
+const { pythonCode, pythonFilename, tsCode, tsFilename } = Astro.props
+const hasTs = !!tsCode
+---
+
+<div class="lang-code-block" data-has-ts={hasTs ? 'true' : 'false'}>
+  <div class="lang-code-python" data-lang-code="Python">
+    <CodeBlock code={pythonCode} filename={pythonFilename} lang="python" badge={!hasTs ? 'python only' : undefined} />
+  </div>
+  {hasTs && (
+    <div class="lang-code-ts" data-lang-code="TypeScript">
+      <CodeBlock code={tsCode!} filename={tsFilename} lang="typescript" />
+    </div>
+  )}
+</div>
+
+<style>
+  .lang-code-block {
+    position: relative;
+    width: 100%;
+  }
+
+  /* Default: show TypeScript, hide Python (matches LanguageToggle default) */
+  [data-has-ts="true"] > [data-lang-code="Python"] {
+    display: none;
+  }
+
+  [data-has-ts="true"] > [data-lang-code="TypeScript"] {
+    display: block;
+  }
+
+</style>
+
+<script>
+  const STORAGE_KEY = 'starlight-synced-tabs__jarkqt'
+
+  function applyLang(lang: string) {
+    document.querySelectorAll<HTMLElement>('[data-lang-code]').forEach((el) => {
+      // Python-only blocks (no TS variant) always stay visible
+      const parent = el.closest<HTMLElement>('[data-has-ts]')
+      if (parent && parent.dataset.hasTs === 'false') return
+
+      const elLang = el.dataset.langCode
+      if (elLang === lang) {
+        el.style.display = 'block'
+      } else {
+        el.style.display = 'none'
+      }
+    })
+  }
+
+  function getPreference(): string {
+    try {
+      return localStorage.getItem(STORAGE_KEY) || 'TypeScript'
+    } catch {
+      return 'TypeScript'
+    }
+  }
+
+  // Apply on load
+  const init = () => applyLang(getPreference())
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init)
+  } else {
+    init()
+  }
+
+  // Sync when other tabs/components change the preference
+  window.addEventListener('storage', (e) => {
+    if (e.key === STORAGE_KEY && e.newValue) {
+      applyLang(e.newValue)
+    }
+  })
+
+  // Listen for custom event (from HeroSection install buttons)
+  window.addEventListener('lang-preference-changed', ((e: CustomEvent) => {
+    applyLang(e.detail.lang)
+  }) as EventListener)
+
+  // Watch for LanguageToggle changes (PR #653) via MutationObserver
+  // The toggle sets aria-checked on .lang-option buttons
+  const observer = new MutationObserver(() => {
+    applyLang(getPreference())
+  })
+  const watchToggle = () => {
+    document.querySelectorAll('language-toggle .lang-option').forEach((el) => {
+      observer.observe(el, { attributes: true, attributeFilter: ['aria-checked'] })
+    })
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', watchToggle)
+  } else {
+    watchToggle()
+  }
+</script>

@@ -1,0 +1,55 @@
+name: "TypeScript: Code Quality"
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+
+jobs:
+  code-quality:
+    name: Code Quality
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify package-lock.json is in sync with package.json
+        run: |
+          npm install --package-lock-only --ignore-scripts
+          if ! git diff --quiet -- package-lock.json; then
+            echo "::error::package-lock.json drifted from package.json -- run 'npm install' and commit the lockfile"
+            git diff --stat -- package-lock.json
+            exit 1
+          fi
+
+      - name: Build
+        run: npm run build
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Check code formatting
+        run: npm run format:check
+
+      - name: Run type checking
+        run: npm run type-check
+
+      - name: Verify browser bundle
+        run: npm run check:browser-bundle

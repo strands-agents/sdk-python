@@ -1,0 +1,266 @@
+---
+/**
+ * Blog Post Layout
+ *
+ * Wraps BlogLayout with article-specific chrome: author byline,
+ * date, reading time, tags, JSON-LD structured data, and OG image.
+ */
+import BlogLayout from './BlogLayout.astro'
+import type { BlogPost, Author } from '../util/blog'
+import { formatDate } from '../util/blog'
+import { pathWithBase } from '../util/links'
+
+interface Props {
+  post: BlogPost
+  authors: Author[]
+  readingTime?: string
+}
+
+const { post, authors, readingTime } = Astro.props
+const { title, date, description, tags, coverImage, canonicalUrl } = post.data
+
+const ogImageUrl = new URL(pathWithBase(`/blog/og/${post.id}.png`), Astro.site).href
+
+// JSON-LD Article structured data
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: title,
+  description,
+  datePublished: date.toISOString(),
+  dateModified: date.toISOString(),
+  author: authors.map((a) => ({
+    '@type': 'Person',
+    name: a.data.name,
+  })),
+  publisher: {
+    '@type': 'Organization',
+    name: 'Strands Agents',
+    url: 'https://strandsagents.com',
+  },
+}
+---
+
+<BlogLayout title={title} description={description} ogImage={ogImageUrl} canonicalUrl={canonicalUrl}>
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  </Fragment>
+
+  <div class="blog-wrapper">
+    <aside class="blog-sidebar">
+      <a href={pathWithBase('/blog/')} class="blog-back-link">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        All posts
+      </a>
+    </aside>
+
+    <article class="blog-post">
+      <header class="blog-post-header">
+        <div class="blog-post-meta">
+          <time datetime={date.toISOString()}>{formatDate(date)}</time>
+          {readingTime && <span class="reading-time">{readingTime}</span>}
+        </div>
+        <h1>{title}</h1>
+        <p class="blog-post-description">{description}</p>
+        <div class="blog-post-authors">
+          {authors.map((author, i) => (
+            <Fragment>
+              {i > 0 && <span class="author-sep">,{' '}</span>}
+              <a href={pathWithBase(`/blog/authors/${author.id}/`)} class="blog-post-author">{author.data.name}</a>
+            </Fragment>
+          ))}
+        </div>
+      </header>
+
+      {coverImage && (
+        <img src={coverImage} alt="" class="blog-post-cover" />
+      )}
+
+      <div class="blog-post-content">
+        <slot />
+      </div>
+    </article>
+  </div>
+</BlogLayout>
+
+<style>
+  .blog-wrapper {
+    display: grid;
+    grid-template-columns: 1fr minmax(0, 760px) 1fr;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1rem 1.5rem 4rem;
+  }
+
+  .blog-sidebar {
+    padding-top: 0.25rem;
+    justify-self: end;
+    padding-right: 2rem;
+  }
+
+  .blog-back-link {
+    position: sticky;
+    top: 6rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-family: 'Figtree', sans-serif;
+    font-size: 0.875rem;
+    color: var(--sl-color-gray-3);
+    text-decoration: none;
+    transition: color 0.15s;
+  }
+
+  .blog-back-link:hover {
+    color: var(--sl-color-white);
+  }
+
+  .blog-post {
+    min-width: 0;
+    margin-top: .5ch;
+  }
+
+  .blog-post-header {
+    margin-bottom: 2rem;
+    border-bottom: 1px solid var(--sl-color-gray-5);
+    padding-bottom: 2rem;
+  }
+
+  .blog-post-header h1 {
+    font-family: 'Figtree', sans-serif;
+    font-size: clamp(1.75rem, 4vw, 2.5rem);
+    font-weight: 700;
+    line-height: 1.2;
+    margin: 0.5rem 0 1rem;
+    color: var(--sl-color-white);
+  }
+
+  .blog-post-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.875rem;
+    color: var(--sl-color-gray-3);
+    font-family: 'Figtree', sans-serif;
+  }
+
+  .blog-post-description {
+    font-family: 'Figtree', sans-serif;
+    font-size: 1.125rem;
+    color: var(--sl-color-gray-2);
+    line-height: 1.5;
+    margin-bottom: 0.75rem;
+  }
+
+  .blog-post-authors {
+    font-family: 'Figtree', sans-serif;
+    font-size: 0.875rem;
+    color: var(--sl-color-gray-3);
+  }
+
+  .blog-post-author {
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+  }
+
+  .blog-post-author:hover {
+    color: var(--sl-color-white);
+  }
+
+  .blog-post-cover {
+    width: 100%;
+    border-radius: 12px;
+    margin-bottom: 2rem;
+  }
+
+  .blog-post-content {
+    font-family: 'Figtree', sans-serif;
+    font-size: 1.0625rem;
+    line-height: 1.7;
+    color: var(--sl-color-white);
+  }
+
+  .blog-post-content :global(h2) {
+    font-family: 'Figtree', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-top: 2.5rem;
+    margin-bottom: 1rem;
+    color: var(--sl-color-white);
+  }
+
+  .blog-post-content :global(h3) {
+    font-family: 'Figtree', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    color: var(--sl-color-white);
+  }
+
+  .blog-post-content :global(p) {
+    margin-bottom: 1.25rem;
+  }
+
+  .blog-post-content :global(pre) {
+    margin: 1.5rem 0;
+    border-radius: 8px;
+  }
+
+  .blog-post-content :global(img) {
+    max-width: 100%;
+    border-radius: 8px;
+    margin: 1.5rem 0;
+  }
+
+  .blog-post-content :global(a) {
+    color: var(--sl-color-accent);
+  }
+
+  .blog-post-content :global(a:hover) {
+    color: var(--sl-color-accent-high);
+  }
+
+  .blog-post-content :global(ul),
+  .blog-post-content :global(ol) {
+    margin-bottom: 1.25rem;
+    padding-left: 1.5rem;
+  }
+
+  .blog-post-content :global(li) {
+    margin-bottom: 0.5rem;
+  }
+
+  .blog-post-content :global(blockquote) {
+    border-left: 3px solid var(--sl-color-gray-4);
+    padding-left: 1rem;
+    margin: 1.5rem 0;
+    color: var(--sl-color-gray-2);
+    font-style: italic;
+  }
+
+  .blog-post-content :global(code:not(pre code)) {
+    background: var(--sl-color-gray-6);
+    padding: 0.125rem 0.375rem;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+
+  /* Mobile: collapse to single column with inline back link */
+  @media (max-width: 768px) {
+    .blog-wrapper {
+      grid-template-columns: 1fr;
+      padding: 1.5rem 1rem 3rem;
+    }
+
+    .blog-sidebar {
+      padding-top: 0;
+      padding-right: 0;
+      justify-self: start;
+      margin-bottom: 1rem;
+    }
+
+    .blog-back-link {
+      position: static;
+    }
+  }
+</style>

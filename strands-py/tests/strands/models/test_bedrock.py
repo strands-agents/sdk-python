@@ -3505,8 +3505,7 @@ class TestCountTokens:
         self, model_with_client, bedrock_client, messages, caplog
     ):
         error_message = (
-            "User: arn:aws:sts::123456789012:assumed-role/role is not authorized"
-            " to perform: bedrock:CountTokens"
+            "User: arn:aws:sts::123456789012:assumed-role/role is not authorized to perform: bedrock:CountTokens"
         )
         bedrock_client.count_tokens.side_effect = ClientError(
             {"Error": {"Code": "AccessDeniedException", "Message": error_message}},

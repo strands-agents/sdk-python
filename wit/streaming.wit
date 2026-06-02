@@ -1,0 +1,368 @@
+package strands:agent@0.1.0;
+
+/// Events emitted by the agent during a `generate` call.
+interface streaming {
+  use messages.{content-block, tool-use-block, tool-result-block, message, usage, metrics};
+  use models.{model-error};
+  use tools.{tool-error};
+
+  /// Human-in-the-loop interrupt raised by a tool or hook.
+  record interrupt {
+    /// Unique identifier. Passed back as `respond-args.interrupt-id`
+    /// when resuming.
+    id: string,
+    /// User-defined name for the interrupt.
+    name: string,
+    /// Reason as an opaque JSON value. Absent when no reason was set.
+    reason: option<string>,
+  }
+
+  /// Why the model stopped generating.
+  enum stop-reason {
+    /// Natural end of the model's turn.
+    end-turn,
+    /// Model paused to call a tool.
+    tool-use,
+    /// Hit the configured token limit.
+    max-tokens,
+    /// Provider returned an error.
+    error,
+    /// Content was filtered by provider safety policy.
+    content-filtered,
+    /// A guardrail policy intervened.
+    guardrail-intervened,
+    /// A configured stop sequence was encountered.
+    stop-sequence,
+    /// Input exceeded the model's context window.
+    model-context-window-exceeded,
+    /// The caller cancelled the invocation.
+    cancelled,
+  }
+
+  /// Usage and metrics accumulated so far.
+  record metadata-event {
+    /// Cumulative token usage.
+    usage: option<usage>,
+    /// Cumulative performance metrics.
+    metrics: option<metrics>,
+  }
+
+  /// Single key-value pair attached to a trace. Values are string-typed
+  /// to keep traces compact; structured payloads belong on `message`.
+  record trace-metadata-entry {
+    /// Metadata key.
+    key: string,
+    /// Metadata value.
+    value: string,
+  }
+
+  /// In-memory trace node. Returned flat; reconstruct the tree via `parent-id`.
+  record agent-trace {
+    /// Unique identifier.
+    id: string,
+    /// Human-readable display name, e.g. `Cycle 1`, `Tool: calc`.
+    name: string,
+    /// Parent trace id. Absent for root traces.
+    parent-id: option<string>,
+    /// Start time, milliseconds since epoch.
+    start-time-ms: s64,
+    /// End time, milliseconds since epoch. Absent while in progress.
+    end-time-ms: option<s64>,
+    /// Duration in milliseconds (`end-time - start-time`).
+    duration-ms: s64,
+    /// Metadata attached to this trace.
+    metadata: list<trace-metadata-entry>,
+    /// Message associated with this trace. Absent when not applicable.
+    message: option<message>,
+  }
+
+  /// Per-tool execution metrics keyed by tool name in `agent-metrics`.
+  record tool-metrics {
+    /// Tool name.
+    tool-name: string,
+    /// Total calls.
+    call-count: s32,
+    /// Successful calls.
+    success-count: s32,
+    /// Failed calls.
+    error-count: s32,
+    /// Total execution time across all calls, in milliseconds.
+    total-time-ms: s64,
+  }
+
+  /// Per-invocation metrics. Cycles are flattened into `agent-metrics.cycles`
+  /// and linked back via `invocation-id`.
+  record invocation-metrics {
+    /// Unique identifier for this invocation.
+    invocation-id: string,
+    /// Accumulated token usage for this invocation.
+    usage: usage,
+  }
+
+  /// Per-cycle usage tracking.
+  record agent-loop-metrics {
+    /// Unique identifier for this cycle.
+    cycle-id: string,
+    /// Invocation this cycle belongs to.
+    invocation-id: string,
+    /// Duration of this cycle in milliseconds.
+    duration-ms: s64,
+    /// Token usage for this cycle.
+    usage: usage,
+  }
+
+  /// Snapshot of agent metrics. Returned by `agent.get-metrics`.
+  record agent-metrics {
+    /// Total cycle count across the agent's lifetime.
+    cycle-count: s32,
+    /// Accumulated token usage.
+    accumulated-usage: usage,
+    /// Accumulated performance metrics.
+    accumulated-metrics: metrics,
+    /// Per-invocation totals.
+    invocations: list<invocation-metrics>,
+    /// Per-cycle metrics across every invocation. Link back to an
+    /// invocation via `cycle.invocation-id`.
+    cycles: list<agent-loop-metrics>,
+    /// Per-tool metrics.
+    tool-metrics: list<tool-metrics>,
+    /// Current context window utilization, measured as the input token
+    /// count from the most recent model call.
+    latest-context-size: option<s32>,
+    /// Projected context size for the next call.
+    projected-context-size: option<s32>,
+  }
+
+  /// Mutable tool-use descriptor. `before-tool-call` hooks may rewrite fields.
+  record tool-use-data {
+    /// Tool to invoke.
+    name: string,
+    /// Identifier correlating this call with its result.
+    tool-use-id: string,
+    /// Arguments as a JSON value.
+    input: string,
+  }
+
+  /// Redaction information when guardrails block content.
+  record hook-redaction {
+    /// Replacement text for the redacted user message; the original is in history.
+    user-message: string,
+  }
+
+  /// Model response surfaced on `after-model-call`.
+  record model-stop-data {
+    /// Message returned by the model.
+    message: message,
+    /// Why the model stopped generating.
+    stop-reason: stop-reason,
+    /// Redaction info when guardrails blocked input. Absent if no redaction.
+    redaction: option<hook-redaction>,
+  }
+
+  /// Payload for `before-invocation`.
+  record before-invocation-data {
+    /// Invocation-scoped state bag as a JSON object. Always present;
+    /// an empty object signals no caller-supplied state.
+    invocation-state: string,
+  }
+
+  /// Payload for `after-invocation`.
+  record after-invocation-data {
+    /// Invocation-scoped state bag as a JSON object. Always present;
+    /// an empty object signals no caller-supplied state.
+    invocation-state: string,
+  }
+
+  /// Payload for `message-added`.
+  record message-added-data {
+    /// Message appended to the conversation.
+    message: message,
+  }
+
+  /// Payload for `before-model-call`.
+  record before-model-call-data {
+    /// Projected input token count for the upcoming call. Absent when
+    /// the provider doesn't report it.
+    projected-input-tokens: option<s32>,
+  }
+
+  /// Payload for `after-model-call`.
+  record after-model-call-data {
+    /// 1-indexed attempt count for this turn.
+    attempt-count: s32,
+    /// Model response. Absent when an error occurred before completion.
+    stop-data: option<model-stop-data>,
+    /// Error when the call failed. Absent on success.
+    error: option<model-error>,
+  }
+
+  /// Payload for `before-tool-call`.
+  record before-tool-call-data {
+    /// Tool-use descriptor about to execute.
+    tool-use: tool-use-data,
+  }
+
+  /// Payload for `after-tool-call`.
+  record after-tool-call-data {
+    /// Tool-use that ran.
+    tool-use: tool-use-data,
+    /// Tool result block.
+    tool-result: tool-result-block,
+    /// Error when the tool threw. Absent on success.
+    error: option<tool-error>,
+  }
+
+  /// Payload for `before-tools` / `after-tools`.
+  record tools-batch-data {
+    /// Assistant message whose tool calls are about to run (or just ran).
+    message: message,
+  }
+
+  /// Payload for `content-block`.
+  record content-block-data {
+    /// Fully-assembled content block.
+    content-block: content-block,
+  }
+
+  /// Payload for `model-message`.
+  record model-message-data {
+    /// Assembled assistant message.
+    message: message,
+    /// Why the model stopped.
+    stop-reason: stop-reason,
+  }
+
+  /// Payload for `tool-result-hook`.
+  record tool-result-data {
+    /// Completed tool-result block.
+    tool-result: tool-result-block,
+  }
+
+  /// Payload for `tool-stream-update`.
+  record tool-stream-update-data {
+    /// Data from the streaming tool as a JSON value.
+    data: string,
+  }
+
+  /// Payload for `model-stream-update`.
+  record model-stream-update-data {
+    /// Inner model stream event as a JSON value.
+    event: string,
+  }
+
+  /// Payload for `agent-result`.
+  record agent-result-data {
+    /// Terminal stop event: stop reason, final usage, structured output.
+    stop: stop-event,
+  }
+
+  /// Input redaction emitted when a guardrail blocks input. Original is in history.
+  record input-redaction {
+    /// Text to substitute for the blocked input.
+    replace-content: string,
+  }
+
+  /// Output redaction emitted when a guardrail blocks output.
+  record output-redaction {
+    /// Original blocked content if the provider surfaced it.
+    redacted-content: option<string>,
+    /// Text to substitute for the blocked output.
+    replace-content: string,
+  }
+
+  /// Redaction event. Input and output fields are independent; at least one is set.
+  record redaction-event {
+    /// Present when input was redacted.
+    input-redaction: option<input-redaction>,
+    /// Present when output was redacted.
+    output-redaction: option<output-redaction>,
+  }
+
+  /// Terminal event for a stream.
+  record stop-event {
+    /// Why generation stopped.
+    reason: stop-reason,
+    /// Final token usage.
+    usage: option<usage>,
+    /// Final performance metrics.
+    metrics: option<metrics>,
+    /// Validated structured output as a JSON value. Present when a schema
+    /// was supplied.
+    structured-output: option<string>,
+  }
+
+  /// Why the agent loop surfaced an error mid-stream.
+  variant stream-error {
+    /// A model call failed.
+    model(model-error),
+    /// A tool call failed.
+    tool(tool-error),
+    /// Input exceeded the model's context window and no conversation
+    /// manager could recover.
+    context-window-exceeded,
+    /// Exceeded the model's max-tokens budget mid-response.
+    max-tokens-reached,
+    /// Structured output was requested but the model never called the
+    /// tool, even after being forced.
+    structured-output-unavailable,
+    /// Catch-all for internal failures.
+    internal(string),
+  }
+
+  /// Events yielded during agent streaming.
+  /// Hot-path arms: `text-delta`, `tool-use`, `tool-result`. Other content
+  /// blocks flow through `content`. Lifecycle arms (`before-invocation`
+  /// through `agent-result`) mirror a hook system and can be filtered by tag.
+  variant stream-event {
+    /// Incremental text from the model.
+    text-delta(string),
+    /// Model requested a tool call.
+    tool-use(tool-use-block),
+    /// Tool call completed.
+    tool-result(tool-result-block),
+    /// Non-hot-path content block (image, reasoning, citations, etc).
+    content(content-block),
+    /// Cumulative usage and metrics snapshot.
+    metadata(metadata-event),
+    /// Terminal event for the stream.
+    stop(stop-event),
+    /// Guardrail redaction fired.
+    redaction(redaction-event),
+    /// Recoverable error surfaced mid-stream.
+    error(stream-error),
+    /// Human-in-the-loop pause; resume via `response-stream.respond`.
+    interrupt(interrupt),
+    /// Agent finished construction.
+    initialized,
+    /// About to process a user invocation.
+    before-invocation(before-invocation-data),
+    /// Finished processing a user invocation.
+    after-invocation(after-invocation-data),
+    /// A message was appended to the conversation.
+    message-added(message-added-data),
+    /// About to call the model.
+    before-model-call(before-model-call-data),
+    /// Model call returned.
+    after-model-call(after-model-call-data),
+    /// About to run a batch of tool calls from one assistant turn.
+    before-tools(tools-batch-data),
+    /// Tool batch finished.
+    after-tools(tools-batch-data),
+    /// About to call a single tool.
+    before-tool-call(before-tool-call-data),
+    /// Tool call returned.
+    after-tool-call(after-tool-call-data),
+    /// A content block was assembled during streaming.
+    content-block(content-block-data),
+    /// Model finished producing a full message.
+    model-message(model-message-data),
+    /// Tool finished execution (completion event, not streaming update).
+    tool-result-hook(tool-result-data),
+    /// Streaming update from a tool.
+    tool-update(tool-stream-update-data),
+    /// Streaming update from the model.
+    model-update(model-stream-update-data),
+    /// Final event for an invocation, carrying the terminal result.
+    agent-result(agent-result-data),
+  }
+}

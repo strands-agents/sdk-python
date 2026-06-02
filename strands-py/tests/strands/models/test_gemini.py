@@ -620,6 +620,29 @@ def test_format_chunk_metadata_with_zero_cached_tokens(model):
     }
 
 
+def test_format_chunk_metadata_with_missing_token_counts(model):
+    event = {
+        "chunk_type": "metadata",
+        "data": genai.types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=None,
+            total_token_count=None,
+        ),
+    }
+
+    result = model._format_chunk(event)
+
+    assert result == {
+        "metadata": {
+            "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "totalTokens": 0,
+            },
+            "metrics": {"latencyMs": 0},
+        },
+    }
+
+
 @pytest.mark.asyncio
 async def test_stream_response_tool_use(gemini_client, model, messages, agenerator, alist):
     gemini_client.aio.models.generate_content_stream.return_value = agenerator(
@@ -844,6 +867,35 @@ async def test_stream_response_max_tokens(gemini_client, model, messages, agener
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "max_tokens"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+    ]
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_response_safety_block_with_missing_counts(
+    gemini_client, model, messages, agenerator, alist
+):
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        finish_reason="SAFETY",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=None,
+                    total_token_count=None,
+                ),
+            ),
+        ]
+    )
+
+    tru_chunks = await alist(model.stream(messages))
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {"messageStop": {"stopReason": "guardrail_intervened"}},
+        {"metadata": {"usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}, "metrics": {"latencyMs": 0}}},
     ]
     assert tru_chunks == exp_chunks
 

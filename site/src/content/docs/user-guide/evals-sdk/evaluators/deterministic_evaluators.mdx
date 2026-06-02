@@ -1,0 +1,158 @@
+---
+title: Deterministic Evaluators
+tags: [tool-evaluation]
+sidebar:
+  label: "Deterministic"
+---
+
+## Overview
+
+Deterministic evaluators provide fast, code-based evaluation without LLM judges. They perform exact checks on outputs, trajectories, and environment state — making them ideal for regression testing, CI/CD pipelines, and cases where evaluation criteria are objective and well-defined.
+
+## Key Features
+
+- **No LLM Required**: Pure code-based evaluation — fast and free
+- **Deterministic Results**: Same input always produces the same score
+- **Multiple Check Types**: Output matching, tool call verification, and state comparison
+- **Async Support**: All evaluators support both sync and async evaluation
+
+## Available Evaluators
+
+### Output Evaluators
+
+#### `Equals`
+
+Checks if `actual_output` equals an expected value.
+
+```python
+from strands_evals.evaluators import Equals
+
+# Compare against explicit value
+evaluator = Equals(value="Paris")
+
+# Or compare against case's expected_output (when value is None)
+evaluator = Equals()
+```
+
+**Parameters:**
+- `value` (optional): The expected value. If `None`, uses `expected_output` from the evaluation case.
+
+#### `Contains`
+
+Checks if `actual_output` contains a substring.
+
+```python
+from strands_evals.evaluators import Contains
+
+evaluator = Contains(value="Paris", case_sensitive=False)
+```
+
+**Parameters:**
+- `value` (required): The substring to search for.
+- `case_sensitive` (optional, default `True`): Whether the check is case-sensitive.
+
+#### `StartsWith`
+
+Checks if `actual_output` starts with a prefix.
+
+```python
+from strands_evals.evaluators import StartsWith
+
+evaluator = StartsWith(value="The capital", case_sensitive=False)
+```
+
+**Parameters:**
+- `value` (required): The prefix to check.
+- `case_sensitive` (optional, default `True`): Whether the check is case-sensitive.
+
+### Trajectory Evaluators
+
+#### `ToolCalled`
+
+Checks if a specific tool was called in the trajectory. Works with both list-based trajectories and `Session` objects.
+
+```python
+from strands_evals.evaluators import ToolCalled
+
+evaluator = ToolCalled(tool_name="calculator")
+```
+
+**Parameters:**
+- `tool_name` (required): Name of the tool to check for.
+
+### Environment State Evaluators
+
+#### `StateEquals`
+
+Checks if a named environment state matches an expected value. Useful for verifying that tool-using agents produce the correct side effects.
+
+```python
+from strands_evals.evaluators import StateEquals
+
+# Compare against explicit value
+evaluator = StateEquals(name="temperature", value=72.0)
+
+# Or compare against case's expected_environment_state
+evaluator = StateEquals(name="temperature")
+```
+
+**Parameters:**
+- `name` (required): Name of the environment state to check.
+- `value` (optional): Expected value. If `None`, uses `expected_environment_state` from the evaluation case.
+
+## Usage Example
+
+```python
+from strands import Agent
+from strands_evals import Case, Experiment
+from strands_evals.evaluators import Equals, Contains, ToolCalled
+
+cases = [
+    Case(
+        name="capital-check",
+        input="What is the capital of France?",
+        expected_output="Paris"
+    )
+]
+
+# Combine multiple deterministic checks
+evaluators = [
+    Contains(value="Paris", case_sensitive=False),
+    Contains(value="France", case_sensitive=False),
+]
+
+def get_response(case: Case) -> str:
+    agent = Agent(callback_handler=None)
+    return str(agent(case.input))
+
+experiment = Experiment(cases=cases, evaluators=evaluators)
+reports = experiment.run_evaluations(get_response)
+reports[0].run_display()
+```
+
+## Combining with LLM Evaluators
+
+Deterministic evaluators work well alongside LLM-based evaluators for comprehensive assessment:
+
+```python
+from strands_evals.evaluators import Contains, HelpfulnessEvaluator, CorrectnessEvaluator
+
+evaluators = [
+    Contains(value="Paris"),              # Fast deterministic check
+    CorrectnessEvaluator(),               # LLM-based correctness
+    HelpfulnessEvaluator(),               # LLM-based helpfulness
+]
+```
+
+## Best Practices
+
+1. **Use for regression testing**: Deterministic evaluators are ideal for CI/CD since they're fast and don't require API calls
+2. **Combine with LLM evaluators**: Use deterministic checks as a first pass, then LLM evaluators for nuanced assessment
+3. **Case sensitivity**: Use `case_sensitive=False` when exact casing doesn't matter
+4. **State verification**: Use `StateEquals` when your agent modifies external state through tools
+
+## Related Evaluators
+
+- [**OutputEvaluator**](output_evaluator.md): LLM-based output evaluation with custom rubrics
+- [**TrajectoryEvaluator**](trajectory_evaluator.md): LLM-based trajectory evaluation
+- [**CustomEvaluator**](custom_evaluator.md): Build your own evaluation logic

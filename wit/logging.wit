@@ -1,0 +1,32 @@
+package strands:agent@0.1.0;
+
+/// Structured logging emitted by the agent. Your application receives
+/// entries via the `log` method.
+interface host-log {
+  /// Severity level of a log entry.
+  enum log-level {
+    /// Fine-grained diagnostics, typically disabled in production.
+    trace,
+    /// Debugging detail useful during development.
+    debug,
+    /// Routine operational information.
+    info,
+    /// Recoverable issue worth surfacing.
+    warn,
+    /// Failure that may require attention.
+    error,
+  }
+
+  /// A single structured log entry.
+  record log-entry {
+    /// Severity.
+    level: log-level,
+    /// Human-readable message.
+    message: string,
+    /// Structured context as a JSON object.
+    context: option<string>,
+  }
+
+  /// Emit a log entry.
+  log: func(entry: log-entry);
+}

@@ -983,9 +983,7 @@ def test_proactive_compression_exception_swallowed():
 def test_proactive_compression_true_default_threshold_behavior():
     """proactive_compression=True uses 0.7 — triggered at 0.7+ but not below."""
     manager = _MinimalManager(proactive_compression=True)
-    agent = _make_mock_agent(
-        messages=[{"role": "user", "content": [{"text": "msg"}]}], context_window_limit=1000
-    )
+    agent = _make_mock_agent(messages=[{"role": "user", "content": [{"text": "msg"}]}], context_window_limit=1000)
     registry = HookRegistry()
     manager.register_hooks(registry)
 

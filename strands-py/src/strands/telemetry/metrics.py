@@ -1,6 +1,7 @@
 """Utilities for collecting and reporting performance metrics in the SDK."""
 
 import logging
+import threading
 import time
 import uuid
 from collections.abc import Iterable
@@ -548,9 +549,13 @@ class MetricsClient:
 
     The actual metrics export destination (console, OTLP endpoint, etc.) is configured
     through OpenTelemetry SDK configuration by users, not by this client.
+
+    This class uses a thread-safe double-checked locking pattern to ensure safe
+    concurrent initialization across multiple threads.
     """
 
     _instance: Optional["MetricsClient"] = None
+    _lock: threading.Lock = threading.Lock()
     meter: Meter
     event_loop_cycle_count: Counter
     event_loop_start_cycle: Counter
@@ -570,11 +575,16 @@ class MetricsClient:
     def __new__(cls) -> "MetricsClient":
         """Create or return the singleton instance of MetricsClient.
 
+        Uses double-checked locking to ensure thread safety without
+        acquiring the lock on every access after initialization.
+
         Returns:
             The single MetricsClient instance.
         """
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self) -> None:
@@ -582,14 +592,20 @@ class MetricsClient:
 
         This method only runs once due to the singleton pattern.
         Sets up the OpenTelemetry meter and creates metric instruments.
+        Uses a lock to prevent concurrent initialization races.
         """
         if hasattr(self, "meter"):
             return
 
-        logger.info("Creating Strands MetricsClient")
-        meter_provider: metrics_api.MeterProvider = metrics_api.get_meter_provider()
-        self.meter = meter_provider.get_meter(__name__)
-        self.create_instruments()
+        with self._lock:
+            # Double-check after acquiring the lock
+            if hasattr(self, "meter"):
+                return
+
+            logger.info("Creating Strands MetricsClient")
+            meter_provider: metrics_api.MeterProvider = metrics_api.get_meter_provider()
+            self.meter = meter_provider.get_meter(__name__)
+            self.create_instruments()
 
     def create_instruments(self) -> None:
         """Create and initialize all OpenTelemetry metric instruments."""

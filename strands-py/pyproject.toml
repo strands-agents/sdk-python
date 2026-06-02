@@ -7,9 +7,10 @@ build-backend = "hatchling.build"
 name = "strands-agents"
 dynamic = ["version"]  # Version determined by git tags
 description = "A model-driven approach to building AI agents in just a few lines of code"
-readme = "../README.md"
+readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
+license-files = ["LICENSE", "NOTICE"]
 authors = [
     {name = "AWS", email = "opensource@amazon.com"},
 ]

@@ -1,5 +1,8 @@
+import asyncio
+
 import pytest
 
+import strands
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.tools.executors import ConcurrentToolExecutor
@@ -39,6 +42,35 @@ async def test_concurrent_executor_execute(
     tru_results = sorted(tool_results, key=lambda result: result.get("toolUseId"))
     exp_results = [exp_events[0].tool_result, exp_events[1].tool_result]
     assert tru_results == exp_results
+
+
+@pytest.mark.asyncio
+async def test_concurrent_executor_preserves_tool_use_result_order(
+    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context, alist
+):
+    @strands.tool(name="slow_order_tool")
+    async def slow_order_tool():
+        await asyncio.sleep(0.05)
+        return "slow"
+
+    @strands.tool(name="fast_order_tool")
+    async def fast_order_tool():
+        return "fast"
+
+    agent.tool_registry.register_tool(slow_order_tool)
+    agent.tool_registry.register_tool(fast_order_tool)
+
+    tool_uses = [
+        {"name": "slow_order_tool", "toolUseId": "slow", "input": {}},
+        {"name": "fast_order_tool", "toolUseId": "fast", "input": {}},
+    ]
+    stream = executor._execute(
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+    )
+
+    await alist(stream)
+
+    assert [result["toolUseId"] for result in tool_results] == ["slow", "fast"]
 
 
 @pytest.mark.asyncio

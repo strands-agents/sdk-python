@@ -1,0 +1,73 @@
+# End-to-end package install smoke test.
+#
+# At RC.0 the SDK published a main-entry re-export from an optional peer
+# dependency. A real user's `npm install @strands-agents/sdk` succeeded, then
+# crashed at module load because the optional peer was not installed.
+#
+# The existing `test:package` doesn't catch this: it resolves the SDK via
+# `file:../../..` and the monorepo's root `node_modules` hoists every optional
+# peer (they're devDependencies of the repo), silently satisfying the bad
+# re-export. This workflow reproduces a real user's install: `npm pack` the
+# SDK, install the tarball in a tempdir OUTSIDE the monorepo tree so nothing
+# hoists, then type-check and run a consumer script that touches the public
+# surface. A missing optional peer fails at module load the same way it would
+# for an end user.
+name: "TypeScript: Test Package Pack"
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+
+jobs:
+  test-package-pack:
+    name: Pack Install
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Pack, install in tmpdir, type-check, and run
+        # The tempdir MUST live outside the monorepo — otherwise npm hoists
+        # devDependencies from the repo root into resolution and silently
+        # satisfies missing optional peers, defeating the test.
+        run: |
+          set -euo pipefail
+          TARBALL=$(cd strands-ts && npm pack --silent)
+          TARBALL_PATH="$GITHUB_WORKSPACE/strands-ts/$TARBALL"
+          echo "Packed: $TARBALL_PATH"
+
+          WORK=$(mktemp -d)
+          trap 'rm -rf "$WORK"' EXIT
+          echo "Workspace: $WORK"
+          cp strands-ts/test/packages/npm-pack/package.json \
+             strands-ts/test/packages/npm-pack/tsconfig.json \
+             strands-ts/test/packages/npm-pack/verify.ts \
+             "$WORK/"
+          cd "$WORK"
+
+          npm install --ignore-scripts --no-audit --no-fund
+          npm install --ignore-scripts --no-audit --no-fund "$TARBALL_PATH"
+
+          npx tsc --noEmit
+          npx tsx verify.ts

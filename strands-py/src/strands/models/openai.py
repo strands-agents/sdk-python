@@ -700,7 +700,11 @@ class OpenAIModel(Model):
                     continue
                 choice = event.choices[0]
 
-                if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                reasoning_content = getattr(choice.delta, "reasoning_content", None)
+                if not isinstance(reasoning_content, str) or not reasoning_content:
+                    reasoning_content = getattr(choice.delta, "reasoning", None)
+
+                if isinstance(reasoning_content, str) and reasoning_content:
                     chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
                     for chunk in chunks:
                         yield chunk
@@ -708,7 +712,7 @@ class OpenAIModel(Model):
                         {
                             "chunk_type": "content_delta",
                             "data_type": data_type,
-                            "data": choice.delta.reasoning_content,
+                            "data": reasoning_content,
                         }
                     )
 

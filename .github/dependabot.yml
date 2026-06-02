@@ -11,6 +11,41 @@ updates:
       dev-dependencies:
         patterns:
           - "pytest"
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 100
+    commit-message:
+      prefix: "ci(typescript)"
+    cooldown:
+      default-days: 5
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
+    groups:
+      development-dependencies:
+        dependency-type: "development"
+        applies-to: version-updates
+      production-minor:
+        dependency-type: "production"
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+  - package-ecosystem: "npm"
+    directory: "/site"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 100
+    commit-message:
+      prefix: "ci(docs)"
+  - package-ecosystem: "pip"
+    directory: "/strands-py-wasm"
+    schedule:
+      interval: "daily"
+    commit-message:
+      prefix: "ci(python)"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

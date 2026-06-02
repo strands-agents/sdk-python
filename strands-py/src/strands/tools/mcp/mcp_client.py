@@ -749,7 +749,7 @@ class MCPClient(ToolProvider):
         mapped_contents: list[ToolResultContent] = [
             mc
             for content in call_tool_result.content
-            if (mc := self._map_mcp_content_to_tool_result_content(content)) is not None
+            if (mc := self.map_mcp_content_to_tool_result_content(content)) is not None
         ]
 
         status: ToolResultStatus = "error" if call_tool_result.isError else "success"
@@ -864,14 +864,16 @@ class MCPClient(ToolProvider):
         asyncio.set_event_loop(self._background_thread_event_loop)
         self._background_thread_event_loop.run_until_complete(self._async_background_thread())
 
-    def _map_mcp_content_to_tool_result_content(
+    def map_mcp_content_to_tool_result_content(
         self,
         content: MCPTextContent | MCPImageContent | MCPEmbeddedResource | Any,
     ) -> ToolResultContent | None:
         """Maps MCP content types to tool result content types.
 
         This method converts MCP-specific content types to the generic
-        ToolResultContent format used by the agent framework.
+        ToolResultContent format used by the agent framework. Subclasses can
+        override this to intercept or transform specific content blocks before
+        they reach the model.
 
         Args:
             content: The MCP content to convert
@@ -945,6 +947,7 @@ class MCPClient(ToolProvider):
         else:
             self._log_debug_with_thread("unhandled content type: %s - dropping content", content.__class__.__name__)
             return None
+
 
     def _log_debug_with_thread(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Logger helper to help differentiate logs coming from MCPClient background thread."""

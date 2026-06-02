@@ -130,7 +130,7 @@ class StructuredOutputTool(AgentTool):
             error_message = f"Validation failed for {self._tool_name}. Please fix the following errors:\n" + "\n".join(
                 f"- {detail}" for detail in error_details
             )
-            logger.error(
+            logger.debug(
                 "tool_name=<%s> | structured output validation failed | error_message=<%s>",
                 self._tool_name,
                 error_message,

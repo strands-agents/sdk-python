@@ -1,0 +1,76 @@
+package strands:agent@0.1.0;
+
+/// Retry policy for failed model and tool calls.
+interface retry {
+  use wasi:clocks/monotonic-clock@0.2.6.{duration};
+
+  /// How much random variation to apply to computed delays.
+  enum jitter-kind {
+    /// No jitter applied.
+    none,
+    /// Uniform random in `[0, delay]`.
+    full,
+    /// Uniform random in `[delay/2, delay]`.
+    equal,
+    /// Decorrelated exponential jitter (AWS-style).
+    decorrelated,
+  }
+
+  /// Fixed delay between attempts.
+  record constant-backoff {
+    /// Delay returned for every retry.
+    delay: duration,
+  }
+
+  /// Delay grows linearly with attempt number.
+  record linear-backoff {
+    /// Base delay. Delay on attempt N is `base * N`.
+    base: duration,
+    /// Upper bound applied before jitter.
+    max: duration,
+    /// Jitter mode.
+    jitter: jitter-kind,
+  }
+
+  /// Delay grows exponentially with attempt number.
+  record exponential-backoff {
+    /// Base delay on the first retry.
+    base: duration,
+    /// Upper bound applied before jitter.
+    max: duration,
+    /// Growth factor. Delay on attempt N is `base * factor^(N-1)`.
+    factor: f64,
+    /// Jitter mode.
+    jitter: jitter-kind,
+  }
+
+  /// Backoff curve applied between attempts.
+  variant backoff-strategy {
+    /// Fixed delay.
+    constant(constant-backoff),
+    /// Linear growth.
+    linear(linear-backoff),
+    /// Exponential growth.
+    exponential(exponential-backoff),
+  }
+
+  /// A single retry strategy. Default is exponential backoff, full jitter, 6 attempts.
+  record model-retry-strategy {
+    /// Maximum number of attempts, including the initial call.
+    max-attempts: s32,
+    /// Backoff curve applied between attempts.
+    backoff: backoff-strategy,
+    /// Upper bound on total retry window. Absent means no cap.
+    total-budget: option<duration>,
+  }
+
+  /// Retry configuration attached to an agent.
+  /// Every strategy observes every failure; the first to request a delay wins.
+  /// Empty list disables retries; omitting `agent-config.retry` applies a default
+  /// single exponential strategy. Two strategies with the same `backoff` arm
+  /// surface as `agent-error::invalid-input`.
+  record retry-config {
+    /// Strategies evaluated on every retryable failure.
+    strategies: list<model-retry-strategy>,
+  }
+}

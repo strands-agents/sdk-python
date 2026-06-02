@@ -28,6 +28,7 @@ jobs:
             ci
             chore
             revert
+            design
           requireScope: false
           subjectPattern: ^[a-z].+$
           subjectPatternError: |

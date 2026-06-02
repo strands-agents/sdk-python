@@ -1,12 +1,6 @@
 name: "Python: Pull Request and Push"
 
 on:
-  pull_request:
-    branches: [ main ]
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'strands-py/**'
-      - '.github/workflows/python-*'
   push:
     branches: [ main ]
     paths:

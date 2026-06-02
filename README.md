@@ -26,7 +26,6 @@
   <p>
     <a href="https://strandsagents.com/">Documentation</a>
     ◆ <a href="https://github.com/strands-agents/samples">Samples</a>
-    ◆ <a href="https://github.com/strands-agents/sdk-python">Python SDK</a>
     ◆ <a href="https://github.com/strands-agents/tools">Tools</a>
     ◆ <a href="https://github.com/strands-agents/agent-builder">Agent Builder</a>
     ◆ <a href="https://github.com/strands-agents/mcp-server">MCP Server</a>
@@ -34,6 +33,18 @@
 </div>
 
 Strands Agents is a simple yet powerful SDK that takes a model-driven approach to building and running AI agents. From simple conversational assistants to complex autonomous workflows, from local development to production deployment, Strands Agents scales with your needs.
+
+This monorepo contains the Python SDK, TypeScript SDK, documentation site, and supporting packages:
+
+| Directory | Description |
+|-----------|-------------|
+| `strands-py/` | Python SDK — agent loop, model providers, tools ([PyPI](https://pypi.org/project/strands-agents/)) |
+| `strands-ts/` | TypeScript SDK — agent loop, model providers, tools ([npm](https://www.npmjs.com/package/@strands/agent)) |
+| `strands-wasm/` | WebAssembly bindings for running Python tools from TypeScript agents |
+| `strands-py-wasm/` | Python host for WASM components (bridges WIT interfaces to Python) |
+| `strandly/` | Developer CLI for local builds, codegen, and workspace tooling |
+| `site/` | Documentation site built with Astro/Starlight ([strandsagents.com](https://strandsagents.com)) |
+| `designs/` | Design proposals for significant features (RFC-style) |
 
 ## Feature Overview
 
@@ -310,8 +321,9 @@ For detailed guidance & examples, explore our documentation:
 
 ## Development
 
-Source code lives in the `strands-py/` subdirectory. To develop locally:
+Git operations (commits, branches, PRs) are done from the repo root. Each package has its own toolchain:
 
+**Python SDK** (`strands-py/`):
 ```bash
 cd strands-py
 pip install hatch
@@ -319,7 +331,19 @@ hatch test        # run unit tests
 hatch fmt         # format & lint
 ```
 
-Git operations (commits, branches, PRs) are still done from the repo root as normal.
+**TypeScript SDK** (`strands-ts/`):
+```bash
+npm ci            # install from repo root
+npm run build     # build
+npm test          # run unit tests
+```
+
+**Documentation site** (`site/`):
+```bash
+cd site
+npm install
+npm run dev       # local dev server at http://localhost:4321/
+```
 
 ## Contributing ❤️
 

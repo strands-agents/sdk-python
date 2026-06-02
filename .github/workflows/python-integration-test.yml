@@ -12,7 +12,8 @@ on:
 jobs:
   authorization-check:
     name: Check access
-    permissions: read-all
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     outputs:
       approval-env: ${{ steps.auth.outputs.approval-env }}
@@ -101,6 +102,8 @@ jobs:
           name: test-results
 
       - name: Publish test metrics to CloudWatch
+        env:
+          REPO_NAME: ${{ github.event.repository.name }}
         run: |
           pip install --no-cache-dir boto3
-          python .github/scripts/upload-integ-test-metrics.py test-results.xml ${{ github.event.repository.name }}
+          python .github/scripts/upload-integ-test-metrics.py test-results.xml "$REPO_NAME"

@@ -1,0 +1,125 @@
+---
+title: Multimodal Instruction Following Evaluator
+tags: [multimodal-evaluation, vision]
+sidebar:
+  label: "Multimodal Instruction Following"
+---
+
+## Overview
+
+The `MultimodalInstructionFollowingEvaluator` assesses whether an agent response satisfies the explicit constraints in the user's instruction (count, format, scope, order, completeness, and style), independently of factual accuracy.
+
+## Key Features
+
+- **Output-Level Evaluation**: Scores a single agent response per case
+- **Binary Scoring**: `1.0` if all constraints are satisfied, `0.0` if any constraint is violated
+- **Constraint-Focused**: Evaluates compliance with directives, not overall correctness or quality
+- **Image-Aware**: Verifies image-referential constraints (e.g., "describe only the background")
+
+## When to Use
+
+Use the `MultimodalInstructionFollowingEvaluator` when you need to:
+
+- Verify that responses respect format constraints (bullet vs. numbered list, paragraph, JSON)
+- Check count constraints ("exactly N sentences", "in one paragraph")
+- Assess scope constraints ("describe only the foreground", "do not mention people")
+- Validate order constraints ("left to right", "largest to smallest")
+- Evaluate instruction compliance independently from factual correctness
+
+## Evaluation Level
+
+This evaluator operates at the **OUTPUT_LEVEL**, scoring a single agent response per case.
+
+## Parameters
+
+### `rubric` (optional)
+- **Type**: `str | None`
+- **Default**: `INSTRUCTION_FOLLOWING_RUBRIC_V0`
+- **Description**: Custom rubric. Leave unset to use the default rubric.
+
+### `model` (optional)
+- **Type**: `Model | str | None`
+- **Default**: `None` (uses default Bedrock model)
+- **Description**: Multimodal judge model.
+
+### `include_inputs` (optional)
+- **Type**: `bool`
+- **Default**: `True`
+
+### `system_prompt` (optional)
+- **Type**: `str | None`
+- **Default**: `None` (uses the built-in `MLLM_JUDGE_SYSTEM_PROMPT`)
+
+### `reference_suffix` (optional)
+- **Type**: `str | None`
+- **Default**: `None` (uses the built-in default suffix)
+
+## Scoring System
+
+| Score | Label | Meaning |
+|-------|-------|---------|
+| 1.0 | Following | All explicit constraints are satisfied |
+| 0.0 | Not Following | One or more constraints are violated |
+
+A response passes only if the score is `1.0`.
+
+## Basic Usage
+
+```python
+from strands_evals import Case, Experiment
+from strands_evals.evaluators import MultimodalInstructionFollowingEvaluator
+from strands_evals.types import MultimodalInput
+from strands_evals.types.evaluation_report import EvaluationReport
+
+
+def task_function(case: Case) -> str:
+    # Replace with your multimodal agent invocation.
+    return "- tree\n- bench\n- lamppost"
+
+
+cases = [
+    Case(
+        name="bullet-format",
+        input=MultimodalInput(
+            media="/path/to/park.jpg",
+            instruction="List exactly three objects visible in the background as bullet points.",
+        ),
+    ),
+]
+
+experiment = Experiment(
+    cases=cases,
+    evaluators=[MultimodalInstructionFollowingEvaluator()],
+)
+reports = experiment.run_evaluations(task_function)
+EvaluationReport.flatten(reports).run_display()
+```
+
+## Combining with Other Evaluators
+
+Pair with correctness and faithfulness to assess different failure modes separately. `Experiment.run_evaluations` returns one report per evaluator, so use `EvaluationReport.flatten` to view them together:
+
+```python
+from strands_evals import Experiment
+from strands_evals.evaluators import (
+    MultimodalCorrectnessEvaluator,
+    MultimodalFaithfulnessEvaluator,
+    MultimodalInstructionFollowingEvaluator,
+)
+from strands_evals.types.evaluation_report import EvaluationReport
+
+evaluators = [
+    MultimodalInstructionFollowingEvaluator(),  # Did it follow the instruction constraints?
+    MultimodalCorrectnessEvaluator(),           # Are the listed objects correct?
+    MultimodalFaithfulnessEvaluator(),          # Are they actually in the image?
+]
+
+experiment = Experiment(cases=cases, evaluators=evaluators)
+reports = experiment.run_evaluations(task_function)
+EvaluationReport.flatten(reports).run_display()
+```
+
+## Related Evaluators
+
+- [**MultimodalOutputEvaluator**](multimodal_output_evaluator.md): Parent class with full parameter reference
+- [**InstructionFollowingEvaluator**](instruction_following_evaluator.md): Text-only counterpart

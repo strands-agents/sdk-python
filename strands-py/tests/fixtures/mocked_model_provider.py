@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from strands.models import Model
 from strands.types.content import Message, Messages
-from strands.types.event_loop import StopReason
+from strands.types.event_loop import StopReason, Usage
 from strands.types.streaming import StreamEvent
 from strands.types.tools import ToolSpec
 
@@ -24,10 +24,22 @@ class MockedModelProvider(Model):
     This class simulates a model provider by returning pre-defined agent responses
     in sequence. It implements the Model interface methods and provides functionality
     to stream mock responses as events.
+
+    Optionally accepts a parallel sequence of per-response ``Usage`` to drive
+    metrics-dependent test paths (e.g. per-invocation token-budget caps).
     """
 
-    def __init__(self, agent_responses: Sequence[Message | RedactionMessage]):
+    def __init__(
+        self,
+        agent_responses: Sequence[Message | RedactionMessage],
+        usages: Sequence[Usage] | None = None,
+    ):
+        if usages is not None and len(usages) != len(agent_responses):
+            raise ValueError(
+                f"usages length ({len(usages)}) must match agent_responses length ({len(agent_responses)})"
+            )
         self.agent_responses = [*agent_responses]
+        self.usages: list[Usage] | None = [*usages] if usages is not None else None
         self.index = 0
 
     def format_chunk(self, event: Any) -> StreamEvent:
@@ -63,13 +75,18 @@ class MockedModelProvider(Model):
         system_prompt_content=None,
         **kwargs: Any,
     ) -> AsyncGenerator[Any, None]:
-        events = self.map_agent_message_to_events(self.agent_responses[self.index])
+        usage = self.usages[self.index] if self.usages is not None else None
+        events = self.map_agent_message_to_events(self.agent_responses[self.index], usage=usage)
         for event in events:
             yield event
 
         self.index += 1
 
-    def map_agent_message_to_events(self, agent_message: Message | RedactionMessage) -> Iterable[dict[str, Any]]:
+    def map_agent_message_to_events(
+        self,
+        agent_message: Message | RedactionMessage,
+        usage: Usage | None = None,
+    ) -> Iterable[dict[str, Any]]:
         stop_reason: StopReason = "end_turn"
         yield {"messageStart": {"role": "assistant"}}
         if agent_message.get("redactedAssistantContent"):
@@ -106,3 +123,5 @@ class MockedModelProvider(Model):
                     yield {"contentBlockStop": {}}
 
         yield {"messageStop": {"stopReason": stop_reason}}
+        if usage is not None:
+            yield {"metadata": {"usage": usage, "metrics": {"latencyMs": 0}}}
