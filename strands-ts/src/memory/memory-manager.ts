@@ -180,13 +180,15 @@ export class MemoryManager implements Plugin {
 
     const results: MemoryEntry[] = []
     for (let i = 0; i < settled.length; i++) {
-      const r = settled[i]!
+      const settledResult = settled[i]!
       const storeName = targetStores[i]!.name
-      if (r.status === 'rejected') {
-        logger.warn(`store=<${storeName}>, reason=<${normalizeError(r.reason).message}> | store search failed`)
+      if (settledResult.status === 'rejected') {
+        logger.warn(
+          `store=<${storeName}>, reason=<${normalizeError(settledResult.reason).message}> | store search failed`
+        )
         continue
       }
-      for (const entry of r.value) {
+      for (const entry of settledResult.value) {
         // Stamp provenance so callers can tell which store produced each result.
         results.push({ ...entry, store: storeName })
       }
@@ -223,28 +225,30 @@ export class MemoryManager implements Plugin {
         return found
       })
     } else {
-      writableStores = this._config.stores.filter((s) => s.writable)
+      writableStores = this._addStores
     }
 
     if (writableStores.length === 0) {
       throw new Error('MemoryManager: no writable store matched')
     }
 
-    const settled = await Promise.allSettled(writableStores.map((s) => s.add!(content, options?.metadata)))
+    const settled = await Promise.allSettled(writableStores.map((store) => store.add!(content, options?.metadata)))
 
     const failures: { store: string; reason: unknown }[] = []
     for (let i = 0; i < settled.length; i++) {
-      const r = settled[i]!
-      if (r.status === 'rejected') {
+      const settledResult = settled[i]!
+      if (settledResult.status === 'rejected') {
         const storeName = writableStores[i]!.name
-        logger.warn(`store=<${storeName}>, reason=<${normalizeError(r.reason).message}> | store write failed`)
-        failures.push({ store: storeName, reason: r.reason })
+        logger.warn(
+          `store=<${storeName}>, reason=<${normalizeError(settledResult.reason).message}> | store write failed`
+        )
+        failures.push({ store: storeName, reason: settledResult.reason })
       }
     }
     if (failures.length === writableStores.length) {
       throw new AggregateError(
-        failures.map((f) => f.reason),
-        `MemoryManager: all store writes failed: ${failures.map((f) => f.store).join(', ')}`
+        failures.map((failure) => failure.reason),
+        `MemoryManager: all store writes failed: ${failures.map((failure) => failure.store).join(', ')}`
       )
     }
   }
@@ -349,16 +353,18 @@ export class MemoryManager implements Plugin {
       callback: async (input) => {
         const stores = this._resolveToolTargets(scopedNames, input.stores)
         const settled = await Promise.allSettled(input.entries.map((content) => this.add(content, { stores })))
-        const stored = settled.filter((r) => r.status === 'fulfilled').length
-        const failures = settled.filter((r) => r.status === 'rejected') as PromiseRejectedResult[]
+        const stored = settled.filter((settledResult) => settledResult.status === 'fulfilled').length
+        const failures = settled.filter(
+          (settledResult) => settledResult.status === 'rejected'
+        ) as PromiseRejectedResult[]
 
         if (stored === 0 && failures.length > 0) {
           // Flatten so the leaves are concrete reasons (add() throws its own AggregateError when all
           // of an entry's stores fail), and summarize them in the model-visible message.
-          const reasons = _flattenReasons(failures.map((f) => f.reason))
+          const reasons = _flattenReasons(failures.map((failure) => failure.reason))
           throw new AggregateError(
             reasons,
-            `MemoryManager: failed to add all ${failures.length} entries: ${reasons.map((r) => normalizeError(r).message).join('; ')}`
+            `MemoryManager: failed to add all ${failures.length} entries: ${reasons.map((reason) => normalizeError(reason).message).join('; ')}`
           )
         }
 

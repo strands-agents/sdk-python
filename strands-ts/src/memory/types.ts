@@ -27,7 +27,7 @@ export interface MemoryEntry {
  * defaults on the store.
  */
 export interface SearchOptions {
-  /** Maximum number of results to return. */
+  /** Maximum number of results to return from this store. */
   maxSearchResults?: number
 }
 
