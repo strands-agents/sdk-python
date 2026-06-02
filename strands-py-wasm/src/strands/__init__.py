@@ -38,6 +38,13 @@ from strands.types import (  # noqa: F401
     SummarizingConversationManager,
 )
 
+# Built-in tools the agent can invoke. Drop one of these into
+# ``Agent(vended_tools=[...])``.
+bash = types.VendedTool.Bash()
+file_editor = types.VendedTool.FileEditor()
+http_request = types.VendedTool.HttpRequest()
+notebook = types.VendedTool.Notebook()
+
 
 class StrandsError(Exception):
     """Base class for all SDK-raised errors."""
@@ -375,7 +382,7 @@ class Agent:
         system_prompt: PromptInput | None = None,
         tools: list[DecoratedTool] | None = None,
         agent_tools: list[types.AgentAsToolConfig] | None = None,
-        vended_tools: list[types.VendedToolInput] | None = None,
+        vended_tools: list[types.VendedTool] | None = None,
         vended_plugins: list[types.VendedPluginInput] | None = None,
         mcp_clients: list[types.McpClientConfig] | None = None,
         name: str | None = None,
@@ -397,9 +404,6 @@ class Agent:
         if name is not None or id is not None or description is not None:
             identity = types.AgentIdentity(name=name, id=id, description=description)
 
-        wrapped_vended_tools = (
-            [_marshalling.wrap(v, _marshalling.VENDED_TOOL_ARM_BY_TYPE) for v in vended_tools] if vended_tools else None
-        )
         wrapped_vended_plugins = (
             [_marshalling.wrap(p, _marshalling.VENDED_PLUGIN_ARM_BY_TYPE) for p in vended_plugins]
             if vended_plugins
@@ -413,7 +417,7 @@ class Agent:
             system_prompt=(_marshalling.coerce_prompt(system_prompt) if system_prompt is not None else None),
             tools=[t.to_spec() for t in self._tools] or None,
             agent_tools=agent_tools,
-            vended_tools=wrapped_vended_tools,
+            vended_tools=vended_tools,
             vended_plugins=wrapped_vended_plugins,
             mcp_clients=mcp_clients,
             identity=identity,

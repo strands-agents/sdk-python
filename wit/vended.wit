@@ -7,42 +7,13 @@ interface vended {
   /// Built-in tools.
   variant vended-tool {
     /// Run shell commands in a persistent bash session.
-    bash(bash-tool),
+    bash,
     /// Create, view, and edit files on disk.
-    file-editor(file-editor-tool),
+    file-editor,
     /// Make HTTP requests.
-    http-request(http-request-tool),
-    /// Read and execute Jupyter notebook cells.
-    notebook(notebook-tool),
-  }
-
-  /// Bash tool configuration.
-  record bash-tool {
-    /// Default timeout for `execute` calls, in seconds.
-    default-timeout-s: option<s32>,
-  }
-
-  /// File editor tool configuration.
-  record file-editor-tool {
-    /// Directory outside of which the tool refuses to operate. Absent
-    /// permits any path the sandbox grants.
-    workspace-root: option<string>,
-  }
-
-  /// HTTP request tool configuration.
-  record http-request-tool {
-    /// Hosts the tool is allowed to reach. Empty permits any host the
-    /// sandbox permits.
-    allowed-hosts: list<string>,
-    /// Upper bound on response size, in bytes. 0 means unbounded.
-    max-response-bytes: u64,
-  }
-
-  /// Notebook tool configuration.
-  record notebook-tool {
-    /// Directory outside of which the tool refuses to operate. Absent
-    /// permits any path the sandbox grants.
-    workspace-root: option<string>,
+    http-request,
+    /// Read and write named text notebooks stored in agent state.
+    notebook,
   }
 
   /// Location of a skill definition on disk.

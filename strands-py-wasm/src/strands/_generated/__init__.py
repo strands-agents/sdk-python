@@ -24,7 +24,7 @@ from .strands_agent.snapshot_storage import DeleteSessionArgs, ListSnapshotIdsAr
 from .strands_agent.snapshot_trigger_handler import TriggerError, TriggerParams
 from .strands_agent.streaming import AfterInvocationData, AfterModelCallData, AfterToolCallData, AgentLoopMetrics, AgentMetrics, AgentResultData, AgentTrace, BeforeInvocationData, BeforeModelCallData, BeforeToolCallData, ContentBlockData, HookRedaction, InputRedaction, Interrupt, InvocationMetrics, MessageAddedData, MetadataEvent, ModelMessageData, ModelStopData, ModelStreamUpdateData, OutputRedaction, RedactionEvent, StopEvent, StopReason, StreamError, StreamEvent, ToolMetrics, ToolResultData, ToolStreamUpdateData, ToolUseData, ToolsBatchData, TraceMetadataEntry
 from .strands_agent.tools import AgentAsToolConfig, CallToolArgs, ToolChoice, ToolError, ToolEventStream, ToolSpec, ToolStreamEvent
-from .strands_agent.vended import AgentSkills, BashTool, ContextOffloader, FileEditorTool, HttpRequestTool, NotebookTool, SkillSource, VendedPlugin, VendedTool
+from .strands_agent.vended import AgentSkills, ContextOffloader, SkillSource, VendedPlugin, VendedTool
 from .wasi_clocks.monotonic_clock import Duration, Instant
 from .wasi_clocks.wall_clock import Datetime
 from .wasi_io.error import Error
@@ -60,7 +60,6 @@ __all__ = [
     'AnthropicModel',
     'AttributeValue',
     'BackoffStrategy',
-    'BashTool',
     'BedrockModel',
     'BeforeInvocationData',
     'BeforeModelCallData',
@@ -100,7 +99,6 @@ __all__ = [
     'Error',
     'EventStream',
     'ExponentialBackoff',
-    'FileEditorTool',
     'FileStorage',
     'GoogleModel',
     'GraphConfig',
@@ -112,7 +110,6 @@ __all__ = [
     'HandoffEvent',
     'HookRedaction',
     'HttpHeader',
-    'HttpRequestTool',
     'HttpTransport',
     'ImageBlock',
     'ImageSource',
@@ -158,7 +155,6 @@ __all__ = [
     'NodeKind',
     'NodeResult',
     'NodeStartData',
-    'NotebookTool',
     'OpenaiModel',
     'OrchestrationStatus',
     'OutputRedaction',
