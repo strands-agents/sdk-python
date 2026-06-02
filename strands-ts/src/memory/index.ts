@@ -7,5 +7,6 @@ export type {
   MemorySearchOptions,
   MemoryAddOptions,
   MemoryToolConfig,
+  MemoryAddToolConfig,
   MemoryManagerConfig,
 } from './types.js'

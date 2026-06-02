@@ -89,6 +89,53 @@ describe('MemoryManager', () => {
       })
       expect(mm.getTools().map((t) => t.name)).toContain('add_memory')
     })
+
+    it('throws when addToolConfig.stores names a non-existent store', () => {
+      expect(
+        () =>
+          new MemoryManager({
+            stores: [createMockStore('a', { writable: true })],
+            addToolConfig: { stores: ['nonexistent'] },
+          })
+      ).toThrow("addToolConfig store 'nonexistent' not found")
+    })
+
+    it('throws when addToolConfig.stores names a non-writable store', () => {
+      expect(
+        () =>
+          new MemoryManager({
+            stores: [createMockStore('a', { writable: true }), createMockStore('readonly')],
+            addToolConfig: { stores: ['readonly'] },
+          })
+      ).toThrow("addToolConfig store 'readonly' is not writable")
+    })
+
+    it('accepts MemoryStore instances (not just names) in addToolConfig.stores', async () => {
+      const personal = createMockStore('personal', { writable: true })
+      const team = createMockStore('team', { writable: true })
+      // Pass the store instance instead of its name; resolves by name to scope the tool to it.
+      const mm = new MemoryManager({ stores: [personal, team], addToolConfig: { stores: [personal] } })
+
+      const addTool = mm.getTools().find((t) => t.name === 'add_memory') as InvokableTool<
+        { entries: string[]; stores?: string[] },
+        unknown
+      >
+      await addTool.invoke({ entries: ['fact'] })
+      expect(personal.add).toHaveBeenCalledWith('fact', undefined)
+      expect(team.add).not.toHaveBeenCalled()
+    })
+
+    it('throws when an addToolConfig.stores instance is not a configured store', () => {
+      const configured = createMockStore('configured', { writable: true })
+      const stray = createMockStore('stray', { writable: true })
+      expect(
+        () =>
+          new MemoryManager({
+            stores: [configured],
+            addToolConfig: { stores: [stray] },
+          })
+      ).toThrow("addToolConfig store 'stray' not found")
+    })
   })
 
   describe('getTools', () => {
@@ -455,6 +502,30 @@ describe('MemoryManager', () => {
       await addTool(mm).invoke({ entries: ['fact'], stores: [] })
       expect(personal.add).toHaveBeenCalled()
       expect(team.add).toHaveBeenCalled()
+    })
+
+    it('add tool is scoped to addToolConfig.stores (excludes other writable stores)', async () => {
+      const personal = createMockStore('personal', { writable: true })
+      const team = createMockStore('team', { writable: true })
+      const mm = new MemoryManager({ stores: [personal, team], addToolConfig: { stores: ['personal'] } })
+
+      // Omitting stores writes to the configured allowlist only — not every writable store.
+      await addTool(mm).invoke({ entries: ['fact'] })
+      expect(personal.add).toHaveBeenCalledWith('fact', undefined)
+      expect(team.add).not.toHaveBeenCalled()
+    })
+
+    it('add tool rejects a writable store excluded from addToolConfig.stores (extraction-only store)', async () => {
+      // `extractionOnly` is writable (e.g. to receive extraction writes) but excluded from the tool's
+      // allowlist, so the agent's add_memory tool cannot write to it.
+      const personal = createMockStore('personal', { writable: true })
+      const extractionOnly = createMockStore('extraction-only', { writable: true })
+      const mm = new MemoryManager({ stores: [personal, extractionOnly], addToolConfig: { stores: ['personal'] } })
+
+      await expect(addTool(mm).invoke({ entries: ['fact'], stores: ['extraction-only'] })).rejects.toThrow(
+        'none of the requested memory stores are available'
+      )
+      expect(extractionOnly.add).not.toHaveBeenCalled()
     })
 
     it('add tool excludes read-only stores from its scope', async () => {

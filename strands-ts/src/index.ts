@@ -321,5 +321,6 @@ export type {
   MemorySearchOptions,
   MemoryAddOptions,
   MemoryToolConfig,
+  MemoryAddToolConfig,
   MemoryManagerConfig,
 } from './memory/index.js'

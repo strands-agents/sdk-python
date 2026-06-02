@@ -8,6 +8,7 @@ import type {
   MemoryStore,
   MemoryAddOptions,
   MemoryToolConfig,
+  MemoryAddToolConfig,
 } from './types.js'
 import type { JSONValue } from '../types/json.js'
 import { tool } from '../tools/tool-factory.js'
@@ -59,7 +60,10 @@ export class MemoryManager implements Plugin {
   readonly name = 'strands:memory-manager'
   private readonly _config: MemoryManagerConfig
   private readonly _searchStores: MemoryStore[]
+  /** All writable stores — the unscoped target set for the programmatic {@link add} method. */
   private readonly _addStores: MemoryStore[]
+  /** Writable stores the `add_memory` tool may write to (a subset of `_addStores`). */
+  private readonly _addToolStores: MemoryStore[]
   private readonly _searchToolConfig: MemoryToolConfig | false
   private readonly _addToolConfig: MemoryToolConfig | false
   private readonly _awaitWrites: boolean
@@ -95,12 +99,39 @@ export class MemoryManager implements Plugin {
 
     if (config.addToolConfig === undefined || config.addToolConfig === false) {
       this._addToolConfig = false
+      this._addToolStores = []
     } else {
       if (this._addStores.length === 0) {
         throw new Error('MemoryManager: addToolConfig is enabled but no stores are writable')
       }
-      this._addToolConfig = typeof config.addToolConfig === 'object' ? config.addToolConfig : {}
+      const toolConfig: MemoryAddToolConfig = typeof config.addToolConfig === 'object' ? config.addToolConfig : {}
+      this._addToolConfig = toolConfig
+      this._addToolStores = this._resolveAddToolStores(toolConfig)
     }
+  }
+
+  /**
+   * Resolves the writable stores the `add_memory` tool may write to. When `stores` is given, each
+   * entry (a store name or a {@link MemoryStore} instance) must resolve by name to a configured,
+   * writable store (else throws). Omitted means all writable stores.
+   */
+  private _resolveAddToolStores(toolConfig: MemoryAddToolConfig): MemoryStore[] {
+    if (toolConfig.stores === undefined) {
+      return this._addStores
+    }
+
+    const names = toolConfig.stores.map((store) => (typeof store === 'string' ? store : store.name))
+
+    return [...new Set(names)].map((name) => {
+      const found = this._config.stores.find((s) => s.name === name)
+      if (!found) {
+        throw new Error(`MemoryManager: addToolConfig store '${name}' not found`)
+      }
+      if (!found.writable) {
+        throw new Error(`MemoryManager: addToolConfig store '${name}' is not writable`)
+      }
+      return found
+    })
   }
 
   /**
@@ -191,7 +222,6 @@ export class MemoryManager implements Plugin {
         continue
       }
       for (const entry of settledResult.value) {
-        // Stamp provenance so callers can tell which store produced each result.
         results.push({ ...entry, storeName })
       }
     }
@@ -355,14 +385,16 @@ export class MemoryManager implements Plugin {
 
   private _createAddTool(config: MemoryToolConfig): Tool {
     let description = config.description ?? ADD_TOOL_DESCRIPTION
-    const storeDescriptions = this._addStores.filter((s) => s.description).map((s) => `- ${s.name}: ${s.description}`)
+    const storeDescriptions = this._addToolStores
+      .filter((s) => s.description)
+      .map((s) => `- ${s.name}: ${s.description}`)
     if (storeDescriptions.length > 0) {
       description += `\n\nAvailable writable stores:\n${storeDescriptions.join('\n')}`
       description +=
-        '\n\nYou can target a specific store by name to route facts to the right place, or omit to add to all writable stores.'
+        '\n\nYou can target a specific store by name to route facts to the right place, or omit to add to all available writable stores.'
     }
 
-    const scopedNames = this._addStores.map((s) => s.name)
+    const scopedNames = this._addToolStores.map((s) => s.name)
 
     const inputSchema = z.object({
       entries: z.array(z.string()).min(1).describe('Data to add to long-term memory'),

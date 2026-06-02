@@ -119,15 +119,25 @@ export interface MemoryAddOptions {
 
 /**
  * Configuration for customizing a memory tool's name or description.
- *
- * Store targeting is derived from each store's `writable` flag (see {@link MemoryStore}), not
- * configured here: `search_memory` targets all stores, `add_memory` targets `writable` stores.
  */
 export interface MemoryToolConfig {
   /** Custom tool name. */
   name?: string
   /** Custom tool description. */
   description?: string
+}
+
+/**
+ * Configuration for the `add_memory` tool. Extends {@link MemoryToolConfig} with an explicit
+ * allowlist of stores the tool may write to.
+ */
+export interface MemoryAddToolConfig extends MemoryToolConfig {
+  /**
+   * The writable stores the `add_memory` tool may write to, given as store names or the
+   * {@link MemoryStore} instances themselves. Each must be a configured, `writable` store.
+   *  Omit (or set `addToolConfig: true`) to allow all writable stores.
+   */
+  stores?: (string | MemoryStore)[]
 }
 
 /**
@@ -138,8 +148,11 @@ export interface MemoryManagerConfig {
   stores: MemoryStore[]
   /** Search tool configuration. Defaults to `true`. */
   searchToolConfig?: MemoryToolConfig | boolean
-  /** Add tool configuration. Defaults to `false` (opt-in). */
-  addToolConfig?: MemoryToolConfig | boolean
+  /**
+   * Add tool configuration. Defaults to `false` (opt-in). `true` lets the tool write to all
+   * writable stores; pass a {@link MemoryAddToolConfig} with `stores` to restrict it to specific ones.
+   */
+  addToolConfig?: MemoryAddToolConfig | boolean
   /**
    * Whether write operations await each store before resolving. Defaults to `false`.
    * - `false` (default): fire-and-forget. Writes are dispatched and the call resolves immediately so
