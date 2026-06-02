@@ -199,6 +199,7 @@ class HookRegistry:
             event_type: The lifecycle event type(s) this callback should handle.
                 Can be a single type, a list of types, or None to infer from type hints.
             callback: The callback function to invoke when events of this type occur.
+            order: Execution priority. Lower values execute first.
 
         Raises:
             ValueError: If event_type is not provided and cannot be inferred from
