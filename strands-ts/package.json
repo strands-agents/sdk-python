@@ -199,10 +199,10 @@
   },
   "homepage": "https://github.com/strands-agents/sdk-python#readme",
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.1037.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1053.0",
     "@types/json-schema": "^7.0.15",
     "uuid": "^14.0.0",
-    "yaml": "^2.8.3"
+    "yaml": "^2.9.0"
   },
   "peerDependencies": {
     "@a2a-js/sdk": "^0.3.10",
@@ -222,7 +222,7 @@
     "@smithy/types": "^4.0.0",
     "express": "^5.1.0",
     "openai": "^6.7.0",
-    "zod": "^4.1.12"
+    "zod": "^4.4.3"
   },
   "peerDependenciesMeta": {
     "@a2a-js/sdk": {

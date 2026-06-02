@@ -17,7 +17,7 @@
   "dependencies": {
     "@aws/bedrock-token-generator": "https://github.com/pgrayy/wasm-deps/releases/download/token-gen-v1.1.0/aws-bedrock-token-generator-1.1.0.tgz",
     "@strands-agents/sdk": "*",
-    "zod": "^4.1.12"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@bytecodealliance/jco": "^1.16.1",
