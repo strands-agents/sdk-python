@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to build (e.g. 2.0.0-rc.1). Skips deploy."
+        description: "Version to build. Skips deploy."
         required: true
         type: string
 
@@ -100,12 +100,18 @@ jobs:
         else
           VERSION=${GITHUB_REF#refs/tags/python-wasm/v}
         fi
+        if [ -z "$VERSION" ]; then
+          echo "::error::Could not extract version from tag"
+          exit 1
+        fi
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         echo "Extracted version: $VERSION"
 
     - name: Validate version
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
       run: |
-        if [[ ${{ steps.version.outputs.version }} =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+        if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.]?[a-zA-Z0-9.]+)?$ ]]; then
             echo "Valid version format"
             exit 0
         else
@@ -114,7 +120,9 @@ jobs:
         fi
 
     - name: Stamp version
-      run: sed -i 's/^version = .*/version = "${{ steps.version.outputs.version }}"/' pyproject.toml
+      env:
+        VERSION: ${{ steps.version.outputs.version }}
+      run: sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
 
     - name: Build
       run: hatch build
