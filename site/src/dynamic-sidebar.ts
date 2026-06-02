@@ -150,6 +150,95 @@ export function buildPythonApiSidebar(docs: DocInfo[], currentSlug: string): Sid
 }
 
 /**
+ * Build a hierarchical sidebar from Python WASM API docs.
+ * Same structure as the Python SDK sidebar but sourced from the strands-agents-wasm package.
+ */
+export function buildPythonWasmApiSidebar(docs: DocInfo[], currentSlug: string): SidebarEntry[] {
+  const wasmApiDocs = docs.filter(
+    (doc) => doc.id.startsWith('docs/api/python-wasm/') && !doc.id.endsWith('docs/api/python-wasm/index')
+  )
+
+  // Build a nested structure from module names
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tree: Record<string, any> = {}
+
+  for (const doc of wasmApiDocs) {
+    const moduleName = doc.title
+    if (!moduleName.startsWith('strands.')) continue
+
+    const parts = moduleName.replace('strands.', '').split('.')
+
+    let current = tree
+    for (let i = 0; i < parts.length - 1; i++) {
+      const part = parts[i]!
+      if (!current[part]) {
+        current[part] = { __children: {} }
+      }
+      current = current[part].__children
+    }
+
+    const leafName = parts[parts.length - 1]!
+    current[leafName] = {
+      __doc: doc,
+      __children: current[leafName]?.__children ?? {},
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function treeToSidebar(node: Record<string, any>, depth: number = 0): SidebarEntry[] {
+    const entries: SidebarEntry[] = []
+
+    for (const [key, value] of Object.entries(node)) {
+      const displayName = getDisplayName(key)
+      const hasChildren = Object.keys(value.__children).length > 0
+      const hasDoc = value.__doc !== undefined
+
+      if (hasDoc && !hasChildren) {
+        const doc = value.__doc
+        const href = pathWithBase(`/${doc.id}/`)
+        const link: SidebarLink = {
+          type: 'link',
+          label: displayName,
+          href,
+          isCurrent: currentSlug === doc.id,
+          badge: undefined,
+          attrs: {},
+        }
+        entries.push(link)
+      } else if (hasChildren) {
+        const childEntries = treeToSidebar(value.__children, depth + 1)
+
+        if (hasDoc) {
+          const doc = value.__doc
+          const href = pathWithBase(`/${doc.id}/`)
+          childEntries.unshift({
+            type: 'link',
+            label: 'Overview',
+            href,
+            isCurrent: currentSlug === doc.id,
+            badge: undefined,
+            attrs: {},
+          })
+        }
+
+        const group: SidebarGroup = {
+          type: 'group',
+          label: displayName,
+          entries: childEntries,
+          collapsed: depth >= 1,
+          badge: undefined,
+        }
+        entries.push(group)
+      }
+    }
+
+    return entries.sort((a, b) => a.label.localeCompare(b.label))
+  }
+
+  return treeToSidebar(tree)
+}
+
+/**
  * Build a sidebar from TypeScript API docs.
  * Groups by category (classes, interfaces, type-aliases, functions).
  * Note: Slugs are flat (api/typescript/Agent) but sidebar groups by type.

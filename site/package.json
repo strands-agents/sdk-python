@@ -16,8 +16,9 @@
     "cms:build": "npm run build:all",
     "sdk:clone": "tsx scripts/clone-sdks.ts",
     "sdk:generate:py": "command -v uv >/dev/null 2>&1 && uv run scripts/api-generation-python.py || (pip install pydoc-markdown>=4.8.2 && python scripts/api-generation-python.py)",
+    "sdk:generate:py-wasm": "command -v uv >/dev/null 2>&1 && uv run scripts/api-generation-python-wasm.py || (pip install pydoc-markdown>=4.8.2 && python scripts/api-generation-python-wasm.py)",
     "sdk:generate:ts": "tsx scripts/api-generation-typescript.ts",
-    "sdk:generate": "npm run sdk:generate:py && npm run sdk:generate:ts",
+    "sdk:generate": "npm run sdk:generate:py && npm run sdk:generate:py-wasm && npm run sdk:generate:ts",
     "sdk:sync": "npm run sdk:clone && npm run sdk:generate && npm install",
     "routes:update": "tsx scripts/update-known-routes.ts",
     "astro": "astro"

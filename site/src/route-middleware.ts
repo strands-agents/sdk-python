@@ -1,6 +1,6 @@
 import { defineRouteMiddleware, type StarlightRouteData } from '@astrojs/starlight/route-data'
 import { getCollection } from 'astro:content'
-import { buildPythonApiSidebar, buildTypeScriptApiSidebar, getPrevNextLinks, type DocInfo } from './dynamic-sidebar'
+import { buildPythonApiSidebar, buildPythonWasmApiSidebar, buildTypeScriptApiSidebar, getPrevNextLinks, type DocInfo } from './dynamic-sidebar'
 import { pathWithBase } from './util/links'
 import { navLinks, type NavLink } from './config/navbar'
 
@@ -113,7 +113,7 @@ export const onRequest = defineRouteMiddleware(async (context) => {
   const currentPath = context.url.pathname
   const currentSlug = starlightRoute.id
 
-  // Check if we're on an API page (Python or TypeScript)
+  // Check if we're on an API page (Python, Python WASM, or TypeScript)
   if (currentSlug.startsWith('docs/api/python') || currentSlug.startsWith('docs/api/typescript')) {
     const docs = await getCollection('docs')
     const docInfos: DocInfo[] = docs.map((doc: { id: string; data: { title: unknown; category?: unknown } }) => ({
@@ -122,14 +122,28 @@ export const onRequest = defineRouteMiddleware(async (context) => {
       category: doc.data.category as string | undefined,
     }))
 
-    const isPython = currentSlug.startsWith('docs/api/python')
-    const apiSidebar = isPython
-      ? buildPythonApiSidebar(docInfos, currentSlug)
-      : buildTypeScriptApiSidebar(docInfos, currentSlug)
+    const isPythonWasm = currentSlug.startsWith('docs/api/python-wasm')
+    const isPython = !isPythonWasm && currentSlug.startsWith('docs/api/python')
+
+    let apiSidebar
+    let overviewHref: string
+    let overviewSlug: string
+
+    if (isPythonWasm) {
+      apiSidebar = buildPythonWasmApiSidebar(docInfos, currentSlug)
+      overviewHref = '/docs/api/python-wasm/'
+      overviewSlug = 'docs/api/python-wasm'
+    } else if (isPython) {
+      apiSidebar = buildPythonApiSidebar(docInfos, currentSlug)
+      overviewHref = '/docs/api/python/'
+      overviewSlug = 'docs/api/python'
+    } else {
+      apiSidebar = buildTypeScriptApiSidebar(docInfos, currentSlug)
+      overviewHref = '/docs/api/typescript/'
+      overviewSlug = 'docs/api/typescript'
+    }
 
     // Add index link at the top
-    const overviewHref = isPython ? '/docs/api/python/' : '/docs/api/typescript/'
-    const overviewSlug = isPython ? 'docs/api/python' : 'docs/api/typescript'
     apiSidebar.unshift({
       type: 'link',
       label: 'Overview',

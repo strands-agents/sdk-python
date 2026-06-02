@@ -77,6 +77,7 @@ export const collections = {
         "docs/examples/**/[!index]*.mdx",
         "docs/labs/**/*.mdx",
         "docs/api/python/**/*.mdx",
+        "docs/api/python-wasm/**/*.mdx",
         "docs/api/typescript/**/*.(md|mdx)",
       ],
       generateId: generateDocsId,

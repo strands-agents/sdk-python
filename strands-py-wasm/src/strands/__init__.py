@@ -107,6 +107,8 @@ PromptInput = str | list[ContentInput]
 
 
 class Message(types.Message):
+    """A conversation message with a role and ordered content blocks."""
+
     def __init__(
         self,
         *,
@@ -130,6 +132,12 @@ class Message(types.Message):
 
 
 class BedrockModel(types.BedrockModel):
+    """AWS Bedrock model provider.
+
+    Resolves credentials via botocore's default chain (env vars, ~/.aws, SSO, IMDS)
+    when ``access_key_id`` and ``secret_access_key`` are not provided explicitly.
+    """
+
     def __init__(
         self,
         model_id: str = "us.anthropic.claude-opus-4-7-v1:0",
@@ -167,21 +175,29 @@ class BedrockModel(types.BedrockModel):
 
 
 class AnthropicModel(types.AnthropicModel):
+    """Anthropic API model provider."""
+
     def __init__(self, model_id: str | None = None, *, api_key: str | None = None, **extras: Any) -> None:
         super().__init__(model_id=model_id, api_key=api_key, additional_config=_marshalling.extras_to_json(extras))
 
 
 class OpenaiModel(types.OpenaiModel):
+    """OpenAI API model provider."""
+
     def __init__(self, model_id: str | None = None, *, api_key: str | None = None, **extras: Any) -> None:
         super().__init__(model_id=model_id, api_key=api_key, additional_config=_marshalling.extras_to_json(extras))
 
 
 class GoogleModel(types.GoogleModel):
+    """Google Gemini API model provider."""
+
     def __init__(self, model_id: str | None = None, *, api_key: str | None = None, **extras: Any) -> None:
         super().__init__(model_id=model_id, api_key=api_key, additional_config=_marshalling.extras_to_json(extras))
 
 
 class CustomModel(types.CustomModel):
+    """Custom model provider backed by an application-implemented handler."""
+
     def __init__(
         self,
         provider_id: str,
