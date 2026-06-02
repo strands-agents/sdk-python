@@ -131,10 +131,23 @@ class AnthropicModel(Model):
             }
 
         if "image" in content:
+            # Explicit MIME type mapping for image formats that mimetypes.types_map
+            # gets wrong (e.g. webp -> application/octet-stream instead of image/webp).
+            _IMAGE_MIME_TYPES: dict[str, str] = {
+                "png": "image/png",
+                "jpg": "image/jpeg",
+                "jpeg": "image/jpeg",
+                "gif": "image/gif",
+                "webp": "image/webp",
+                "svg+xml": "image/svg+xml",
+                "bmp": "image/bmp",
+            }
+            fmt = content["image"]["format"]
+            media_type = _IMAGE_MIME_TYPES.get(fmt) or mimetypes.types_map.get(f".{fmt}", "application/octet-stream")
             return {
                 "source": {
                     "data": base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8"),
-                    "media_type": mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream"),
+                    "media_type": media_type,
                     "type": "base64",
                 },
                 "type": "image",

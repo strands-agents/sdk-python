@@ -490,12 +490,15 @@ class BedrockModel(Model):
                 if formatted_content is None:
                     continue
 
-                # Wrap text or image content in guardContent if this is the last user text/image message
+                # Wrap text or image content in guardContent if this is the last user text/image message.
+                # Bedrock GuardContent for images only supports png and jpeg formats.
                 if idx == last_user_text_idx and ("text" in formatted_content or "image" in formatted_content):
                     if "text" in formatted_content:
                         formatted_content = {"guardContent": {"text": {"text": formatted_content["text"]}}}
                     elif "image" in formatted_content:
-                        formatted_content = {"guardContent": {"image": formatted_content["image"]}}
+                        image_format = formatted_content["image"].get("format", "")
+                        if image_format in ("png", "jpeg"):
+                            formatted_content = {"guardContent": {"image": formatted_content["image"]}}
 
                 cleaned_content.append(formatted_content)
 
