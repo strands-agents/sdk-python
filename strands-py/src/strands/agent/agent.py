@@ -805,10 +805,18 @@ class Agent(AgentBase):
             structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             structured_output_prompt: Custom prompt for forcing structured output (overrides agent default).
             stream_final_turn_only: When True, buffers text events from intermediate turns and only yields
-                text events from the final turn (where stop_reason is "end_turn"). Non-text events such as
-                lifecycle, tool use, reasoning, and citation events are yielded normally regardless of this
-                setting. When False (default), all events are yielded as they are produced with no change
-                in behavior.
+                text events from the final turn. A turn is considered intermediate when it ends with a
+                ``tool_use`` stop reason; any other stop reason (``end_turn``, ``max_tokens``,
+                ``content_filtered``, ``cancelled``, etc.) flushes the buffered text so partial output
+                is not silently lost when the model terminates abnormally on the final turn.
+
+                Note: This setting only filters ``TextStreamEvent`` instances (events with a ``"data"``
+                key). Reasoning events from intermediate turns are still yielded because they are a
+                distinct event type (``ReasoningTextStreamEvent``). Non-text events such as lifecycle,
+                tool use, reasoning, and citation events are yielded normally regardless of this setting.
+
+                When False (default), all events are yielded as they are produced with no change in
+                behavior.
             **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
@@ -892,7 +900,13 @@ class Agent(AgentBase):
                                 continue
                             elif isinstance(event, EventLoopStopEvent):
                                 stop_reason = event["stop"][0]
-                                if stop_reason == "end_turn":
+                                # Flush buffered text for any stop reason except tool_use.
+                                # tool_use is the only stop reason that means "this is an
+                                # intermediate turn — more model turns will follow". For all
+                                # other stop reasons (end_turn, max_tokens, content_filtered,
+                                # cancelled, etc.) the buffered text represents the model's
+                                # final output and should be delivered to the caller.
+                                if stop_reason != "tool_use":
                                     for buffered in text_event_buffer:
                                         callback_handler(**buffered)
                                         yield buffered

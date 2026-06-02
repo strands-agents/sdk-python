@@ -376,3 +376,75 @@ async def test_multiple_intermediate_turns_only_final_text_delivered(agent, call
 
     all_callback_data = [c.kwargs.get("data") for c in callback_handler.call_args_list if "data" in c.kwargs]
     assert all_callback_data == ["final answer"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stop_reason", ["max_tokens", "content_filtered", "cancelled", "stop_sequence"])
+async def test_non_tool_use_stop_reason_flushes_buffered_text(agent, callback_handler, stop_reason):
+    """Test that buffered text is flushed when a turn ends with any stop reason except tool_use.
+
+    This covers cases like ``max_tokens``, ``content_filtered``, ``cancelled``, and
+    ``stop_sequence``. Without this behavior, partial text would be silently discarded
+    when a model terminates abnormally on the final turn.
+    """
+    init_event = _make_init_event()
+    start_event = _make_start_event_loop()
+    text1 = _make_text_event("partial ")
+    text2 = _make_text_event("output")
+    stop_event = _make_stop_event(stop_reason)
+
+    run_loop_events = [init_event, start_event, text1, text2, stop_event]
+
+    with patch.object(agent, "_run_loop", return_value=_mock_run_loop_from_events(run_loop_events)):
+        yielded = []
+        async for event in agent.stream_async("test", stream_final_turn_only=True):
+            yielded.append(event)
+
+    # Buffered text should be delivered to the caller despite non-end_turn stop reason
+    data_events = [e for e in yielded if "data" in e]
+    assert len(data_events) == 2
+    assert data_events[0]["data"] == "partial "
+    assert data_events[1]["data"] == "output"
+
+    # Callback handler should also receive the text
+    all_callback_data = [c.kwargs.get("data") for c in callback_handler.call_args_list if "data" in c.kwargs]
+    assert all_callback_data == ["partial ", "output"]
+
+
+@pytest.mark.asyncio
+async def test_intermediate_text_still_discarded_when_final_turn_hits_max_tokens(agent, callback_handler):
+    """Intermediate turn text is still discarded; only the final (abnormally-stopped) turn flushes."""
+    init_event = _make_init_event()
+
+    # Turn 1 (intermediate - tool_use): text should be discarded
+    start1 = _make_start_event_loop()
+    intermediate_text = _make_text_event("thinking...")
+    stop1 = _make_stop_event("tool_use")
+
+    # Turn 2 (final - max_tokens): partial text should be flushed
+    start2 = _make_start_event_loop()
+    partial_text = _make_text_event("partial answer")
+    stop2 = _make_stop_event("max_tokens")
+
+    run_loop_events = [
+        init_event,
+        start1,
+        intermediate_text,
+        stop1,
+        start2,
+        partial_text,
+        stop2,
+    ]
+
+    with patch.object(agent, "_run_loop", return_value=_mock_run_loop_from_events(run_loop_events)):
+        yielded = []
+        async for event in agent.stream_async("test", stream_final_turn_only=True):
+            yielded.append(event)
+
+    data_events = [e for e in yielded if "data" in e]
+    assert len(data_events) == 1
+    assert data_events[0]["data"] == "partial answer"
+
+    all_callback_data = [c.kwargs.get("data") for c in callback_handler.call_args_list if "data" in c.kwargs]
+    assert "thinking..." not in all_callback_data
+    assert all_callback_data == ["partial answer"]
