@@ -82,11 +82,16 @@ sidebar:
               - docs/user-guide/concepts/tools/vended-tools
           - label: Plugins
             items:
-              - docs/user-guide/concepts/plugins
+              - label: "Overview"
+                slug: docs/user-guide/concepts/plugins
               - docs/user-guide/concepts/plugins/skills
               - docs/user-guide/concepts/plugins/steering
               - docs/user-guide/concepts/plugins/context-offloader
-          - docs/user-guide/concepts/agents/interventions
+          - label: Interventions
+            items:
+              - label: "Overview"
+                slug: docs/user-guide/concepts/agents/interventions
+              - docs/user-guide/concepts/agents/human-in-the-loop
           - label: Streaming
             items:
               - docs/user-guide/concepts/streaming/async-iterators
