@@ -129,8 +129,17 @@ describe('SshSandbox', () => {
       }
 
       const args = vi.mocked(streamProcess).mock.calls[0]![1]
-      expect(args).toContain('StrictHostKeyChecking=no')
-      expect(args).not.toContain('StrictHostKeyChecking=accept-new')
+      expect(args).toStrictEqual([
+        '-o',
+        'StrictHostKeyChecking=no',
+        '-o',
+        'BatchMode=yes',
+        '-p',
+        '22',
+        '--',
+        'h',
+        "cd '/w' && ls",
+      ])
     })
 
     it('includes identity file when provided', async () => {
@@ -145,9 +154,19 @@ describe('SshSandbox', () => {
       }
 
       const args = vi.mocked(streamProcess).mock.calls[0]![1]
-      const idx = args.indexOf('-i')
-      expect(idx).toBeGreaterThan(-1)
-      expect(args[idx + 1]).toBe('/home/user/.ssh/key')
+      expect(args).toStrictEqual([
+        '-o',
+        'StrictHostKeyChecking=accept-new',
+        '-o',
+        'BatchMode=yes',
+        '-p',
+        '22',
+        '-i',
+        '/home/user/.ssh/key',
+        '--',
+        'h',
+        "cd '/w' && ls",
+      ])
     })
 
     it('uses custom port', async () => {
@@ -158,9 +177,17 @@ describe('SshSandbox', () => {
       }
 
       const args = vi.mocked(streamProcess).mock.calls[0]![1]
-      const idx = args.indexOf('-p')
-      expect(idx).toBeGreaterThan(-1)
-      expect(args[idx + 1]).toBe('2222')
+      expect(args).toStrictEqual([
+        '-o',
+        'StrictHostKeyChecking=accept-new',
+        '-o',
+        'BatchMode=yes',
+        '-p',
+        '2222',
+        '--',
+        'h',
+        "cd '/w' && ls",
+      ])
     })
 
     it('appends user sshOptions as -o flags', async () => {
@@ -175,7 +202,21 @@ describe('SshSandbox', () => {
       }
 
       const args = vi.mocked(streamProcess).mock.calls[0]![1]
-      expect(args).toEqual(expect.arrayContaining(['-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=30']))
+      expect(args).toStrictEqual([
+        '-o',
+        'StrictHostKeyChecking=accept-new',
+        '-o',
+        'BatchMode=yes',
+        '-p',
+        '22',
+        '-o',
+        'ConnectTimeout=5',
+        '-o',
+        'ServerAliveInterval=30',
+        '--',
+        'h',
+        "cd '/w' && ls",
+      ])
     })
 
     it('quotes cwd with single quotes', async () => {
@@ -186,7 +227,17 @@ describe('SshSandbox', () => {
       }
 
       const args = vi.mocked(streamProcess).mock.calls[0]![1]
-      expect(args[args.length - 1]).toContain("cd '/path/with spaces/and'\\''quotes'")
+      expect(args).toStrictEqual([
+        '-o',
+        'StrictHostKeyChecking=accept-new',
+        '-o',
+        'BatchMode=yes',
+        '-p',
+        '22',
+        '--',
+        'h',
+        "cd '/path/with spaces/and'\\''quotes' && ls",
+      ])
     })
 
     it('uses cwd option when provided', async () => {
@@ -197,7 +248,17 @@ describe('SshSandbox', () => {
       }
 
       const args = vi.mocked(streamProcess).mock.calls[0]![1]
-      expect(args[args.length - 1]).toContain("cd '/override'")
+      expect(args).toStrictEqual([
+        '-o',
+        'StrictHostKeyChecking=accept-new',
+        '-o',
+        'BatchMode=yes',
+        '-p',
+        '22',
+        '--',
+        'h',
+        "cd '/override' && ls",
+      ])
     })
 
     it('forwards timeout and signal to streamProcess', async () => {
@@ -214,6 +275,37 @@ describe('SshSandbox', () => {
         signal: controller.signal,
         enoentMessage: 'ssh is not installed or not on PATH',
       })
+    })
+
+    it('prefixes command with env vars when provided', async () => {
+      const sandbox = new SshSandbox({ host: 'h', workingDir: '/w' })
+
+      for await (const _ of sandbox.executeStreaming('echo $FOO', { env: { FOO: 'bar', BAZ: 'qux' } })) {
+        // consume
+      }
+
+      const args = vi.mocked(streamProcess).mock.calls[0]![1]
+      expect(args).toStrictEqual([
+        '-o',
+        'StrictHostKeyChecking=accept-new',
+        '-o',
+        'BatchMode=yes',
+        '-p',
+        '22',
+        '--',
+        'h',
+        "cd '/w' && export FOO='bar' BAZ='qux' && echo $FOO",
+      ])
+    })
+
+    it('rejects invalid env var names', async () => {
+      const sandbox = new SshSandbox({ host: 'h', workingDir: '/w' })
+
+      await expect(async () => {
+        for await (const _ of sandbox.executeStreaming('cmd', { env: { 'FOO=bar BAZ': 'val' } })) {
+          // consume
+        }
+      }).rejects.toThrow('Invalid environment variable name')
     })
   })
 })

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import { TestSandbox } from '../../__fixtures__/test-sandbox.node.js'
+import { buildShellEnvPrefix } from '../posix-shell.js'
 import { streamProcess } from '../stream-process.js'
 import type { ExecutionResult, StreamChunk } from '../types.js'
 
@@ -37,6 +38,45 @@ describe.skipIf(process.platform === 'win32')('PosixShellSandbox', () => {
     })
   })
 
+  describe('env option (via buildEnvPrefix)', () => {
+    it('passes env vars to the command', async () => {
+      const result = await sandbox.execute('printenv FOO', { env: { FOO: 'hello', BAR: 'world' } })
+      expect(result.stdout.trim()).toBe('hello')
+    })
+
+    it('shell-quotes env values so they are not evaluated', async () => {
+      const result = await sandbox.execute('printenv FOO', { env: { FOO: '$(whoami)' } })
+      expect(result.stdout.trim()).toBe('$(whoami)')
+    })
+
+    it('rejects invalid env var names', async () => {
+      await expect(sandbox.execute('echo hi', { env: { 'BAD-KEY': 'v' } })).rejects.toThrow(
+        'Invalid environment variable name'
+      )
+    })
+  })
+
+  describe('buildShellEnvPrefix', () => {
+    it('returns an empty string when there are no env vars', () => {
+      expect(buildShellEnvPrefix()).toBe('')
+      expect(buildShellEnvPrefix({})).toBe('')
+    })
+
+    it('uses export so vars are inherited across a pipeline, with a fail-fast && separator', () => {
+      // `export ... &&` (not `env ... `) is what lets env reach the right side of the
+      // `base64 ... | <interpreter>` pipe in executeCode. Locking the exact format.
+      expect(buildShellEnvPrefix({ FOO: 'bar', BAZ: 'qux' })).toBe("export FOO='bar' BAZ='qux' && ")
+    })
+
+    it('shell-quotes values so they are not evaluated', () => {
+      expect(buildShellEnvPrefix({ FOO: '$(whoami)' })).toBe("export FOO='$(whoami)' && ")
+    })
+
+    it('throws on invalid env var names', () => {
+      expect(() => buildShellEnvPrefix({ 'BAD-KEY': 'v' })).toThrow('Invalid environment variable name')
+    })
+  })
+
   describe('executeCode (via shell quoting)', () => {
     it('runs python code through shell', async () => {
       const result = await sandbox.executeCode('print(2 + 2)', 'python3')
@@ -52,6 +92,22 @@ describe.skipIf(process.platform === 'win32')('PosixShellSandbox', () => {
     it('handles code with single quotes', async () => {
       const result = await sandbox.executeCode('print("it\'s working")', 'python3')
       expect(result.stdout).toBe("it's working\n")
+    })
+
+    it('passes env vars through to the interpreter', async () => {
+      const result = await sandbox.executeCode('import os; print(os.environ["FOO"])', 'python3', {
+        env: { FOO: 'from-env' },
+      })
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout.trim()).toBe('from-env')
+    })
+
+    it('passes env values to the interpreter literally, without shell evaluation', async () => {
+      const result = await sandbox.executeCode('import os; print(os.environ["FOO"])', 'python3', {
+        env: { FOO: '$(whoami)' },
+      })
+      expect(result.exitCode).toBe(0)
+      expect(result.stdout.trim()).toBe('$(whoami)')
     })
   })
 
