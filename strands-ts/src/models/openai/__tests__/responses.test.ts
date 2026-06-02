@@ -51,41 +51,37 @@ describe("OpenAIModel (api: 'responses')", () => {
   })
 
   describe('constructor', () => {
-    it('uses API key from constructor parameter', () => {
-      new OpenAIModel({ api: 'responses', modelId: 'gpt-4o', apiKey: 'sk-explicit' })
-      expect(OpenAI).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'sk-explicit' }))
-    })
-
     if (isNode) {
+      it('uses API key from constructor parameter', () => {
+        new OpenAIModel({ api: 'responses', modelId: 'gpt-4o', apiKey: 'sk-explicit' })
+        expect(OpenAI).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'sk-explicit' }))
+      })
+
       it('uses API key from environment variable', () => {
         vi.stubEnv('OPENAI_API_KEY', 'sk-from-env')
         new OpenAIModel({ api: 'responses', modelId: 'gpt-4o' })
         expect(OpenAI).toHaveBeenCalled()
       })
+
+      it('throws error when no API key is available', () => {
+        vi.stubEnv('OPENAI_API_KEY', '')
+        expect(() => new OpenAIModel({ api: 'responses', modelId: 'gpt-4o' })).toThrow(/OpenAI API key is required/)
+      })
+
+      it('uses provided client instance and skips OpenAI constructor', () => {
+        vi.clearAllMocks()
+        const client = {} as OpenAI
+        const model = new OpenAIModel({ api: 'responses', client })
+        expect(OpenAI).not.toHaveBeenCalled()
+        expect(model).toBeDefined()
+      })
+
+      it('does not require API key when client is provided', () => {
+        vi.stubEnv('OPENAI_API_KEY', '')
+        const client = {} as OpenAI
+        expect(() => new OpenAIModel({ api: 'responses', client })).not.toThrow()
+      })
     }
-
-    it('throws error when no API key is available', () => {
-      if (isNode) {
-        vi.stubEnv('OPENAI_API_KEY', '')
-      }
-      expect(() => new OpenAIModel({ api: 'responses', modelId: 'gpt-4o' })).toThrow(/OpenAI API key is required/)
-    })
-
-    it('uses provided client instance and skips OpenAI constructor', () => {
-      vi.clearAllMocks()
-      const client = {} as OpenAI
-      const model = new OpenAIModel({ api: 'responses', client })
-      expect(OpenAI).not.toHaveBeenCalled()
-      expect(model).toBeDefined()
-    })
-
-    it('does not require API key when client is provided', () => {
-      if (isNode) {
-        vi.stubEnv('OPENAI_API_KEY', '')
-      }
-      const client = {} as OpenAI
-      expect(() => new OpenAIModel({ api: 'responses', client })).not.toThrow()
-    })
   })
 
   describe('stateful', () => {
