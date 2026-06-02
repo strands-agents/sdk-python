@@ -94,9 +94,12 @@ jobs:
 
     - name: Extract version
       id: version
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        INPUT_VERSION: ${{ inputs.version }}
       run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          VERSION="${{ inputs.version }}"
+        if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+          VERSION="$INPUT_VERSION"
         else
           VERSION=${GITHUB_REF#refs/tags/python-wasm/v}
         fi
