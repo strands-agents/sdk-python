@@ -364,7 +364,7 @@ describe('MemoryManager', () => {
       await expect(mm.add('fact', { stores: ['readonly'] })).rejects.toThrow("store 'readonly' is read-only")
     })
 
-    it('fire-and-forget by default: resolves even when a store write fails', async () => {
+    it('awaits writes and throws AggregateError naming the failed store on partial failure', async () => {
       const failing: MemoryStore = {
         name: 'failing',
         writable: true,
@@ -374,37 +374,19 @@ describe('MemoryManager', () => {
       const ok = createMockStore('ok', { writable: true })
       const mm = new MemoryManager({ stores: [failing, ok] })
 
-      // Default awaitWrites=false: dispatched to both, resolves without throwing.
-      await expect(mm.add('fact')).resolves.toBeUndefined()
-      expect(failing.add).toHaveBeenCalledWith('fact', undefined)
-      expect(ok.add).toHaveBeenCalledWith('fact', undefined)
-    })
-
-    it('awaitWrites: throws AggregateError naming the failed store on partial failure', async () => {
-      const failing: MemoryStore = {
-        name: 'failing',
-        writable: true,
-        search: vi.fn().mockResolvedValue([]),
-        add: vi.fn().mockRejectedValue(new Error('write error')),
-      }
-      const ok = createMockStore('ok', { writable: true })
-      const mm = new MemoryManager({ stores: [failing, ok], awaitWrites: true })
-
-      // Partial failure (failing rejects, ok succeeds) throws when awaited.
+      // The method always awaits: a partial failure (failing rejects, ok succeeds) throws.
       await expect(mm.add('fact')).rejects.toThrow('store writes failed: failing')
       expect(ok.add).toHaveBeenCalledWith('fact', undefined)
     })
 
-    it('awaitWrites per-call override forces awaiting on an otherwise fire-and-forget manager', async () => {
-      const failing: MemoryStore = {
-        name: 'failing',
-        writable: true,
-        search: vi.fn().mockResolvedValue([]),
-        add: vi.fn().mockRejectedValue(new Error('write error')),
-      }
-      const mm = new MemoryManager({ stores: [failing] })
+    it('dispatches writes to all targeted stores', async () => {
+      const store1 = createMockStore('a', { writable: true })
+      const store2 = createMockStore('b', { writable: true })
+      const mm = new MemoryManager({ stores: [store1, store2] })
 
-      await expect(mm.add('fact', { awaitWrites: true })).rejects.toThrow('store writes failed: failing')
+      await mm.add('fact')
+      expect(store1.add).toHaveBeenCalledWith('fact', undefined)
+      expect(store2.add).toHaveBeenCalledWith('fact', undefined)
     })
   })
 
@@ -571,15 +553,15 @@ describe('MemoryManager', () => {
       expect(personal.add).not.toHaveBeenCalled()
     })
 
-    it('add tool returns accepted count by default (fire-and-forget)', async () => {
+    it('add tool returns stored count by default (awaits writes)', async () => {
       const store = createMockStore('notes', { writable: true })
       const mm = new MemoryManager({ stores: [store], addToolConfig: true })
 
       const result = await addTool(mm).invoke({ entries: ['a', 'b'] })
-      expect(result).toStrictEqual({ accepted: 2 })
+      expect(result).toStrictEqual({ stored: 2 })
     })
 
-    it('add tool returns accepted even when a store write fails (fire-and-forget swallows it)', async () => {
+    it('add tool throws a flattened error with concrete reasons when entries fail (default awaits)', async () => {
       const failing: MemoryStore = {
         name: 'failing',
         writable: true,
@@ -587,27 +569,6 @@ describe('MemoryManager', () => {
         add: vi.fn().mockRejectedValue(new Error('write error')),
       }
       const mm = new MemoryManager({ stores: [failing], addToolConfig: true })
-
-      const result = await addTool(mm).invoke({ entries: ['a', 'b'] })
-      expect(result).toStrictEqual({ accepted: 2 })
-    })
-
-    it('add tool (awaitWrites) returns stored count when all entries succeed', async () => {
-      const store = createMockStore('notes', { writable: true })
-      const mm = new MemoryManager({ stores: [store], addToolConfig: true, awaitWrites: true })
-
-      const result = await addTool(mm).invoke({ entries: ['a', 'b'] })
-      expect(result).toStrictEqual({ stored: 2 })
-    })
-
-    it('add tool (awaitWrites) throws a flattened error with concrete reasons when entries fail', async () => {
-      const failing: MemoryStore = {
-        name: 'failing',
-        writable: true,
-        search: vi.fn().mockResolvedValue([]),
-        add: vi.fn().mockRejectedValue(new Error('write error')),
-      }
-      const mm = new MemoryManager({ stores: [failing], addToolConfig: true, awaitWrites: true })
 
       const error = await addTool(mm)
         .invoke({ entries: ['a', 'b'] })
@@ -619,6 +580,27 @@ describe('MemoryManager', () => {
       // Leaves are the underlying store errors, not the per-entry AggregateErrors add() throws.
       expect(agg.errors).toHaveLength(2)
       expect(agg.errors.every((e) => e instanceof Error && !(e instanceof AggregateError))).toBe(true)
+    })
+
+    it('add tool with waitForWrites: false returns accepted count (fire-and-forget)', async () => {
+      const store = createMockStore('notes', { writable: true })
+      const mm = new MemoryManager({ stores: [store], addToolConfig: { waitForWrites: false } })
+
+      const result = await addTool(mm).invoke({ entries: ['a', 'b'] })
+      expect(result).toStrictEqual({ accepted: 2 })
+    })
+
+    it('add tool with waitForWrites: false returns accepted even when a store write fails (swallows it)', async () => {
+      const failing: MemoryStore = {
+        name: 'failing',
+        writable: true,
+        search: vi.fn().mockResolvedValue([]),
+        add: vi.fn().mockRejectedValue(new Error('write error')),
+      }
+      const mm = new MemoryManager({ stores: [failing], addToolConfig: { waitForWrites: false } })
+
+      const result = await addTool(mm).invoke({ entries: ['a', 'b'] })
+      expect(result).toStrictEqual({ accepted: 2 })
     })
   })
 

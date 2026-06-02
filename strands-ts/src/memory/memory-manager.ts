@@ -62,11 +62,9 @@ export class MemoryManager implements Plugin {
   private readonly _searchStores: MemoryStore[]
   /** All writable stores — the unscoped target set for the programmatic {@link add} method. */
   private readonly _addStores: MemoryStore[]
-  /** Writable stores the `add_memory` tool may write to (a subset of `_addStores`). */
-  private readonly _addToolStores: MemoryStore[]
   private readonly _searchToolConfig: MemoryToolConfig | false
-  private readonly _addToolConfig: MemoryToolConfig | false
-  private readonly _awaitWrites: boolean
+  private readonly _addToolConfig: MemoryAddToolConfig | false
+  private readonly _addToolStores: MemoryStore[]
 
   constructor(config: MemoryManagerConfig) {
     if (config.stores.length === 0) {
@@ -88,7 +86,6 @@ export class MemoryManager implements Plugin {
     this._config = config
     this._searchStores = config.stores
     this._addStores = config.stores.filter((s) => s.writable)
-    this._awaitWrites = config.awaitWrites ?? false
 
     this._searchToolConfig =
       config.searchToolConfig === false
@@ -104,9 +101,8 @@ export class MemoryManager implements Plugin {
       if (this._addStores.length === 0) {
         throw new Error('MemoryManager: addToolConfig is enabled but no stores are writable')
       }
-      const toolConfig: MemoryAddToolConfig = typeof config.addToolConfig === 'object' ? config.addToolConfig : {}
-      this._addToolConfig = toolConfig
-      this._addToolStores = this._resolveAddToolStores(toolConfig)
+      this._addToolConfig = typeof config.addToolConfig === 'object' ? config.addToolConfig : {}
+      this._addToolStores = this._resolveAddToolStores(this._addToolConfig)
     }
   }
 
@@ -159,7 +155,7 @@ export class MemoryManager implements Plugin {
     }
 
     if (this._addToolConfig !== false) {
-      tools.push(this._createAddTool(this._addToolConfig))
+      tools.push(this._createAddTool(this._addToolConfig, this._addToolStores))
     }
 
     for (const store of this._config.stores) {
@@ -231,20 +227,16 @@ export class MemoryManager implements Plugin {
   }
 
   /**
-   * Add content to writable stores. If `stores` is provided, only writes to those named stores.
+   * Add content to writable stores. If `stores` is provided, only writes to those named stores;
+   * otherwise all writable stores are targeted.
    *
-   * This method is unscoped, with full access to all configured writable stores.
-   * Tool-level store scoping is applied by the add tool callback.
-   * When `options.stores` is omitted, all writable stores are targeted.
-   *
-   * Target stores are always validated synchronously (an unknown or read-only named store throws
-   * immediately). The store writes themselves follow `awaitWrites` (resolved from
-   * {@link MemoryAddOptions.awaitWrites} then {@link MemoryManagerConfig.awaitWrites}.
-   * - fire-and-forget (default): resolves once writes are dispatched; per-store failures are logged.
-   * - awaited: resolves after all writes settle and throws an `AggregateError` if any store fails.
+   * This method is unscoped, with full access to all configured writable stores; tool-level store
+   * scoping is applied by the add tool callback. Target stores are validated first (an unknown or
+   * read-only named store throws), then the writes are awaited: per-store failures are logged, and
+   * an `AggregateError` is thrown if any store fails.
    *
    * @param content - The text content to add
-   * @param options - Optional metadata, store name filter, and per-call `awaitWrites` override
+   * @param options - Optional metadata and store name filter
    */
   async add(content: string, options?: MemoryAddOptions): Promise<void> {
     let writableStores: MemoryStore[]
@@ -268,33 +260,13 @@ export class MemoryManager implements Plugin {
       throw new Error('MemoryManager: no writable store matched')
     }
 
-    const write = this._writeToStores(writableStores, content, options?.metadata)
-
-    if (options?.awaitWrites ?? this._awaitWrites) {
-      await write
-    } else {
-      // Fire-and-forget: failures are already logged inside _writeToStores; swallow the rejection
-      // here so the detached promise never surfaces as an unhandled rejection.
-      write.catch(() => {})
-    }
-  }
-
-  /**
-   * Writes content to every given store, logging per-store failures. Throws an `AggregateError` if
-   * any store fails. Callers decide whether to await (observe failures) or fire-and-forget.
-   */
-  private async _writeToStores(
-    stores: MemoryStore[],
-    content: string,
-    metadata: Record<string, JSONValue> | undefined
-  ): Promise<void> {
-    const settled = await Promise.allSettled(stores.map((store) => store.add!(content, metadata)))
+    const settled = await Promise.allSettled(writableStores.map((store) => store.add!(content, options?.metadata)))
 
     const failures: { store: string; reason: unknown }[] = []
     for (let i = 0; i < settled.length; i++) {
       const settledResult = settled[i]!
       if (settledResult.status === 'rejected') {
-        const storeName = stores[i]!.name
+        const storeName = writableStores[i]!.name
         logger.warn(
           `store=<${storeName}>, reason=<${normalizeError(settledResult.reason).message}> | store write failed`
         )
@@ -383,18 +355,17 @@ export class MemoryManager implements Plugin {
     })
   }
 
-  private _createAddTool(config: MemoryToolConfig): Tool {
+  private _createAddTool(config: MemoryAddToolConfig, stores: MemoryStore[]): Tool {
     let description = config.description ?? ADD_TOOL_DESCRIPTION
-    const storeDescriptions = this._addToolStores
-      .filter((s) => s.description)
-      .map((s) => `- ${s.name}: ${s.description}`)
+    const storeDescriptions = stores.filter((s) => s.description).map((s) => `- ${s.name}: ${s.description}`)
     if (storeDescriptions.length > 0) {
       description += `\n\nAvailable writable stores:\n${storeDescriptions.join('\n')}`
       description +=
         '\n\nYou can target a specific store by name to route facts to the right place, or omit to add to all available writable stores.'
     }
 
-    const scopedNames = this._addToolStores.map((s) => s.name)
+    const scopedNames = stores.map((s) => s.name)
+    const waitForWrites = config.waitForWrites ?? true
 
     const inputSchema = z.object({
       entries: z.array(z.string()).min(1).describe('Data to add to long-term memory'),
@@ -410,6 +381,17 @@ export class MemoryManager implements Plugin {
       inputSchema,
       callback: async (input) => {
         const stores = this._resolveToolTargets(scopedNames, input.stores)
+
+        if (!waitForWrites) {
+          // Fire-and-forget: dispatch the writes without awaiting so the agent loop isn't blocked.
+          // add() logs per-store failures; swallow the rejection so it isn't an unhandled rejection.
+          for (const content of input.entries) {
+            void this.add(content, { stores }).catch(() => {})
+          }
+          return { accepted: input.entries.length } as JSONValue
+        }
+
+        // Await mode: surface failures to the model with concrete reasons (not nested AggregateErrors).
         const settled = await Promise.allSettled(input.entries.map((content) => this.add(content, { stores })))
         const failures = settled.filter(
           (settledResult) => settledResult.status === 'rejected'
@@ -423,7 +405,7 @@ export class MemoryManager implements Plugin {
           )
         }
 
-        return (this._awaitWrites ? { stored: input.entries.length } : { accepted: input.entries.length }) as JSONValue
+        return { stored: input.entries.length } as JSONValue
       },
     })
   }

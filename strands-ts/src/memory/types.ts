@@ -106,15 +106,8 @@ export interface MemorySearchOptions extends SearchOptions {
 export interface MemoryAddOptions {
   /** Metadata to associate with the added entry. */
   metadata?: Record<string, JSONValue>
-  /** Filter to specific writable stores by name. Omit to write to all. */
+  /** Filter to specific writable stores by name. Omit to write to all writable stores. */
   stores?: string[]
-  /**
-   * Whether to await the store writes before resolving. Overrides the manager's
-   * {@link MemoryManagerConfig.awaitWrites} default for this call.
-   * - `false`: fire-and-forget — resolves once writes are dispatched; failures are logged.
-   * - `true`: awaits all writes and throws an `AggregateError` if any store fails.
-   */
-  awaitWrites?: boolean
 }
 
 /**
@@ -138,6 +131,14 @@ export interface MemoryAddToolConfig extends MemoryToolConfig {
    *  Omit (or set `addToolConfig: true`) to allow all writable stores.
    */
   stores?: (string | MemoryStore)[]
+  /**
+   * Whether the tool waits for store writes before returning to the model. Defaults to `true`.
+   * - `true` (default): waits for writes — the tool returns `{ stored }` on success, or surfaces a
+   *   failure to the model if any store write fails.
+   * - `false`: fire-and-forget — the tool returns `{ accepted }` once writes are dispatched (so a
+   *   slow backend never blocks the agent loop); per-store failures are logged.
+   */
+  waitForWrites?: boolean
 }
 
 /**
@@ -153,14 +154,4 @@ export interface MemoryManagerConfig {
    * writable stores; pass a {@link MemoryAddToolConfig} with `stores` to restrict it to specific ones.
    */
   addToolConfig?: MemoryAddToolConfig | boolean
-  /**
-   * Whether write operations await each store before resolving. Defaults to `false`.
-   * - `false` (default): fire-and-forget. Writes are dispatched and the call resolves immediately so
-   *   a slow backend never blocks the agent loop; per-store failures are logged, not thrown.
-   * - `true`: awaits all writes. Throws an `AggregateError` if any targeted store fails, so partial
-   *   failures are observable.
-   *
-   * Per-call overridable via {@link MemoryAddOptions.awaitWrites}.
-   */
-  awaitWrites?: boolean
 }
