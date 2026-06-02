@@ -10,7 +10,6 @@ const FIXTURES = resolve(import.meta.dirname!, 'fixtures')
 
 describe('CedarAuthorization', () => {
   describe('real Cedar evaluation', () => {
-
     const entities = [
       { uid: { type: 'Resource', id: 'agent' }, attrs: {}, parents: [] },
       { uid: { type: 'User', id: 'alice' }, attrs: { role: 'admin' }, parents: [] },
