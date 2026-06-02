@@ -34,7 +34,6 @@ from strands._generated.strands_agent.vended import (
     AgentSkills,
     ContextOffloader,
     VendedPlugin,
-    VendedTool,
 )
 
 ModelInput = ModelConfig | BedrockModel | AnthropicModel | OpenaiModel | GoogleModel | CustomModel
