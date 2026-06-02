@@ -40,7 +40,7 @@ class _CallbackEntry:
     """Internal entry pairing a callback with its execution order."""
 
     callback: "HookCallback"
-    order: int
+    order: float
 
 
 @dataclass
@@ -184,7 +184,7 @@ class HookRegistry:
         event_type: type[TEvent] | list[type[TEvent]] | None,
         callback: HookCallback[TEvent],
         *,
-        order: int = HookOrder.DEFAULT,
+        order: float = HookOrder.DEFAULT,
     ) -> None:
         """Register a callback function for a specific event type.
 

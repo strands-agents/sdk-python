@@ -316,7 +316,7 @@ class Swarm(MultiAgentBase):
         run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
 
     def add_hook(
-        self, callback: HookCallback, event_type: type | list[type] | None = None, *, order: int = HookOrder.DEFAULT
+        self, callback: HookCallback, event_type: type | list[type] | None = None, *, order: float = HookOrder.DEFAULT
     ) -> None:
         """Register a hook callback with the swarm.
 

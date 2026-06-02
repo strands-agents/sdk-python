@@ -730,7 +730,7 @@ class Agent(AgentBase):
         callback: HookCallback[TEvent],
         event_type: type[TEvent] | list[type[TEvent]] | None = None,
         *,
-        order: int = HookOrder.DEFAULT,
+        order: float = HookOrder.DEFAULT,
     ) -> None:
         """Register a callback function for a specific event type.
 
