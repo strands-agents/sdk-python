@@ -6,6 +6,10 @@
   "module": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "type": "module",
+  "sideEffects": [
+    "./dist/src/index.node.js",
+    "./src/index.node.ts"
+  ],
   "files": [
     "dist",
     "README.md",
@@ -14,6 +18,7 @@
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
+      "node": "./dist/src/index.node.js",
       "default": "./dist/src/index.js"
     },
     "./models/anthropic": {

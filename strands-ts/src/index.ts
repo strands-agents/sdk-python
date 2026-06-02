@@ -37,6 +37,7 @@ export {
   ToolValidationError,
   StructuredOutputError,
   ToolNotFoundError,
+  DefaultNotConfiguredError,
 } from './errors.js'
 
 // Interrupt system

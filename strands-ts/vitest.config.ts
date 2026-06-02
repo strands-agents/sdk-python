@@ -23,6 +23,7 @@ export default defineConfig({
     projects: [
       {
         test: {
+          setupFiles: ['./src/__fixtures__/register-node-defaults.ts'],
           include: [
             'src/**/__tests__/**/*.test.ts',
             'src/**/__tests__/**/*.test.node.ts',
