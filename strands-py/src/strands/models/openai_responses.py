@@ -549,7 +549,12 @@ class OpenAIResponsesModel(Model):
 
         # Add tools if provided
         if tool_specs:
-            # Merge with any built-in tools (e.g. web_search) already in the request from params
+            # Merge with any built-in tools (e.g. web_search) already in the request from params.
+            # Shallow-copy the existing list (if any) to avoid mutating self.config["params"]["tools"]
+            # via the shared reference created by ** unpacking above.
+            # See: strands-agents/sdk-python#2405
+            if "tools" in request:
+                request["tools"] = list(request["tools"])
             request.setdefault("tools", []).extend(
                 {
                     "type": "function",
