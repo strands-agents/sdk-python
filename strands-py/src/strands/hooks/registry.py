@@ -30,9 +30,9 @@ class HookOrder:
     Lower values execute first. Hooks with the same order preserve registration order.
     """
 
-    FIRST: int = -100
+    SDK_FIRST: int = -100
     DEFAULT: int = 0
-    LAST: int = 100
+    SDK_LAST: int = 100
 
 
 @dataclass

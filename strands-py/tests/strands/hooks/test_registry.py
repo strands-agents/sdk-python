@@ -325,8 +325,8 @@ def test_lower_order_runs_first(registry, agent):
     order = []
 
     registry.add_callback(BeforeModelCallEvent, lambda e: order.append("default"), order=HookOrder.DEFAULT)
-    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("first"), order=HookOrder.FIRST)
-    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("last"), order=HookOrder.LAST)
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("first"), order=HookOrder.SDK_FIRST)
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("last"), order=HookOrder.SDK_LAST)
 
     registry.invoke_callbacks(BeforeModelCallEvent(agent=agent))
     assert order == ["first", "default", "last"]
@@ -361,8 +361,8 @@ def test_after_events_lower_order_still_runs_first(registry, agent):
 
     registry.add_callback(AfterModelCallEvent, lambda e: order.append("default_a"))
     registry.add_callback(AfterModelCallEvent, lambda e: order.append("default_b"))
-    registry.add_callback(AfterModelCallEvent, lambda e: order.append("first"), order=HookOrder.FIRST)
-    registry.add_callback(AfterModelCallEvent, lambda e: order.append("last"), order=HookOrder.LAST)
+    registry.add_callback(AfterModelCallEvent, lambda e: order.append("first"), order=HookOrder.SDK_FIRST)
+    registry.add_callback(AfterModelCallEvent, lambda e: order.append("last"), order=HookOrder.SDK_LAST)
 
     registry.invoke_callbacks(AfterModelCallEvent(agent=agent))
     # Lower order first, but within same group registration order is reversed

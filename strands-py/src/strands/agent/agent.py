@@ -751,7 +751,7 @@ class Agent(AgentBase):
                 the callback's first parameter type hint. If a list is provided,
                 the callback is registered for each type in the list.
             order: Execution priority. Lower values execute first.
-                Use HookOrder.FIRST (-100), HookOrder.DEFAULT (0), or HookOrder.LAST (100).
+                Use HookOrder.SDK_FIRST (-100), HookOrder.DEFAULT (0), or HookOrder.SDK_LAST (100).
 
         Raises:
             ValueError: If event_type is not provided and cannot be inferred from

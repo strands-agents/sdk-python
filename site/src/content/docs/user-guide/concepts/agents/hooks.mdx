@@ -394,13 +394,13 @@ Most event properties are read-only to prevent unintended modifications. However
 
 By default, After event callbacks run in reverse registration order for cleanup symmetry. You can override this with explicit priority using the `order` option — lower values run first.
 
-The SDK exports convenience presets:
+The SDK exports convenience presets that mark where the SDK's own hooks run, so you can position yours relative to them:
 
-- `HookOrder.FIRST` (-100)
+- `HookOrder.SDK_FIRST` (-100) — where the SDK's earliest hooks run
 - `HookOrder.DEFAULT` (0) — implicit when no order is specified
-- `HookOrder.LAST` (100)
+- `HookOrder.SDK_LAST` (100) — where the SDK's latest hooks run
 
-These are not enforced bounds — any numeric value works.
+These are not enforced bounds — any numeric value works. Use values beyond them (e.g. `SDK_FIRST - 1`) to run before or after the SDK's hooks, or `float('-inf')`/`float('inf')` for guaranteed absolute ordering.
 
 ```python
 from strands import Agent
@@ -414,8 +414,8 @@ def early_hook(event: BeforeModelCallEvent) -> None:
 def late_hook(event: BeforeModelCallEvent) -> None:
     print("I run last")
 
-agent.add_hook(early_hook, order=HookOrder.FIRST)
-agent.add_hook(late_hook, order=HookOrder.LAST)
+agent.add_hook(early_hook, order=HookOrder.SDK_FIRST)
+agent.add_hook(late_hook, order=HookOrder.SDK_LAST)
 ```
 
 Within the same order group, Before events preserve registration order and After events reverse it.
