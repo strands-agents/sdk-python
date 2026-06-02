@@ -281,12 +281,21 @@ class RepositorySessionManager(SessionManager):
                         content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content
                     ]
 
-                    # Check if there are more messages after the current toolUse message
-                    tool_result_ids = [
-                        content["toolResult"]["toolUseId"]
-                        for content in messages[index + 1]["content"]
-                        if "toolResult" in content
-                    ]
+                    # Search forward through ALL subsequent messages to find matching toolResult blocks,
+                    # not just the immediate next message. Previous insert() operations during this loop
+                    # may have shifted the actual toolResult message away from index+1.
+                    # See: strands-agents/sdk-python#2214
+                    tool_result_ids: list[str] = []
+                    for later_index in range(index + 1, len(messages)):
+                        later_message = messages[later_index]
+                        # Stop searching if we hit an assistant message (toolResult must be in user messages)
+                        if later_message["role"] == "assistant":
+                            break
+                        tool_result_ids.extend(
+                            content["toolResult"]["toolUseId"]
+                            for content in later_message["content"]
+                            if "toolResult" in content
+                        )
 
                     missing_tool_use_ids = list(set(tool_use_ids) - set(tool_result_ids))
                     # If there are missing tool use ids, that means the messages history is broken
@@ -298,12 +307,10 @@ class RepositorySessionManager(SessionManager):
                         # Create the missing toolResult content blocks
                         missing_content_blocks = generate_missing_tool_result_content(missing_tool_use_ids)
 
-                        if tool_result_ids:
-                            # If there were any toolResult ids, that means only some of the content blocks are missing
-                            messages[index + 1]["content"].extend(missing_content_blocks)
-                        else:
-                            # The message following the toolUse was not a toolResult, so lets insert it
-                            messages.insert(index + 1, {"role": "user", "content": missing_content_blocks})
+                        # Find or create the user message that should contain these toolResults.
+                        # Insert a new user message right after the toolUse message.
+                        # See: strands-agents/sdk-python#2214
+                        messages.insert(index + 1, {"role": "user", "content": missing_content_blocks})
         return messages
 
     def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
