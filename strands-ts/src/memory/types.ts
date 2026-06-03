@@ -77,8 +77,12 @@ export interface MemoryStore extends MemoryStoreConfig {
   /**
    * Add content to the store. Required when `writable` is `true`; ignored otherwise.
    * A store may implement `add` while declaring `writable: false`, in which case it is never invoked.
+   *
+   * The resolved value is store-specific (e.g. a created record id or a write receipt) — each backend
+   * may return whatever shape fits it. {@link MemoryManager.add} does not consume this value (it only
+   * awaits completion); callers using a store directly can read it.
    */
-  add?(content: string, metadata?: Record<string, JSONValue>): Promise<void>
+  add?(content: string, metadata?: Record<string, JSONValue>): Promise<unknown>
   /**
    * Returns store-specific tools to register with the agent, through a {@link MemoryManager}. Registers
    * tools alongside `search_memory` / `add_memory` tools if enabled on the {@link MemoryManager}.
