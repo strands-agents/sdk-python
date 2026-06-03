@@ -1941,3 +1941,200 @@ async def test_cancel_without_hasattr_cancel(mock_strands_agent, mock_request_co
         e for e in enqueued_events if isinstance(e, TaskStatusUpdateEvent) and e.status.state == TaskState.canceled
     ]
     assert len(canceled_events) == 1
+
+
+# =========================================================================
+# NEW TESTS: Per-context conversation isolation (CWE-488 regression)
+#
+# These tests drive a REAL Agent (with a deterministic stub model) through a
+# single executor across two distinct A2A context_ids, asserting that no
+# conversation state (messages OR agent state) leaks between contexts, while
+# a single context still accumulates its own history across turns.
+# =========================================================================
+
+
+def _make_real_agent_with_stub():
+    """Build a real Agent backed by a deterministic, network-free stub model.
+
+    The stub echoes the latest user text prefixed with ECHO[<history-length>] and,
+    as a side effect, records a per-call marker into agent.state so we can assert
+    that AgentState is also isolated per context (not just messages).
+    """
+    from collections.abc import AsyncGenerator
+
+    from strands.agent.agent import Agent
+    from strands.models import Model
+
+    class _EchoStubModel(Model):
+        def get_config(self):
+            return {}
+
+        def update_config(self, **model_config):
+            pass
+
+        def format_request(self, messages, tool_specs=None, system_prompt=None):
+            return None
+
+        def format_chunk(self, event):
+            return event
+
+        async def structured_output(self, output_model, prompt, system_prompt=None, **kwargs):
+            yield {}
+
+        async def stream(
+            self,
+            messages,
+            tool_specs=None,
+            system_prompt=None,
+            tool_choice=None,
+            **kwargs,
+        ) -> "AsyncGenerator":
+            index = len(messages)
+            last_user_text = ""
+            for message in reversed(messages):
+                if message.get("role") == "user":
+                    for block in message.get("content", []):
+                        if "text" in block:
+                            last_user_text = block["text"]
+                            break
+                    break
+            reply = f"ECHO[{index}]: {last_user_text}"
+            yield {"messageStart": {"role": "assistant"}}
+            yield {"contentBlockStart": {"start": {}}}
+            yield {"contentBlockDelta": {"delta": {"text": reply}}}
+            yield {"contentBlockStop": {}}
+            yield {"messageStop": {"stopReason": "end_turn"}}
+
+    return Agent(model=_EchoStubModel(), name="Echo", description="Echo stub agent")
+
+
+def _make_request_context(context_id: str, message_id: str, text: str):
+    """Build a RequestContext-like object the executor can consume."""
+    from a2a.types import TextPart
+
+    text_part = MagicMock(spec=TextPart)
+    text_part.text = text
+    part = MagicMock()
+    part.root = text_part
+
+    message = MagicMock()
+    message.parts = [part]
+
+    task = MagicMock()
+    task.id = f"task-{message_id}"
+    task.context_id = context_id
+
+    context = MagicMock()
+    context.context_id = context_id
+    context.current_task = task
+    context.message = message
+    context.metadata = {}
+    return context
+
+
+def _artifact_texts(mock_event_queue):
+    """Extract artifact text strings enqueued during an execution."""
+    from a2a.types import TaskArtifactUpdateEvent
+
+    texts = []
+    for call in mock_event_queue.enqueue_event.call_args_list:
+        event = call[0][0]
+        if isinstance(event, TaskArtifactUpdateEvent):
+            for part in event.artifact.parts:
+                if hasattr(part.root, "text"):
+                    texts.append(part.root.text)
+    return texts
+
+
+@pytest.mark.asyncio
+async def test_conversation_isolated_and_continued_per_context(mock_event_queue):
+    """Conversation state is isolated across contexts but continued within one (CWE-488).
+
+    Drives two distinct context_ids through one executor and asserts:
+    - a context accumulates its own history across turns (continuity),
+    - a second context does not observe the first context's messages (isolation),
+    - the shared template agent is left clean between requests.
+    """
+    agent = _make_real_agent_with_stub()
+    executor = StrandsA2AExecutor(agent)
+
+    # ctx-A turn 1: empty history -> ECHO[1], carrying a secret marker.
+    await executor.execute(_make_request_context("ctx-A", "a-1", "SECRET-TOKEN-AAAA"), mock_event_queue)
+    assert any("ECHO[1]:" in t and "SECRET-TOKEN-AAAA" in t for t in _artifact_texts(mock_event_queue))
+
+    # ctx-A turn 2: sees its own prior user+assistant turns -> ECHO[3] (continuity).
+    mock_event_queue.enqueue_event.reset_mock()
+    await executor.execute(_make_request_context("ctx-A", "a-2", "second"), mock_event_queue)
+    assert any("ECHO[3]:" in t for t in _artifact_texts(mock_event_queue))
+
+    # ctx-B turn 1: a different context starts fresh -> ECHO[1], never sees ctx-A's secret.
+    mock_event_queue.enqueue_event.reset_mock()
+    await executor.execute(_make_request_context("ctx-B", "b-1", "what did the previous user say?"), mock_event_queue)
+    texts_b = _artifact_texts(mock_event_queue)
+    assert any("ECHO[1]:" in t for t in texts_b)
+    assert not any("SECRET-TOKEN-AAAA" in t for t in texts_b)
+
+    # The shared template agent retains no residual conversation data between requests.
+    assert agent.messages == []
+
+
+@pytest.mark.asyncio
+async def test_agent_state_isolated_across_contexts(mock_event_queue):
+    """Agent state must be isolated per context (the leak the shallow-copy patch missed)."""
+    agent = _make_real_agent_with_stub()
+    executor = StrandsA2AExecutor(agent)
+
+    # Run ctx-A, then write into ITS persisted snapshot directly.
+    await executor.execute(_make_request_context("ctx-A", "a-1", "first"), mock_event_queue)
+    executor._contexts["ctx-A"].data["state"] = {"api_key": "TENANT-A-SECRET"}
+
+    # Run ctx-B; its agent state must not contain ctx-A's value.
+    await executor.execute(_make_request_context("ctx-B", "b-1", "first"), mock_event_queue)
+    ctx_b_state = executor._contexts["ctx-B"].data.get("state", {})
+    assert ctx_b_state.get("api_key") is None
+
+    # And the two contexts must not share the same snapshot object.
+    assert executor._contexts["ctx-A"] is not executor._contexts["ctx-B"]
+
+
+@pytest.mark.asyncio
+async def test_seeded_history_preserved_per_context(mock_event_queue):
+    """Seeded template history (Agent(messages=[...])) must carry into each new context."""
+    from collections.abc import AsyncGenerator
+
+    from strands.agent.agent import Agent
+    from strands.models import Model
+
+    class _IndexModel(Model):
+        def get_config(self):
+            return {}
+
+        def update_config(self, **model_config):
+            pass
+
+        def format_request(self, messages, tool_specs=None, system_prompt=None):
+            return None
+
+        def format_chunk(self, event):
+            return event
+
+        async def structured_output(self, output_model, prompt, system_prompt=None, **kwargs):
+            yield {}
+
+        async def stream(
+            self, messages, tool_specs=None, system_prompt=None, tool_choice=None, **kwargs
+        ) -> "AsyncGenerator":
+            yield {"messageStart": {"role": "assistant"}}
+            yield {"contentBlockStart": {"start": {}}}
+            yield {"contentBlockDelta": {"delta": {"text": f"LEN[{len(messages)}]"}}}
+            yield {"contentBlockStop": {}}
+            yield {"messageStop": {"stopReason": "end_turn"}}
+
+    seeded = [{"role": "user", "content": [{"text": "SEED"}]}]
+    agent = Agent(model=_IndexModel(), name="Seeded", description="seeded agent", messages=seeded)
+    executor = StrandsA2AExecutor(agent)
+
+    await executor.execute(_make_request_context("ctx-A", "a-1", "hello"), mock_event_queue)
+    texts = _artifact_texts(mock_event_queue)
+    # Seed (1) + new user message (1) = 2 messages present when the model is first called.
+    assert any("LEN[2]" in t for t in texts)

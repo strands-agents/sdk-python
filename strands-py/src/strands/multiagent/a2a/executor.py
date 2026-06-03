@@ -10,11 +10,13 @@ streamed requests to the A2AServer.
 
 import asyncio
 import base64
+import copy
 import json
 import logging
 import mimetypes
 import uuid
 import warnings
+from collections import OrderedDict
 from typing import Any, Literal
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -26,6 +28,7 @@ from a2a.utils.errors import ServerError
 
 from ...agent.agent import Agent as SAAgent
 from ...agent.agent import AgentResult as SAAgentResult
+from ...types._snapshot import Snapshot
 from ...types.content import ContentBlock
 from ...types.media import (
     DocumentContent,
@@ -58,17 +61,120 @@ class StrandsA2AExecutor(AgentExecutor):
     _current_artifact_id: str | None
     _is_first_chunk: bool
 
-    def __init__(self, agent: SAAgent, *, enable_a2a_compliant_streaming: bool = False):
+    # Cap on concurrently tracked A2A contexts. Beyond this, the least-recently-used
+    # context's conversation state is evicted to bound memory in long-running servers.
+    DEFAULT_MAX_CONTEXTS = 1000
+
+    # Key under which the snapshot's app_data carries _model_state (not part of the
+    # "session" snapshot preset, but still per-conversation state that must be isolated).
+    _MODEL_STATE_KEY = "a2a_model_state"
+
+    def __init__(
+        self,
+        agent: SAAgent,
+        *,
+        enable_a2a_compliant_streaming: bool = False,
+        max_contexts: int = DEFAULT_MAX_CONTEXTS,
+    ):
         """Initialize a StrandsA2AExecutor.
 
+        The agent is treated as a *template*: each distinct A2A ``context_id`` gets its own
+        isolated conversation state, so callers in different contexts cannot read or influence
+        each other's history. The template's initial state seeds every new context, so seeding
+        the agent (e.g. ``Agent(messages=[...])``) carries into each context.
+
+        Note:
+            Contexts are keyed on the client-supplied ``context_id``, which is not an
+            authentication boundary. A caller that knows another caller's ``context_id`` can
+            attach to that conversation. Multi-tenant deployments must enforce authenticated
+            identity at the transport/gateway layer.
+
+            Conversation state for at most ``max_contexts`` contexts is retained in memory. When
+            that limit is exceeded the least-recently-used context's state is discarded (A2A
+            spec §3.4.1 context cleanup policy); a later request reusing that ``context_id``
+            starts a fresh conversation from the template.
+
         Args:
-            agent: The Strands Agent instance to adapt to the A2A protocol.
+            agent: The Strands Agent to adapt. Used as a template for per-context state.
             enable_a2a_compliant_streaming: If True, uses A2A-compliant streaming with
                 artifact updates. If False, uses legacy status updates streaming behavior
                 for backwards compatibility. Defaults to False.
+            max_contexts: Maximum number of contexts to retain state for; the least-recently-
+                used context is evicted beyond this. Defaults to ``DEFAULT_MAX_CONTEXTS``.
         """
         self.agent = agent
         self.enable_a2a_compliant_streaming = enable_a2a_compliant_streaming
+        self._max_contexts = max_contexts
+
+        # The template's clean state, captured before any request mutates the agent.
+        self._template_snapshot = self._capture_state()
+
+        # Per-context snapshots keyed on context_id. Lock-guarded because the A2A framework may
+        # drive execute() for different contexts concurrently; OrderedDict tracks LRU order.
+        self._contexts: OrderedDict[str, Snapshot] = OrderedDict()
+        self._contexts_lock = asyncio.Lock()
+
+    def _capture_state(self) -> Snapshot:
+        """Snapshot the agent's session state, carrying _model_state in app_data.
+
+        ``_model_state`` is per-conversation but not part of the "session" preset, so it rides
+        along in app_data. ``take_snapshot`` deep-copies session fields and app_data.
+        """
+        return self.agent.take_snapshot(preset="session", app_data={self._MODEL_STATE_KEY: self.agent._model_state})
+
+    def _restore_state(self, snapshot: Snapshot) -> None:
+        """Load a snapshot into the agent, restoring session state and _model_state.
+
+        Deep-copies once so a run never mutates a stored or template snapshot in place;
+        snapshots (including the shared template) are restored repeatedly.
+        """
+        snapshot = copy.deepcopy(snapshot)
+        self.agent.load_snapshot(snapshot)
+        self.agent._model_state = snapshot.app_data.get(self._MODEL_STATE_KEY, {})
+
+    async def _run_in_context(
+        self,
+        context_id: str,
+        content_blocks: list[ContentBlock],
+        invocation_state: dict[str, Any],
+        updater: TaskUpdater,
+    ) -> None:
+        """Run a request against the shared agent with this context's isolated state.
+
+        The context's state is loaded into the shared agent for the run (seeded from the
+        template on first use), then captured back; the agent is reset to the template
+        afterward so nothing leaks to the next caller. The lock is held for the whole run:
+        a single ``Agent`` cannot be invoked concurrently, so requests across all contexts are
+        serialized rather than racing on the shared agent (previously this raised
+        ``ConcurrencyException``).
+        """
+        async with self._contexts_lock:
+            self._restore_state(self._contexts.get(context_id, self._template_snapshot))
+            try:
+                result: SAAgentResult | None = None
+                async for event in self.agent.stream_async(content_blocks, invocation_state=invocation_state):
+                    if "result" in event:
+                        result = event["result"]
+                    else:
+                        await self._handle_streaming_event(event, updater)
+
+                # Check if agent returned with interrupts (input_required)
+                # Note: stop_reason="interrupt" is the authoritative signal. Even if interrupts
+                # list is empty (edge case), the agent still indicated it needs input.
+                if result is not None and result.stop_reason == "interrupt":
+                    await self._handle_interrupt_result(result, updater)
+                else:
+                    await self._handle_agent_result(result, updater)
+            finally:
+                # Persist this context's updated history (even on error/cancel, to retain
+                # partial turns), evict the least-recently-used context beyond the cap, then
+                # reset the shared agent so no caller's data lingers on it.
+                self._contexts[context_id] = self._capture_state()
+                self._contexts.move_to_end(context_id)
+                while len(self._contexts) > self._max_contexts:
+                    evicted_id, _ = self._contexts.popitem(last=False)
+                    logger.debug("context_id=<%s> | evicted least-recently-used A2A context", evicted_id)
+                self._restore_state(self._template_snapshot)
 
     async def execute(
         self,
@@ -170,21 +276,16 @@ class StrandsA2AExecutor(AgentExecutor):
         # tools and hooks can access request metadata, task info, configuration, etc.
         invocation_state: dict[str, Any] = {"a2a_request_context": context}
 
-        try:
-            result: SAAgentResult | None = None
-            async for event in self.agent.stream_async(content_blocks, invocation_state=invocation_state):
-                if "result" in event:
-                    result = event["result"]
-                else:
-                    await self._handle_streaming_event(event, updater)
+        # The A2A framework populates context_id (client-supplied, generated, or inferred from
+        # the task). Fall back to an ephemeral id if it is ever absent so such a request gets
+        # its own isolated state rather than sharing one bucket with other ungrouped callers.
+        context_id = context.context_id or f"ephemeral-{uuid.uuid4()}"
 
-            # Check if agent returned with interrupts (input_required)
-            # Note: stop_reason="interrupt" is the authoritative signal. Even if interrupts
-            # list is empty (edge case), the agent still indicated it needs input.
-            if result is not None and result.stop_reason == "interrupt":
-                await self._handle_interrupt_result(result, updater)
-            else:
-                await self._handle_agent_result(result, updater)
+        try:
+            # Run against the shared agent with this context's isolated conversation state.
+            # State is swapped in/out under a lock so callers in different contexts cannot read
+            # or influence each other's history.
+            await self._run_in_context(context_id, content_blocks, invocation_state, updater)
         except Exception:
             logger.exception("Error in streaming execution")
             raise
