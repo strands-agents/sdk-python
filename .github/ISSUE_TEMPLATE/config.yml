@@ -1,8 +1,9 @@
 blank_issues_enabled: false
 contact_links:
   - name: Strands Agents SDK Support
+    # Only one repo has Discussions enabled; point users there.
     url: https://github.com/strands-agents/sdk-python/discussions
     about: Please ask and answer questions here
   - name: Strands Agents SDK Documentation
-    url: https://github.com/strands-agents/docs
+    url: https://strandsagents.com
     about: Visit our documentation for help

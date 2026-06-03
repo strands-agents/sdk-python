@@ -1,0 +1,222 @@
+---
+/**
+ * Analytics instrumentation via AWS WebSDK (Adobe Analytics under the hood).
+ * Dispatches custom events through the WebSDK's event listener system.
+ * Included in Head.astro for all pages.
+ */
+---
+
+<script is:inline>
+;(function () {
+  'use strict'
+
+  // Prevent duplicate initialization on View Transition re-executions.
+  // The astro:page-load listener (registered on first init) handles transitions.
+  if (window.__strandsAnalyticsInit) return
+  window.__strandsAnalyticsInit = true
+
+  var CUSTOM_EVENT_LISTENER = 'custom-awsm-acs-analytics-event-listener'
+  var SEARCH_EVENT_LISTENER = 'custom-awsm-acs-search-event-listener'
+
+  var scrollData = { initial: 0, max: 0, latest: 0 }
+  var scrollSent = false
+
+  // --- Helpers ---
+
+  function deriveSections(pathname) {
+    var segments = pathname.replace(/^\/|\/$/g, '').split('/').filter(Boolean)
+    var start = segments[0] === 'docs' ? 1 : 0
+    return {
+      siteSection: segments[start] || 'home',
+      subSection1: segments[start + 1] || '',
+      subSection2: segments[start + 2] || '',
+      hierarchy: segments.slice(start).join('|'),
+    }
+  }
+
+  // Consent is enforced by the WebSDK listener itself - events dispatched here
+  // are silently dropped if the user has not accepted performance cookies via Shortbread.
+  function dispatchAnalyticsEvent(eventType, data, useBeacon) {
+    var detail = {
+      eventType: eventType,
+      data: data,
+      useBeacon: !!useBeacon,
+    }
+    window.dispatchEvent(new CustomEvent(CUSTOM_EVENT_LISTENER, { detail: detail }))
+  }
+
+  function dispatchCTAClick(name, type) {
+    dispatchAnalyticsEvent('web.awsm.customCTAClick', {
+      pageInteraction: {
+        click: { name: name, type: type || 'customClick' },
+      },
+    })
+  }
+
+  function dispatchSearchEvent(searchTerm, resultCount) {
+    window.dispatchEvent(
+      new CustomEvent(SEARCH_EVENT_LISTENER, {
+        detail: {
+          eventType: 'web.awsm.search',
+          data: {
+            searchOperations: {
+              searchTerm: searchTerm,
+              searchFilter: [],
+              resultCount: resultCount,
+            },
+          },
+        },
+      })
+    )
+  }
+
+  // --- 1. Page View with Site Sections ---
+
+  function trackPageView() {
+    var sections = deriveSections(window.location.pathname)
+    dispatchAnalyticsEvent('web.awsm.pageInteraction', {
+      pageInteraction: {
+        name: 'pageView',
+        siteSection: sections.siteSection,
+        subSection1: sections.subSection1,
+        subSection2: sections.subSection2,
+        hierarchy: sections.hierarchy,
+      },
+    })
+  }
+
+  // --- 2. Click Tracking (anchors, nav tabs, code copy, outbound) ---
+
+  function setupClickTracking() {
+    document.addEventListener('click', function (e) {
+      if (!e.target || !e.target.closest) return
+
+      // Anchor / TOC clicks
+      var anchorLink = e.target.closest('a[href^="#"]')
+      if (anchorLink) {
+        var anchor = anchorLink.getAttribute('href').replace('#', '')
+        if (!anchor) return
+        var isToc = !!anchorLink.closest('nav.right-sidebar, [class*="toc"], starlight-toc')
+        var prefix = isToc ? 'toc-click' : 'anchor-click'
+        dispatchCTAClick(prefix + ':' + anchor, 'linkClick')
+        return
+      }
+
+      // Nav tab clicks
+      var navTab = e.target.closest('.nav-tab, .mobile-nav-link')
+      if (navTab) {
+        var label = navTab.textContent.trim().replace(/\s*↗$/, '')
+        dispatchCTAClick('nav-tab:' + label, 'click')
+        return
+      }
+
+      // Code copy button
+      var copyBtn = e.target.closest('.copy button, button.copy, [data-code] button')
+      if (copyBtn) {
+        var pageSections = deriveSections(window.location.pathname)
+        dispatchCTAClick('code-copy:' + pageSections.hierarchy, 'customClick')
+        return
+      }
+
+      // Outbound links
+      var link = e.target.closest('a[href]')
+      if (link && link.hostname && link.hostname !== window.location.hostname) {
+        dispatchCTAClick('outbound:' + link.hostname + link.pathname, 'linkClick')
+      }
+    })
+  }
+
+  // --- 3. Search Events ---
+
+  function setupSearchTracking() {
+    var searchTimeout = null
+
+    document.addEventListener('input', function (e) {
+      var input = e.target
+      if (!input || !input.matches || !input.matches('[data-pagefind-ui] input')) return
+
+      clearTimeout(searchTimeout)
+      // 800ms debounce captures user intent; result count may lag if Pagefind
+      // hasn't responded yet, but this is acceptable for analytics purposes.
+      searchTimeout = setTimeout(function () {
+        var term = input.value
+        if (!term) return
+        var results = document.querySelectorAll('[data-pagefind-ui] .pagefind-ui__result')
+        dispatchSearchEvent(term, results.length)
+      }, 800)
+    })
+  }
+
+  // --- 4. Scroll Depth ---
+
+  function updateScroll() {
+    var scrollTop = window.scrollY || document.documentElement.scrollTop
+    var docHeight = document.documentElement.scrollHeight - window.innerHeight
+    var depth = docHeight > 0 ? Math.round((scrollTop / docHeight) * 100) : 0
+    scrollData.latest = depth
+    if (depth > scrollData.max) scrollData.max = depth
+  }
+
+  function sendScrollDepth() {
+    if (scrollSent) return
+    scrollSent = true
+    updateScroll()
+    dispatchAnalyticsEvent(
+      'web.awsm.pageInteraction',
+      {
+        pageInteraction: {
+          name: 'scroll',
+          scrollDepths: {
+            initial: scrollData.initial,
+            max: scrollData.max,
+            latest: scrollData.latest,
+          },
+        },
+      },
+      true
+    )
+  }
+
+  function setupScrollTracking() {
+    var debounceTimer
+    window.addEventListener('scroll', function () {
+      clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(updateScroll, 200)
+    }, { passive: true })
+
+    window.addEventListener('beforeunload', sendScrollDepth)
+
+    // visibilitychange is more reliable on mobile (iOS Safari doesn't always fire beforeunload)
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') {
+        sendScrollDepth()
+      }
+    })
+  }
+
+  function resetScrollData() {
+    scrollData.initial = 0
+    scrollData.max = 0
+    scrollData.latest = 0
+    scrollSent = false
+    setTimeout(function () {
+      updateScroll()
+      scrollData.initial = scrollData.latest
+    }, 500)
+  }
+
+  // --- 5. SPA / View Transition Support ---
+
+  document.addEventListener('astro:page-load', function () {
+    trackPageView()
+    resetScrollData()
+  })
+
+  // --- Initial setup (runs once) ---
+  // astro:page-load fires on initial load and all subsequent navigations,
+  // so it handles trackPageView() and resetScrollData() for every page.
+  setupClickTracking()
+  setupSearchTracking()
+  setupScrollTracking()
+})()
+</script>

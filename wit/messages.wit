@@ -1,0 +1,357 @@
+package strands:agent@0.1.0;
+
+/// Content blocks that make up a message.
+interface messages {
+  /// Plain text.
+  record text-block {
+    /// Text content.
+    text: string,
+  }
+
+  /// Object stored in Amazon S3.
+  record s3-location {
+    /// URI in `s3://bucket/key` form.
+    uri: string,
+    /// Owning AWS account, for cross-account access.
+    bucket-owner: option<string>,
+  }
+
+  /// Source of image bytes.
+  variant image-source {
+    /// Raw image bytes.
+    bytes(list<u8>),
+    /// Publicly-accessible URL.
+    url(string),
+    /// Object in S3.
+    s3(s3-location),
+  }
+
+  /// Image attached to a message.
+  record image-block {
+    /// Provider-accepted format, e.g. `png`, `jpg`, `jpeg`, `gif`, `webp`.
+    format: string,
+    /// Where the image bytes come from.
+    source: image-source,
+  }
+
+  /// Source of video bytes.
+  variant video-source {
+    /// Raw video bytes.
+    bytes(list<u8>),
+    /// Object in S3.
+    s3(s3-location),
+  }
+
+  /// Video attached to a message.
+  record video-block {
+    /// Provider-accepted format, e.g. `mp4`, `mov`, `webm`, `3gp`.
+    format: string,
+    /// Where the video bytes come from.
+    source: video-source,
+  }
+
+  /// Source of document bytes.
+  variant document-source {
+    /// Raw document bytes.
+    bytes(list<u8>),
+    /// Plain text content.
+    text(string),
+    /// Structured content made of text blocks.
+    content(list<text-block>),
+    /// Object in S3.
+    s3(s3-location),
+  }
+
+  /// Citation configuration attached to a document.
+  record document-citations-config {
+    /// Whether the model should cite spans from this document.
+    enabled: bool,
+  }
+
+  /// Document attached to a message.
+  record document-block {
+    /// Display name shown to the model.
+    name: string,
+    /// Provider-accepted format, e.g. `pdf`, `csv`, `docx`, `md`, `json`.
+    format: string,
+    /// Where the document bytes come from.
+    source: document-source,
+    /// Citation configuration. Absent means citations are disabled.
+    citations: option<document-citations-config>,
+    /// Additional context to prepend to the document.
+    context: option<string>,
+  }
+
+  /// Model's thought process. Either plain reasoning (with an optional
+  /// signature) or an opaque redacted blob.
+  record reasoning-block {
+    /// Reasoning text.
+    text: option<string>,
+    /// Cryptographic signature for verification.
+    signature: option<string>,
+    /// Opaque redacted reasoning, when the provider withheld the plain form.
+    redacted-content: option<list<u8>>,
+  }
+
+  /// Prompt-caching kind. More arms will be added as providers surface
+  /// additional cache tiers (e.g. Anthropic's `ephemeral`).
+  enum cache-kind {
+    /// Standard provider-default caching.
+    default-cache,
+  }
+
+  /// Marks a caching boundary in the prompt.
+  record cache-point-block {
+    /// Cache kind.
+    kind: cache-kind,
+  }
+
+  /// How a piece of guard content should be evaluated.
+  enum guard-qualifier {
+    /// Content is a reference source the model should ground its answer on.
+    grounding-source,
+    /// Content is the user's query.
+    query,
+    /// Content is subject to guardrail policy evaluation.
+    guard-content,
+  }
+
+  /// Text submitted to a guardrail for evaluation.
+  record guard-content-text {
+    /// How the text should be evaluated.
+    qualifiers: list<guard-qualifier>,
+    /// Text content.
+    text: string,
+  }
+
+  /// Image submitted to a guardrail for evaluation.
+  record guard-content-image {
+    /// `png` or `jpeg`.
+    format: string,
+    /// Raw image bytes.
+    bytes: list<u8>,
+  }
+
+  /// Content submitted to a guardrail for evaluation.
+  variant guard-content-block {
+    /// Text guard content.
+    text(guard-content-text),
+    /// Image guard content.
+    image(guard-content-image),
+  }
+
+  /// Range within a source document (characters, pages, or chunks).
+  record document-range {
+    /// Index of the source document in the input list.
+    document-index: s32,
+    /// Inclusive start offset.
+    start: s32,
+    /// Exclusive end offset.
+    end: s32,
+  }
+
+  /// Range within a search result.
+  record search-result-range {
+    /// Index of the search result in the input list.
+    search-result-index: s32,
+    /// Inclusive start offset.
+    start: s32,
+    /// Exclusive end offset.
+    end: s32,
+  }
+
+  /// Web citation target.
+  record web-location {
+    /// Cited URL.
+    url: string,
+    /// Domain of the cited URL, if the provider surfaces it separately.
+    domain: option<string>,
+  }
+
+  /// Anchor a citation points to.
+  variant citation-location {
+    /// Character range within a document.
+    document-char(document-range),
+    /// Page range within a document.
+    document-page(document-range),
+    /// Chunk range within a document.
+    document-chunk(document-range),
+    /// Range within a search result.
+    search-result(search-result-range),
+    /// Web page.
+    web(web-location),
+  }
+
+  /// Text fragment from a source or a generated answer.
+  record citation-text {
+    /// Text content.
+    text: string,
+  }
+
+  /// Link from generated content back to a source location.
+  record citation {
+    /// Where the citation points.
+    location: citation-location,
+    /// Opaque source identifier.
+    source: string,
+    /// Excerpts from the source.
+    source-content: list<citation-text>,
+    /// Display title of the source.
+    title: string,
+  }
+
+  /// Citations emitted by the model when citations are enabled.
+  record citations-block {
+    /// Citations linking generated text to sources.
+    citations: list<citation>,
+    /// Generated text that the citations annotate.
+    content: list<citation-text>,
+  }
+
+  /// Model's request to call a tool.
+  record tool-use-block {
+    /// Tool to invoke.
+    name: string,
+    /// Identifier correlating this call with its result.
+    tool-use-id: string,
+    /// Arguments as a JSON value; shape is tool-specific.
+    input: string,
+    /// Reasoning signature from thinking models. Round-trip back to the model.
+    reasoning-signature: option<string>,
+  }
+
+  /// Whether a tool invocation succeeded. Richer classification lives on `tools.tool-error`.
+  enum tool-result-status {
+    /// Tool completed successfully.
+    success,
+    /// Tool returned an error result.
+    error,
+  }
+
+  /// Block valid inside `tool-result-block.content`. Narrower than `content-block`.
+  variant tool-result-content {
+    /// Text output.
+    text(text-block),
+    /// Structured JSON output.
+    json(json-block),
+    /// Image output.
+    image(image-block),
+    /// Video output.
+    video(video-block),
+    /// Document output.
+    document(document-block),
+  }
+
+  /// Outcome of a tool execution.
+  record tool-result-block {
+    /// Matching tool-use-id from the originating call.
+    tool-use-id: string,
+    /// Whether the call succeeded.
+    status: tool-result-status,
+    /// Content emitted by the tool.
+    content: list<tool-result-content>,
+  }
+
+  /// Structured JSON payload. Used for tool results and agent-as-tool
+  /// outputs that carry schema-validated data, not prose.
+  record json-block {
+    /// JSON value.
+    json: string,
+  }
+
+  /// User response to a previously-raised interrupt. Supplied on the
+  /// next invocation to resume the paused agent.
+  record interrupt-response-block {
+    /// Id of the interrupt being responded to.
+    interrupt-id: string,
+    /// User's response as a JSON value.
+    response: string,
+  }
+
+  /// Any block that can appear inside a message.
+  variant content-block {
+    /// Plain text.
+    text(text-block),
+    /// Structured JSON payload.
+    json(json-block),
+    /// Model requested a tool call.
+    tool-use(tool-use-block),
+    /// Tool call completed.
+    tool-result(tool-result-block),
+    /// Model reasoning.
+    reasoning(reasoning-block),
+    /// Caching boundary marker.
+    cache-point(cache-point-block),
+    /// Content submitted for guardrail evaluation.
+    guard-content(guard-content-block),
+    /// Image.
+    image(image-block),
+    /// Video.
+    video(video-block),
+    /// Document.
+    document(document-block),
+    /// Citations emitted by the model.
+    citations(citations-block),
+    /// Response to a prior interrupt, supplied when resuming.
+    interrupt-response(interrupt-response-block),
+  }
+
+  /// Who a message is from.
+  enum role {
+    /// Human input.
+    user,
+    /// Model response.
+    assistant,
+  }
+
+  /// Token consumption for a model invocation.
+  record usage {
+    /// Tokens sent to the model.
+    input-tokens: s32,
+    /// Tokens generated by the model.
+    output-tokens: s32,
+    /// Convenience sum of input and output tokens.
+    total-tokens: s32,
+    /// Input tokens served from the provider's cache.
+    cache-read-input-tokens: option<s32>,
+    /// Input tokens written to the provider's cache.
+    cache-write-input-tokens: option<s32>,
+  }
+
+  /// Performance metrics for a model invocation.
+  record metrics {
+    /// Wall-clock latency in milliseconds.
+    latency-ms: f64,
+  }
+
+  /// Metadata attached to a message. Not sent to model providers; persisted
+  /// alongside the message for bookkeeping.
+  record message-metadata {
+    /// Token usage for this message.
+    usage: option<usage>,
+    /// Performance metrics for this message.
+    metrics: option<metrics>,
+    /// Arbitrary application-level metadata as an opaque JSON object.
+    /// The agent does not interpret this.
+    custom: option<string>,
+  }
+
+  /// A complete message in a conversation.
+  record message {
+    /// Speaker.
+    role: role,
+    /// Ordered content blocks making up the message.
+    content: list<content-block>,
+    /// Optional bookkeeping data.
+    metadata: option<message-metadata>,
+  }
+
+  /// A prompt-style input: either prose or structured content. Used for
+  /// both system prompts and user input.
+  variant prompt-input {
+    /// Plain text prompt.
+    text(string),
+    /// Structured content blocks.
+    blocks(list<content-block>),
+  }
+}

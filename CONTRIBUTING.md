@@ -50,7 +50,23 @@ When proposing solutions or reviewing code, we reference these principles to gui
 
 ## Development Environment
 
-This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as the build backend and [hatch](https://hatch.pypa.io/latest/) for development workflow management.
+This is a monorepo containing the Python SDK, TypeScript SDK, and documentation site. Each has its own toolchain:
+
+| Area | Directory | Toolchain |
+|------|-----------|-----------|
+| Python SDK | `strands-py/` | hatch |
+| TypeScript SDK | `strands-ts/` | npm workspace |
+| Docs site | `site/` | Astro (npm) |
+
+### Python SDK
+
+The Python SDK uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as the build backend and [hatch](https://hatch.pypa.io/latest/) for development workflow management.
+
+All `hatch` commands should be run from the `strands-py/` subdirectory (where `pyproject.toml` lives):
+
+```bash
+cd strands-py
+```
 
 ### Setting Up Your Development Environment
 
@@ -112,7 +128,7 @@ We use the following tools to ensure code quality:
 1. **ruff** - For formatting and linting
 2. **mypy** - For static type checking
 
-These tools are configured in the [pyproject.toml](./pyproject.toml) file. Please ensure your code passes all linting and type checks before submitting a pull request:
+These tools are configured in the [pyproject.toml](./strands-py/pyproject.toml) file. Please ensure your code passes all linting and type checks before submitting a pull request:
 
 ```bash
 # Run all checks
@@ -122,8 +138,35 @@ hatch fmt --linter
 
 If you're using an IDE like VS Code or PyCharm, consider configuring it to use these tools automatically.
 
-For additional details on styling, please see our dedicated [Style Guide](./docs/STYLE_GUIDE.md).
+For additional details on styling, please see our dedicated [Style Guide](./strands-py/docs/STYLE_GUIDE.md).
 
+
+### TypeScript SDK
+
+The TypeScript SDK uses an npm workspace rooted at the repository root.
+
+```bash
+npm ci              # install dependencies (from repo root)
+npm run build       # build
+npm test            # run unit tests
+npm run lint        # lint
+npm run type-check  # type checking
+```
+
+### Documentation Site
+
+The documentation site uses Astro with the Starlight theme.
+
+```bash
+cd site
+npm install
+npm run dev                # local dev server at http://localhost:4321/
+npm run build              # production build
+npm run typecheck          # type checking
+npm run typecheck:snippets # type check code examples
+```
+
+For docs contribution guidelines, see [site/CONTRIBUTING.md](./site/CONTRIBUTING.md).
 
 ## Contributing via Pull Requests
 Contributions via pull requests are much appreciated. Before sending us a pull request, please ensure that:
@@ -132,7 +175,7 @@ Contributions via pull requests are much appreciated. Before sending us a pull r
 2. You check existing open, and recently merged, pull requests to make sure someone else hasn't addressed the problem already.
 3. You open an issue to discuss any significant work - we would hate for your time to be wasted.
 
-For guidance on writing effective PR descriptions, see our [PR Description Guidelines](./docs/PR.md).
+For guidance on writing effective PR descriptions, see our PR Description Guidelines ([Python](./strands-py/docs/PR.md), [TypeScript](./dev-docs/PR.md)).
 
 To send us a pull request, please:
 
@@ -158,4 +201,4 @@ If you discover a potential security issue in this project we ask that you notif
 
 ## Licensing
 
-See the [LICENSE](./LICENSE) file for our project's licensing. We will ask you to confirm the licensing of your contribution.
+See the [LICENSE.APACHE](./LICENSE.APACHE) and [LICENSE.MIT](./LICENSE.MIT) files for our project's licensing. We will ask you to confirm the licensing of your contribution.

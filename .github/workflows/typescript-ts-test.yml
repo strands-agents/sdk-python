@@ -1,0 +1,58 @@
+name: "TypeScript: Test"
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node-version }} on ${{ matrix.os }})
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20, 22, 24]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npm run test:browser:install
+
+      - name: Run unit tests
+        run: npm run test:all:coverage
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-artifacts-${{ matrix.node-version }}-${{ matrix.os }}
+          path: ./strands-ts/test/.artifacts/
+          include-hidden-files: true # needed because the path has a directory starting with a '.'
+          retention-days: 4
+          if-no-files-found: ignore
+
+      - name: Build package
+        run: npm run build
+
+      - name: Test packaging
+        run: npm run test:package

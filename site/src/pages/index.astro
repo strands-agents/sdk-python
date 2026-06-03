@@ -1,0 +1,179 @@
+---
+/**
+ * Homepage for Strands Agents SDK
+ *
+ * Sections: Hero → Build Your Way → See What's Happening →
+ *           Recover from Mistakes → 100% Stat → Quote Carousel →
+ *           Use Cases → Labs & Evals → Footer
+ */
+import LandingLayout from '../layouts/LandingLayout.astro'
+import Copyright from '../components/Copyright.astro'
+import HeroSection from '../components/landing/HeroSection.astro'
+import QuoteCarousel from '../components/landing/QuoteCarousel.astro'
+import ModelDrivenSection from '../components/landing/ModelDrivenSection.astro'
+import ControlSection from '../components/landing/ControlSection.astro'
+import OutcomesSection from '../components/landing/OutcomesSection.astro'
+import StatsSection from '../components/landing/StatsSection.astro'
+import UseCasesSection from '../components/landing/UseCasesSection.astro'
+import CredibilityStrip from '../components/landing/CredibilityStrip.astro'
+import LabsEvalsSection from '../components/landing/LabsEvalsSection.astro'
+import curvePrimary from '../assets/curve-primary.svg'
+import curveSecondary from '../assets/curve-secondary.svg'
+
+const base = import.meta.env.BASE_URL || '/'
+---
+
+<LandingLayout
+  title="Strands Agents — Open Source AI Agent SDK for Python & TypeScript"
+  description="Build production-ready AI agents in a few lines of code. Model-driven, open source, works with Amazon Bedrock, Anthropic, OpenAI, and more."
+>
+  <!-- Animated Curves Background -->
+  <div class="strands-curves-container">
+    <div class="strands-curve-secondary" style={`background-image: url(${curveSecondary.src})`}></div>
+    <div class="strands-curve-primary" style={`background-image: url(${curvePrimary.src})`}></div>
+  </div>
+
+  <div class="landing-page">
+    <HeroSection baseUrl={base} />
+    <ModelDrivenSection />
+    <ControlSection />
+    <OutcomesSection />
+    <StatsSection />
+    <QuoteCarousel />
+    <UseCasesSection />
+    <CredibilityStrip />
+    <LabsEvalsSection />
+  </div>
+
+  <footer class="landing-footer">
+    <div class="landing-footer-inner">
+      <Copyright />
+    </div>
+  </footer>
+</LandingLayout>
+
+<style>
+  /* ========== Animated Curves Background ========== */
+  .strands-curves-container {
+    position: fixed;
+    top: var(--sl-nav-height);
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    pointer-events: none;
+    filter: blur(12px);
+    opacity: 0.2;
+    overflow: hidden;
+  }
+
+  :global([data-theme='light']) .strands-curves-container {
+    filter: blur(20px);
+    opacity: 0.2;
+  }
+
+  .strands-curve-secondary {
+    background-repeat: repeat-y;
+    height: 200vw;
+    width: 291px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(110deg) scale(2);
+    animation: scroll-secondary 90s linear infinite;
+    z-index: -1;
+  }
+
+  .strands-curve-primary {
+    background-repeat: repeat-y;
+    height: 200vw;
+    width: 290px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(110deg) scale(1.5);
+    animation: scroll-primary 36s linear infinite;
+  }
+
+  .strands-curve-primary,
+  .strands-curve-secondary {
+    --scroll-offset: 0px;
+  }
+
+  @keyframes scroll-primary {
+    0% { background-position: 0 calc(0px + var(--scroll-offset)); }
+    100% { background-position: 0 calc(-344px + var(--scroll-offset)); }
+  }
+
+  @keyframes scroll-secondary {
+    0% { background-position: 0 calc(0px + var(--scroll-offset)); }
+    100% { background-position: 0 calc(-344px + var(--scroll-offset)); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .strands-curve-primary,
+    .strands-curve-secondary {
+      animation: none;
+    }
+  }
+
+  /* Global focus styles for keyboard navigation */
+  .landing-page :global(button:focus-visible),
+  .landing-page :global(a:focus-visible) {
+    outline: 2px solid var(--strands-green, #00cc5f);
+    outline-offset: 2px;
+  }
+
+  .landing-page {
+    --strands-green: #00cc5f;
+    --strands-green-bright: #00FF77;
+    --strands-green-hover: #00D965;
+    --strands-dark: #0E0E0E;
+    width: 100%;
+    background: transparent;
+  }
+
+  /* ========== Footer ========== */
+  .landing-footer {
+    padding: 1.5rem 2rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    background-color: var(--sl-color-bg-nav);
+  }
+
+  .landing-footer-inner {
+    max-width: 1200px;
+    text-align: left;
+    margin: 0 auto;
+  }
+
+  @media (max-width: 768px) {
+  }
+</style>
+
+<script>
+  // Scroll-responsive strands background animation
+  // Adjusts background-position offset along the flow axis so scrolling
+  // feels like controlling the tempo of the strand movement
+  const primary = document.querySelector<HTMLElement>('.strands-curve-primary')
+  const secondary = document.querySelector<HTMLElement>('.strands-curve-secondary')
+
+  if (primary && secondary && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    let ticking = false
+
+    window.addEventListener('scroll', () => {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          const scrollY = window.scrollY
+
+          // Offset background-position along the flow axis via CSS variable
+          // Primary responds more (0.3x scroll), secondary less (0.15x) for depth
+          primary.style.setProperty('--scroll-offset', `${-(scrollY * 0.3) % 344}px`)
+          secondary.style.setProperty('--scroll-offset', `${-(scrollY * 0.15) % 344}px`)
+
+          ticking = false
+        })
+        ticking = true
+      }
+    }, { passive: true })
+  }
+</script>

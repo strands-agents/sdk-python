@@ -1,0 +1,178 @@
+---
+/**
+ * Custom Head override to add Mermaid diagram support, favicon, AWS Shortbread cookie consent,
+ * and structured data (JSON-LD).
+ * See ARCHITECTURE.md for details.
+ */
+import { getCollection } from 'astro:content'
+import SiteScripts from '../SiteScripts.astro'
+import Analytics from '../Analytics.astro'
+import { baseSchemas } from '../../util/structured-data'
+import { relatedUserGuideFor } from '../../util/related-docs'
+
+const { head } = Astro.locals.starlightRoute
+const route = Astro.locals.starlightRoute
+
+// Get base path for favicon
+const base = import.meta.env.BASE_URL || '/'
+const faviconHref = base.endsWith('/') ? `${base}favicon.svg` : `${base}/favicon.svg`
+
+// Build breadcrumb list from URL path
+const siteUrl = Astro.site?.origin || 'https://strandsagents.com'
+const pathSegments = Astro.url.pathname.replace(/^\/|\/$/g, '').split('/').filter(Boolean)
+const breadcrumbLabels: Record<string, string> = {
+  'docs': 'Docs',
+  'user-guide': 'User Guide',
+  'concepts': 'Concepts',
+  'agents': 'Agents',
+  'tools': 'Tools',
+  'multi-agent': 'Multi-Agent',
+  'model-providers': 'Model Providers',
+  'streaming': 'Streaming',
+  'bidirectional-streaming': 'Voice & Realtime',
+  'deploy': 'Deploy',
+  'safety-security': 'Safety & Security',
+  'observability-evaluation': 'Observability',
+  'evals-sdk': 'Evals SDK',
+  'examples': 'Examples',
+  'community': 'Community',
+  'labs': 'Labs',
+  'contribute': 'Contribute',
+  'api': 'API Reference',
+  'plugins': 'Plugins',
+  'quickstart': 'Quickstart',
+  'experimental': 'Experimental',
+  'python': 'Python',
+  'typescript': 'TypeScript',
+  'integrations': 'Integrations',
+  'session-managers': 'Session Managers',
+  'contributing': 'Contributing',
+}
+
+const breadcrumbItems = pathSegments.map((segment, i) => {
+  const path = '/' + pathSegments.slice(0, i + 1).join('/') + '/'
+  const isLast = i === pathSegments.length - 1
+  const name = isLast
+    ? (route.entry.data.title || segment)
+    : (breadcrumbLabels[segment] || segment.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()))
+  return {
+    "@type": "ListItem" as const,
+    position: i + 1,
+    name,
+    ...(isLast ? {} : { item: siteUrl + path })
+  }
+})
+
+// TechArticle node for docs pages with tags or sourceLinks. Reaches HTML-only
+// crawlers that don't follow the llms.txt convention.
+//
+// Schema reference for the fields used below:
+//   TechArticle:        https://schema.org/TechArticle
+//   keywords:           https://schema.org/keywords
+//   relatedLink:        https://schema.org/relatedLink
+//   isBasedOn:          https://schema.org/isBasedOn
+//   SoftwareSourceCode: https://schema.org/SoftwareSourceCode
+const entry = route.entry
+// Non-docs routes (blog authors/tags pages, etc.) flow through Starlight too
+// but their synthetic entry.data has no `tags` field — guard with ??.
+const tags = entry.data.tags ?? []
+const sourceLinks = entry.data.sourceLinks ?? []
+let techArticle: Record<string, unknown> | null = null
+if (tags.length > 0 || sourceLinks.length > 0) {
+  const related = tags.length > 0
+    ? relatedUserGuideFor(entry, await getCollection('docs'))
+    : []
+  techArticle = {
+    "@type": "TechArticle",
+    "headline": entry.data.title,
+    "url": siteUrl + Astro.url.pathname,
+    ...(tags.length > 0 ? { "keywords": tags.join(', ') } : {}),
+    ...(entry.data.description ? { "description": entry.data.description } : {}),
+    ...(related.length > 0
+      ? { "relatedLink": related.map((r) => siteUrl + '/' + r.slug + '/') }
+      : {}),
+    ...(sourceLinks.length > 0
+      ? {
+          "isBasedOn": sourceLinks.map((s: { repo: string, path: string }) => ({
+            "@type": "SoftwareSourceCode",
+            "codeRepository": `https://github.com/strands-agents/${s.repo}`,
+            "url": `https://github.com/strands-agents/${s.repo}/blob/main/${s.path}`,
+          })),
+        }
+      : {}),
+  }
+}
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    ...baseSchemas(siteUrl),
+    {
+      "@type": "BreadcrumbList",
+      "itemListElement": breadcrumbItems
+    },
+    ...(techArticle ? [techArticle] : []),
+  ]
+}
+---
+
+{head.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
+
+<!-- Favicon - uses logo-auto.svg which adapts to light/dark mode via prefers-color-scheme -->
+<link rel="icon" type="image/svg+xml" href={faviconHref} />
+
+<!-- AWS Shortbread cookie consent -->
+<SiteScripts />
+
+<!-- Analytics instrumentation (site sections, anchors, search, scroll, nav) -->
+<Analytics />
+
+<!-- Structured Data -->
+<script type="application/ld+json" set:html={JSON.stringify(structuredData)} />
+
+<script>
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs'
+
+  // Transform Expressive Code mermaid blocks into mermaid.js format
+  document.querySelectorAll('pre[data-language="mermaid"]').forEach((pre) => {
+    const diagram = [...pre.querySelectorAll('code > .ec-line')].map((it) => it.textContent).join('\n')
+    const div = document.createElement('pre')
+    div.className = 'mermaid'
+    div.textContent = diagram
+    pre.replaceWith(div)
+  })
+
+  const isDark = document.documentElement.dataset.theme === 'dark'
+  mermaid.initialize({ startOnLoad: false, theme: isDark ? 'dark' : 'neutral' })
+
+  // Only render diagrams in visible panels; defer hidden ones until shown
+  const hiddenDiagrams = new Set(
+    document.querySelectorAll('[role="tabpanel"][hidden] .mermaid')
+  )
+  const visibleDiagrams = [...document.querySelectorAll('.mermaid')].filter(
+    (el) => !hiddenDiagrams.has(el)
+  )
+  if (visibleDiagrams.length > 0) {
+    await mermaid.run({ nodes: visibleDiagrams })
+  }
+
+  // Render deferred diagrams once when their panel becomes visible
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === 'attributes' && mutation.attributeName === 'hidden') {
+        const panel = mutation.target as Element
+        if (panel.hasAttribute('hidden')) continue
+        const pending = [...panel.querySelectorAll('.mermaid')].filter(
+          (el) => hiddenDiagrams.has(el)
+        )
+        if (pending.length === 0) continue
+        pending.forEach((el) => hiddenDiagrams.delete(el))
+        mermaid.run({ nodes: pending })
+      }
+    }
+  })
+
+  document.querySelectorAll('[role="tabpanel"]').forEach((panel) => {
+    observer.observe(panel, { attributes: true, attributeFilter: ['hidden'] })
+  })
+</script>
