@@ -215,6 +215,25 @@ class TestTaskExecution:
             assert result["status"] == "success"
             assert "Done" in result["content"][0].get("text", "")
 
+    def test_logs_warning_when_task_execution_ignores_progress_callback(self, mock_transport, mock_session, caplog):
+        """Test warning is logged when task execution ignores progress callbacks."""
+        self._setup_task_tool(mock_session, "task_tool")
+
+        def callback(progress: float, total: float | None, message: str | None) -> None:
+            _ = (progress, total, message)
+
+        with MCPClient(mock_transport["transport_callable"], tasks_config=TasksConfig()) as client:
+            client.list_tools_sync()
+            with caplog.at_level("WARNING", logger="strands.tools.mcp.mcp_client"):
+                client.call_tool_sync(
+                    tool_use_id="test-id",
+                    name="task_tool",
+                    arguments={},
+                    progress_callback=callback,
+                )
+
+        assert "progress callbacks are ignored when task-augmented execution is enabled" in caplog.text
+
 
 class TestTaskMetaForwarding:
     """Tests for meta parameter forwarding in task-augmented execution."""

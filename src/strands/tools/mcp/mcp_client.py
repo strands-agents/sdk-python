@@ -618,6 +618,11 @@ class MCPClient(ToolProvider):
 
         if use_task:
             self._log_debug_with_thread("tool=<%s> | using task-augmented execution", name)
+            if effective_callback is not None:
+                logger.warning(
+                    "tool=<%s> | progress callbacks are ignored when task-augmented execution is enabled",
+                    name,
+                )
 
             async def _call_as_task() -> MCPCallToolResult:
                 # When task-augmented execution is used, use the read_timeout_seconds parameter
