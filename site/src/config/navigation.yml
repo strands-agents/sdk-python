@@ -91,7 +91,8 @@ sidebar:
             items:
               - label: "Overview"
                 slug: docs/user-guide/concepts/agents/interventions
-              - docs/user-guide/concepts/agents/human-in-the-loop
+              - docs/user-guide/concepts/agents/interventions/steering
+              - docs/user-guide/concepts/agents/interventions/human-in-the-loop
           - label: Streaming
             items:
               - docs/user-guide/concepts/streaming/async-iterators

@@ -5,14 +5,14 @@ tags: [interventions, hooks, event-loop, tool-execution]
 languages: [typescript]
 ---
 
-Interventions are a composable control layer for agents. They provide a typed action model for common control concerns — authorization, guardrails, steering, and content transformation — with ordered evaluation and short-circuiting. Unlike raw [hooks](./hooks.mdx) and [plugins](../plugins/index.mdx) which mutate event objects directly, intervention handlers return typed decisions (`proceed`, `deny`, `guide`, `confirm`, `transform`) that the framework applies with well-defined semantics — enabling automatic short-circuiting, feedback accumulation, and conflict resolution.
+Interventions are a composable control layer for agents. They provide a typed action model for common control concerns — authorization, guardrails, steering, and content transformation — with ordered evaluation and short-circuiting. Unlike raw [hooks](../hooks.mdx) and [plugins](../../plugins/index.mdx) which mutate event objects directly, intervention handlers return typed decisions (`proceed`, `deny`, `guide`, `confirm`, `transform`) that the framework applies with well-defined semantics — enabling automatic short-circuiting, feedback accumulation, and conflict resolution.
 
 ## Basic Usage
 
 Create an intervention handler by extending `InterventionHandler` and overriding the lifecycle methods you need. Register handlers via the `interventions` option in agent configuration:
 
 ```typescript
---8<-- "user-guide/concepts/agents/interventions.ts:basic_usage"
+--8<-- "user-guide/concepts/agents/interventions/index.ts:basic_usage"
 ```
 
 Handlers only need to override the lifecycle methods relevant to their concern — all methods default to `proceed()`.
@@ -32,7 +32,7 @@ Each lifecycle method returns one of five typed actions:
 The following examples show each action type in a realistic handler:
 
 ```typescript
---8<-- "user-guide/concepts/agents/interventions.ts:action_types"
+--8<-- "user-guide/concepts/agents/interventions/index.ts:action_types"
 ```
 
 ## Lifecycle Methods
@@ -61,7 +61,7 @@ How actions behave depends on the lifecycle method:
 Handlers evaluate in **registration order**. If any handler returns `deny()`, remaining handlers are skipped — the operation is blocked immediately. This enables efficient pipelines where fast checks (like authorization) run first and prevent expensive evaluations (like LLM-based steering) from running unnecessarily.
 
 ```typescript
---8<-- "user-guide/concepts/agents/interventions.ts:short_circuiting"
+--8<-- "user-guide/concepts/agents/interventions/index.ts:short_circuiting"
 ```
 
 For `guide()` actions, all handlers continue to run and their feedback is accumulated — the model receives combined guidance from all guiding handlers.
@@ -77,16 +77,16 @@ The `onError` property controls what happens when a handler throws an exception:
 | `'deny'` | Log the error and treat it as a `deny()` (fail-closed). |
 
 ```typescript
---8<-- "user-guide/concepts/agents/interventions.ts:error_handling"
+--8<-- "user-guide/concepts/agents/interventions/index.ts:error_handling"
 ```
 
 Use `'deny'` for security-critical handlers where a failure should block execution. Use `'proceed'` for non-critical handlers like logging where availability is more important than enforcement.
 
 ## Relationship to Hooks and Plugins
 
-Interventions are built on top of the [hooks](./hooks.mdx) system — under the hood, each lifecycle method registers a hook callback. The difference is in how they communicate with the framework.
+Interventions are built on top of the [hooks](../hooks.mdx) system — under the hood, each lifecycle method registers a hook callback. The difference is in how they communicate with the framework.
 
-[Hooks](./hooks.mdx) and [plugins](../plugins/index.mdx) mutate event properties directly (e.g., setting `event.cancel = "reason"`). The framework doesn't know _why_ something was cancelled — was it a hard authorization denial or soft guidance to retry differently? Multiple plugins modifying the same event can conflict silently with last-write-wins semantics.
+[Hooks](../hooks.mdx) and [plugins](../../plugins/index.mdx) mutate event properties directly (e.g., setting `event.cancel = "reason"`). The framework doesn't know _why_ something was cancelled — was it a hard authorization denial or soft guidance to retry differently? Multiple plugins modifying the same event can conflict silently with last-write-wins semantics.
 
 Interventions return typed actions that the framework interprets. This enables:
 
@@ -98,7 +98,8 @@ Interventions return typed actions that the framework interprets. This enables:
 
 ## Related topics
 
-- [Human in the Loop](./human-in-the-loop) — Ready-to-use intervention handler for tool approval workflows
-- [Hooks](./hooks.mdx) — Low-level event callbacks for observing and modifying agent behavior
-- [Plugins](../plugins/index.mdx) — Bundle related hooks and tools into reusable modules
-- [Interrupts](../interrupts.mdx) — The interrupt/resume system that `confirm()` builds on
+- [Steering](./steering.mdx) — LLM-based contextual guidance using the steering handler
+- [Human in the Loop](./human-in-the-loop.mdx) — Ready-to-use intervention handler for tool approval workflows
+- [Hooks](../hooks.mdx) — Low-level event callbacks for observing and modifying agent behavior
+- [Plugins](../../plugins/index.mdx) — Bundle related hooks and tools into reusable modules
+- [Interrupts](../../interrupts.mdx) — The interrupt/resume system that `confirm()` builds on

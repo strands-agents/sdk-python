@@ -1,10 +1,15 @@
 ---
 title: Steering
 tags: [hooks, conversation-management, prompt-authoring]
+languages: [python]
 ---
 
 
 Steering provides modular prompting for complex agent tasks through context-aware guidance that appears when relevant, rather than front-loading all instructions in monolithic prompts. This lets you assign agents complex, multi-step tasks while maintaining effectiveness through just-in-time feedback loops.
+
+:::note[TypeScript SDK]
+In TypeScript, steering handlers use the [interventions](../agents/interventions/steering/) framework rather than plugins. See [Steering (Interventions)](../agents/interventions/steering/) for the full TypeScript API reference including `SteeringHandler`, `LLMSteeringHandler`, and context providers.
+:::
 
 ## What Is Steering?
 
@@ -45,11 +50,9 @@ flowchart LR
 
 The handler returns one of three actions:
 
-- **Approve**: tool executes immediately
-- **Guide**: tool is cancelled, agent receives contextual feedback
-- **Pause for human input**: tool execution pauses for human input
-
-The action symbols differ by language. Python returns `Proceed`, `Guide`, or `Interrupt`. TypeScript returns `proceed()`, `guide()`, or `confirm()`.
+- **`Proceed`**: tool executes immediately
+- **`Guide`**: tool is cancelled, agent receives contextual feedback
+- **`Interrupt`**: tool execution pauses for human input
 
 ### After a Model Response
 
@@ -66,8 +69,8 @@ flowchart LR
 
 The handler returns one of two actions:
 
-- **Approve**: accept the response as-is
-- **Guide**: discard the response and retry with guidance injected into the conversation
+- **`Proceed`**: accept the response as-is
+- **`Guide`**: discard the response and retry with guidance injected into the conversation
 
 After-model steering enables handlers to validate responses, ensure required tools are used before completion, or guide conversation flow based on output.
 
@@ -79,10 +82,7 @@ When you want to express guidance in plain English rather than imperative code, 
 
 For best practices on writing steering prompts, see the [Agent Standard Operating Procedures (SOP)](https://github.com/strands-agents/agent-sop) framework, which provides structured templates for effective agent prompts.
 
-The two SDKs attach steering handlers differently. Python passes them through `plugins=[handler]`; TypeScript passes them through `interventions: [handler]`.
-
-<Tabs>
-<Tab label="Python">
+Steering handlers are attached via `plugins=[handler]` on the agent:
 
 ```python
 from strands import Agent, tool
@@ -123,16 +123,6 @@ print(agent.messages)
 # Typical: agent.messages includes a cancelled send_email ToolUseBlock,
 # a guidance message, then a retried send_email with cheerier wording.
 ```
-</Tab>
-<Tab label="TypeScript">
-
-```typescript
---8<-- "user-guide/concepts/plugins/steering_imports.ts:natural_language_steering_imports"
-
---8<-- "user-guide/concepts/plugins/steering.ts:natural_language_steering"
-```
-</Tab>
-</Tabs>
 
 ```mermaid
 sequenceDiagram
@@ -161,7 +151,7 @@ The ledger captures:
 
 **Structured Data**: the ledger is stored in JSON-serializable form in the handler's steering context, making it directly accessible to LLM-based steering decisions.
 
-The provider class name differs by language: Python exposes `LedgerProvider`, TypeScript exposes `ToolLedgerProvider`. Both default to retaining the most recent 100 tool calls; older entries are dropped.
+The `LedgerProvider` retains all tool calls for the lifetime of the handler instance.
 
 ## Comparison with Other Approaches
 
