@@ -47,25 +47,13 @@ export interface CedarEntity {
 }
 
 /**
- * Maps tool names to Cedar resources. Either a static record mapping tool names
- * to entity type/key pairs, or a function for dynamic resolution.
- *
- * @example
- * ```typescript
- * // Static: tool "delete_record" resolves resource from input.record_id
- * const resolver: ResourceResolver = {
- *   delete_record: { key: 'record_id', type: 'Record' },
- * }
- *
- * // Dynamic: custom logic per tool
- * const resolver: ResourceResolver = (toolName, input) => {
- *   return { type: 'Record', id: String(input.id) }
- * }
- * ```
+ * Minimal tool definition for schema generation. Matches MCP tool format.
  */
-export type ResourceResolver =
-  | Record<string, { key: string; type: string }>
-  | ((toolName: string, toolInput: Record<string, CedarValueJson>) => CedarEntityUid)
+export interface ToolDefinition {
+  name: string
+  inputSchema?: { type: string; properties?: Record<string, CedarValueJson>; required?: string[] }
+  description?: string
+}
 
 /**
  * Configuration for the {@link CedarAuthorization} intervention handler.
@@ -88,8 +76,42 @@ export interface CedarAuthorizationConfig {
   policies: string
 
   /**
+   * Tool definitions for automatic schema generation and request mapping.
+   * When provided (and `@cedar-policy/mcp-schema-generator-wasm` is installed),
+   * the handler auto-generates a Cedar schema from your tools and uses
+   * `generateRequest()` for action/resource resolution at evaluation time.
+   *
+   * This enables compile-time policy validation against your actual tool
+   * definitions — catching typos, type mismatches, and references to
+   * nonexistent tools at startup.
+   *
+   * Accepts the same format as MCP `tools/list` responses.
+   *
+   * @example
+   * ```typescript
+   * { tools: [
+   *   { name: 'search', inputSchema: { type: 'object', properties: { query: { type: 'string' } } } },
+   *   { name: 'delete', inputSchema: { type: 'object', properties: { id: { type: 'string' } } } },
+   * ]}
+   * ```
+   */
+  tools?: ToolDefinition[]
+
+  /**
    * Entity data as an array, or a path to a `.json` file on disk.
-   * Entities define the principal/resource hierarchy for Cedar evaluation.
+   *
+   * **Most policies don't need this.** For role-based access, pass the role
+   * via `invocationState` and check it in `context.session` instead:
+   * ```typescript
+   * contextEnricher: ({ invocationState }) => ({ role: String(invocationState.role) }),
+   * ```
+   * ```cedar
+   * permit(principal, action, resource) when { context.session.role == "admin" };
+   * ```
+   *
+   * Only use `entities` when you need Cedar's entity hierarchy — e.g.
+   * `principal in Role::"admin"` with parent relationships, or static
+   * attributes that don't change per-request.
    */
   entities?: CedarEntity[] | string
 
@@ -99,20 +121,33 @@ export interface CedarAuthorizationConfig {
    * time — catching type errors, unknown attributes, and invalid action names
    * before any tool call happens.
    *
-   * Generate a schema from your tool definitions using the
-   * {@link https://github.com/cedar-policy/cedar-for-agents | cedar-for-agents}
-   * schema generator.
-   *
-   * TODO: Auto-generate schema from agent tool definitions via
-   * `@cedar-policy/mcp-schema-generator-wasm` once published to npm.
-   * This would enable type-checking context.input field access
-   * (catching typos and type mismatches in policies at construction time).
+   * When `tools` is provided and `@cedar-policy/mcp-schema-generator-wasm` is
+   * installed, the schema is auto-generated and this field is not needed.
    */
   schema?: string
 
   /**
-   * Resolves the Cedar principal from the agent's invocationState.
+   * Static principal identity. Use for single-user or CLI agents where the
+   * identity is known upfront and doesn't change between invocations.
+   *
+   * When neither `principal` nor `principalResolver` is provided, defaults to
+   * `User::"anonymous"` — policies can still permit actions for any principal.
+   *
+   * Mutually exclusive with `principalResolver`.
+   *
+   * @example
+   * ```typescript
+   * { principal: { type: 'User', id: 'alice@acme.com' } }
+   * ```
+   */
+  principal?: CedarEntityUid
+
+  /**
+   * Dynamic principal resolver for multi-tenant agents. Called on every tool
+   * invocation to extract the principal from `invocationState`.
    * Return `undefined` to deny the request (fail-closed).
+   *
+   * Mutually exclusive with `principal`.
    *
    * @example
    * ```typescript
@@ -122,29 +157,46 @@ export interface CedarAuthorizationConfig {
    * }
    * ```
    */
-  principalResolver: (invocationState: Record<string, CedarValueJson>) => CedarEntityUid | undefined
-
-  /**
-   * Maps tool calls to Cedar resources. When omitted, the resource is
-   * unconstrained (`Resource::"agent"`). Use this to map tools to
-   * domain-specific entities (e.g. `Record::"42"`).
-   */
-  resourceResolver?: ResourceResolver | undefined
+  principalResolver?: ((invocationState: Record<string, CedarValueJson>) => CedarEntityUid | undefined) | undefined
 
   /**
    * Adds extra fields to the `context.session` object passed to Cedar.
    * Called on every tool invocation. Cannot overwrite built-in fields
-   * (`hour_utc`, `call_count`, `environment`).
+   * (`hour_utc`, `call_count`).
+   *
+   * Use this to inject values from `invocationState` (e.g. environment,
+   * tenant, department) into the Cedar context for policy evaluation.
+   *
+   * **Important**: If a policy references a field that doesn't exist in context,
+   * Cedar skips that policy (it doesn't deny). For fail-closed behavior on
+   * optional fields, use the allow-list pattern in your policies:
+   * ```cedar
+   * // SAFE: missing environment → no permit → deny
+   * permit(principal, action, resource)
+   * when { context.session has environment && context.session.environment != "production" };
+   *
+   * // Or: deny everything when field is absent
+   * forbid(principal, action, resource)
+   * unless { context.session has environment };
+   * ```
+   *
+   * @see {@link https://docs.cedarpolicy.com/policies/syntax-operators.html | Cedar `has` operator}
    */
   contextEnricher?:
-    | ((context: { toolName: string; toolInput: Record<string, CedarValueJson> }) => Record<string, CedarValueJson>)
+    | ((context: {
+        toolName: string
+        toolInput: Record<string, CedarValueJson>
+        invocationState: Record<string, CedarValueJson>
+      }) => Record<string, CedarValueJson>)
     | undefined
 
   /**
    * What to do when the handler throws during evaluation.
    * - `'throw'` (default) — rethrow the error
    * - `'deny'` — treat errors as denials (fail-closed)
-   * - `'proceed'` — ignore errors and allow the tool call
+   * - `'proceed'` — **dangerous: fail-open** — ignore errors and allow the tool call.
+   *   Only use for non-critical observability-only deployments where blocking on
+   *   auth errors is worse than allowing unauthenticated access.
    */
   onError?: OnError | undefined
 }
@@ -158,13 +210,15 @@ export interface CedarAuthorizationConfig {
  * Uses the {@link https://github.com/cedar-policy/cedar-for-agents | cedar-for-agents}
  * schema generator conventions:
  * - One Cedar action per tool (e.g. `Action::"search"`)
- * - Resource is unconstrained by default (use `resourceResolver` for domain objects)
+ * - Resource is unconstrained by default
  * - Context is nested: `{ input: <tool args>, session: { hour_utc, call_count, ... } }`
  *
- * Rate-limit counters are scoped to the handler instance. If you share one
- * `CedarAuthorization` across multiple agents, they share counters (keyed by
- * `session_id` from invocationState). Call {@link resetSession} when a session
- * ends to free memory.
+ * **`context.session.call_count` behavior:**
+ * - Stored on `agent.appState` — persists across invocations when a session manager is configured
+ * - Counts only **successful** (permitted) tool calls — denied attempts do not consume budget
+ * - Scoped per-agent-instance — multiple agent instances or load-balanced workers have separate counters
+ * - Resets when a new agent instance is created without restoring session state
+ * - For hard distributed rate limiting, use an external store (Redis, etc.) via `contextEnricher`
  *
  * @see {@link https://docs.cedarpolicy.com/syntax-policy.html | Cedar policy syntax}
  * @see {@link https://docs.cedarpolicy.com/syntax-entity.html | Cedar entity model}
@@ -173,18 +227,33 @@ export interface CedarAuthorizationConfig {
  * ```typescript
  * import { CedarAuthorization } from '@strands-agents/sdk/vended-interventions/cedar'
  *
+ * // Simple: permit specific tools, deny everything else
  * const cedar = new CedarAuthorization({
- *   policies: './policies/agent.cedar',
- *   entities: './policies/entities.json',
+ *   policies: `
+ *     permit(principal, action == Action::"search", resource);
+ *     permit(principal, action == Action::"read_file", resource);
+ *   `,
+ * })
+ *
+ * // Role-based: pass role via invocationState, check in context
+ * const cedar = new CedarAuthorization({
+ *   policies: `
+ *     permit(principal, action, resource) when { context.session.role == "admin" };
+ *     permit(principal, action == Action::"search", resource) when { context.session.role == "analyst" };
+ *   `,
  *   principalResolver: (state) => {
  *     if (!state.user_id) return undefined
  *     return { type: 'User', id: String(state.user_id) }
  *   },
+ *   contextEnricher: ({ invocationState }) => ({
+ *     role: String(invocationState.role ?? 'none'),
+ *   }),
  * })
  *
- * const agent = new Agent({
- *   tools: [searchTool, deleteTool],
- *   interventions: [cedar],
+ * // With schema validation (requires @cedar-policy/mcp-schema-generator-wasm)
+ * const cedar = new CedarAuthorization({
+ *   policies: './policies/agent.cedar',
+ *   tools: [searchTool, deleteTool],  // auto-generates schema from tool definitions
  * })
  * ```
  */
@@ -197,23 +266,41 @@ export class CedarAuthorization extends InterventionHandler {
   private _schema: string | undefined
   private readonly _policySource: string
   private readonly _entitySource: CedarEntity[] | string | undefined
-  private readonly _schemaSource: string | undefined
-  private readonly _principalResolver: (invocationState: Record<string, CedarValueJson>) => CedarEntityUid | undefined
-  private readonly _resourceResolver: ResourceResolver | undefined
+  private readonly _principal: CedarEntityUid | undefined
+  private readonly _principalResolver:
+    | ((invocationState: Record<string, CedarValueJson>) => CedarEntityUid | undefined)
+    | undefined
   private readonly _contextEnricher: CedarAuthorizationConfig['contextEnricher']
-  private readonly _callCounts = new Map<string, Map<string, number>>()
-  private readonly _maxSessions = 1000
+  private readonly _tools: ToolDefinition[] | undefined
+  private readonly _schemaGenerator: SchemaGenerator | undefined
+  private static readonly _stateKey = 'cedar-authorization'
 
   constructor(config: CedarAuthorizationConfig) {
     super()
+    if (config.principal && config.principalResolver) {
+      throw new Error('Provide either `principal` or `principalResolver`, not both')
+    }
     this._policySource = config.policies
     this._entitySource = config.entities
-    this._schemaSource = config.schema
     this._policies = loadPolicies(config.policies)
     this._entities = loadEntities(config.entities)
-    this._schema = config.schema ? loadSchema(config.schema) : undefined
+    this._tools = config.tools
+
+    this._schemaGenerator = config.tools ? loadSchemaGenerator() : undefined
+    if (config.schema) {
+      this._schema = loadSchema(config.schema)
+    } else if (this._schemaGenerator && config.tools) {
+      this._schema = this._schemaGenerator.generateSchema(config.tools)
+    } else {
+      this._schema = undefined
+    }
+
+    if (config.principalResolver) {
+      this._principal = undefined
+    } else {
+      this._principal = config.principal ?? { type: 'User', id: 'anonymous' }
+    }
     this._principalResolver = config.principalResolver
-    this._resourceResolver = config.resourceResolver
     this._contextEnricher = config.contextEnricher
     this.onError = config.onError ?? 'throw'
 
@@ -222,37 +309,54 @@ export class CedarAuthorization extends InterventionHandler {
 
   override beforeToolCall(event: BeforeToolCallEvent): InterventionAction {
     const invocationState = event.invocationState as Record<string, CedarValueJson>
-    const principal = this._principalResolver(invocationState)
-    if (!principal) {
+    const principal = this._principal ?? this._principalResolver!(invocationState)
+    if (!principal || !principal.type || !principal.id) {
       return deny('No principal identity found in invocation state')
     }
 
-    const sessionId = (invocationState.session_id as string | undefined) ?? '_default'
-    const callCount = this._incrementCallCount(sessionId, event.toolUse.name)
+    const callCount = this._incrementCallCount(event.agent, event.toolUse.name)
     const toolInput = (event.toolUse.input ?? {}) as Record<string, CedarValueJson>
-    const resource = this._resolveResource(event.toolUse.name, toolInput)
+
+    let action: CedarEntityUid
+    let resource: CedarEntityUid
+    let entities: Entities
+
+    if (this._schemaGenerator && this._tools) {
+      const request = this._schemaGenerator.generateRequest(this._tools, event.toolUse.name, toolInput, principal)
+      action = request.action
+      resource = request.resource
+      entities = [...(this._entities as Entities), ...(request.entities as Entities)]
+    } else {
+      action = { type: 'Action', id: event.toolUse.name }
+      resource = { type: 'Resource', id: 'agent' }
+      entities = this._entities as Entities
+    }
+
     const result = isAuthorized({
       principal,
-      action: { type: 'Action', id: event.toolUse.name },
+      action,
       resource,
       context: {
         input: toolInput,
         session: {
-          ...(this._contextEnricher ? this._contextEnricher({ toolName: event.toolUse.name, toolInput }) : {}),
+          ...(this._contextEnricher
+            ? this._contextEnricher({ toolName: event.toolUse.name, toolInput, invocationState })
+            : {}),
           hour_utc: new Date().getUTCHours(),
           call_count: callCount,
-          environment: (invocationState.environment as string | undefined) ?? 'unknown',
         },
       },
       policies: { staticPolicies: this._policies },
-      entities: this._entities as Entities,
+      entities,
     })
 
     if (result.type === 'failure') {
+      this._decrementCallCount(event.agent, event.toolUse.name)
       return deny(`Cedar evaluation failed: ${result.errors.map((e) => e.message).join(', ')}`)
     }
 
     if (result.response.decision === 'deny') {
+      this._decrementCallCount(event.agent, event.toolUse.name)
       const reasons = result.response.diagnostics.reason
       const errors = result.response.diagnostics.errors.map((e) => e.error.message)
       const details = [...reasons, ...errors].filter(Boolean)
@@ -263,11 +367,10 @@ export class CedarAuthorization extends InterventionHandler {
   }
 
   /**
-   * Clears the rate-limit call counters for a given session.
-   * Call this when a session ends to free memory.
+   * Clears the rate-limit call counters stored on the agent's appState.
    */
-  resetSession(sessionId: string): void {
-    this._callCounts.delete(sessionId)
+  resetCallCounts(agent: { appState: { set: (key: string, value: unknown) => void } }): void {
+    agent.appState.set(CedarAuthorization._stateKey, {})
   }
 
   /**
@@ -279,41 +382,32 @@ export class CedarAuthorization extends InterventionHandler {
   reload(): void {
     const policies = loadPolicies(this._policySource)
     const entities = loadEntities(this._entitySource)
-    const schema = this._schemaSource ? loadSchema(this._schemaSource) : undefined
+    const schema = this._schemaGenerator && this._tools ? this._schemaGenerator.generateSchema(this._tools) : undefined
     validatePolicies(policies, schema)
     this._policies = policies
     this._entities = entities
     this._schema = schema
   }
 
-  private _resolveResource(toolName: string, toolInput: Record<string, CedarValueJson>): CedarEntityUid {
-    if (!this._resourceResolver) {
-      return { type: 'Resource', id: 'agent' }
-    }
-    if (typeof this._resourceResolver === 'function') {
-      return this._resourceResolver(toolName, toolInput)
-    }
-    const mapping = this._resourceResolver[toolName]
-    if (!mapping) {
-      return { type: 'Resource', id: 'agent' }
-    }
-    const id = toolInput[mapping.key]
-    return { type: mapping.type, id: String(id ?? toolName) }
+  private _incrementCallCount(
+    agent: { appState: { get: (key: string) => unknown; set: (key: string, value: unknown) => void } },
+    toolName: string
+  ): number {
+    const state = (agent.appState.get(CedarAuthorization._stateKey) ?? {}) as Record<string, number>
+    const next = (state[toolName] ?? 0) + 1
+    agent.appState.set(CedarAuthorization._stateKey, { ...state, [toolName]: next })
+    return next
   }
 
-  private _incrementCallCount(sessionId: string, toolName: string): number {
-    let session = this._callCounts.get(sessionId)
-    if (!session) {
-      if (this._callCounts.size >= this._maxSessions) {
-        const oldest = this._callCounts.keys().next().value!
-        this._callCounts.delete(oldest)
-      }
-      session = new Map()
-      this._callCounts.set(sessionId, session)
+  private _decrementCallCount(
+    agent: { appState: { get: (key: string) => unknown; set: (key: string, value: unknown) => void } },
+    toolName: string
+  ): void {
+    const state = (agent.appState.get(CedarAuthorization._stateKey) ?? {}) as Record<string, number>
+    const current = state[toolName] ?? 0
+    if (current > 0) {
+      agent.appState.set(CedarAuthorization._stateKey, { ...state, [toolName]: current - 1 })
     }
-    const next = (session.get(toolName) ?? 0) + 1
-    session.set(toolName, next)
-    return next
   }
 }
 
@@ -366,4 +460,97 @@ function loadEntities(entities: CedarEntity[] | string | undefined): CedarEntity
     return JSON.parse(readFileSync(entities, 'utf-8')) as CedarEntity[]
   }
   return entities
+}
+
+interface SchemaGenerator {
+  generateSchema(tools: ToolDefinition[]): string
+  generateRequest(
+    tools: ToolDefinition[],
+    toolName: string,
+    toolInput: Record<string, CedarValueJson>,
+    principal: CedarEntityUid
+  ): { action: CedarEntityUid; resource: CedarEntityUid; entities: CedarEntity[] }
+}
+
+function loadSchemaGenerator(): SchemaGenerator | undefined {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const wasm = require('@cedar-policy/mcp-schema-generator-wasm') as {
+      generateSchema: (stub: string, toolsJson: string, configJson?: string) => string
+      generateRequest: (
+        stub: string,
+        toolsJson: string,
+        inputJson: string,
+        principalType: string,
+        principalId: string,
+        resourceType: string,
+        resourceId: string,
+        configJson?: string
+      ) => string
+    }
+
+    const defaultStub = `
+      @mcp_principal
+      entity User;
+      @mcp_resource
+      entity Resource;
+    `
+
+    return {
+      generateSchema(tools: ToolDefinition[]): string {
+        const result = JSON.parse(wasm.generateSchema(defaultStub, JSON.stringify(tools))) as {
+          schema: string | null
+          error: string | null
+          isOk: boolean
+        }
+        if (!result.isOk || !result.schema) {
+          throw new Error(`Schema generation failed: ${result.error}`)
+        }
+        return result.schema
+      },
+
+      generateRequest(
+        tools: ToolDefinition[],
+        toolName: string,
+        toolInput: Record<string, CedarValueJson>,
+        principal: CedarEntityUid
+      ) {
+        const input = JSON.stringify({ params: { tool: toolName, args: toolInput } })
+        const result = JSON.parse(
+          wasm.generateRequest(
+            defaultStub,
+            JSON.stringify(tools),
+            input,
+            principal.type,
+            principal.id,
+            'Resource',
+            'agent'
+          )
+        ) as {
+          action: string | null
+          resource: string | null
+          entitiesJson: string | null
+          error: string | null
+          isOk: boolean
+        }
+        if (!result.isOk) {
+          throw new Error(`Request generation failed: ${result.error}`)
+        }
+
+        return {
+          action: parseEntityUid(result.action!),
+          resource: parseEntityUid(result.resource!),
+          entities: result.entitiesJson ? (JSON.parse(result.entitiesJson) as CedarEntity[]) : [],
+        }
+      },
+    }
+  } catch {
+    return undefined
+  }
+}
+
+function parseEntityUid(uid: string): CedarEntityUid {
+  const match = uid.match(/(?:.*::)?([^:]+)::"([^"]+)"/)
+  if (!match) return { type: 'Action', id: uid }
+  return { type: match[1]!, id: match[2]! }
 }

@@ -172,7 +172,7 @@ describe('CedarAuthorization', () => {
       expect(callCount).toBe(2)
     })
 
-    it('enforces environment restrictions', async () => {
+    it('enforces environment restrictions via contextEnricher', async () => {
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: {} })
         .addTurn({ type: 'textBlock', text: 'Done' })
@@ -188,6 +188,9 @@ describe('CedarAuthorization', () => {
         policies: `${FIXTURES}/env-restricted.cedar`,
         entities,
         principalResolver: () => ({ type: 'User', id: 'alice' }),
+        contextEnricher: ({ invocationState }) => ({
+          environment: (invocationState.environment as string) ?? 'unknown',
+        }),
       })
 
       const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
@@ -242,8 +245,8 @@ describe('CedarAuthorization', () => {
     })
   })
 
-  describe('resource resolution', () => {
-    it('defaults resource to Resource::"agent"', async () => {
+  describe('principal config', () => {
+    it('supports static principal (no invocationState needed)', async () => {
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: {} })
         .addTurn({ type: 'textBlock', text: 'Done' })
@@ -254,10 +257,65 @@ describe('CedarAuthorization', () => {
         return 'ok'
       })
 
-      // Policy permits any resource — works with the default
+      const cedar = new CedarAuthorization({
+        policies: `${FIXTURES}/test.cedar`,
+        entities: [{ uid: { type: 'Resource', id: 'agent' }, attrs: {}, parents: [] }],
+        principal: { type: 'User', id: 'alice' },
+      })
+
+      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
+      await agent.invoke('Search', { invocationState: {} })
+      expect(toolExecuted).toBe(true)
+    })
+
+    it('throws when both principal and principalResolver are provided', () => {
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: `${FIXTURES}/test.cedar`,
+            principal: { type: 'User', id: 'alice' },
+            principalResolver: () => ({ type: 'User', id: 'alice' }),
+          })
+      ).toThrow('Provide either `principal` or `principalResolver`, not both')
+    })
+
+    it('defaults to User::"anonymous" when neither principal nor principalResolver is provided', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('search', () => {
+        toolExecuted = true
+        return 'ok'
+      })
+
+      // Policy permits any principal to search
       const cedar = new CedarAuthorization({
         policies: 'permit(principal, action == Action::"search", resource);',
         entities: [{ uid: { type: 'Resource', id: 'agent' }, attrs: {}, parents: [] }],
+      })
+
+      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
+      await agent.invoke('Search', { invocationState: {} })
+      expect(toolExecuted).toBe(true)
+    })
+  })
+
+  describe('resource handling', () => {
+    it('uses unconstrained resource by default', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('search', () => {
+        toolExecuted = true
+        return 'ok'
+      })
+
+      const cedar = new CedarAuthorization({
+        policies: 'permit(principal, action == Action::"search", resource);',
         principalResolver: () => ({ type: 'User', id: 'alice' }),
       })
 
@@ -266,31 +324,7 @@ describe('CedarAuthorization', () => {
       expect(toolExecuted).toBe(true)
     })
 
-    it('uses record-based resource resolver', async () => {
-      const model = new MockMessageModel()
-        .addTurn({ type: 'toolUseBlock', name: 'delete', toolUseId: 'tool-1', input: { record_id: '42' } })
-        .addTurn({ type: 'textBlock', text: 'Done' })
-
-      let toolExecuted = false
-      const tool = createMockTool('delete', () => {
-        toolExecuted = true
-        return 'deleted'
-      })
-
-      // Policy permits deleting Record::"42" specifically
-      const cedar = new CedarAuthorization({
-        policies: 'permit(principal, action == Action::"delete", resource == Record::"42");',
-        entities: [{ uid: { type: 'Record', id: '42' }, attrs: {}, parents: [] }],
-        principalResolver: () => ({ type: 'User', id: 'alice' }),
-        resourceResolver: { delete: { key: 'record_id', type: 'Record' } },
-      })
-
-      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
-      await agent.invoke('Delete', { invocationState: {} })
-      expect(toolExecuted).toBe(true)
-    })
-
-    it('denies when resource resolver maps to unauthorized resource', async () => {
+    it('constrains on tool arguments via context.input', async () => {
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'delete', toolUseId: 'tool-1', input: { record_id: '99' } })
         .addTurn({ type: 'textBlock', text: 'Denied' })
@@ -301,43 +335,15 @@ describe('CedarAuthorization', () => {
         return 'deleted'
       })
 
-      // Policy only permits Record::"42"
+      // Only allow deleting record 42 via context.input check
       const cedar = new CedarAuthorization({
-        policies: 'permit(principal, action == Action::"delete", resource == Record::"42");',
-        entities: [
-          { uid: { type: 'Record', id: '42' }, attrs: {}, parents: [] },
-          { uid: { type: 'Record', id: '99' }, attrs: {}, parents: [] },
-        ],
+        policies: 'permit(principal, action == Action::"delete", resource) when { context.input.record_id == "42" };',
         principalResolver: () => ({ type: 'User', id: 'alice' }),
-        resourceResolver: { delete: { key: 'record_id', type: 'Record' } },
       })
 
       const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
       await agent.invoke('Delete 99', { invocationState: {} })
       expect(toolExecuted).toBe(false)
-    })
-
-    it('uses function-based resource resolver', async () => {
-      const model = new MockMessageModel()
-        .addTurn({ type: 'toolUseBlock', name: 'delete', toolUseId: 'tool-1', input: { record_id: '42' } })
-        .addTurn({ type: 'textBlock', text: 'Done' })
-
-      let toolExecuted = false
-      const tool = createMockTool('delete', () => {
-        toolExecuted = true
-        return 'deleted'
-      })
-
-      const cedar = new CedarAuthorization({
-        policies: 'permit(principal, action == Action::"delete", resource == Record::"42");',
-        entities: [{ uid: { type: 'Record', id: '42' }, attrs: {}, parents: [] }],
-        principalResolver: () => ({ type: 'User', id: 'alice' }),
-        resourceResolver: (_toolName, input) => ({ type: 'Record', id: String(input.record_id) }),
-      })
-
-      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
-      await agent.invoke('Delete', { invocationState: {} })
-      expect(toolExecuted).toBe(true)
     })
   })
 
@@ -526,7 +532,7 @@ describe('CedarAuthorization', () => {
   })
 
   describe('session management', () => {
-    it('resetSession clears call counts', async () => {
+    it('resetCallCounts clears counts on agent appState', async () => {
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'send_email', toolUseId: 'tool-1', input: {} })
         .addTurn({ type: 'textBlock', text: 'Done' })
@@ -542,10 +548,10 @@ describe('CedarAuthorization', () => {
 
       // First call succeeds
       const agent1 = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
-      await agent1.invoke('Send', { invocationState: { session_id: 'sess1' } })
+      await agent1.invoke('Send', { invocationState: {} })
 
-      // Reset the session
-      cedar.resetSession('sess1')
+      // Reset the call counts
+      cedar.resetCallCounts(agent1)
 
       // Next call succeeds again (counter reset)
       let toolExecuted = false
@@ -559,7 +565,7 @@ describe('CedarAuthorization', () => {
       })
 
       const agent2 = new Agent({ model: model2, tools: [tool2], interventions: [cedar], printer: false })
-      await agent2.invoke('Send again', { invocationState: { session_id: 'sess1' } })
+      await agent2.invoke('Send again', { invocationState: {} })
       expect(toolExecuted).toBe(true)
     })
   })
