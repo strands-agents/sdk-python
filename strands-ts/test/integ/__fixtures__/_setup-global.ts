@@ -16,6 +16,26 @@ import { A2AExpressServer } from '../../../src/a2a/express-server.js'
 import { BedrockModel } from '../../../src/models/bedrock.js'
 
 /**
+ * Batch-reads SSM parameters by name and returns a key→value map.
+ * Parameters that don't exist in SSM resolve to `undefined`.
+ */
+async function getSSMParameters<T extends Record<string, string>>(
+  params: T
+): Promise<{ [K in keyof T]: string | undefined } | null> {
+  const client = new SSMClient({ region: process.env.AWS_REGION || 'us-east-1' })
+  try {
+    const response = await client.send(new GetParametersCommand({ Names: Object.values(params) }))
+    const byName = new Map((response.Parameters ?? []).map((p) => [p.Name, p.Value]))
+    return Object.fromEntries(Object.entries(params).map(([key, name]) => [key, byName.get(name)])) as {
+      [K in keyof T]: string | undefined
+    }
+  } catch (e) {
+    console.warn('Error retrieving SSM parameters', e)
+    return null
+  }
+}
+
+/**
  * Load API keys as environment variables from AWS Secrets Manager
  */
 async function loadApiKeysFromSecretsManager(): Promise<void> {
@@ -147,22 +167,7 @@ async function getBedrockTestContext(isCI: boolean): Promise<ProvidedContext['pr
   }
 }
 
-/**
- * Resolve the Bedrock Knowledge Base config for the integ tests from SSM.
- *
- * The KB and its data sources are provisioned out of band (separate PR); their ids are published as
- * SSM parameters. We batch-read them here and provide them to tests. When credentials or the
- * parameters are unavailable, `shouldSkip` is set so the KB integ tests are skipped rather than
- * failing. Per-test manual overrides live in the integ test code, not here.
- */
 async function getBedrockKnowledgeBaseTestContext(): Promise<ProvidedContext['provider-bedrock-kb']> {
-  const PARAMS = {
-    knowledgeBaseId: '/strands/test-infra/bedrock-knowledge-base/knowledge-base-id',
-    customDataSourceId: '/strands/test-infra/bedrock-knowledge-base/custom-data-source-id',
-    s3DataSourceId: '/strands/test-infra/bedrock-knowledge-base/s3-data-source-id',
-    s3Bucket: '/strands/test-infra/bedrock-knowledge-base/s3-source-bucket-name',
-  } as const
-
   const skip = (): ProvidedContext['provider-bedrock-kb'] => ({
     shouldSkip: true,
     knowledgeBaseId: undefined,
@@ -171,19 +176,15 @@ async function getBedrockKnowledgeBaseTestContext(): Promise<ProvidedContext['pr
     s3Bucket: undefined,
   })
 
-  const client = new SSMClient({ region: process.env.AWS_REGION || 'us-east-1' })
+  const resolved = await getSSMParameters({
+    knowledgeBaseId: '/strands/test-infra/bedrock-knowledge-base/knowledge-base-id',
+    customDataSourceId: '/strands/test-infra/bedrock-knowledge-base/custom-data-source-id',
+    s3DataSourceId: '/strands/test-infra/bedrock-knowledge-base/s3-data-source-id',
+    s3Bucket: '/strands/test-infra/bedrock-knowledge-base/s3-source-bucket-name',
+  })
 
-  let resolved: Record<string, string | undefined>
-  try {
-    const response = await client.send(new GetParametersCommand({ Names: Object.values(PARAMS) }))
-    const byName = new Map((response.Parameters ?? []).map((p) => [p.Name, p.Value]))
-    resolved = Object.fromEntries(Object.entries(PARAMS).map(([key, name]) => [key, byName.get(name)])) as Record<
-      keyof typeof PARAMS,
-      string | undefined
-    >
-  } catch (e) {
+  if (!resolved) {
     console.log('⏭️  Bedrock KB SSM parameters not available - KB integration tests will be skipped')
-    console.warn('Error retrieving Bedrock KB parameters', e)
     return skip()
   }
 

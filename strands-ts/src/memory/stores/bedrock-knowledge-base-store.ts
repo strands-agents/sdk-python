@@ -25,7 +25,7 @@ import { logger } from '../../logging/logger.js'
  * attributes behave for `CUSTOM` documents). The sidecar is a plain JSON file with no SDK type, so
  * this is declared here; its `value` reuses Bedrock's `MetadataAttributeValue`.
  */
-type SidecarAttribute = { value: MetadataAttributeValue; includeForEmbedding: false }
+type S3SidecarAttribute = { value: MetadataAttributeValue; includeForEmbedding: false }
 
 /** Converts a caller metadata value into a Bedrock attribute value, or `undefined` if unsupported. */
 function toAttributeValue(value: JSONValue): MetadataAttributeValue | undefined {
@@ -108,24 +108,8 @@ export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
   agentClient?: BedrockAgentClient
 }
 
-/**
- * Receipt returned by {@link BedrockKnowledgeBaseStore.add}.
- *
- * `add` resolves to this so a caller using the store directly can correlate the write with the
- * document Bedrock now tracks. ({@link MemoryManager.add} ignores it — it only awaits completion.)
- * An object (rather than a bare id) so further fields can be added later without a breaking change.
- */
 export interface BedrockKnowledgeBaseAddResult {
-  /**
-   * Identifier of the ingested document, as the store supplied it to Bedrock:
-   * - `CUSTOM`: the generated custom document id (a UUID).
-   * - `S3`: the `s3://` URI of the uploaded content object.
-   *
-   * The document's stable handle in the knowledge base, useful for correlating the write with later
-   * lookups or deletions. Note its meaning depends on the store's `dataSourceType`: to delete via
-   * `DeleteKnowledgeBaseDocuments` the caller must wrap it in the matching typed `DocumentIdentifier`
-   * (`{ dataSourceType: 'CUSTOM', custom: { id } }` vs `{ dataSourceType: 'S3', s3: { uri } }`).
-   */
+  /** `CUSTOM`: the generated document id (UUID). `S3`: the `s3://` URI of the uploaded content object. */
   documentId: string
 }
 
@@ -309,7 +293,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
 
     const contentUri = await this._putObject(s3, key, content, 'text/plain; charset=utf-8')
 
-    const attributes = this._buildSidecarAttributes(metadata)
+    const attributes = this._buildS3SidecarAttributes(metadata)
     if (Object.keys(attributes).length === 0) {
       return { contentUri }
     }
@@ -429,8 +413,8 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
    * metadata. Returns an empty map when there's nothing to attach — {@link _uploadS3Objects} treats
    * that as "no sidecar" and skips writing the second object.
    */
-  private _buildSidecarAttributes(metadata?: Record<string, JSONValue>): Record<string, SidecarAttribute> {
-    const attributes: Record<string, SidecarAttribute> = {}
+  private _buildS3SidecarAttributes(metadata?: Record<string, JSONValue>): Record<string, S3SidecarAttribute> {
+    const attributes: Record<string, S3SidecarAttribute> = {}
 
     if (this._scope) {
       attributes[this._scopeMetadataKey] = {
