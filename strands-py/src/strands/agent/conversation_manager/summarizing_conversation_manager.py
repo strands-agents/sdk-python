@@ -13,6 +13,7 @@ from ...types.content import Message
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import AgentTool
 from .conversation_manager import ConversationManager, ProactiveCompressionConfig
+from .pin_message import apply_pin_first, partition_pinned
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -66,6 +67,7 @@ class SummarizingConversationManager(ConversationManager):
         summarization_agent: Optional["Agent"] = None,
         summarization_system_prompt: str | None = None,
         *,
+        pin_first: int | None = None,
         proactive_compression: bool | ProactiveCompressionConfig | None = None,
     ):
         """Initialize the summarizing conversation manager.
@@ -79,6 +81,8 @@ class SummarizingConversationManager(ConversationManager):
                 If provided, this agent can use tools as part of the summarization process.
             summarization_system_prompt: Optional system prompt override for summarization.
                 If None, uses the default summarization prompt.
+            pin_first: Number of messages at the start of the conversation to permanently pin.
+                Pinned messages are protected from summarization and compacted to the front.
             proactive_compression: Enable proactive context compression before the model call.
                 - ``True``: compress when 70% of the context window is used (default threshold).
                 - ``{"compression_threshold": float}``: compress at the specified ratio (0, 1].
@@ -95,6 +99,8 @@ class SummarizingConversationManager(ConversationManager):
         self.preserve_recent_messages = preserve_recent_messages
         self.summarization_agent = summarization_agent
         self.summarization_system_prompt = summarization_system_prompt
+        self.pin_first = max(0, pin_first) if pin_first is not None else None
+        self._pin_first_applied = False
         self._summary_message: Message | None = None
 
     @override
@@ -187,21 +193,32 @@ class SummarizingConversationManager(ConversationManager):
         if messages_to_summarize_count <= 0:
             raise ContextWindowOverflowException("Cannot summarize: insufficient messages for summarization")
 
-        # Extract messages to summarize
-        messages_to_summarize = agent.messages[:messages_to_summarize_count]
+        # Pin first N messages permanently (only on first reduction)
+        if self.pin_first and not self._pin_first_applied:
+            apply_pin_first(agent.messages, self.pin_first)
+            self._pin_first_applied = True
+
+        # Partition [0, messages_to_summarize_count) into pinned (preserve) and non-pinned (summarize)
+        protected_to_preserve, to_summarize = partition_pinned(agent.messages, 0, messages_to_summarize_count)
+
+        if not to_summarize:
+            raise ContextWindowOverflowException(
+                "Cannot summarize: all messages in summarize range are pinned"
+            )
+
         remaining_messages = agent.messages[messages_to_summarize_count:]
 
         # Keep track of the number of messages that have been summarized thus far.
-        self.removed_message_count += len(messages_to_summarize)
+        self.removed_message_count += len(to_summarize)
         # If there is a summary message, don't count it in the removed_message_count.
         if self._summary_message:
             self.removed_message_count -= 1
 
         # Generate summary
-        self._summary_message = self._generate_summary(messages_to_summarize, agent)
+        self._summary_message = self._generate_summary(to_summarize, agent)
 
-        # Replace the summarized messages with the summary
-        agent.messages[:] = [self._summary_message] + remaining_messages
+        # Replace summarized range with protected messages + summary + remaining
+        agent.messages[:] = protected_to_preserve + [self._summary_message] + remaining_messages
 
     def _generate_summary(self, messages: list[Message], agent: "Agent") -> Message:
         """Generate a summary of the provided messages.
@@ -362,3 +379,4 @@ class SummarizingConversationManager(ConversationManager):
             raise ContextWindowOverflowException("Unable to trim conversation context!")
 
         return split_point
+

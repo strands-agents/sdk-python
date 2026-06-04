@@ -13,6 +13,7 @@ import {
   type ProactiveCompressionConfig,
   type ConversationManagerReduceOptions,
 } from './conversation-manager.js'
+import { applyPinFirst, partitionPinned } from './pin-message.js'
 import { logger } from '../logging/logger.js'
 import { normalizeError } from '../errors.js'
 import type { Model } from '../models/model.js'
@@ -83,6 +84,12 @@ export type SummarizingConversationManagerConfig = {
    * - `false` or omitted: disabled, only reactive overflow recovery is used.
    */
   proactiveCompression?: boolean | ProactiveCompressionConfig
+
+  /**
+   * Number of messages at the start of the conversation to permanently pin.
+   * Pinned messages are protected from summarization and compacted to the front.
+   */
+  pinFirst?: number
 }
 
 /**
@@ -99,6 +106,8 @@ export class SummarizingConversationManager extends ConversationManager {
   private readonly _summaryRatio: number
   private readonly _preserveRecentMessages: number
   private readonly _summarizationSystemPrompt: string
+  private readonly _pinFirst: number | undefined
+  private _pinFirstApplied = false
 
   constructor(config?: SummarizingConversationManagerConfig) {
     super(config)
@@ -107,6 +116,7 @@ export class SummarizingConversationManager extends ConversationManager {
     this._summaryRatio = Math.max(0.1, Math.min(0.8, config?.summaryRatio ?? 0.3))
     this._preserveRecentMessages = config?.preserveRecentMessages ?? 10
     this._summarizationSystemPrompt = config?.summarizationSystemPrompt ?? DEFAULT_SUMMARIZATION_PROMPT
+    this._pinFirst = config?.pinFirst != null ? Math.max(0, config.pinFirst) : undefined
   }
 
   /**
@@ -164,13 +174,25 @@ export class SummarizingConversationManager extends ConversationManager {
     // Adjust split point to avoid breaking tool use/result pairs
     messagesToSummarizeCount = this._adjustSplitPointForToolPairs(messages, messagesToSummarizeCount)
 
-    const messagesToSummarize = messages.slice(0, messagesToSummarizeCount)
+    // Pin first N messages permanently (only on first reduction)
+    if (this._pinFirst && !this._pinFirstApplied) {
+      applyPinFirst(messages, this._pinFirst)
+      this._pinFirstApplied = true
+    }
+
+    // Partition [0, messagesToSummarizeCount) into pinned (preserve) and non-pinned (summarize)
+    const [protectedToPreserve, toSummarize] = partitionPinned(messages, 0, messagesToSummarizeCount)
+
+    if (toSummarize.length === 0) {
+      logger.warn(`messages=<${messages.length}> | all messages in summarize range are protected, unable to reduce`)
+      return false
+    }
 
     // Generate summary via model call
-    const summaryMessage = await this._generateSummary(messagesToSummarize, model)
+    const summaryMessage = await this._generateSummary(toSummarize, model)
 
-    // Replace summarized messages with the summary
-    messages.splice(0, messagesToSummarizeCount, summaryMessage)
+    // Replace summarized range with protected messages + summary
+    messages.splice(0, messagesToSummarizeCount, ...protectedToPreserve, summaryMessage)
 
     return true
   }

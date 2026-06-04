@@ -1034,3 +1034,103 @@ def test_sliding_window_proactive_compression_no_trim_below():
     registry.invoke_callbacks(event)
 
     assert len(agent.messages) == 2
+
+
+# --- pin_first tests ---
+
+
+def test_pin_first_protects_first_n_messages_from_trimming():
+    manager = SlidingWindowConversationManager(window_size=2, should_truncate_results=False, pin_first=2)
+    messages = [
+        {"role": "user", "content": [{"text": "first"}]},
+        {"role": "assistant", "content": [{"text": "second"}]},
+        {"role": "user", "content": [{"text": "third"}]},
+        {"role": "assistant", "content": [{"text": "fourth"}]},
+        {"role": "user", "content": [{"text": "fifth"}]},
+        {"role": "assistant", "content": [{"text": "sixth"}]},
+    ]
+    agent = _make_mock_agent(messages=messages)
+    manager.reduce_context(agent)
+
+    texts = [m["content"][0]["text"] for m in agent.messages]
+    assert "first" in texts
+    assert "second" in texts
+    assert "third" not in texts
+    assert "fourth" not in texts
+
+
+def test_pin_first_returns_without_trimming_when_all_in_range_are_pinned():
+    manager = SlidingWindowConversationManager(window_size=2, should_truncate_results=False, pin_first=4)
+    messages = [
+        {"role": "user", "content": [{"text": "a"}]},
+        {"role": "assistant", "content": [{"text": "b"}]},
+        {"role": "user", "content": [{"text": "c"}]},
+        {"role": "assistant", "content": [{"text": "d"}]},
+    ]
+    agent = _make_mock_agent(messages=messages)
+    manager.reduce_context(agent)
+
+    assert len(agent.messages) == 4
+
+
+def test_pin_first_with_window_size_zero_preserves_pinned():
+    manager = SlidingWindowConversationManager(window_size=0, should_truncate_results=False, pin_first=2)
+    messages = [
+        {"role": "user", "content": [{"text": "first"}]},
+        {"role": "assistant", "content": [{"text": "second"}]},
+        {"role": "user", "content": [{"text": "third"}]},
+        {"role": "assistant", "content": [{"text": "fourth"}]},
+    ]
+    agent = _make_mock_agent(messages=messages)
+    manager.reduce_context(agent)
+
+    texts = [m["content"][0]["text"] for m in agent.messages]
+    assert texts == ["first", "second"]
+
+
+def test_pin_first_only_applies_once():
+    manager = SlidingWindowConversationManager(window_size=4, should_truncate_results=False, pin_first=2)
+    messages = [
+        {"role": "user", "content": [{"text": "first"}]},
+        {"role": "assistant", "content": [{"text": "second"}]},
+        {"role": "user", "content": [{"text": "third"}]},
+        {"role": "assistant", "content": [{"text": "fourth"}]},
+        {"role": "user", "content": [{"text": "fifth"}]},
+        {"role": "assistant", "content": [{"text": "sixth"}]},
+    ]
+    agent = _make_mock_agent(messages=messages)
+
+    # First reduction
+    manager.reduce_context(agent)
+    # Verify pin was applied
+    assert agent.messages[0].get("metadata", {}).get("custom", {}).get("pinned") is True
+
+    # Second reduction — should not re-apply (flag is set)
+    agent.messages.extend([
+        {"role": "user", "content": [{"text": "seventh"}]},
+        {"role": "assistant", "content": [{"text": "eighth"}]},
+    ])
+    manager.reduce_context(agent)
+    # Still works without error
+    assert "first" in [m["content"][0]["text"] for m in agent.messages]
+
+
+def test_pinned_message_in_middle_survives_trimming():
+    from strands.agent.conversation_manager.pin_message import pin_message
+
+    manager = SlidingWindowConversationManager(window_size=4, should_truncate_results=False)
+    messages = [
+        {"role": "user", "content": [{"text": "first"}]},
+        {"role": "assistant", "content": [{"text": "second"}]},
+        {"role": "user", "content": [{"text": "pinned-middle"}]},
+        {"role": "assistant", "content": [{"text": "fourth"}]},
+        {"role": "user", "content": [{"text": "fifth"}]},
+        {"role": "assistant", "content": [{"text": "sixth"}]},
+    ]
+    pin_message(messages, 2)
+    agent = _make_mock_agent(messages=messages)
+    manager.reduce_context(agent)
+
+    texts = [m["content"][0]["text"] for m in agent.messages]
+    assert "pinned-middle" in texts
+    assert "first" not in texts

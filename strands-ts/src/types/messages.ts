@@ -72,7 +72,7 @@ export class Message implements JSONSerializable<MessageData> {
   /**
    * Optional metadata, not sent to model providers.
    */
-  readonly metadata?: MessageMetadata
+  metadata?: MessageMetadata
 
   constructor(data: { role: Role; content: ContentBlock[]; metadata?: MessageMetadata }) {
     this.role = data.role
