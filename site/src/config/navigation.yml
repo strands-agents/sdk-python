@@ -270,6 +270,7 @@ sidebar:
         items:
           - docs/community/plugins/agent-control
           - docs/community/plugins/agentcore-payments
+          - docs/community/plugins/agentcore-tool-search
           - docs/community/plugins/datadog-ai-guard
           - docs/community/plugins/s3-vectors-memory
       - label: Model Providers
