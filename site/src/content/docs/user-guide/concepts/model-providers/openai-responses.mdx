@@ -60,7 +60,9 @@ In TypeScript, both the Responses API and Chat Completions API are available thr
 
 ### Amazon Bedrock (Mantle)
 
-The Responses provider can connect to [Amazon Bedrock's OpenAI-compatible endpoints](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html) powered by Mantle. Authenticate with a [Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-key-management.html) and point the client at your region's Mantle endpoint.
+The Responses provider can connect to [Amazon Bedrock's OpenAI-compatible endpoints](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html) powered by Mantle.
+
+The recommended way to connect is the first-class `bedrock_mantle_config` parameter. It resolves the regional Mantle endpoint for you and **mints a fresh bearer token on every request** using the standard AWS credential chain — so long-running agents keep working past the bearer token's maximum lifetime, with no manual token handling.
 
 <Tabs>
 <Tab label="Python">
@@ -69,6 +71,33 @@ The Responses provider can connect to [Amazon Bedrock's OpenAI-compatible endpoi
 from strands import Agent
 from strands.models.openai_responses import OpenAIResponsesModel
 
+model = OpenAIResponsesModel(
+    model_id="openai.gpt-oss-120b",
+    bedrock_mantle_config={"region": "us-east-1"},
+)
+
+agent = Agent(model=model)
+response = agent("What is 2+2?")
+print(response)
+```
+
+`bedrock_mantle_config` accepts the following keys:
+
+| Key | Description |
+|-----|-------------|
+| `region` | AWS region hosting the Mantle endpoint. If omitted, resolved from `boto_session` or the standard boto3 chain (`AWS_REGION` / `AWS_DEFAULT_REGION` / active profile). |
+| `boto_session` | Optional `boto3.Session` used to resolve the region (e.g. to pick up a non-default profile). |
+| `credentials_provider` | Optional botocore `CredentialProvider` forwarded to the token generator. Defaults to the standard AWS credential chain. |
+| `expiry` | Optional `timedelta` for the bearer token lifetime (capped at 12 hours by AWS). |
+
+Token minting requires the `aws-bedrock-token-generator` package, which is included in the `strands-agents[openai]` extra.
+
+<details>
+<summary>Alternative: bring your own Bedrock API key</summary>
+
+If you already have a [Bedrock API key](https://docs.aws.amazon.com/bedrock/latest/userguide/api-key-management.html) and prefer to manage it yourself, pass it (and the endpoint) through `client_args` instead. Note that a static key does not refresh, so it must outlive your agent's run:
+
+```python
 region = "us-east-1"
 model = OpenAIResponsesModel(
     model_id="openai.gpt-oss-120b",
@@ -77,11 +106,8 @@ model = OpenAIResponsesModel(
         "base_url": f"https://bedrock-mantle.{region}.api.aws/v1",
     },
 )
-
-agent = Agent(model=model)
-response = agent("What is 2+2?")
-print(response)
 ```
+</details>
 </Tab>
 <Tab label="TypeScript">
 
@@ -90,6 +116,16 @@ print(response)
 
 --8<-- "user-guide/concepts/model-providers/openai-responses.ts:bedrock_mantle"
 ```
+
+`bedrockMantleConfig` accepts the following keys:
+
+| Key | Description |
+|-----|-------------|
+| `region` | AWS region hosting the Mantle endpoint. If omitted, resolved from `AWS_REGION` / `AWS_DEFAULT_REGION`. |
+| `credentials` | Optional AWS credentials or credential provider forwarded to the token generator. Defaults to the standard AWS credential chain. |
+| `expiresInSeconds` | Optional bearer token lifetime in seconds (capped at 12 hours by AWS). |
+
+Token minting requires the `@aws/bedrock-token-generator` package.
 </Tab>
 </Tabs>
 

@@ -22,13 +22,9 @@ import { OpenAIModel } from '@strands-agents/sdk/models/openai'
 // Amazon Bedrock (Mantle)
 {
   // --8<-- [start:bedrock_mantle]
-  const region = 'us-east-1'
   const model = new OpenAIModel({
     modelId: 'openai.gpt-oss-120b',
-    apiKey: '<BEDROCK_API_KEY>',
-    clientConfig: {
-      baseURL: `https://bedrock-mantle.${region}.api.aws/v1`,
-    },
+    bedrockMantleConfig: { region: 'us-east-1' },
   })
 
   const agent = new Agent({ model })
