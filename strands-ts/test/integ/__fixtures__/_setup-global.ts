@@ -5,6 +5,7 @@
  */
 
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
+import { SSMClient, GetParametersCommand } from '@aws-sdk/client-ssm'
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers'
 import express from 'express'
 import type { TestProject } from 'vitest/node'
@@ -75,6 +76,7 @@ export async function setup(project: TestProject): Promise<() => void> {
   project.provide('isCI', isCI)
   project.provide('provider-openai', await getOpenAITestContext(isCI))
   project.provide('provider-bedrock', await getBedrockTestContext(isCI))
+  project.provide('provider-bedrock-kb', await getBedrockKnowledgeBaseTestContext())
   project.provide('provider-anthropic', await getAnthropicTestContext(isCI))
   project.provide('provider-gemini', await getGeminiTestContext(isCI))
 
@@ -142,6 +144,61 @@ async function getBedrockTestContext(isCI: boolean): Promise<ProvidedContext['pr
       shouldSkip: true,
       credentials: undefined,
     }
+  }
+}
+
+/**
+ * Resolve the Bedrock Knowledge Base config for the integ tests from SSM.
+ *
+ * The KB and its data sources are provisioned out of band (separate PR); their ids are published as
+ * SSM parameters. We batch-read them here and provide them to tests. When credentials or the
+ * parameters are unavailable, `shouldSkip` is set so the KB integ tests are skipped rather than
+ * failing. Per-test manual overrides live in the integ test code, not here.
+ */
+async function getBedrockKnowledgeBaseTestContext(): Promise<ProvidedContext['provider-bedrock-kb']> {
+  const PARAMS = {
+    knowledgeBaseId: '/strands/test-infra/bedrock-knowledge-base/knowledge-base-id',
+    customDataSourceId: '/strands/test-infra/bedrock-knowledge-base/custom-data-source-id',
+    s3DataSourceId: '/strands/test-infra/bedrock-knowledge-base/s3-data-source-id',
+    s3Bucket: '/strands/test-infra/bedrock-knowledge-base/s3-source-bucket-name',
+  } as const
+
+  const skip = (): ProvidedContext['provider-bedrock-kb'] => ({
+    shouldSkip: true,
+    knowledgeBaseId: undefined,
+    customDataSourceId: undefined,
+    s3DataSourceId: undefined,
+    s3Bucket: undefined,
+  })
+
+  const client = new SSMClient({ region: process.env.AWS_REGION || 'us-east-1' })
+
+  let resolved: Record<string, string | undefined>
+  try {
+    const response = await client.send(new GetParametersCommand({ Names: Object.values(PARAMS) }))
+    const byName = new Map((response.Parameters ?? []).map((p) => [p.Name, p.Value]))
+    resolved = Object.fromEntries(Object.entries(PARAMS).map(([key, name]) => [key, byName.get(name)])) as Record<
+      keyof typeof PARAMS,
+      string | undefined
+    >
+  } catch (e) {
+    console.log('⏭️  Bedrock KB SSM parameters not available - KB integration tests will be skipped')
+    console.warn('Error retrieving Bedrock KB parameters', e)
+    return skip()
+  }
+
+  if (!resolved.knowledgeBaseId) {
+    console.log('⏭️  Bedrock KB id not found in SSM - KB integration tests will be skipped')
+    return skip()
+  }
+
+  console.log('⏭️  Bedrock KB parameters available - KB integration tests will run')
+  return {
+    shouldSkip: false,
+    knowledgeBaseId: resolved.knowledgeBaseId,
+    customDataSourceId: resolved.customDataSourceId,
+    s3DataSourceId: resolved.s3DataSourceId,
+    s3Bucket: resolved.s3Bucket,
   }
 }
 
