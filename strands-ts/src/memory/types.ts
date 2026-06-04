@@ -2,6 +2,7 @@ import type { JSONValue } from '../types/json.js'
 import type { MessageData } from '../types/messages.js'
 import type { Tool } from '../tools/tool.js'
 import type { ExtractionConfig } from './extraction/types.js'
+import type { InjectionConfig } from '../injection/index.js'
 
 /**
  * A single memory entry retrieved from or stored to a memory store.
@@ -190,6 +191,44 @@ export interface MemoryAddToolConfig extends MemoryToolConfig {
 }
 
 /**
+ * Configuration for memory context injection.
+ *
+ * When enabled on a {@link MemoryManager}, the manager searches memory before a model call and folds
+ * the top results into the most recent user message (ahead of the user's own content), so relevant
+ * knowledge is present without the model choosing to search. The injected text is ephemeral: it
+ * augments the model input for that call only and never persists into the durable conversation or
+ * session.
+ *
+ * Extends the generic {@link InjectionConfig} (which carries `trigger`) with the memory-owned knobs:
+ * how many entries to retrieve, how to derive the query, and how to render the results. These are
+ * memory concerns and intentionally do not live on the generic injection engine.
+ */
+export interface MemoryInjectionConfig extends InjectionConfig {
+  /**
+   * Maximum number of entries to retrieve and inject per model call.
+   *
+   * @defaultValue 1
+   */
+  maxInjectedSearchResults?: number
+  /**
+   * Derives the search query from the current conversation. Return `undefined` or an empty string to
+   * skip injection for this call. A callback that throws fails open (injection is skipped).
+   *
+   * Defaults to an adaptive query: the latest user message's text on a user turn, otherwise the most
+   * recent assistant message's text (the previous step on an autonomous turn).
+   */
+  query?: (messages: MessageData[]) => string | undefined
+  /**
+   * Renders retrieved entries into the injected text. A callback that throws fails open (injection is
+   * skipped).
+   *
+   * Defaults to a `<memory>` XML block with one `<entry>` per result, carrying a `source` attribute
+   * naming the originating store (when known) so the model can attribute and weigh each memory.
+   */
+  format?: (entries: MemoryEntry[]) => string
+}
+
+/**
  * Configuration for the {@link MemoryManager}.
  */
 export interface MemoryManagerConfig {
@@ -202,4 +241,9 @@ export interface MemoryManagerConfig {
    * writable stores; pass a {@link MemoryAddToolConfig} with `stores` to restrict it to specific ones.
    */
   addToolConfig?: MemoryAddToolConfig | boolean
+  /**
+   * Memory context injection. Defaults to `false` (opt-in). `true` uses the default injection
+   * settings; pass a {@link MemoryInjectionConfig} to customize retrieval, timing, and formatting.
+   */
+  injection?: boolean | MemoryInjectionConfig
 }
