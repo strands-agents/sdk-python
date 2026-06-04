@@ -1953,19 +1953,30 @@ async def test_cancel_without_hasattr_cancel(mock_strands_agent, mock_request_co
 # =========================================================================
 
 
-def _make_real_agent_with_stub():
+def _make_stub_agent(stream_fn=None, *, messages=None):
     """Build a real Agent backed by a deterministic, network-free stub model.
 
-    The stub echoes the latest user text prefixed with ECHO[<history-length>] and,
-    as a side effect, records a per-call marker into agent.state so we can assert
-    that AgentState is also isolated per context (not just messages).
+    Args:
+        stream_fn: Callable ``(messages) -> str`` producing the assistant reply text. Defaults
+            to an echo of the latest user text prefixed with ``ECHO[<history-length>]``.
+        messages: Optional seeded conversation history for the template agent.
     """
     from collections.abc import AsyncGenerator
 
     from strands.agent.agent import Agent
     from strands.models import Model
 
-    class _EchoStubModel(Model):
+    def _default_reply(msgs):
+        last_user_text = ""
+        for message in reversed(msgs):
+            if message.get("role") == "user":
+                last_user_text = next((b["text"] for b in message.get("content", []) if "text" in b), "")
+                break
+        return f"ECHO[{len(msgs)}]: {last_user_text}"
+
+    reply_fn = stream_fn or _default_reply
+
+    class _StubModel(Model):
         def get_config(self):
             return {}
 
@@ -1982,30 +1993,15 @@ def _make_real_agent_with_stub():
             yield {}
 
         async def stream(
-            self,
-            messages,
-            tool_specs=None,
-            system_prompt=None,
-            tool_choice=None,
-            **kwargs,
+            self, messages, tool_specs=None, system_prompt=None, tool_choice=None, **kwargs
         ) -> "AsyncGenerator":
-            index = len(messages)
-            last_user_text = ""
-            for message in reversed(messages):
-                if message.get("role") == "user":
-                    for block in message.get("content", []):
-                        if "text" in block:
-                            last_user_text = block["text"]
-                            break
-                    break
-            reply = f"ECHO[{index}]: {last_user_text}"
             yield {"messageStart": {"role": "assistant"}}
             yield {"contentBlockStart": {"start": {}}}
-            yield {"contentBlockDelta": {"delta": {"text": reply}}}
+            yield {"contentBlockDelta": {"delta": {"text": reply_fn(messages)}}}
             yield {"contentBlockStop": {}}
             yield {"messageStop": {"stopReason": "end_turn"}}
 
-    return Agent(model=_EchoStubModel(), name="Echo", description="Echo stub agent")
+    return Agent(model=_StubModel(), name="Stub", description="Stub agent", messages=messages)
 
 
 def _make_request_context(context_id: str, message_id: str, text: str):
@@ -2055,7 +2051,7 @@ async def test_conversation_isolated_and_continued_per_context(mock_event_queue)
     - a second context does not observe the first context's messages (isolation),
     - the shared template agent is left clean between requests.
     """
-    agent = _make_real_agent_with_stub()
+    agent = _make_stub_agent()
     executor = StrandsA2AExecutor(agent)
 
     # ctx-A turn 1: empty history -> ECHO[1], carrying a secret marker.
@@ -2080,58 +2076,66 @@ async def test_conversation_isolated_and_continued_per_context(mock_event_queue)
 
 @pytest.mark.asyncio
 async def test_agent_state_isolated_across_contexts(mock_event_queue):
-    """Agent state must be isolated per context (the leak the shallow-copy patch missed)."""
-    agent = _make_real_agent_with_stub()
+    """Agent state must be isolated per context (the leak the shallow-copy patch missed).
+
+    Uses the public hook API: a BeforeInvocationEvent stamps the running context's marker into
+    agent.state and records whatever marker was already present at entry. ctx-B must enter with
+    no marker left over from ctx-A. This avoids depending on the internal snapshot storage format.
+    """
+    from strands.hooks.events import BeforeInvocationEvent
+
+    agent = _make_stub_agent()
     executor = StrandsA2AExecutor(agent)
 
-    # Run ctx-A, then write into ITS persisted snapshot directly.
+    markers_at_entry: list[object] = []
+
+    def on_before(event: BeforeInvocationEvent) -> None:
+        markers_at_entry.append(event.agent.state.get("marker"))
+        event.agent.state.set("marker", "TENANT-SECRET")
+
+    agent.hooks.add_callback(BeforeInvocationEvent, on_before)
+
     await executor.execute(_make_request_context("ctx-A", "a-1", "first"), mock_event_queue)
-    executor._contexts["ctx-A"].data["state"] = {"api_key": "TENANT-A-SECRET"}
-
-    # Run ctx-B; its agent state must not contain ctx-A's value.
     await executor.execute(_make_request_context("ctx-B", "b-1", "first"), mock_event_queue)
-    ctx_b_state = executor._contexts["ctx-B"].data.get("state", {})
-    assert ctx_b_state.get("api_key") is None
 
-    # And the two contexts must not share the same snapshot object.
-    assert executor._contexts["ctx-A"] is not executor._contexts["ctx-B"]
+    # Both contexts entered with a clean state (no marker), confirming ctx-A's state write did
+    # not leak into ctx-B.
+    assert markers_at_entry == [None, None]
+
+
+@pytest.mark.asyncio
+async def test_lru_eviction_drops_least_recently_used_context(mock_event_queue):
+    """When max_contexts is exceeded, the least-recently-used context's history is evicted."""
+    agent = _make_stub_agent()
+    executor = StrandsA2AExecutor(agent, max_contexts=2)
+
+    # Fill two contexts.
+    await executor.execute(_make_request_context("ctx-A", "a-1", "hi"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-B", "b-1", "hi"), mock_event_queue)
+
+    # Touch ctx-A so ctx-B becomes least-recently-used, then add ctx-C -> evicts ctx-B.
+    await executor.execute(_make_request_context("ctx-A", "a-2", "again"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-C", "c-1", "hi"), mock_event_queue)
+
+    assert set(executor._contexts.keys()) == {"ctx-A", "ctx-C"}
+
+    # ctx-B was evicted: its next request starts a fresh conversation (ECHO[1], not continued).
+    mock_event_queue.enqueue_event.reset_mock()
+    await executor.execute(_make_request_context("ctx-B", "b-2", "back"), mock_event_queue)
+    assert any("ECHO[1]:" in t for t in _artifact_texts(mock_event_queue))
+
+
+def test_max_contexts_must_be_positive(mock_strands_agent):
+    """max_contexts below 1 is rejected to avoid disabling persistence or the memory bound."""
+    with pytest.raises(ValueError, match="max_contexts must be >= 1"):
+        StrandsA2AExecutor(mock_strands_agent, max_contexts=0)
 
 
 @pytest.mark.asyncio
 async def test_seeded_history_preserved_per_context(mock_event_queue):
     """Seeded template history (Agent(messages=[...])) must carry into each new context."""
-    from collections.abc import AsyncGenerator
-
-    from strands.agent.agent import Agent
-    from strands.models import Model
-
-    class _IndexModel(Model):
-        def get_config(self):
-            return {}
-
-        def update_config(self, **model_config):
-            pass
-
-        def format_request(self, messages, tool_specs=None, system_prompt=None):
-            return None
-
-        def format_chunk(self, event):
-            return event
-
-        async def structured_output(self, output_model, prompt, system_prompt=None, **kwargs):
-            yield {}
-
-        async def stream(
-            self, messages, tool_specs=None, system_prompt=None, tool_choice=None, **kwargs
-        ) -> "AsyncGenerator":
-            yield {"messageStart": {"role": "assistant"}}
-            yield {"contentBlockStart": {"start": {}}}
-            yield {"contentBlockDelta": {"delta": {"text": f"LEN[{len(messages)}]"}}}
-            yield {"contentBlockStop": {}}
-            yield {"messageStop": {"stopReason": "end_turn"}}
-
     seeded = [{"role": "user", "content": [{"text": "SEED"}]}]
-    agent = Agent(model=_IndexModel(), name="Seeded", description="seeded agent", messages=seeded)
+    agent = _make_stub_agent(stream_fn=lambda msgs: f"LEN[{len(msgs)}]", messages=seeded)
     executor = StrandsA2AExecutor(agent)
 
     await executor.execute(_make_request_context("ctx-A", "a-1", "hello"), mock_event_queue)

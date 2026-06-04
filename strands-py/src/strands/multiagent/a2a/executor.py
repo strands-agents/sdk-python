@@ -94,14 +94,26 @@ class StrandsA2AExecutor(AgentExecutor):
             spec §3.4.1 context cleanup policy); a later request reusing that ``context_id``
             starts a fresh conversation from the template.
 
+            Requests are serialized: a single ``Agent`` cannot be invoked concurrently, so the
+            shared agent processes one request at a time across all contexts. A long-running
+            request therefore delays others. For higher concurrency, run multiple server
+            instances behind a load balancer rather than relying on a single executor.
+
         Args:
             agent: The Strands Agent to adapt. Used as a template for per-context state.
             enable_a2a_compliant_streaming: If True, uses A2A-compliant streaming with
                 artifact updates. If False, uses legacy status updates streaming behavior
                 for backwards compatibility. Defaults to False.
             max_contexts: Maximum number of contexts to retain state for; the least-recently-
-                used context is evicted beyond this. Defaults to ``DEFAULT_MAX_CONTEXTS``.
+                used context is evicted beyond this. Must be >= 1. Defaults to
+                ``DEFAULT_MAX_CONTEXTS``.
+
+        Raises:
+            ValueError: If ``max_contexts`` is less than 1.
         """
+        if max_contexts < 1:
+            raise ValueError(f"max_contexts must be >= 1, got {max_contexts}")
+
         self.agent = agent
         self.enable_a2a_compliant_streaming = enable_a2a_compliant_streaming
         self._max_contexts = max_contexts
