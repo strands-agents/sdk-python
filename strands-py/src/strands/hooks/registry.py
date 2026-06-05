@@ -7,10 +7,12 @@ functions, supporting both individual callback registration and bulk registratio
 via hook provider objects.
 """
 
+import bisect
 import inspect
 import logging
 from collections.abc import Awaitable, Generator
 from dataclasses import dataclass
+from itertools import groupby
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, runtime_checkable
 
 from ..interrupt import Interrupt, InterruptException
@@ -20,6 +22,25 @@ if TYPE_CHECKING:
     from ..agent import Agent
 
 logger = logging.getLogger(__name__)
+
+
+class HookOrder:
+    """Named constants for hook execution priority.
+
+    Lower values execute first. Hooks with the same order preserve registration order.
+    """
+
+    SDK_FIRST: int = -100
+    DEFAULT: int = 0
+    SDK_LAST: int = 100
+
+
+@dataclass
+class _CallbackEntry:
+    """Internal entry pairing a callback with its execution order."""
+
+    callback: "HookCallback"
+    order: float
 
 
 @dataclass
@@ -156,12 +177,14 @@ class HookRegistry:
 
     def __init__(self) -> None:
         """Initialize an empty hook registry."""
-        self._registered_callbacks: dict[type, list[HookCallback]] = {}
+        self._registered_callbacks: dict[type, list[_CallbackEntry]] = {}
 
     def add_callback(
         self,
         event_type: type[TEvent] | list[type[TEvent]] | None,
         callback: HookCallback[TEvent],
+        *,
+        order: float = HookOrder.DEFAULT,
     ) -> None:
         """Register a callback function for a specific event type.
 
@@ -176,6 +199,7 @@ class HookRegistry:
             event_type: The lifecycle event type(s) this callback should handle.
                 Can be a single type, a list of types, or None to infer from type hints.
             callback: The callback function to invoke when events of this type occur.
+            order: Execution priority. Lower values execute first.
 
         Raises:
             ValueError: If event_type is not provided and cannot be inferred from
@@ -223,12 +247,13 @@ class HookRegistry:
 
         # Register callback for each event type
         for resolved_event_type in unique_event_types:
-            # Related issue: https://github.com/strands-agents/sdk-python/issues/330
+            # Related issue: https://github.com/strands-agents/harness-sdk/issues/330
             if resolved_event_type.__name__ == "AgentInitializedEvent" and inspect.iscoroutinefunction(callback):
                 raise ValueError("AgentInitializedEvent can only be registered with a synchronous callback")
 
-            callbacks = self._registered_callbacks.setdefault(resolved_event_type, [])
-            callbacks.append(callback)
+            entries = self._registered_callbacks.setdefault(resolved_event_type, [])
+            entry = _CallbackEntry(callback=callback, order=order)
+            bisect.insort(entries, entry, key=lambda e: e.order)
 
     def _validate_event_type_list(self, event_types: list[type[TEvent]]) -> list[type[TEvent]]:
         """Validate that all types in a list are valid BaseHookEvent subclasses.
@@ -381,9 +406,12 @@ class HookRegistry:
     def get_callbacks_for(self, event: TEvent) -> Generator[HookCallback[TEvent], None, None]:
         """Get callbacks registered for the given event in the appropriate order.
 
-        This method returns callbacks in registration order for normal events,
-        or reverse registration order for events that have should_reverse_callbacks=True.
-        This enables proper cleanup ordering for teardown events.
+        For normal events, callbacks are returned in order priority (lower first),
+        with registration order preserved within the same priority.
+
+        For reversed events (should_reverse_callbacks=True), order priority still
+        applies (lower first), but within the same priority group, registration
+        order is reversed.
 
         Args:
             event: The event to get callbacks for.
@@ -400,8 +428,11 @@ class HookRegistry:
         """
         event_type = type(event)
 
-        callbacks = self._registered_callbacks.get(event_type, [])
+        entries = self._registered_callbacks.get(event_type, [])
         if event.should_reverse_callbacks:
-            yield from reversed(callbacks)
+            for _order, group in groupby(entries, key=lambda e: e.order):
+                for entry in reversed(list(group)):
+                    yield entry.callback
         else:
-            yield from callbacks
+            for entry in entries:
+                yield entry.callback

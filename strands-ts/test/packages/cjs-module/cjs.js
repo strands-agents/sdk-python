@@ -22,8 +22,11 @@ async function main() {
   const {
     AgentSkills,
     ContextOffloader,
+    GoalLoop,
     InMemoryStorage,
   } = await import('@strands-agents/sdk/vended-plugins')
+
+  const { GoalLoop: GoalLoopFromSubpath } = await import('@strands-agents/sdk/vended-plugins/goal')
 
   const { BedrockModel: BedrockFromSubpath } = await import('@strands-agents/sdk/models/bedrock')
   const { OpenAIModel } = await import('@strands-agents/sdk/models/openai')
@@ -88,10 +91,21 @@ async function main() {
   console.log('✓ Barrel vended-tools exports verified')
 
   // Verify barrel vended-plugins exports are constructible
-  if (typeof AgentSkills !== 'function' || typeof ContextOffloader !== 'function' || typeof InMemoryStorage !== 'function') {
+  if (
+    typeof AgentSkills !== 'function' ||
+    typeof ContextOffloader !== 'function' ||
+    typeof GoalLoop !== 'function' ||
+    typeof InMemoryStorage !== 'function'
+  ) {
     throw new Error('Barrel vended-plugins exports are not constructible')
   }
   console.log('✓ Barrel vended-plugins exports verified')
+
+  // Verify the goal subpath export matches the barrel export
+  if (GoalLoopFromSubpath !== GoalLoop) {
+    throw new Error('GoalLoop from subpath should match barrel export')
+  }
+  console.log('✓ GoalLoop subpath export verified')
 
   // Reference remaining imports so static analysis doesn't flag them unused.
   void OpenAIModel

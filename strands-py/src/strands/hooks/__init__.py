@@ -45,7 +45,7 @@ from .events import (
     MessageAddedEvent,
     MultiAgentInitializedEvent,
 )
-from .registry import BaseHookEvent, HookCallback, HookEvent, HookProvider, HookRegistry
+from .registry import BaseHookEvent, HookCallback, HookEvent, HookOrder, HookProvider, HookRegistry
 
 __all__ = [
     "AgentInitializedEvent",
@@ -57,6 +57,7 @@ __all__ = [
     "AfterInvocationEvent",
     "MessageAddedEvent",
     "HookEvent",
+    "HookOrder",
     "HookProvider",
     "HookCallback",
     "HookRegistry",

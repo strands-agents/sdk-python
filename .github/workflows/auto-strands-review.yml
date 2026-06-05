@@ -23,7 +23,7 @@ jobs:
         with:
           skip-check: false
           username: ${{ github.event.pull_request.user.login || 'invalid' }}
-          allowed-roles: 'triage,write,admin'
+          allowed-roles: 'triage,write,maintain,admin'
 
   trigger-review:
     name: Trigger Strands Review
@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Strands Command Workflow
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |

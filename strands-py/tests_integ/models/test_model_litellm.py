@@ -283,7 +283,7 @@ async def test_cache_read_tokens_multi_turn(model):
 def test_gemini_thinking_model_tool_call(tools):
     """Test that Gemini thinking models preserve thought_signature through multi-turn tool calls.
 
-    Regression test for https://github.com/strands-agents/sdk-python/issues/1764
+    Regression test for https://github.com/strands-agents/harness-sdk/issues/1764
     """
     model = LiteLLMModel(model_id="gemini/gemini-2.5-flash", client_args={"api_key": os.environ.get("GOOGLE_API_KEY")})
     agent = Agent(model=model, tools=tools)

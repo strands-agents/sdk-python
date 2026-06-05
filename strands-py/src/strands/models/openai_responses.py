@@ -32,7 +32,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 # Validate OpenAI SDK version at import time - Responses API requires v2.0.0+
-# A major version bump is proposed in https://github.com/strands-agents/sdk-python/pull/1370
+# A major version bump is proposed in https://github.com/strands-agents/harness-sdk/pull/1370
 _MIN_OPENAI_VERSION = Version("2.0.0")
 
 try:

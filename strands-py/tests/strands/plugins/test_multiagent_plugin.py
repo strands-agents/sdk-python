@@ -245,7 +245,7 @@ def test_registry_hooks_are_bound_to_instance(mock_orchestrator, registry):
     registry.add_and_init(plugin)
 
     mock_event = unittest.mock.MagicMock(spec=BeforeNodeCallEvent)
-    mock_orchestrator.hooks._registered_callbacks[BeforeNodeCallEvent][0](mock_event)
+    mock_orchestrator.hooks._registered_callbacks[BeforeNodeCallEvent][0].callback(mock_event)
 
     assert plugin.events_received == [mock_event]
 

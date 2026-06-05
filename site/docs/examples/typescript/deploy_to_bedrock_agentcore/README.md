@@ -290,7 +290,7 @@ aws logs tail /aws/bedrock-agentcore/runtimes/my-agent-service-XXXXXXXXXX-DEFAUL
 
 - [Full Documentation](../../../user-guide/deploy/deploy_to_bedrock_agentcore/typescript.md) - Complete deployment guide with detailed explanations
 - [Amazon Bedrock AgentCore Documentation](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html)
-- [Strands TypeScript SDK](https://github.com/strands-agents/sdk-typescript)
+- [Strands TypeScript SDK](https://github.com/strands-agents/harness-sdk/tree/main/strands-ts)
 - [Express.js Documentation](https://expressjs.com/)
 - [Docker Documentation](https://docs.docker.com/)
 

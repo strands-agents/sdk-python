@@ -4,7 +4,7 @@ from ..tools.decorator import tool
 from ..types.content import ContentBlock
 
 
-# https://github.com/strands-agents/sdk-python/issues/998
+# https://github.com/strands-agents/harness-sdk/issues/998
 @tool(name="noop", description="This is a fake tool that MUST be completely ignored.")
 def noop_tool() -> str:
     """No-op tool to satisfy tool spec requirement when tool messages are present.

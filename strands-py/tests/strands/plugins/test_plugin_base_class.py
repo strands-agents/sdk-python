@@ -512,8 +512,8 @@ class TestPluginBoundMethods:
 
         # Call the registered hook and verify it accesses the correct instance
         mock_event = unittest.mock.MagicMock(spec=BeforeModelCallEvent)
-        callbacks = list(mock_agent.hooks._registered_callbacks.get(BeforeModelCallEvent, []))
-        callbacks[0](mock_event)
+        entries = list(mock_agent.hooks._registered_callbacks.get(BeforeModelCallEvent, []))
+        entries[0].callback(mock_event)
 
         assert len(plugin.events_received) == 1
         assert plugin.events_received[0] is mock_event

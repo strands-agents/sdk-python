@@ -289,7 +289,7 @@ def test_format_request_messages_assistant_text_uses_output_text():
 
     Regression test for multi-turn conversations failing because the OpenAI
     Responses API rejects input_text in assistant messages.
-    See: https://github.com/strands-agents/sdk-python/issues/1850
+    See: https://github.com/strands-agents/harness-sdk/issues/1850
     """
     messages = [
         {

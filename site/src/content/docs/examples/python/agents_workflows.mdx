@@ -113,7 +113,7 @@ researcher_agent = Agent(
 )
 ```
 
-Without this suppression, the default [callback_handler](https://github.com/strands-agents/sdk-python/blob/main/src/strands/handlers/callback_handler.py) would print all outputs to stdout, creating a cluttered experience with duplicate information from each agent's thinking process and tool calls. Suppressing the output creates a clean user experience by preventing intermediate outputs while still allowing responses to be captured programmatically and enabling proper information flow between agents. Instead of verbose agent outputs, the code provides concise progress feedback through simple print statements:
+Without this suppression, the default [callback_handler](https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/strands/handlers/callback_handler.py) would print all outputs to stdout, creating a cluttered experience with duplicate information from each agent's thinking process and tool calls. Suppressing the output creates a clean user experience by preventing intermediate outputs while still allowing responses to be captured programmatically and enabling proper information flow between agents. Instead of verbose agent outputs, the code provides concise progress feedback through simple print statements:
 
 ```python
 print("\nProcessing: '{user_input}'")

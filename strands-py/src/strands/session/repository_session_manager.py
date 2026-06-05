@@ -237,7 +237,7 @@ class RepositorySessionManager(SessionManager):
                     session_message.to_message() for session_message in session_messages
                 ]
 
-                # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
+                # Fix broken session histories: https://github.com/strands-agents/harness-sdk/issues/859
                 agent.messages = self._fix_broken_tool_use(agent.messages)
 
         self._is_new_session = False
@@ -390,7 +390,7 @@ class RepositorySessionManager(SessionManager):
             # Restore the agents messages array
             agent.messages = [session_message.to_message() for session_message in session_messages]
 
-            # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
+            # Fix broken session histories: https://github.com/strands-agents/harness-sdk/issues/859
             agent.messages = self._fix_broken_tool_use(agent.messages)
 
         self._is_new_session = False

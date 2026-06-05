@@ -41,6 +41,12 @@ const SLUG_RULES: SlugRule[] = [
     to: 'https://discord.gg/strands',
   },
 
+  // cli-reference-agent was archived (strands-agents/agent-builder)
+  {
+    match: exactly('docs/examples/python/cli-reference-agent'),
+    to: 'docs/examples',
+  },
+
   // CDK and deployment examples now live on GitHub
   {
     match: exactly('docs/examples/cdk/deploy_to_apprunner'),

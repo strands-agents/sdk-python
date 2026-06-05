@@ -82,10 +82,16 @@ sidebar:
               - docs/user-guide/concepts/tools/vended-tools
           - label: Plugins
             items:
-              - docs/user-guide/concepts/plugins
+              - label: "Overview"
+                slug: docs/user-guide/concepts/plugins
               - docs/user-guide/concepts/plugins/skills
               - docs/user-guide/concepts/plugins/steering
               - docs/user-guide/concepts/plugins/context-offloader
+          - label: Interventions
+            items:
+              - label: "Overview"
+                slug: docs/user-guide/concepts/agents/interventions
+              - docs/user-guide/concepts/agents/human-in-the-loop
           - label: Streaming
             items:
               - docs/user-guide/concepts/streaming/async-iterators
@@ -152,6 +158,7 @@ sidebar:
               - docs/user-guide/deploy/deploy_to_docker/typescript
           - docs/user-guide/deploy/deploy_to_kubernetes
           - docs/user-guide/deploy/deploy_to_terraform
+          - docs/user-guide/deploy/deploy_with_nx_plugin_for_aws
       - label: Safety & Security
         items:
           - docs/user-guide/safety-security/responsible-ai
@@ -220,7 +227,6 @@ sidebar:
   - label: Examples
     items:
       - docs/examples
-      - docs/examples/python/cli-reference-agent
       - docs/examples/python/weather_forecaster
       - docs/examples/python/memory_agent
       - docs/examples/python/file_operations
@@ -264,6 +270,7 @@ sidebar:
         items:
           - docs/community/plugins/agent-control
           - docs/community/plugins/agentcore-payments
+          - docs/community/plugins/agentcore-tool-search
           - docs/community/plugins/datadog-ai-guard
           - docs/community/plugins/s3-vectors-memory
       - label: Model Providers
@@ -299,12 +306,15 @@ github:
   sections:
     - title: SDKs
       links:
-        - label: sdk-python
-          href: https://github.com/strands-agents/sdk-python
+        - label: Python SDK
+          href: https://github.com/strands-agents/harness-sdk/tree/main/strands-py
           icon: PY
-        - label: sdk-typescript
-          href: https://github.com/strands-agents/sdk-typescript
+        - label: TypeScript SDK
+          href: https://github.com/strands-agents/harness-sdk/tree/main/strands-ts
           icon: TS
+        - label: Evals SDK
+          href: https://github.com/strands-agents/evals
+          icon: EV
     - title: Organizations
       links:
         - label: strands-agents

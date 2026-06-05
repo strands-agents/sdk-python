@@ -205,7 +205,7 @@ class MCPClient(ToolProvider):
         self._log_debug_with_thread("entering MCPClient context")
         # Copy context vars to propagate to the background thread
         # This ensures that context set in the main thread is accessible in the background thread
-        # See: https://github.com/strands-agents/sdk-python/issues/1440
+        # See: https://github.com/strands-agents/harness-sdk/issues/1440
         ctx = contextvars.copy_context()
         self._background_thread = threading.Thread(target=ctx.run, args=(self._background_task,), daemon=True)
         self._background_thread.start()
@@ -968,7 +968,7 @@ class MCPClient(ToolProvider):
             raise MCPClientInitializationError("the client session was not initialized")
 
         async def run_async() -> T:
-            # Fix for strands-agents/sdk-python/issues/995 - cancel all pending invocations if/when the session closes
+            # Fix for strands-agents/harness-sdk/issues/995 - cancel all pending invocations if/when the session closes
             invoke_event = asyncio.create_task(coro)
             tasks: list[asyncio.Task | asyncio.Future] = [
                 invoke_event,

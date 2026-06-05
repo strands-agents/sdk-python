@@ -14,7 +14,7 @@ def temp_dir():
 
 
 def test_invalid_tool_names_works(temp_dir):
-    # Per https://github.com/strands-agents/sdk-python/issues/1069 we want to ensure that invalid tool don't poison
+    # Per https://github.com/strands-agents/harness-sdk/issues/1069 we want to ensure that invalid tool don't poison
     # agent history either in *this* session or in when using session managers
 
     @tool

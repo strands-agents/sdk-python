@@ -1248,6 +1248,9 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     const output = ensureDefined(event.output, 'event.output')
     const message = ensureDefined(output.message, 'output.message')
     const role = ensureDefined(message.role, 'message.role')
+    if (role !== 'user' && role !== 'assistant') {
+      throw new Error(`Unexpected role from Bedrock: '${role}'`)
+    }
     events.push({
       type: 'modelMessageStartEvent',
       role,
@@ -1384,9 +1387,13 @@ export class BedrockModel extends Model<BedrockModelConfig> {
     switch (eventType) {
       case 'messageStart': {
         const data = eventData as BedrockMessageStartEvent
+        const role = ensureDefined(data.role, 'messageStart.role')
+        if (role !== 'user' && role !== 'assistant') {
+          throw new Error(`Unexpected role from Bedrock: '${role}'`)
+        }
         events.push({
           type: 'modelMessageStartEvent',
-          role: ensureDefined(data.role, 'messageStart.role'),
+          role,
         })
         break
       }

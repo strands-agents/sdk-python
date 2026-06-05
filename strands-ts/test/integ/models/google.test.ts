@@ -18,7 +18,6 @@ describe.skipIf(gemini.skip)('GoogleModel Integration Tests', () => {
     describe('Configuration', () => {
       it.concurrent('respects temperature configuration', async () => {
         const provider = gemini.createModel({
-          modelId: 'gemini-2.0-flash',
           params: { temperature: 0, maxOutputTokens: 50 },
         })
 
@@ -74,7 +73,6 @@ describe.skipIf(gemini.skip)('GoogleModel Integration Tests', () => {
     describe('Content Block Lifecycle', () => {
       it.concurrent('emits complete content block lifecycle events', async () => {
         const provider = gemini.createModel({
-          modelId: 'gemini-2.0-flash',
           params: { maxOutputTokens: 50 },
         })
 
@@ -111,7 +109,6 @@ describe.skipIf(gemini.skip)('GoogleModel Integration Tests', () => {
     describe('Stop Reasons', () => {
       it.concurrent('returns endTurn stop reason for natural completion', async () => {
         const provider = gemini.createModel({
-          modelId: 'gemini-2.0-flash',
           params: { maxOutputTokens: 100 },
         })
 

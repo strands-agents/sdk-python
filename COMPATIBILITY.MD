@@ -90,4 +90,4 @@ New event types added to the union don't affect existing event handling logic.
 
 ## Feedback
 
-If you have questions or concerns about this compatibility policy, please [open an issue](https://github.com/strands-agents/sdk-typescript/issues) on GitHub.
+If you have questions or concerns about this compatibility policy, please [open an issue](https://github.com/strands-agents/harness-sdk/issues) on GitHub.

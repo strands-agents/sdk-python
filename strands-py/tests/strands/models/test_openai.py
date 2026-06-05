@@ -234,7 +234,7 @@ def test_format_request_tool_message_single_text_returns_string():
 def test_format_request_tool_message_multi_text_returns_joined_string():
     """Test that multi-content text results are joined into a single string.
 
-    Regression test for https://github.com/strands-agents/sdk-python/issues/1696.
+    Regression test for https://github.com/strands-agents/harness-sdk/issues/1696.
     OpenAI-compatible endpoints (e.g., Kimi K2.5, vLLM, Ollama) only correctly
     parse string content for tool messages; array format causes hallucinated results.
     """

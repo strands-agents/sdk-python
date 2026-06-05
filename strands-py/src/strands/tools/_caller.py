@@ -133,7 +133,7 @@ class _ToolCaller:
 
                 tool_result = run_async(acall)
 
-                # TODO: https://github.com/strands-agents/sdk-python/issues/1311
+                # TODO: https://github.com/strands-agents/harness-sdk/issues/1311
                 if isinstance(self._agent, Agent):
                     self._agent.conversation_manager.apply_management(self._agent)
 

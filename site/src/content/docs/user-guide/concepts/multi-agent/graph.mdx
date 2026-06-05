@@ -215,6 +215,55 @@ builder.add_edge("research", "analysis", condition=only_if_research_successful)
 </Tab>
 </Tabs>
 
+### Conditional Edges with Runtime Context
+
+:::note[Python only]
+This feature is currently available in the Python SDK only.
+:::
+
+Edge conditions can optionally receive an `invocation_state` dictionary, enabling routing decisions based on runtime context such as feature flags, user roles, or environment-specific configuration. This is passed during graph invocation and forwarded to conditions that accept it.
+
+Both signatures are supported — existing conditions that only accept `state` continue to work without changes.
+
+```python
+from strands import Agent
+from strands.multiagent import GraphBuilder
+from strands.multiagent.graph import GraphState
+
+# New-style condition: receives invocation_state for runtime routing
+def requires_admin(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+    """Only traverse if the invoking user has admin role."""
+    return invocation_state.get("role") == "admin"
+
+def requires_feature_flag(state: GraphState, *, invocation_state: dict, **kwargs) -> bool:
+    """Only traverse if the experimental feature is enabled."""
+    return invocation_state.get("enable_experimental", False)
+
+# Build the graph with conditional routing
+builder = GraphBuilder()
+builder.add_node(router, "router")
+builder.add_node(admin_panel, "admin_panel")
+builder.add_node(experimental_feature, "experimental")
+builder.add_node(standard_path, "standard")
+
+builder.add_edge("router", "admin_panel", condition=requires_admin)
+builder.add_edge("router", "experimental", condition=requires_feature_flag)
+builder.add_edge("router", "standard")
+
+graph = builder.build()
+
+# Pass runtime context at invocation time
+result = graph("Process this request", invocation_state={"role": "admin", "enable_experimental": True})
+```
+
+The `invocation_state` dictionary is:
+
+- Passed to every `EdgeConditionWithContext` condition during edge evaluation
+- Persisted across interrupt/resume cycles (serialized with the graph checkpoint)
+- Available via the [`EdgeConditionWithContext`](@api/python/strands.multiagent.graph#EdgeConditionWithContext) protocol
+
+Legacy conditions (`Callable[[GraphState], bool]`) are detected automatically and called with only `state` — no migration is required.
+
 ### Waiting for All Dependencies
 
 :::note[Python only]

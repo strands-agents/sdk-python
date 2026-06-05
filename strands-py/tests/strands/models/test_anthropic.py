@@ -1022,7 +1022,7 @@ def test_format_request_filters_location_source_document(model, model_id, max_to
 async def test_stream_message_stop_no_pydantic_warnings(anthropic_client, model, alist):
     """Verify no Pydantic serialization warnings are emitted for message_stop events.
 
-    Regression test for https://github.com/strands-agents/sdk-python/issues/1746.
+    Regression test for https://github.com/strands-agents/harness-sdk/issues/1746.
     """
     # Create a mock message_stop event where model_dump() would emit warnings
     # The key is that the event has a .message attribute with .stop_reason
