@@ -56,4 +56,4 @@ labels:
   area-tool:
     description: "Tool behavior, tool definitions, tool execution, @tool decorator, tool results, tool validation"
   docs:
-    description: "Documentation changes, content updates, site improvements, API reference, examples, guides"
+    description: "Documentation changes, improvements, additions, content updates, site improvements, examples, guides"
