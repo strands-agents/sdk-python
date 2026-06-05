@@ -12,5 +12,5 @@ instructions: |
 labels:
   python:
     description: "Issue relates to the Python SDK (strands-py/, .py files, pip, pyproject.toml)"
-  javascript:
-    description: "Issue relates to the TypeScript/JavaScript SDK (strands-ts/, .ts files, npm, package.json)"
+  typescript:
+    description: "Issue relates to the TypeScript SDK (strands-ts/, .ts files, npm, package.json)"

@@ -7,6 +7,8 @@ instructions: |
   MCP tools should be labeled area-mcp, not area-tool.
   Provider-specific async/streaming bugs belong to area-provider, not area-async.
   Issues about hook lifecycle events belong to area-hooks even if they mention tools or agents.
+  Guardrails and content filtering belong to area-interventions, not area-hooks.
+  Documentation content issues belong to docs, not area-devx.
 
 labels:
   area-a2a:
@@ -41,5 +43,11 @@ labels:
     description: "Model providers (Bedrock, OpenAI, Anthropic, Ollama, LiteLLM, SageMaker, vLLM, Mistral)"
   area-structured-output:
     description: "Structured output API, JSON schema enforcement, Pydantic output models"
+  area-interventions:
+    description: "Guardrails, input/output filtering, content moderation, safety controls"
+  area-server:
+    description: "Strands Server, sandbox, runtime container, execution boundaries, credential injection"
   area-tool:
     description: "Tool behavior, tool definitions, tool execution, @tool decorator, tool results"
+  docs:
+    description: "Documentation changes, content updates, site improvements, examples"
