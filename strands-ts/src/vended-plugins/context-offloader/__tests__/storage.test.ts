@@ -56,6 +56,68 @@ describe('InMemoryStorage', () => {
   })
 })
 
+describe('InMemoryStorage eviction', () => {
+  it('eviction enabled by default (10 cycles)', async () => {
+    const storage = new InMemoryStorage()
+    const ref = await storage.store('key1', new TextEncoder().encode('test'))
+    storage._evict(11)
+    await expect(storage.retrieve(ref)).rejects.toThrow('Reference not found')
+  })
+
+  it('eviction disabled with null', async () => {
+    const storage = new InMemoryStorage({ evictAfterTurns: null })
+    const ref = await storage.store('key1', new TextEncoder().encode('test'))
+    storage._evict(100)
+    const result = await storage.retrieve(ref)
+    expect(new TextDecoder().decode(result.content)).toBe('test')
+  })
+
+  it('throws on invalid evictAfterTurns', () => {
+    expect(() => new InMemoryStorage({ evictAfterTurns: 0 })).toThrow('evictAfterTurns must be a positive integer')
+    expect(() => new InMemoryStorage({ evictAfterTurns: -1 })).toThrow('evictAfterTurns must be a positive integer')
+  })
+
+  it('entry survives within TTL', async () => {
+    const storage = new InMemoryStorage({ evictAfterTurns: 3 })
+    const ref = await storage.store('key1', new TextEncoder().encode('test'))
+    // stored at cycle 0, evict at cycle 3: threshold = 3 - 3 = 0, 0 < 0 is false
+    storage._evict(3)
+    const result = await storage.retrieve(ref)
+    expect(new TextDecoder().decode(result.content)).toBe('test')
+  })
+
+  it('entry evicted past TTL', async () => {
+    const storage = new InMemoryStorage({ evictAfterTurns: 2 })
+    const ref = await storage.store('key1', new TextEncoder().encode('test'))
+    // stored at cycle 0, evict at cycle 3: threshold = 3 - 2 = 1, 0 < 1 → evicted
+    storage._evict(3)
+    await expect(storage.retrieve(ref)).rejects.toThrow('Reference not found')
+  })
+
+  it('retrieve refreshes last accessed cycle', async () => {
+    const storage = new InMemoryStorage({ evictAfterTurns: 2 })
+    const ref = await storage.store('key1', new TextEncoder().encode('test'))
+    storage._evict(1)
+    await storage.retrieve(ref) // refreshes to cycle 1
+    // threshold at cycle 3 = 3 - 2 = 1, last_accessed = 1, 1 < 1 is false
+    storage._evict(3)
+    const result = await storage.retrieve(ref)
+    expect(new TextDecoder().decode(result.content)).toBe('test')
+  })
+
+  it('multiple entries evicted independently', async () => {
+    const storage = new InMemoryStorage({ evictAfterTurns: 2 })
+    const ref1 = await storage.store('key1', new TextEncoder().encode('first'))
+    storage._evict(1)
+    const ref2 = await storage.store('key2', new TextEncoder().encode('second'))
+    // threshold at cycle 3 = 3 - 2 = 1. ref1 at 0 (evicted), ref2 at 1 (survives)
+    storage._evict(3)
+    await expect(storage.retrieve(ref1)).rejects.toThrow('Reference not found')
+    const result = await storage.retrieve(ref2)
+    expect(new TextDecoder().decode(result.content)).toBe('second')
+  })
+})
+
 describe('S3Storage', () => {
   let mockSend: ReturnType<typeof vi.fn>
   let mockS3Client: { send: ReturnType<typeof vi.fn> }

@@ -217,13 +217,18 @@ class InMemoryStorage:
     is not available or not desired. Thread-safe.
 
     Supports turn-based eviction: entries not accessed (stored or retrieved)
-    within ``evict_after_turns`` turns are automatically removed when ``tick()``
-    is called. The ``ContextOffloader`` plugin calls ``tick()`` on each model
-    invocation cycle. Eviction is enabled by default (10 turns). Pass ``None``
-    to disable.
+    within ``evict_after_turns`` agent loop cycles are automatically removed.
+    The ``ContextOffloader`` plugin triggers eviction on each model invocation
+    cycle. Eviction is enabled by default (10 cycles). Pass ``None`` to disable.
+
+    Note:
+        Evicted entries are permanently deleted from memory. The agent will
+        receive an error if it attempts to retrieve evicted content. The
+        original tool result is not preserved in the conversation history
+        after offloading — only the preview and references remain in context.
 
     Args:
-        evict_after_turns: Number of turns of inactivity before an entry is
+        evict_after_turns: Number of cycles of inactivity before an entry is
             evicted. Defaults to 10. ``None`` disables eviction.
     """
 

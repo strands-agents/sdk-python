@@ -1,7 +1,7 @@
 import type { Plugin } from '../../plugins/plugin.js'
 import type { Tool, ToolContext } from '../../tools/tool.js'
 import type { LocalAgent } from '../../types/agent.js'
-import { AfterToolCallEvent } from '../../hooks/events.js'
+import { AfterToolCallEvent, BeforeModelCallEvent } from '../../hooks/events.js'
 import { TextBlock, JsonBlock, ToolResultBlock, Message } from '../../types/messages.js'
 import type { ToolResultContent } from '../../types/messages.js'
 import { ImageBlock, VideoBlock, DocumentBlock } from '../../types/media.js'
@@ -139,6 +139,7 @@ export class ContextOffloader implements Plugin {
   private readonly _includeRetrievalTool: boolean
   private readonly _storageByAgent = new WeakMap<LocalAgent, Storage>()
   private _retrievalTool: Tool | undefined
+  private _cycleCount = 0
 
   constructor(config: ContextOffloaderConfig) {
     const maxResultTokens = config.maxResultTokens ?? DEFAULT_MAX_RESULT_TOKENS
@@ -157,6 +158,12 @@ export class ContextOffloader implements Plugin {
   initAgent(agent: LocalAgent): void {
     this._storageForAgent(agent)
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))
+    agent.addHook(BeforeModelCallEvent, () => {
+      this._cycleCount++
+      if ('_evict' in this._storage && typeof this._storage._evict === 'function') {
+        ;(this._storage as { _evict(cycle: number): void })._evict(this._cycleCount)
+      }
+    })
   }
 
   getTools(): Tool[] {
