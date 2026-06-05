@@ -17,6 +17,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
+    Literal,
     TypeVar,
     Union,
     cast,
@@ -139,6 +140,7 @@ class Agent(AgentBase):
         name: str | None = None,
         description: str | None = None,
         state: AgentState | dict | None = None,
+        context_manager: Literal["auto"] | None = None,
         plugins: list[Plugin] | None = None,
         hooks: list[HookProvider | HookCallback] | None = None,
         session_manager: SessionManager | None = None,
@@ -191,6 +193,11 @@ class Agent(AgentBase):
                 Defaults to None.
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
+            context_manager: Context management strategy. When set to ``"auto"``, composes
+                a ContextOffloader plugin (max_result_tokens=1500, preview_tokens=750) with a
+                SummarizingConversationManager (summary_ratio=0.3) using benchmark-validated defaults.
+                If ``conversation_manager`` is also provided, the user's conversation manager is used
+                instead. Defaults to None (no context management).
             plugins: List of Plugin instances to extend agent functionality.
                 Plugins are initialized with the agent instance after construction and can register hooks,
                 modify agent attributes, or perform other setup tasks.
@@ -239,7 +246,11 @@ class Agent(AgentBase):
         else:
             self.callback_handler = callback_handler
 
-        if self.model.stateful and conversation_manager is not None:
+        resolved_cm, resolved_plugins = self._resolve_context_manager(
+            context_manager, conversation_manager, plugins
+        )
+
+        if self.model.stateful and (conversation_manager is not None or context_manager is not None):
             raise ValueError(
                 "conversation_manager cannot be used with a stateful model. "
                 "The model manages conversation state server-side."
@@ -248,6 +259,8 @@ class Agent(AgentBase):
         self.conversation_manager: ConversationManager
         if self.model.stateful:
             self.conversation_manager = NullConversationManager()
+        elif resolved_cm:
+            self.conversation_manager = resolved_cm
         elif conversation_manager:
             self.conversation_manager = conversation_manager
         else:
@@ -362,11 +375,46 @@ class Agent(AgentBase):
         # Register built-in plugins
         self._plugin_registry.add_and_init(_ModelPlugin())
 
-        if plugins:
-            for plugin in plugins:
+        plugins_to_register = resolved_plugins if resolved_plugins is not None else plugins
+        if plugins_to_register:
+            for plugin in plugins_to_register:
                 self._plugin_registry.add_and_init(plugin)
 
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+
+    @staticmethod
+    def _resolve_context_manager(
+        context_manager: "Literal['auto'] | None",
+        conversation_manager: ConversationManager | None,
+        plugins: list[Plugin] | None,
+    ) -> tuple[ConversationManager | None, list[Plugin] | None]:
+        """Resolve context_manager facade into concrete conversation_manager and plugins."""
+        if context_manager is None:
+            return None, None
+
+        from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
+
+        from .conversation_manager import SummarizingConversationManager
+
+        resolved_plugins = list(plugins) if plugins else []
+
+        has_offloader = any(
+            isinstance(p, ContextOffloader) for p in resolved_plugins
+        )
+        if not has_offloader:
+            offloader = ContextOffloader(
+                storage=InMemoryStorage(),
+                max_result_tokens=1_500,
+                preview_tokens=750,
+            )
+            resolved_plugins.insert(0, offloader)
+
+        if conversation_manager is not None:
+            resolved_cm = conversation_manager
+        else:
+            resolved_cm = SummarizingConversationManager(summary_ratio=0.3)
+
+        return resolved_cm, resolved_plugins
 
     def cancel(self) -> None:
         """Cancel the currently running agent invocation.
