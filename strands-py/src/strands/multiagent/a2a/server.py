@@ -33,7 +33,7 @@ class A2AServer:
         self,
         agent: SAAgent | None = None,
         *,
-        agent_factory: "AgentFactory | None" = None,
+        agent_factory: AgentFactory | None = None,
         # AgentCard
         host: str = "127.0.0.1",
         port: int = 9000,
@@ -55,8 +55,9 @@ class A2AServer:
         - ``agent_factory`` (recommended): a callable ``(context_id) -> Agent`` that builds a
           dedicated agent per A2A context. Contexts run concurrently and the factory is the place
           to wire per-context concerns such as a context-scoped ``session_manager``. The factory
-          is also invoked once at construction (with a placeholder context id) to derive the
-          agent card metadata (name, description, skills).
+          is invoked once at construction (with a placeholder context id) solely to derive the
+          agent card metadata (name, description, skills); that agent is not used for request
+          handling. An expensive factory therefore pays its cost once at startup.
         - ``agent`` (deprecated): a single agent serving one conversation. Not multi-tenant safe —
           every A2A context reuses the same instance — so use ``agent_factory`` for multi-caller
           deployments.

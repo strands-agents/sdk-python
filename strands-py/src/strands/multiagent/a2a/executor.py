@@ -17,6 +17,8 @@ import uuid
 import warnings
 from collections import OrderedDict
 from collections.abc import Callable
+from contextlib import nullcontext
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -44,6 +46,18 @@ logger = logging.getLogger(__name__)
 AgentFactory = Callable[[str], SAAgent]
 
 
+@dataclass
+class _StreamState:
+    """Per-invocation A2A-compliant streaming state.
+
+    Kept local to each request rather than on the executor, since factory mode runs requests
+    for different contexts concurrently and instance attributes would corrupt each other.
+    """
+
+    artifact_id: str
+    is_first_chunk: bool = True
+
+
 class StrandsA2AExecutor(AgentExecutor):
     """Executor that adapts a Strands Agent to the A2A protocol.
 
@@ -58,10 +72,6 @@ class StrandsA2AExecutor(AgentExecutor):
 
     # Handle special cases where format differs from extension
     FORMAT_MAPPINGS = {"jpg": "jpeg", "htm": "html", "3gp": "three_gp", "3gpp": "three_gp", "3g2": "three_gp"}
-
-    # A2A-compliant streaming mode
-    _current_artifact_id: str | None
-    _is_first_chunk: bool
 
     # Cap on concurrently tracked A2A contexts (factory mode). Beyond this, the least-recently-used
     # context's agent is evicted to bound memory in long-running servers.
@@ -166,29 +176,6 @@ class StrandsA2AExecutor(AgentExecutor):
                 self._context_locks.move_to_end(context_id)
             return agent, self._context_locks[context_id]
 
-    async def _stream_agent(
-        self,
-        agent: SAAgent,
-        content_blocks: list[ContentBlock],
-        invocation_state: dict[str, Any],
-        updater: TaskUpdater,
-    ) -> None:
-        """Stream one agent invocation and translate its events to A2A updates."""
-        result: SAAgentResult | None = None
-        async for event in agent.stream_async(content_blocks, invocation_state=invocation_state):
-            if "result" in event:
-                result = event["result"]
-            else:
-                await self._handle_streaming_event(event, updater)
-
-        # Check if agent returned with interrupts (input_required)
-        # Note: stop_reason="interrupt" is the authoritative signal. Even if interrupts
-        # list is empty (edge case), the agent still indicated it needs input.
-        if result is not None and result.stop_reason == "interrupt":
-            await self._handle_interrupt_result(result, updater)
-        else:
-            await self._handle_agent_result(result, updater)
-
     async def execute(
         self,
         context: RequestContext,
@@ -281,9 +268,9 @@ class StrandsA2AExecutor(AgentExecutor):
                 stacklevel=3,
             )
 
-        if self.enable_a2a_compliant_streaming:
-            self._current_artifact_id = str(uuid.uuid4())
-            self._is_first_chunk = True
+        # Per-invocation streaming state (None in legacy mode). Local to this request so concurrent
+        # requests in factory mode cannot corrupt each other's artifact tracking.
+        stream_state = _StreamState(artifact_id=str(uuid.uuid4())) if self.enable_a2a_compliant_streaming else None
 
         # Pass the A2A RequestContext through invocation state so downstream
         # tools and hooks can access request metadata, task info, configuration, etc.
@@ -297,20 +284,38 @@ class StrandsA2AExecutor(AgentExecutor):
             context_id = f"ephemeral-{uuid.uuid4()}"
             logger.warning("A2A request had no context_id; isolating under a one-off id=<%s>", context_id)
 
+        agent, lock = await self._resolve_agent(context_id)
+        # Factory mode returns a per-context lock; single-agent mode has none (nothing to serialize).
+        async with lock or nullcontext():
+            await self._stream_agent(agent, content_blocks, invocation_state, updater, stream_state)
+
+    async def _stream_agent(
+        self,
+        agent: SAAgent,
+        content_blocks: list[ContentBlock],
+        invocation_state: dict[str, Any],
+        updater: TaskUpdater,
+        stream_state: _StreamState | None,
+    ) -> None:
+        """Stream one agent invocation and translate its events to A2A updates."""
         try:
-            agent, lock = await self._resolve_agent(context_id)
-            if lock is not None:
-                async with lock:
-                    await self._stream_agent(agent, content_blocks, invocation_state, updater)
+            result: SAAgentResult | None = None
+            async for event in agent.stream_async(content_blocks, invocation_state=invocation_state):
+                if "result" in event:
+                    result = event["result"]
+                else:
+                    await self._handle_streaming_event(event, updater, stream_state)
+
+            # Check if agent returned with interrupts (input_required)
+            # Note: stop_reason="interrupt" is the authoritative signal. Even if interrupts
+            # list is empty (edge case), the agent still indicated it needs input.
+            if result is not None and result.stop_reason == "interrupt":
+                await self._handle_interrupt_result(result, updater)
             else:
-                await self._stream_agent(agent, content_blocks, invocation_state, updater)
+                await self._handle_agent_result(result, updater, stream_state)
         except Exception:
             logger.exception("Error in streaming execution")
             raise
-        finally:
-            if self.enable_a2a_compliant_streaming:
-                self._current_artifact_id = None
-                self._is_first_chunk = True
 
     async def _handle_interrupt_result(self, result: SAAgentResult, updater: TaskUpdater) -> None:
         """Handle an agent result that contains interrupts.
@@ -340,7 +345,9 @@ class StrandsA2AExecutor(AgentExecutor):
 
         await updater.requires_input(message=updater.new_agent_message(parts=[Part(root=TextPart(text=input_message))]))
 
-    async def _handle_streaming_event(self, event: dict[str, Any], updater: TaskUpdater) -> None:
+    async def _handle_streaming_event(
+        self, event: dict[str, Any], updater: TaskUpdater, stream_state: _StreamState | None
+    ) -> None:
         """Handle a single streaming event from the Strands Agent.
 
         Processes streaming events from the agent, converting data chunks to A2A
@@ -350,18 +357,20 @@ class StrandsA2AExecutor(AgentExecutor):
             event: The streaming event from the agent, containing either 'data' for
                 incremental content or 'result' for the final response.
             updater: The task updater for managing task state and sending updates.
+            stream_state: Per-invocation streaming state when A2A-compliant streaming is enabled,
+                else None.
         """
         logger.debug("Streaming event: %s", event)
         if "data" in event:
             if text_content := event["data"]:
-                if self.enable_a2a_compliant_streaming:
+                if stream_state is not None:
                     await updater.add_artifact(
                         [Part(root=TextPart(text=text_content))],
-                        artifact_id=self._current_artifact_id,
+                        artifact_id=stream_state.artifact_id,
                         name="agent_response",
-                        append=not self._is_first_chunk,
+                        append=not stream_state.is_first_chunk,
                     )
-                    self._is_first_chunk = False
+                    stream_state.is_first_chunk = False
                 else:
                     # Legacy use update_status with agent message
                     await updater.update_status(
@@ -373,7 +382,9 @@ class StrandsA2AExecutor(AgentExecutor):
                         ),
                     )
 
-    async def _handle_agent_result(self, result: SAAgentResult | None, updater: TaskUpdater) -> None:
+    async def _handle_agent_result(
+        self, result: SAAgentResult | None, updater: TaskUpdater, stream_state: _StreamState | None
+    ) -> None:
         """Handle the final result from the Strands Agent.
 
         For A2A-compliant streaming: sends the final artifact chunk marker and marks
@@ -386,20 +397,22 @@ class StrandsA2AExecutor(AgentExecutor):
         Args:
             result: The agent result object containing the final response, or None if no result.
             updater: The task updater for managing task state and adding the final artifact.
+            stream_state: Per-invocation streaming state when A2A-compliant streaming is enabled,
+                else None.
         """
-        if self.enable_a2a_compliant_streaming:
-            if self._is_first_chunk:
+        if stream_state is not None:
+            if stream_state.is_first_chunk:
                 final_content = str(result) if result else ""
                 await updater.add_artifact(
                     [Part(root=TextPart(text=final_content))],
-                    artifact_id=self._current_artifact_id,
+                    artifact_id=stream_state.artifact_id,
                     name="agent_response",
                     last_chunk=True,
                 )
             else:
                 await updater.add_artifact(
                     [Part(root=TextPart(text=""))],
-                    artifact_id=self._current_artifact_id,
+                    artifact_id=stream_state.artifact_id,
                     name="agent_response",
                     append=True,
                     last_chunk=True,

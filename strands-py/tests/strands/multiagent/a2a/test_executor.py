@@ -9,7 +9,7 @@ from a2a.types import DataPart, FilePart, InternalError, TextPart, UnsupportedOp
 from a2a.utils.errors import ServerError
 
 from strands.agent.agent_result import AgentResult as SAAgentResult
-from strands.multiagent.a2a.executor import StrandsA2AExecutor
+from strands.multiagent.a2a.executor import StrandsA2AExecutor, _StreamState
 from strands.types.content import ContentBlock
 
 # Suppress A2A compliance warnings for legacy streaming mode tests, and the single-agent
@@ -655,7 +655,7 @@ async def test_handle_agent_result_with_none_result(mock_strands_agent, mock_req
     mock_updater.add_artifact = AsyncMock()
 
     # Call _handle_agent_result with None
-    await executor._handle_agent_result(None, mock_updater)
+    await executor._handle_agent_result(None, mock_updater, None)
 
     # Verify completion was called
     mock_updater.complete.assert_called_once()
@@ -684,7 +684,7 @@ async def test_handle_agent_result_with_result_but_no_message(
     mock_result.message = None
 
     # Call _handle_agent_result
-    await executor._handle_agent_result(mock_result, mock_updater)
+    await executor._handle_agent_result(mock_result, mock_updater, None)
 
     # Verify completion was called
     mock_updater.complete.assert_called_once()
@@ -705,7 +705,7 @@ async def test_handle_agent_result_with_content(mock_strands_agent):
     mock_result.__str__ = MagicMock(return_value="Test response content")
 
     # Call _handle_agent_result
-    await executor._handle_agent_result(mock_result, mock_updater)
+    await executor._handle_agent_result(mock_result, mock_updater, None)
 
     # Verify artifact was added and task completed
     mock_updater.add_artifact.assert_called_once()
@@ -1114,15 +1114,14 @@ async def test_a2a_compliant_mode_no_warning(mock_strands_agent, mock_request_co
 async def test_a2a_compliant_mode_uses_add_artifact(mock_strands_agent):
     """Test that A2A-compliant mode uses add_artifact with artifact_id."""
     executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
-    executor._current_artifact_id = "artifact-123"
-    executor._is_first_chunk = True
+    stream_state = _StreamState(artifact_id="artifact-123", is_first_chunk=True)
 
     mock_updater = MagicMock()
     mock_updater.add_artifact = AsyncMock()
     mock_updater.update_status = AsyncMock()
 
     event = {"data": "content"}
-    await executor._handle_streaming_event(event, mock_updater)
+    await executor._handle_streaming_event(event, mock_updater, stream_state)
 
     mock_updater.add_artifact.assert_called_once()
     assert mock_updater.add_artifact.call_args[1]["artifact_id"] == "artifact-123"
@@ -1134,8 +1133,7 @@ async def test_a2a_compliant_mode_uses_add_artifact(mock_strands_agent):
 async def test_a2a_compliant_handle_result_first_chunk_with_content(mock_strands_agent):
     """Test that A2A-compliant mode sends a TextPart with content when first chunk and result has content."""
     executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
-    executor._current_artifact_id = "artifact-456"
-    executor._is_first_chunk = True
+    stream_state = _StreamState(artifact_id="artifact-456", is_first_chunk=True)
 
     mock_updater = MagicMock()
     mock_updater.add_artifact = AsyncMock()
@@ -1144,7 +1142,7 @@ async def test_a2a_compliant_handle_result_first_chunk_with_content(mock_strands
     mock_result = MagicMock(spec=SAAgentResult)
     mock_result.__str__ = MagicMock(return_value="Final response")
 
-    await executor._handle_agent_result(mock_result, mock_updater)
+    await executor._handle_agent_result(mock_result, mock_updater, stream_state)
 
     mock_updater.add_artifact.assert_called_once()
     parts = mock_updater.add_artifact.call_args[0][0]
@@ -1163,14 +1161,13 @@ async def test_a2a_compliant_handle_result_first_chunk_with_none_result(mock_str
     we should send a TextPart with an empty string rather than an empty list.
     """
     executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
-    executor._current_artifact_id = "artifact-789"
-    executor._is_first_chunk = True
+    stream_state = _StreamState(artifact_id="artifact-789", is_first_chunk=True)
 
     mock_updater = MagicMock()
     mock_updater.add_artifact = AsyncMock()
     mock_updater.complete = AsyncMock()
 
-    await executor._handle_agent_result(None, mock_updater)
+    await executor._handle_agent_result(None, mock_updater, stream_state)
 
     mock_updater.add_artifact.assert_called_once()
     parts = mock_updater.add_artifact.call_args[0][0]
@@ -1189,8 +1186,7 @@ async def test_a2a_compliant_handle_result_not_first_chunk(mock_strands_agent):
     chunk should include a TextPart with an empty string rather than an empty list.
     """
     executor = StrandsA2AExecutor(mock_strands_agent, enable_a2a_compliant_streaming=True)
-    executor._current_artifact_id = "artifact-abc"
-    executor._is_first_chunk = False
+    stream_state = _StreamState(artifact_id="artifact-abc", is_first_chunk=False)
 
     mock_updater = MagicMock()
     mock_updater.add_artifact = AsyncMock()
@@ -1199,7 +1195,7 @@ async def test_a2a_compliant_handle_result_not_first_chunk(mock_strands_agent):
     mock_result = MagicMock(spec=SAAgentResult)
     mock_result.__str__ = MagicMock(return_value="Some content")
 
-    await executor._handle_agent_result(mock_result, mock_updater)
+    await executor._handle_agent_result(mock_result, mock_updater, stream_state)
 
     mock_updater.add_artifact.assert_called_once()
     parts = mock_updater.add_artifact.call_args[0][0]
@@ -2160,3 +2156,82 @@ async def test_factory_mode_evicts_least_recently_used_context(mock_event_queue)
 
     assert set(executor._agents.keys()) == {"ctx-A", "ctx-C"}
     assert set(executor._context_locks.keys()) == {"ctx-A", "ctx-C"}
+
+
+@pytest.mark.asyncio
+async def test_concurrent_compliant_streaming_uses_distinct_artifact_ids():
+    """Concurrent A2A-compliant streams in different contexts must not share artifact state.
+
+    Streaming state is per-invocation, so two requests running concurrently each emit their own
+    artifact_id. Were it stored on the executor, the streams would corrupt each other.
+    """
+    import asyncio
+
+    from a2a.types import TaskArtifactUpdateEvent
+
+    # Stub model that yields a data chunk then a result, with an await between requests' steps
+    # so the two invocations genuinely interleave.
+    def slow_factory(context_id):
+        from collections.abc import AsyncGenerator
+
+        from strands.agent.agent import Agent
+        from strands.models import Model
+
+        class _SlowModel(Model):
+            def get_config(self):
+                return {}
+
+            def update_config(self, **k):
+                pass
+
+            def format_request(self, m, tool_specs=None, system_prompt=None):
+                return None
+
+            def format_chunk(self, e):
+                return e
+
+            async def structured_output(self, om, p, system_prompt=None, **k):
+                yield {}
+
+            async def stream(
+                self, messages, tool_specs=None, system_prompt=None, tool_choice=None, **k
+            ) -> "AsyncGenerator":
+                yield {"messageStart": {"role": "assistant"}}
+                yield {"contentBlockStart": {"start": {}}}
+                await asyncio.sleep(0.01)  # force interleaving with the other request
+                yield {"contentBlockDelta": {"delta": {"text": f"chunk-{context_id}"}}}
+                yield {"contentBlockStop": {}}
+                yield {"messageStop": {"stopReason": "end_turn"}}
+
+        return Agent(model=_SlowModel(), name="s", description="d")
+
+    executor = StrandsA2AExecutor(agent_factory=slow_factory, enable_a2a_compliant_streaming=True)
+
+    def make_queue():
+        events: list = []
+
+        async def enqueue(e):
+            events.append(e)
+
+        q = MagicMock()
+        q.enqueue_event = enqueue
+        return q, events
+
+    qa, events_a = make_queue()
+    qb, events_b = make_queue()
+
+    # Run both contexts concurrently.
+    await asyncio.gather(
+        executor.execute(_make_request_context("ctx-A", "a-1", "hi"), qa),
+        executor.execute(_make_request_context("ctx-B", "b-1", "hi"), qb),
+    )
+
+    def artifact_ids(events):
+        return {e.artifact.artifact_id for e in events if isinstance(e, TaskArtifactUpdateEvent)}
+
+    ids_a = artifact_ids(events_a)
+    ids_b = artifact_ids(events_b)
+
+    # Each request used exactly one artifact id, and the two requests' ids are disjoint.
+    assert len(ids_a) == 1 and len(ids_b) == 1
+    assert ids_a.isdisjoint(ids_b)
