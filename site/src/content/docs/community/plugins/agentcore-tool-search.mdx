@@ -13,13 +13,9 @@ service:
   link: https://docs.aws.amazon.com/bedrock/latest/userguide/agentcore.html
 ---
 
-The [AgentCore Tool Search plugin](https://github.com/aws/bedrock-agentcore-sdk-python/tree/main/src/bedrock_agentcore/gateway/integrations/strands/plugins/agentcore_tool_search) enables semantic tool discovery for [Strands Agents](https://github.com/strands-agents/sdk-python) using [Amazon Bedrock AgentCore Gateway](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-using-mcp-semantic-search.html). It allows agents to dynamically load only the relevant tools for each invocation by deriving user intent from conversation history, even when hundreds of tools are registered on the gateway.
+The [AgentCore Tool Search plugin](https://github.com/aws/bedrock-agentcore-sdk-python/tree/main/src/bedrock_agentcore/gateway/integrations/strands/plugins/agentcore_tool_search) enables semantic tool discovery for Strands Agents using [Amazon Bedrock AgentCore Gateway](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-using-mcp-semantic-search.html). It allows agents to dynamically load only the relevant tools for each invocation by deriving user intent from conversation history, even when hundreds of tools are registered on the gateway.
 
-- **Semantic tool discovery** — uses AgentCore Gateway's built-in search to find relevant tools
-- **Intent-based loading** — derives user intent via LLM before searching
-- **No list_tools call** — tools are built directly from search results
-- **Pluggable intent provider** — swap the default intent provider with your own
-- **Agent model reuse** — by default, the intent classifier uses the same model as the parent agent
+The plugin derives user intent from conversation history and queries AgentCore Gateway's semantic search to load only the relevant tools for each invocation. Intent derivation is pluggable — the built-in provider reuses the parent agent's model by default, or you can supply your own `IntentProvider` implementation for full control over how intent is classified.
 
 ## Installation
 
@@ -41,16 +37,6 @@ mcp_client = MCPClient(lambda: aws_iam_streamablehttp_client(
     aws_service="bedrock-agentcore",
 ))
 
-mcp_client.start()
-
-agent = Agent(plugins=[AgentCoreToolSearchPlugin(mcp_client=mcp_client)])
-
-agent("Find me afternoon flights to New York")
-```
-
-Or using a context manager:
-
-```python
 with mcp_client:
     agent = Agent(plugins=[AgentCoreToolSearchPlugin(mcp_client=mcp_client)])
     agent("Find me afternoon flights to New York")
@@ -150,4 +136,3 @@ For more details, see the [AgentCore Gateway documentation](https://docs.aws.ama
 
 - [AgentCore SDK](https://github.com/aws/bedrock-agentcore-sdk-python)
 - [AgentCore Gateway documentation](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-building.html)
-- [Strands Plugins documentation](/docs/user-guide/concepts/plugins/)
