@@ -412,7 +412,10 @@ class Agent(AgentBase):
         if conversation_manager is not None:
             resolved_cm = conversation_manager
         else:
-            resolved_cm = SummarizingConversationManager(summary_ratio=0.3)
+            resolved_cm = SummarizingConversationManager(
+                summary_ratio=0.3,
+                proactive_compression={"compression_threshold": 0.85},
+            )
 
         return resolved_cm, resolved_plugins
 

@@ -40,9 +40,9 @@ class TestContextManagerAuto:
         agent = Agent(model=mock_model, context_manager="auto")
         assert agent.conversation_manager.summary_ratio == 0.3
 
-    def test_no_proactive_compression(self, mock_model):
+    def test_proactive_compression_at_85_percent(self, mock_model):
         agent = Agent(model=mock_model, context_manager="auto")
-        assert agent.conversation_manager._compression_threshold is None
+        assert agent.conversation_manager._compression_threshold == 0.85
 
     def test_adds_context_offloader_plugin(self, mock_model):
         agent = Agent(model=mock_model, context_manager="auto")
