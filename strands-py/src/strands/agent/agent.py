@@ -459,7 +459,7 @@ class Agent(AgentBase):
                 max_result_tokens=_CM_MAX_RESULT_TOKENS,
                 preview_tokens=_CM_PREVIEW_TOKENS,
             )
-            resolved_plugins.insert(0, offloader)
+            resolved_plugins.append(offloader)
 
         if conversation_manager is not None:
             resolved_cm = conversation_manager

@@ -268,6 +268,9 @@ function resolveConversationManager(
   contextManager: ContextManagerStrategy | undefined,
   conversationManager: ConversationManager | undefined
 ): ConversationManager {
+  if (contextManager !== undefined && contextManager !== 'auto') {
+    throw new Error(`Unsupported contextManager value: "${contextManager}". Supported values: "auto"`)
+  }
   if (contextManager === 'auto') {
     return (
       conversationManager ??
