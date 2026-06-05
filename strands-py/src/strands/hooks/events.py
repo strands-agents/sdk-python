@@ -4,6 +4,7 @@ This module defines the events that are emitted as Agents run through the lifecy
 """
 
 import uuid
+import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -410,18 +411,32 @@ class BeforeNodeCallEvent(BaseHookEvent, _Interruptible):
         source: The multi-agent orchestrator instance
         node_id: ID of the node about to execute
         invocation_state: Configuration that user passes in
-        cancel_node: A user defined message that when set, will skip the node execution and mark it as skipped,
-            allowing downstream nodes to continue executing. The message will be emitted under a MultiAgentNodeCancel
-            event. If set to `True`, Strands will skip the node using a default cancel message.
+        skip_node: A user defined message that when set, will skip the node execution and emit a
+            :class:`~strands.types._events.MultiAgentNodeSkipEvent`. If set to ``True``, a default
+            skip message is used. Any falsy value (``False``, ``""`` etc.) means "do not skip".
+        cancel_node: Deprecated. Use ``skip_node`` instead. When set to a truthy value, behaves
+            identically to ``skip_node`` but also emits a ``DeprecationWarning`` at the assignment
+            site.
     """
 
     source: "MultiAgentBase"
     node_id: str
     invocation_state: dict[str, Any] | None = None
+    skip_node: bool | str = False
     cancel_node: bool | str = False
 
     def _can_write(self, name: str) -> bool:
-        return name in ["cancel_node"]
+        return name in ["skip_node", "cancel_node"]
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Set attribute, emitting a DeprecationWarning when cancel_node is assigned a truthy value."""
+        if name == "cancel_node" and value:
+            warnings.warn(
+                "BeforeNodeCallEvent.cancel_node is deprecated; use skip_node instead",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+        super().__setattr__(name, value)
 
     @override
     def _interrupt_id(self, name: str) -> str:

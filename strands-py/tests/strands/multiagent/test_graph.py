@@ -13,7 +13,7 @@ from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult
 from strands.multiagent.graph import Graph, GraphBuilder, GraphEdge, GraphNode, GraphResult, GraphState, Status
 from strands.session.file_session_manager import FileSessionManager
 from strands.session.session_manager import SessionManager
-from strands.types._events import MultiAgentNodeCancelEvent
+from strands.types._events import MultiAgentNodeSkipEvent
 
 
 def _make_graph(
@@ -2198,11 +2198,47 @@ async def test_graph_tracing_setup_failure_does_not_leak_timer(mock_strands_trac
 
 
 @pytest.mark.parametrize(
-    ("cancel_node", "cancel_message"),
-    [(True, "node cancelled by user"), ("custom cancel message", "custom cancel message")],
+    ("skip_node", "skip_message"),
+    [(True, "node skipped by user"), ("custom skip message", "custom skip message")],
 )
 @pytest.mark.asyncio
-async def test_graph_cancel_node(cancel_node, cancel_message):
+async def test_graph_skip_node(skip_node, skip_message):
+    def skip_callback(event):
+        event.skip_node = skip_node
+        return event
+
+    agent = create_mock_agent("test_agent", "Should not execute")
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_agent")
+    builder.set_entry_point("test_agent")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, skip_callback)
+
+    tru_skip_event = None
+    async for event in graph.stream_async("test task"):
+        if event.get("type") == "multiagent_node_skip":
+            tru_skip_event = event
+
+    exp_skip_event = MultiAgentNodeSkipEvent(node_id="test_agent", message=skip_message)
+    assert tru_skip_event == exp_skip_event
+
+    assert graph.state.status == Status.COMPLETED
+    assert any(n.node_id == "test_agent" for n in graph.state.completed_nodes)
+    assert "test_agent" in graph.state.results
+    assert graph.state.results["test_agent"].status == Status.SKIPPED
+    skipped_node = next(n for n in graph.state.completed_nodes if n.node_id == "test_agent")
+    assert skipped_node.execution_status == Status.SKIPPED
+    agent.__call__.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("cancel_node", "cancel_message"),
+    [(True, "node skipped by user"), ("custom cancel message", "custom cancel message")],
+)
+@pytest.mark.asyncio
+async def test_graph_cancel_node_deprecated(cancel_node, cancel_message):
+    """cancel_node still works but emits a DeprecationWarning and produces a multiagent_node_skip event."""
+
     def cancel_callback(event):
         event.cancel_node = cancel_node
         return event
@@ -2214,13 +2250,14 @@ async def test_graph_cancel_node(cancel_node, cancel_message):
     graph = builder.build()
     graph.hooks.add_callback(BeforeNodeCallEvent, cancel_callback)
 
-    tru_cancel_event = None
-    async for event in graph.stream_async("test task"):
-        if event.get("type") == "multiagent_node_cancel":
-            tru_cancel_event = event
+    tru_skip_event = None
+    with pytest.warns(DeprecationWarning, match="cancel_node is deprecated"):
+        async for event in graph.stream_async("test task"):
+            if event.get("type") == "multiagent_node_skip":
+                tru_skip_event = event
 
-    exp_cancel_event = MultiAgentNodeCancelEvent(node_id="test_agent", message=cancel_message)
-    assert tru_cancel_event == exp_cancel_event
+    exp_skip_event = MultiAgentNodeSkipEvent(node_id="test_agent", message=cancel_message)
+    assert tru_skip_event == exp_skip_event
 
     assert graph.state.status == Status.COMPLETED
     assert any(n.node_id == "test_agent" for n in graph.state.completed_nodes)
@@ -2232,13 +2269,13 @@ async def test_graph_cancel_node(cancel_node, cancel_message):
 
 
 @pytest.mark.asyncio
-async def test_graph_cancel_node_downstream_executes():
-    """Downstream nodes must run after an upstream node is skipped via cancel_node."""
-    cancelled_nodes: list[str] = []
+async def test_graph_skip_node_downstream_executes():
+    """Downstream nodes must run after an upstream node is skipped via skip_node."""
+    skipped_nodes: list[str] = []
 
-    def cancel_step_a(event):
+    def skip_step_a(event):
         if event.node_id == "step_a":
-            event.cancel_node = "step_a skipped"
+            event.skip_node = "step_a skipped"
         return event
 
     step_a = create_mock_agent("step_a", "Should not run")
@@ -2250,16 +2287,13 @@ async def test_graph_cancel_node_downstream_executes():
     builder.add_edge("step_a", "step_b")
     builder.set_entry_point("step_a")
     graph = builder.build()
-    graph.hooks.add_callback(BeforeNodeCallEvent, cancel_step_a)
+    graph.hooks.add_callback(BeforeNodeCallEvent, skip_step_a)
 
-    graph_result = None
     async for event in graph.stream_async("test task"):
-        if event.get("type") == "multiagent_node_cancel":
-            cancelled_nodes.append(event["node_id"])
-        elif event.get("type") == "multiagent_result":
-            graph_result = event["result"]
+        if event.get("type") == "multiagent_node_skip":
+            skipped_nodes.append(event["node_id"])
 
-    assert cancelled_nodes == ["step_a"]
+    assert skipped_nodes == ["step_a"]
     assert graph.state.status == Status.COMPLETED
     step_a.__call__.assert_not_called()
     step_b.stream_async.assert_called_once()
@@ -2280,10 +2314,36 @@ async def test_graph_cancel_node_downstream_executes():
     assert len(step_b_input) == 1
     assert step_b_input[0]["text"] == "test task"
 
-    # GraphResult counters must separate skipped from completed
-    assert graph_result is not None
-    assert graph_result.completed_nodes == 1  # only step_b ran
-    assert graph_result.skipped_nodes == 1  # only step_a was skipped
+
+@pytest.mark.asyncio
+async def test_graph_cancel_node_deprecated_downstream_executes():
+    """Deprecated cancel_node still allows downstream nodes to run; emits DeprecationWarning."""
+    skipped_nodes: list[str] = []
+
+    def cancel_step_a(event):
+        if event.node_id == "step_a":
+            event.cancel_node = "step_a skipped"
+        return event
+
+    step_a = create_mock_agent("step_a", "Should not run")
+    step_b = create_mock_agent("step_b", "Step B completed")
+
+    builder = GraphBuilder()
+    builder.add_node(step_a, "step_a")
+    builder.add_node(step_b, "step_b")
+    builder.add_edge("step_a", "step_b")
+    builder.set_entry_point("step_a")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, cancel_step_a)
+
+    with pytest.warns(DeprecationWarning, match="cancel_node is deprecated"):
+        async for event in graph.stream_async("test task"):
+            if event.get("type") == "multiagent_node_skip":
+                skipped_nodes.append(event["node_id"])
+
+    assert skipped_nodes == ["step_a"]
+    assert graph.state.results["step_a"].status == Status.SKIPPED
+    assert graph.state.results["step_b"].status == Status.COMPLETED
 
 
 def test_graph_interrupt_on_before_node_call_event(interrupt_hook):

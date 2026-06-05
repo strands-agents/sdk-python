@@ -44,8 +44,8 @@ from ..session import SessionManager
 from ..telemetry import get_tracer
 from ..types._events import (
     MultiAgentHandoffEvent,
-    MultiAgentNodeCancelEvent,
     MultiAgentNodeInterruptEvent,
+    MultiAgentNodeSkipEvent,
     MultiAgentNodeStartEvent,
     MultiAgentNodeStopEvent,
     MultiAgentNodeStreamEvent,
@@ -1001,12 +1001,12 @@ class Graph(MultiAgentBase):
                 yield self._activate_interrupt(node, interrupts, from_hook=True)
                 return
 
-            if before_event.cancel_node:
-                cancel_message = (
-                    before_event.cancel_node if isinstance(before_event.cancel_node, str) else "node cancelled by user"
-                )
+            skip_value = before_event.skip_node or before_event.cancel_node
+
+            if skip_value:
+                cancel_message = skip_value if isinstance(skip_value, str) else "node skipped by user"
                 logger.debug("reason=<%s> | node skipped, graph continues", cancel_message)
-                yield MultiAgentNodeCancelEvent(node.node_id, cancel_message)
+                yield MultiAgentNodeSkipEvent(node.node_id, cancel_message)
                 node_result = NodeResult(
                     result=None,
                     execution_time=0,
@@ -1273,12 +1273,8 @@ class Graph(MultiAgentBase):
             execution_count=self.state.execution_count,
             execution_time=self._execution_time_with_active_interval(self.state.execution_time),
             total_nodes=self.state.total_nodes,
-            completed_nodes=sum(
-                1 for n in self.state.completed_nodes if n.execution_status == Status.COMPLETED
-            ),
-            skipped_nodes=sum(
-                1 for n in self.state.completed_nodes if n.execution_status == Status.SKIPPED
-            ),
+            completed_nodes=sum(1 for n in self.state.completed_nodes if n.execution_status == Status.COMPLETED),
+            skipped_nodes=sum(1 for n in self.state.completed_nodes if n.execution_status == Status.SKIPPED),
             failed_nodes=len(self.state.failed_nodes),
             interrupted_nodes=len(self.state.interrupted_nodes),
             execution_order=self.state.execution_order,
