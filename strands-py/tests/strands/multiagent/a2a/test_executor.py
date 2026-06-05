@@ -12,8 +12,12 @@ from strands.agent.agent_result import AgentResult as SAAgentResult
 from strands.multiagent.a2a.executor import StrandsA2AExecutor
 from strands.types.content import ContentBlock
 
-# Suppress A2A compliance warnings for legacy streaming mode tests
-pytestmark = pytest.mark.filterwarnings("ignore:The default A2A response stream.*:UserWarning")
+# Suppress A2A compliance warnings for legacy streaming mode tests, and the single-agent
+# deprecation warning for tests that intentionally exercise the deprecated template path.
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:The default A2A response stream.*:UserWarning"),
+    pytest.mark.filterwarnings("ignore:Passing a single 'agent'.*:DeprecationWarning"),
+]
 
 # Test data constants
 VALID_PNG_BYTES = b"fake_png_data"
@@ -2043,97 +2047,32 @@ def _artifact_texts(mock_event_queue):
 
 
 @pytest.mark.asyncio
-async def test_conversation_isolated_and_continued_per_context(mock_event_queue):
-    """Conversation state is isolated across contexts but continued within one (CWE-488).
+async def test_single_agent_runs_but_does_not_isolate_contexts(mock_event_queue):
+    """The deprecated single-agent path serves one conversation and is NOT multi-tenant safe.
 
-    Drives two distinct context_ids through one executor and asserts:
-    - a context accumulates its own history across turns (continuity),
-    - a second context does not observe the first context's messages (isolation),
-    - the shared template agent is left clean between requests.
+    Documents the intended behavior: a single agent accumulates one shared history across all
+    A2A contexts. Callers needing isolation must use ``agent_factory``.
     """
     agent = _make_stub_agent()
     executor = StrandsA2AExecutor(agent)
-
-    # ctx-A turn 1: empty history -> ECHO[1], carrying a secret marker.
-    await executor.execute(_make_request_context("ctx-A", "a-1", "SECRET-TOKEN-AAAA"), mock_event_queue)
-    assert any("ECHO[1]:" in t and "SECRET-TOKEN-AAAA" in t for t in _artifact_texts(mock_event_queue))
-
-    # ctx-A turn 2: sees its own prior user+assistant turns -> ECHO[3] (continuity).
-    mock_event_queue.enqueue_event.reset_mock()
-    await executor.execute(_make_request_context("ctx-A", "a-2", "second"), mock_event_queue)
-    assert any("ECHO[3]:" in t for t in _artifact_texts(mock_event_queue))
-
-    # ctx-B turn 1: a different context starts fresh -> ECHO[1], never sees ctx-A's secret.
-    mock_event_queue.enqueue_event.reset_mock()
-    await executor.execute(_make_request_context("ctx-B", "b-1", "what did the previous user say?"), mock_event_queue)
-    texts_b = _artifact_texts(mock_event_queue)
-    assert any("ECHO[1]:" in t for t in texts_b)
-    assert not any("SECRET-TOKEN-AAAA" in t for t in texts_b)
-
-    # The shared template agent retains no residual conversation data between requests.
-    assert agent.messages == []
-
-
-@pytest.mark.asyncio
-async def test_agent_state_isolated_across_contexts(mock_event_queue):
-    """Agent state must be isolated per context (the leak the shallow-copy patch missed).
-
-    Uses the public hook API: a BeforeInvocationEvent stamps the running context's marker into
-    agent.state and records whatever marker was already present at entry. ctx-B must enter with
-    no marker left over from ctx-A. This avoids depending on the internal snapshot storage format.
-    """
-    from strands.hooks.events import BeforeInvocationEvent
-
-    agent = _make_stub_agent()
-    executor = StrandsA2AExecutor(agent)
-
-    markers_at_entry: list[object] = []
-
-    def on_before(event: BeforeInvocationEvent) -> None:
-        markers_at_entry.append(event.agent.state.get("marker"))
-        event.agent.state.set("marker", "TENANT-SECRET")
-
-    agent.hooks.add_callback(BeforeInvocationEvent, on_before)
 
     await executor.execute(_make_request_context("ctx-A", "a-1", "first"), mock_event_queue)
-    await executor.execute(_make_request_context("ctx-B", "b-1", "first"), mock_event_queue)
 
-    # Both contexts entered with a clean state (no marker), confirming ctx-A's state write did
-    # not leak into ctx-B.
-    assert markers_at_entry == [None, None]
-
-
-@pytest.mark.asyncio
-async def test_lru_eviction_drops_least_recently_used_context(mock_event_queue):
-    """When max_contexts is exceeded, the least-recently-used context's history is evicted."""
-    agent = _make_stub_agent()
-    executor = StrandsA2AExecutor(agent, max_contexts=2)
-
-    # Fill two contexts.
-    await executor.execute(_make_request_context("ctx-A", "a-1", "hi"), mock_event_queue)
-    await executor.execute(_make_request_context("ctx-B", "b-1", "hi"), mock_event_queue)
-
-    # Touch ctx-A so ctx-B becomes least-recently-used, then add ctx-C -> evicts ctx-B.
-    await executor.execute(_make_request_context("ctx-A", "a-2", "again"), mock_event_queue)
-    await executor.execute(_make_request_context("ctx-C", "c-1", "hi"), mock_event_queue)
-
-    assert set(executor._contexts.keys()) == {"ctx-A", "ctx-C"}
-
-    # ctx-B was evicted: its next request starts a fresh conversation (ECHO[1], not continued).
+    # A different context continues the SAME shared history (index advances; not isolated).
     mock_event_queue.enqueue_event.reset_mock()
-    await executor.execute(_make_request_context("ctx-B", "b-2", "back"), mock_event_queue)
-    assert any("ECHO[1]:" in t for t in _artifact_texts(mock_event_queue))
+    await executor.execute(_make_request_context("ctx-B", "b-1", "second"), mock_event_queue)
+    assert any("ECHO[3]:" in t for t in _artifact_texts(mock_event_queue))
 
 
 def test_max_contexts_must_be_positive(mock_strands_agent):
-    """max_contexts below 1 is rejected to avoid disabling persistence or the memory bound."""
+    """max_contexts below 1 is rejected to keep the factory-mode eviction bound meaningful."""
     with pytest.raises(ValueError, match="max_contexts must be >= 1"):
         StrandsA2AExecutor(mock_strands_agent, max_contexts=0)
 
 
 @pytest.mark.asyncio
-async def test_seeded_history_preserved_per_context(mock_event_queue):
-    """Seeded template history (Agent(messages=[...])) must carry into each new context."""
+async def test_single_agent_preserves_seeded_history(mock_event_queue):
+    """Seeded history (Agent(messages=[...])) is present when the single agent is invoked."""
     seeded = [{"role": "user", "content": [{"text": "SEED"}]}]
     agent = _make_stub_agent(stream_fn=lambda msgs: f"LEN[{len(msgs)}]", messages=seeded)
     executor = StrandsA2AExecutor(agent)
@@ -2142,3 +2081,82 @@ async def test_seeded_history_preserved_per_context(mock_event_queue):
     texts = _artifact_texts(mock_event_queue)
     # Seed (1) + new user message (1) = 2 messages present when the model is first called.
     assert any("LEN[2]" in t for t in texts)
+
+
+# =========================================================================
+# NEW TESTS: Agent-factory mode (recommended) and constructor validation
+# =========================================================================
+
+
+def test_requires_exactly_one_of_agent_or_factory(mock_strands_agent):
+    """Neither or both of agent/agent_factory is a configuration error."""
+    with pytest.raises(ValueError, match="exactly one of 'agent' or 'agent_factory'"):
+        StrandsA2AExecutor()
+    with pytest.raises(ValueError, match="exactly one of 'agent' or 'agent_factory'"):
+        StrandsA2AExecutor(mock_strands_agent, agent_factory=lambda cid: mock_strands_agent)
+
+
+def test_single_agent_with_session_manager_allowed():
+    """A single agent with a session_manager is a valid single-conversation setup (no guard)."""
+    from strands.session.session_manager import SessionManager
+
+    agent = _make_stub_agent()
+    agent._session_manager = MagicMock(spec=SessionManager)
+    # Should construct without raising; multi-tenant misuse is covered by deprecation docs.
+    StrandsA2AExecutor(agent)
+
+
+@pytest.mark.asyncio
+async def test_factory_builds_one_agent_per_context(mock_event_queue):
+    """Factory mode builds a dedicated agent per context_id and reuses it within a context."""
+    built: list[str] = []
+
+    def factory(context_id: str):
+        built.append(context_id)
+        return _make_stub_agent()
+
+    executor = StrandsA2AExecutor(agent_factory=factory)
+
+    await executor.execute(_make_request_context("ctx-A", "a-1", "first"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-A", "a-2", "second"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-B", "b-1", "first"), mock_event_queue)
+
+    # Factory invoked once per distinct context, not per request.
+    assert built == ["ctx-A", "ctx-B"]
+    # Distinct Agent instances per context.
+    assert executor._agents["ctx-A"] is not executor._agents["ctx-B"]
+
+
+@pytest.mark.asyncio
+async def test_factory_isolates_and_continues_per_context(mock_event_queue):
+    """Factory mode isolates history across contexts and continues it within one."""
+    executor = StrandsA2AExecutor(agent_factory=lambda cid: _make_stub_agent())
+
+    # ctx-A two turns -> its own history continues (ECHO[1] then ECHO[3]).
+    await executor.execute(_make_request_context("ctx-A", "a-1", "SECRET-AAAA"), mock_event_queue)
+    assert any("ECHO[1]:" in t and "SECRET-AAAA" in t for t in _artifact_texts(mock_event_queue))
+
+    mock_event_queue.enqueue_event.reset_mock()
+    await executor.execute(_make_request_context("ctx-A", "a-2", "again"), mock_event_queue)
+    assert any("ECHO[3]:" in t for t in _artifact_texts(mock_event_queue))
+
+    # ctx-B is independent -> starts fresh, never sees ctx-A's secret.
+    mock_event_queue.enqueue_event.reset_mock()
+    await executor.execute(_make_request_context("ctx-B", "b-1", "hello"), mock_event_queue)
+    texts_b = _artifact_texts(mock_event_queue)
+    assert any("ECHO[1]:" in t for t in texts_b)
+    assert not any("SECRET-AAAA" in t for t in texts_b)
+
+
+@pytest.mark.asyncio
+async def test_factory_mode_evicts_least_recently_used_context(mock_event_queue):
+    """Factory mode evicts the LRU context's agent and lock beyond max_contexts."""
+    executor = StrandsA2AExecutor(agent_factory=lambda cid: _make_stub_agent(), max_contexts=2)
+
+    await executor.execute(_make_request_context("ctx-A", "a-1", "hi"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-B", "b-1", "hi"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-A", "a-2", "again"), mock_event_queue)  # touch A
+    await executor.execute(_make_request_context("ctx-C", "c-1", "hi"), mock_event_queue)  # evicts B
+
+    assert set(executor._agents.keys()) == {"ctx-A", "ctx-C"}
+    assert set(executor._context_locks.keys()) == {"ctx-A", "ctx-C"}

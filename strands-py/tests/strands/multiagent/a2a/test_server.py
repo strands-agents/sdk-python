@@ -10,6 +10,9 @@ from starlette.applications import Starlette
 
 from strands.multiagent.a2a.server import A2AServer
 
+# Tests here intentionally exercise the deprecated single-agent path.
+pytestmark = pytest.mark.filterwarnings("ignore:Passing a single 'agent'.*:DeprecationWarning")
+
 
 def test_a2a_agent_initialization(mock_strands_agent):
     """Test that A2AAgent initializes correctly with default values."""
