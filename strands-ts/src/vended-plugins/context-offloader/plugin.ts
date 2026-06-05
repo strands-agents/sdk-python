@@ -10,7 +10,7 @@ import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../../logging/logger.js'
 import type { JSONValue } from '../../types/json.js'
-import { FileStorage, type Storage } from './storage.js'
+import { FileStorage, InMemoryStorage, type Storage } from './storage.js'
 import { isSearchableContent, searchContent } from './search.js'
 
 const CHARS_PER_TOKEN = 4
@@ -160,8 +160,8 @@ export class ContextOffloader implements Plugin {
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))
     agent.addHook(BeforeModelCallEvent, () => {
       this._cycleCount++
-      if ('_evict' in this._storage && typeof this._storage._evict === 'function') {
-        ;(this._storage as { _evict(cycle: number): void })._evict(this._cycleCount)
+      if (this._storage instanceof InMemoryStorage) {
+        this._storage._evict(this._cycleCount)
       }
     })
   }
