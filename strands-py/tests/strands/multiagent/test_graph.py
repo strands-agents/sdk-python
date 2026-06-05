@@ -2731,53 +2731,6 @@ class TestResumeDeadlockFix:
         assert "C" in ready_ids
 
 
-class TestSerializationWithInvocationState:
-    """Tests for serialization/deserialization of invocation_state."""
-
-    def test_serialize_includes_invocation_state(self):
-        """Verify invocation_state appears in serialized payload."""
-        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
-
-        graph = _make_graph(
-            nodes={"A": node_a},
-            state=GraphState(status=Status.COMPLETED, completed_nodes={node_a}, task="test"),
-            invocation_state={"feature_flag": True, "user_id": "123"},
-        )
-
-        serialized = graph.serialize_state()
-        assert "invocation_state" in serialized
-        assert serialized["invocation_state"] == {"feature_flag": True, "user_id": "123"}
-
-    def test_deserialize_restores_invocation_state(self):
-        """Verify invocation_state is restored on deserialization."""
-        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
-
-        graph = _make_graph(nodes={"A": node_a})
-
-        payload = {
-            "status": "completed",
-            "completed_nodes": [],
-            "next_nodes_to_execute": [],
-            "invocation_state": {"role": "admin"},
-        }
-        graph.deserialize_state(payload)
-        assert graph._current_invocation_state == {"role": "admin"}
-
-    def test_deserialize_missing_invocation_state_defaults_empty(self):
-        """Backwards compat: old serialized payloads without invocation_state still work."""
-        node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
-
-        graph = _make_graph(nodes={"A": node_a})
-
-        payload = {
-            "status": "completed",
-            "completed_nodes": [],
-            "next_nodes_to_execute": [],
-        }
-        graph.deserialize_state(payload)
-        assert graph._current_invocation_state == {}
-
-
 class TestConditionSignatureDetection:
     """Tests for the _is_context_condition helper."""
 

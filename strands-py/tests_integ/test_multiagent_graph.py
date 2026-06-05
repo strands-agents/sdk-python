@@ -832,10 +832,9 @@ async def test_invocation_state_persisted_on_resume(tmp_path):
         except Exception as e:
             assert "Simulated failure in step2" in str(e)
 
-    # Verify invocation_state was persisted
+    # Verify partial execution was persisted
     persisted = session_manager.read_multi_agent(session_id, graph.id)
     assert persisted is not None
-    assert persisted.get("invocation_state") == {"tier": "premium"}
     assert "step1" in persisted["completed_nodes"]
     assert "step2" in persisted["failed_nodes"]
 

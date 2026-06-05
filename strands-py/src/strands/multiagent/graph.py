@@ -17,7 +17,6 @@ Key Features:
 import asyncio
 import copy
 import inspect
-import json
 import logging
 import time
 from collections.abc import AsyncIterator, Callable, Mapping
@@ -634,8 +633,6 @@ class Graph(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
-        if self.session_manager is not None:
-            self._validate_invocation_state(invocation_state)
         self._current_invocation_state = invocation_state
 
         await self.hooks.invoke_callbacks_async(BeforeMultiAgentInvocationEvent(self, invocation_state))
@@ -1255,20 +1252,6 @@ class Graph(MultiAgentBase):
             interrupts=interrupts,
         )
 
-    @staticmethod
-    def _validate_invocation_state(invocation_state: dict[str, Any]) -> None:
-        """Validate that invocation_state is JSON-serializable.
-
-        Raises:
-            TypeError: If invocation_state contains non-JSON-serializable values.
-        """
-        try:
-            json.dumps(invocation_state)
-        except (TypeError, ValueError) as e:
-            raise TypeError(
-                f"invocation_state must be JSON-serializable for session persistence: {e}"
-            ) from e
-
     def serialize_state(self) -> dict[str, Any]:
         """Serialize the current graph state to a dictionary."""
         compute_nodes = self._compute_ready_nodes_for_resume()
@@ -1284,7 +1267,6 @@ class Graph(MultiAgentBase):
             "next_nodes_to_execute": next_nodes,
             "current_task": encode_bytes_values(self.state.task),
             "execution_order": [n.node_id for n in self.state.execution_order],
-            "invocation_state": self._current_invocation_state,
             "_internal_state": {
                 "interrupt_state": self._interrupt_state.to_dict(),
             },
@@ -1306,10 +1288,6 @@ class Graph(MultiAgentBase):
         if "_internal_state" in payload:
             internal_state = payload["_internal_state"]
             self._interrupt_state = _InterruptState.from_dict(internal_state["interrupt_state"])
-
-        invocation_state = payload.get("invocation_state", {})
-        self._validate_invocation_state(invocation_state)
-        self._current_invocation_state = invocation_state
 
         if not payload.get("next_nodes_to_execute"):
             # Reset all nodes
