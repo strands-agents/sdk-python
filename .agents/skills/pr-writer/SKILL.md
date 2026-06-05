@@ -42,10 +42,10 @@ Also consider the current conversation context. If the author made design decisi
 
 ### 3. Apply Project Conventions
 
-Read the following files for PR conventions and structure:
+Read the following files — these are the **source of truth** for PR style and structure:
 
-- **PR guidelines**: `dev-docs/PR.md` (general) or `strands-py/docs/PR.md` (Python SDK). Follow the writing principles, anti-patterns, and checklist items defined there.
-- **PR template**: `.github/PULL_REQUEST_TEMPLATE.md`. Use this as the structural template for the output — fill in every section it defines.
+- **PR guidelines**: `dev-docs/PR.md` (general) or `strands-py/docs/PR.md` (Python SDK). These define writing principles, anti-patterns, and checklist items. Always defer to them over general conventions.
+- **PR template**: `.github/PULL_REQUEST_TEMPLATE.md`. This is the structural template — fill in every section it defines, in order.
 
 ### 4. Write the PR
 

@@ -9,7 +9,7 @@ description: Creates a GitHub pull request using the gh CLI. Use when the user a
 
 ### 1. Get the PR Description
 
-- Check for `.local/pr-body.md`. If it exists, re-read it fresh (the user may have edited it) and use its contents as the title and body.
+- Check for `.local/pr-body.md`. If it exists, re-read it fresh and sanity-check that its content matches the current branch's changes (e.g. the description references files, features, or issues consistent with the current diff). If it looks stale or unrelated to the current changes, warn the user and offer to regenerate it.
 - Else if the user already generated a PR description earlier in the conversation, use that.
 - Otherwise, fall back to the `pr-writer` skill to generate the title and body.
 
@@ -26,25 +26,23 @@ If you find any such steps, **list them and ask the user which ones they'd like 
 
 If neither file exists or they contain no actionable pre-PR steps, skip this and move on.
 
-### 3. Push the Branch
+### 3. Push the Branch (if needed)
 
-```bash
-git push -u origin HEAD
-```
-
-If the push fails, show the error and stop.
+Check whether the current branch has an upstream tracking branch with all commits pushed. If not, push before creating the PR. If the push fails, show the error and stop.
 
 ### 4. Create the PR
 
-Write the PR body to `.local/pr-body.md` (create `.local/` if needed) and create the PR:
+Ensure the final PR body is written to `.local/pr-body.md` (create `.local/` if needed), overwriting any earlier draft. Then create the PR:
 
 ```bash
 gh pr create \
   --title "<title>" \
   --body-file .local/pr-body.md \
+  --draft \
   --web
 ```
 
+- Default to `--draft`. Only omit it if the user explicitly asks for a non-draft PR.
 - Do NOT pass `--repo` — let `gh` infer the upstream from the git remotes so the PR targets the correct upstream repository.
 - Always pass `--web` to open the PR in the browser for final review before submission.
 

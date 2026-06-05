@@ -31,6 +31,11 @@ for ref in "${candidates[@]:1}"; do
   fi
 done
 
+if [[ "$best_distance" -eq 0 ]]; then
+  echo "ERROR: HEAD has no commits ahead of $BASE. Nothing to diff." >&2
+  exit 1
+fi
+
 echo "=== BASE: $BASE ==="
 echo "=== BRANCH: $(git branch --show-current) ==="
 echo ""
@@ -39,6 +44,9 @@ git log "$BASE"..HEAD --oneline
 echo ""
 echo "=== CHANGED FILES ==="
 git diff "$BASE"...HEAD --name-status
+echo ""
+echo "=== DIFF STAT ==="
+git diff "$BASE"...HEAD --stat
 echo ""
 echo "=== DIFF ==="
 git diff "$BASE"...HEAD
