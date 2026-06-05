@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { DockerSandbox } from '../docker.js'
 import { streamProcess } from '../stream-process.js'
 import type { ExecutionResult } from '../types.js'
+import { fileEditor } from '../../vended-tools/file-editor/file-editor.js'
+import { bash } from '../../vended-tools/bash/bash.js'
 
 const OK: ExecutionResult = { type: 'executionResult', exitCode: 0, stdout: '', stderr: '', outputFiles: [] }
 
@@ -90,6 +92,13 @@ describe('DockerSandbox', () => {
       await expect(sandbox.execute('cmd', { env: { 'FOO=bar BAZ': 'val' } })).rejects.toThrow(
         'Invalid environment variable name'
       )
+    })
+  })
+
+  describe('getTools', () => {
+    it('vends the sandbox-routed fileEditor and bash tools', () => {
+      const tools = new DockerSandbox({ container: 'my-container' }).getTools()
+      expect(tools).toStrictEqual([fileEditor, bash])
     })
   })
 })

@@ -125,6 +125,36 @@ describe.skipIf(process.platform === 'win32')('NotASandboxLocalEnvironment', () 
     })
   })
 
+  describe('statFile (native fs.stat)', () => {
+    it('reports a file with name, isDir false, and size', async () => {
+      const file = path.join(TEST_DIR, 'note.txt')
+      await sandbox.writeText(file, 'hello')
+      const info = await sandbox.statFile(file)
+      expect(info.name).toBe('note.txt')
+      expect(info.isDir).toBe(false)
+      expect(info.size).toBe(5)
+    })
+
+    it('reports a directory as a directory', async () => {
+      const dir = path.join(TEST_DIR, 'sub')
+      fs.mkdirSync(dir)
+      const info = await sandbox.statFile(dir)
+      expect(info.name).toBe('sub')
+      expect(info.isDir).toBe(true)
+    })
+
+    it('resolves relative paths against process.cwd()', async () => {
+      await sandbox.writeText(REL_NAME, 'relative')
+      const info = await sandbox.statFile(REL_NAME)
+      expect(info.name).toBe(REL_NAME)
+      expect(info.isDir).toBe(false)
+    })
+
+    it('throws on a nonexistent path', async () => {
+      await expect(sandbox.statFile(path.join(TEST_DIR, 'no-such-file.txt'))).rejects.toThrow()
+    })
+  })
+
   describe('_resolvePath (relative vs absolute)', () => {
     it('writes absolute paths as-is', async () => {
       const file = path.join(TEST_DIR, 'abs.txt')
@@ -136,5 +166,11 @@ describe.skipIf(process.platform === 'win32')('NotASandboxLocalEnvironment', () 
       await sandbox.writeText(REL_NAME, 'relative')
       expect(fs.readFileSync(REL_ABS, 'utf8')).toBe('relative')
     })
+  })
+})
+
+describe('NotASandboxLocalEnvironment.getSystemPromptContext', () => {
+  it('inherits the base default of no context', () => {
+    expect(new NotASandboxLocalEnvironment().getSystemPromptContext()).toBeUndefined()
   })
 })

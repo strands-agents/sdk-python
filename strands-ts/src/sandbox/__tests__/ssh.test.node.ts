@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SshSandbox } from '../ssh.js'
 import { streamProcess } from '../stream-process.js'
+import { fileEditor } from '../../vended-tools/file-editor/file-editor.js'
+import { bash } from '../../vended-tools/bash/bash.js'
 
 vi.mock('../stream-process.js', () => ({
   streamProcess: vi.fn(async function* () {
@@ -306,6 +308,13 @@ describe('SshSandbox', () => {
           // consume
         }
       }).rejects.toThrow('Invalid environment variable name')
+    })
+  })
+
+  describe('getTools', () => {
+    it('vends the sandbox-routed fileEditor and bash tools', () => {
+      const tools = new SshSandbox({ host: 'myhost', workingDir: '/workspace' }).getTools()
+      expect(tools).toStrictEqual([fileEditor, bash])
     })
   })
 })

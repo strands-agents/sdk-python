@@ -2,6 +2,8 @@ import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { spawn, type ChildProcess } from 'child_process'
 import { Buffer } from 'buffer'
+import { SandboxTimeoutError } from '../../sandbox/errors.js'
+import { NotASandboxLocalEnvironment } from '../../sandbox/not-a-sandbox-local-environment.js'
 import type { BashOutput } from './types.js'
 import { BashTimeoutError, BashSessionError } from './types.js'
 
@@ -251,8 +253,9 @@ process.on('SIGTERM', () => {
 export const bash = tool({
   name: 'bash',
   description:
-    'Executes bash shell commands in a persistent session. Supports execute and restart modes. ' +
-    'Commands persist state (variables, directory) within the session. Node.js only.',
+    'Executes bash shell commands. Supports execute and restart modes. ' +
+    'When a Sandbox is configured, each call runs in a fresh shell that does not preserve state (variables, directory). ' +
+    'Otherwise, commands run in a persistent session that preserves state (variables, directory) across calls.',
   inputSchema: bashInputSchema,
   callback: async (input, context) => {
     if (!context) {
@@ -260,10 +263,32 @@ export const bash = tool({
     }
 
     const agent = context.agent
+    // Route through a real sandbox; the host default keeps bash's persistent local session.
+    const sandbox = agent.sandbox
 
     // Validate execute mode has command
     if (input.mode === 'execute' && !input.command) {
       throw new Error('command is required when mode is "execute"')
+    }
+
+    // Real sandbox: stateless execution. Restart is a no-op (no shell state persists),
+    // and sandbox errors are mapped to bash's own error classes.
+    if (!(sandbox instanceof NotASandboxLocalEnvironment)) {
+      if (input.mode === 'restart') {
+        return 'Bash session restarted'
+      }
+
+      try {
+        const result = await sandbox.execute(input.command!, {
+          timeout: input.timeout ?? 120,
+        })
+        return { output: result.stdout, error: result.stderr } as BashOutput
+      } catch (err) {
+        if (err instanceof SandboxTimeoutError) {
+          throw new BashTimeoutError(err.message)
+        }
+        throw new BashSessionError((err as Error).message)
+      }
     }
 
     // Handle restart mode

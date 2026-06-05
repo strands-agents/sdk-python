@@ -754,6 +754,19 @@ export function systemPromptToData(prompt: SystemPrompt): SystemPromptData {
 }
 
 /**
+ * Appends text to a system prompt, preserving its string or content-block shape.
+ *
+ * @param prompt - The existing system prompt, or `undefined` to start a new one.
+ * @param text - The text to append.
+ * @returns A new system prompt with the text appended.
+ */
+export function appendToSystemPrompt(prompt: SystemPrompt | undefined, text: string): SystemPrompt {
+  if (prompt === undefined) return text
+  if (typeof prompt === 'string') return `${prompt}\n\n${text}`
+  return [...prompt, new TextBlock(text)]
+}
+
+/**
  * A block of content within a system prompt.
  * Supports text content, cache points, and guard content for prompt caching and guardrail evaluation.
  *

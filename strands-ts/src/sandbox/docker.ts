@@ -6,6 +6,9 @@ import type { ExecuteOptions } from './base.js'
 import { PosixShellSandbox, validateEnvKeys } from './posix-shell.js'
 import { streamProcess } from './stream-process.js'
 import type { ExecutionResult, StreamChunk } from './types.js'
+import type { Tool } from '../tools/tool.js'
+import { fileEditor } from '../vended-tools/file-editor/file-editor.js'
+import { bash } from '../vended-tools/bash/bash.js'
 
 /**
  * Options for constructing a {@link DockerSandbox}.
@@ -75,5 +78,9 @@ export class DockerSandbox extends PosixShellSandbox {
       signal: options?.signal,
       enoentMessage: 'docker is not installed or not on PATH',
     })
+  }
+
+  override getTools(): Tool[] {
+    return [fileEditor, bash]
   }
 }

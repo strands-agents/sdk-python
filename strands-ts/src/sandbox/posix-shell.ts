@@ -9,22 +9,8 @@
 
 import { Sandbox } from './base.js'
 import type { ExecuteOptions } from './base.js'
-import { ENV_KEY_PATTERN, LANGUAGE_PATTERN } from './constants.js'
+import { ENV_KEY_PATTERN, LANGUAGE_PATTERN, shellQuote } from './constants.js'
 import type { ExecutionResult, FileInfo, StreamChunk } from './types.js'
-
-/**
- * Shell-escape a string for safe inclusion in a shell command.
- *
- * Wraps the value in single quotes and escapes any embedded single quotes
- * using the '\'' pattern. Single quotes disable all shell expansion
- * (variables, backticks, globbing), making this safe against injection.
- *
- * @param value - The string to escape.
- * @returns The shell-escaped string wrapped in single quotes.
- */
-export function shellQuote(value: string): string {
-  return "'" + value.replace(/'/g, "'\\''") + "'"
-}
 
 /**
  * Validate environment variable names against {@link ENV_KEY_PATTERN}.
@@ -135,5 +121,25 @@ export abstract class PosixShellSandbox extends Sandbox {
       }
     }
     return entries
+  }
+
+  /**
+   * Resolve path metadata in a single shell round-trip via `test`, avoiding the
+   * base implementation's probe (which reads the whole file just to confirm it
+   * exists). Emits `d` for a directory, `f` otherwise; a non-existent path exits
+   * non-zero and throws.
+   */
+  async statFile(path: string): Promise<FileInfo> {
+    const quoted = shellQuote(path)
+    const result = await this.execute(`test -e ${quoted} || exit 1; test -d ${quoted} && echo d || echo f`)
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || `No such file or directory: ${path}`)
+    }
+    const name = path.split('/').filter(Boolean).pop() ?? path
+    return { name, isDir: result.stdout.trim() === 'd' }
+  }
+
+  override getSystemPromptContext(): string {
+    return 'A sandbox is configured: commands, code, and file operations run inside it rather than on the host.'
   }
 }

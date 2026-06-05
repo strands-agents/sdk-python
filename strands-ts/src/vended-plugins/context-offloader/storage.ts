@@ -1,17 +1,20 @@
 /**
  * Storage backends for offloaded tool result content.
  *
- * This module defines the {@link Storage} interface and provides three built-in
- * implementations: {@link InMemoryStorage}, {@link FileStorage}, and {@link S3Storage}.
+ * This module defines the {@link Storage} interface and provides four built-in
+ * implementations: {@link InMemoryStorage}, {@link FileStorage}, {@link S3Storage},
+ * and {@link SandboxStorage}.
  * Each content block from a tool result is stored individually with its content type preserved.
  */
+
+import type { Sandbox } from '../../sandbox/base.js'
 
 /**
  * Backend for storing and retrieving offloaded content blocks.
  *
  * Implement this interface to create custom storage backends (e.g., Redis, DynamoDB).
- * The SDK ships three built-in implementations: {@link InMemoryStorage},
- * {@link FileStorage}, and {@link S3Storage}.
+ * The SDK ships four built-in implementations: {@link InMemoryStorage},
+ * {@link FileStorage}, {@link S3Storage}, and {@link SandboxStorage}.
  */
 export interface Storage {
   /**
@@ -257,6 +260,103 @@ export class S3Storage implements Storage {
         throw new Error(`Reference not found: ${reference}`)
       }
       throw error
+    }
+  }
+}
+
+/**
+ * Sandbox-backed storage backend.
+ *
+ * Stores offloaded content as files inside the agent's configured {@link Sandbox}
+ * (Docker container, remote host, etc.), keeping large tool results out of the host
+ * process. A `.metadata.json` sidecar in the artifact directory tracks content types.
+ *
+ * The sandbox is not supplied at construction. When used with {@link ContextOffloader},
+ * the plugin injects the agent's sandbox into {@link sandbox} during initialization.
+ *
+ * @param artifactDir - Directory within the sandbox where artifact files will be stored
+ */
+export class SandboxStorage implements Storage {
+  private static readonly METADATA_FILE = '.metadata.json'
+  private readonly _artifactDir: string
+  private _counter = 0
+  private _contentTypes: Record<string, string> = {}
+  private _metadataLoaded = false
+  private _metadataWriteChain: Promise<void> = Promise.resolve()
+
+  /**
+   * Sandbox the storage operates against. Injected by {@link ContextOffloader} during
+   * plugin initialization. `store`/`retrieve` throw until this is set.
+   */
+  sandbox: Sandbox | undefined
+
+  constructor(artifactDir: string = './artifacts') {
+    this._artifactDir = artifactDir
+  }
+
+  private static _extensionFor(contentType: string): string {
+    if (contentType === 'text/plain') return '.txt'
+    return `.${contentType.split('/').pop()}`
+  }
+
+  private async _ensureSandbox(): Promise<Sandbox> {
+    const sandbox = this.sandbox
+    if (!sandbox) {
+      throw new Error('SandboxStorage requires a Sandbox to be configured on the agent.')
+    }
+    if (!this._metadataLoaded) {
+      this._contentTypes = await this._loadMetadata(sandbox)
+      this._metadataLoaded = true
+    }
+    return sandbox
+  }
+
+  private async _loadMetadata(sandbox: Sandbox): Promise<Record<string, string>> {
+    try {
+      const raw = await sandbox.readText(`${this._artifactDir}/${SandboxStorage.METADATA_FILE}`)
+      return JSON.parse(raw) as Record<string, string>
+    } catch {
+      return {}
+    }
+  }
+
+  private async _saveMetadata(sandbox: Sandbox): Promise<void> {
+    await sandbox.writeText(`${this._artifactDir}/${SandboxStorage.METADATA_FILE}`, JSON.stringify(this._contentTypes))
+  }
+
+  /** {@inheritdoc} */
+  async store(key: string, content: Uint8Array, contentType: string = 'text/plain'): Promise<string> {
+    const sandbox = await this._ensureSandbox()
+
+    const filename = `${Date.now()}_${++this._counter}_${sanitizeId(key)}${SandboxStorage._extensionFor(contentType)}`
+    const filePath = `${this._artifactDir}/${filename}`
+
+    this._contentTypes[filename] = contentType
+    this._metadataWriteChain = this._metadataWriteChain.then(() => this._saveMetadata(sandbox))
+    await this._metadataWriteChain
+
+    await sandbox.writeFile(filePath, content)
+
+    return filePath
+  }
+
+  /** {@inheritdoc} */
+  async retrieve(reference: string): Promise<{ content: Uint8Array; contentType: string }> {
+    const sandbox = await this._ensureSandbox()
+
+    // Reject references that escape the artifact dir.
+    if (!reference.startsWith(`${this._artifactDir}/`) || reference.includes('..')) {
+      throw new Error(`Reference not found: ${reference}`)
+    }
+
+    const filename = reference.split('/').pop()!
+
+    try {
+      const content = await sandbox.readFile(reference)
+      const contentType = this._contentTypes[filename] ?? 'application/octet-stream'
+      return { content, contentType }
+    } catch {
+      throw new Error(`Reference not found: ${reference}`)
     }
   }
 }

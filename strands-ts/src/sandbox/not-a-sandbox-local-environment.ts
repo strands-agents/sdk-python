@@ -1,11 +1,14 @@
 import { readFile, writeFile, unlink, mkdir, readdir, stat } from 'fs/promises'
-import { dirname, isAbsolute, join } from 'path'
+import { basename, dirname, isAbsolute, join } from 'path'
 import { Sandbox } from './base.js'
 import type { ExecuteOptions } from './base.js'
-import { LANGUAGE_PATTERN } from './constants.js'
+import { LANGUAGE_PATTERN, shellQuote } from './constants.js'
 import { streamProcess } from './stream-process.js'
 import type { ExecutionResult, FileInfo, StreamChunk } from './types.js'
+<<<<<<< HEAD
 import { buildShellEnvPrefix, shellQuote } from './posix-shell.js'
+=======
+>>>>>>> f554d0ca (feat: update vended tools/plugins for sandbox compatibility)
 
 /**
  * Runs on the host with no isolation. Used as the default when no sandbox is configured.
@@ -80,5 +83,15 @@ export class NotASandboxLocalEnvironment extends Sandbox {
     }
 
     return results
+  }
+
+  async statFile(path: string): Promise<FileInfo> {
+    const fullPath = this._resolvePath(path)
+    const fileStat = await stat(fullPath)
+    return {
+      name: basename(fullPath),
+      isDir: fileStat.isDirectory(),
+      size: fileStat.size,
+    }
   }
 }

@@ -54,6 +54,7 @@ describe('AgentSkills', () => {
     it('resolves a skill directory path', async () => {
       await createSkillDir('my-skill', '---\nname: my-skill\ndescription: A skill\n---\nBody.')
       const plugin = new AgentSkills({ skills: [path.join(testDir, 'my-skill')] })
+      await plugin.initAgent(createMockAgent())
       expect(await plugin.getAvailableSkills()).toHaveLength(1)
     })
 
@@ -61,6 +62,7 @@ describe('AgentSkills', () => {
       await createSkillDir('skill-a', '---\nname: skill-a\ndescription: Skill A\n---\nA.')
       await createSkillDir('skill-b', '---\nname: skill-b\ndescription: Skill B\n---\nB.')
       const plugin = new AgentSkills({ skills: [testDir] })
+      await plugin.initAgent(createMockAgent())
       expect(await plugin.getAvailableSkills()).toHaveLength(2)
     })
 
@@ -70,6 +72,7 @@ describe('AgentSkills', () => {
       const plugin = new AgentSkills({
         skills: [directSkill, path.join(testDir, 'file-skill')],
       })
+      await plugin.initAgent(createMockAgent())
       expect(await plugin.getAvailableSkills()).toHaveLength(2)
     })
 
@@ -92,6 +95,7 @@ describe('AgentSkills', () => {
       await fs.writeFile(path.join(dirPath, 'SKILL.md'), 'totally broken, no frontmatter at all', 'utf-8')
 
       const plugin = new AgentSkills({ skills: [dirPath] })
+      await plugin.initAgent(createMockAgent())
       expect(await plugin.getAvailableSkills()).toHaveLength(0)
     })
 
@@ -106,6 +110,7 @@ describe('AgentSkills', () => {
       await fs.writeFile(path.join(testDir, 'bad-skill', 'SKILL.md'), 'no frontmatter', 'utf-8')
 
       const plugin = new AgentSkills({ skills: [testDir] })
+      await plugin.initAgent(createMockAgent())
       const skills = await plugin.getAvailableSkills()
       expect(skills).toHaveLength(1)
       expect(skills[0]!.name).toBe('good-skill')

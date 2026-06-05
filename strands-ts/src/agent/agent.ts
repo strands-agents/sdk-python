@@ -736,6 +736,20 @@ export class Agent implements LocalAgent, InvokableAgent {
       })
     )
 
+    // Register tools vended by an explicitly-configured sandbox, keeping any the user
+    // already provided under the same name, and fold in any context it wants the model to know.
+    if (this._sandbox) {
+      for (const tool of this._sandbox.getTools()) {
+        if (!this._toolRegistry.get(tool.name)) {
+          this._toolRegistry.add(tool)
+        }
+      }
+      const sandboxContext = this._sandbox.getSystemPromptContext()
+      if (sandboxContext) {
+        this.systemPrompt = appendToSystemPrompt(this.systemPrompt, sandboxContext)
+      }
+    }
+
     await this._pluginRegistry.initialize(this)
 
     for (const handler of this._interventionRegistry.handlers) {

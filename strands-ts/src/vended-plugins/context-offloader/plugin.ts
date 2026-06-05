@@ -10,7 +10,7 @@ import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../../logging/logger.js'
 import type { JSONValue } from '../../types/json.js'
-import type { Storage } from './storage.js'
+import { SandboxStorage, type Storage } from './storage.js'
 import { isSearchableContent, searchContent } from './search.js'
 
 const CHARS_PER_TOKEN = 4
@@ -154,6 +154,11 @@ export class ContextOffloader implements Plugin {
   }
 
   initAgent(agent: LocalAgent): void {
+    // SandboxStorage operates against the agent's configured sandbox; wire it up here
+    // so users don't have to hand the sandbox to the storage themselves.
+    if (this._storage instanceof SandboxStorage) {
+      this._storage.sandbox = agent.sandbox
+    }
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))
   }
 

@@ -4,7 +4,10 @@ import { BashTimeoutError, BashSessionError, type BashOutput } from '../index.js
 import type { ToolContext } from '../../../index.js'
 import { StateStore } from '../../../state-store.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
-import { realpathSync } from 'fs'
+import { TestSandbox } from '../../../__fixtures__/test-sandbox.node.js'
+import { realpathSync, mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 // Skip tests on Windows (bash not available)
 describe.skipIf(process.platform === 'win32')('bash tool', () => {
@@ -471,5 +474,63 @@ describe.skipIf(process.platform === 'win32')('bash tool', () => {
       expect(exitMock).toHaveBeenCalledWith(0)
       exitMock.mockRestore()
     })
+  })
+})
+
+describe.skipIf(process.platform === 'win32')('bash tool (sandbox path)', () => {
+  const createSandboxContext = (): ToolContext => {
+    const workDir = mkdtempSync(join(tmpdir(), 'bash-sandbox-test-'))
+    const sandbox = new TestSandbox(workDir)
+    const agent = createMockAgent({ extra: { sandbox } as any })
+    return {
+      toolUse: { name: 'bash', toolUseId: 'test-id', input: {} },
+      agent,
+      invocationState: {},
+      interrupt: () => {
+        throw new Error('interrupt not available in mock context')
+      },
+    }
+  }
+
+  it('executes command via sandbox', async () => {
+    const context = createSandboxContext()
+    const result = await bash.invoke({ mode: 'execute', command: 'echo "hello sandbox"' }, context)
+
+    expect((result as BashOutput).output).toContain('hello sandbox')
+    expect((result as BashOutput).error).toBe('')
+  })
+
+  it('captures stderr via sandbox', async () => {
+    const context = createSandboxContext()
+    const result = await bash.invoke({ mode: 'execute', command: 'echo "oops" >&2' }, context)
+
+    expect((result as BashOutput).error).toContain('oops')
+  })
+
+  it('restart mode is a no-op in sandbox mode', async () => {
+    const context = createSandboxContext()
+    const result = await bash.invoke({ mode: 'restart' }, context)
+
+    expect(result).toBe('Bash session restarted')
+  })
+
+  it('rejects execute without command in sandbox mode', async () => {
+    const context = createSandboxContext()
+    await expect(bash.invoke({ mode: 'execute' }, context)).rejects.toThrow(
+      'command is required when mode is "execute"'
+    )
+  })
+
+  it('does not persist state between calls (stateless)', async () => {
+    const context = createSandboxContext()
+    await bash.invoke({ mode: 'execute', command: 'export MY_VAR=hello' }, context)
+    const result = await bash.invoke({ mode: 'execute', command: 'echo "${MY_VAR:-empty}"' }, context)
+
+    expect((result as BashOutput).output.trim()).toBe('empty')
+  })
+
+  it('respects timeout', async () => {
+    const context = createSandboxContext()
+    await expect(bash.invoke({ mode: 'execute', command: 'sleep 10', timeout: 0.1 }, context)).rejects.toThrow()
   })
 })

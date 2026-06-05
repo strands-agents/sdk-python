@@ -61,6 +61,10 @@
       "types": "./dist/src/vended-tools/bash/index.d.ts",
       "default": "./dist/src/vended-tools/bash/index.js"
     },
+    "./vended-tools/code-interpreter": {
+      "types": "./dist/src/vended-tools/code-interpreter/index.d.ts",
+      "default": "./dist/src/vended-tools/code-interpreter/index.js"
+    },
     "./a2a": {
       "types": "./dist/src/a2a/index.d.ts",
       "default": "./dist/src/a2a/index.js"

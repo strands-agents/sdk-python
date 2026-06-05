@@ -12,6 +12,7 @@ import {
   type SystemPromptData,
   systemPromptFromData,
   systemPromptToData,
+  appendToSystemPrompt,
 } from '../messages.js'
 import { ImageBlock, VideoBlock, DocumentBlock, encodeBase64 } from '../media.js'
 import { CitationsBlock } from '../citations.js'
@@ -655,6 +656,26 @@ describe('systemPromptToData', () => {
       const restored = systemPromptFromData(data)
       expect(restored).toBe(original)
     })
+  })
+})
+
+describe('appendToSystemPrompt', () => {
+  it('returns the text as the prompt when none exists', () => {
+    expect(appendToSystemPrompt(undefined, 'added')).toBe('added')
+  })
+
+  it('concatenates onto a string prompt', () => {
+    expect(appendToSystemPrompt('base', 'added')).toBe('base\n\nadded')
+  })
+
+  it('appends a TextBlock to a content-block prompt without mutating the original', () => {
+    const original = [new TextBlock('base'), new CachePointBlock({ cacheType: 'default' })]
+    const result = appendToSystemPrompt(original, 'added')
+
+    expect(original).toHaveLength(2)
+    expect(result).toHaveLength(3)
+    expect(result[2]).toBeInstanceOf(TextBlock)
+    expect((result[2] as TextBlock).text).toBe('added')
   })
 })
 

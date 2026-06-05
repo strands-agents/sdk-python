@@ -6,8 +6,6 @@
  * activating skills and injects skill metadata into the system prompt.
  */
 
-import { readdirSync, statSync, existsSync } from 'fs'
-import { join, resolve, relative, sep } from 'path'
 import { z } from 'zod'
 import { tool } from '../../tools/tool-factory.js'
 import { BeforeInvocationEvent } from '../../hooks/events.js'
@@ -16,8 +14,9 @@ import { logger } from '../../logging/logger.js'
 import { Skill } from './skill.js'
 import type { Plugin } from '../../plugins/plugin.js'
 import type { LocalAgent } from '../../types/agent.js'
-import type { Tool } from '../../tools/tool.js'
-import type { ToolContext } from '../../tools/tool.js'
+import type { Sandbox } from '../../sandbox/base.js'
+import type { FileInfo } from '../../sandbox/types.js'
+import type { Tool, ToolContext } from '../../tools/tool.js'
 
 /** A single skill source: filesystem path string, HTTPS URL string, or Skill instance. */
 export type SkillSource = string | Skill
@@ -60,6 +59,17 @@ function escapeXml(text: string): string {
 }
 
 /**
+ * Find the SKILL.md filename among directory entries, preferring `SKILL.md` over `skill.md`
+ * (matching `Skill.fromFile`'s precedence). Returns `undefined` if neither is present.
+ */
+function findSkillMdName(entries: FileInfo[]): string | undefined {
+  for (const name of ['SKILL.md', 'skill.md']) {
+    if (entries.some((e) => !e.isDir && e.name === name)) return name
+  }
+  return undefined
+}
+
+/**
  * Plugin that integrates Agent Skills into a Strands agent.
  *
  * Provides:
@@ -92,20 +102,30 @@ export class AgentSkills implements Plugin {
   readonly name = 'strands:agent-skills'
 
   private _skills: Map<string, Skill>
+  /**
+   * Filesystem path sources. Loaded at initAgent (not construction) so they read from
+   * the agent's sandbox — host or container — exactly once, from the correct filesystem.
+   */
+  private _skillPaths: string[]
   private readonly _maxResourceFiles: number
   /** When true, skill validation errors throw instead of logging warnings. */
   private readonly _strict: boolean
   private readonly _stateKey: string
-  /** Resolves when all async skill sources (e.g. URLs) have been loaded. */
+  /** The sandbox path-based skills load from, captured at initAgent. `undefined` until then. */
+  private _sandbox: Sandbox | undefined
+  /** Resolves when all async skill sources (URLs) have been loaded. */
   private _ready: Promise<void>
 
   constructor(config: AgentSkillsConfig) {
     this._strict = config.strict ?? false
     this._maxResourceFiles = config.maxResourceFiles ?? DEFAULT_MAX_RESOURCE_FILES
     this._stateKey = config.stateKey ?? DEFAULT_STATE_KEY
-    const { skills, ready } = this._resolveSkills(config.skills)
+    // Resolve sandbox-independent sources (Skill instances, URLs) now. Path sources are
+    // collected and deferred to initAgent, where the agent's sandbox is available.
+    const { skills, ready, skillPaths } = this._resolveSkills(config.skills)
     this._skills = skills
     this._ready = ready
+    this._skillPaths = skillPaths
   }
 
   /**
@@ -117,6 +137,11 @@ export class AgentSkills implements Plugin {
    */
   async initAgent(agent: LocalAgent): Promise<void> {
     await this._ready
+
+    // Load path-based skills through the agent's sandbox, which resolves to the host
+    // environment when no sandbox is configured.
+    this._sandbox = agent.sandbox
+    await this._loadSkillPaths(this._sandbox)
 
     if (this._skills.size === 0) {
       logger.warn('no skills were loaded, the agent will have no skills available')
@@ -157,9 +182,14 @@ export class AgentSkills implements Plugin {
    * next tool call or invocation.
    */
   setAvailableSkills(skills: SkillSource[]): void {
-    const { skills: resolved, ready } = this._resolveSkills(skills)
+    const { skills: resolved, ready, skillPaths } = this._resolveSkills(skills)
     this._skills = resolved
-    this._ready = ready
+    this._skillPaths = skillPaths
+
+    // If a sandbox has already been captured (initAgent has run), fold the path load into
+    // `ready` so getAvailableSkills() and the injection hook await the path skills too.
+    const sandbox = this._sandbox
+    this._ready = sandbox ? ready.then(() => this._loadSkillPaths(sandbox)) : ready
   }
 
   /**
@@ -177,13 +207,18 @@ export class AgentSkills implements Plugin {
    * a path to a parent directory containing multiple skills, or an
    * HTTPS URL pointing to a SKILL.md file.
    *
-   * Synchronous sources (Skill instances and filesystem paths) are resolved
-   * immediately into the returned map. Async sources (URLs) are resolved in
-   * the background; the returned `ready` promise resolves when all URL
-   * fetches have completed and the map has been updated.
+   * Skill instances are resolved immediately into the returned map. Async sources
+   * (URLs) are resolved in the background; the returned `ready` promise resolves when
+   * all URL fetches have completed. Filesystem paths are returned in `skillPaths` to be
+   * loaded at initAgent, where they read from the agent's sandbox.
    */
-  private _resolveSkills(sources: SkillSource[]): { skills: Map<string, Skill>; ready: Promise<void> } {
+  private _resolveSkills(sources: SkillSource[]): {
+    skills: Map<string, Skill>
+    ready: Promise<void>
+    skillPaths: string[]
+  } {
     const resolved = new Map<string, Skill>()
+    const skillPaths: string[] = []
     const asyncTasks: Promise<void>[] = []
 
     for (const source of sources) {
@@ -192,7 +227,7 @@ export class AgentSkills implements Plugin {
           logger.warn(`name=<${source.name}> | duplicate skill name, overwriting previous skill`)
         }
         resolved.set(source.name, source)
-      } else if (typeof source === 'string' && source.startsWith('https://')) {
+      } else if (source.startsWith('https://')) {
         asyncTasks.push(
           Skill.fromUrl(source, { strict: this._strict }).then(
             (skill) => {
@@ -207,47 +242,7 @@ export class AgentSkills implements Plugin {
           )
         )
       } else {
-        const p = source as string
-        const resolvedPath = resolve(p)
-
-        // Probe the filesystem to decide which loader to use instead of
-        // relying on exceptions for control flow.
-        const isDir = existsSync(resolvedPath) && statSync(resolvedPath).isDirectory()
-        const isSkillFile =
-          existsSync(resolvedPath) && statSync(resolvedPath).isFile() && resolvedPath.toLowerCase().endsWith('skill.md')
-        const hasSkillMd =
-          isDir &&
-          ['SKILL.md', 'skill.md'].some((name) => {
-            const candidate = join(resolvedPath, name)
-            return existsSync(candidate) && statSync(candidate).isFile()
-          })
-
-        if (isSkillFile || hasSkillMd) {
-          // Single skill directory (or direct SKILL.md path)
-          try {
-            const skill = Skill.fromFile(p, { strict: this._strict })
-            if (resolved.has(skill.name)) {
-              logger.warn(`name=<${skill.name}> | duplicate skill name, overwriting previous skill`)
-            }
-            resolved.set(skill.name, skill)
-          } catch (error) {
-            logger.warn(`path=<${p}> | failed to load skill: ${error}`)
-          }
-        } else if (isDir) {
-          // Parent directory containing skill subdirectories
-          try {
-            for (const skill of Skill.fromDirectory(p, { strict: this._strict })) {
-              if (resolved.has(skill.name)) {
-                logger.warn(`name=<${skill.name}> | duplicate skill name, overwriting previous skill`)
-              }
-              resolved.set(skill.name, skill)
-            }
-          } catch (error) {
-            logger.warn(`path=<${p}> | failed to load skills from directory: ${error}`)
-          }
-        } else {
-          logger.warn(`path=<${p}> | skill source does not exist or is not a valid path`)
-        }
+        skillPaths.push(source)
       }
     }
 
@@ -263,7 +258,59 @@ export class AgentSkills implements Plugin {
       ready = Promise.resolve()
     }
 
-    return { skills: resolved, ready }
+    return { skills: resolved, ready, skillPaths }
+  }
+
+  /**
+   * Load the deferred path sources through the sandbox, mirroring `Skill.fromFile`/
+   * `Skill.fromDirectory`: a path may be a SKILL.md file, a skill directory, or a parent
+   * directory of skill subdirectories. Per-path failures are logged and skipped.
+   */
+  private async _loadSkillPaths(sandbox: Sandbox): Promise<void> {
+    // Load one skill; a failure (e.g. malformed SKILL.md) is logged and skipped so it does
+    // not abort sibling skills, matching Skill.fromDirectory's per-skill resilience.
+    const loadSkill = async (skillDir: string, mdPath: string): Promise<void> => {
+      try {
+        const skill = Skill.fromContent(await sandbox.readText(mdPath), { strict: this._strict, path: skillDir })
+        if (this._skills.has(skill.name)) {
+          logger.warn(`name=<${skill.name}> | duplicate skill name, overwriting previous skill`)
+        }
+        this._skills.set(skill.name, skill)
+      } catch (error) {
+        logger.warn(`path=<${skillDir}> | failed to load skill: ${error}`)
+      }
+    }
+
+    for (const skillPath of this._skillPaths) {
+      try {
+        let entries: FileInfo[]
+        try {
+          entries = await sandbox.listFiles(skillPath)
+        } catch {
+          // Not a directory: accept a direct path to a SKILL.md file, as Skill.fromFile does.
+          if (skillPath.toLowerCase().endsWith('skill.md')) {
+            await loadSkill(skillPath.slice(0, skillPath.lastIndexOf('/')), skillPath)
+          } else {
+            logger.warn(`path=<${skillPath}> | skill source does not exist or is not a valid path`)
+          }
+          continue
+        }
+
+        const mdName = findSkillMdName(entries)
+        if (mdName) {
+          await loadSkill(skillPath, `${skillPath}/${mdName}`)
+        } else {
+          // Parent directory: load each subdirectory that contains a skill.
+          for (const entry of entries.filter((e) => e.isDir).sort((a, b) => a.name.localeCompare(b.name))) {
+            const childDir = `${skillPath}/${entry.name}`
+            const childMd = findSkillMdName(await sandbox.listFiles(childDir))
+            if (childMd) await loadSkill(childDir, `${childDir}/${childMd}`)
+          }
+        }
+      } catch (error) {
+        logger.warn(`path=<${skillPath}> | failed to load skill from sandbox: ${error}`)
+      }
+    }
   }
 
   /**
@@ -292,7 +339,7 @@ export class AgentSkills implements Plugin {
   /**
    * Handle skill activation from the tool callback.
    */
-  private _activateSkill(skillName: string, context: ToolContext): string {
+  private async _activateSkill(skillName: string, context: ToolContext): Promise<string> {
     const found = this._skills.get(skillName)
     if (found == null) {
       const available = [...this._skills.keys()].join(', ')
@@ -301,7 +348,7 @@ export class AgentSkills implements Plugin {
 
     logger.debug(`skill_name=<${skillName}> | skill activated`)
     this._trackActivatedSkill(context.agent, skillName)
-    return this._formatSkillResponse(found)
+    return this._formatSkillResponse(found, context.agent.sandbox)
   }
 
   /**
@@ -413,7 +460,7 @@ export class AgentSkills implements Plugin {
       lines.push(`<name>${escapeXml(skill.name)}</name>`)
       lines.push(`<description>${escapeXml(skill.description)}</description>`)
       if (skill.path != null) {
-        lines.push(`<location>${escapeXml(join(skill.path, 'SKILL.md'))}</location>`)
+        lines.push(`<location>${escapeXml(`${skill.path}/SKILL.md`)}</location>`)
       }
       lines.push('</skill>')
     }
@@ -428,7 +475,7 @@ export class AgentSkills implements Plugin {
    * Includes the full instructions along with relevant metadata fields
    * and a listing of available resource files.
    */
-  private _formatSkillResponse(skill: Skill): string {
+  private async _formatSkillResponse(skill: Skill, sandbox: Sandbox): Promise<string> {
     if (!skill.instructions) {
       return `Skill '${skill.name}' activated (no instructions available).`
     }
@@ -443,7 +490,7 @@ export class AgentSkills implements Plugin {
       metadataLines.push(`Compatibility: ${skill.compatibility}`)
     }
     if (skill.path != null) {
-      metadataLines.push(`Location: ${join(skill.path, 'SKILL.md')}`)
+      metadataLines.push(`Location: ${skill.path}/SKILL.md`)
     }
 
     if (metadataLines.length > 0) {
@@ -451,7 +498,7 @@ export class AgentSkills implements Plugin {
     }
 
     if (skill.path != null) {
-      const resources = this._listSkillResources(skill.path)
+      const resources = await this._listSkillResources(sandbox, skill.path)
       if (resources.length > 0) {
         parts.push('\nAvailable resources:\n' + resources.map((r) => `  ${r}`).join('\n'))
       }
@@ -466,21 +513,32 @@ export class AgentSkills implements Plugin {
    * Scans `scripts/`, `references/`, and `assets/` subdirectories for files,
    * returning relative paths. Results are capped at maxResourceFiles.
    */
-  private _listSkillResources(skillPath: string): string[] {
+  private async _listSkillResources(sandbox: Sandbox, skillPath: string): Promise<string[]> {
     const files: string[] = []
 
+    // List a directory recursively through the sandbox, returning paths relative to its root.
+    // Replaces readdirSync(dir, { recursive: true }), which has no sandbox equivalent.
+    const listFilesRecursive = async (dir: string): Promise<string[]> => {
+      const result: string[] = []
+      for (const entry of await sandbox.listFiles(dir)) {
+        if (entry.isDir)
+          result.push(...(await listFilesRecursive(`${dir}/${entry.name}`)).map((p) => `${entry.name}/${p}`))
+        else result.push(entry.name)
+      }
+      return result
+    }
+
     for (const dirName of RESOURCE_DIRS) {
-      const resourceDir = join(skillPath, dirName)
-      if (!existsSync(resourceDir) || !statSync(resourceDir).isDirectory()) {
+      const resourceDir = `${skillPath}/${dirName}`
+      let entries: string[]
+      try {
+        entries = await listFilesRecursive(resourceDir)
+      } catch {
         continue
       }
 
-      const entries = readdirSync(resourceDir, { recursive: true, encoding: 'utf-8' })
       for (const entry of entries.sort()) {
-        const fullPath = join(resourceDir, entry)
-        if (!existsSync(fullPath) || !statSync(fullPath).isFile()) continue
-
-        files.push(relative(skillPath, fullPath).split(sep).join('/'))
+        files.push(`${dirName}/${entry}`)
         if (files.length >= this._maxResourceFiles) {
           files.push(`... (truncated at ${this._maxResourceFiles} files)`)
           return files
