@@ -149,7 +149,7 @@ class ContextOffloader(Plugin):
     def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
         """Advance the storage turn counter for eviction tracking."""
         if hasattr(self._storage, "tick"):
-            self._storage.tick()
+            self._storage.tick(caller=self)
 
     @tool(context=True)
     def retrieve_offloaded_content(

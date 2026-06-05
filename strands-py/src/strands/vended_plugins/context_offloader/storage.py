@@ -246,6 +246,7 @@ class InMemoryStorage:
         self._counter: int = 0
         self._current_turn: int = 0
         self._evict_after_turns: int | None = evict_after_turns
+        self._tick_owner: object | None = None
         self._lock = threading.Lock()
 
     def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
@@ -287,14 +288,26 @@ class InMemoryStorage:
             self._store[reference] = (content, content_type, self._current_turn)
             return content, content_type
 
-    def tick(self) -> None:
+    def tick(self, caller: object | None = None) -> None:
         """Advance the turn counter and evict stale entries.
 
         Called by the ContextOffloader plugin on each ``BeforeModelCallEvent``.
         Entries whose last-accessed turn is more than ``evict_after_turns``
         behind the current turn are removed.
+
+        When multiple plugins share a single storage instance, only the first
+        caller to invoke ``tick()`` becomes the owner. Subsequent callers are
+        ignored to prevent the turn counter from advancing too fast.
+
+        Args:
+            caller: Identity of the calling plugin. Used for ownership tracking.
         """
         with self._lock:
+            if self._tick_owner is None:
+                self._tick_owner = caller
+            elif caller is not None and self._tick_owner is not caller:
+                return
+
             self._current_turn += 1
             if self._evict_after_turns is None:
                 return

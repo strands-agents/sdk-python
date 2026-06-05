@@ -624,3 +624,23 @@ class TestBeforeModelCallHook:
         plugin._on_before_model_call(event)
         with pytest.raises(KeyError):
             storage.retrieve(ref)
+
+    def test_shared_storage_only_first_plugin_ticks(self):
+        storage = InMemoryStorage(evict_after_turns=3)
+        plugin1 = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+        plugin2 = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+        event = BeforeModelCallEvent(agent=MagicMock(), invocation_state={})
+
+        ref = storage.store("key_1", b"content")
+
+        # Both plugins tick, but only the first one's ticks count
+        plugin1._on_before_model_call(event)
+        plugin2._on_before_model_call(event)
+        plugin1._on_before_model_call(event)
+        plugin2._on_before_model_call(event)
+        plugin1._on_before_model_call(event)
+        plugin2._on_before_model_call(event)
+
+        # Only 3 real ticks (from plugin1). threshold = 3 - 3 = 0, stored at 0, 0 < 0 is false
+        assert storage._current_turn == 3
+        assert storage.retrieve(ref) == (b"content", "text/plain")
