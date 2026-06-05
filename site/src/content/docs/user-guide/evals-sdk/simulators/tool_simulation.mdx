@@ -289,12 +289,12 @@ Specify a different model for simulation inference:
 
 ```python
 # Via model ID string (Bedrock)
-tool_simulator = ToolSimulator(model="anthropic.claude-3-5-sonnet-20241022-v2:0")
+tool_simulator = ToolSimulator(model="anthropic.claude-haiku-4-5-20251001-v1:0")
 
 # Via Strands Model provider
 from strands.models import BedrockModel
 
-model = BedrockModel(model_id="anthropic.claude-3-5-sonnet-20241022-v2:0")
+model = BedrockModel(model_id="anthropic.claude-haiku-4-5-20251001-v1:0")
 tool_simulator = ToolSimulator(model=model)
 ```
 

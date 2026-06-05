@@ -37,7 +37,7 @@ from strands.models.bedrock import BedrockModel
 from strands.models.openai import OpenAIModel
 
 # Use Claude Sonnet on Amazon Bedrock (default if `model` is not specified)
-model = BedrockModel(model_id="anthropic.claude-sonnet-4-20250514-v1:0")
+model = BedrockModel()
 
 # Or use a different provider and model
 model = OpenAIModel(client_args={"api_key": "<KEY>"}, model_id="gpt-4o")

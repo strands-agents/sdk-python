@@ -92,9 +92,7 @@ from strands.models.bedrock import BedrockModel
 from strands.models.openai import OpenAIModel
 
 # Use Bedrock
-bedrock_model = BedrockModel(
-    model_id="anthropic.claude-sonnet-4-20250514-v1:0"
-)
+bedrock_model = BedrockModel()
 agent = Agent(model=bedrock_model)
 response = agent("What can you help me with?")
 

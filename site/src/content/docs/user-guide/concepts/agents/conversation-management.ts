@@ -147,9 +147,6 @@ Format as bullet points without conversational language.
 async function proactiveSlidingWindow() {
   // --8<-- [start:proactive_sliding_window]
   const agent = new Agent({
-    model: new BedrockModel({
-      modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
-    }),
     conversationManager: new SlidingWindowConversationManager({
       windowSize: 50,
       proactiveCompression: { compressionThreshold: 0.7 },
@@ -161,9 +158,6 @@ async function proactiveSlidingWindow() {
 async function proactiveSummarizing() {
   // --8<-- [start:proactive_summarizing]
   const agent = new Agent({
-    model: new BedrockModel({
-      modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
-    }),
     conversationManager: new SummarizingConversationManager({
       proactiveCompression: true,
     }),
