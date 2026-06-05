@@ -21,6 +21,7 @@ from typing import (
     TypeVar,
     Union,
     cast,
+    get_args,
 )
 
 from opentelemetry import trace as trace_api
@@ -440,9 +441,10 @@ class Agent(AgentBase):
         if context_manager is None:
             return None, None
 
-        if context_manager != "auto":
+        supported = get_args(ContextManagerStrategy)
+        if context_manager not in supported:
             raise ValueError(
-                f"Unsupported context_manager value: {context_manager!r}. Supported values: 'auto'"
+                f"Unsupported context_manager value: {context_manager!r}. Supported values: {supported}"
             )
 
         from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
