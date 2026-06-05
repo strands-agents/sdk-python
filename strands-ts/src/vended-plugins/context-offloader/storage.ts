@@ -55,8 +55,7 @@ function sanitizeId(rawId: string): string {
  * Note: evicted entries are permanently deleted from memory. The agent will receive
  * an error if it attempts to retrieve evicted content.
  *
- * @param options - Optional configuration
- * @param options.evictAfterTurns - Cycles of inactivity before eviction. Defaults to 10. `null` disables.
+ * @param evictAfterTurns - Cycles of inactivity before eviction. Defaults to 10. `null` disables.
  */
 export class InMemoryStorage implements Storage {
   private _store = new Map<string, { content: Uint8Array; contentType: string; lastAccessedCycle: number }>()
@@ -66,8 +65,7 @@ export class InMemoryStorage implements Storage {
 
   static readonly DEFAULT_EVICT_AFTER_TURNS = 10
 
-  constructor(options?: { evictAfterTurns?: number | null }) {
-    const evictAfterTurns = options?.evictAfterTurns === undefined ? InMemoryStorage.DEFAULT_EVICT_AFTER_TURNS : options.evictAfterTurns
+  constructor(evictAfterTurns: number | null = InMemoryStorage.DEFAULT_EVICT_AFTER_TURNS) {
     if (evictAfterTurns !== null && evictAfterTurns < 1) {
       throw new Error('evictAfterTurns must be a positive integer')
     }

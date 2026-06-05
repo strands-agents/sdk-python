@@ -65,7 +65,7 @@ describe('InMemoryStorage eviction', () => {
   })
 
   it('eviction disabled with null', async () => {
-    const storage = new InMemoryStorage({ evictAfterTurns: null })
+    const storage = new InMemoryStorage(null)
     const ref = await storage.store('key1', new TextEncoder().encode('test'))
     storage._evict(100)
     const result = await storage.retrieve(ref)
@@ -73,12 +73,12 @@ describe('InMemoryStorage eviction', () => {
   })
 
   it('throws on invalid evictAfterTurns', () => {
-    expect(() => new InMemoryStorage({ evictAfterTurns: 0 })).toThrow('evictAfterTurns must be a positive integer')
-    expect(() => new InMemoryStorage({ evictAfterTurns: -1 })).toThrow('evictAfterTurns must be a positive integer')
+    expect(() => new InMemoryStorage(0)).toThrow('evictAfterTurns must be a positive integer')
+    expect(() => new InMemoryStorage(-1)).toThrow('evictAfterTurns must be a positive integer')
   })
 
   it('entry survives within TTL', async () => {
-    const storage = new InMemoryStorage({ evictAfterTurns: 3 })
+    const storage = new InMemoryStorage(3)
     const ref = await storage.store('key1', new TextEncoder().encode('test'))
     // stored at cycle 0, evict at cycle 3: threshold = 3 - 3 = 0, 0 < 0 is false
     storage._evict(3)
@@ -87,7 +87,7 @@ describe('InMemoryStorage eviction', () => {
   })
 
   it('entry evicted past TTL', async () => {
-    const storage = new InMemoryStorage({ evictAfterTurns: 2 })
+    const storage = new InMemoryStorage(2)
     const ref = await storage.store('key1', new TextEncoder().encode('test'))
     // stored at cycle 0, evict at cycle 3: threshold = 3 - 2 = 1, 0 < 1 → evicted
     storage._evict(3)
@@ -95,7 +95,7 @@ describe('InMemoryStorage eviction', () => {
   })
 
   it('retrieve refreshes last accessed cycle', async () => {
-    const storage = new InMemoryStorage({ evictAfterTurns: 2 })
+    const storage = new InMemoryStorage(2)
     const ref = await storage.store('key1', new TextEncoder().encode('test'))
     storage._evict(1)
     await storage.retrieve(ref) // refreshes to cycle 1
@@ -106,7 +106,7 @@ describe('InMemoryStorage eviction', () => {
   })
 
   it('multiple entries evicted independently', async () => {
-    const storage = new InMemoryStorage({ evictAfterTurns: 2 })
+    const storage = new InMemoryStorage(2)
     const ref1 = await storage.store('key1', new TextEncoder().encode('first'))
     storage._evict(1)
     const ref2 = await storage.store('key2', new TextEncoder().encode('second'))

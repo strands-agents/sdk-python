@@ -41,7 +41,7 @@ from ...plugins import Plugin, hook
 from ...tools.decorator import tool
 from ...types.content import Message
 from ...types.tools import ToolContext, ToolResult, ToolResultContent
-from .storage import Storage
+from .storage import InMemoryStorage, Storage
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -148,7 +148,7 @@ class ContextOffloader(Plugin):
     @hook
     def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
         """Trigger eviction of stale entries based on the agent's cycle count."""
-        if hasattr(self._storage, "_evict"):
+        if isinstance(self._storage, InMemoryStorage):
             self._storage._evict(event.agent.event_loop_metrics.cycle_count)
 
     @tool(context=True)

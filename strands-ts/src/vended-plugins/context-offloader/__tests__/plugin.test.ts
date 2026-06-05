@@ -613,7 +613,7 @@ describe('ContextOffloader', () => {
 
   describe('eviction via BeforeModelCallEvent', () => {
     it('calls _evict on storage with incrementing cycle count', () => {
-      const storage = new InMemoryStorage({ evictAfterTurns: 5 })
+      const storage = new InMemoryStorage(5)
       const plugin = new ContextOffloader({ storage, maxResultTokens: 10, previewTokens: 5 })
       const agent = createMockAgent()
       plugin.initAgent(agent)
@@ -629,7 +629,7 @@ describe('ContextOffloader', () => {
     })
 
     it('evicts stale entries on BeforeModelCallEvent', async () => {
-      const storage = new InMemoryStorage({ evictAfterTurns: 2 })
+      const storage = new InMemoryStorage(2)
       const plugin = new ContextOffloader({ storage, maxResultTokens: 10, previewTokens: 5 })
       const agent = createMockAgent()
       plugin.initAgent(agent)
