@@ -95,7 +95,9 @@ Each model invocation ends with a stop reason that determines what happens next:
 - **Content filtered**: The response was blocked by safety mechanisms.
 - **Guardrail intervention**: A guardrail policy stopped generation.
 
-The limit stop reasons indicate graceful budget exhaustion. The agent's message history remains in a valid state, and you can reinvoke with a higher budget or different prompt. Both content filtered and guardrail intervention terminate the loop and should be handled according to application requirements.
+The limit stop reasons indicate graceful budget exhaustion. The agent's message history remains in a valid state, and you can reinvoke with a higher budget or different prompt.
+
+Both content filtered and guardrail intervention terminate the loop and should be handled according to application requirements.
 
 ### Extending the Loop
 
@@ -210,8 +212,7 @@ tokens, or total tokens. All three are optional.
   ```
 
   The same parameter works with `invoke_async` and
-  `stream_async`. Python requires each cap to be a positive
-  `int` (booleans are rejected).
+  `stream_async`. Each cap must be a positive `int`.
 
   </Tab>
   <Tab label="TypeScript">
@@ -220,8 +221,8 @@ tokens, or total tokens. All three are optional.
   --8<-- "user-guide/concepts/agents/agent-loop.ts:limits_basic"
   ```
 
-  The same option works with `stream`. TypeScript requires each
-  cap to be a positive finite number.
+  The same option works with `stream`. Each cap must be a
+  positive finite number.
 
   </Tab>
 </Tabs>
