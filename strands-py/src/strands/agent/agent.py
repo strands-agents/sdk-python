@@ -393,7 +393,6 @@ class Agent(AgentBase):
             return None, None
 
         from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
-
         from .conversation_manager import SummarizingConversationManager
 
         resolved_plugins = list(plugins) if plugins else []
