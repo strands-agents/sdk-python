@@ -124,7 +124,9 @@ def test_call_tool_sync_status(mock_transport, mock_session, is_error, expected_
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
-        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, progress_callback=None, meta=None)
+        mock_session.call_tool.assert_called_once_with(
+            "test_tool", {"param": "value"}, None, progress_callback=None, meta=None
+        )
 
         assert result["status"] == expected_status
         assert result["toolUseId"] == "test-123"
@@ -155,7 +157,9 @@ def test_call_tool_sync_with_structured_content(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
-        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, progress_callback=None, meta=None)
+        mock_session.call_tool.assert_called_once_with(
+            "test_tool", {"param": "value"}, None, progress_callback=None, meta=None
+        )
 
         assert result["status"] == "success"
         assert result["toolUseId"] == "test-123"
@@ -193,7 +197,9 @@ def test_call_tool_sync_forwards_meta(mock_transport, mock_session):
             tool_use_id="test-123", name="test_tool", arguments={"param": "value"}, meta=meta
         )
 
-        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, progress_callback=None, meta=meta)
+        mock_session.call_tool.assert_called_once_with(
+            "test_tool", {"param": "value"}, None, progress_callback=None, meta=meta
+        )
         assert result["status"] == "success"
 
 
@@ -206,9 +212,7 @@ def test_call_tool_sync_forwards_instance_progress_callback(mock_transport, mock
     with MCPClient(mock_transport["transport_callable"], progress_callback=cb) as client:
         result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
 
-        mock_session.call_tool.assert_called_once_with(
-            "test_tool", {}, None, progress_callback=cb, meta=None
-        )
+        mock_session.call_tool.assert_called_once_with("test_tool", {}, None, progress_callback=cb, meta=None)
         assert result["status"] == "success"
 
 
@@ -224,9 +228,7 @@ def test_call_tool_sync_per_call_progress_callback_overrides_instance(mock_trans
             tool_use_id="test-123", name="test_tool", arguments={}, progress_callback=per_call_cb
         )
 
-        mock_session.call_tool.assert_called_once_with(
-            "test_tool", {}, None, progress_callback=per_call_cb, meta=None
-        )
+        mock_session.call_tool.assert_called_once_with("test_tool", {}, None, progress_callback=per_call_cb, meta=None)
         assert result["status"] == "success"
 
 
@@ -238,9 +240,7 @@ def test_call_tool_sync_no_progress_callback_by_default(mock_transport, mock_ses
     with MCPClient(mock_transport["transport_callable"]) as client:
         client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={})
 
-        mock_session.call_tool.assert_called_once_with(
-            "test_tool", {}, None, progress_callback=None, meta=None
-        )
+        mock_session.call_tool.assert_called_once_with("test_tool", {}, None, progress_callback=None, meta=None)
 
 
 @pytest.mark.asyncio
@@ -896,7 +896,9 @@ def test_call_tool_sync_with_meta_and_structured_content(mock_transport, mock_se
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
-        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None, progress_callback=None, meta=None)
+        mock_session.call_tool.assert_called_once_with(
+            "test_tool", {"param": "value"}, None, progress_callback=None, meta=None
+        )
 
         assert result["status"] == "success"
         assert result["toolUseId"] == "test-123"
