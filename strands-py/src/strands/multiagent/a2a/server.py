@@ -34,6 +34,7 @@ class A2AServer:
         agent: SAAgent | None = None,
         *,
         agent_factory: AgentFactory | None = None,
+        max_contexts: int = StrandsA2AExecutor.DEFAULT_MAX_CONTEXTS,
         # AgentCard
         host: str = "127.0.0.1",
         port: int = 9000,
@@ -65,6 +66,8 @@ class A2AServer:
         Args:
             agent: A single Strands Agent to wrap. Deprecated; prefer ``agent_factory``.
             agent_factory: Callable ``(context_id) -> Agent`` building a fresh agent per context.
+            max_contexts: Maximum number of per-context agents to retain concurrently (factory
+                mode); the least-recently-used is evicted beyond this. Must be >= 1.
             host: The hostname or IP address to bind the A2A server to. Defaults to "127.0.0.1".
             port: The port to bind the A2A server to. Defaults to 9000.
             http_url: The public HTTP URL where this agent will be accessible. If provided,
@@ -89,7 +92,8 @@ class A2AServer:
                 for backwards compatibility. Defaults to False.
 
         Raises:
-            ValueError: If neither or both of ``agent``/``agent_factory`` are provided.
+            ValueError: If neither or both of ``agent``/``agent_factory`` are provided, or if
+                ``max_contexts`` is less than 1.
         """
         if (agent is None) == (agent_factory is None):
             raise ValueError("Provide exactly one of 'agent' or 'agent_factory'.")
@@ -125,6 +129,7 @@ class A2AServer:
                 agent,
                 agent_factory=agent_factory,
                 enable_a2a_compliant_streaming=enable_a2a_compliant_streaming,
+                max_contexts=max_contexts,
             ),
             task_store=task_store or InMemoryTaskStore(),
             queue_manager=queue_manager,

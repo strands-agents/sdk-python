@@ -492,6 +492,26 @@ def test_executor_created_correctly(mock_strands_agent):
     assert a2a_agent.request_handler.agent_executor.agent == mock_strands_agent
 
 
+def test_server_forwards_max_contexts_to_executor(mock_strands_agent):
+    """max_contexts passed to A2AServer is forwarded to the executor."""
+    a2a_agent = A2AServer(mock_strands_agent, max_contexts=42)
+
+    assert a2a_agent.request_handler.agent_executor._max_contexts == 42
+
+
+def test_server_factory_mode_derives_card_and_isolates(mock_strands_agent):
+    """A2AServer(agent_factory=...) derives card metadata and runs the executor in factory mode."""
+    from strands.multiagent.a2a.executor import StrandsA2AExecutor
+
+    a2a_agent = A2AServer(agent_factory=lambda context_id: mock_strands_agent)
+
+    assert a2a_agent.name == mock_strands_agent.name
+    assert a2a_agent.description == mock_strands_agent.description
+    executor = a2a_agent.request_handler.agent_executor
+    assert isinstance(executor, StrandsA2AExecutor)
+    assert executor.agent is None  # factory mode keeps no shared agent
+
+
 @patch("uvicorn.run", side_effect=KeyboardInterrupt)
 def test_serve_handles_keyboard_interrupt(mock_run, mock_strands_agent, caplog):
     """Test that serve handles KeyboardInterrupt gracefully."""
