@@ -106,7 +106,7 @@ class TestInMemoryStorageEviction:
         assert storage._evict_after_turns == 10
         ref = storage.store("key_1", b"content")
         for _ in range(11):
-            storage.tick()
+            storage._evict(storage._current_cycle + 1)
         with pytest.raises(KeyError):
             storage.retrieve(ref)
 
@@ -114,27 +114,27 @@ class TestInMemoryStorageEviction:
         storage = InMemoryStorage(evict_after_turns=None)
         ref = storage.store("key_1", b"content")
         for _ in range(100):
-            storage.tick()
+            storage._evict(storage._current_cycle + 1)
         assert storage.retrieve(ref) == (b"content", "text/plain")
 
     def test_entry_evicted_after_n_turns(self):
         storage = InMemoryStorage(evict_after_turns=3)
         ref = storage.store("key_1", b"content")
 
-        storage.tick()  # turn 1
-        storage.tick()  # turn 2
-        storage.tick()  # turn 3 — threshold = 3 - 3 = 0, stored at 0, 0 < 0 is false
+        storage._evict(storage._current_cycle + 1)  # turn 1
+        storage._evict(storage._current_cycle + 1)  # turn 2
+        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 3 - 3 = 0, stored at 0, 0 < 0 is false
         assert storage.retrieve(ref) == (b"content", "text/plain")
 
-        storage.tick()  # turn 4 — threshold = 4 - 3 = 1, stored at 3 (refreshed by retrieve), 3 < 1 is false
+        storage._evict(storage._current_cycle + 1)  # turn 4 — threshold = 4 - 3 = 1, stored at 3 (refreshed by retrieve), 3 < 1 is false
         assert storage.retrieve(ref) == (b"content", "text/plain")
 
     def test_entry_evicted_without_access(self):
         storage = InMemoryStorage(evict_after_turns=2)
         ref = storage.store("key_1", b"content")
 
-        storage.tick()  # turn 1
-        storage.tick()  # turn 2 — threshold = 2 - 2 = 0, stored at 0, 0 < 0 is false
+        storage._evict(storage._current_cycle + 1)  # turn 1
+        storage._evict(storage._current_cycle + 1)  # turn 2 — threshold = 2 - 2 = 0, stored at 0, 0 < 0 is false
         # Entry still alive at exact boundary
         content, _ = storage.retrieve(ref)
         assert content == b"content"
@@ -143,9 +143,9 @@ class TestInMemoryStorageEviction:
         storage = InMemoryStorage(evict_after_turns=2)
         ref = storage.store("key_1", b"content")
 
-        storage.tick()  # turn 1
-        storage.tick()  # turn 2
-        storage.tick()  # turn 3 — threshold = 3 - 2 = 1, stored at 0, 0 < 1 is true → evicted
+        storage._evict(storage._current_cycle + 1)  # turn 1
+        storage._evict(storage._current_cycle + 1)  # turn 2
+        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 3 - 2 = 1, stored at 0, 0 < 1 is true → evicted
         with pytest.raises(KeyError):
             storage.retrieve(ref)
 
@@ -153,31 +153,31 @@ class TestInMemoryStorageEviction:
         storage = InMemoryStorage(evict_after_turns=2)
         ref = storage.store("key_1", b"content")
 
-        storage.tick()  # turn 1
+        storage._evict(storage._current_cycle + 1)  # turn 1
         storage.retrieve(ref)  # refreshes last_accessed to turn 1
 
-        storage.tick()  # turn 2
-        storage.tick()  # turn 3 — threshold = 3 - 2 = 1, last_accessed = 1, 1 < 1 is false
+        storage._evict(storage._current_cycle + 1)  # turn 2
+        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 3 - 2 = 1, last_accessed = 1, 1 < 1 is false
         assert storage.retrieve(ref) == (b"content", "text/plain")
 
     def test_multiple_entries_evicted_independently(self):
         storage = InMemoryStorage(evict_after_turns=2)
         ref1 = storage.store("key_1", b"first")
 
-        storage.tick()  # turn 1
+        storage._evict(storage._current_cycle + 1)  # turn 1
         ref2 = storage.store("key_2", b"second")
 
-        storage.tick()  # turn 2
-        storage.tick()  # turn 3 — threshold = 1. ref1 stored at 0 (evicted), ref2 stored at 1 (0 < 1, but 1 < 1 is false)
+        storage._evict(storage._current_cycle + 1)  # turn 2
+        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 1. ref1 stored at 0 (evicted), ref2 stored at 1 (0 < 1, but 1 < 1 is false)
         with pytest.raises(KeyError):
             storage.retrieve(ref1)
         assert storage.retrieve(ref2) == (b"second", "text/plain")
 
-    def test_tick_with_eviction_disabled_still_increments_turn(self):
+    def test_evict_updates_current_cycle(self):
         storage = InMemoryStorage()
-        assert storage._current_turn == 0
-        storage.tick()
-        assert storage._current_turn == 1
+        assert storage._current_cycle == 0
+        storage._evict(5)
+        assert storage._current_cycle == 5
 
     def test_thread_safety_with_eviction(self):
         storage = InMemoryStorage(evict_after_turns=5)
@@ -188,7 +188,7 @@ class TestInMemoryStorageEviction:
             try:
                 ref = storage.store(f"key_{i}", f"content_{i}".encode())
                 refs.append(ref)
-                storage.tick()
+                storage._evict(storage._current_cycle + 1)
             except Exception as e:
                 errors.append(e)
 

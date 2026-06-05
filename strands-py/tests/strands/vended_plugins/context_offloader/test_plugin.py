@@ -594,53 +594,34 @@ class TestActionableReferences:
 
 
 class TestBeforeModelCallHook:
-    def test_calls_tick_on_storage_with_tick(self):
+    @staticmethod
+    def _make_event(cycle_count):
+        agent = MagicMock()
+        agent.event_loop_metrics.cycle_count = cycle_count
+        return BeforeModelCallEvent(agent=agent, invocation_state={})
+
+    def test_calls_evict_with_cycle_count(self):
         storage = InMemoryStorage(evict_after_turns=5)
         plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
-        event = BeforeModelCallEvent(agent=MagicMock(), invocation_state={})
 
-        plugin._on_before_model_call(event)
+        plugin._on_before_model_call(self._make_event(7))
 
-        assert storage._current_turn == 1
+        assert storage._current_cycle == 7
 
-    def test_does_not_crash_on_storage_without_tick(self):
+    def test_does_not_crash_on_storage_without_evict(self):
         storage = MagicMock(spec=["store", "retrieve"])
         plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
-        event = BeforeModelCallEvent(agent=MagicMock(), invocation_state={})
 
-        plugin._on_before_model_call(event)
+        plugin._on_before_model_call(self._make_event(1))
 
     def test_eviction_triggered_via_hook(self):
         storage = InMemoryStorage(evict_after_turns=2)
         plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
-        event = BeforeModelCallEvent(agent=MagicMock(), invocation_state={})
 
         ref = storage.store("key_1", b"content")
 
-        # Advance 3 turns without accessing — entry should be evicted
-        # stored at turn 0, tick to turn 3, threshold = 3 - 2 = 1, 0 < 1 → evicted
-        plugin._on_before_model_call(event)
-        plugin._on_before_model_call(event)
-        plugin._on_before_model_call(event)
+        # stored at cycle 0, evict at cycle 3: threshold = 3 - 2 = 1, 0 < 1 → evicted
+        plugin._on_before_model_call(self._make_event(3))
         with pytest.raises(KeyError):
             storage.retrieve(ref)
 
-    def test_shared_storage_only_first_plugin_ticks(self):
-        storage = InMemoryStorage(evict_after_turns=3)
-        plugin1 = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
-        plugin2 = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
-        event = BeforeModelCallEvent(agent=MagicMock(), invocation_state={})
-
-        ref = storage.store("key_1", b"content")
-
-        # Both plugins tick, but only the first one's ticks count
-        plugin1._on_before_model_call(event)
-        plugin2._on_before_model_call(event)
-        plugin1._on_before_model_call(event)
-        plugin2._on_before_model_call(event)
-        plugin1._on_before_model_call(event)
-        plugin2._on_before_model_call(event)
-
-        # Only 3 real ticks (from plugin1). threshold = 3 - 3 = 0, stored at 0, 0 < 0 is false
-        assert storage._current_turn == 3
-        assert storage.retrieve(ref) == (b"content", "text/plain")

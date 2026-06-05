@@ -244,9 +244,8 @@ class InMemoryStorage:
 
         self._store: dict[str, tuple[bytes, str, int]] = {}
         self._counter: int = 0
-        self._current_turn: int = 0
+        self._current_cycle: int = 0
         self._evict_after_turns: int | None = evict_after_turns
-        self._tick_owner: object | None = None
         self._lock = threading.Lock()
 
     def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
@@ -263,7 +262,7 @@ class InMemoryStorage:
         with self._lock:
             self._counter += 1
             reference = f"mem_{self._counter}_{key}"
-            self._store[reference] = (content, content_type, self._current_turn)
+            self._store[reference] = (content, content_type, self._current_cycle)
         return reference
 
     def retrieve(self, reference: str) -> tuple[bytes, str]:
@@ -285,38 +284,29 @@ class InMemoryStorage:
             if reference not in self._store:
                 raise KeyError(f"Reference not found: {reference}")
             content, content_type, _ = self._store[reference]
-            self._store[reference] = (content, content_type, self._current_turn)
+            self._store[reference] = (content, content_type, self._current_cycle)
             return content, content_type
 
-    def tick(self, caller: object | None = None) -> None:
-        """Advance the turn counter and evict stale entries.
+    def _evict(self, cycle: int) -> None:
+        """Update current cycle and evict stale entries.
 
         Called by the ContextOffloader plugin on each ``BeforeModelCallEvent``.
-        Entries whose last-accessed turn is more than ``evict_after_turns``
-        behind the current turn are removed.
-
-        When multiple plugins share a single storage instance, only the first
-        caller to invoke ``tick()`` becomes the owner. Subsequent callers are
-        ignored to prevent the turn counter from advancing too fast.
+        Entries whose last-accessed cycle is more than ``evict_after_turns``
+        behind the current cycle are removed.
 
         Args:
-            caller: Identity of the calling plugin. Used for ownership tracking.
+            cycle: The agent's current event loop cycle count.
         """
         with self._lock:
-            if self._tick_owner is None:
-                self._tick_owner = caller
-            elif caller is not None and self._tick_owner is not caller:
-                return
-
-            self._current_turn += 1
+            self._current_cycle = cycle
             if self._evict_after_turns is None:
                 return
-            threshold = self._current_turn - self._evict_after_turns
+            threshold = cycle - self._evict_after_turns
             stale_refs = [ref for ref, (_, _, last_accessed) in self._store.items() if last_accessed < threshold]
             for ref in stale_refs:
                 del self._store[ref]
             if stale_refs:
-                logger.debug("evicted=%d, current_turn=%d | stale entries removed", len(stale_refs), self._current_turn)
+                logger.debug("evicted=%d, cycle=%d | stale entries removed", len(stale_refs), cycle)
 
     def clear(self) -> None:
         """Remove all stored content.
