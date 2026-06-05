@@ -126,7 +126,7 @@ class TestInMemoryStorageEviction:
         storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 3 - 3 = 0, stored at 0, 0 < 0 is false
         assert storage.retrieve(ref) == (b"content", "text/plain")
 
-        storage._evict(storage._current_cycle + 1)  # turn 4 — threshold = 4 - 3 = 1, stored at 3 (refreshed by retrieve), 3 < 1 is false
+        storage._evict(storage._current_cycle + 1)  # turn 4 — refreshed by retrieve to 3, 3 < 1 is false
         assert storage.retrieve(ref) == (b"content", "text/plain")
 
     def test_entry_evicted_without_access(self):
@@ -145,7 +145,7 @@ class TestInMemoryStorageEviction:
 
         storage._evict(storage._current_cycle + 1)  # turn 1
         storage._evict(storage._current_cycle + 1)  # turn 2
-        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 3 - 2 = 1, stored at 0, 0 < 1 is true → evicted
+        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 1, 0 < 1 → evicted
         with pytest.raises(KeyError):
             storage.retrieve(ref)
 
@@ -168,7 +168,7 @@ class TestInMemoryStorageEviction:
         ref2 = storage.store("key_2", b"second")
 
         storage._evict(storage._current_cycle + 1)  # turn 2
-        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 1. ref1 stored at 0 (evicted), ref2 stored at 1 (0 < 1, but 1 < 1 is false)
+        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 1. ref1 evicted, ref2 survives
         with pytest.raises(KeyError):
             storage.retrieve(ref1)
         assert storage.retrieve(ref2) == (b"second", "text/plain")
