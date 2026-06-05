@@ -5,49 +5,55 @@ instructions: |
   This is the Strands Agents SDK repository (Python + TypeScript monorepo).
   CI dependency bumps (dependabot, renovate) should be labeled area-community.
   MCP tools should be labeled area-mcp, not area-tool.
-  Provider-specific async/streaming bugs belong to area-provider, not area-async.
+  Provider-specific bugs (Bedrock, OpenAI, Anthropic, Gemini, Ollama, etc.) belong to area-model.
   Issues about hook lifecycle events belong to area-hooks even if they mention tools or agents.
   Guardrails and content filtering belong to area-interventions, not area-hooks.
   Documentation content issues belong to docs, not area-devx.
+  Session persistence/storage issues belong to area-sessions. Context window/token management belongs to area-context.
+  General agent class behavior (invocation, streaming, result handling) belongs to area-agent.
 
 labels:
   area-a2a:
-    description: "Agent-to-Agent protocol, A2AAgent, A2AClient, A2AServer, agent cards"
+    description: "Agent-to-Agent protocol, A2AAgent, A2AClient, A2AServer, agent cards, cross-agent communication"
+  area-agent:
+    description: "Core agent class, agent invocation, agent lifecycle, streaming responses, AgentResult, system prompt"
   area-async:
-    description: "Asynchronous flows, multi-threading, asyncio, concurrent execution, event loops"
+    description: "Asynchronous flows, multi-threading, asyncio, concurrent execution, event loops, non-blocking operations"
   area-bidirectional-streaming:
-    description: "Bidirectional streaming, BidiAgent, real-time audio/video, WebRTC, WebSocket, Nova Sonic"
+    description: "Bidirectional streaming, BidiAgent, real-time audio/video, WebRTC, WebSocket, Nova Sonic, voice agents"
   area-community:
-    description: "Community health, monorepo consolidation, contributor guides, governance, CI dependency bumps"
+    description: "Community health, monorepo consolidation, contributor guides, governance, CI dependency bumps, release process"
   area-config:
-    description: "Config-based agents, agent config files, mcp-config, declarative definitions"
+    description: "Config-based agents, agent config files, mcp-config, declarative agent/graph/swarm definitions from YAML"
   area-context:
-    description: "Conversation management, context windows, context reduction, sliding window, token management"
+    description: "Conversation management, context windows, context reduction, sliding window, token management, compression strategies"
   area-devx:
-    description: "Developer experience, better APIs, ergonomics, helper methods, error messages, usability"
+    description: "Developer experience improvements, better APIs, ergonomics, helper methods, error messages, SDK usability"
   area-hil:
-    description: "Human-in-the-loop, interrupt/resume, suspend/resume, approval workflows"
+    description: "Human-in-the-loop, interrupt/resume, suspend/resume, approval workflows, callback-based tool execution"
   area-hooks:
-    description: "Hook events, hook registry, callbacks, lifecycle events, BeforeEvent/AfterEvent"
-  area-language:
-    description: "New language SDKs (Ruby, .NET, Rust, Go, etc.)"
-  area-mcp:
-    description: "Model Context Protocol, MCP servers/clients/transport/tools"
-  area-multiagent:
-    description: "Multi-agent patterns, swarm, graph, orchestrator, agent-as-tool, arena"
-  area-otel:
-    description: "OpenTelemetry, tracing, metrics, spans, observability, OTLP"
-  area-persistence:
-    description: "Session storage, checkpointing, S3SessionManager, DynamoDB sessions, state serialization"
-  area-provider:
-    description: "Model providers (Bedrock, OpenAI, Anthropic, Ollama, LiteLLM, SageMaker, vLLM, Mistral)"
-  area-structured-output:
-    description: "Structured output API, JSON schema enforcement, Pydantic output models"
+    description: "Hook events, hook registry, callbacks, lifecycle events, BeforeEvent/AfterEvent, Plugin protocol"
   area-interventions:
-    description: "Guardrails, input/output filtering, content moderation, safety controls"
+    description: "Guardrails, input/output filtering, content moderation, safety controls, Bedrock Guardrails integration"
+  area-language:
+    description: "New language SDKs (Ruby, .NET, Rust, Go, etc.) or language-specific development"
+  area-mcp:
+    description: "Model Context Protocol, MCP servers, MCP clients, MCP transport, MCP tools, Streamable HTTP"
+  area-model:
+    description: "Model providers (Bedrock, OpenAI, Anthropic, Gemini, Ollama, LiteLLM, SageMaker, vLLM, Mistral), model config, caching"
+  area-multiagent:
+    description: "Multi-agent patterns, swarm, graph, orchestrator, agent-as-tool, arena, agent coordination, GraphNode"
+  area-otel:
+    description: "OpenTelemetry, tracing, metrics, spans, observability, OTLP export, telemetry instrumentation"
+  area-persistence:
+    description: "Session storage backends, checkpointing, S3SessionManager, DynamoDB sessions, state serialization"
   area-server:
-    description: "Strands Server, sandbox, runtime container, execution boundaries, credential injection"
+    description: "Strands Server, sandbox, runtime container, execution boundaries, credential injection, blast radius"
+  area-sessions:
+    description: "Session management, session lifecycle, session ID handling, session state, SessionManager interface"
+  area-structured-output:
+    description: "Structured output API, JSON schema enforcement, Pydantic output models, deterministic response formatting"
   area-tool:
-    description: "Tool behavior, tool definitions, tool execution, @tool decorator, tool results"
+    description: "Tool behavior, tool definitions, tool execution, @tool decorator, tool results, tool validation"
   docs:
-    description: "Documentation changes, content updates, site improvements, examples"
+    description: "Documentation changes, content updates, site improvements, API reference, examples, guides"
