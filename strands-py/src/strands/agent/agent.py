@@ -195,9 +195,9 @@ class Agent(AgentBase):
                 Defaults to an empty AgentState object.
             context_manager: Context management strategy. When set to ``"auto"``, composes
                 a ContextOffloader plugin (max_result_tokens=1500, preview_tokens=750) with a
-                SummarizingConversationManager (summary_ratio=0.3) using benchmark-validated defaults.
-                If ``conversation_manager`` is also provided, the user's conversation manager is used
-                instead. Defaults to None (no context management).
+                SummarizingConversationManager (summary_ratio=0.3, compression_threshold=0.85)
+                using benchmark-validated defaults. If ``conversation_manager`` is also provided,
+                the user's conversation manager is used instead. Defaults to None (no context management).
             plugins: List of Plugin instances to extend agent functionality.
                 Plugins are initialized with the agent instance after construction and can register hooks,
                 modify agent attributes, or perform other setup tasks.
@@ -246,15 +246,15 @@ class Agent(AgentBase):
         else:
             self.callback_handler = callback_handler
 
+        if self.model.stateful and (conversation_manager is not None or context_manager is not None):
+            raise ValueError(
+                "context_manager and conversation_manager cannot be used with a stateful model. "
+                "The model manages conversation state server-side."
+            )
+
         resolved_cm, resolved_plugins = self._resolve_context_manager(
             context_manager, conversation_manager, plugins
         )
-
-        if self.model.stateful and (conversation_manager is not None or context_manager is not None):
-            raise ValueError(
-                "conversation_manager cannot be used with a stateful model. "
-                "The model manages conversation state server-side."
-            )
 
         self.conversation_manager: ConversationManager
         if self.model.stateful:
@@ -388,9 +388,31 @@ class Agent(AgentBase):
         conversation_manager: ConversationManager | None,
         plugins: list[Plugin] | None,
     ) -> tuple[ConversationManager | None, list[Plugin] | None]:
-        """Resolve context_manager facade into concrete conversation_manager and plugins."""
+        """Resolve context_manager facade into concrete conversation_manager and plugins.
+
+        When context_manager is None, returns (None, None) and no resolution occurs.
+        When "auto", constructs a SummarizingConversationManager and ContextOffloader
+        with benchmark-validated defaults, unless the user already provided those.
+
+        Args:
+            context_manager: The facade value ("auto" or None).
+            conversation_manager: User-provided conversation manager, takes precedence if set.
+            plugins: User-provided plugin list; offloader is prepended if not already present.
+
+        Returns:
+            Tuple of (resolved conversation manager, resolved plugins list).
+            Both are None when context_manager is None.
+
+        Raises:
+            ValueError: If context_manager is not a supported value.
+        """
         if context_manager is None:
             return None, None
+
+        if context_manager != "auto":
+            raise ValueError(
+                f"Unsupported context_manager value: {context_manager!r}. Supported values: 'auto'"
+            )
 
         from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
         from .conversation_manager import SummarizingConversationManager

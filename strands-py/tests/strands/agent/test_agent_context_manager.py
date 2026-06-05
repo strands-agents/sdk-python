@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from strands import Agent
+from strands import Agent, Plugin
 from strands.agent.conversation_manager import SlidingWindowConversationManager, SummarizingConversationManager
 from strands.vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
 
@@ -81,13 +81,8 @@ class TestContextManagerCoexistence:
         assert agent._plugin_registry._plugins["context_offloader"]._max_result_tokens == 3000
 
     def test_user_plugins_preserved(self, mock_model):
-        class MyPlugin:
+        class MyPlugin(Plugin):
             name = "my_plugin"
-            hooks = []
-            tools = []
-
-            def init_agent(self, agent):
-                pass
 
         plugin = MyPlugin()
         agent = Agent(model=mock_model, context_manager="auto", plugins=[plugin])
@@ -95,9 +90,13 @@ class TestContextManagerCoexistence:
         assert "context_offloader" in agent._plugin_registry._plugins
 
 
-class TestContextManagerStatefulModel:
+class TestContextManagerErrors:
     def test_raises_with_stateful_model(self):
         stateful_model = MagicMock()
         stateful_model.stateful = True
         with pytest.raises(ValueError, match="stateful model"):
             Agent(model=stateful_model, context_manager="auto")
+
+    def test_raises_with_unsupported_value(self, mock_model):
+        with pytest.raises(ValueError, match="Unsupported context_manager value"):
+            Agent(model=mock_model, context_manager="manual")
