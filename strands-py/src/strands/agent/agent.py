@@ -108,6 +108,21 @@ _DEFAULT_RETRY_STRATEGY = _DefaultRetryStrategySentinel()
 _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
+ContextManagerStrategy = Literal["auto"]
+"""Supported values for the ``context_manager`` parameter."""
+
+_CM_MAX_RESULT_TOKENS = 1_500
+"""Benchmark-validated token threshold for offloading tool results."""
+
+_CM_PREVIEW_TOKENS = 750
+"""Benchmark-validated preview token count for offloaded results."""
+
+_CM_SUMMARY_RATIO = 0.3
+"""Benchmark-validated ratio of messages to summarize on overflow."""
+
+_CM_COMPRESSION_THRESHOLD = 0.85
+"""Benchmark-validated context window ratio that triggers proactive compression."""
+
 
 class Agent(AgentBase):
     """Core Agent implementation.
@@ -142,7 +157,7 @@ class Agent(AgentBase):
         name: str | None = None,
         description: str | None = None,
         state: AgentState | dict | None = None,
-        context_manager: Literal["auto"] | None = None,
+        context_manager: ContextManagerStrategy | None = None,
         plugins: list[Plugin] | None = None,
         hooks: list[HookProvider | HookCallback] | None = None,
         session_manager: SessionManager | None = None,
@@ -400,7 +415,7 @@ class Agent(AgentBase):
 
     @staticmethod
     def _resolve_context_manager(
-        context_manager: "Literal['auto'] | None",
+        context_manager: "ContextManagerStrategy | None",
         conversation_manager: ConversationManager | None,
         plugins: list[Plugin] | None,
     ) -> tuple[ConversationManager | None, list[Plugin] | None]:
@@ -441,8 +456,8 @@ class Agent(AgentBase):
         if not has_offloader:
             offloader = ContextOffloader(
                 storage=InMemoryStorage(),
-                max_result_tokens=1_500,
-                preview_tokens=750,
+                max_result_tokens=_CM_MAX_RESULT_TOKENS,
+                preview_tokens=_CM_PREVIEW_TOKENS,
             )
             resolved_plugins.insert(0, offloader)
 
@@ -450,8 +465,8 @@ class Agent(AgentBase):
             resolved_cm = conversation_manager
         else:
             resolved_cm = SummarizingConversationManager(
-                summary_ratio=0.3,
-                proactive_compression={"compression_threshold": 0.85},
+                summary_ratio=_CM_SUMMARY_RATIO,
+                proactive_compression={"compression_threshold": _CM_COMPRESSION_THRESHOLD},
             )
 
         return resolved_cm, resolved_plugins

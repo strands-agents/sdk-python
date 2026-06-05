@@ -121,6 +121,20 @@ export type ToolList = (Tool | McpClient | Agent | ToolList)[]
 export type ToolExecutorStrategy = 'sequential' | 'concurrent'
 
 /**
+ * Supported values for the `contextManager` parameter.
+ */
+export type ContextManagerStrategy = 'auto'
+
+/** Benchmark-validated token threshold for offloading tool results. */
+const CM_MAX_RESULT_TOKENS = 1_500
+/** Benchmark-validated preview token count for offloaded results. */
+const CM_PREVIEW_TOKENS = 750
+/** Benchmark-validated ratio of messages to summarize on overflow. */
+const CM_SUMMARY_RATIO = 0.3
+/** Benchmark-validated context window ratio that triggers proactive compression. */
+const CM_COMPRESSION_THRESHOLD = 0.85
+
+/**
  * Configuration object for creating a new Agent.
  */
 export type AgentConfig = {
@@ -184,7 +198,7 @@ export type AgentConfig = {
    * If `conversationManager` is also provided, the user's conversation manager is used instead.
    * Defaults to undefined (no context management).
    */
-  contextManager?: 'auto'
+  contextManager?: ContextManagerStrategy
   /**
    * Plugins to register with the agent.
    */
@@ -241,6 +255,29 @@ export type AgentConfig = {
    * Defaults to `'concurrent'`. See {@link ToolExecutorStrategy} for details.
    */
   toolExecutor?: ToolExecutorStrategy
+}
+
+/**
+ * Resolve the contextManager facade into a concrete ConversationManager.
+ *
+ * When contextManager is undefined, falls back to the default SlidingWindowConversationManager.
+ * When "auto", uses SummarizingConversationManager with benchmark-validated defaults,
+ * unless the user already provided a conversationManager.
+ */
+function resolveConversationManager(
+  contextManager: ContextManagerStrategy | undefined,
+  conversationManager: ConversationManager | undefined
+): ConversationManager {
+  if (contextManager === 'auto') {
+    return (
+      conversationManager ??
+      new SummarizingConversationManager({
+        summaryRatio: CM_SUMMARY_RATIO,
+        proactiveCompression: { compressionThreshold: CM_COMPRESSION_THRESHOLD },
+      })
+    )
+  }
+  return conversationManager ?? new SlidingWindowConversationManager({ windowSize: 40 })
 }
 
 /** Default name assigned to agents when none is provided. */
@@ -368,16 +405,8 @@ export class Agent implements LocalAgent, InvokableAgent {
         )
       }
       this._conversationManager = new NullConversationManager()
-    } else if (config?.contextManager === 'auto') {
-      this._conversationManager =
-        config.conversationManager ??
-        new SummarizingConversationManager({
-          summaryRatio: 0.3,
-          proactiveCompression: { compressionThreshold: 0.85 },
-        })
     } else {
-      this._conversationManager =
-        config?.conversationManager ?? new SlidingWindowConversationManager({ windowSize: 40 })
+      this._conversationManager = resolveConversationManager(config?.contextManager, config?.conversationManager)
     }
 
     const { tools, mcpClients } = flattenTools(config?.tools ?? [])
@@ -415,7 +444,13 @@ export class Agent implements LocalAgent, InvokableAgent {
       ...retryStrategies,
       ...(config?.plugins ?? []),
       ...(config?.contextManager === 'auto' && !hasOffloader
-        ? [new ContextOffloader({ storage: new InMemoryStorage(), maxResultTokens: 1_500, previewTokens: 750 })]
+        ? [
+            new ContextOffloader({
+              storage: new InMemoryStorage(),
+              maxResultTokens: CM_MAX_RESULT_TOKENS,
+              previewTokens: CM_PREVIEW_TOKENS,
+            }),
+          ]
         : []),
       ...(this.memoryManager ? [this.memoryManager] : []),
       ...(config?.sessionManager ? [config.sessionManager] : []),
