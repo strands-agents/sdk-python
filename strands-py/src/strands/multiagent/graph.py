@@ -110,7 +110,7 @@ class GraphState:
 
     Attributes:
         status: Current execution status of the graph.
-        completed_nodes: Set of nodes whose execution is settled — either completed normally or skipped via cancel_node.
+        completed_nodes: Set of nodes whose execution is settled — either completed normally or skipped via skip_node.
             Both statuses satisfy downstream readiness checks; inspect node.execution_status to distinguish them.
         failed_nodes: Set of nodes that failed during execution.
         interrupted_nodes: Set of nodes that user interrupted during execution.
