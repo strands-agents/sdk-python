@@ -36,7 +36,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from ...hooks.events import AfterToolCallEvent
+from ...hooks.events import AfterToolCallEvent, BeforeModelCallEvent
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
 from ...types.content import Message
@@ -144,6 +144,12 @@ class ContextOffloader(Plugin):
         if not self._include_retrieval_tool:
             # Remove the auto-discovered retrieval tool
             self._tools = [t for t in self._tools if t.tool_name != "retrieve_offloaded_content"]
+
+    @hook
+    def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
+        """Advance the storage turn counter for eviction tracking."""
+        if hasattr(self._storage, "tick"):
+            self._storage.tick()
 
     @tool(context=True)
     def retrieve_offloaded_content(
