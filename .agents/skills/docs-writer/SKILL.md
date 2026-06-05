@@ -69,6 +69,7 @@ Then self-check against hard constraints:
 - Terminology matches the lock file
 - Code examples are contextually complete (imports present, runnable)
 - Code examples use proper backtick formatting
+- Never name the language inside its own tab. The reader selected the tab; they already know. State facts directly without prefixing the language name.
 
 ### Step 4b: Verify code accuracy
 

@@ -324,6 +324,8 @@ Strands ships both a Python and TypeScript SDK. Most doc pages show code in both
 
 **Prose between tabs should be language-neutral.** Don't write "Pass the `retry_strategy` parameter..." when the tabs show both Python and TypeScript. Write "Configure a retry strategy:" and let the code speak for itself. Language-specific parameter names belong in the code blocks, not in the prose.
 
+**Never name the language inside its own tab.** The reader selected the tab; they know which language they're reading. State facts directly without prefixing the language name. The tab itself provides that context.
+
 #### Where divergence content lives in the page structure
 
 The page's heading structure should read the same in both languages. A reader on either tab should see the same table of contents. Divergence is content, not structure — keep it **inside the existing `<Tab>`**: same heading on both sides, with per-tab prose and code carrying the difference.
