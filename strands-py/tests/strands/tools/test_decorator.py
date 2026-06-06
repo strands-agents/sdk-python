@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 import strands
 from strands import Agent
@@ -601,6 +601,43 @@ async def test_tool_decorator_with_different_return_values(alist):
     result = (await alist(stream))[-1]
     assert result["tool_result"]["status"] == "success"
     assert result["tool_result"]["content"][0]["text"] == "null"
+
+
+@pytest.mark.asyncio
+async def test_tool_decorator_preserves_non_ascii_structured_return_values(alist):
+    """Test dict/list returns preserve non-ASCII text like Pydantic models."""
+
+    class Reply(BaseModel):
+        message: str
+
+    @strands.tool
+    def dict_return_tool() -> dict[str, str]:
+        """Return a dict with non-ASCII content."""
+        return {"message": "こんにちは 🌏"}
+
+    @strands.tool
+    def list_return_tool() -> list[str]:
+        """Return a list with non-ASCII content."""
+        return ["你好", "🙂"]
+
+    @strands.tool
+    def model_return_tool() -> Reply:
+        """Return a Pydantic model with non-ASCII content."""
+        return Reply(message="こんにちは 🌏")
+
+    tool_use: ToolUse = {"toolUseId": "test-id", "name": "test-tool", "input": {}}
+
+    for tool, expected_fragments in (
+        (dict_return_tool, ('"message": "こんにちは 🌏"',)),
+        (list_return_tool, ('"你好"', '"🙂"')),
+        (model_return_tool, ('"message":"こんにちは 🌏"',)),
+    ):
+        events = await alist(tool.stream(tool_use, {}))
+        text = events[-1]["tool_result"]["content"][0]["text"]
+
+        assert "\\u" not in text
+        for fragment in expected_fragments:
+            assert fragment in text
 
 
 @pytest.mark.asyncio

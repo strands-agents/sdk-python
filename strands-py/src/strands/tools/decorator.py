@@ -681,7 +681,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                     text = str(result)
             else:
                 try:
-                    text = json.dumps(result)
+                    text = json.dumps(result, ensure_ascii=False)
                 except (TypeError, ValueError):
                     text = str(result)
 
