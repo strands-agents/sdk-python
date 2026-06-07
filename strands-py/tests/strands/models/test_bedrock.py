@@ -1894,6 +1894,13 @@ def test_format_request_message_content_does_not_mutate_empty_tool_result(model,
     assert original_content == [], "Original empty content list should not be mutated"
 
 
+def test_format_request_message_content_empty_block_raises_type_error(model, model_id):
+    messages = [{"role": "user", "content": [{}]}]
+
+    with pytest.raises(TypeError, match="content_type=<None> \\| unsupported type"):
+        model._format_bedrock_messages(messages)
+
+
 def test_format_request_message_content_preserves_nonempty_tool_result_content(model, model_id):
     """Test that _format_request_message_content does not modify non-empty toolResult content."""
     messages = [

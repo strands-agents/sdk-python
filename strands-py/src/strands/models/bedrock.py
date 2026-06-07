@@ -737,7 +737,8 @@ class BedrockModel(Model):
 
             return {"citationsContent": result}
 
-        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+        content_type = next(iter(content), None)
+        raise TypeError(f"content_type=<{content_type}> | unsupported type")
 
     def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
         """Check if guardrail data contains any blocked policies.
