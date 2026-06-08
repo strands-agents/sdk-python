@@ -63,19 +63,13 @@ class _StreamState:
 class StrandsA2AExecutor(AgentExecutor):
     """Executor that adapts a Strands Agent to the A2A protocol.
 
-    This executor uses streaming mode to handle the execution of agent requests
-    and converts Strands Agent responses to A2A protocol events. It supports the
-    full A2A task lifecycle including error handling (failed state), cancellation,
-    and interrupt-based input_required flows.
+    Handles agent execution in streaming mode and converts Strands Agent responses to A2A
+    protocol events, supporting the full task lifecycle (failed state, cancellation, and
+    interrupt-based input_required flows).
 
     Conversation state is isolated per A2A ``context_id`` so callers in different contexts cannot
-    read or influence each other's history. Two modes provide this isolation:
-
-    - ``agent_factory`` (recommended): one dedicated ``Agent`` per context, so contexts run
-      concurrently and the factory can wire per-context concerns such as a ``session_manager``.
-    - ``agent`` (deprecated): a single ``Agent`` reused across contexts, with each context's
-      state snapshotted on/off it under a lock. Requests are serialized and a ``session_manager``
-      is not supported in this mode.
+    read or influence each other's history. See ``__init__`` for the two isolation modes
+    (``agent_factory`` and the deprecated single ``agent``).
     """
 
     # Default formats for each file type when MIME type is unavailable or unrecognized
@@ -381,13 +375,12 @@ class StrandsA2AExecutor(AgentExecutor):
         # tools and hooks can access request metadata, task info, configuration, etc.
         invocation_state: dict[str, Any] = {"a2a_request_context": context}
 
-        # The A2A framework populates context_id for every request (client-supplied, server-
-        # generated when absent, or inferred from the referenced task). If it is somehow missing,
-        # isolate the request under a one-off id rather than sharing state with other callers.
+        # The A2A framework populates context_id for every request before execute() runs
+        # (client-supplied, generated when absent, or inferred from the referenced task) and
+        # surfaces a generated id in the response. We rely on that and key isolation on it.
         context_id = context.context_id
         if not context_id:
-            context_id = f"ephemeral-{uuid.uuid4()}"
-            logger.warning("A2A request had no context_id; isolating under a one-off id=<%s>", context_id)
+            raise ServerError(error=InternalError(message="Request is missing a context_id")) from None
 
         if self._agent_factory is not None:
             await self._run_with_context_agent(context_id, content_blocks, invocation_state, updater, stream_state)
