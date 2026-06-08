@@ -13,6 +13,7 @@ Windows.
 
 import asyncio
 import os
+import shlex
 import sys
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -27,7 +28,6 @@ from strands.sandbox import (
 )
 from strands.sandbox.shell import (
     build_shell_env_prefix,
-    shell_quote,
     validate_env_keys,
 )
 
@@ -46,8 +46,13 @@ async def _stream_process(
 
     Python equivalent of the TypeScript ``streamProcess`` helper. Yields
     :class:`StreamChunk` objects as output arrives, then a final
-    :class:`ExecutionResult`. Signal termination maps to ``128 + signal``;
-    a timeout terminates the process and raises ``TimeoutError``.
+    :class:`ExecutionResult`. Signal termination maps to ``128 + signal``.
+
+    ``timeout`` here is an *idle* timeout: it fires when no output (chunk or
+    completion) arrives within ``timeout`` seconds, not when total wall-clock
+    execution exceeds it. A process that emits output steadily would never trip
+    it. This is sufficient for the test fixture; concrete backends that reuse
+    this pattern should document/enforce whichever semantics they intend.
     """
     proc = await asyncio.create_subprocess_exec(
         program,
@@ -84,6 +89,7 @@ async def _stream_process(
     try:
         while True:
             if timeout is not None:
+                # Idle timeout: bounds the wait for the *next* item, not the total runtime.
                 try:
                     item = await asyncio.wait_for(queue.get(), timeout=timeout)
                 except asyncio.TimeoutError:
@@ -133,7 +139,7 @@ class _ShellTestSandbox(PosixShellSandbox):
     ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
         target_cwd = cwd if cwd is not None else self.working_dir
         env_prefix = build_shell_env_prefix(env)
-        full_command = f"cd {shell_quote(target_cwd)} && {env_prefix}{command}"
+        full_command = f"cd {shlex.quote(target_cwd)} && {env_prefix}{command}"
         async for chunk in _stream_process("sh", ["-c", full_command], timeout=timeout):
             yield chunk
 
@@ -197,7 +203,7 @@ def test_build_shell_env_prefix_empty():
 def test_build_shell_env_prefix_uses_export_with_fail_fast_separator():
     # `export ... &&` (not `env ... `) is what lets env reach the right side of
     # the `base64 ... | <interpreter>` pipe in execute_code. Locking the format.
-    assert build_shell_env_prefix({"FOO": "bar", "BAZ": "qux"}) == "export FOO='bar' BAZ='qux' && "
+    assert build_shell_env_prefix({"FOO": "bar", "BAZ": "qux"}) == "export FOO=bar BAZ=qux && "
 
 
 def test_build_shell_env_prefix_quotes_values():
@@ -368,6 +374,19 @@ async def test_read_nonexistent_file_raises(sandbox):
         await sandbox.read_file("nope.txt")
 
 
+@pytest.mark.asyncio
+async def test_read_file_invalid_base64_raises_oserror(sandbox, monkeypatch):
+    # If the command exits 0 but stdout is not valid base64 (e.g. a shell
+    # profile/locale warning prepended text), surface a clear OSError naming the
+    # path instead of leaking a cryptic binascii.Error from deep in the stack.
+    async def fake_execute(self, command, **kwargs):
+        return ExecutionResult(exit_code=0, stdout="not%%valid base64!!", stderr="")
+
+    monkeypatch.setattr(PosixShellSandbox, "execute", fake_execute, raising=True)
+    with pytest.raises(OSError, match="Failed to decode base64 contents of file: weird.bin"):
+        await sandbox.read_file("weird.bin")
+
+
 # ---- remove ----
 
 
@@ -427,19 +446,20 @@ async def test_list_on_file_raises(sandbox):
         await sandbox.list_files("not-a-dir.txt")
 
 
-# ---- shell_quote ----
+# ---- shell quoting (stdlib shlex.quote) ----
+# We delegate shell-escaping to the stdlib `shlex.quote` (tenet #6: embrace
+# common standards) instead of a hand-rolled quoter. These pin the security
+# properties we rely on: command substitution and embedded quotes are neutralized.
 
 
-def test_shell_quote_wraps_in_single_quotes():
-    assert shell_quote("hello") == "'hello'"
+def test_shlex_quote_neutralizes_command_substitution():
+    assert shlex.quote("$(whoami)") == "'$(whoami)'"
 
 
-def test_shell_quote_escapes_embedded_single_quotes():
-    assert shell_quote("it's") == "'it'\\''s'"
-
-
-def test_shell_quote_neutralizes_command_substitution():
-    assert shell_quote("$(whoami)") == "'$(whoami)'"
+def test_shlex_quote_escapes_embedded_single_quotes():
+    # shlex closes the quote, inserts an escaped quote, and reopens: 'it'"'"'s'.
+    # Shell-equivalent to the '\'' idiom; both render the literal string it's.
+    assert shlex.quote("it's") == "'it'\"'\"'s'"
 
 
 @pytest.mark.asyncio

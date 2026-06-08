@@ -10,6 +10,7 @@ Mirrors ``strands-ts/src/sandbox/posix-shell.ts``.
 
 import base64
 import logging
+import shlex
 import uuid
 from abc import ABC
 from collections.abc import AsyncGenerator
@@ -20,22 +21,6 @@ from .constants import ENV_KEY_PATTERN, LANGUAGE_PATTERN
 from .types import ExecutionResult, FileInfo, StreamChunk
 
 logger = logging.getLogger(__name__)
-
-
-def shell_quote(value: str) -> str:
-    r"""Shell-escape a string for safe inclusion in a shell command.
-
-    Wraps the value in single quotes and escapes any embedded single quotes
-    using the ``'\''`` pattern. Single quotes disable all shell expansion
-    (variables, backticks, globbing), making this safe against injection.
-
-    Args:
-        value: The string to escape.
-
-    Returns:
-        The shell-escaped string wrapped in single quotes.
-    """
-    return "'" + value.replace("'", "'\\''") + "'"
 
 
 def validate_env_keys(env: dict[str, str]) -> None:
@@ -55,9 +40,9 @@ def validate_env_keys(env: dict[str, str]) -> None:
 def build_shell_env_prefix(env: dict[str, str] | None = None) -> str:
     """Build a shell ``export KEY=VALUE && ...`` prefix, or ``""`` when empty.
 
-    Keys are validated; values are :func:`shell_quote`d. Used by shell-string
-    backends (e.g. SSH); backends that set env via native flags (e.g. Docker's
-    ``-e``) call :func:`validate_env_keys` directly.
+    Keys are validated; values are escaped with :func:`shlex.quote`. Used by
+    shell-string backends (e.g. SSH); backends that set env via native flags
+    (e.g. Docker's ``-e``) call :func:`validate_env_keys` directly.
 
     Uses ``export`` rather than an ``env KEY=VALUE`` command wrapper so the
     variables are set in the shell itself and inherited by every stage of a
@@ -79,7 +64,7 @@ def build_shell_env_prefix(env: dict[str, str] | None = None) -> str:
     if not env:
         return ""
     validate_env_keys(env)
-    assignments = " ".join(f"{key}={shell_quote(value)}" for key, value in env.items())
+    assignments = " ".join(f"{key}={shlex.quote(value)}" for key, value in env.items())
     return f"export {assignments} && "
 
 
@@ -102,11 +87,18 @@ class PosixShellSandbox(Sandbox, ABC):
     performance or to handle edge cases (e.g., binary-safe file transfer via
     Docker stdin pipes, or native API calls for cloud backends).
 
-    Subclasses must apply ``env`` in :meth:`execute_streaming` or it has no
-    effect: backends that build a shell-command string prepend
-    :func:`build_shell_env_prefix`; backends that set env via process flags
-    (e.g. Docker's ``-e``) call :func:`validate_env_keys` and pass the values
-    directly.
+    Subclasses are responsible for honoring the execution options in
+    :meth:`execute_streaming`, or they have no effect:
+
+    - ``env`` — backends that build a shell-command string prepend
+      :func:`build_shell_env_prefix`; backends that set env via process flags
+      (e.g. Docker's ``-e``) call :func:`validate_env_keys` and pass the values
+      directly. An implementation that ignores ``env`` will silently drop the
+      caller's variables.
+    - ``timeout`` — the base class does not enforce a timeout; a subclass that
+      does not wire ``timeout`` into its process supervision will silently run
+      without any time limit.
+    - ``cwd`` — similarly must be applied by the subclass.
     """
 
     async def execute_code_streaming(
@@ -162,12 +154,18 @@ class PosixShellSandbox(Sandbox, ABC):
 
         Raises:
             FileNotFoundError: If the file does not exist or cannot be read.
+            OSError: If the command succeeds but its output is not valid base64
+                (e.g. a shell profile or locale warning prepended text to stdout).
         """
-        result = await self.execute(f"base64 < {shell_quote(path)}")
+        result = await self.execute(f"base64 < {shlex.quote(path)}")
         if result.exit_code != 0:
             raise FileNotFoundError(result.stderr or f"Failed to read file: {path}")
         # base64 output is ASCII-safe text; strip whitespace (line wrapping) and decode.
-        return base64.b64decode("".join(result.stdout.split()))
+        try:
+            # binascii.Error (raised by b64decode on malformed input) subclasses ValueError.
+            return base64.b64decode("".join(result.stdout.split()))
+        except ValueError as e:
+            raise OSError(f"Failed to decode base64 contents of file: {path}") from e
 
     async def write_file(self, path: str, content: bytes, **kwargs: Any) -> None:
         """Write raw bytes to a file via base64 over the shell.
@@ -185,7 +183,7 @@ class PosixShellSandbox(Sandbox, ABC):
             OSError: If the file cannot be written.
         """
         encoded = base64.b64encode(content).decode("ascii")
-        quoted = shell_quote(path)
+        quoted = shlex.quote(path)
         eof = _eof_marker()
         cmd = f"mkdir -p \"$(dirname {quoted})\" && base64 -d << '{eof}' > {quoted}\n{encoded}\n{eof}"
         result = await self.execute(cmd)
@@ -202,7 +200,7 @@ class PosixShellSandbox(Sandbox, ABC):
         Raises:
             FileNotFoundError: If the file does not exist.
         """
-        result = await self.execute(f"rm {shell_quote(path)}")
+        result = await self.execute(f"rm {shlex.quote(path)}")
         if result.exit_code != 0:
             raise FileNotFoundError(result.stderr or f"Failed to remove file: {path}")
 
@@ -221,7 +219,7 @@ class PosixShellSandbox(Sandbox, ABC):
             FileNotFoundError: If the directory does not exist (or ``path`` is
                 not a directory).
         """
-        quoted = shell_quote(path)
+        quoted = shlex.quote(path)
         result = await self.execute(f"test -d {quoted} || exit 1; env QUOTING_STYLE=literal ls -1ap {quoted}")
         if result.exit_code != 0:
             raise FileNotFoundError(result.stderr or f"Failed to list directory: {path}")

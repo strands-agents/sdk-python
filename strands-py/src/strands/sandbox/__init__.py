@@ -17,6 +17,13 @@ Concrete shell backends (Docker, SSH) and the Agent↔Sandbox integration are
 intentionally out of scope for this "core only (1/N)" port; they follow as
 separate PRs mirroring the corresponding TypeScript modules.
 
+.. note::
+   Per the "Prefer Flat Namespaces Over Nested Modules" decision record, the
+   commonly-used symbols here will be re-exported from the top-level ``strands``
+   package. That re-export is deferred to the Agent↔Sandbox integration
+   follow-up (where the public surface stabilizes), so it is not added in this
+   core-only PR.
+
 Example:
     A minimal shell-backed sandbox needs only ``execute_streaming``::
 
