@@ -1,6 +1,6 @@
 """A2A-compatible wrapper for Strands Agent.
 
-This module provides the A2AAgent class, which adapts a Strands Agent to the A2A protocol,
+This module provides the A2AServer class, which adapts a Strands Agent to the A2A protocol,
 allowing it to be used in A2A-compatible systems.
 """
 

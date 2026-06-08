@@ -1,4 +1,4 @@
-"""Tests for the A2AAgent class."""
+"""Tests for the A2AServer class."""
 
 from collections import OrderedDict
 from unittest.mock import patch
@@ -15,7 +15,7 @@ pytestmark = pytest.mark.filterwarnings("ignore:Passing a single 'agent'.*:Depre
 
 
 def test_a2a_agent_initialization(mock_strands_agent):
-    """Test that A2AAgent initializes correctly with default values."""
+    """Test that A2AServer initializes correctly with default values."""
     # Mock tool registry for default skills
     mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
     mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
@@ -35,7 +35,7 @@ def test_a2a_agent_initialization(mock_strands_agent):
 
 
 def test_a2a_agent_initialization_with_custom_values(mock_strands_agent):
-    """Test that A2AAgent initializes correctly with custom values."""
+    """Test that A2AServer initializes correctly with custom values."""
     a2a_agent = A2AServer(
         mock_strands_agent,
         host="127.0.0.1",
@@ -51,14 +51,14 @@ def test_a2a_agent_initialization_with_custom_values(mock_strands_agent):
 
 
 def test_a2a_agent_initialization_with_streaming_always_enabled(mock_strands_agent):
-    """Test that A2AAgent always initializes with streaming enabled."""
+    """Test that A2AServer always initializes with streaming enabled."""
     a2a_agent = A2AServer(mock_strands_agent)
 
     assert a2a_agent.capabilities.streaming is True
 
 
 def test_a2a_agent_initialization_with_custom_skills(mock_strands_agent):
-    """Test that A2AAgent initializes correctly with custom skills."""
+    """Test that A2AServer initializes correctly with custom skills."""
 
     custom_skills = [
         AgentSkill(name="custom_skill", id="custom_skill", description="A custom skill", tags=["test"]),

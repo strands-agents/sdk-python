@@ -58,7 +58,7 @@ def test_convert_interrupt_response_raises_error():
     """Test that InterruptResponseContent raises explicit error."""
     interrupt_responses = [{"interruptResponse": {"interruptId": "123", "response": "A"}}]
 
-    with pytest.raises(ValueError, match="InterruptResponseContent is not supported for A2AAgent"):
+    with pytest.raises(ValueError, match="InterruptResponseContent is not supported for A2AServer"):
         convert_input_to_message(interrupt_responses)
 
 
