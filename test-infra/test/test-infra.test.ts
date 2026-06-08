@@ -8,6 +8,7 @@ beforeAll(() => {
   originalEnv = { ...process.env };
   process.env.STRANDS_TEST_INFRA_PRIVATE_REPOS = 'repo-a,repo-b';
   process.env.STRANDS_TEST_INFRA_BUCKET_NAMES = 'test-bucket-*';
+  process.env.STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES = 'test-persistent-bucket-*';
   process.env.STRANDS_TEST_INFRA_SECRET_NAMES = 'test-secret';
 });
 

@@ -36,6 +36,8 @@ export class IntegTestRole extends Construct {
       'tools',
       'agent-builder',
       'evals',
+      'sdk-python',
+      'sdk-typescript',
     ];
     const privateRepos = props.internal
       ? requiredInternalEnv('STRANDS_TEST_INFRA_PRIVATE_REPOS').split(',')
@@ -58,7 +60,10 @@ export class IntegTestRole extends Construct {
         )
       : new iam.AccountPrincipal(cdk.Stack.of(this).account);
 
-    this.role = new iam.Role(this, 'Role', { assumedBy });
+    this.role = new iam.Role(this, 'Role', {
+      assumedBy,
+      maxSessionDuration: cdk.Duration.hours(1),
+    });
 
     if (props.internal) {
       this.addLegacyBasePolicy();
@@ -70,6 +75,7 @@ export class IntegTestRole extends Construct {
     const stack = cdk.Stack.of(this);
 
     const bucketNames = requiredInternalEnv('STRANDS_TEST_INFRA_BUCKET_NAMES').split(',');
+    const persistentBucketNames = requiredInternalEnv('STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES').split(',');
     const secretNames = requiredInternalEnv('STRANDS_TEST_INFRA_SECRET_NAMES').split(',');
 
     this.role.addToPolicy(
@@ -204,6 +210,22 @@ export class IntegTestRole extends Construct {
           's3:GetObject',
         ],
         resources: bucketNames.map((name) => `arn:aws:s3:::${name}`),
+      }),
+    );
+
+    this.role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: [
+          's3:PutObject',
+          's3:GetObject',
+          's3:CreateBucket',
+          's3:ListBucket',
+          's3:DeleteObject',
+        ],
+        resources: persistentBucketNames.flatMap((name) => [
+          `arn:aws:s3:::${name}`,
+          `arn:aws:s3:::${name}/*`,
+        ]),
       }),
     );
 
