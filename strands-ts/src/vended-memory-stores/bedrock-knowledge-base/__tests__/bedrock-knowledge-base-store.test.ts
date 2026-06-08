@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, type MockedFunction } from 'vitest'
 import { BedrockAgentRuntimeClient } from '@aws-sdk/client-bedrock-agent-runtime'
 import { BedrockAgentClient } from '@aws-sdk/client-bedrock-agent'
-import { BedrockKnowledgeBaseStore } from '../bedrock-knowledge-base-store.js'
+import { BedrockKnowledgeBaseStore } from '../index.js'
 import { logger } from '../../../logging/logger.js'
 
 // Mock the AWS SDK clients. Command classes are stubbed to echo their input as `{ input }`, so a

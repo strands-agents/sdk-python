@@ -15,7 +15,7 @@ import {
 import type { S3Client } from '@aws-sdk/client-s3'
 import { v7 as uuidv7 } from 'uuid'
 
-import type { MemoryEntry, MemoryStore, MemoryStoreConfig, SearchOptions } from '../types.js'
+import type { MemoryEntry, MemoryStore, MemoryStoreConfig, SearchOptions } from '../../memory/types.js'
 import type { JSONValue } from '../../types/json.js'
 import { logger } from '../../logging/logger.js'
 
@@ -39,7 +39,7 @@ function toAttributeValue(value: JSONValue): MetadataAttributeValue | undefined 
 }
 
 /**
- * S3 ingestion settings, required when `dataSourceType` is `'S3'`.
+ * S3 ingestion settings for {@link BedrockKnowledgeBaseStore}, required when `dataSourceType` is `'S3'`.
  *
  * An S3 data source indexes objects from a bucket — there is no inline-text path — so `add` uploads
  * to this bucket and then ingests directly (`IngestKnowledgeBaseDocuments`). Unlike a `CUSTOM`
@@ -59,7 +59,6 @@ function toAttributeValue(value: JSONValue): MetadataAttributeValue | undefined 
  * run against this data source, upload to the bucket it reads from and a `prefix` within its
  * inclusion prefixes so directly-ingested memories survive them; otherwise the location is free.
  */
-/** S3 ingestion settings for {@link BedrockKnowledgeBaseStore}. */
 export interface BedrockKnowledgeBaseS3Config {
   /** Bucket the content object and its optional `.metadata.json` sidecar are uploaded to before ingestion. */
   bucket: string
@@ -74,6 +73,7 @@ export interface BedrockKnowledgeBaseS3Config {
 
 /** Configuration for {@link BedrockKnowledgeBaseStore}. */
 export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
+  /** The Bedrock Knowledge Base identifier to query and ingest into. */
   knowledgeBaseId: string
   /**
    * The type of data source backing this knowledge base, matching Bedrock's `dataSourceType`. Only
@@ -101,13 +101,19 @@ export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
   dataSourceId?: string
   /** S3 ingestion settings. Required when `dataSourceType` is `'S3'`; ignored otherwise. */
   s3?: BedrockKnowledgeBaseS3Config
+  /** Logical namespace used to isolate documents; applied as a metadata filter on search. */
   scope?: string
   /** Metadata attribute key used for scope-based filtering. Defaults to `'namespace'`. */
   scopeMetadataKey?: string
+  /** Explicit retrieval filter; overrides the auto-generated scope filter when provided. */
   filter?: RetrievalFilter
+  /** Configuration passed to the `BedrockAgentRuntimeClient` constructor when no `runtimeClient` is provided. */
   runtimeClientConfig?: BedrockAgentRuntimeClientConfig
+  /** Pre-constructed runtime client for Retrieve calls. */
   runtimeClient?: BedrockAgentRuntimeClient
+  /** Configuration passed to the `BedrockAgentClient` constructor when no `agentClient` is provided. */
   agentClientConfig?: BedrockAgentClientConfig
+  /** Pre-constructed agent client for IngestKnowledgeBaseDocuments calls. */
   agentClient?: BedrockAgentClient
 }
 
@@ -123,7 +129,7 @@ export interface BedrockKnowledgeBaseAddResult {
  *
  * @example
  * ```typescript
- * import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/memory/stores/bedrock-knowledge-base'
+ * import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
  *
  * const store = new BedrockKnowledgeBaseStore({
  *   name: 'personal',
@@ -207,7 +213,9 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
    *
    * @param query - The search query text
    * @param options - Optional search configuration
-   * @returns Matching memory entries ordered by relevance
+   * @returns Matching memory entries ordered by relevance. Each entry's `metadata` includes
+   *   user-provided attributes plus two reserved synthetic keys: `_relevanceScore` (number) and
+   *   `_sourceLocation` (Bedrock retrieval location object).
    */
   async search(query: string, options?: SearchOptions): Promise<MemoryEntry[]> {
     const limit = options?.maxSearchResults ?? this.maxSearchResults ?? 10

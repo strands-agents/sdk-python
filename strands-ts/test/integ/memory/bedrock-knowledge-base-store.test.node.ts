@@ -4,7 +4,7 @@ import { BedrockAgentClient } from '@aws-sdk/client-bedrock-agent'
 import { BedrockAgentRuntimeClient } from '@aws-sdk/client-bedrock-agent-runtime'
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers'
 
-import { BedrockKnowledgeBaseStore } from '$/sdk/memory/stores/bedrock-knowledge-base-store.js'
+import { BedrockKnowledgeBaseStore } from '$/sdk/vended-memory-stores/bedrock-knowledge-base/index.js'
 import type { MemoryEntry } from '$/sdk/memory/types.js'
 import {
   uniqueMarker,

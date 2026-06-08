@@ -68,9 +68,9 @@
       "types": "./dist/src/session/s3-storage.d.ts",
       "default": "./dist/src/session/s3-storage.js"
     },
-    "./memory/stores/bedrock-knowledge-base": {
-      "types": "./dist/src/memory/stores/bedrock-knowledge-base-store.d.ts",
-      "default": "./dist/src/memory/stores/bedrock-knowledge-base-store.js"
+    "./vended-memory-stores/bedrock-knowledge-base": {
+      "types": "./dist/src/vended-memory-stores/bedrock-knowledge-base/index.d.ts",
+      "default": "./dist/src/vended-memory-stores/bedrock-knowledge-base/index.js"
     },
     "./telemetry": {
       "types": "./dist/src/telemetry/index.d.ts",
