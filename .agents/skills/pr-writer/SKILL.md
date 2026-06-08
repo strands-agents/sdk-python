@@ -70,7 +70,7 @@ Always prefer `gh` over manual URL construction or web scraping. If `gh` is not 
 - If you're uncertain about the motivation, scope, or intent of a change, **ask the user** rather than guessing. A question is always better than a wrong description.
 - Never list every file changed — that's what the diff view is for.
 - If the diff is trivial (typo fix, dependency bump), keep the description proportionally short.
-- Follow the writing principles and anti-patterns defined in `dev-docs/PR.md`.
+- Follow the writing principles and anti-patterns defined in the PR guidelines file selected in step 3.
 - Fill in ALL sections of `.github/PULL_REQUEST_TEMPLATE.md`. Don't skip or rearrange them.
 - When a PR template contains checkboxes (`- [ ]`), pre-check them (`- [x]`) by default — except for any checkbox related to documentation updates or documentation examples, which should be left unchecked for the user to verify manually.
 - Output the final PR as a single markdown code block so the user can copy it directly.
