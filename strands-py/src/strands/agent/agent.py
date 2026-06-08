@@ -965,6 +965,36 @@ class Agent(AgentBase):
                 before_invocation_event.messages if before_invocation_event.messages is not None else current_messages
             )
 
+            # Short-circuit the invocation if a hook requested cancellation. No model
+            # inference or tool execution occurs; a single assistant message carrying the
+            # cancel text is appended, AfterInvocationEvent still fires, and the result
+            # stops with "end_turn". Mirrors strands-ts agent-loop cancel semantics.
+            if before_invocation_event.cancel:
+                cancel_text = (
+                    before_invocation_event.cancel
+                    if isinstance(before_invocation_event.cancel, str)
+                    else "invocation denied by hook"
+                )
+                cancel_message: Message = {"role": "assistant", "content": [{"text": cancel_text}]}
+                await self._append_messages(cancel_message)
+                after_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
+                    AfterInvocationEvent(agent=self, invocation_state=invocation_state, result=None)
+                )
+                stop_event = EventLoopStopEvent(
+                    "end_turn",
+                    cancel_message,
+                    self.event_loop_metrics,
+                    invocation_state.get("request_state", {}),
+                )
+                yield stop_event
+                if after_invocation_event.resume is not None:
+                    logger.debug("resume=<True> | hook requested agent resume after cancelled invocation")
+                    self._interrupt_state.resume(after_invocation_event.resume)
+                    current_messages = await self._convert_prompt_to_messages(after_invocation_event.resume)
+                    continue
+                current_messages = None
+                continue
+
             agent_result: AgentResult | None = None
             try:
                 yield InitEventLoopEvent()

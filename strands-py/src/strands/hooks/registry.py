@@ -28,10 +28,19 @@ class HookOrder:
     """Named constants for hook execution priority.
 
     Lower values execute first. Hooks with the same order preserve registration order.
+
+    ``SDK_FIRST``/``SDK_LAST`` mark where the SDK's own hooks run. The
+    ``INTERVENTION_*`` presets are reference points for intervention-style hooks:
+    ``INTERVENTION_INPUT`` runs late on input (``Before*``) events so input
+    interventions see the fully-prepared input, while ``INTERVENTION_OUTPUT`` runs
+    early on output (``After*``) events so output interventions act before other
+    consumers.
     """
 
     SDK_FIRST: int = -100
+    INTERVENTION_OUTPUT: int = -90
     DEFAULT: int = 0
+    INTERVENTION_INPUT: int = 90
     SDK_LAST: int = 100
 
 

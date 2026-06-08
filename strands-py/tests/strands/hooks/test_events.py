@@ -105,3 +105,65 @@ def test_after_events_should_reverse_callbacks(orchestrator):
 
     assert after_node_event.should_reverse_callbacks is True
     assert after_invocation_event.should_reverse_callbacks is True
+
+
+# ========== Tests for cancel field on BeforeInvocationEvent / BeforeModelCallEvent ==========
+# Mirrors strands-ts hooks/__tests__/events.test.ts cancel-writability tests.
+
+
+def test_before_invocation_event_cancel_defaults_to_false(orchestrator):
+    """BeforeInvocationEvent.cancel defaults to False."""
+    from strands.hooks import BeforeInvocationEvent
+
+    event = BeforeInvocationEvent(agent=orchestrator)
+    assert event.cancel is False
+
+
+def test_before_invocation_event_allows_cancel_to_be_set(orchestrator):
+    """BeforeInvocationEvent.cancel can be set to True or a string message."""
+    from strands.hooks import BeforeInvocationEvent
+
+    event = BeforeInvocationEvent(agent=orchestrator)
+    event.cancel = True
+    assert event.cancel is True
+
+    event.cancel = "unauthorized"
+    assert event.cancel == "unauthorized"
+
+
+def test_before_invocation_event_agent_not_writable(orchestrator):
+    """BeforeInvocationEvent.agent remains read-only."""
+    from strands.hooks import BeforeInvocationEvent
+
+    event = BeforeInvocationEvent(agent=orchestrator)
+    with pytest.raises(AttributeError, match="Property agent is not writable"):
+        event.agent = Mock()
+
+
+def test_before_model_call_event_cancel_defaults_to_false(orchestrator):
+    """BeforeModelCallEvent.cancel defaults to False."""
+    from strands.hooks import BeforeModelCallEvent
+
+    event = BeforeModelCallEvent(agent=orchestrator)
+    assert event.cancel is False
+
+
+def test_before_model_call_event_allows_cancel_to_be_set(orchestrator):
+    """BeforeModelCallEvent.cancel can be set to True or a string message."""
+    from strands.hooks import BeforeModelCallEvent
+
+    event = BeforeModelCallEvent(agent=orchestrator)
+    event.cancel = True
+    assert event.cancel is True
+
+    event.cancel = "rate limited"
+    assert event.cancel == "rate limited"
+
+
+def test_before_model_call_event_agent_not_writable(orchestrator):
+    """BeforeModelCallEvent.agent remains read-only."""
+    from strands.hooks import BeforeModelCallEvent
+
+    event = BeforeModelCallEvent(agent=orchestrator)
+    with pytest.raises(AttributeError, match="Property agent is not writable"):
+        event.agent = Mock()

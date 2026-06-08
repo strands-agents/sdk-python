@@ -1075,3 +1075,167 @@ def test_hooks_param_callable_invoked_during_lifecycle():
 
     assert len(before_events) == 1
     assert isinstance(before_events[0], BeforeInvocationEvent)
+
+
+# ========== Tests for cancel via hooks ==========
+# Mirrors strands-ts agent.hook.test.ts "cancel invocation via hooks" and
+# "cancel model call via hooks". The agent-loop short-circuit on
+# BeforeInvocationEvent.cancel / BeforeModelCallEvent.cancel is the behavioral oracle.
+
+
+def test_cancel_invocation_with_default_message():
+    """cancels invocation with default message when cancel is True."""
+    mock_provider = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello"}]}])
+    hook_provider = MockHookProvider([BeforeInvocationEvent, AfterInvocationEvent, BeforeModelCallEvent])
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_hook(hook_provider)
+
+    def cancel(event: BeforeInvocationEvent):
+        event.cancel = True
+
+    agent.hooks.add_callback(BeforeInvocationEvent, cancel)
+
+    result = agent("Test")
+
+    assert result.stop_reason == "end_turn"
+    assert result.message["content"][0]["text"] == "invocation denied by hook"
+    # Model is never called when the invocation is cancelled.
+    assert BeforeModelCallEvent not in hook_provider.event_types_received
+
+
+def test_cancel_invocation_with_custom_message():
+    """cancels invocation with custom message when cancel is a string."""
+    mock_provider = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello"}]}])
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeInvocationEvent, lambda event: setattr(event, "cancel", "Unauthorized user"))
+
+    result = agent("Test")
+
+    assert result.stop_reason == "end_turn"
+    assert result.message["content"][0]["text"] == "Unauthorized user"
+
+
+def test_cancel_invocation_does_not_append_user_message():
+    """does not append user message when invocation is cancelled."""
+    mock_provider = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello"}]}])
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeInvocationEvent, lambda event: setattr(event, "cancel", True))
+
+    agent("Test")
+
+    assert len(agent.messages) == 1
+    assert agent.messages[0]["role"] == "assistant"
+
+
+def test_cancel_invocation_emits_after_invocation_event():
+    """emits AfterInvocationEvent when invocation is cancelled (Before once, After once)."""
+    mock_provider = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello"}]}])
+    hook_provider = MockHookProvider([BeforeInvocationEvent, AfterInvocationEvent])
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_hook(hook_provider)
+    agent.hooks.add_callback(BeforeInvocationEvent, lambda event: setattr(event, "cancel", True))
+
+    agent("Test")
+
+    received = hook_provider.event_types_received
+    assert received.count(BeforeInvocationEvent) == 1
+    assert received.count(AfterInvocationEvent) == 1
+
+
+def test_cancel_model_call_with_default_message():
+    """cancels model call with default message when cancel is True."""
+    mock_provider = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello"}]}])
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeModelCallEvent, lambda event: setattr(event, "cancel", True))
+
+    result = agent("Test")
+
+    assert result.stop_reason == "end_turn"
+    assert result.message["content"][0]["text"] == "model call denied by hook"
+
+
+def test_cancel_model_call_with_custom_message():
+    """cancels model call with custom message when cancel is a string."""
+    mock_provider = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello"}]}])
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeModelCallEvent, lambda event: setattr(event, "cancel", "Rate limited"))
+
+    result = agent("Test")
+
+    assert result.stop_reason == "end_turn"
+    assert result.message["content"][0]["text"] == "Rate limited"
+
+
+def test_cancel_model_call_emits_after_model_call_event():
+    """emits AfterModelCallEvent when model call is cancelled (Before once, After once)."""
+    mock_provider = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello"}]}])
+    hook_provider = MockHookProvider([BeforeModelCallEvent, AfterModelCallEvent])
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_hook(hook_provider)
+    agent.hooks.add_callback(BeforeModelCallEvent, lambda event: setattr(event, "cancel", True))
+
+    agent("Test")
+
+    received = hook_provider.event_types_received
+    assert received.count(BeforeModelCallEvent) == 1
+    assert received.count(AfterModelCallEvent) == 1
+
+
+def test_cancel_model_call_does_not_invoke_model():
+    """the model is not invoked when the model call is cancelled.
+
+    Divergence from strands-ts: the TS oracle asserts the (hookable) ModelMessageEvent is
+    NOT emitted. In strands-py ModelMessageEvent is a stream TypedEvent, not a hook event,
+    so we assert the equivalent behavioral guarantee directly: the model's ``stream`` is
+    never consumed (the queued response remains unused).
+    """
+    mock_provider = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello"}]}])
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeModelCallEvent, lambda event: setattr(event, "cancel", True))
+
+    agent("Test")
+
+    # The mock provider hands out responses by advancing ``index``; a cancelled model call
+    # must not consume the queued response.
+    assert mock_provider.index == 0
+    # The cancel message (not the model's "Hello") is the final assistant message.
+    assert agent.messages[-1]["content"][0]["text"] == "model call denied by hook"
+
+
+def test_allows_retry_after_cancel_on_model_call():
+    """allows retry after cancel on model call.
+
+    First BeforeModelCallEvent cancels; the AfterModelCallEvent requests a retry; the
+    second BeforeModelCallEvent lets the real model response through.
+    """
+    mock_provider = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello"}]}])
+
+    before_count = 0
+
+    def before(event: BeforeModelCallEvent):
+        nonlocal before_count
+        before_count += 1
+        if before_count == 1:
+            event.cancel = "Not yet"
+
+    def after(event: AfterModelCallEvent):
+        if before_count == 1:
+            event.retry = True
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeModelCallEvent, before)
+    agent.hooks.add_callback(AfterModelCallEvent, after)
+
+    result = agent("Test")
+
+    assert result.stop_reason == "end_turn"
+    assert before_count == 2
+    assert result.message["content"][0]["text"] == "Hello"

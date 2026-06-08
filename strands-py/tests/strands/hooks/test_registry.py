@@ -367,3 +367,47 @@ def test_after_events_lower_order_still_runs_first(registry, agent):
     registry.invoke_callbacks(AfterModelCallEvent(agent=agent))
     # Lower order first, but within same group registration order is reversed
     assert order == ["first", "default_b", "default_a", "last"]
+
+
+# ========== Tests for intervention HookOrder presets ==========
+
+
+def test_hook_order_intervention_preset_values():
+    """Test that the intervention HookOrder presets match the cross-language contract.
+
+    Mirrors the values in strands-ts ``HookOrder`` (src/hooks/types.ts):
+    SDK_FIRST=-100, INTERVENTION_OUTPUT=-90, DEFAULT=0, INTERVENTION_INPUT=90, SDK_LAST=100.
+    """
+    assert HookOrder.SDK_FIRST == -100
+    assert HookOrder.INTERVENTION_OUTPUT == -90
+    assert HookOrder.DEFAULT == 0
+    assert HookOrder.INTERVENTION_INPUT == 90
+    assert HookOrder.SDK_LAST == 100
+
+
+def test_intervention_input_runs_after_default_before_sdk_last(registry, agent):
+    """INTERVENTION_INPUT runs after DEFAULT hooks but before SDK_LAST on Before events."""
+    order = []
+
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("default"), order=HookOrder.DEFAULT)
+    registry.add_callback(
+        BeforeModelCallEvent, lambda e: order.append("intervention_input"), order=HookOrder.INTERVENTION_INPUT
+    )
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("sdk_last"), order=HookOrder.SDK_LAST)
+
+    registry.invoke_callbacks(BeforeModelCallEvent(agent=agent))
+    assert order == ["default", "intervention_input", "sdk_last"]
+
+
+def test_intervention_output_runs_before_default_after_sdk_first(registry, agent):
+    """INTERVENTION_OUTPUT runs after SDK_FIRST but before DEFAULT hooks."""
+    order = []
+
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("default"), order=HookOrder.DEFAULT)
+    registry.add_callback(
+        BeforeModelCallEvent, lambda e: order.append("intervention_output"), order=HookOrder.INTERVENTION_OUTPUT
+    )
+    registry.add_callback(BeforeModelCallEvent, lambda e: order.append("sdk_first"), order=HookOrder.SDK_FIRST)
+
+    registry.invoke_callbacks(BeforeModelCallEvent(agent=agent))
+    assert order == ["sdk_first", "intervention_output", "default"]

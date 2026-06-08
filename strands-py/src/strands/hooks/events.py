@@ -54,13 +54,20 @@ class BeforeInvocationEvent(HookEvent):
             and dynamic configuration.
         messages: The input messages for this invocation. Can be modified by hooks
             to redact or transform content before processing.
+        cancel: Set by hook callbacks to cancel this invocation. When set to ``True``, a
+            default cancel message ("invocation denied by hook") is used as the assistant
+            response. When set to a string, that string is used as the assistant response
+            message. The agent loop short-circuits: no model inference or tool execution
+            occurs, ``AfterInvocationEvent`` still fires, and the resulting ``AgentResult``
+            has ``stop_reason`` ``"end_turn"``. Defaults to ``False``.
     """
 
     invocation_state: dict[str, Any] = field(default_factory=dict)
     messages: Messages | None = None
+    cancel: bool | str = False
 
     def _can_write(self, name: str) -> bool:
-        return name == "messages"
+        return name in ["messages", "cancel"]
 
 
 @dataclass
@@ -240,10 +247,19 @@ class BeforeModelCallEvent(HookEvent):
             Computed by the agent loop from message metadata and token estimation.
             Available for hooks and plugins (e.g. conversation managers) to make
             proactive decisions about context management. None if estimation failed.
+        cancel: Set by hook callbacks to cancel this model call. When set to ``True``, a
+            default cancel message ("model call denied by hook") is used as the assistant
+            response. When set to a string, that string is used as the assistant response
+            message. The model is not invoked; ``AfterModelCallEvent`` still fires (and may
+            request a retry via its ``retry`` flag). Defaults to ``False``.
     """
 
     invocation_state: dict[str, Any] = field(default_factory=dict)
     projected_input_tokens: int | None = None
+    cancel: bool | str = False
+
+    def _can_write(self, name: str) -> bool:
+        return name == "cancel"
 
 
 @dataclass
