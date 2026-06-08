@@ -26,6 +26,14 @@ import type {
   StreamEvent,
 } from '../hooks/events.js'
 import type { HookCallback, HookableEventConstructor, HookCallbackOptions, HookCleanup } from '../hooks/types.js'
+import type {
+  MiddlewareStage,
+  MiddlewareHandler,
+  MiddlewareInputPhase,
+  MiddlewareOutputPhase,
+  MiddlewareInputHandler,
+  MiddlewareOutputHandler,
+} from '../middleware/types.js'
 import type { ToolRegistry } from '../registry/tool-registry.js'
 import type { Model } from '../models/model.js'
 import type { z } from 'zod'
@@ -341,6 +349,27 @@ export interface LocalAgent {
    * @param snapshot - The snapshot to restore from
    */
   loadSnapshot(snapshot: Snapshot): void
+
+  /**
+   * Register a middleware handler for a given stage or phase.
+   * Middleware wraps stage execution and can intercept, transform, or short-circuit operations.
+   *
+   * @param stageOrPhase - A stage token (Around) or phase sub-token (.Input / .Output)
+   * @param handler - Async generator for Around, plain async function for Input/Output
+   * @returns A cleanup function that removes the middleware when called
+   */
+  addMiddleware<TContext, TResult, TEvent>(
+    phase: MiddlewareInputPhase<TContext, TResult, TEvent>,
+    handler: MiddlewareInputHandler<TContext>
+  ): () => void
+  addMiddleware<TContext, TResult, TEvent>(
+    phase: MiddlewareOutputPhase<TContext, TResult, TEvent>,
+    handler: MiddlewareOutputHandler<TResult>
+  ): () => void
+  addMiddleware<TContext, TResult, TEvent>(
+    stage: MiddlewareStage<TContext, TResult, TEvent>,
+    handler: MiddlewareHandler<TContext, TResult, TEvent>
+  ): () => void
 }
 
 /**

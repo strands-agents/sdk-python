@@ -26,7 +26,7 @@ import {
 import type { JSONValue } from '../types/json.js'
 import { McpClient } from '../mcp.js'
 import { isValidToolName, type Tool, type ToolContext } from '../tools/tool.js'
-import type { ToolChoice } from '../tools/types.js'
+import type { ToolChoice, ToolSpec } from '../tools/types.js'
 import { systemPromptFromData } from '../types/messages.js'
 import { normalizeError, ConcurrentInvocationError, StructuredOutputError } from '../errors.js'
 import { Model } from '../models/model.js'
@@ -48,6 +48,25 @@ import { ConversationManager } from '../conversation-manager/conversation-manage
 import { ContextOffloader } from '../vended-plugins/context-offloader/plugin.js'
 import { InMemoryStorage } from '../vended-plugins/context-offloader/storage.js'
 import { HookRegistryImplementation } from '../hooks/registry.js'
+import { MiddlewareRegistry, InvokeModelStage, ExecuteToolStage, AgentStreamStage } from '../middleware/index.js'
+import type {
+  MiddlewareStage,
+  MiddlewareHandler,
+  MiddlewareInputHandler,
+  MiddlewareOutputHandler,
+  MiddlewareInputPhase,
+  MiddlewareOutputPhase,
+  MiddlewarePhaseKind,
+} from '../middleware/index.js'
+import type {
+  InvokeModelContext,
+  InvokeModelResult,
+  ExecuteToolContext,
+  ExecuteToolResult,
+  AgentStreamContext,
+  AgentStreamResult,
+  MiddlewareInterruptResult,
+} from '../middleware/index.js'
 import type { HookableEventConstructor, HookCallback, HookCallbackOptions, HookCleanup } from '../hooks/types.js'
 import {
   InitializedEvent,
@@ -69,6 +88,7 @@ import {
   ToolStreamUpdateEvent,
   InterruptEvent,
   type ModelStopData,
+  type ToolUseData,
 } from '../hooks/events.js'
 import { StructuredOutputTool, STRUCTURED_OUTPUT_TOOL_NAME } from '../tools/structured-output-tool.js'
 import { AgentAsTool } from './agent-as-tool.js'
@@ -88,7 +108,7 @@ import { CancelledError } from '../errors.js'
 import { DefaultModelRetryStrategy } from '../retry/default-model-retry-strategy.js'
 import type { RetryStrategy } from '../retry/retry-strategy.js'
 import { warnOnDuplicateRetryStrategyTypes } from '../retry/retry-strategy.js'
-import { InterruptError, InterruptState, interruptFromAgent } from '../interrupt.js'
+import { Interrupt, InterruptError, InterruptState, interruptFromAgent } from '../interrupt.js'
 import type { InterruptParams } from '../types/interrupt.js'
 import { isInterruptResponseContent, type InterruptResponseContent } from '../types/interrupt.js'
 import { takeSnapshot as takeSnapshotInternal, loadSnapshot as loadSnapshotInternal } from './snapshot.js'
@@ -297,6 +317,36 @@ const DEFAULT_AGENT_ID = 'agent'
 type ToolsExecutionResult = { message: Message; afterToolsEvent: AfterToolsEvent }
 
 /**
+ * Creates a non-mutating interrupt function for middleware contexts.
+ * Reads existing responses from state (resume case) but never writes to it.
+ * On first run (no response), throws InterruptError with a locally-created Interrupt.
+ *
+ * @param interruptState - The agent's interrupt state (read-only access)
+ * @param idPrefix - Prefix for the interrupt ID (e.g., 'middleware:agentStream')
+ */
+function createMiddlewareInterrupt(
+  interruptState: InterruptState,
+  idPrefix: string
+): <T = JSONValue>(params: InterruptParams) => MiddlewareInterruptResult<T> {
+  return <T = JSONValue>(params: InterruptParams): MiddlewareInterruptResult<T> => {
+    const interruptId = `${idPrefix}:${params.name}`
+    const existing = interruptState.interrupts[interruptId]
+    if (existing?.response !== undefined) {
+      return { response: existing.response as T }
+    }
+    if (params.response !== undefined) {
+      return { response: params.response as T }
+    }
+    const interrupt = new Interrupt({
+      id: interruptId,
+      name: params.name,
+      ...(params.reason !== undefined && { reason: params.reason }),
+    })
+    throw new InterruptError(interrupt)
+  }
+}
+
+/**
  * Orchestrates the interaction between a model, a set of tools, and MCP clients.
  * The Agent is responsible for managing the lifecycle of tools and clients
  * and invoking the core decision-making loop.
@@ -357,6 +407,7 @@ export class Agent implements LocalAgent, InvokableAgent {
   public readonly memoryManager?: MemoryManager | undefined
 
   private readonly _hooksRegistry: HookRegistryImplementation
+  private readonly _middlewareRegistry: MiddlewareRegistry
   private readonly _pluginRegistry: PluginRegistry
   private readonly _interventionRegistry: InterventionRegistry
   private _toolRegistry: ToolRegistry
@@ -424,6 +475,9 @@ export class Agent implements LocalAgent, InvokableAgent {
     this._hooksRegistry = new HookRegistryImplementation()
 
     this._interventionRegistry = new InterventionRegistry(config?.interventions ?? [], this._hooksRegistry)
+
+    // Initialize middleware registry
+    this._middlewareRegistry = new MiddlewareRegistry()
 
     // `undefined` (omitted) → install the default; `null`/`[]` → explicit opt-out.
     const retryStrategies: RetryStrategy[] =
@@ -522,6 +576,107 @@ export class Agent implements LocalAgent, InvokableAgent {
     options?: HookCallbackOptions
   ): HookCleanup {
     return this._hooksRegistry.addCallback(eventType, callback, options)
+  }
+
+  /**
+   * Register an Input phase handler that transforms context before execution.
+   * Input handlers run before Around and Output handlers.
+   *
+   * @example
+   * ```typescript
+   * agent.addMiddleware(InvokeModelStage.Input, async (context) => ({
+   *   ...context,
+   *   systemPrompt: injectToSystemPrompt(context),
+   * }))
+   * ```
+   */
+  addMiddleware<TContext, TResult, TEvent>(
+    phase: MiddlewareInputPhase<TContext, TResult, TEvent>,
+    handler: MiddlewareInputHandler<TContext>
+  ): () => void
+  /**
+   * Register an Output phase handler that transforms the result after execution.
+   * Output handlers see the result after Around handlers complete.
+   * Execution order: Input → Around → Output.
+   *
+   * @example
+   * ```typescript
+   * agent.addMiddleware(InvokeModelStage.Output, async (result) => {
+   *   log(`Model returned stopReason=${result.result.stopReason}`)
+   *   return result
+   * })
+   * ```
+   */
+  addMiddleware<TContext, TResult, TEvent>(
+    phase: MiddlewareOutputPhase<TContext, TResult, TEvent>,
+    handler: MiddlewareOutputHandler<TResult>
+  ): () => void
+  /**
+   * Register a middleware handler for a given stage (Around phase).
+   * Middleware wraps stage execution and can intercept, transform, or short-circuit operations.
+   *
+   * @param stage - The stage token identifying the interception point
+   * @param handler - The middleware handler function (async generator)
+   * @returns A cleanup function that removes the middleware when called
+   *
+   * @example
+   * ```typescript
+   * const cleanup = agent.addMiddleware(InvokeModelStage, async function* (context, next) {
+   *   const start = Date.now()
+   *   const result = yield* next(context)
+   *   console.log(`Model call took ${Date.now() - start}ms`)
+   *   return result
+   * })
+   *
+   * // Later, remove the middleware:
+   * cleanup()
+   * ```
+   */
+  addMiddleware<TContext, TResult, TEvent>(
+    stage: MiddlewareStage<TContext, TResult, TEvent>,
+    handler: MiddlewareHandler<TContext, TResult, TEvent>
+  ): () => void
+  addMiddleware<TContext, TResult, TEvent>(
+    stageOrPhase:
+      | MiddlewareStage<TContext, TResult, TEvent>
+      | MiddlewareInputPhase<TContext, TResult, TEvent>
+      | MiddlewareOutputPhase<TContext, TResult, TEvent>,
+    handler:
+      | MiddlewareHandler<TContext, TResult, TEvent>
+      | MiddlewareInputHandler<TContext>
+      | MiddlewareOutputHandler<TResult>
+  ): () => void {
+    if ('_phase' in stageOrPhase) {
+      const phase = stageOrPhase as { _phase: MiddlewarePhaseKind; _stage: MiddlewareStage<TContext, TResult, TEvent> }
+      const stage = phase._stage
+      switch (phase._phase) {
+        case 'input': {
+          const adapted = this._middlewareRegistry.addInput(
+            stageOrPhase as MiddlewareInputPhase<TContext, TResult, TEvent>,
+            handler as MiddlewareInputHandler<TContext>
+          )
+          return () => this._middlewareRegistry.remove(stage, adapted)
+        }
+        case 'output': {
+          const adapted = this._middlewareRegistry.addOutput(
+            stageOrPhase as MiddlewareOutputPhase<TContext, TResult, TEvent>,
+            handler as MiddlewareOutputHandler<TResult>
+          )
+          return () => this._middlewareRegistry.remove(stage, adapted)
+        }
+        case 'around': {
+          const aroundHandler = handler as MiddlewareHandler<TContext, TResult, TEvent>
+          this._middlewareRegistry.add(stage, aroundHandler)
+          return () => this._middlewareRegistry.remove(stage, aroundHandler)
+        }
+        default:
+          throw new Error(`Unknown middleware phase: ${(phase as { _phase: string })._phase}`)
+      }
+    }
+    const stage = stageOrPhase as MiddlewareStage<TContext, TResult, TEvent>
+    const aroundHandler = handler as MiddlewareHandler<TContext, TResult, TEvent>
+    this._middlewareRegistry.add(stage, aroundHandler)
+    return () => this._middlewareRegistry.remove(stage, aroundHandler)
   }
 
   public async initialize(): Promise<void> {
@@ -795,92 +950,162 @@ export class Agent implements LocalAgent, InvokableAgent {
     try {
       await this.initialize()
 
-      let currentArgs: InvokeArgs = args
+      // Process interrupt responses before middleware runs so context.interrupt() can find them
+      const interruptResponses = this._extractInterruptResponses(args)
+      if (interruptResponses.length > 0) {
+        this._interruptState.resume(interruptResponses)
+      }
 
-      // Outer loop: re-enters _stream when a hook sets AfterInvocationEvent.resume.
-      // One invocation lock spans the whole resume chain.
-      while (true) {
-        // Fresh AbortController per invocation iteration, composed with any external signal.
-        this._abortController = new AbortController()
-        this._abortSignal = options?.cancelSignal
-          ? AbortSignal.any([this._abortController.signal, options.cancelSignal])
-          : this._abortController.signal
+      const context: AgentStreamContext = {
+        agent: this,
+        args,
+        ...(options !== undefined && { options }),
+        interrupt: createMiddlewareInterrupt(this._interruptState, 'middleware:agentStream'),
+      }
 
-        const streamGenerator = this._stream(currentArgs, options)
-        let caughtError: Error | undefined
-        let lastAfterInvocation: AfterInvocationEvent | undefined
-        let iterationResult: IteratorResult<AgentStreamEvent, AgentResult>
-        try {
-          iterationResult = await streamGenerator.next()
-
-          while (!iterationResult.done) {
-            try {
-              const processed = await this._invokeCallbacks(iterationResult.value)
-              if (processed instanceof AfterInvocationEvent) {
-                lastAfterInvocation = processed
-              }
-              yield processed
-              iterationResult = await streamGenerator.next()
-            } catch (error) {
-              // Throw interrupt errors back into _stream so executeTools can store the
-              // assistant message as pending execution state for resume.
-              if (error instanceof InterruptError) {
-                iterationResult = await streamGenerator.throw(error)
-              } else {
-                throw error
-              }
-            }
+      // async function* doesn't bind lexical `this`; capture for the terminal callback.
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const self = this
+      try {
+        const { result } = yield* this._middlewareRegistry.invoke(
+          AgentStreamStage,
+          context,
+          async function* (ctx: AgentStreamContext): AsyncGenerator<AgentStreamEvent, AgentStreamResult, undefined> {
+            const result = yield* self._streamWithResumeLoop(ctx.args, ctx.options)
+            return { result }
           }
-
-          // Suppress AgentResultEvent for resumed iterations — only the final
-          // invocation in a resume chain reports an agent result.
-          if (lastAfterInvocation?.resume === undefined) {
-            yield await this._invokeCallbacks(
-              new AgentResultEvent({
-                agent: this,
-                result: iterationResult.value,
-                invocationState: iterationResult.value.invocationState,
-              })
-            )
+        )
+        return result
+      } catch (error) {
+        if (error instanceof InterruptError) {
+          // Handles interrupts raised by AgentStreamStage middleware (before the agent loop starts).
+          // Tool/hook interrupts are caught separately in _stream() since they propagate through
+          // the agent loop and produce an AgentResult internally.
+          //
+          // We intentionally don't call _createInterruptResult() here because middleware
+          // is stateless during execution — agent state (e.g. _isInvoking) is only modified
+          // at the edges, so we construct the result directly.
+          const invocationState = options?.invocationState ?? {}
+          for (const interrupt of error.interrupts) {
+            this._interruptState.getOrCreateInterrupt(interrupt.id, interrupt.name, interrupt.reason)
           }
-        } catch (error) {
-          caughtError = error as Error
-          throw error
-        } finally {
-          // Drain _stream() so cleanup hooks and printer still fire.
-          // Yield only on error (consumer may still be iterating); on a consumer
-          // break, yielding would suspend the generator and leak the lock.
-          let drainResult = await streamGenerator.return(undefined as never)
-          while (!drainResult.done) {
-            try {
-              if (caughtError) {
-                yield await this._invokeCallbacks(drainResult.value)
-              } else {
-                await this._invokeCallbacks(drainResult.value)
-              }
-            } catch (error) {
-              logger.warn(
-                `event_type=<${drainResult.value.type}>, error=<${error}> | error invoking callbacks during cleanup`
-              )
-            }
-            drainResult = await streamGenerator.next()
+          this._interruptState.activate()
+          for (const interrupt of error.interrupts) {
+            yield new InterruptEvent({ agent: this, interrupt, invocationState })
           }
-
-          // Reset controller and signal for next iteration / invocation
-          this._abortController = new AbortController()
-          this._abortSignal = this._abortController.signal
+          return new AgentResult({
+            stopReason: 'interrupt',
+            lastMessage: new Message({ role: 'assistant', content: [] }),
+            traces: this._tracer.localTraces,
+            metrics: this._meter.metrics,
+            interrupts: this._interruptState.getUnansweredInterrupts(),
+            invocationState,
+          })
         }
-
-        // Resume only on a clean invocation — errors propagate above.
-        if (lastAfterInvocation?.resume !== undefined) {
-          currentArgs = lastAfterInvocation.resume
-          continue
-        }
-
-        return iterationResult.value
+        throw error
       }
     } finally {
       this._isInvoking = false
+    }
+  }
+
+  /**
+   * Internal stream logic with the outer resume loop.
+   * Extracted to allow AgentStreamStage middleware to wrap it as a terminal function.
+   */
+  private async *_streamWithResumeLoop(
+    args: InvokeArgs,
+    options?: InvokeOptions
+  ): AsyncGenerator<AgentStreamEvent, AgentResult, undefined> {
+    let currentArgs: InvokeArgs = args
+
+    // Outer loop: re-enters _stream when a hook sets AfterInvocationEvent.resume.
+    // One invocation lock spans the whole resume chain.
+    while (true) {
+      // Fresh AbortController per invocation iteration, composed with any external signal.
+      this._abortController = new AbortController()
+      this._abortSignal = options?.cancelSignal
+        ? AbortSignal.any([this._abortController.signal, options.cancelSignal])
+        : this._abortController.signal
+
+      const streamGenerator = this._stream(currentArgs, options)
+      let caughtError: Error | undefined
+      let lastAfterInvocation: AfterInvocationEvent | undefined
+      let iterationResult: IteratorResult<AgentStreamEvent, AgentResult>
+      try {
+        iterationResult = await streamGenerator.next()
+
+        while (!iterationResult.done) {
+          try {
+            const processed = await this._invokeCallbacks(iterationResult.value)
+            if (processed instanceof AfterInvocationEvent) {
+              lastAfterInvocation = processed
+            }
+            yield processed
+            iterationResult = await streamGenerator.next()
+          } catch (error) {
+            // Throw interrupt errors back into _stream so executeTools can store the
+            // assistant message as pending execution state for resume.
+            if (error instanceof InterruptError) {
+              iterationResult = await streamGenerator.throw(error)
+            } else {
+              throw error
+            }
+          }
+        }
+
+        // Suppress AgentResultEvent for resumed iterations — only the final
+        // invocation in a resume chain reports an agent result.
+        if (lastAfterInvocation?.resume === undefined) {
+          yield await this._invokeCallbacks(
+            new AgentResultEvent({
+              agent: this,
+              result: iterationResult.value,
+              invocationState: iterationResult.value.invocationState,
+            })
+          )
+        }
+      } catch (error) {
+        caughtError = error as Error
+        throw error
+      } finally {
+        // Drain _stream() so cleanup hooks and printer still fire.
+        // Yield only on error (consumer may still be iterating); on a consumer
+        // break, yielding would suspend the generator and leak the lock.
+        let drainResult = await streamGenerator.return(undefined as never)
+        while (!drainResult.done) {
+          try {
+            if (caughtError) {
+              yield await this._invokeCallbacks(drainResult.value)
+            } else {
+              await this._invokeCallbacks(drainResult.value)
+            }
+          } catch (error) {
+            logger.warn(
+              `event_type=<${drainResult.value.type}>, error=<${error}> | error invoking callbacks during cleanup`
+            )
+          }
+          drainResult = await streamGenerator.next()
+        }
+
+        // Reset controller and signal for next iteration / invocation
+        this._abortController = new AbortController()
+        this._abortSignal = this._abortController.signal
+      }
+
+      // Resume only on a clean invocation — errors propagate above.
+      if (lastAfterInvocation?.resume !== undefined) {
+        currentArgs = lastAfterInvocation.resume
+        // Apply any interrupt responses carried in the resume args so middleware
+        // sees them as answered on the next iteration.
+        const resumeInterruptResponses = this._extractInterruptResponses(currentArgs)
+        if (resumeInterruptResponses.length > 0) {
+          this._interruptState.resume(resumeInterruptResponses)
+        }
+        continue
+      }
+
+      return iterationResult.value
     }
   }
 
@@ -1018,11 +1243,10 @@ export class Agent implements LocalAgent, InvokableAgent {
     // agent loop cycles within this invocation.
     const invocationState: InvocationState = options?.invocationState ?? {}
 
-    // Handle interrupt responses if present in input
+    // Interrupt responses are already consumed in stream() before middleware
+    // runs (so middleware-level interrupt() can find them). Re-extract here
+    // to gate the "non-interrupt input while interrupted" check below.
     const interruptResponses = this._extractInterruptResponses(args)
-    if (interruptResponses.length > 0) {
-      this._interruptState.resume(interruptResponses)
-    }
 
     // Reject non-interrupt input while in interrupted state
     if (this._interruptState.activated && interruptResponses.length === 0) {
@@ -1283,6 +1507,11 @@ export class Agent implements LocalAgent, InvokableAgent {
         return result
       }
       if (error instanceof InterruptError) {
+        // Handles interrupts from tools/hooks that propagated up through the agent loop.
+        // AgentStreamStage middleware interrupts are caught separately in stream().
+        for (const interrupt of error.interrupts) {
+          this._interruptState.getOrCreateInterrupt(interrupt.id, interrupt.name, interrupt.reason)
+        }
         // Fan out one event per interrupt. Each event exposes `interrupt.source` so
         // consumers can filter by origin (tool callback vs hook callback) without
         // subscribing to separate event types.
@@ -1528,7 +1757,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       })
 
       try {
-        const result = yield* this._streamFromModel(this.messages, streamOptions, invocationState)
+        const result = yield* this._invokeModelWithMiddleware(invocationState, toolChoice)
 
         // Accumulate token usage and model latency metrics
         this._meter.updateCycle(result.metadata)
@@ -1610,6 +1839,55 @@ export class Agent implements LocalAgent, InvokableAgent {
         throw error
       }
     }
+  }
+
+  /**
+   * Invokes the model through the InvokeModelStage middleware chain.
+   * Builds an InvokeModelContext from current agent state and composes the
+   * middleware chain with a terminal function that calls _streamFromModel
+   * using context fields directly (not re-derived from the agent).
+   *
+   * @param invocationState - Per-invocation state shared across hooks and tools
+   * @param toolChoice - Optional tool choice to force specific tool usage
+   * @returns StreamAggregatedResult from the model (or middleware short-circuit)
+   */
+  private async *_invokeModelWithMiddleware(
+    invocationState: InvocationState,
+    toolChoice?: ToolChoice
+  ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
+    const context: InvokeModelContext = {
+      agent: this,
+      messages: this.messages,
+      ...(this.systemPrompt !== undefined && { systemPrompt: this.systemPrompt }),
+      toolSpecs: this._toolRegistry.list().map((tool) => tool.toolSpec),
+      ...(toolChoice !== undefined && { toolChoice }),
+      modelState: this.modelState,
+      invocationState,
+    }
+
+    // async function* doesn't bind lexical `this`; capture for the terminal callback.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const self = this
+    const middlewareResult = yield* this._middlewareRegistry.invoke(
+      InvokeModelStage,
+      context,
+      async function* (ctx: InvokeModelContext): AsyncGenerator<AgentStreamEvent, InvokeModelResult, undefined> {
+        const streamOptions: StreamOptions = {
+          toolSpecs: ctx.toolSpecs as ToolSpec[],
+          modelState: ctx.modelState,
+          ...(ctx.systemPrompt !== undefined && { systemPrompt: ctx.systemPrompt }),
+          ...(ctx.toolChoice && { toolChoice: ctx.toolChoice }),
+        }
+        const gen = self._streamFromModel(ctx.messages as Message[], streamOptions, ctx.invocationState)
+        let iterResult = await gen.next()
+        while (!iterResult.done) {
+          yield iterResult.value
+          iterResult = await gen.next()
+        }
+        return { result: iterResult.value }
+      }
+    )
+    return middlewareResult.result
   }
 
   /**
@@ -2060,90 +2338,9 @@ export class Agent implements LocalAgent, InvokableAgent {
         return afterToolCallEvent.result
       }
 
-      // Start tool span within loop span context
-      const toolSpan = this._tracer.startToolCallSpan({
-        tool: toolUse,
-      })
-
-      // Track tool execution time for metrics
-      const toolStartTime = Date.now()
-
-      let toolResult: ToolResultBlock
-      let error: Error | undefined
-
-      if (!effectiveTool) {
-        // Tool not found
-        toolResult = new ToolResultBlock({
-          toolUseId: toolUse.toolUseId,
-          status: 'error',
-          content: [new TextBlock(`Tool '${toolUse.name}' not found in registry`)],
-        })
-      } else {
-        // Execute tool within the tool span context
-        const toolContext: ToolContext = {
-          toolUse: {
-            name: toolUse.name,
-            toolUseId: toolUse.toolUseId,
-            input: toolUse.input,
-          },
-          agent: this,
-          invocationState,
-          interrupt: <T = JSONValue>(params: InterruptParams): T => {
-            return interruptFromAgent<T>(this, `tool:${toolUseBlock.toolUseId}:${params.name}`, params, 'tool')
-          },
-        }
-
-        try {
-          // Manually iterate tool stream to wrap each ToolStreamEvent in ToolStreamUpdateEvent.
-          // This keeps the tool authoring interface unchanged — tools construct ToolStreamEvent
-          // without knowledge of agents or hooks, and we wrap at the boundary.
-          // Tool execution is ran within the tool span's context so that
-          // downstream calls (e.g., MCP clients) can propagate trace context
-          const toolGenerator = this._tracer.withSpanContext(toolSpan, () => effectiveTool.stream(toolContext))
-          let toolNext = await this._tracer.withSpanContext(toolSpan, () => toolGenerator.next())
-          while (!toolNext.done) {
-            yield new ToolStreamUpdateEvent({ agent: this, event: toolNext.value, invocationState })
-            toolNext = await this._tracer.withSpanContext(toolSpan, () => toolGenerator.next())
-          }
-          const result = toolNext.value
-
-          if (!result) {
-            // Tool didn't return a result
-            toolResult = new ToolResultBlock({
-              toolUseId: toolUse.toolUseId,
-              status: 'error',
-              content: [new TextBlock(`Tool '${toolUse.name}' did not return a result`)],
-            })
-          } else {
-            toolResult = result
-            error = result.error
-          }
-        } catch (e) {
-          // Re-throw InterruptError to allow interrupt handling
-          if (e instanceof InterruptError) {
-            throw e
-          }
-          // Tool execution failed with error
-          error = normalizeError(e)
-          toolResult = new ToolResultBlock({
-            toolUseId: toolUse.toolUseId,
-            status: 'error',
-            content: [new TextBlock(error.message)],
-            error,
-          })
-        }
-      }
-
-      // End tool span with the raw tool result — telemetry reflects what the
-      // tool actually returned, independent of AfterToolCallEvent mutations.
-      this._tracer.endToolCallSpan(toolSpan, { toolResult, ...(error && { error }) })
-
-      // End tool metrics tracking
-      this._meter.endToolCall({
-        tool: toolUse,
-        duration: Date.now() - toolStartTime,
-        success: toolResult.status === 'success',
-      })
+      // Execute tool core logic through middleware chain
+      const toolResult = yield* this._executeToolWithMiddleware(effectiveTool, toolUse, invocationState)
+      const error = toolResult.error
 
       // Single point for AfterToolCallEvent
       const afterToolCallEvent = new AfterToolCallEvent({
@@ -2164,6 +2361,130 @@ export class Agent implements LocalAgent, InvokableAgent {
       // to ToolResultEvent and the conversation message the model will see.
       return afterToolCallEvent.result
     }
+  }
+
+  private async *_executeToolWithMiddleware(
+    tool: Tool | undefined,
+    toolUse: ToolUseData,
+    invocationState: InvocationState
+  ): AsyncGenerator<AgentStreamEvent, ToolResultBlock, undefined> {
+    const context: ExecuteToolContext = {
+      agent: this,
+      tool,
+      toolUse: {
+        name: toolUse.name,
+        toolUseId: toolUse.toolUseId,
+        input: toolUse.input,
+      },
+      invocationState,
+      interrupt: createMiddlewareInterrupt(this._interruptState, `middleware:executeTool:${toolUse.toolUseId}`),
+    }
+
+    // async function* doesn't bind lexical `this`; capture for the terminal callback.
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const self = this
+    const middlewareResult = yield* this._middlewareRegistry.invoke(
+      ExecuteToolStage,
+      context,
+      async function* (ctx: ExecuteToolContext): AsyncGenerator<AgentStreamEvent, ExecuteToolResult, undefined> {
+        const result = yield* self._executeToolCore(ctx.tool, ctx.toolUse, ctx.invocationState)
+        return { result }
+      }
+    )
+    return middlewareResult.result
+  }
+
+  private async *_executeToolCore(
+    effectiveTool: Tool | undefined,
+    toolUse: ToolUseData,
+    invocationState: InvocationState
+  ): AsyncGenerator<AgentStreamEvent, ToolResultBlock, undefined> {
+    // Start tool span within loop span context
+    const toolSpan = this._tracer.startToolCallSpan({
+      tool: toolUse,
+    })
+
+    // Track tool execution time for metrics
+    const toolStartTime = Date.now()
+
+    let toolResult: ToolResultBlock
+    let error: Error | undefined
+
+    if (!effectiveTool) {
+      // Tool not found
+      toolResult = new ToolResultBlock({
+        toolUseId: toolUse.toolUseId,
+        status: 'error',
+        content: [new TextBlock(`Tool '${toolUse.name}' not found in registry`)],
+      })
+    } else {
+      // Execute tool within the tool span context
+      const toolContext: ToolContext = {
+        toolUse: {
+          name: toolUse.name,
+          toolUseId: toolUse.toolUseId,
+          input: toolUse.input,
+        },
+        agent: this,
+        invocationState,
+        interrupt: <T = JSONValue>(params: InterruptParams): T => {
+          return interruptFromAgent<T>(this, `tool:${toolUse.toolUseId}:${params.name}`, params, 'tool')
+        },
+      }
+
+      try {
+        // Manually iterate tool stream to wrap each ToolStreamEvent in ToolStreamUpdateEvent.
+        // This keeps the tool authoring interface unchanged — tools construct ToolStreamEvent
+        // without knowledge of agents or hooks, and we wrap at the boundary.
+        // Tool execution is ran within the tool span's context so that
+        // downstream calls (e.g., MCP clients) can propagate trace context
+        const toolGenerator = this._tracer.withSpanContext(toolSpan, () => effectiveTool.stream(toolContext))
+        let toolNext = await this._tracer.withSpanContext(toolSpan, () => toolGenerator.next())
+        while (!toolNext.done) {
+          yield new ToolStreamUpdateEvent({ agent: this, event: toolNext.value, invocationState })
+          toolNext = await this._tracer.withSpanContext(toolSpan, () => toolGenerator.next())
+        }
+        const result = toolNext.value
+
+        if (!result) {
+          // Tool didn't return a result
+          toolResult = new ToolResultBlock({
+            toolUseId: toolUse.toolUseId,
+            status: 'error',
+            content: [new TextBlock(`Tool '${toolUse.name}' did not return a result`)],
+          })
+        } else {
+          toolResult = result
+          error = result.error
+        }
+      } catch (e) {
+        // Re-throw InterruptError to allow interrupt handling
+        if (e instanceof InterruptError) {
+          throw e
+        }
+        // Tool execution failed with error
+        error = normalizeError(e)
+        toolResult = new ToolResultBlock({
+          toolUseId: toolUse.toolUseId,
+          status: 'error',
+          content: [new TextBlock(error.message)],
+          error,
+        })
+      }
+    }
+
+    // End tool span with the raw tool result — telemetry reflects what the
+    // tool actually returned, independent of AfterToolCallEvent mutations.
+    this._tracer.endToolCallSpan(toolSpan, { toolResult, ...(error && { error }) })
+
+    // End tool metrics tracking
+    this._meter.endToolCall({
+      tool: toolUse,
+      duration: Date.now() - toolStartTime,
+      success: toolResult.status === 'success',
+    })
+
+    return toolResult
   }
 
   /**

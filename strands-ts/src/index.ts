@@ -307,6 +307,24 @@ export { Sandbox, type ExecuteOptions } from './sandbox/base.js'
 export { PosixShellSandbox } from './sandbox/posix-shell.js'
 export type { StreamType, StreamChunk, FileInfo, OutputFile, ExecutionResult } from './sandbox/types.js'
 
+// Middleware system
+export { createStage, InvokeModelStage, ExecuteToolStage, AgentStreamStage } from './middleware/index.js'
+export type {
+  MiddlewareStage,
+  MiddlewareHandler,
+  MiddlewareNext,
+  MiddlewareHandlerOf,
+  MiddlewareNextOf,
+  InvokeModelContext,
+  InvokeModelResult,
+  ExecuteToolContext,
+  ExecuteToolResult,
+  AgentStreamContext,
+  AgentStreamResult,
+  MiddlewareInterruptResult,
+  MiddlewareInterruptible,
+} from './middleware/index.js'
+
 // Multi-agent orchestration
 export { Graph } from './multiagent/index.js'
 export { Swarm } from './multiagent/index.js'
