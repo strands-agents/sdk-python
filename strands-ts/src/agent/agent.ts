@@ -42,8 +42,11 @@ import { InterventionRegistry } from '../interventions/registry.js'
 import type { LifecycleObserver } from '../types/lifecycle-observer.js'
 import { PluginRegistry } from '../plugins/registry.js'
 import { SlidingWindowConversationManager } from '../conversation-manager/sliding-window-conversation-manager.js'
+import { SummarizingConversationManager } from '../conversation-manager/summarizing-conversation-manager.js'
 import { NullConversationManager } from '../conversation-manager/null-conversation-manager.js'
 import { ConversationManager } from '../conversation-manager/conversation-manager.js'
+import { ContextOffloader } from '../vended-plugins/context-offloader/plugin.js'
+import { InMemoryStorage } from '../vended-plugins/context-offloader/storage.js'
 import { HookRegistryImplementation } from '../hooks/registry.js'
 import type { HookableEventConstructor, HookCallback, HookCallbackOptions, HookCleanup } from '../hooks/types.js'
 import {
@@ -174,6 +177,16 @@ export type AgentConfig = {
    * Defaults to SlidingWindowConversationManager with windowSize of 40.
    */
   conversationManager?: ConversationManager
+  /**
+   * Shorthand for automatic context management. When set to 'auto', configures:
+   * - SummarizingConversationManager (summaryRatio 0.3, proactive compression at 85%)
+   * - ContextOffloader plugin (InMemoryStorage, maxResultTokens 1500, previewTokens 750)
+   *
+   * If `conversationManager` is also provided, it takes precedence.
+   * If plugins already include a ContextOffloader, no duplicate is added.
+   * Cannot be used with stateful models.
+   */
+  contextManager?: 'auto'
   /**
    * Plugins to register with the agent.
    */
@@ -356,7 +369,19 @@ export class Agent implements LocalAgent, InvokableAgent {
           'Cannot use a conversationManager with a stateful model. The model manages conversation state server-side.'
         )
       }
+      if (config?.contextManager) {
+        throw new Error(
+          'Cannot use contextManager with a stateful model. The model manages conversation state server-side.'
+        )
+      }
       this._conversationManager = new NullConversationManager()
+    } else if (config?.contextManager === 'auto') {
+      this._conversationManager =
+        config?.conversationManager ??
+        new SummarizingConversationManager({
+          summaryRatio: 0.3,
+          proactiveCompression: { compressionThreshold: 0.85 },
+        })
     } else {
       this._conversationManager =
         config?.conversationManager ?? new SlidingWindowConversationManager({ windowSize: 40 })
@@ -382,6 +407,21 @@ export class Agent implements LocalAgent, InvokableAgent {
             : [config.retryStrategy]
     warnOnDuplicateRetryStrategyTypes(retryStrategies)
 
+    // Resolve auto context management plugins
+    const contextManagerPlugins: Plugin[] = []
+    if (config?.contextManager === 'auto') {
+      const hasOffloader = (config?.plugins ?? []).some((p) => p instanceof ContextOffloader)
+      if (!hasOffloader) {
+        contextManagerPlugins.push(
+          new ContextOffloader({
+            storage: new InMemoryStorage(),
+            maxResultTokens: 1500,
+            previewTokens: 750,
+          })
+        )
+      }
+    }
+
     // Initialize plugin registry with all plugins to be initialized during initialize().
     // Ordering notes:
     // - ModelPlugin is registered last so that on AfterInvocationEvent (which uses
@@ -393,6 +433,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     this._pluginRegistry = new PluginRegistry([
       this._conversationManager,
       ...retryStrategies,
+      ...contextManagerPlugins,
       ...(config?.plugins ?? []),
       ...(this.memoryManager ? [this.memoryManager] : []),
       ...(config?.sessionManager ? [config.sessionManager] : []),
