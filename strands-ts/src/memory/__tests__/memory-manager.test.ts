@@ -61,7 +61,9 @@ describe('MemoryManager', () => {
 
     it('throws when a store is writable but has no add method', () => {
       const broken: MemoryStore = { name: 'broken', writable: true, search: vi.fn().mockResolvedValue([]) }
-      expect(() => new MemoryManager({ stores: [broken] })).toThrow("store 'broken' is writable but has no add method")
+      expect(() => new MemoryManager({ stores: [broken] })).toThrow(
+        "store 'broken' is writable but has no add or addMessages method"
+      )
     })
 
     it('throws when addToolConfig is enabled but no stores are writable', () => {
@@ -71,7 +73,7 @@ describe('MemoryManager', () => {
             stores: [createMockStore('a')],
             addToolConfig: true,
           })
-      ).toThrow('addToolConfig is enabled but no stores are writable')
+      ).toThrow('addToolConfig is enabled but no writable stores implement add')
     })
 
     it('allows addToolConfig true with a single writable store', () => {

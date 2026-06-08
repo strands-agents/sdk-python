@@ -10,3 +10,18 @@ export type {
   MemoryAddToolConfig,
   MemoryManagerConfig,
 } from './types.js'
+
+export { ExtractionTrigger } from './extraction/types.js'
+export { InvocationTrigger, IntervalTrigger } from './extraction/triggers.js'
+export type { IntervalTriggerOptions } from './extraction/triggers.js'
+export { ModelExtractor } from './extraction/model-extractor.js'
+export type { ModelExtractorOptions } from './extraction/model-extractor.js'
+export type {
+  ExtractionConfig,
+  Extractor,
+  ExtractorContext,
+  ExtractedEntry,
+  ExtractionTriggerContext,
+  MessageFilter,
+  MemoryContentBlockType,
+} from './extraction/types.js'

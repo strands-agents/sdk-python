@@ -324,3 +324,15 @@ export type {
   MemoryAddToolConfig,
   MemoryManagerConfig,
 } from './memory/index.js'
+export { ExtractionTrigger, InvocationTrigger, IntervalTrigger, ModelExtractor } from './memory/index.js'
+export type {
+  ExtractionConfig,
+  Extractor,
+  ExtractorContext,
+  ExtractedEntry,
+  ExtractionTriggerContext,
+  MessageFilter,
+  MemoryContentBlockType,
+  IntervalTriggerOptions,
+  ModelExtractorOptions,
+} from './memory/index.js'

@@ -11,6 +11,9 @@ import type {
   MemoryAddToolConfig,
 } from './types.js'
 import type { JSONValue } from '../types/json.js'
+import { MessageAddedEvent } from '../hooks/events.js'
+import { ExtractionCoordinator } from './extraction/coordinator.js'
+import { normalizeTriggers } from './extraction/types.js'
 import { tool } from '../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../logging/logger.js'
@@ -31,6 +34,14 @@ export const DEFAULT_MAX_SEARCH_RESULTS = 3
 /** Flattens nested AggregateErrors so the leaves are concrete reasons, not errors-of-errors. */
 function _flattenReasons(reasons: unknown[]): unknown[] {
   return reasons.flatMap((reason) => (reason instanceof AggregateError ? _flattenReasons(reason.errors) : [reason]))
+}
+
+/**
+ * Whether a store has any write sink. The `add_memory` tool and programmatic `add` use `add`;
+ * extraction additionally accepts `addMessages`. A writable store must have at least one.
+ */
+function _hasWriteSink(store: MemoryStore): boolean {
+  return typeof store.add === 'function' || typeof store.addMessages === 'function'
 }
 
 /**
@@ -65,6 +76,10 @@ export class MemoryManager implements Plugin {
   private readonly _searchToolConfig: MemoryToolConfig | false
   private readonly _addToolConfig: MemoryAddToolConfig | false
   private readonly _addToolStores: MemoryStore[]
+  /** Stores with an extraction config and at least one trigger; wired up in {@link initAgent}. */
+  private readonly _extractionStores: MemoryStore[]
+  /** Background extraction coordinator, created in {@link initAgent} when extraction is configured. */
+  private _coordinator: ExtractionCoordinator | undefined
 
   constructor(config: MemoryManagerConfig) {
     if (config.stores.length === 0) {
@@ -78,14 +93,38 @@ export class MemoryManager implements Plugin {
       }
       seenNames.add(store.name)
 
-      if (store.writable && !store.add) {
-        throw new Error(`MemoryManager: store '${store.name}' is writable but has no add method`)
+      if (store.writable && !_hasWriteSink(store)) {
+        throw new Error(`MemoryManager: store '${store.name}' is writable but has no add or addMessages method`)
+      }
+
+      if (store.extraction) {
+        if (!store.writable) {
+          throw new Error(`MemoryManager: store '${store.name}' has extraction config but is not writable`)
+        }
+        if (normalizeTriggers(store.extraction.trigger).length === 0) {
+          throw new Error(`MemoryManager: store '${store.name}' has extraction config but no triggers`)
+        }
+        // Each extraction shape needs its matching write sink. An extractor produces discrete entries
+        // written via `add`; without an extractor the raw message batch goes to `addMessages`.
+        if (store.extraction.extractor) {
+          if (typeof store.add !== 'function') {
+            throw new Error(
+              `MemoryManager: store '${store.name}' has an extractor but no add method (extracted entries are written via add)`
+            )
+          }
+        } else if (typeof store.addMessages !== 'function') {
+          throw new Error(
+            `MemoryManager: store '${store.name}' has extraction config without an extractor but no addMessages method`
+          )
+        }
       }
     }
 
     this._config = config
     this._searchStores = config.stores
-    this._addStores = config.stores.filter((s) => s.writable)
+    // `add`-targeting paths (tool / programmatic) need an `add` method specifically.
+    this._addStores = config.stores.filter((s) => s.writable && typeof s.add === 'function')
+    this._extractionStores = config.stores.filter((s) => s.extraction)
 
     this._searchToolConfig =
       config.searchToolConfig === false
@@ -98,8 +137,9 @@ export class MemoryManager implements Plugin {
       this._addToolConfig = false
       this._addToolStores = []
     } else {
+      // The `add_memory` tool writes via `add` (not `addMessages`), so it needs an `add`-capable store.
       if (this._addStores.length === 0) {
-        throw new Error('MemoryManager: addToolConfig is enabled but no stores are writable')
+        throw new Error('MemoryManager: addToolConfig is enabled but no writable stores implement add')
       }
       this._addToolConfig = typeof config.addToolConfig === 'object' ? config.addToolConfig : {}
       this._addToolStores = this._resolveAddToolStores(this._addToolConfig)
@@ -109,7 +149,7 @@ export class MemoryManager implements Plugin {
   /**
    * Resolves the writable stores the `add_memory` tool may write to. When `stores` is given, each
    * entry (a store name or a {@link MemoryStore} instance) must resolve by name to a configured,
-   * writable store (else throws). Omitted means all writable stores.
+   * `add`-capable writable store (else throws). Omitted means all such stores.
    */
   private _resolveAddToolStores(toolConfig: MemoryAddToolConfig): MemoryStore[] {
     if (toolConfig.stores === undefined) {
@@ -126,6 +166,9 @@ export class MemoryManager implements Plugin {
       if (!found.writable) {
         throw new Error(`MemoryManager: addToolConfig store '${name}' is not writable`)
       }
+      if (typeof found.add !== 'function') {
+        throw new Error(`MemoryManager: addToolConfig store '${name}' has no add method (only addMessages)`)
+      }
       return found
     })
   }
@@ -133,11 +176,57 @@ export class MemoryManager implements Plugin {
   /**
    * Initializes the plugin with the agent.
    *
-   * No lifecycle hooks are registered in this version.
+   * When any store has an {@link ExtractionConfig}, registers a {@link MessageAddedEvent} hook that
+   * buffers conversation messages and attaches each store's triggers. A trigger fires extraction for
+   * its store, which processes only messages newer than that store's high-water mark (so repeated
+   * fires never duplicate writes) and routes them via extractor or `addMessages`. With no
+   * extraction-configured store this is a no-op.
    *
-   * @param _agent - The agent this plugin is being attached to
+   * Extraction always runs in the background: a trigger's `fire` dispatches the work and returns
+   * immediately, so it never blocks the agent loop even though it is invoked from a lifecycle hook.
+   * Use {@link flush} to await completion.
+   *
+   * @param agent - The agent this plugin is being attached to
    */
-  initAgent(_agent: LocalAgent): void {}
+  initAgent(agent: LocalAgent): void {
+    if (this._extractionStores.length === 0) {
+      return
+    }
+
+    // The coordinator owns the message buffer, per-store dedup, and routing to write sinks.
+    const coordinator = new ExtractionCoordinator(this._extractionStores, agent.model)
+    this._coordinator = coordinator
+
+    // Buffer every framework-added message. The buffer is the source of truth for extraction,
+    // independent of `agent.messages` (which the conversation manager may evict).
+    agent.addHook(MessageAddedEvent, (event) => {
+      coordinator.record(event.message.toJSON())
+    })
+
+    for (const store of this._extractionStores) {
+      for (const trigger of normalizeTriggers(store.extraction!.trigger)) {
+        trigger.attach({
+          agent,
+          // Fire-and-forget: enqueue the work and return synchronously so the agent loop is never
+          // blocked. The coordinator serializes per store, logs failures, and is drained via flush().
+          fire: () => {
+            void coordinator.process(store)
+          },
+        })
+      }
+    }
+  }
+
+  /**
+   * Awaits all in-flight background extraction.
+   *
+   * Extraction is fire-and-forget by design, so a write enqueued on one turn may still be running
+   * after the agent responds. Call this for graceful shutdown or in tests to deterministically wait
+   * for pending writes to land. No-op when extraction is not configured.
+   */
+  async flush(): Promise<void> {
+    await this._coordinator?.flush()
+  }
 
   /**
    * Returns tools registered by this plugin.

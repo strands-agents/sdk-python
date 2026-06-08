@@ -1,0 +1,373 @@
+import { describe, it, expect, vi } from 'vitest'
+import { MemoryManager } from '../../memory-manager.js'
+import { InvocationTrigger, IntervalTrigger } from '../triggers.js'
+import type { ExtractionConfig, Extractor } from '../types.js'
+import type { MemoryStore, MemoryEntry } from '../../types.js'
+import type { MessageData } from '../../../types/messages.js'
+import { Message, TextBlock, ToolUseBlock } from '../../../types/messages.js'
+import { AfterInvocationEvent, MessageAddedEvent } from '../../../hooks/events.js'
+import { createMockAgent, type MockAgent } from '../../../__fixtures__/agent-helpers.js'
+
+/**
+ * Builds a writable store with an extraction config. `sink` chooses which write method(s) it has,
+ * letting tests target each route (extractor → `add`; no extractor → `addMessages`) and the
+ * construction-time sink validation.
+ */
+function createExtractionStore(
+  name: string,
+  extraction: ExtractionConfig,
+  sink: 'add' | 'addMessages' | 'both' = 'both',
+  options?: { entries?: MemoryEntry[] }
+): MemoryStore & {
+  add: ReturnType<typeof vi.fn>
+  addMessages: ReturnType<typeof vi.fn>
+} {
+  const store = {
+    name,
+    writable: true,
+    extraction,
+    search: vi.fn().mockResolvedValue(options?.entries ?? []),
+    add: vi.fn().mockResolvedValue(undefined),
+    addMessages: vi.fn().mockResolvedValue(undefined),
+  } as unknown as MemoryStore & { add: ReturnType<typeof vi.fn>; addMessages: ReturnType<typeof vi.fn> }
+
+  if (sink === 'add') delete (store as Partial<MemoryStore>).addMessages
+  if (sink === 'addMessages') delete (store as Partial<MemoryStore>).add
+  return store
+}
+
+function userMsg(text: string): Message {
+  return new Message({ role: 'user', content: [new TextBlock(text)] })
+}
+
+/** Drives the lifecycle: adds messages, then fires the AfterInvocationEvent hook(s). */
+async function addMessages(agent: MockAgent, ...messages: Message[]): Promise<void> {
+  for (const message of messages) {
+    await invokeAll(agent, new MessageAddedEvent({ agent, message, invocationState: {} }))
+  }
+}
+
+async function invokeAll(agent: MockAgent, event: AfterInvocationEvent | MessageAddedEvent): Promise<void> {
+  const hooks = agent.trackedHooks.filter((h) => h.eventType === event.constructor)
+  for (const hook of hooks) {
+    await hook.callback(event)
+  }
+}
+
+/**
+ * Fires the AfterInvocationEvent hook(s), then flushes the manager so the fire-and-forget background
+ * extraction has completed before assertions run.
+ */
+async function fireInvocation(agent: MockAgent, mm: MemoryManager): Promise<void> {
+  await invokeAll(agent, new AfterInvocationEvent({ agent, invocationState: {} }))
+  await mm.flush()
+}
+
+describe('MemoryManager extraction', () => {
+  describe('constructor validation', () => {
+    it('throws when an extraction store is not writable', () => {
+      const store: MemoryStore = {
+        name: 's',
+        writable: false,
+        search: vi.fn(),
+        extraction: { trigger: [new InvocationTrigger()] },
+      }
+      expect(() => new MemoryManager({ stores: [store] })).toThrow('not writable')
+    })
+
+    it('throws when an extraction config has no triggers', () => {
+      const store = createExtractionStore('s', { trigger: [] })
+      expect(() => new MemoryManager({ stores: [store] })).toThrow('no triggers')
+    })
+
+    it('allows a store writable only via addMessages', () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      expect(() => new MemoryManager({ stores: [store] })).not.toThrow()
+    })
+
+    it('throws when a writable store has neither add nor addMessages', () => {
+      const store: MemoryStore = { name: 's', writable: true, search: vi.fn() }
+      expect(() => new MemoryManager({ stores: [store] })).toThrow('no add or addMessages')
+    })
+
+    it('rejects addToolConfig targeting an addMessages-only store', () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      expect(() => new MemoryManager({ stores: [store], addToolConfig: true })).toThrow(
+        'no writable stores implement add'
+      )
+    })
+
+    it('throws when extraction has an extractor but the store has no add', () => {
+      const extractor: Extractor = { extract: vi.fn() }
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()], extractor }, 'addMessages')
+      expect(() => new MemoryManager({ stores: [store] })).toThrow('has an extractor but no add method')
+    })
+
+    it('throws when extraction has no extractor but the store has no addMessages', () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'add')
+      expect(() => new MemoryManager({ stores: [store] })).toThrow('without an extractor but no addMessages method')
+    })
+  })
+
+  describe('no-extractor passthrough', () => {
+    it('hands the raw MessageData batch to addMessages, roles preserved', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(
+        agent,
+        userMsg('I prefer dark mode'),
+        new Message({ role: 'assistant', content: [new TextBlock('Noted')] })
+      )
+      await fireInvocation(agent, mm)
+
+      expect(store.addMessages).toHaveBeenCalledTimes(1)
+      const batch = store.addMessages.mock.calls[0]![0] as MessageData[]
+      expect(batch).toHaveLength(2)
+      expect(batch[0]!.role).toBe('user')
+      expect(batch[1]!.role).toBe('assistant')
+    })
+  })
+
+  describe('extractor route', () => {
+    it('calls the extractor and writes each entry via add', async () => {
+      const extractor: Extractor = {
+        extract: vi.fn().mockResolvedValue([{ content: 'fact one' }, { content: 'fact two', metadata: { k: 'v' } }]),
+      }
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()], extractor }, 'both')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('something happened'))
+      await fireInvocation(agent, mm)
+
+      expect(extractor.extract).toHaveBeenCalledTimes(1)
+      expect(store.add).toHaveBeenCalledTimes(2)
+      expect(store.add.mock.calls[0]![0]).toBe('fact one')
+      expect(store.add.mock.calls[1]![0]).toBe('fact two')
+      expect(store.add.mock.calls[1]![1]).toEqual({ k: 'v' })
+      // Extractor route never uses the batch sink.
+      expect(store.addMessages).not.toHaveBeenCalled()
+    })
+
+    it('passes the agent model as defaultModel to the extractor', async () => {
+      const extractor: Extractor = { extract: vi.fn().mockResolvedValue([]) }
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()], extractor })
+      const mm = new MemoryManager({ stores: [store] })
+      const fakeModel = { id: 'model' }
+      const agent = createMockAgent({ extra: { model: fakeModel } as never })
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('hi'))
+      await fireInvocation(agent, mm)
+
+      expect(extractor.extract).toHaveBeenCalledWith(expect.any(Array), { defaultModel: fakeModel })
+    })
+  })
+
+  describe('message filter', () => {
+    it('drops toolUse/toolResult blocks by default and empties', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      const toolOnly = new Message({
+        role: 'assistant',
+        content: [new ToolUseBlock({ name: 't', toolUseId: '1', input: {} })],
+      })
+      await addMessages(agent, userMsg('keep me'), toolOnly)
+      await fireInvocation(agent, mm)
+
+      const batch = store.addMessages.mock.calls[0]![0] as MessageData[]
+      // tool-only message dropped entirely; text message kept.
+      expect(batch).toHaveLength(1)
+      expect(batch[0]!.role).toBe('user')
+    })
+
+    it('honors a custom filter', async () => {
+      const store = createExtractionStore(
+        's',
+        { trigger: [new InvocationTrigger()], filter: { exclude: ['text'] } },
+        'addMessages'
+      )
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('this is text and should be excluded'))
+      await fireInvocation(agent, mm)
+
+      // The only message was text, excluded -> emptied -> nothing to write.
+      expect(store.addMessages).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('high-water-mark dedup', () => {
+    it('processes only messages added since the last fire', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('turn one'))
+      await fireInvocation(agent, mm)
+      await addMessages(agent, userMsg('turn two'))
+      await fireInvocation(agent, mm)
+
+      expect(store.addMessages).toHaveBeenCalledTimes(2)
+      expect(store.addMessages.mock.calls[0]![0] as MessageData[]).toHaveLength(1)
+      const second = store.addMessages.mock.calls[1]![0] as MessageData[]
+      expect(second).toHaveLength(1)
+      expect((second[0]!.content[0] as { text: string }).text).toBe('turn two')
+    })
+
+    it('does nothing when no new messages since the mark', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('only turn'))
+      await fireInvocation(agent, mm)
+      await fireInvocation(agent, mm) // no new messages
+
+      expect(store.addMessages).toHaveBeenCalledTimes(1)
+    })
+
+    it('retries the same messages on the next fire if a write fails', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      store.addMessages.mockRejectedValueOnce(new Error('backend down'))
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('important'))
+      await fireInvocation(agent, mm) // fails, mark rolled back
+      await fireInvocation(agent, mm) // retries
+
+      expect(store.addMessages).toHaveBeenCalledTimes(2)
+      expect(store.addMessages.mock.calls[1]![0] as MessageData[]).toHaveLength(1)
+    })
+  })
+
+  describe('triggers', () => {
+    it('IntervalTrigger fires every N invocations', async () => {
+      const store = createExtractionStore('s', { trigger: [new IntervalTrigger({ turns: 2 })] }, 'addMessages')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('a'))
+      await fireInvocation(agent, mm) // count 1, no fire
+      expect(store.addMessages).not.toHaveBeenCalled()
+
+      await addMessages(agent, userMsg('b'))
+      await fireInvocation(agent, mm) // count 2, fire
+      expect(store.addMessages).toHaveBeenCalledTimes(1)
+      expect(store.addMessages.mock.calls[0]![0] as MessageData[]).toHaveLength(2)
+    })
+
+    it('IntervalTrigger rejects non-positive turns', () => {
+      expect(() => new IntervalTrigger({ turns: 0 })).toThrow('positive integer')
+    })
+
+    it('accepts a single trigger (not wrapped in an array)', async () => {
+      const store = createExtractionStore('s', { trigger: new InvocationTrigger() }, 'addMessages')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('hi'))
+      await fireInvocation(agent, mm)
+
+      expect(store.addMessages).toHaveBeenCalledTimes(1)
+    })
+
+    it('composes multiple triggers (extraction fires on any)', async () => {
+      // Both an interval(every 2) and an invocation(every turn): the invocation trigger fires turn 1.
+      const store = createExtractionStore(
+        's',
+        { trigger: [new IntervalTrigger({ turns: 2 }), new InvocationTrigger()] },
+        'addMessages'
+      )
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('a'))
+      await fireInvocation(agent, mm)
+
+      // Invocation trigger fired on turn 1 even though interval would not have.
+      expect(store.addMessages).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not register hooks when no store has extraction', () => {
+      const store: MemoryStore = { name: 's', writable: true, search: vi.fn(), add: vi.fn() }
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+      expect(agent.trackedHooks).toHaveLength(0)
+    })
+  })
+
+  describe('background execution', () => {
+    it('does not block the AfterInvocationEvent hook on the store write', async () => {
+      // A store whose write hangs until we release it. If extraction blocked the loop, awaiting the
+      // hook would never resolve while the write is pending.
+      let release!: () => void
+      const blocked = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      store.addMessages.mockReturnValue(blocked)
+
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+      await addMessages(agent, userMsg('hello'))
+
+      // Fire the hook directly (not via the flushing helper) — it must resolve while the write hangs.
+      await invokeAll(agent, new AfterInvocationEvent({ agent, invocationState: {} }))
+      expect(store.addMessages).toHaveBeenCalledTimes(1)
+
+      // The write is still pending; releasing it lets flush() resolve.
+      release()
+      await mm.flush()
+    })
+
+    it('flush awaits the in-flight extraction write', async () => {
+      let resolved = false
+      let release!: () => void
+      const blocked = new Promise<void>((resolve) => {
+        release = (): void => {
+          resolved = true
+          resolve()
+        }
+      })
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      store.addMessages.mockReturnValue(blocked)
+
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+      await addMessages(agent, userMsg('hello'))
+      await invokeAll(agent, new AfterInvocationEvent({ agent, invocationState: {} }))
+
+      const flushed = mm.flush()
+      release()
+      await flushed
+      expect(resolved).toBe(true)
+    })
+
+    it('flush is a no-op when extraction is not configured', async () => {
+      const store: MemoryStore = { name: 's', writable: true, search: vi.fn(), add: vi.fn() }
+      const mm = new MemoryManager({ stores: [store] })
+      mm.initAgent(createMockAgent())
+      await expect(mm.flush()).resolves.toBeUndefined()
+    })
+  })
+})
