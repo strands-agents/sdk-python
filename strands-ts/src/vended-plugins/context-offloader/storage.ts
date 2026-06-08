@@ -47,36 +47,60 @@ function sanitizeId(rawId: string): string {
  * In-memory storage backend.
  *
  * Useful for testing and serverless environments where disk access is not available.
- * Supports turn-based eviction: entries not accessed (stored or retrieved) within
- * {@link evictAfterTurns} agent loop cycles are automatically removed when the
- * plugin calls {@link _evict}. Eviction is enabled by default (10 cycles).
- * Pass `null` to disable.
+ * Supports two eviction strategies that compose together:
+ *
+ * - **Turn-based TTL**: entries not accessed within `evictAfterTurns` agent loop
+ *   cycles are removed. The plugin triggers this on each model invocation cycle.
+ * - **Capacity cap**: when `maxEntries` is set, the least-recently-accessed entry
+ *   is evicted on `store()` when the cap is reached.
  *
  * Note: evicted entries are permanently deleted from memory. The agent will receive
  * an error if it attempts to retrieve evicted content.
  *
  * @param evictAfterTurns - Cycles of inactivity before eviction. Defaults to 10. `null` disables.
+ * @param maxEntries - Maximum entries to keep. LRU eviction on store(). `null` disables (default).
  */
 export class InMemoryStorage implements Storage {
-  private _store = new Map<string, { content: Uint8Array; contentType: string; lastAccessedCycle: number }>()
+  private _store = new Map<string, { content: Uint8Array; contentType: string; lastAccessedCycle: number; accessSeq: number }>()
   private _counter = 0
   private _currentCycle = 0
+  private _accessSeq = 0
   private readonly _evictAfterTurns: number | null
+  private readonly _maxEntries: number | null
 
   static readonly DEFAULT_EVICT_AFTER_TURNS = 10
 
-  constructor(evictAfterTurns: number | null = InMemoryStorage.DEFAULT_EVICT_AFTER_TURNS) {
+  constructor(
+    evictAfterTurns: number | null = InMemoryStorage.DEFAULT_EVICT_AFTER_TURNS,
+    maxEntries: number | null = null
+  ) {
     if (evictAfterTurns !== null && evictAfterTurns < 1) {
       throw new Error('evictAfterTurns must be a positive integer')
     }
+    if (maxEntries !== null && maxEntries < 1) {
+      throw new Error('maxEntries must be a positive integer')
+    }
     this._evictAfterTurns = evictAfterTurns
+    this._maxEntries = maxEntries
   }
 
   /** {@inheritdoc} */
   async store(key: string, content: Uint8Array, contentType: string = 'text/plain'): Promise<string> {
+    if (this._maxEntries !== null && this._store.size >= this._maxEntries) {
+      let lruRef: string | undefined
+      let lruSeq = Infinity
+      for (const [ref, entry] of this._store) {
+        if (entry.accessSeq < lruSeq) {
+          lruSeq = entry.accessSeq
+          lruRef = ref
+        }
+      }
+      if (lruRef) this._store.delete(lruRef)
+    }
     this._counter++
+    this._accessSeq++
     const reference = `mem_${this._counter}_${key}`
-    this._store.set(reference, { content, contentType, lastAccessedCycle: this._currentCycle })
+    this._store.set(reference, { content, contentType, lastAccessedCycle: this._currentCycle, accessSeq: this._accessSeq })
     return reference
   }
 
@@ -86,7 +110,9 @@ export class InMemoryStorage implements Storage {
     if (!entry) {
       throw new Error(`Reference not found: ${reference}`)
     }
+    this._accessSeq++
     entry.lastAccessedCycle = this._currentCycle
+    entry.accessSeq = this._accessSeq
     return { content: entry.content, contentType: entry.contentType }
   }
 

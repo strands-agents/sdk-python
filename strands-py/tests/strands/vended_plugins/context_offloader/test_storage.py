@@ -101,6 +101,39 @@ class TestInMemoryStorageEviction:
         with pytest.raises(ValueError, match="evict_after_turns must be a positive integer"):
             InMemoryStorage(evict_after_turns=-1)
 
+    def test_max_entries_validation(self):
+        with pytest.raises(ValueError, match="max_entries must be a positive integer"):
+            InMemoryStorage(max_entries=0)
+        with pytest.raises(ValueError, match="max_entries must be a positive integer"):
+            InMemoryStorage(max_entries=-1)
+
+    def test_max_entries_evicts_lru_on_store(self):
+        storage = InMemoryStorage(evict_after_turns=None, max_entries=2)
+        ref1 = storage.store("key_1", b"first")
+        ref2 = storage.store("key_2", b"second")
+        ref3 = storage.store("key_3", b"third")
+        # ref1 was LRU, should be evicted
+        with pytest.raises(KeyError):
+            storage.retrieve(ref1)
+        assert storage.retrieve(ref2) == (b"second", "text/plain")
+        assert storage.retrieve(ref3) == (b"third", "text/plain")
+
+    def test_max_entries_retrieve_refreshes_lru(self):
+        storage = InMemoryStorage(evict_after_turns=None, max_entries=2)
+        ref1 = storage.store("key_1", b"first")
+        storage.store("key_2", b"second")
+        storage.retrieve(ref1)  # refresh ref1
+        ref3 = storage.store("key_3", b"third")
+        # ref2 was LRU (ref1 was refreshed), so ref2 evicted
+        assert storage.retrieve(ref1) == (b"first", "text/plain")
+        assert storage.retrieve(ref3) == (b"third", "text/plain")
+
+    def test_max_entries_disabled_by_default(self):
+        storage = InMemoryStorage(evict_after_turns=None)
+        for i in range(100):
+            storage.store(f"key_{i}", f"content_{i}".encode())
+        assert len(storage._store) == 100
+
     def test_eviction_enabled_by_default(self):
         storage = InMemoryStorage()
         assert storage._evict_after_turns == 10
