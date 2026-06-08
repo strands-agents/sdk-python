@@ -2043,25 +2043,47 @@ def _artifact_texts(mock_event_queue):
 
 
 @pytest.mark.asyncio
-async def test_single_agent_runs_but_does_not_isolate_contexts(mock_event_queue):
-    """The deprecated single-agent path serves one conversation and is NOT multi-tenant safe.
-
-    Documents the intended behavior: a single agent accumulates one shared history across all
-    A2A contexts. Callers needing isolation must use ``agent_factory``.
-    """
+async def test_single_agent_isolates_and_continues_per_context(mock_event_queue):
+    """Single-agent (snapshot) mode isolates history across contexts and continues within one."""
     agent = _make_stub_agent()
     executor = StrandsA2AExecutor(agent)
 
-    await executor.execute(_make_request_context("ctx-A", "a-1", "first"), mock_event_queue)
+    # ctx-A turn 1: empty history -> ECHO[1], carrying a secret marker.
+    await executor.execute(_make_request_context("ctx-A", "a-1", "SECRET-AAAA"), mock_event_queue)
+    assert any("ECHO[1]:" in t and "SECRET-AAAA" in t for t in _artifact_texts(mock_event_queue))
 
-    # A different context continues the SAME shared history (index advances; not isolated).
+    # ctx-A turn 2: sees its own prior turns -> ECHO[3] (continuity).
     mock_event_queue.enqueue_event.reset_mock()
-    await executor.execute(_make_request_context("ctx-B", "b-1", "second"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-A", "a-2", "again"), mock_event_queue)
     assert any("ECHO[3]:" in t for t in _artifact_texts(mock_event_queue))
+
+    # ctx-B: a different context starts fresh -> ECHO[1], never sees ctx-A's secret.
+    mock_event_queue.enqueue_event.reset_mock()
+    await executor.execute(_make_request_context("ctx-B", "b-1", "what did prev say"), mock_event_queue)
+    texts_b = _artifact_texts(mock_event_queue)
+    assert any("ECHO[1]:" in t for t in texts_b)
+    assert not any("SECRET-AAAA" in t for t in texts_b)
+
+    # The shared agent is reset to the clean template between requests.
+    assert agent.messages == []
+
+
+@pytest.mark.asyncio
+async def test_single_agent_evicts_least_recently_used_context(mock_event_queue):
+    """Single-agent mode evicts the LRU context's snapshot beyond max_contexts."""
+    agent = _make_stub_agent()
+    executor = StrandsA2AExecutor(agent, max_contexts=2)
+
+    await executor.execute(_make_request_context("ctx-A", "a-1", "hi"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-B", "b-1", "hi"), mock_event_queue)
+    await executor.execute(_make_request_context("ctx-A", "a-2", "again"), mock_event_queue)  # touch A
+    await executor.execute(_make_request_context("ctx-C", "c-1", "hi"), mock_event_queue)  # evicts B
+
+    assert set(executor._snapshots.keys()) == {"ctx-A", "ctx-C"}
 
 
 def test_max_contexts_must_be_positive(mock_strands_agent):
-    """max_contexts below 1 is rejected to keep the factory-mode eviction bound meaningful."""
+    """max_contexts below 1 is rejected to keep the eviction bound meaningful."""
     with pytest.raises(ValueError, match="max_contexts must be >= 1"):
         StrandsA2AExecutor(mock_strands_agent, max_contexts=0)
 
@@ -2092,14 +2114,14 @@ def test_requires_exactly_one_of_agent_or_factory(mock_strands_agent):
         StrandsA2AExecutor(mock_strands_agent, agent_factory=lambda cid: mock_strands_agent)
 
 
-def test_single_agent_with_session_manager_allowed():
-    """A single agent with a session_manager is a valid single-conversation setup (no guard)."""
+def test_single_agent_with_session_manager_rejected():
+    """A single agent with a session_manager would interleave sessions, so it is rejected."""
     from strands.session.session_manager import SessionManager
 
     agent = _make_stub_agent()
     agent._session_manager = MagicMock(spec=SessionManager)
-    # Should construct without raising; multi-tenant misuse is covered by deprecation docs.
-    StrandsA2AExecutor(agent)
+    with pytest.raises(ValueError, match="session_manager is not supported"):
+        StrandsA2AExecutor(agent)
 
 
 @pytest.mark.asyncio
