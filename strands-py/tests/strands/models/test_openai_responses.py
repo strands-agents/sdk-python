@@ -484,6 +484,45 @@ def test_format_chunk_unknown_type(model):
         model._format_chunk(event)
 
 
+def test_format_chunk_metadata_with_cache_tokens(model):
+    """Test _format_chunk for metadata with cache tokens present."""
+    mock_usage = unittest.mock.Mock()
+    mock_usage.input_tokens = 100
+    mock_usage.output_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_tokens_details = unittest.mock.Mock()
+    mock_tokens_details.cached_tokens = 25
+    mock_usage.input_tokens_details = mock_tokens_details
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    result = model._format_chunk(event)
+
+    assert result["metadata"]["usage"]["inputTokens"] == 100
+    assert result["metadata"]["usage"]["outputTokens"] == 50
+    assert result["metadata"]["usage"]["totalTokens"] == 150
+    assert result["metadata"]["usage"]["cacheReadInputTokens"] == 25
+
+
+def test_format_chunk_metadata_with_zero_cached_tokens(model):
+    """Test _format_chunk for metadata when cached_tokens is 0."""
+    mock_usage = unittest.mock.Mock()
+    mock_usage.input_tokens = 100
+    mock_usage.output_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_tokens_details = unittest.mock.Mock()
+    mock_tokens_details.cached_tokens = 0
+    mock_usage.input_tokens_details = mock_tokens_details
+
+    event = {"chunk_type": "metadata", "data": mock_usage}
+
+    result = model._format_chunk(event)
+
+    assert "cacheReadInputTokens" not in result["metadata"]["usage"]
+
+
 @pytest.mark.asyncio
 async def test_stream(openai_client, model_id, model, agenerator, alist):
     # Mock response events
