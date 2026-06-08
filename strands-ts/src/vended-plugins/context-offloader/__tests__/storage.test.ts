@@ -118,45 +118,6 @@ describe('InMemoryStorage eviction', () => {
   })
 })
 
-describe('InMemoryStorage capacity cap', () => {
-  it('throws on invalid maxEntries', () => {
-    expect(() => new InMemoryStorage(null, 0)).toThrow('maxEntries must be a positive integer')
-    expect(() => new InMemoryStorage(null, -1)).toThrow('maxEntries must be a positive integer')
-  })
-
-  it('evicts LRU entry when at capacity', async () => {
-    const storage = new InMemoryStorage(null, 2)
-    const ref1 = await storage.store('key1', new TextEncoder().encode('first'))
-    await storage.store('key2', new TextEncoder().encode('second'))
-    await storage.store('key3', new TextEncoder().encode('third'))
-    await expect(storage.retrieve(ref1)).rejects.toThrow('Reference not found')
-  })
-
-  it('retrieve refreshes LRU order', async () => {
-    const storage = new InMemoryStorage(null, 2)
-    const ref1 = await storage.store('key1', new TextEncoder().encode('first'))
-    await storage.store('key2', new TextEncoder().encode('second'))
-    await storage.retrieve(ref1) // refresh ref1
-    const ref3 = await storage.store('key3', new TextEncoder().encode('third'))
-    // ref2 was LRU, should be evicted
-    const result1 = await storage.retrieve(ref1)
-    expect(new TextDecoder().decode(result1.content)).toBe('first')
-    const result3 = await storage.retrieve(ref3)
-    expect(new TextDecoder().decode(result3.content)).toBe('third')
-  })
-
-  it('disabled by default', async () => {
-    const storage = new InMemoryStorage(null)
-    for (let i = 0; i < 100; i++) {
-      await storage.store(`key${i}`, new TextEncoder().encode(`content${i}`))
-    }
-    // All 100 should still be there
-    const ref = await storage.store('last', new TextEncoder().encode('last'))
-    const result = await storage.retrieve(ref)
-    expect(new TextDecoder().decode(result.content)).toBe('last')
-  })
-})
-
 describe('S3Storage', () => {
   let mockSend: ReturnType<typeof vi.fn>
   let mockS3Client: { send: ReturnType<typeof vi.fn> }

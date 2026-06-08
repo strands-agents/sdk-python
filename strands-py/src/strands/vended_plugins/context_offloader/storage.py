@@ -216,15 +216,15 @@ class InMemoryStorage:
     Useful for testing and serverless environments where disk access
     is not available or not desired. Thread-safe.
 
-    Supports two eviction strategies that compose together:
-
-    - **Turn-based TTL**: entries not accessed within ``evict_after_turns``
-      agent loop cycles are removed. The ``ContextOffloader`` plugin triggers
-      this on each model invocation cycle. Defaults to 10 cycles.
-    - **Capacity cap**: when ``max_entries`` is set, the least-recently-accessed
-      entry is evicted on ``store()`` when the cap is reached.
+    Supports turn-based eviction: entries not accessed (stored or retrieved)
+    within ``evict_after_turns`` agent loop cycles are automatically removed.
+    The ``ContextOffloader`` plugin triggers eviction on each model invocation
+    cycle. Eviction is enabled by default (10 cycles). Pass ``None`` to disable.
 
     Note:
+        Content does not survive process restarts. For multi-session
+        persistence, use ``FileStorage`` or ``S3Storage``.
+
         Evicted entries are permanently deleted from memory. The agent will
         receive an error if it attempts to retrieve evicted content. The
         original tool result is not preserved in the conversation history
@@ -232,49 +232,32 @@ class InMemoryStorage:
 
     Args:
         evict_after_turns: Number of cycles of inactivity before an entry is
-            evicted. Defaults to 10. ``None`` disables turn-based eviction.
-        max_entries: Maximum number of entries to keep. When exceeded, the
-            least-recently-accessed entry is evicted. ``None`` disables the
-            cap (default).
+            evicted. Defaults to 10. ``None`` disables eviction.
     """
 
     _DEFAULT_EVICT_AFTER_TURNS = 10
 
-    def __init__(
-        self,
-        evict_after_turns: int | None = _DEFAULT_EVICT_AFTER_TURNS,
-        max_entries: int | None = None,
-    ) -> None:
+    def __init__(self, evict_after_turns: int | None = _DEFAULT_EVICT_AFTER_TURNS) -> None:
         """Initialize in-memory storage.
 
         Args:
             evict_after_turns: Number of cycles of inactivity before an entry is
-                evicted. Defaults to 10. ``None`` disables turn-based eviction.
-            max_entries: Maximum number of entries to keep. ``None`` disables
-                the cap (default).
+                evicted. Defaults to 10. ``None`` disables eviction.
 
         Raises:
-            ValueError: If evict_after_turns is not a positive integer, or
-                max_entries is not a positive integer.
+            ValueError: If evict_after_turns is not a positive integer.
         """
         if evict_after_turns is not None and evict_after_turns < 1:
             raise ValueError("evict_after_turns must be a positive integer")
-        if max_entries is not None and max_entries < 1:
-            raise ValueError("max_entries must be a positive integer")
 
-        self._store: dict[str, tuple[bytes, str, int, int]] = {}
+        self._store: dict[str, tuple[bytes, str, int]] = {}
         self._counter: int = 0
         self._current_cycle: int = 0
-        self._access_seq: int = 0
         self._evict_after_turns: int | None = evict_after_turns
-        self._max_entries: int | None = max_entries
         self._lock = threading.Lock()
 
     def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content in memory and return a reference.
-
-        If ``max_entries`` is set and the store is at capacity, the
-        least-recently-accessed entry is evicted before storing.
 
         Args:
             key: A unique key for this content block.
@@ -285,13 +268,9 @@ class InMemoryStorage:
             A unique reference string.
         """
         with self._lock:
-            if self._max_entries is not None and len(self._store) >= self._max_entries:
-                lru_ref = min(self._store, key=lambda r: self._store[r][3])
-                del self._store[lru_ref]
             self._counter += 1
-            self._access_seq += 1
             reference = f"mem_{self._counter}_{key}"
-            self._store[reference] = (content, content_type, self._current_cycle, self._access_seq)
+            self._store[reference] = (content, content_type, self._current_cycle)
         return reference
 
     def retrieve(self, reference: str) -> tuple[bytes, str]:
@@ -312,9 +291,8 @@ class InMemoryStorage:
         with self._lock:
             if reference not in self._store:
                 raise KeyError(f"Reference not found: {reference}")
-            content, content_type, _, _ = self._store[reference]
-            self._access_seq += 1
-            self._store[reference] = (content, content_type, self._current_cycle, self._access_seq)
+            content, content_type, _ = self._store[reference]
+            self._store[reference] = (content, content_type, self._current_cycle)
             return content, content_type
 
     def _evict(self, cycle: int) -> None:
@@ -333,12 +311,12 @@ class InMemoryStorage:
                 return
             threshold = cycle - self._evict_after_turns
             stale_refs = [
-                ref for ref, (_, _, last_cycle, _) in self._store.items() if last_cycle < threshold
+                ref for ref, (_, _, last_cycle) in self._store.items() if last_cycle < threshold
             ]
             for ref in stale_refs:
                 del self._store[ref]
             if stale_refs:
-                logger.debug("evicted=%d, cycle=%d | stale entries removed", len(stale_refs), cycle)
+                logger.debug("evicted=<%d>, cycle=<%d> | stale entries removed", len(stale_refs), cycle)
 
     def clear(self) -> None:
         """Remove all stored content.
