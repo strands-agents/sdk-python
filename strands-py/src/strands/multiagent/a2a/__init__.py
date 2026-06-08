@@ -3,7 +3,7 @@
 This module provides classes and utilities for enabling Strands Agents to communicate
 with other agents using the Agent-to-Agent (A2A) protocol.
 
-Docs: https://google-a2a.github.io/A2A/latest/
+Docs: https://a2a-protocol.org/latest/
 
 Classes:
     A2AServer: A server that adapts a Strands Agent to be A2A-compatible.
