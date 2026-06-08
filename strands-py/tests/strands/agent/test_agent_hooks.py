@@ -1239,3 +1239,43 @@ def test_allows_retry_after_cancel_on_model_call():
     assert result.stop_reason == "end_turn"
     assert before_count == 2
     assert result.message["content"][0]["text"] == "Hello"
+
+
+def test_resume_after_cancelled_invocation():
+    """Python-only divergence from strands-ts: the BeforeInvocation cancel path honors
+    ``AfterInvocationEvent.resume`` so a hook can deny the first invocation and then
+    resume with new input, mirroring the resume contract of the normal (non-cancelled)
+    agent loop. The TS oracle simply returns after a cancelled invocation and has no
+    resume concept on this path.
+
+    First invocation is cancelled with a custom message; AfterInvocationEvent sets
+    ``resume``; the second (resumed) invocation runs the real model response.
+    """
+    mock_provider = MockedModelProvider([{"role": "assistant", "content": [{"text": "Hello"}]}])
+
+    cancelled_once = False
+
+    def before(event: BeforeInvocationEvent):
+        if not cancelled_once:
+            event.cancel = "first denied"
+
+    def after(event: AfterInvocationEvent):
+        nonlocal cancelled_once
+        if not cancelled_once:
+            cancelled_once = True
+            event.resume = "second try"
+
+    agent = Agent(model=mock_provider)
+    agent.hooks.add_callback(BeforeInvocationEvent, before)
+    agent.hooks.add_callback(AfterInvocationEvent, after)
+
+    result = agent("Test")
+
+    # The resumed invocation produces the real model response and ends the turn.
+    assert result.stop_reason == "end_turn"
+    assert result.message["content"][0]["text"] == "Hello"
+    # The cancel message, the resumed user input, and the final model response are all present.
+    assert [m["role"] for m in agent.messages] == ["assistant", "user", "assistant"]
+    assert agent.messages[0]["content"][0]["text"] == "first denied"
+    assert agent.messages[1]["content"][0]["text"] == "second try"
+    assert agent.messages[2]["content"][0]["text"] == "Hello"
