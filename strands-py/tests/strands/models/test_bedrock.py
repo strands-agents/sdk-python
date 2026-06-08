@@ -1919,6 +1919,14 @@ def test_format_request_message_content_preserves_nonempty_tool_result_content(m
     assert tool_result["content"] == [{"text": "some result"}]
 
 
+def test_format_request_message_content_empty_block_raises_type_error(model):
+    """Test that empty content blocks raise the intended TypeError instead of StopIteration."""
+    messages = [{"role": "user", "content": [{}]}]
+
+    with pytest.raises(TypeError, match=r"content_type=<None> \| unsupported type"):
+        model._format_bedrock_messages(messages)
+
+
 def test_format_request_removes_status_field_when_configured(model, model_id):
     model.update_config(include_tool_result_status=False)
 
