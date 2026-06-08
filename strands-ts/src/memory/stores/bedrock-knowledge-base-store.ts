@@ -12,7 +12,7 @@ import {
   type MetadataAttributeValue,
   IngestKnowledgeBaseDocumentsCommand,
 } from '@aws-sdk/client-bedrock-agent'
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import type { S3Client } from '@aws-sdk/client-s3'
 import { v7 as uuidv7 } from 'uuid'
 
 import type { MemoryEntry, MemoryStore, MemoryStoreConfig, SearchOptions } from '../types.js'
@@ -59,6 +59,7 @@ function toAttributeValue(value: JSONValue): MetadataAttributeValue | undefined 
  * run against this data source, upload to the bucket it reads from and a `prefix` within its
  * inclusion prefixes so directly-ingested memories survive them; otherwise the location is free.
  */
+/** S3 ingestion settings for {@link BedrockKnowledgeBaseStore}. */
 export interface BedrockKnowledgeBaseS3Config {
   /** Bucket the content object and its optional `.metadata.json` sidecar are uploaded to before ingestion. */
   bucket: string
@@ -71,6 +72,7 @@ export interface BedrockKnowledgeBaseS3Config {
   prefix: string
 }
 
+/** Configuration for {@link BedrockKnowledgeBaseStore}. */
 export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
   knowledgeBaseId: string
   /**
@@ -100,6 +102,7 @@ export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
   /** S3 ingestion settings. Required when `dataSourceType` is `'S3'`; ignored otherwise. */
   s3?: BedrockKnowledgeBaseS3Config
   scope?: string
+  /** Metadata attribute key used for scope-based filtering. Defaults to `'namespace'`. */
   scopeMetadataKey?: string
   filter?: RetrievalFilter
   runtimeClientConfig?: BedrockAgentRuntimeClientConfig
@@ -108,11 +111,33 @@ export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
   agentClient?: BedrockAgentClient
 }
 
+/** Result returned by {@link BedrockKnowledgeBaseStore.add}. */
 export interface BedrockKnowledgeBaseAddResult {
   /** `CUSTOM`: the generated document id (UUID). `S3`: the `s3://` URI of the uploaded content object. */
   documentId: string
 }
 
+/**
+ * A {@link MemoryStore} backed by Amazon Bedrock Knowledge Bases. Supports semantic search via
+ * Retrieve and document ingestion via IngestKnowledgeBaseDocuments for CUSTOM and S3 data sources.
+ *
+ * @example
+ * ```typescript
+ * import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/memory/stores/bedrock-knowledge-base'
+ *
+ * const store = new BedrockKnowledgeBaseStore({
+ *   name: 'personal',
+ *   knowledgeBaseId: 'KB123',
+ *   writable: true,
+ *   dataSourceType: 'CUSTOM',
+ *   dataSourceId: 'DS456',
+ *   scope: 'user-abc',
+ * })
+ *
+ * const results = await store.search('what are my preferences?')
+ * const { documentId } = await store.add('User prefers dark mode')
+ * ```
+ */
 export class BedrockKnowledgeBaseStore implements MemoryStore {
   readonly name: string
   readonly description?: string
@@ -142,6 +167,18 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
           "Only 'CUSTOM' and 'S3' data sources support document ingestion; 'OTHER' backends are read-only."
       )
     }
+    if (this.writable && !config.dataSourceId) {
+      throw new Error(
+        'BedrockKnowledgeBaseStore: writable is true but dataSourceId is missing. ' +
+          'Provide dataSourceId to enable add().'
+      )
+    }
+    if (this.writable && config.dataSourceType === 'S3' && !config.s3) {
+      throw new Error(
+        "BedrockKnowledgeBaseStore: writable S3 store requires an 's3' config. " +
+          'Provide bucket, client, and prefix to enable add().'
+      )
+    }
 
     this._runtimeClient = config.runtimeClient ?? new BedrockAgentRuntimeClient(config.runtimeClientConfig ?? {})
     this._agentClient = config.agentClient
@@ -165,6 +202,13 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
     }
   }
 
+  /**
+   * Searches the knowledge base for entries matching the query.
+   *
+   * @param query - The search query text
+   * @param options - Optional search configuration
+   * @returns Matching memory entries ordered by relevance
+   */
   async search(query: string, options?: SearchOptions): Promise<MemoryEntry[]> {
     const limit = options?.maxSearchResults ?? this.maxSearchResults ?? 10
 
@@ -198,10 +242,10 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
         }
       }
       if (result.location) {
-        metadata._location = result.location as unknown as JSONValue
+        metadata._sourceLocation = result.location as unknown as JSONValue
       }
       if (result.score != null) {
-        metadata.score = result.score
+        metadata._relevanceScore = result.score
       }
 
       return {
@@ -218,6 +262,10 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
    * accept direct ingestion (`IngestKnowledgeBaseDocuments`). `OTHER` backends sync from an external
    * store or are query-only, so the store is read-only and `add` is unavailable. Requires
    * `dataSourceId` (and, for `S3`, an `s3` config); see {@link BedrockKnowledgeBaseStoreConfig}.
+   *
+   * @param content - The text content to ingest
+   * @param metadata - Optional metadata attributes to attach to the document
+   * @returns The document identifier (UUID for CUSTOM, s3:// URI for S3)
    */
   async add(content: string, metadata?: Record<string, JSONValue>): Promise<BedrockKnowledgeBaseAddResult> {
     const dataSourceId = this._requireDataSourceId()
@@ -312,6 +360,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
     contentType: string
   ): Promise<string> {
     try {
+      const { PutObjectCommand } = await import('@aws-sdk/client-s3')
       await s3.client.send(new PutObjectCommand({ Bucket: s3.bucket, Key: key, Body: body, ContentType: contentType }))
     } catch (error) {
       logger.error(

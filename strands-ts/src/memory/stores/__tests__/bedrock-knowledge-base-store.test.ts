@@ -94,6 +94,7 @@ describe('BedrockKnowledgeBaseStore', () => {
         knowledgeBaseId: 'kb-1',
         writable: true,
         dataSourceType: 'CUSTOM',
+        dataSourceId: 'ds-1',
       })
       expect(store.writable).toBe(true)
     })
@@ -104,6 +105,8 @@ describe('BedrockKnowledgeBaseStore', () => {
         knowledgeBaseId: 'kb-1',
         writable: true,
         dataSourceType: 'S3',
+        dataSourceId: 'ds-1',
+        s3: { bucket: 'b', client: {} as any, prefix: 'p' },
       })
       expect(store.writable).toBe(true)
     })
@@ -250,8 +253,8 @@ describe('BedrockKnowledgeBaseStore', () => {
           content: 'refunds take 5 days',
           metadata: {
             source: 'faq',
-            _location: { type: 'S3', s3Location: { uri: 's3://b/k' } },
-            score: 0.92,
+            _sourceLocation: { type: 'S3', s3Location: { uri: 's3://b/k' } },
+            _relevanceScore: 0.92,
           },
         },
       ])
@@ -321,14 +324,16 @@ describe('BedrockKnowledgeBaseStore', () => {
       return { store, agent }
     }
 
-    it('throws when dataSourceId is missing', async () => {
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        writable: true,
-        dataSourceType: 'CUSTOM',
-      })
-      await expect(store.add('fact')).rejects.toThrow('dataSourceId is required')
+    it('throws when dataSourceId is missing', () => {
+      expect(
+        () =>
+          new BedrockKnowledgeBaseStore({
+            name: 'kb',
+            knowledgeBaseId: 'kb-1',
+            writable: true,
+            dataSourceType: 'CUSTOM',
+          })
+      ).toThrow('dataSourceId is missing')
     })
 
     it('returns the generated custom document id', async () => {
@@ -452,15 +457,17 @@ describe('BedrockKnowledgeBaseStore', () => {
       return { store, agent, s3 }
     }
 
-    it('throws when the s3 config is missing', async () => {
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        writable: true,
-        dataSourceType: 'S3',
-        dataSourceId: 'ds-1',
-      })
-      await expect(store.add('fact')).rejects.toThrow('s3 config is required')
+    it('throws when the s3 config is missing', () => {
+      expect(
+        () =>
+          new BedrockKnowledgeBaseStore({
+            name: 'kb',
+            knowledgeBaseId: 'kb-1',
+            writable: true,
+            dataSourceType: 'S3',
+            dataSourceId: 'ds-1',
+          })
+      ).toThrow("requires an 's3' config")
     })
 
     it("returns the uploaded content object's s3:// URI as the document id", async () => {

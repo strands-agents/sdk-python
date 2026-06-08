@@ -1,4 +1,4 @@
-import { describe, it, expect, inject } from 'vitest'
+import { describe, it, expect, inject, beforeAll } from 'vitest'
 import { S3Client } from '@aws-sdk/client-s3'
 import { BedrockAgentClient } from '@aws-sdk/client-bedrock-agent'
 import { BedrockAgentRuntimeClient } from '@aws-sdk/client-bedrock-agent-runtime'
@@ -12,7 +12,7 @@ import {
   cleanupCustomDocument,
   cleanupS3Document,
   keyFromUri,
-} from './_kb-test-helpers.js'
+} from './_bedrock-kb-test-helpers.js'
 
 // Manual overrides — swap these to point at your own resources for local development.
 const OVERRIDES: Partial<{
@@ -37,17 +37,20 @@ function config() {
   }
 }
 
-async function clients() {
-  const credentials = await fromNodeProviderChain()()
-  return {
-    agentClient: new BedrockAgentClient({ credentials }),
-    runtimeClient: new BedrockAgentRuntimeClient({ credentials }),
-    s3Client: new S3Client({ credentials }),
-  }
-}
-
 describe('BedrockKnowledgeBaseStore Integration Tests', () => {
   const shouldSkip = () => inject('provider-bedrock-kb').shouldSkip
+
+  let agentClient: BedrockAgentClient
+  let runtimeClient: BedrockAgentRuntimeClient
+  let s3Client: S3Client
+
+  beforeAll(async () => {
+    if (shouldSkip()) return
+    const credentials = await fromNodeProviderChain()()
+    agentClient = new BedrockAgentClient({ credentials })
+    runtimeClient = new BedrockAgentRuntimeClient({ credentials })
+    s3Client = new S3Client({ credentials })
+  })
 
   // ---------------------------------------------------------------------------
   // CUSTOM data source
@@ -55,7 +58,6 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
 
   describe.skipIf(shouldSkip())('CUSTOM data source', () => {
     it('adds and searches a document', async () => {
-      const { agentClient, runtimeClient } = await clients()
       const { knowledgeBaseId, customDataSourceId } = config()
 
       const store = new BedrockKnowledgeBaseStore({
@@ -87,7 +89,6 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
     }, 60_000)
 
     it('adds with scope and retrieves filtered', async () => {
-      const { agentClient, runtimeClient } = await clients()
       const { knowledgeBaseId, customDataSourceId } = config()
 
       const scope = uniqueMarker('scope')
@@ -116,7 +117,6 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
     }, 60_000)
 
     it('scope isolates documents from other scopes', async () => {
-      const { agentClient, runtimeClient } = await clients()
       const { knowledgeBaseId, customDataSourceId } = config()
 
       const scopeA = uniqueMarker('isolate-a')
@@ -160,7 +160,6 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
     }, 60_000)
 
     it('adds with metadata attributes and returns them in search', async () => {
-      const { agentClient, runtimeClient } = await clients()
       const { knowledgeBaseId, customDataSourceId } = config()
 
       const store = new BedrockKnowledgeBaseStore({
@@ -187,8 +186,8 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       expect(match).toBeDefined()
       expect(match!.metadata?.priority).toBe('high')
       expect(match!.metadata?.version).toBe(3)
-      expect(typeof match!.metadata?.score).toBe('number')
-      expect(match!.metadata?._location).toBeDefined()
+      expect(typeof match!.metadata?._relevanceScore).toBe('number')
+      expect(match!.metadata?._sourceLocation).toBeDefined()
     }, 60_000)
   })
 
@@ -198,7 +197,6 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
 
   describe.skipIf(shouldSkip())('S3 data source', () => {
     it('adds and searches a document via S3', async () => {
-      const { agentClient, runtimeClient, s3Client } = await clients()
       const { knowledgeBaseId, s3DataSourceId, s3Bucket } = config()
 
       const store = new BedrockKnowledgeBaseStore({
@@ -233,7 +231,6 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
     }, 60_000)
 
     it('adds with scope and writes a sidecar', async () => {
-      const { agentClient, runtimeClient, s3Client } = await clients()
       const { knowledgeBaseId, s3DataSourceId, s3Bucket } = config()
 
       const scope = uniqueMarker('s3scope')
@@ -264,7 +261,6 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
     }, 60_000)
 
     it('scope isolates S3 documents from other scopes', async () => {
-      const { agentClient, runtimeClient, s3Client } = await clients()
       const { knowledgeBaseId, s3DataSourceId, s3Bucket } = config()
 
       const scopeA = uniqueMarker('s3-iso-a')
@@ -311,7 +307,6 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
     }, 60_000)
 
     it('adds with metadata in the sidecar', async () => {
-      const { agentClient, runtimeClient, s3Client } = await clients()
       const { knowledgeBaseId, s3DataSourceId, s3Bucket } = config()
 
       const store = new BedrockKnowledgeBaseStore({
@@ -346,7 +341,6 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
 
   describe.skipIf(shouldSkip())('read-only and error handling', () => {
     it('throws when add is called on a read-only store', async () => {
-      const { runtimeClient } = await clients()
       const { knowledgeBaseId } = config()
 
       const store = new BedrockKnowledgeBaseStore({
@@ -359,7 +353,6 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
     }, 15_000)
 
     it('search works on a read-only store', async () => {
-      const { runtimeClient } = await clients()
       const { knowledgeBaseId } = config()
 
       const store = new BedrockKnowledgeBaseStore({
@@ -384,37 +377,33 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       ).toThrow("Only 'CUSTOM' and 'S3' data sources support document ingestion")
     })
 
-    it('throws when add is called without dataSourceId', async () => {
-      const { agentClient, runtimeClient } = await clients()
+    it('throws when writable is set without dataSourceId', () => {
       const { knowledgeBaseId } = config()
 
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'integ-no-ds',
-        knowledgeBaseId,
-        writable: true,
-        dataSourceType: 'CUSTOM',
-        runtimeClient,
-        agentClient,
-      })
+      expect(
+        () =>
+          new BedrockKnowledgeBaseStore({
+            name: 'integ-no-ds',
+            knowledgeBaseId,
+            writable: true,
+            dataSourceType: 'CUSTOM',
+          })
+      ).toThrow('dataSourceId is missing')
+    })
 
-      await expect(store.add('should fail')).rejects.toThrow('dataSourceId is required')
-    }, 15_000)
-
-    it('throws when S3 store is missing s3 config', async () => {
-      const { agentClient, runtimeClient } = await clients()
+    it('throws when writable S3 store is missing s3 config', () => {
       const { knowledgeBaseId, s3DataSourceId } = config()
 
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'integ-no-s3',
-        knowledgeBaseId,
-        writable: true,
-        dataSourceType: 'S3',
-        dataSourceId: s3DataSourceId,
-        runtimeClient,
-        agentClient,
-      })
-
-      await expect(store.add('should fail')).rejects.toThrow('s3 config is required')
-    }, 15_000)
+      expect(
+        () =>
+          new BedrockKnowledgeBaseStore({
+            name: 'integ-no-s3',
+            knowledgeBaseId,
+            writable: true,
+            dataSourceType: 'S3',
+            dataSourceId: s3DataSourceId,
+          })
+      ).toThrow("requires an 's3' config")
+    })
   })
 })
