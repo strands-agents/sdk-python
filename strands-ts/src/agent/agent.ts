@@ -130,13 +130,13 @@ export type AgentConfig = {
    * ```typescript
    * // Using a string model ID (creates BedrockModel)
    * const agent = new Agent({
-   *   model: 'anthropic.claude-3-5-sonnet-20240620-v1:0'
+   *   model: 'global.anthropic.claude-sonnet-4-6'
    * })
    *
    * // Using an explicit BedrockModel instance with configuration
    * const agent = new Agent({
    *   model: new BedrockModel({
-   *     modelId: 'anthropic.claude-3-5-sonnet-20240620-v1:0',
+   *     modelId: 'global.anthropic.claude-sonnet-4-6',
    *     temperature: 0.7,
    *     maxTokens: 2048
    *   })
