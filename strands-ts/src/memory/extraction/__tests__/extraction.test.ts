@@ -166,6 +166,62 @@ describe('MemoryManager extraction', () => {
 
       expect(extractor.extract).toHaveBeenCalledWith(expect.any(Array), { defaultModel: fakeModel })
     })
+
+    it('writes entries concurrently rather than serially', async () => {
+      // Both add() calls should be in flight before either resolves -> the second is invoked while
+      // the first is still pending (would be impossible with a serial await loop).
+      let firstInvokedDuringSecond = false
+      let secondStarted = false
+      const extractor: Extractor = {
+        extract: vi.fn().mockResolvedValue([{ content: 'a' }, { content: 'b' }]),
+      }
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()], extractor }, 'add')
+      let firstResolve!: () => void
+      store.add
+        .mockImplementationOnce(
+          () =>
+            new Promise<void>((resolve) => {
+              firstResolve = (): void => {
+                firstInvokedDuringSecond = secondStarted
+                resolve()
+              }
+            })
+        )
+        .mockImplementationOnce(() => {
+          secondStarted = true
+          firstResolve()
+          return Promise.resolve()
+        })
+
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+      await addMessages(agent, userMsg('x'))
+      await fireInvocation(agent, mm)
+
+      expect(store.add).toHaveBeenCalledTimes(2)
+      expect(firstInvokedDuringSecond).toBe(true)
+    })
+
+    it('rolls back and retries the whole batch if any entry write fails', async () => {
+      const extractor: Extractor = {
+        extract: vi.fn().mockResolvedValue([{ content: 'a' }, { content: 'b' }]),
+      }
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()], extractor }, 'add')
+      // First batch: second entry fails -> AggregateError -> mark rolled back.
+      store.add.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('write failed'))
+
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+      await addMessages(agent, userMsg('x'))
+      await fireInvocation(agent, mm) // fails, rolled back
+      await fireInvocation(agent, mm) // retries the same batch
+
+      // 2 writes first attempt + 2 on retry.
+      expect(store.add).toHaveBeenCalledTimes(4)
+      expect(extractor.extract).toHaveBeenCalledTimes(2)
+    })
   })
 
   describe('message filter', () => {
@@ -261,12 +317,14 @@ describe('MemoryManager extraction', () => {
       const agent = createMockAgent()
       mm.initAgent(agent)
 
+      // Fire the raw hook (not the flushing helper) so we observe interval gating, not flush's
+      // force-completion.
       await addMessages(agent, userMsg('a'))
-      await fireInvocation(agent, mm) // count 1, no fire
+      await invokeAll(agent, new AfterInvocationEvent({ agent, invocationState: {} })) // count 1, no fire
       expect(store.addMessages).not.toHaveBeenCalled()
 
       await addMessages(agent, userMsg('b'))
-      await fireInvocation(agent, mm) // count 2, fire
+      await fireInvocation(agent, mm) // count 2, fire (+ flush drains it)
       expect(store.addMessages).toHaveBeenCalledTimes(1)
       expect(store.addMessages.mock.calls[0]![0] as MessageData[]).toHaveLength(2)
     })
@@ -368,6 +426,40 @@ describe('MemoryManager extraction', () => {
       const mm = new MemoryManager({ stores: [store] })
       mm.initAgent(createMockAgent())
       await expect(mm.flush()).resolves.toBeUndefined()
+    })
+
+    it('flush force-extracts a buffered tail whose trigger never fired', async () => {
+      // IntervalTrigger(5) but the session ends after 2 turns -> the trigger never fires. flush()
+      // must still extract the buffered messages rather than lose them on graceful shutdown.
+      const store = createExtractionStore('s', { trigger: [new IntervalTrigger({ turns: 5 })] }, 'addMessages')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('a'))
+      await invokeAll(agent, new AfterInvocationEvent({ agent, invocationState: {} })) // count 1, no fire
+      await addMessages(agent, userMsg('b'))
+      await invokeAll(agent, new AfterInvocationEvent({ agent, invocationState: {} })) // count 2, no fire
+      expect(store.addMessages).not.toHaveBeenCalled()
+
+      await mm.flush()
+
+      expect(store.addMessages).toHaveBeenCalledTimes(1)
+      expect(store.addMessages.mock.calls[0]![0] as MessageData[]).toHaveLength(2)
+    })
+
+    it('flush does not re-extract messages already processed by a fired trigger', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('a'))
+      await fireInvocation(agent, mm) // invocation trigger already extracted + flushed
+      expect(store.addMessages).toHaveBeenCalledTimes(1)
+
+      await mm.flush() // nothing fresh -> no-op
+      expect(store.addMessages).toHaveBeenCalledTimes(1)
     })
   })
 })

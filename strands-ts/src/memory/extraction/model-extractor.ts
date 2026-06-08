@@ -2,7 +2,7 @@ import { Message, TextBlock, type MessageData } from '../../types/messages.js'
 import type { Model } from '../../models/model.js'
 import type { JSONValue } from '../../types/json.js'
 import { logger } from '../../logging/logger.js'
-import type { ExtractedEntry, Extractor, ExtractorContext } from './types.js'
+import type { ExtractionResult, Extractor, ExtractorContext } from './types.js'
 
 /** Default instruction guiding the model to emit discrete, durable facts as a JSON array. */
 const DEFAULT_SYSTEM_PROMPT = `You extract durable facts worth remembering across future conversations from a transcript.
@@ -46,7 +46,7 @@ export class ModelExtractor implements Extractor {
     this._systemPrompt = options.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
   }
 
-  async extract(messages: MessageData[], context?: ExtractorContext): Promise<ExtractedEntry[]> {
+  async extract(messages: MessageData[], context?: ExtractorContext): Promise<ExtractionResult[]> {
     const model = this._model ?? context?.defaultModel
     if (!model) {
       throw new Error('ModelExtractor: no model configured and no default model available')
@@ -100,7 +100,7 @@ function _renderMessage(message: MessageData): string {
  * code block by extracting the first top-level bracketed array. Malformed output yields no entries
  * (logged) rather than throwing, so a single bad extraction never breaks the agent loop.
  */
-function _parseEntries(text: string, model: Model): ExtractedEntry[] {
+function _parseEntries(text: string, model: Model): ExtractionResult[] {
   const json = _extractJsonArray(text)
   if (json === undefined) {
     logger.warn(`model=<${model.constructor.name}> | ModelExtractor: no JSON array in model output, skipping`)
@@ -119,7 +119,7 @@ function _parseEntries(text: string, model: Model): ExtractedEntry[] {
     return []
   }
 
-  const entries: ExtractedEntry[] = []
+  const entries: ExtractionResult[] = []
   for (const item of parsed) {
     if (item && typeof item === 'object' && typeof (item as { content?: unknown }).content === 'string') {
       const record = item as { content: string; metadata?: Record<string, JSONValue> }

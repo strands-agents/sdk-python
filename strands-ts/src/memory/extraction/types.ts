@@ -8,7 +8,7 @@ import type { LocalAgent } from '../../types/agent.js'
 type DistributedKeyof<Union> = Union extends unknown ? keyof Union : never
 
 /**
- * Content block kinds that {@link MessageFilter} can exclude before messages reach an
+ * Content block kinds that {@link MemoryMessageFilter} can exclude before messages reach an
  * {@link Extractor} or the no-extractor passthrough.
  *
  * Derived from the SDK's {@link ContentBlockData} union: every member's discriminator key is its
@@ -24,20 +24,20 @@ export type MemoryContentBlockType = DistributedKeyof<ContentBlockData>
  * entirely. Defaults to excluding tool traffic (`toolUse` / `toolResult`), which is rarely useful as
  * long-term memory and adds noise.
  */
-export interface MessageFilter {
+export interface MemoryMessageFilter {
   /** Content block kinds to strip before extraction. */
   exclude: MemoryContentBlockType[]
 }
 
 /** Default filter: drop tool-call traffic, keep everything else (text, reasoning, media). */
-export const DEFAULT_MESSAGE_FILTER: MessageFilter = {
+export const DEFAULT_MEMORY_MESSAGE_FILTER: MemoryMessageFilter = {
   exclude: ['toolUse', 'toolResult'],
 }
 
 /**
  * A discrete entry produced by an {@link Extractor}, ready to be written to a store via its `add`.
  */
-export interface ExtractedEntry {
+export interface ExtractionResult {
   /** The textual content of the entry. */
   content: string
   /** Optional metadata to associate with the entry. */
@@ -72,7 +72,7 @@ export interface Extractor {
    * @param context - Optional context (e.g. a fallback model)
    * @returns The entries to write to the store
    */
-  extract(messages: MessageData[], context?: ExtractorContext): Promise<ExtractedEntry[]>
+  extract(messages: MessageData[], context?: ExtractorContext): Promise<ExtractionResult[]>
 }
 
 /**
@@ -141,8 +141,8 @@ export interface ExtractionConfig {
    */
   extractor?: Extractor
   /**
-   * Content blocks to strip before extraction. Defaults to {@link DEFAULT_MESSAGE_FILTER}
+   * Content blocks to strip before extraction. Defaults to {@link DEFAULT_MEMORY_MESSAGE_FILTER}
    * (excludes `toolUse` / `toolResult`).
    */
-  filter?: MessageFilter
+  filter?: MemoryMessageFilter
 }

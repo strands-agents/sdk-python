@@ -106,10 +106,13 @@ export interface MemoryStore extends MemoryStoreConfig {
    * Satisfies `writable: true` the same way {@link add} does. The resolved value is store-specific
    * and not consumed by the manager.
    *
+   * Any per-write context (e.g. tenant/session/actor identifiers) is the store's own concern: carry
+   * it on the store instance's config and stamp it here, mirroring how `add` implementations attach
+   * their own metadata. The manager does not supply batch-level metadata.
+   *
    * @param messages - The filtered messages to ingest, in order
-   * @param metadata - Optional metadata to associate with the batch
    */
-  addMessages?(messages: MessageData[], metadata?: Record<string, JSONValue>): Promise<unknown>
+  addMessages?(messages: MessageData[]): Promise<unknown>
   /**
    * Returns store-specific tools to register with the agent, through a {@link MemoryManager}. Registers
    * tools alongside `search_memory` / `add_memory` tools if enabled on the {@link MemoryManager}.

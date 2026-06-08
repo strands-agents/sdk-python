@@ -3,7 +3,7 @@ import type { MessageData, ContentBlockData } from '../../types/messages.js'
 import type { Model } from '../../models/model.js'
 import { logger } from '../../logging/logger.js'
 import { normalizeError } from '../../errors.js'
-import { DEFAULT_MESSAGE_FILTER, type MessageFilter, type MemoryContentBlockType } from './types.js'
+import { DEFAULT_MEMORY_MESSAGE_FILTER, type MemoryMessageFilter, type MemoryContentBlockType } from './types.js'
 
 /** A message captured into the buffer, tagged with a monotonic sequence number. */
 interface BufferedMessage {
@@ -22,7 +22,7 @@ function _blockKind(block: ContentBlockData): MemoryContentBlockType | string {
  * Applies a {@link MessageFilter} to a batch: strips excluded content blocks and drops messages left
  * with no content. Returns new objects; inputs are not mutated.
  */
-function _filterMessages(messages: MessageData[], filter: MessageFilter): MessageData[] {
+function _filterMessages(messages: MessageData[], filter: MemoryMessageFilter): MessageData[] {
   const exclude = new Set<string>(filter.exclude)
   const result: MessageData[] = []
   for (const message of messages) {
@@ -98,11 +98,18 @@ export class ExtractionCoordinator {
   }
 
   /**
-   * Awaits all in-flight extraction across every store. For graceful shutdown and deterministic
-   * tests — the background path never awaits this. Loops until the set of chain promises stops
-   * changing, so runs enqueued while flushing (e.g. by a still-pending fire) are also drained.
+   * Force-completes extraction for every store, then awaits it. For graceful shutdown and
+   * deterministic tests — the background path never awaits this.
+   *
+   * Unlike a trigger fire, this **enqueues a run for every store first**, so a store whose trigger
+   * hadn't fired yet (e.g. an `IntervalTrigger` mid-cycle when the session ends) still extracts its
+   * buffered tail rather than losing it. Runs that find nothing fresh no-op. Then it loops until the
+   * set of chain promises stops changing, so runs enqueued while flushing are also drained.
    */
   async flush(): Promise<void> {
+    for (const store of this._stores) {
+      void this.process(store)
+    }
     for (;;) {
       const snapshot = [...this._chains.values()]
       await Promise.all(snapshot)
@@ -127,7 +134,7 @@ export class ExtractionCoordinator {
     this._marks.set(store, highestSeq)
 
     const extraction = store.extraction!
-    const filter = extraction.filter ?? DEFAULT_MESSAGE_FILTER
+    const filter = extraction.filter ?? DEFAULT_MEMORY_MESSAGE_FILTER
     const filtered = _filterMessages(
       fresh.map((buffered) => buffered.message),
       filter
@@ -148,16 +155,26 @@ export class ExtractionCoordinator {
 
   /**
    * Routes filtered messages to the store by extraction shape (validated at construction):
-   * 1. extractor configured → distill to entries, write each via `add`;
+   * 1. extractor configured → distill to entries, write them via `add` concurrently;
    * 2. no extractor → hand the raw batch to `addMessages` in one call (roles preserved).
+   *
+   * Entry writes fan out in parallel (parity with the `add_memory` tool / `MemoryManager.add` paths)
+   * and an `AggregateError` is thrown if any fails, so the caller rolls the high-water mark back and
+   * the whole batch retries. (A retried batch can re-write entries that already succeeded, since
+   * `add` isn't assumed idempotent — the same at-least-once tradeoff as the tool path.)
    */
   private async _write(store: MemoryStore, messages: MessageData[]): Promise<void> {
     const extractor = store.extraction!.extractor
 
     if (extractor) {
       const entries = await extractor.extract(messages, { defaultModel: this._defaultModel })
-      for (const entry of entries) {
-        await store.add!(entry.content, entry.metadata)
+      const settled = await Promise.allSettled(entries.map((entry) => store.add!(entry.content, entry.metadata)))
+      const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      if (failures.length > 0) {
+        throw new AggregateError(
+          failures.map((f) => f.reason),
+          `failed to write ${failures.length} of ${entries.length} extracted entries`
+        )
       }
       return
     }

@@ -20,8 +20,8 @@ export type {
   ExtractionConfig,
   Extractor,
   ExtractorContext,
-  ExtractedEntry,
+  ExtractionResult,
   ExtractionTriggerContext,
-  MessageFilter,
+  MemoryMessageFilter,
   MemoryContentBlockType,
 } from './extraction/types.js'
