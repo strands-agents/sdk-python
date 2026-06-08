@@ -1,4 +1,4 @@
-import * as cdk from 'aws-cdk-lib/core';
+import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 
@@ -60,7 +60,7 @@ export class IntegTestRole extends Construct {
         )
       : new iam.AccountPrincipal(cdk.Stack.of(this).account);
 
-    this.role = new iam.Role(this, 'Role', {
+    this.role = new iam.Role(this, 'IntegRole', {
       assumedBy,
       maxSessionDuration: cdk.Duration.hours(1),
     });
@@ -222,10 +222,7 @@ export class IntegTestRole extends Construct {
           's3:ListBucket',
           's3:DeleteObject',
         ],
-        resources: persistentBucketNames.flatMap((name) => [
-          `arn:aws:s3:::${name}`,
-          `arn:aws:s3:::${name}/*`,
-        ]),
+        resources: persistentBucketNames.map((name) => `arn:aws:s3:::${name}`),
       }),
     );
 

@@ -1,4 +1,4 @@
-import * as cdk from 'aws-cdk-lib/core';
+import * as cdk from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { StrandsTestInfraStack } from '../lib/stacks/test-infra-stack';
 
@@ -8,7 +8,7 @@ beforeAll(() => {
   originalEnv = { ...process.env };
   process.env.STRANDS_TEST_INFRA_PRIVATE_REPOS = 'repo-a,repo-b';
   process.env.STRANDS_TEST_INFRA_BUCKET_NAMES = 'test-bucket-*';
-  process.env.STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES = 'test-persistent-bucket-*';
+  process.env.STRANDS_TEST_INFRA_PERSISTENT_BUCKET_NAMES = 'test-persistent-bucket-*,test-session-bucket-*';
   process.env.STRANDS_TEST_INFRA_SECRET_NAMES = 'test-secret';
 });
 
@@ -116,6 +116,24 @@ test('SSH VPC has three SSM interface endpoints and no NAT gateway', () => {
   template.resourceCountIs('AWS::EC2::NatGateway', 0);
 });
 
+test('SSH grants StartSession, TerminateSession, OpenDataChannel, and private key read', () => {
+  const template = synth({ internal: true, testFeatures: ['ssh-ec2'] });
+
+  const policies = template.findResources('AWS::IAM::Policy');
+  const statements = Object.values(policies).flatMap(
+    (p: any) => p.Properties?.PolicyDocument?.Statement ?? [],
+  );
+  const actions = statements.flatMap((s: any) =>
+    Array.isArray(s.Action) ? s.Action : [s.Action],
+  );
+  expect(actions).toEqual(expect.arrayContaining([
+    'ssm:StartSession',
+    'ssm:TerminateSession',
+    'ssmmessages:OpenDataChannel',
+    'ssm:GetParameter',
+  ]));
+});
+
 test('SSH instance has no inbound security group rules', () => {
   const template = synth({ testFeatures: ['ssh-ec2'] });
 
@@ -170,6 +188,27 @@ test('community mode does not attach the legacy broad policy', () => {
       expect(stmt.Action).not.toEqual(expect.arrayContaining(['aoss:CreateSecurityPolicy']));
     }
   }
+});
+
+test('persistent bucket policy grants access without DeleteBucket', () => {
+  const template = synth({ internal: true });
+
+  const policies = template.findResources('AWS::IAM::Policy');
+  const statements = Object.values(policies).flatMap(
+    (p: any) => p.Properties?.PolicyDocument?.Statement ?? [],
+  );
+  const persistentStmt = statements.find(
+    (s: any) =>
+      Array.isArray(s.Action) &&
+      s.Action.includes('s3:PutObject') &&
+      !s.Action.includes('s3:DeleteBucket') &&
+      JSON.stringify(s.Resource).includes('test-persistent-bucket-*'),
+  );
+  expect(persistentStmt).toBeDefined();
+  expect(persistentStmt.Action).toEqual(
+    expect.arrayContaining(['s3:PutObject', 's3:GetObject', 's3:CreateBucket', 's3:ListBucket', 's3:DeleteObject']),
+  );
+  expect(persistentStmt.Action).not.toContain('s3:DeleteBucket');
 });
 
 // --- Feature Toggling ---

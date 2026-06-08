@@ -1,4 +1,4 @@
-import * as cdk from 'aws-cdk-lib/core';
+import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
@@ -63,7 +63,7 @@ export class SshEc2TestResources extends TestFeatureConstruct {
     // ED25519 key pair; CDK stores the private key in SSM automatically.
     this.keyPair = new ec2.KeyPair(this, 'KeyPair', { type: ec2.KeyPairType.ED25519 });
 
-    this.instance = new ec2.Instance(this, 'Instance', {
+    this.instance = new ec2.Instance(this, 'SshTargetInstance', {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       // Cheapest current-gen burstable; AL2023 ships and runs sshd by default.
@@ -128,17 +128,23 @@ export class SshEc2TestResources extends TestFeatureConstruct {
         ],
       }),
     );
-    // The SSH-over-SSM data channel. Scoped to sessions owned by the caller.
+    // The SSH-over-SSM data channel and session cleanup. Scoped to sessions
+    // owned by the caller.
+    const sessionArn = cdk.Stack.of(this).formatArn({
+      service: 'ssm',
+      resource: 'session',
+      resourceName: '${aws:userid}-*',
+    });
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ['ssmmessages:OpenDataChannel'],
-        resources: [
-          cdk.Stack.of(this).formatArn({
-            service: 'ssm',
-            resource: 'session',
-            resourceName: '${aws:userid}-*',
-          }),
-        ],
+        resources: [sessionArn],
+      }),
+    );
+    role.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:TerminateSession'],
+        resources: [sessionArn],
       }),
     );
     // Read the SSH private key.

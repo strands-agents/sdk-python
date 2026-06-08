@@ -1,4 +1,4 @@
-import * as cdk from 'aws-cdk-lib/core';
+import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3vectors from 'aws-cdk-lib/aws-s3vectors';
@@ -68,7 +68,7 @@ export class BedrockKnowledgeBaseTestResources extends TestFeatureConstruct {
     super(scope, id);
 
     const model = bedrock.FoundationModel.fromFoundationModelId(this, 'EmbeddingModel', EMBEDDING_MODEL);
-    this.sourceBucket = new s3.Bucket(this, 'Source', {
+    this.sourceBucket = new s3.Bucket(this, 'SourceBucket', {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
     });
@@ -163,16 +163,14 @@ export class BedrockKnowledgeBaseTestResources extends TestFeatureConstruct {
   /**
    * Grant a consumer (the integration-test role) permission to query the
    * knowledge base and ingest documents directly into it via
-   * IngestKnowledgeBaseDocuments — not the asynchronous StartIngestionJob path.
+   * IngestKnowledgeBaseDocuments. Intentionally excludes bedrock:StartIngestionJob;
+   * these tests validate only the synchronous direct-ingestion APIs.
    */
   private grantUsage(role: iam.IRole): void {
     role.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: [
-          // Query.
           'bedrock:Retrieve',
-          // Direct document ingestion (IngestKnowledgeBaseDocumentsCommand),
-          // for both the S3 and CUSTOM data sources on this knowledge base.
           'bedrock:IngestKnowledgeBaseDocuments',
           'bedrock:GetKnowledgeBaseDocuments',
           'bedrock:ListKnowledgeBaseDocuments',
@@ -240,14 +238,14 @@ export class BedrockKnowledgeBaseTestResources extends TestFeatureConstruct {
 
     role.addToPolicy(
       new iam.PolicyStatement({
-        actions: ['bedrock:InvokeModel'],
-        resources: [model.modelArn],
+        actions: ['bedrock:ListFoundationModels', 'bedrock:ListCustomModels'],
+        resources: ['*'],
       }),
     );
     role.addToPolicy(
       new iam.PolicyStatement({
-        actions: ['bedrock:ListFoundationModels', 'bedrock:ListCustomModels'],
-        resources: ['*'],
+        actions: ['bedrock:InvokeModel'],
+        resources: [model.modelArn],
       }),
     );
     role.addToPolicy(

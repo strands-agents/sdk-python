@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import * as cdk from 'aws-cdk-lib/core';
+import * as cdk from 'aws-cdk-lib';
 import { StrandsTestInfraStack } from '../lib/stacks/test-infra-stack';
 import { TestFeature, VALID_TEST_FEATURES } from '../lib/constants';
 
