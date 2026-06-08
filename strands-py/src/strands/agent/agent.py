@@ -429,7 +429,7 @@ class Agent(AgentBase):
         Args:
             context_manager: The facade value ("auto" or None).
             conversation_manager: User-provided conversation manager, takes precedence if set.
-            plugins: User-provided plugin list; offloader is prepended if not already present.
+            plugins: User-provided plugin list; offloader is appended if not already present.
 
         Returns:
             Tuple of (resolved conversation manager, resolved plugins list).

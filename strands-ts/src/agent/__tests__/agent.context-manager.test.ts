@@ -115,9 +115,7 @@ describe('Agent contextManager', () => {
   describe('unsupported value', () => {
     it('throws for invalid contextManager value', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
-      expect(() => new Agent({ model, contextManager: 'manual' as any })).toThrow(
-        'Unsupported contextManager value'
-      )
+      expect(() => new Agent({ model, contextManager: 'manual' as any })).toThrow('Unsupported contextManager value')
     })
   })
 })
