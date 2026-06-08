@@ -60,6 +60,18 @@ class _StreamState:
     is_first_chunk: bool = True
 
 
+@dataclass
+class _ContextEntry:
+    """Per-context bookkeeping for factory mode: a dedicated agent and its serializing lock.
+
+    Keeping the agent and lock in one entry means the LRU map has a single source of truth; there
+    is no second map to keep in sync on insert, reorder, or eviction.
+    """
+
+    agent: SAAgent
+    lock: asyncio.Lock
+
+
 class StrandsA2AExecutor(AgentExecutor):
     """Executor that adapts a Strands Agent to the A2A protocol.
 
@@ -146,8 +158,7 @@ class StrandsA2AExecutor(AgentExecutor):
             # Factory mode: a dedicated agent and lock per context. The per-context lock serializes
             # only same-context requests, so different contexts run concurrently.
             self.agent: SAAgent | None = None
-            self._agents: OrderedDict[str, SAAgent] = OrderedDict()
-            self._context_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+            self._contexts: OrderedDict[str, _ContextEntry] = OrderedDict()
         else:
             # Single-agent mode: reuse one agent, swapping each context's snapshot on/off it.
             if isinstance(getattr(agent, "_session_manager", None), SessionManager):
@@ -188,26 +199,22 @@ class StrandsA2AExecutor(AgentExecutor):
 
     def _evict_excess_contexts(self) -> None:
         """Evict least-recently-used contexts beyond ``max_contexts``. Caller holds the lock."""
-        contexts = self._agents if self._agent_factory is not None else self._snapshots
+        contexts = self._contexts if self._agent_factory is not None else self._snapshots
         while len(contexts) > self._max_contexts:
             evicted_id, _ = contexts.popitem(last=False)
-            if self._agent_factory is not None:
-                self._context_locks.pop(evicted_id, None)
             logger.debug("context_id=<%s> | evicted least-recently-used A2A context", evicted_id)
 
     async def _acquire_context_agent(self, context_id: str) -> tuple[SAAgent, asyncio.Lock]:
         """Return the dedicated agent and lock for a context, building it on first use (factory mode)."""
         async with self._contexts_lock:
-            agent = self._agents.get(context_id)
-            if agent is None:
-                agent = self._agent_factory(context_id)  # type: ignore[misc]
-                self._agents[context_id] = agent
-                self._context_locks[context_id] = asyncio.Lock()
+            entry = self._contexts.get(context_id)
+            if entry is None:
+                entry = _ContextEntry(agent=self._agent_factory(context_id), lock=asyncio.Lock())  # type: ignore[misc]
+                self._contexts[context_id] = entry
                 self._evict_excess_contexts()
             else:
-                self._agents.move_to_end(context_id)
-                self._context_locks.move_to_end(context_id)
-            return agent, self._context_locks[context_id]
+                self._contexts.move_to_end(context_id)
+            return entry.agent, entry.lock
 
     async def _run_with_context_agent(
         self,
@@ -520,7 +527,8 @@ class StrandsA2AExecutor(AgentExecutor):
         # agent for this context; in single-agent mode, the shared agent.
         target_agent = self.agent
         if self._agent_factory is not None:
-            target_agent = self._agents.get(context.context_id) if context.context_id else None
+            entry = self._contexts.get(context.context_id) if context.context_id else None
+            target_agent = entry.agent if entry is not None else None
         if target_agent is not None:
             try:
                 target_agent.cancel()

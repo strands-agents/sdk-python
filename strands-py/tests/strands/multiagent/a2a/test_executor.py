@@ -1944,7 +1944,7 @@ async def test_cancel_without_hasattr_cancel(mock_strands_agent, mock_request_co
 
 
 # =========================================================================
-# NEW TESTS: Per-context conversation isolation (CWE-488 regression)
+# NEW TESTS: Per-context conversation isolation
 #
 # These tests drive a REAL Agent (with a deterministic stub model) through a
 # single executor across two distinct A2A context_ids, asserting that no
@@ -2154,7 +2154,7 @@ async def test_factory_builds_one_agent_per_context(mock_event_queue):
     # Factory invoked once per distinct context, not per request.
     assert built == ["ctx-A", "ctx-B"]
     # Distinct Agent instances per context.
-    assert executor._agents["ctx-A"] is not executor._agents["ctx-B"]
+    assert executor._contexts["ctx-A"].agent is not executor._contexts["ctx-B"].agent
 
 
 @pytest.mark.asyncio
@@ -2188,8 +2188,7 @@ async def test_factory_mode_evicts_least_recently_used_context(mock_event_queue)
     await executor.execute(_make_request_context("ctx-A", "a-2", "again"), mock_event_queue)  # touch A
     await executor.execute(_make_request_context("ctx-C", "c-1", "hi"), mock_event_queue)  # evicts B
 
-    assert set(executor._agents.keys()) == {"ctx-A", "ctx-C"}
-    assert set(executor._context_locks.keys()) == {"ctx-A", "ctx-C"}
+    assert set(executor._contexts.keys()) == {"ctx-A", "ctx-C"}
 
 
 @pytest.mark.asyncio
