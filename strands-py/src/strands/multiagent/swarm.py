@@ -779,9 +779,13 @@ class Swarm(MultiAgentBase):
                     skip_value = before_event.skip_node or before_event.cancel_node
 
                     if skip_value:
-                        cancel_message = skip_value if isinstance(skip_value, str) else "node skipped by user"
-                        logger.debug("reason=<%s> | cancelling execution", cancel_message)
-                        yield MultiAgentNodeSkipEvent(current_node.node_id, cancel_message)
+                        skip_message = skip_value if isinstance(skip_value, str) else "node skipped by user"
+                        logger.debug("reason=<%s> | node skipped, stopping swarm sequence", skip_message)
+                        yield MultiAgentNodeSkipEvent(current_node.node_id, skip_message)
+                        # In a linear swarm each node depends on the previous one's output, so
+                        # skipping a node means the remaining nodes cannot execute; FAILED signals
+                        # the swarm did not run to completion (unlike a graph where downstream
+                        # nodes can continue independently).
                         self.state.completion_status = Status.FAILED
                         break
 

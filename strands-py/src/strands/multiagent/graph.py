@@ -177,7 +177,9 @@ class GraphResult(MultiAgentResult):
 
     total_nodes: int = 0
     completed_nodes: int = 0
+    """Number of nodes that successfully ran to completion (excludes skipped nodes)."""
     skipped_nodes: int = 0
+    """Number of nodes bypassed via skip_node or cancel_node; downstream nodes continued executing."""
     failed_nodes: int = 0
     interrupted_nodes: int = 0
     execution_order: list["GraphNode"] = field(default_factory=list)
@@ -1004,9 +1006,9 @@ class Graph(MultiAgentBase):
             skip_value = before_event.skip_node or before_event.cancel_node
 
             if skip_value:
-                cancel_message = skip_value if isinstance(skip_value, str) else "node skipped by user"
-                logger.debug("reason=<%s> | node skipped, graph continues", cancel_message)
-                yield MultiAgentNodeSkipEvent(node.node_id, cancel_message)
+                skip_message = skip_value if isinstance(skip_value, str) else "node skipped by user"
+                logger.debug("reason=<%s> | node skipped, graph continues", skip_message)
+                yield MultiAgentNodeSkipEvent(node.node_id, skip_message)
                 node_result = NodeResult(
                     result=None,
                     execution_time=0,
