@@ -28,10 +28,10 @@ Run the bundled diff script to get the base branch, commits, changed files, and 
 bash .agents/skills/pr-writer/get-diff.sh
 ```
 
-If the commit messages and diff don't provide enough context to understand the *motivation* behind the change, look at the previous 1–2 commits for additional context:
+If the commit messages and diff don't provide enough context to understand the *motivation* behind the change, look at recent commits on the branch for additional context. Use the base branch range to avoid surfacing unrelated commits from main:
 
 ```bash
-git log --format="%h %s%n%b" -2 HEAD~1
+git log --format="%h %s%n%b" $(git merge-base HEAD origin/main)..HEAD
 ```
 
 Use this only to fill in gaps — don't let older commits override what the current diff says.
@@ -44,7 +44,7 @@ Also consider the current conversation context. If the author made design decisi
 
 Read the following files — these are the **source of truth** for PR style and structure:
 
-- **PR guidelines**: `dev-docs/PR.md` (general) or `strands-py/docs/PR.md` (Python SDK). These define writing principles, anti-patterns, and checklist items. Always defer to them over general conventions.
+- **PR guidelines**: Use `strands-py/docs/PR.md` when the changes are exclusively within `strands-py/`. Otherwise use `dev-docs/PR.md`. These define writing principles, anti-patterns, and checklist items. Always defer to them over general conventions.
 - **PR template**: `.github/PULL_REQUEST_TEMPLATE.md`. This is the structural template — fill in every section it defines, in order.
 
 ### 4. Write the PR
@@ -78,4 +78,4 @@ Always prefer `gh` over manual URL construction or web scraping. If `gh` is not 
 - Fill in ALL sections of `.github/PULL_REQUEST_TEMPLATE.md`. Don't skip or rearrange them.
 - When a PR template contains checkboxes (`- [ ]`), pre-check them (`- [x]`) by default — except for any checkbox related to documentation updates or documentation examples, which should be left unchecked for the user to verify manually.
 - Output the final PR as a single markdown code block so the user can copy it directly.
-- Also write the PR body to `.local/pr-body.md` (create the `.local/` directory if it doesn't exist).
+- Also write the PR body to `.local/pr-body.md` (create the `.local/` directory if it doesn't exist). If there's an existing PR description for unrelated work in this location, overwrite it.
