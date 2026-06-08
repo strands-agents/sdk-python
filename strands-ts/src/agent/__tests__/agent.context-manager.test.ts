@@ -46,15 +46,15 @@ describe('Agent contextManager', () => {
     it('sets summaryRatio to 0.3', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
       const agent = new Agent({ model, contextManager: 'auto' })
-      const cm = getConversationManager(agent) as any
-      expect(cm._summaryRatio).toBe(0.3)
+      const conversationManager = getConversationManager(agent) as any
+      expect(conversationManager._summaryRatio).toBe(0.3)
     })
 
     it('enables proactive compression at 0.85', () => {
       const model = new MockMessageModel().addTurn({ type: 'textBlock', text: 'hi' })
       const agent = new Agent({ model, contextManager: 'auto' })
-      const cm = getConversationManager(agent) as any
-      expect(cm._compressionThreshold).toBe(0.85)
+      const conversationManager = getConversationManager(agent) as any
+      expect(conversationManager._compressionThreshold).toBe(0.85)
     })
 
     it('adds ContextOffloader plugin with benchmark defaults', () => {

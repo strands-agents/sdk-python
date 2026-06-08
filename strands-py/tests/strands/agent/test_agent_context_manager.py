@@ -66,13 +66,13 @@ class TestContextManagerAuto:
 
 class TestContextManagerCoexistence:
     def test_user_conversation_manager_is_respected(self, mock_model):
-        user_cm = SlidingWindowConversationManager(window_size=20)
-        agent = Agent(model=mock_model, context_manager="auto", conversation_manager=user_cm)
-        assert agent.conversation_manager is user_cm
+        user_conversation_manager = SlidingWindowConversationManager(window_size=20)
+        agent = Agent(model=mock_model, context_manager="auto", conversation_manager=user_conversation_manager)
+        assert agent.conversation_manager is user_conversation_manager
 
-    def test_offloader_still_added_with_user_cm(self, mock_model):
-        user_cm = SlidingWindowConversationManager(window_size=20)
-        agent = Agent(model=mock_model, context_manager="auto", conversation_manager=user_cm)
+    def test_offloader_still_added_with_user_conversation_manager(self, mock_model):
+        user_conversation_manager = SlidingWindowConversationManager(window_size=20)
+        agent = Agent(model=mock_model, context_manager="auto", conversation_manager=user_conversation_manager)
         assert "context_offloader" in agent._plugin_registry._plugins
 
     def test_user_offloader_not_overridden(self, mock_model):

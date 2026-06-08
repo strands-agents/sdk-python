@@ -126,13 +126,13 @@ export type ToolExecutorStrategy = 'sequential' | 'concurrent'
 export type ContextManagerStrategy = 'auto'
 
 /** Benchmark-validated token threshold for offloading tool results. */
-const CM_MAX_RESULT_TOKENS = 1_500
+const CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
 /** Benchmark-validated preview token count for offloaded results. */
-const CM_PREVIEW_TOKENS = 750
+const CONTEXT_MANAGER_PREVIEW_TOKENS = 750
 /** Benchmark-validated ratio of messages to summarize on overflow. */
-const CM_SUMMARY_RATIO = 0.3
+const CONTEXT_MANAGER_SUMMARY_RATIO = 0.3
 /** Benchmark-validated context window ratio that triggers proactive compression. */
-const CM_COMPRESSION_THRESHOLD = 0.85
+const CONTEXT_MANAGER_COMPRESSION_THRESHOLD = 0.85
 
 /**
  * Configuration object for creating a new Agent.
@@ -275,8 +275,8 @@ function resolveConversationManager(
     return (
       conversationManager ??
       new SummarizingConversationManager({
-        summaryRatio: CM_SUMMARY_RATIO,
-        proactiveCompression: { compressionThreshold: CM_COMPRESSION_THRESHOLD },
+        summaryRatio: CONTEXT_MANAGER_SUMMARY_RATIO,
+        proactiveCompression: { compressionThreshold: CONTEXT_MANAGER_COMPRESSION_THRESHOLD },
       })
     )
   }
@@ -450,8 +450,8 @@ export class Agent implements LocalAgent, InvokableAgent {
         ? [
             new ContextOffloader({
               storage: new InMemoryStorage(),
-              maxResultTokens: CM_MAX_RESULT_TOKENS,
-              previewTokens: CM_PREVIEW_TOKENS,
+              maxResultTokens: CONTEXT_MANAGER_MAX_RESULT_TOKENS,
+              previewTokens: CONTEXT_MANAGER_PREVIEW_TOKENS,
             }),
           ]
         : []),
