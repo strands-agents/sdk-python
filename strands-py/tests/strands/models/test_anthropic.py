@@ -293,6 +293,45 @@ def test_format_request_with_reasoning(model, model_id, max_tokens):
     assert tru_request == exp_request
 
 
+def test_format_request_with_tool_result_preserves_non_ascii(model, model_id, max_tokens):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "c1",
+                        "status": "success",
+                        "content": [{"json": {"city": "東京"}}],
+                    }
+                }
+            ],
+        }
+    ]
+
+    tru_request = model.format_request(messages)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "content": [{"text": '{"city": "東京"}', "type": "text"}],
+                        "is_error": False,
+                        "tool_use_id": "c1",
+                        "type": "tool_result",
+                    }
+                ],
+            }
+        ],
+        "model": model_id,
+        "tools": [],
+    }
+
+    assert tru_request == exp_request
+
+
 def test_format_request_with_tool_use(model, model_id, max_tokens):
     messages = [
         {

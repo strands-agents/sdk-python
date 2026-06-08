@@ -155,6 +155,74 @@ def test_format_request_with_system_prompt(model, messages, model_id, system_pro
     assert actual_request == exp_request
 
 
+def test_format_request_with_tool_use_preserves_non_ascii(model, model_id):
+    messages = [
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "c1", "name": "search", "input": {"query": "東京"}}}],
+        },
+    ]
+
+    actual_request = model.format_request(messages)
+    exp_request = {
+        "model": model_id,
+        "messages": [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "search",
+                            "arguments": '{"query": "東京"}',
+                        },
+                        "id": "c1",
+                        "type": "function",
+                    }
+                ],
+            }
+        ],
+        "max_tokens": 100,
+        "stream": True,
+    }
+
+    assert actual_request == exp_request
+
+
+def test_format_request_with_tool_result_preserves_non_ascii(model, model_id):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "c1",
+                        "status": "success",
+                        "content": [{"json": {"city": "東京"}}],
+                    }
+                }
+            ],
+        }
+    ]
+
+    actual_request = model.format_request(messages)
+    exp_request = {
+        "model": model_id,
+        "messages": [
+            {
+                "role": "tool",
+                "name": "c1",
+                "content": '{"city": "東京"}',
+                "tool_call_id": "c1",
+            }
+        ],
+        "max_tokens": 100,
+        "stream": True,
+    }
+
+    assert actual_request == exp_request
+
+
 def test_format_request_with_tool_use(model, model_id):
     messages = [
         {

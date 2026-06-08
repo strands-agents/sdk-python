@@ -131,7 +131,7 @@ class LlamaAPIModel(Model):
         """
         return {
             "function": {
-                "arguments": json.dumps(tool_use["input"]),
+                "arguments": json.dumps(tool_use["input"], ensure_ascii=False),
                 "name": tool_use["name"],
             },
             "id": tool_use["toolUseId"],
@@ -149,7 +149,7 @@ class LlamaAPIModel(Model):
         contents = cast(
             list[ContentBlock],
             [
-                {"text": json.dumps(content["json"])} if "json" in content else content
+                {"text": json.dumps(content["json"], ensure_ascii=False)} if "json" in content else content
                 for content in tool_result["content"]
             ],
         )

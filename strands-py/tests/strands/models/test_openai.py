@@ -179,6 +179,41 @@ def test_format_request_message_content_unsupported_type():
         OpenAIModel.format_request_message_content(content)
 
 
+def test_format_request_message_tool_call_preserves_non_ascii():
+    tool_use = {
+        "input": {"query": "東京"},
+        "name": "search",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_message_tool_call(tool_use)
+    exp_result = {
+        "function": {
+            "arguments": '{"query": "東京"}',
+            "name": "search",
+        },
+        "id": "c1",
+        "type": "function",
+    }
+    assert tru_result == exp_result
+
+
+def test_format_request_tool_message_preserves_non_ascii():
+    tool_result = {
+        "content": [{"json": {"city": "東京"}}],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    exp_result = {
+        "content": '{"city": "東京"}',
+        "role": "tool",
+        "tool_call_id": "c1",
+    }
+    assert tru_result == exp_result
+
+
 def test_format_request_message_tool_call():
     tool_use = {
         "input": {"expression": "2+2"},

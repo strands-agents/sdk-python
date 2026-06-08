@@ -140,7 +140,7 @@ class OllamaModel(Model):
                 for formatted_tool_result_content in self._format_request_message_contents(
                     "tool",
                     (
-                        {"text": json.dumps(tool_result_content["json"])}
+                        {"text": json.dumps(tool_result_content["json"], ensure_ascii=False)}
                         if "json" in tool_result_content
                         else cast(ContentBlock, tool_result_content)
                     ),
