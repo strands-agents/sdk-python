@@ -2089,6 +2089,18 @@ def test_max_contexts_must_be_positive(mock_strands_agent):
 
 
 @pytest.mark.asyncio
+async def test_execute_raises_when_context_id_missing(mock_strands_agent, mock_event_queue):
+    """A request with no context_id is rejected (the framework always populates one)."""
+    executor = StrandsA2AExecutor(mock_strands_agent)
+    context = _make_request_context("ignored", "m-1", "hello")
+    context.context_id = None  # simulate the should-never-happen absent id
+
+    with pytest.raises(ServerError) as excinfo:
+        await executor.execute(context, mock_event_queue)
+    assert isinstance(excinfo.value.error, InternalError)
+
+
+@pytest.mark.asyncio
 async def test_single_agent_preserves_seeded_history(mock_event_queue):
     """Seeded history (Agent(messages=[...])) is present when the single agent is invoked."""
     seeded = [{"role": "user", "content": [{"text": "SEED"}]}]
