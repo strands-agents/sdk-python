@@ -278,15 +278,15 @@ class Agent(AgentBase):
                 "The model manages conversation state server-side."
             )
 
-        resolved_cm, resolved_plugins = self._resolve_context_manager(
+        resolved_conversation_manager, resolved_plugins = self._resolve_context_manager(
             context_manager, conversation_manager, plugins
         )
 
         self.conversation_manager: ConversationManager
         if self.model.stateful:
             self.conversation_manager = NullConversationManager()
-        elif resolved_cm:
-            self.conversation_manager = resolved_cm
+        elif resolved_conversation_manager:
+            self.conversation_manager = resolved_conversation_manager
         elif conversation_manager:
             self.conversation_manager = conversation_manager
         else:
@@ -464,14 +464,14 @@ class Agent(AgentBase):
             resolved_plugins.append(offloader)
 
         if conversation_manager is not None:
-            resolved_cm = conversation_manager
+            resolved_conversation_manager = conversation_manager
         else:
-            resolved_cm = SummarizingConversationManager(
+            resolved_conversation_manager = SummarizingConversationManager(
                 summary_ratio=_CONTEXT_MANAGER_SUMMARY_RATIO,
                 proactive_compression={"compression_threshold": _CONTEXT_MANAGER_COMPRESSION_THRESHOLD},
             )
 
-        return resolved_cm, resolved_plugins
+        return resolved_conversation_manager, resolved_plugins
 
     def cancel(self) -> None:
         """Cancel the currently running agent invocation.
