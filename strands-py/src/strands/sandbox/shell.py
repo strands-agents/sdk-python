@@ -48,7 +48,7 @@ def validate_env_keys(env: dict[str, str]) -> None:
         ValueError: If any key is not a valid POSIX environment variable name.
     """
     for key in env:
-        if not ENV_KEY_PATTERN.match(key):
+        if not ENV_KEY_PATTERN.fullmatch(key):
             raise ValueError(f"Invalid environment variable name: {key}")
 
 
@@ -142,7 +142,7 @@ class PosixShellSandbox(Sandbox, ABC):
         Raises:
             ValueError: If ``language`` contains invalid characters.
         """
-        if not LANGUAGE_PATTERN.match(language):
+        if not LANGUAGE_PATTERN.fullmatch(language):
             raise ValueError(f"language parameter contains invalid characters: {language}")
         encoded = base64.b64encode(code.encode()).decode("ascii")
         eof = _eof_marker()

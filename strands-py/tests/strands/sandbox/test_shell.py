@@ -209,6 +209,16 @@ def test_build_shell_env_prefix_rejects_invalid_names():
         build_shell_env_prefix({"BAD-KEY": "v"})
 
 
+def test_build_shell_env_prefix_rejects_trailing_newline_in_key():
+    # Regression: a trailing newline in an env key is a shell statement
+    # separator. Python's `$` would match before it (unlike JS), so the
+    # validator must full-string match to reject `FOO\n` and friends.
+    with pytest.raises(ValueError, match="Invalid environment variable name"):
+        build_shell_env_prefix({"FOO\n": "v"})
+    with pytest.raises(ValueError, match="Invalid environment variable name"):
+        validate_env_keys({"FOO\nBAR": "v"})
+
+
 def test_validate_env_keys_accepts_valid_posix_names():
     validate_env_keys({"FOO": "1", "_bar": "2", "BAZ_99": "3"})  # no raise
 
@@ -276,6 +286,18 @@ async def test_language_rejects_shell_metacharacters(sandbox):
 async def test_language_rejects_spaces(sandbox):
     with pytest.raises(ValueError, match="invalid characters"):
         await sandbox.execute_code("x", "python -c")
+
+
+@pytest.mark.asyncio
+async def test_language_rejects_trailing_newline(sandbox):
+    # Regression: Python's `$` matches before a trailing newline, unlike JS's
+    # `/^...$/.test()`. The validator must use full-string matching so a
+    # trailing newline (a shell statement separator) cannot smuggle a second
+    # command past `LANGUAGE_PATTERN`.
+    with pytest.raises(ValueError, match="invalid characters"):
+        await sandbox.execute_code("x", "python3\n")
+    with pytest.raises(ValueError, match="invalid characters"):
+        await sandbox.execute_code("x", "python3\nrm -rf /")
 
 
 @pytest.mark.asyncio

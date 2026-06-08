@@ -1,8 +1,14 @@
-"""Validation patterns for sandbox inputs.
+r"""Validation patterns for sandbox inputs.
 
 Mirrors ``strands-ts/src/sandbox/constants.ts``. These patterns reject inputs
 that could break out of the intended shell context (path separators, spaces,
 shell metacharacters), providing defense-in-depth for shell-based sandboxes.
+
+Match these with :meth:`re.Pattern.fullmatch` (not :meth:`re.match`): Python's
+``$`` also matches just before a trailing ``\n``, so ``re.match`` would accept
+e.g. ``"python3\n"`` and let a newline-separated second statement slip through.
+``fullmatch`` reproduces the JavaScript ``/^...$/.test()`` semantics of the
+``strands-ts`` oracle, which anchors to the true end of the string.
 """
 
 import re
