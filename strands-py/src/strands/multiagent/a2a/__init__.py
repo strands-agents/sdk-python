@@ -6,7 +6,11 @@ with other agents using the Agent-to-Agent (A2A) protocol.
 Docs: https://google-a2a.github.io/A2A/latest/
 
 Classes:
-    A2AAgent: A wrapper that adapts a Strands Agent to be A2A-compatible.
+    A2AServer: A server that adapts a Strands Agent to be A2A-compatible.
+    StrandsA2AExecutor: The A2A executor that runs Strands Agents per request.
+
+Types:
+    AgentFactory: Callable ``(context_id) -> Agent`` for building a fresh agent per A2A context.
 """
 
 from .executor import AgentFactory, StrandsA2AExecutor
