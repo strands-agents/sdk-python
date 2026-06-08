@@ -197,6 +197,10 @@ export type AgentConfig = {
    * (summaryRatio=0.3, compressionThreshold=0.85) using benchmark-validated defaults.
    * If `conversationManager` is also provided, the user's conversation manager is used instead.
    * Defaults to undefined (no context management).
+   *
+   * @remarks The offloader uses in-memory storage that does not persist across process
+   * restarts. For agents using `sessionManager`, provide an explicit `ContextOffloader`
+   * with durable storage via the `plugins` parameter.
    */
   contextManager?: ContextManagerStrategy
   /**
