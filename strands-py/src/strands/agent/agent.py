@@ -54,6 +54,7 @@ from ..hooks import (
 )
 from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
+from ..memory.memory_manager import MemoryManager
 from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
@@ -144,6 +145,7 @@ class Agent(AgentBase):
         plugins: list[Plugin] | None = None,
         hooks: list[HookProvider | HookCallback] | None = None,
         session_manager: SessionManager | None = None,
+        memory_manager: MemoryManager | None = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
@@ -203,6 +205,9 @@ class Agent(AgentBase):
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
+            memory_manager: Manager for cross-session memory retrieval and storage.
+                Manages one or more memory stores and exposes search/add tools to the agent.
+                Defaults to None.
             structured_output_prompt: Custom prompt message used when forcing structured output.
                 When using structured output, if the model doesn't automatically use the output tool,
                 the agent sends a follow-up message to request structured formatting. This parameter
@@ -356,6 +361,9 @@ class Agent(AgentBase):
         if self._session_manager:
             self.hooks.add_hook(self._session_manager)
 
+        # Memory management is registered as a plugin below, after built-in and user plugins.
+        self.memory_manager = memory_manager
+
         # Allow conversation_managers to subscribe to hooks
         self.hooks.add_hook(self.conversation_manager)
 
@@ -381,6 +389,9 @@ class Agent(AgentBase):
         if plugins:
             for plugin in plugins:
                 self._plugin_registry.add_and_init(plugin)
+
+        if self.memory_manager is not None:
+            self._plugin_registry.add_and_init(self.memory_manager)
 
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
