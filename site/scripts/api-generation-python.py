@@ -45,7 +45,7 @@ class CustomGitSourceLinker(GitSourceLinker):
 
 
 def generate_docs():
-    input_path =  "./.build/sdk-python/strands-py/src"
+    input_path =  "../strands-py/src"
     output_path = "./.build/api-docs/python"
 
     """Generate markdown documentation for all strands modules."""
@@ -82,8 +82,8 @@ def generate_docs():
         add_module_prefix=True,
         render_toc=False,
         source_linker=CustomGitSourceLinker(
-            root=".build/sdk-python/strands-py/src",
-            url_template="https://github.com/strands-agents/sdk-python/blob/main/strands-py/src/{path}#L{lineno}",
+            root="../strands-py/src",
+            url_template="https://github.com/strands-agents/harness-sdk/blob/main/strands-py/src/{path}#L{lineno}",
             use_branch=False,
         ),
         source_format="{url}",  # URL already contains the full formatted string

@@ -1,15 +1,13 @@
 /**
- * Vite plugin that automatically runs `npm run sdk:clone` and `npm run sdk:generate`
- * if the SDK build artifacts are not present, simplifying the getting-started experience.
+ * Vite plugin that automatically runs `npm run sdk:generate`
+ * if the SDK API docs are not present, simplifying the getting-started experience.
  */
 import { execSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import type { Plugin } from 'vite'
 
-const SDK_PATHS = ['.build/sdk-typescript', '.build/sdk-python']
-
-function areSdksPresent(): boolean {
-  return SDK_PATHS.every((p) => existsSync(p))
+function areApiDocsPresent(): boolean {
+  return existsSync('.build/api-docs')
 }
 
 function run(command: string): void {
@@ -18,10 +16,9 @@ function run(command: string): void {
 }
 
 function setupSdks(): void {
-  if (areSdksPresent()) return
+  if (areApiDocsPresent()) return
 
-  console.log('[sdk-setup] SDK build artifacts not found — running sdk:clone and sdk:generate...')
-  run('npm run sdk:clone')
+  console.log('[sdk-setup] API docs not found — running sdk:generate...')
   run('npm run sdk:generate')
   console.log('[sdk-setup] SDK setup complete.')
 }
@@ -30,13 +27,11 @@ export default function sdkSetupPlugin(): Plugin {
   return {
     name: 'vite-plugin-sdk-setup',
     enforce: 'pre',
-    // Used during `astro build`
     buildStart() {
       setupSdks()
     },
-    // Used during `astro dev` — buildStart fires before the file watcher is running,
-    // so newly generated files would be missed by Astro's content layer. configureServer
-    // runs after the watcher is set up, and we emit a change event to trigger a re-sync.
+    // configureServer runs after the watcher is up (buildStart fires before it),
+    // so newly generated files are picked up by Astro's content layer.
     configureServer(server) {
       setupSdks()
       server.watcher.emit('change', '.build/api-docs')

@@ -23,7 +23,7 @@ export function baseSchemas(siteUrl: string) {
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Cross-platform",
       "programmingLanguage": ["Python", "TypeScript"],
-      "license": "https://github.com/strands-agents/sdk-python/blob/main/LICENSE",
+      "license": "https://github.com/strands-agents/harness-sdk/blob/main/LICENSE.APACHE",
       "url": siteUrl,
       "author": { "@type": "Organization", "name": "Strands Agents" },
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }

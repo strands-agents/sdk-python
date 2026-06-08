@@ -1,5 +1,5 @@
-const REPOS = ['strands-agents/sdk-python', 'strands-agents/sdk-typescript']
-const FALLBACK = '5,800+'
+const REPOS = ['strands-agents/harness-sdk']
+const FALLBACK = '6,100+'
 const TIMEOUT_MS = 5000
 
 export async function getStarCount(): Promise<string> {

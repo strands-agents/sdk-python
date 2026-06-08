@@ -14,6 +14,7 @@
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
+    "preserveSymlinks": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true
@@ -22,6 +23,7 @@
   "exclude": [
     "node_modules",
     "../src/content/docs/examples/cdk/**",
-    "../src/content/docs/examples/typescript/deploy_to_bedrock_agentcore/**"
+    "../src/content/docs/examples/typescript/deploy_to_bedrock_agentcore/**",
+    "../src/content/docs/user-guide/concepts/tools/mcp-tools.ts"
   ]
 }

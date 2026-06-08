@@ -35,7 +35,7 @@ jobs:
 
       - name: Build TypeScript SDK
         run: npm install --ignore-scripts && npm run build && rm -rf node_modules
-        working-directory: site/.build/sdk-typescript
+        working-directory: strands-ts
 
       - name: Re-link SDK types
         run: npm install

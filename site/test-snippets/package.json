@@ -7,12 +7,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@strands-agents/sdk": "file:../.build/sdk-typescript/strands-ts",
-    "@aws-sdk/client-s3": "^3.943.0",
+    "@strands-agents/sdk": "file:../../strands-ts",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@opentelemetry/sdk-trace-node": "^2.6.1",
-    "express": "^5.1.0",
-    "zod": "^4.1.12"
+    "express": "^5.1.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.5",
