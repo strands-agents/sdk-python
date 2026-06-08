@@ -28,11 +28,7 @@ Run the bundled diff script to get the base branch, commits, changed files, and 
 bash .agents/skills/pr-writer/get-diff.sh
 ```
 
-If the commit messages and diff don't provide enough context to understand the *motivation* behind the change, look at recent commits on the branch for additional context. Use the base branch range to avoid surfacing unrelated commits from main:
-
-```bash
-git log --format="%h %s%n%b" $(git merge-base HEAD origin/main)..HEAD
-```
+If the commit messages and diff don't provide enough context to understand the *motivation* behind the change, look at recent commits on the branch for additional context. Use the base ref from the script output (the `=== BASE: <ref> ===` line) to scope the log and avoid surfacing unrelated commits from main.
 
 Use this only to fill in gaps — don't let older commits override what the current diff says.
 
