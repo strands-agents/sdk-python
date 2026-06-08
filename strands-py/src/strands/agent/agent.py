@@ -217,6 +217,10 @@ class Agent(AgentBase):
                 SummarizingConversationManager (summary_ratio=0.3, compression_threshold=0.85)
                 using benchmark-validated defaults. If ``conversation_manager`` is also provided,
                 the user's conversation manager is used instead. Defaults to None (no context management).
+
+                Note: The offloader uses in-memory storage that does not persist across process
+                restarts. For agents using ``session_manager``, provide an explicit
+                ``ContextOffloader`` with durable storage via the ``plugins`` parameter.
             plugins: List of Plugin instances to extend agent functionality.
                 Plugins are initialized with the agent instance after construction and can register hooks,
                 modify agent attributes, or perform other setup tasks.
