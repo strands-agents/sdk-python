@@ -574,11 +574,10 @@ class MultiAgentNodeStreamEvent(TypedEvent):
 
 
 class MultiAgentNodeCancelEvent(TypedEvent):
-    """Reserved for the future abort-branch CANCELLED semantic (see issue #2401).
+    """Planned event for when a node stops graph execution entirely (see issue #2401).
 
-    .. deprecated::
-        Do not use this event to detect skipped nodes. Use :class:`MultiAgentNodeSkipEvent`
-        (type ``multiagent_node_skip``) instead.
+    Not currently emitted by the library. To handle bypassed nodes, subscribe to
+    :class:`MultiAgentNodeSkipEvent` (type ``multiagent_node_skip``) instead.
     """
 
     def __init__(self, node_id: str, message: str) -> None:
@@ -598,11 +597,11 @@ class MultiAgentNodeCancelEvent(TypedEvent):
 
 
 class MultiAgentNodeSkipEvent(TypedEvent):
-    """Event emitted when a node is skipped via :attr:`BeforeNodeCallEvent.skip_node`.
+    """Event emitted when a node is bypassed via :attr:`BeforeNodeCallEvent.skip_node`.
 
-    Emitted by all orchestrators when a node is bypassed. The orchestrator's behavior
-    after skip depends on its type: a graph continues executing downstream nodes,
-    while a swarm stops the current run.
+    Also triggered by the deprecated :attr:`BeforeNodeCallEvent.cancel_node` alias. The
+    orchestrator's behavior after skip depends on its type: a graph continues executing
+    downstream nodes, while a swarm stops the current run.
     """
 
     def __init__(self, node_id: str, message: str) -> None:
