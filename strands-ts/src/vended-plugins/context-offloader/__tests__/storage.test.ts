@@ -57,10 +57,10 @@ describe('InMemoryStorage', () => {
 })
 
 describe('InMemoryStorage eviction', () => {
-  it('eviction enabled by default (10 cycles)', async () => {
+  it('eviction enabled by default (20 cycles)', async () => {
     const storage = new InMemoryStorage()
     const ref = await storage.store('key1', new TextEncoder().encode('test'))
-    storage._evict(11)
+    storage._evict(21)
     await expect(storage.retrieve(ref)).rejects.toThrow('Reference not found')
   })
 

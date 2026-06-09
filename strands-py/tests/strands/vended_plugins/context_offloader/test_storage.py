@@ -104,9 +104,9 @@ class TestInMemoryStorageEviction:
 
     def test_eviction_enabled_by_default(self):
         storage = InMemoryStorage()
-        assert storage._evict_after_turns == 10
+        assert storage._evict_after_turns == 20
         ref = storage.store("key_1", b"content")
-        for _ in range(11):
+        for _ in range(21):
             storage._evict(storage._current_cycle + 1)
         with pytest.raises(KeyError):
             storage.retrieve(ref)

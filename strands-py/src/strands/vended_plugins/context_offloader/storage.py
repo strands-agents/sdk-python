@@ -219,7 +219,7 @@ class InMemoryStorage:
     Supports turn-based eviction: entries not accessed (stored or retrieved)
     within ``evict_after_turns`` agent loop cycles are automatically removed.
     The ``ContextOffloader`` plugin triggers eviction on each model invocation
-    cycle. Eviction is enabled by default (10 cycles). Pass ``None`` to disable.
+    cycle. Eviction is enabled by default (20 cycles). Pass ``None`` to disable.
 
     Note:
         Content does not survive process restarts. For multi-session
@@ -232,17 +232,17 @@ class InMemoryStorage:
 
     Args:
         evict_after_turns: Number of cycles of inactivity before an entry is
-            evicted. Defaults to 10. ``None`` disables eviction.
+            evicted. Defaults to 20. ``None`` disables eviction.
     """
 
-    _DEFAULT_EVICT_AFTER_TURNS = 10
+    _DEFAULT_EVICT_AFTER_TURNS = 20
 
     def __init__(self, evict_after_turns: int | None = _DEFAULT_EVICT_AFTER_TURNS) -> None:
         """Initialize in-memory storage.
 
         Args:
             evict_after_turns: Number of cycles of inactivity before an entry is
-                evicted. Defaults to 10. ``None`` disables eviction.
+                evicted. Defaults to 20. ``None`` disables eviction.
 
         Raises:
             ValueError: If evict_after_turns is not a positive integer.
@@ -306,7 +306,7 @@ class InMemoryStorage:
             cycle: The agent's current event loop cycle count.
         """
         with self._lock:
-            self._current_cycle = cycle
+            self._current_cycle = max(self._current_cycle, cycle)
             if self._evict_after_turns is None:
                 return
             threshold = cycle - self._evict_after_turns

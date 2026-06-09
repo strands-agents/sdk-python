@@ -50,7 +50,7 @@ function sanitizeId(rawId: string): string {
  * Useful for testing and serverless environments where disk access is not available.
  * Supports turn-based eviction: entries not accessed (stored or retrieved) within
  * `evictAfterTurns` agent loop cycles are automatically removed when the plugin
- * calls `_evict`. Eviction is enabled by default (10 cycles). Pass `null` to disable.
+ * calls `_evict`. Eviction is enabled by default (20 cycles). Pass `null` to disable.
  *
  * Note: content does not survive process restarts. For multi-session persistence,
  * use {@link FileStorage} or {@link S3Storage}.
@@ -58,7 +58,7 @@ function sanitizeId(rawId: string): string {
  * Evicted entries are permanently deleted from memory. The agent will receive
  * an error if it attempts to retrieve evicted content.
  *
- * @param evictAfterTurns - Cycles of inactivity before eviction. Defaults to 10. `null` disables.
+ * @param evictAfterTurns - Cycles of inactivity before eviction. Defaults to 20. `null` disables.
  */
 export class InMemoryStorage implements Storage {
   private _store = new Map<string, { content: Uint8Array; contentType: string; lastAccessedCycle: number }>()
@@ -66,7 +66,7 @@ export class InMemoryStorage implements Storage {
   private _currentCycle = 0
   private readonly _evictAfterTurns: number | null
 
-  static readonly DEFAULT_EVICT_AFTER_TURNS = 10
+  static readonly DEFAULT_EVICT_AFTER_TURNS = 20
 
   constructor(evictAfterTurns: number | null = InMemoryStorage.DEFAULT_EVICT_AFTER_TURNS) {
     if (evictAfterTurns !== null && evictAfterTurns < 1) {
@@ -99,7 +99,7 @@ export class InMemoryStorage implements Storage {
    * @internal
    */
   _evict(cycle: number): void {
-    this._currentCycle = cycle
+    this._currentCycle = Math.max(this._currentCycle, cycle)
     if (this._evictAfterTurns === null) return
     const threshold = cycle - this._evictAfterTurns
     let evicted = 0

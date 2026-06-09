@@ -139,7 +139,6 @@ export class ContextOffloader implements Plugin {
   private readonly _includeRetrievalTool: boolean
   private readonly _storageByAgent = new WeakMap<LocalAgent, Storage>()
   private _retrievalTool: Tool | undefined
-  private _cycleCount = 0
 
   constructor(config: ContextOffloaderConfig) {
     const maxResultTokens = config.maxResultTokens ?? DEFAULT_MAX_RESULT_TOKENS
@@ -158,10 +157,11 @@ export class ContextOffloader implements Plugin {
   initAgent(agent: LocalAgent): void {
     this._storageForAgent(agent)
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))
+    let cycleCount = 0
     agent.addHook(BeforeModelCallEvent, () => {
-      this._cycleCount++
+      cycleCount++
       if (this._storage instanceof InMemoryStorage) {
-        this._storage._evict(this._cycleCount)
+        this._storage._evict(cycleCount)
       }
     })
   }
