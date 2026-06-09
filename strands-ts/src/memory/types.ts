@@ -101,11 +101,13 @@ export interface MemoryStore extends MemoryStoreConfig {
    */
   add?(content: string, metadata?: Record<string, JSONValue>): Promise<unknown>
   /**
-   * Ingest a batch of conversation messages, preserving their role structure. This is the no-extractor
-   * sink: when a store's {@link ExtractionConfig} has no extractor, the manager hands the filtered
+   * Ingest a batch of conversation messages, preserving their role structure. This is the sink for
+   * automatic extraction that does not distill facts client-side: the manager hands the filtered
    * {@link MessageData} batch straight here in one call — no serialization, no model call. Backends
-   * that distill server-side (e.g. role-aware conversational APIs) implement this so the
-   * USER/ASSISTANT structure survives. An extraction config without an extractor requires this method.
+   * that turn raw turns into memory themselves (e.g. role-aware conversational APIs that summarize
+   * server-side) implement this so the user/assistant structure survives. A store using extraction
+   * implements this method, unless it configures an {@link ExtractionConfig.extractor} (which produces
+   * discrete entries written via {@link add} instead).
    *
    * Satisfies `writable: true` the same way {@link add} does. The resolved value is store-specific
    * and not consumed by the manager.

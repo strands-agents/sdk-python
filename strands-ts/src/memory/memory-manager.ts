@@ -129,7 +129,7 @@ export class MemoryManager implements Plugin {
     this._searchStores = config.stores
     // `add`-targeting paths (tool / programmatic) need an `add` method specifically.
     this._addStores = config.stores.filter((s) => s.writable && typeof s.add === 'function')
-    this._extractionStores = config.stores.filter((s) => s.extraction)
+    this._extractionStores = config.stores.filter((s) => s.writable && s.extraction)
 
     this._searchToolConfig =
       config.searchToolConfig === false
