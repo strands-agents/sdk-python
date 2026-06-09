@@ -684,25 +684,21 @@ describe('CedarAuthorization', () => {
       { name: 'delete', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
     ]
 
-    it('auto-generates schema and validates policies when tools are provided', () => {
-      // Valid policy referencing a tool that exists
-      expect(
-        () =>
-          new CedarAuthorization({
-            policies: 'permit(principal, action == Action::"search", resource);',
-            tools,
-          })
-      ).not.toThrow()
+    it('auto-generates schema and validates policies when tools are provided', async () => {
+      const cedar = await CedarAuthorization.create({
+        policies: 'permit(principal, action == Action::"search", resource);',
+        tools,
+      })
+      expect(cedar.name).toBe('cedar-authorization')
     })
 
-    it('catches unknown action names via auto-generated schema', () => {
-      expect(
-        () =>
-          new CedarAuthorization({
-            policies: 'permit(principal, action == Action::"nonexistent", resource);',
-            tools,
-          })
-      ).toThrow()
+    it('catches unknown action names via auto-generated schema', async () => {
+      await expect(
+        CedarAuthorization.create({
+          policies: 'permit(principal, action == Action::"nonexistent", resource);',
+          tools,
+        })
+      ).rejects.toThrow()
     })
 
     it('uses generateRequest for action/resource resolution at eval time', async () => {
@@ -716,7 +712,7 @@ describe('CedarAuthorization', () => {
         return 'results'
       })
 
-      const cedar = new CedarAuthorization({
+      const cedar = await CedarAuthorization.create({
         policies: 'permit(principal, action == Action::"search", resource);',
         tools,
         principal: { type: 'User', id: 'alice' },
@@ -738,7 +734,7 @@ describe('CedarAuthorization', () => {
         return 'ran'
       })
 
-      const cedar = new CedarAuthorization({
+      const cedar = await CedarAuthorization.create({
         policies: 'permit(principal, action, resource);',
         tools,
         principal: { type: 'User', id: 'alice' },

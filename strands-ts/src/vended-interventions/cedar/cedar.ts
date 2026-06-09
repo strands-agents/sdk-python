@@ -276,7 +276,7 @@ export class CedarAuthorization extends InterventionHandler {
   private readonly _callCounts = new Map<string, number>()
   private readonly _stateKey: string
 
-  constructor(config: CedarAuthorizationConfig) {
+  constructor(config: CedarAuthorizationConfig, schemaGenerator?: SchemaGenerator) {
     super()
     if (config.principal && config.principalResolver) {
       throw new Error('Provide either `principal` or `principalResolver`, not both')
@@ -286,12 +286,12 @@ export class CedarAuthorization extends InterventionHandler {
     this._policies = loadPolicies(config.policies)
     this._entities = loadEntities(config.entities)
     this._tools = config.tools
+    this._schemaGenerator = schemaGenerator
 
-    this._schemaGenerator = config.tools ? loadSchemaGenerator(true) : undefined
     if (config.schema) {
       this._schema = loadSchema(config.schema)
-    } else if (this._schemaGenerator && config.tools) {
-      this._schema = this._schemaGenerator.generateSchema(config.tools)
+    } else if (schemaGenerator && config.tools) {
+      this._schema = schemaGenerator.generateSchema(config.tools)
     } else {
       this._schema = undefined
     }
@@ -307,6 +307,36 @@ export class CedarAuthorization extends InterventionHandler {
     this.onError = config.onError ?? 'throw'
 
     validatePolicies(this._policies, this._schema)
+  }
+
+  /**
+   * Async factory that loads the MCP schema generator for policy validation
+   * against tool definitions. Use this when passing `tools` for automatic
+   * schema generation.
+   *
+   * @example
+   * ```typescript
+   * const cedar = await CedarAuthorization.create({
+   *   policies: './policies/agent.cedar',
+   *   tools: [searchTool, deleteTool],
+   * })
+   * ```
+   */
+  static async create(config: CedarAuthorizationConfig): Promise<CedarAuthorization> {
+    let schemaGenerator: SchemaGenerator | undefined
+    if (config.tools) {
+      try {
+        const wasm = await import('@cedar-policy/mcp-schema-generator-wasm')
+        schemaGenerator = createSchemaGenerator(wasm)
+      } catch {
+        console.warn(
+          'CedarAuthorization: `tools` provided but @cedar-policy/mcp-schema-generator-wasm is not installed. ' +
+            'Schema validation and auto request generation are disabled. ' +
+            'Install it: npm install @cedar-policy/mcp-schema-generator-wasm'
+        )
+      }
+    }
+    return new CedarAuthorization(config, schemaGenerator)
   }
 
   override beforeToolCall(event: BeforeToolCallEvent): InterventionAction {
@@ -489,24 +519,20 @@ interface SchemaGenerator {
   ): { action: CedarEntityUid; resource: CedarEntityUid; entities: CedarEntity[] }
 }
 
-function loadSchemaGenerator(warn: boolean): SchemaGenerator | undefined {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef -- synchronous require for optional peer dep in constructor
-    const wasm = require('@cedar-policy/mcp-schema-generator-wasm') as {
-      generateSchema: (stub: string, toolsJson: string, configJson?: string) => string
-      generateRequest: (
-        stub: string,
-        toolsJson: string,
-        inputJson: string,
-        principalType: string,
-        principalId: string,
-        resourceType: string,
-        resourceId: string,
-        configJson?: string
-      ) => string
-    }
-
-    const defaultStub = `
+function createSchemaGenerator(wasm: {
+  generateSchema: (stub: string, toolsJson: string, configJson?: string) => string
+  generateRequest: (
+    stub: string,
+    toolsJson: string,
+    inputJson: string,
+    principalType: string,
+    principalId: string,
+    resourceType: string,
+    resourceId: string,
+    configJson?: string
+  ) => string
+}): SchemaGenerator {
+  const defaultStub = `
 namespace Agent {
   @mcp_principal
   entity User;
@@ -515,67 +541,56 @@ namespace Agent {
 }
 `
 
-    return {
-      generateSchema(tools: ToolDefinition[]): string {
-        const config = JSON.stringify({ flattenNamespaces: true })
-        const result = JSON.parse(wasm.generateSchema(defaultStub, JSON.stringify(tools), config)) as {
-          schema: string | null
-          error: string | null
-          isOk: boolean
-        }
-        if (!result.isOk || !result.schema) {
-          throw new Error(`Schema generation failed: ${result.error}`)
-        }
-        // Strip namespace wrapper so users can write unqualified action names
-        return result.schema.replace(/^namespace\s+\w+\s*\{/, '').replace(/\}\s*$/, '')
-      },
+  return {
+    generateSchema(tools: ToolDefinition[]): string {
+      const config = JSON.stringify({ flattenNamespaces: true })
+      const result = JSON.parse(wasm.generateSchema(defaultStub, JSON.stringify(tools), config)) as {
+        schema: string | null
+        error: string | null
+        isOk: boolean
+      }
+      if (!result.isOk || !result.schema) {
+        throw new Error(`Schema generation failed: ${result.error}`)
+      }
+      return result.schema.replace(/^namespace\s+\w+\s*\{/, '').replace(/\}\s*$/, '')
+    },
 
-      generateRequest(
-        tools: ToolDefinition[],
-        toolName: string,
-        toolInput: Record<string, CedarValueJson>,
-        principal: CedarEntityUid
-      ): { action: CedarEntityUid; resource: CedarEntityUid; entities: CedarEntity[] } {
-        const input = JSON.stringify({ params: { tool: toolName, args: toolInput } })
-        const config = JSON.stringify({ flattenNamespaces: true })
-        const result = JSON.parse(
-          wasm.generateRequest(
-            defaultStub,
-            JSON.stringify(tools),
-            input,
-            principal.type,
-            principal.id,
-            'Resource',
-            'agent',
-            config
-          )
-        ) as {
-          action: string | null
-          resource: string | null
-          entitiesJson: string | null
-          error: string | null
-          isOk: boolean
-        }
-        if (!result.isOk) {
-          throw new Error(`Request generation failed: ${result.error}`)
-        }
+    generateRequest(
+      tools: ToolDefinition[],
+      toolName: string,
+      toolInput: Record<string, CedarValueJson>,
+      principal: CedarEntityUid
+    ): { action: CedarEntityUid; resource: CedarEntityUid; entities: CedarEntity[] } {
+      const input = JSON.stringify({ params: { tool: toolName, args: toolInput } })
+      const config = JSON.stringify({ flattenNamespaces: true })
+      const result = JSON.parse(
+        wasm.generateRequest(
+          defaultStub,
+          JSON.stringify(tools),
+          input,
+          principal.type,
+          principal.id,
+          'Resource',
+          'agent',
+          config
+        )
+      ) as {
+        action: string | null
+        resource: string | null
+        entitiesJson: string | null
+        error: string | null
+        isOk: boolean
+      }
+      if (!result.isOk) {
+        throw new Error(`Request generation failed: ${result.error}`)
+      }
 
-        return {
-          action: parseEntityUid(result.action!),
-          resource: parseEntityUid(result.resource!),
-          entities: result.entitiesJson ? (JSON.parse(result.entitiesJson) as CedarEntity[]) : [],
-        }
-      },
-    }
-  } catch {
-    if (warn) {
-      console.warn(
-        'CedarAuthorization: `tools` provided but @cedar-policy/mcp-schema-generator-wasm is not installed. ' +
-          'Schema validation and auto request generation are disabled. ' +
-          'Install it: npm install @cedar-policy/mcp-schema-generator-wasm'
-      )
-    }
-    return undefined
+      return {
+        action: parseEntityUid(result.action!),
+        resource: parseEntityUid(result.resource!),
+        entities: result.entitiesJson ? (JSON.parse(result.entitiesJson) as CedarEntity[]) : [],
+      }
+    },
   }
 }
 
