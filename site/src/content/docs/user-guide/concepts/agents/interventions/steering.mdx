@@ -18,6 +18,16 @@ A common workaround is decomposing the agent into a graph with predefined nodes 
 
 Steering takes a different approach: **modular prompting**. Instead of front-loading all instructions, you define context-aware steering handlers that provide feedback at the right moment. Each handler defines the business rules to enforce and the lifecycle hooks where agent behavior should be validated, like before a tool call or before returning output to the user.
 
+## Comparison with Other Approaches
+
+### Steering vs. Workflow Frameworks
+
+Workflow frameworks force you to specify discrete steps and control flow logic upfront, making agents brittle and requiring extensive developer time to define complex decision trees. When business requirements change, you rebuild the workflow logic. Steering uses modular prompting where you define contextual guidance that appears when relevant rather than prescribing exact execution paths. This maintains the adaptive reasoning that makes agents valuable while enabling reliable execution of complex procedures.
+
+### Steering vs. Traditional Prompting
+
+Traditional prompting requires front-loading all instructions into a single prompt. For complex tasks with 30+ steps, this leads to prompt bloat where agents ignore instructions, hallucinate behaviors, or fail to follow critical procedures. Steering provides context-aware reminders that appear at the right moment, like post-it notes that guide agents when they need specific information. This keeps context windows lean while maintaining agent effectiveness on complex tasks.
+
 ## Context Population
 
 To give the handler something to reason about, attach a provider that observes agent activity and records it as steering context.
@@ -31,11 +41,11 @@ flowchart LR
 
 **Context Providers** observe agent activity and contribute structured data into the handler's steering context. The built-in `ToolLedgerProvider` tracks tool call history, timing, and results. Steering handlers read from this context when deciding whether to intervene.
 
-## Steering Moments
+## Intervention Points
 
 ### Before a Tool Call
 
-When you want the handler to validate a tool call before it runs, return a steering action from the before-tool-call moment:
+When you want the handler to validate a tool call before it runs, return a steering action from `beforeToolCall`:
 
 ```mermaid
 flowchart LR
@@ -55,7 +65,7 @@ The handler returns one of three actions:
 
 ### After a Model Response
 
-When you want the handler to validate the model's output before it reaches the user, return a steering action from the after-model-call moment:
+When you want the handler to validate the model's output before it reaches the user, return a steering action from `afterModelCall`:
 
 ```mermaid
 flowchart LR
@@ -71,7 +81,7 @@ The handler returns one of two actions:
 - **`InterventionActions.proceed()`**: accept the response as-is
 - **`InterventionActions.guide(feedback)`**: discard the response and retry with guidance injected into the conversation
 
-## SteeringHandler Base Class
+## Writing Custom Steering Logic
 
 `SteeringHandler` extends `InterventionHandler` and narrows the return types to enforce a steering-specific contract:
 
@@ -88,7 +98,7 @@ The wider intervention vocabulary (`Deny`, `Transform`) is excluded at the type 
 
 `SteeringHandler` also implements `LifecycleObserver`. When the agent initializes, it calls `observeAgent(agent)` on each intervention handler that implements this interface. `SteeringHandler` forwards this call to its registered context providers, allowing them to self-subscribe to agent hooks.
 
-## LLMSteeringHandler
+## Steering with Natural Language
 
 When you want to express steering rules in natural language rather than imperative code, use `LLMSteeringHandler`. It delegates decisions to an LLM that evaluates each tool call against your system prompt and the accumulated steering context.
 
@@ -139,7 +149,7 @@ The default prompt builder uses **prompt caching**: static instructions are sepa
 
 For best practices on writing steering prompts, see the [Agent Standard Operating Procedures (SOP)](https://github.com/strands-agents/agent-sop) framework.
 
-## Context Providers
+## What the Handler Sees
 
 Context providers are passive observers that track agent activity and supply structured data to steering handlers. They implement the `SteeringContextProvider` interface:
 
@@ -174,16 +184,6 @@ This gives the steering LLM visibility into patterns like repeated failures, exc
 | `name` | `string` | `'strands:steering:toolLedger'` | Provider instance identifier |
 
 `LLMSteeringHandler` creates a `ToolLedgerProvider` by default if you don't specify `contextProviders`. Pass an empty array to disable it, or combine it with your own providers for richer context.
-
-## Comparison with Other Approaches
-
-### Steering vs. Workflow Frameworks
-
-Workflow frameworks force you to specify discrete steps and control flow logic upfront, making agents brittle and requiring extensive developer time to define complex decision trees. When business requirements change, you rebuild the workflow logic. Steering uses modular prompting where you define contextual guidance that appears when relevant rather than prescribing exact execution paths. This maintains the adaptive reasoning that makes agents valuable while enabling reliable execution of complex procedures.
-
-### Steering vs. Traditional Prompting
-
-Traditional prompting requires front-loading all instructions into a single prompt. For complex tasks with 30+ steps, this leads to prompt bloat where agents ignore instructions, hallucinate behaviors, or fail to follow critical procedures. Steering provides context-aware reminders that appear at the right moment, like post-it notes that guide agents when they need specific information. This keeps context windows lean while maintaining agent effectiveness on complex tasks.
 
 ## Related topics
 
