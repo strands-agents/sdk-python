@@ -61,13 +61,12 @@ async function asToolExample() {
 
 async function basicServerExample() {
   // --8<-- [start:basic_server]
-  const agent = new Agent({
-    systemPrompt: 'You are a calculator agent that can perform basic arithmetic.',
-  })
-
-  // Create and start the A2A server
+  // Build a fresh agent for each A2A context so callers stay isolated
   const server = new A2AExpressServer({
-    agent,
+    agentFactory: (contextId) =>
+      new Agent({
+        systemPrompt: 'You are a calculator agent that can perform basic arithmetic.',
+      }),
     name: 'Calculator Agent',
     description: 'A calculator agent that can perform basic arithmetic operations.',
   })
@@ -76,16 +75,34 @@ async function basicServerExample() {
   // --8<-- [end:basic_server]
 }
 
-async function serverConfigExample() {
-  const agent = new Agent({
-    systemPrompt: 'You are a helpful agent.',
+async function factoryServerExample() {
+  // --8<-- [start:factory_server]
+  // The factory runs once per contextId. Wire per context concerns such as a
+  // session manager here so each conversation stays isolated.
+  const server = new A2AExpressServer({
+    agentFactory: (contextId) =>
+      new Agent({
+        name: 'Calculator Agent',
+        description: 'A calculator agent.',
+      }),
+    name: 'Calculator Agent',
+    maxContexts: 1000,
   })
 
+  await server.serve()
+  // --8<-- [end:factory_server]
+}
+
+async function serverConfigExample() {
   // --8<-- [start:server_config]
   const server = new A2AExpressServer({
-    agent,
+    agentFactory: (contextId) =>
+      new Agent({
+        systemPrompt: 'You are a helpful agent.',
+      }),
     name: 'My Agent',
     description: 'A helpful agent',
+    maxContexts: 1000, // Retain at most 1000 per context agents; evict least recently used
     host: '0.0.0.0',
     port: 8080,
     version: '1.0.0',
@@ -100,15 +117,12 @@ async function serverConfigExample() {
 }
 
 async function expressMiddlewareExample() {
-  const agent = new Agent({
-    systemPrompt: 'You are a helpful agent.',
-  })
-
   // --8<-- [start:express_middleware]
   const express = (await import('express')).default
 
   const server = new A2AExpressServer({
-    agent,
+    agentFactory: (contextId) =>
+      new Agent({ systemPrompt: 'You are a customizable agent.' }),
     name: 'My Agent',
     description: 'A customizable agent',
   })
@@ -130,12 +144,11 @@ async function expressMiddlewareExample() {
 }
 
 async function abortExample() {
-  const agent = new Agent({
-    systemPrompt: 'You are a helpful agent.',
-  })
-
   // --8<-- [start:abort_signal]
-  const server = new A2AExpressServer({ agent, name: 'My Agent' })
+  const server = new A2AExpressServer({
+    agentFactory: (contextId) => new Agent({ systemPrompt: 'You are a helpful agent.' }),
+    name: 'My Agent',
+  })
 
   const controller = new AbortController()
   await server.serve({ signal: controller.signal })
@@ -149,6 +162,7 @@ void basicUsageExample()
 void streamingExample()
 void asToolExample()
 void basicServerExample()
+void factoryServerExample()
 void serverConfigExample()
 void expressMiddlewareExample()
 void abortExample()
