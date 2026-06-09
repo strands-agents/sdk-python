@@ -491,7 +491,7 @@ interface SchemaGenerator {
 
 function loadSchemaGenerator(warn: boolean): SchemaGenerator | undefined {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef -- synchronous require for optional peer dep in constructor
     const wasm = require('@cedar-policy/mcp-schema-generator-wasm') as {
       generateSchema: (stub: string, toolsJson: string, configJson?: string) => string
       generateRequest: (
@@ -535,7 +535,7 @@ namespace Agent {
         toolName: string,
         toolInput: Record<string, CedarValueJson>,
         principal: CedarEntityUid
-      ) {
+      ): { action: CedarEntityUid; resource: CedarEntityUid; entities: CedarEntity[] } {
         const input = JSON.stringify({ params: { tool: toolName, args: toolInput } })
         const config = JSON.stringify({ flattenNamespaces: true })
         const result = JSON.parse(
