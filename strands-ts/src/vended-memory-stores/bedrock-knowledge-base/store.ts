@@ -2,7 +2,6 @@ import { BedrockAgentRuntimeClient, RetrieveCommand, type RetrievalFilter } from
 import {
   BedrockAgentClient,
   type KnowledgeBaseDocument,
-  type MetadataAttribute,
   type MetadataAttributeValue,
   IngestKnowledgeBaseDocumentsCommand,
 } from '@aws-sdk/client-bedrock-agent'
@@ -194,7 +193,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
    *   `_sourceLocation` (Bedrock retrieval location object).
    */
   async search(query: string, options?: SearchOptions): Promise<MemoryEntry[]> {
-    const limit = options?.maxSearchResults || this.maxSearchResults || DEFAULT_MAX_SEARCH_RESULTS
+    const limit = Math.max(options?.maxSearchResults || this.maxSearchResults || DEFAULT_MAX_SEARCH_RESULTS, 1)
 
     let response
     try {
@@ -252,6 +251,9 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
    * @returns The document identifier (UUID for CUSTOM, s3:// URI for S3)
    */
   async add(content: string, metadata?: Record<string, JSONValue>): Promise<BedrockKnowledgeBaseAddResult> {
+    if (!this.writable) {
+      throw new Error('BedrockKnowledgeBaseStore: store is not writable. Set writable: true in config to enable add().')
+    }
     if (!content.trim()) {
       throw new Error('BedrockKnowledgeBaseStore: content must not be empty.')
     }
@@ -383,20 +385,17 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   }
 
   /**
-   * Builds a document for a `CUSTOM` data source: the text ingested inline, with the scope and any
-   * caller metadata attached as inline attributes for retrieval filtering. The caller supplies
-   * `documentId` (so it can return that same id to its own caller) and it becomes the document's
-   * `customDocumentIdentifier`.
+   * Resolves scope and caller metadata into a flat list of key-value pairs, handling collision
+   * detection and unsupported-type filtering. Shared by both CUSTOM (inline attributes) and S3
+   * (sidecar) document builders.
    */
-  private _buildCustomDocument(
-    documentId: string,
-    content: string,
+  private _resolveAttributes(
     metadata?: Record<string, JSONValue>
-  ): KnowledgeBaseDocument {
-    const inlineAttributes: MetadataAttribute[] = []
+  ): Array<{ key: string; value: MetadataAttributeValue }> {
+    const attrs: Array<{ key: string; value: MetadataAttributeValue }> = []
 
     if (this._scope) {
-      inlineAttributes.push({ key: this._scopeMetadataKey, value: { type: 'STRING', stringValue: this._scope } })
+      attrs.push({ key: this._scopeMetadataKey, value: { type: 'STRING', stringValue: this._scope } })
     }
 
     if (metadata) {
@@ -407,12 +406,28 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
         }
         const attributeValue = toAttributeValue(value)
         if (attributeValue) {
-          inlineAttributes.push({ key, value: attributeValue })
+          attrs.push({ key, value: attributeValue })
         } else {
           logger.debug(`store=<${this.name}>, key=<${key}> | dropping metadata value of unsupported type`)
         }
       }
     }
+
+    return attrs
+  }
+
+  /**
+   * Builds a document for a `CUSTOM` data source: the text ingested inline, with the scope and any
+   * caller metadata attached as inline attributes for retrieval filtering. The caller supplies
+   * `documentId` (so it can return that same id to its own caller) and it becomes the document's
+   * `customDocumentIdentifier`.
+   */
+  private _buildCustomDocument(
+    documentId: string,
+    content: string,
+    metadata?: Record<string, JSONValue>
+  ): KnowledgeBaseDocument {
+    const attrs = this._resolveAttributes(metadata)
 
     const document: KnowledgeBaseDocument = {
       content: {
@@ -428,10 +443,10 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
       },
     }
 
-    if (inlineAttributes.length > 0) {
+    if (attrs.length > 0) {
       document.metadata = {
         type: 'IN_LINE_ATTRIBUTE',
-        inlineAttributes,
+        inlineAttributes: attrs.map(({ key, value }) => ({ key, value })),
       }
     }
 
@@ -444,30 +459,11 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
    * that as "no sidecar" and skips writing the second object.
    */
   private _buildS3SidecarAttributes(metadata?: Record<string, JSONValue>): Record<string, S3SidecarAttribute> {
+    const attrs = this._resolveAttributes(metadata)
     const attributes: Record<string, S3SidecarAttribute> = {}
-
-    if (this._scope) {
-      attributes[this._scopeMetadataKey] = {
-        value: { type: 'STRING', stringValue: this._scope },
-        includeForEmbedding: false,
-      }
+    for (const { key, value } of attrs) {
+      attributes[key] = { value, includeForEmbedding: false }
     }
-
-    if (metadata) {
-      for (const [key, value] of Object.entries(metadata)) {
-        if (this._scope && key === this._scopeMetadataKey) {
-          logger.warn(`store=<${this.name}>, key=<${key}> | dropping metadata key that collides with scopeMetadataKey`)
-          continue
-        }
-        const attributeValue = toAttributeValue(value)
-        if (attributeValue) {
-          attributes[key] = { value: attributeValue, includeForEmbedding: false }
-        } else {
-          logger.debug(`store=<${this.name}>, key=<${key}> | dropping metadata value of unsupported type`)
-        }
-      }
-    }
-
     return attributes
   }
 

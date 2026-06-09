@@ -335,6 +335,12 @@ describe('BedrockKnowledgeBaseStore', () => {
       ).toThrow('dataSourceId is required')
     })
 
+    it('throws when content is empty or whitespace-only', async () => {
+      const { store } = customStore()
+      await expect(store.add('')).rejects.toThrow('content must not be empty')
+      await expect(store.add('   ')).rejects.toThrow('content must not be empty')
+    })
+
     it('returns the generated custom document id', async () => {
       const { store } = customStore()
       await expect(store.add('fact')).resolves.toStrictEqual({ documentId: 'test-uuid-v7' })
@@ -379,6 +385,19 @@ describe('BedrockKnowledgeBaseStore', () => {
       expect(document.metadata.inlineAttributes).toStrictEqual([
         { key: 'namespace', value: { type: 'STRING', stringValue: 'user-123' } },
       ])
+    })
+
+    it('drops metadata keys that collide with scopeMetadataKey and preserves scope', async () => {
+      const { store, agent } = customStore({ scope: 'tenant-A' })
+      const warnSpy = vi.spyOn(logger, 'warn')
+      await store.add('fact', { namespace: 'tenant-EVIL', other: 'ok' })
+      const document = agent.send.mock.calls[0]?.[0].input.documents[0]
+      const attrs = document.metadata.inlineAttributes
+      expect(attrs.filter((a: any) => a.key === 'namespace')).toHaveLength(1)
+      expect(attrs.find((a: any) => a.key === 'namespace').value.stringValue).toBe('tenant-A')
+      expect(attrs.find((a: any) => a.key === 'other')).toBeDefined()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('collides with scopeMetadataKey'))
+      warnSpy.mockRestore()
     })
 
     it('maps supported metadata value types and skips unsupported ones', async () => {
@@ -617,10 +636,8 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
   })
 
-  describe('add — unsupported data source', () => {
-    // A non-writable store can't be reached through MemoryManager, but calling add() on it directly
-    // must fail fast with a clear local error rather than building a malformed document for Bedrock.
-    it("throws when dataSourceType is 'OTHER'", async () => {
+  describe('add — non-writable store', () => {
+    it('throws when add is called on a non-writable store', async () => {
       const agent = mockClient()
       const store = new BedrockKnowledgeBaseStore({
         name: 'kb',
@@ -629,19 +646,7 @@ describe('BedrockKnowledgeBaseStore', () => {
         dataSourceId: 'ds-1',
         agentClient: agent as any,
       })
-      await expect(store.add('fact')).rejects.toThrow("add requires dataSourceType 'CUSTOM' or 'S3'")
-      expect(agent.send).not.toHaveBeenCalled()
-    })
-
-    it('throws when dataSourceType is omitted', async () => {
-      const agent = mockClient()
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        dataSourceId: 'ds-1',
-        agentClient: agent as any,
-      })
-      await expect(store.add('fact')).rejects.toThrow("but it is 'undefined'")
+      await expect(store.add('fact')).rejects.toThrow('store is not writable')
       expect(agent.send).not.toHaveBeenCalled()
     })
   })
