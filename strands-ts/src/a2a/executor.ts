@@ -10,6 +10,7 @@ import type { AgentExecutor } from '@a2a-js/sdk/server'
 import { A2AError } from '@a2a-js/sdk/server'
 import type { InvokableAgent, LocalAgent } from '../types/agent.js'
 import type { Snapshot } from '../types/snapshot.js'
+import type { ContentBlock } from '../types/messages.js'
 import { ModelStreamUpdateEvent, ContentBlockEvent } from '../hooks/events.js'
 import { contentBlocksToParts, partsToContentBlocks } from './adapters.js'
 import { normalizeError } from '../errors.js'
@@ -54,7 +55,7 @@ interface ContextEntry {
  * Provide exactly one of `agent` (deprecated) or `agentFactory`.
  */
 export interface A2AExecutorOptions {
-  /** A single agent reused across contexts. Deprecated; prefer `agentFactory`. */
+  /** @deprecated A single agent reused across contexts. Prefer `agentFactory`. */
   agent?: InvokableAgent
   /**
    * Callable that takes a `contextId` and returns a fresh agent per context. Recommended.
@@ -281,7 +282,7 @@ export class A2AExecutor implements AgentExecutor {
    */
   private async _runWithContextAgent(
     context: RequestContext,
-    contentBlocks: ReturnType<typeof partsToContentBlocks>,
+    contentBlocks: ContentBlock[],
     eventBus: ExecutionEventBus
   ): Promise<void> {
     const { agent, lock } = await this._acquireContextAgent(context.contextId)
@@ -301,7 +302,7 @@ export class A2AExecutor implements AgentExecutor {
    */
   private async _runWithSharedAgent(
     context: RequestContext,
-    contentBlocks: ReturnType<typeof partsToContentBlocks>,
+    contentBlocks: ContentBlock[],
     eventBus: ExecutionEventBus
   ): Promise<void> {
     const agent = this._agent!
@@ -330,7 +331,7 @@ export class A2AExecutor implements AgentExecutor {
   private async _streamAgent(
     agent: InvokableAgent,
     context: RequestContext,
-    contentBlocks: ReturnType<typeof partsToContentBlocks>,
+    contentBlocks: ContentBlock[],
     eventBus: ExecutionEventBus
   ): Promise<void> {
     const { taskId, contextId } = context

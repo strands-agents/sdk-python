@@ -23,7 +23,7 @@ const AGENT_CARD_CONTEXT_ID = '__agent_card__'
  * Provide exactly one of `agent` (deprecated) or `agentFactory`.
  */
 export interface A2AServerConfig {
-  /** The Strands Agent to serve via A2A protocol. Deprecated; prefer `agentFactory`. */
+  /** @deprecated The Strands Agent to serve via A2A protocol. Prefer `agentFactory`. */
   agent?: InvokableAgent
   /**
    * Callable that takes a `contextId` and returns a dedicated agent per A2A context.
