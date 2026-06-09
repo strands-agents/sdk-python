@@ -1,0 +1,202 @@
+name: Dependabot Auto Merge
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: write
+  id-token: write
+
+jobs:
+  prep:
+    name: Prep and sanitize
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    outputs:
+      ecosystem: ${{ steps.parse.outputs.ecosystem }}
+      grouped: ${{ steps.parse.outputs.grouped }}
+      sanitized_changelog: ${{ steps.sanitize.outputs.changelog }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+      - name: Parse title
+        id: parse
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          OUT=$(printf '%s' "$PR_TITLE" | python .github/scripts/parse_dependabot_title.py)
+          echo "ecosystem=$(printf '%s' "$OUT" | python -c 'import json,sys; print(json.load(sys.stdin)["ecosystem"])')" >> "$GITHUB_OUTPUT"
+          echo "grouped=$(printf '%s' "$OUT" | python -c 'import json,sys; print(str(json.load(sys.stdin)["grouped"]).lower())')" >> "$GITHUB_OUTPUT"
+      - name: Sanitize body
+        id: sanitize
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          CLEAN=$(printf '%s' "$PR_BODY" | python .github/scripts/sanitize_dependabot_body.py)
+          DELIM="SANITIZED_$(openssl rand -hex 8)"
+          {
+            echo "changelog<<$DELIM"
+            echo "$CLEAN"
+            echo "$DELIM"
+          } >> "$GITHUB_OUTPUT"
+
+  parse-input:
+    name: Parse agent input
+    needs: prep
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Parse input
+        uses: strands-agents/devtools/strands-command/actions/strands-input-parser@main
+        with:
+          issue_id: ${{ github.event.pull_request.number }}
+          command: dependabot-analyze
+
+  analyze:
+    name: Run analysis agent
+    needs: [prep, parse-input]
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Run Strands Agent
+        uses: strands-agents/devtools/strands-command/actions/strands-agent-runner@main
+        with:
+          aws_role_arn: ${{ secrets.AWS_ROLE_ARN }}
+          sessions_bucket: ${{ secrets.AGENT_SESSIONS_BUCKET }}
+          write_permission: 'false'
+          sanitized_changelog: ${{ needs.prep.outputs.sanitized_changelog }}
+
+  finalize:
+    name: Finalize agent writes
+    if: always()
+    needs: [parse-input, analyze]
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Execute write operations
+        uses: strands-agents/devtools/strands-command/actions/strands-finalize@main
+
+  verdict:
+    name: Parse verdict and set check
+    needs: finalize
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.read.outputs.verdict }}
+    steps:
+      - name: Read agent comment and extract verdict
+        id: read
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # Only trust comments authored by github-actions[bot] (the agent posts
+          # via GITHUB_TOKEN). This prevents a non-privileged commenter from
+          # injecting a forged verdict block. Take the most recent such comment.
+          BODY=$(gh api "repos/$REPO/issues/$PR/comments" \
+            --jq 'map(select(.user.login == "github-actions[bot]")) | last.body // ""')
+          VERDICT=$(printf '%s' "$BODY" | grep -oE '\{"verdict": *"(safe|needs-review|breaking)"\}' | tail -1 | python -c 'import json,sys; print(json.load(sys.stdin)["verdict"])' 2>/dev/null || echo "needs-review")
+          echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
+      - name: Create check run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          VERDICT: ${{ steps.read.outputs.verdict }}
+        run: |
+          case "$VERDICT" in
+            safe) CONCLUSION=success; TITLE="Safe to merge" ;;
+            breaking) CONCLUSION=failure; TITLE="Breaking changes detected" ;;
+            *) CONCLUSION=action_required; TITLE="Needs maintainer review" ;;
+          esac
+          gh api "repos/$REPO/check-runs" --method POST \
+            -f name="Dependabot Analysis" \
+            -f head_sha="$SHA" \
+            -f status="completed" \
+            -f conclusion="$CONCLUSION" \
+            -f "output[title]=$TITLE" \
+            -f "output[summary]=See the analysis comment on this PR for details."
+
+  integration-tests:
+    name: Integration tests
+    needs: [prep, verdict]
+    if: needs.verdict.outputs.verdict == 'safe' && (needs.prep.outputs.ecosystem == 'python' || needs.prep.outputs.ecosystem == 'typescript')
+    uses: ./.github/workflows/dependabot-integration-tests.yml
+    with:
+      ecosystem: ${{ needs.prep.outputs.ecosystem }}
+      pr_number: ${{ github.event.pull_request.number }}
+    secrets: inherit
+
+  auto-merge:
+    name: Enable auto-merge
+    needs: [prep, verdict, integration-tests]
+    if: always() && needs.verdict.outputs.verdict == 'safe' && (needs.prep.outputs.ecosystem == 'python' || needs.prep.outputs.ecosystem == 'typescript') && needs.integration-tests.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label and enable auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr edit "$PR" --repo "$REPO" --add-label "dependabot-safe"
+          gh pr merge "$PR" --repo "$REPO" --auto --squash
+
+  label-safe-no-merge:
+    name: Label safe (manual merge)
+    needs: [prep, verdict]
+    if: always() && needs.verdict.outputs.verdict == 'safe' && needs.prep.outputs.ecosystem != 'python' && needs.prep.outputs.ecosystem != 'typescript'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label safe without auto-merge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr edit "$PR" --repo "$REPO" --add-label "dependabot-safe"
+          gh pr comment "$PR" --repo "$REPO" --body "Analysis verdict: **safe**. No integration tests apply to this update; a maintainer can review the generated preview and merge."
+
+  flag-for-review:
+    name: Flag for review
+    needs: [prep, verdict, integration-tests]
+    # Flag whenever the PR is not on a clean path: a non-safe verdict, OR a
+    # safe python/typescript verdict whose integration tests did not succeed
+    # (failure, cancelled, or skipped due to a dispatch error).
+    if: >-
+      always() &&
+      (needs.verdict.outputs.verdict != 'safe' ||
+       ((needs.prep.outputs.ecosystem == 'python' || needs.prep.outputs.ecosystem == 'typescript') &&
+        needs.integration-tests.result != 'success'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add needs-review label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          TESTS_RESULT: ${{ needs.integration-tests.result }}
+        run: |
+          gh pr edit "$PR" --repo "$REPO" --add-label "dependabot-needs-review"
+          if [ "$TESTS_RESULT" = "failure" ]; then
+            gh pr comment "$PR" --repo "$REPO" --body "Integration tests failed. A maintainer can run \`/strands implement\` to address the failures."
+          fi
