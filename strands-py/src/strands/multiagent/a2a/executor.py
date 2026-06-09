@@ -176,12 +176,7 @@ class StrandsA2AExecutor(AgentExecutor):
             self._snapshots: OrderedDict[str, Snapshot] = OrderedDict()
 
     def _capture_state(self, agent: SAAgent) -> Snapshot:
-        """Snapshot an agent's session state.
-
-        The ``session`` preset includes ``model_state`` (provider runtime state such as
-        server-side response ids), so it is captured and restored automatically. ``take_snapshot``
-        deep-copies session fields, so the snapshot is independent of the live agent.
-        """
+        """Snapshot an agent's session state."""
         return agent.take_snapshot(preset="session")
 
     def _restore_state(self, agent: SAAgent, snapshot: Snapshot) -> None:
