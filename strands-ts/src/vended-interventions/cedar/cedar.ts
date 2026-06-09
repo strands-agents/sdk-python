@@ -31,124 +31,30 @@ export interface ToolDefinition {
  * @see {@link https://docs.cedarpolicy.com/syntax-policy.html | Cedar policy syntax}
  */
 export interface CedarAuthorizationConfig {
-  /**
-   * Cedar policy text, or a path to a `.cedar` file on disk.
-   *
-   * @example
-   * ```typescript
-   * // Inline policy
-   * { policies: 'permit(principal, action == Action::"search", resource);' }
-   *
-   * // File path
-   * { policies: './policies/agent.cedar' }
-   * ```
-   */
+  /** Cedar policy text, or a path to a `.cedar` file on disk. */
   policies: string
 
-  /**
-   * Tool definitions for automatic schema generation and request mapping.
-   * When provided (and `@cedar-policy/mcp-schema-generator-wasm` is installed),
-   * the handler auto-generates a Cedar schema from your tools and uses
-   * `generateRequest()` for action/resource resolution at evaluation time.
-   *
-   * This enables compile-time policy validation against your actual tool
-   * definitions — catching typos, type mismatches, and references to
-   * nonexistent tools at startup.
-   *
-   * Accepts the same format as MCP `tools/list` responses.
-   *
-   * @example
-   * ```typescript
-   * { tools: [
-   *   { name: 'search', inputSchema: { type: 'object', properties: { query: { type: 'string' } } } },
-   *   { name: 'delete', inputSchema: { type: 'object', properties: { id: { type: 'string' } } } },
-   * ]}
-   * ```
-   */
+  /** Tool definitions (MCP format) for auto schema generation. Use with `CedarAuthorization.create()`. */
   tools?: ToolDefinition[]
 
-  /**
-   * Entity data as an array, or a path to a `.json` file on disk.
-   *
-   * **Most policies don't need this.** For role-based access, pass the role
-   * via `invocationState` and check it in `context.session` instead:
-   * ```typescript
-   * contextEnricher: ({ invocationState }) => ({ role: String(invocationState.role) }),
-   * ```
-   * ```cedar
-   * permit(principal, action, resource) when { context.session.role == "admin" };
-   * ```
-   *
-   * Only use `entities` when you need Cedar's entity hierarchy — e.g.
-   * `principal in Role::"admin"` with parent relationships, or static
-   * attributes that don't change per-request.
-   */
+  /** Entity data (array or path to `.json` file). Only needed for Cedar entity hierarchy. */
   entities?: EntityJson[] | string
 
-  /**
-   * Cedar schema text, or a path to a `.cedarschema` file on disk.
-   * When provided, policies are validated against the schema at construction
-   * time — catching type errors, unknown attributes, and invalid action names
-   * before any tool call happens.
-   *
-   * When `tools` is provided and `@cedar-policy/mcp-schema-generator-wasm` is
-   * installed, the schema is auto-generated and this field is not needed.
-   */
+  /** Cedar schema for policy validation. Auto-generated when `tools` is provided. */
   schema?: string
 
-  /**
-   * Static principal identity. Use for single-user or CLI agents where the
-   * identity is known upfront and doesn't change between invocations.
-   *
-   * When neither `principal` nor `principalResolver` is provided, defaults to
-   * `User::"anonymous"` — policies can still permit actions for any principal.
-   *
-   * Mutually exclusive with `principalResolver`.
-   *
-   * @example
-   * ```typescript
-   * { principal: { type: 'User', id: 'alice@acme.com' } }
-   * ```
-   */
+  /** Static principal. Defaults to `User::"anonymous"`. Mutually exclusive with `principalResolver`. */
   principal?: TypeAndId
 
   /**
-   * Dynamic principal resolver for multi-tenant agents. Called on every tool
-   * invocation to extract the principal from `invocationState`.
-   * Return `undefined` to deny the request (fail-closed).
-   *
-   * Mutually exclusive with `principal`.
-   *
-   * @example
-   * ```typescript
-   * principalResolver: (state) => {
-   *   if (!state.user_id) return undefined
-   *   return { type: 'User', id: String(state.user_id) }
-   * }
-   * ```
+   * Dynamic principal resolver for multi-tenant agents.
+   * Return `undefined` to deny (fail-closed). Mutually exclusive with `principal`.
    */
   principalResolver?: ((invocationState: Record<string, unknown>) => TypeAndId | undefined) | undefined
 
   /**
-   * Adds extra fields to the `context.session` object passed to Cedar.
-   * Called on every tool invocation. Cannot overwrite built-in fields
-   * (`hour_utc`, `call_count`).
-   *
-   * Use this to inject values from `invocationState` (e.g. environment,
-   * tenant, department) into the Cedar context for policy evaluation.
-   *
-   * **Important**: If a policy references a field that doesn't exist in context,
-   * Cedar skips that policy (it doesn't deny). For fail-closed behavior on
-   * optional fields, use the allow-list pattern in your policies:
-   * ```cedar
-   * // SAFE: missing environment → no permit → deny
-   * permit(principal, action, resource)
-   * when { context.session has environment && context.session.environment != "production" };
-   *
-   * // Or: deny everything when field is absent
-   * forbid(principal, action, resource)
-   * unless { context.session has environment };
-   * ```
+   * Injects extra fields into `context.session`. Cannot overwrite `hour_utc` or `call_count`.
+   * Use to forward `invocationState` values (role, environment, etc.) into Cedar context.
    *
    * @see {@link https://docs.cedarpolicy.com/policies/syntax-operators.html | Cedar `has` operator}
    */
@@ -161,70 +67,27 @@ export interface CedarAuthorizationConfig {
     | undefined
 
   /**
-   * What to do when the handler throws during evaluation.
-   * - `'throw'` (default) — rethrow the error
-   * - `'deny'` — treat errors as denials (fail-closed)
-   * - `'proceed'` — **dangerous: fail-open** — ignore errors and allow the tool call.
-   *   Only use for non-critical observability-only deployments where blocking on
-   *   auth errors is worse than allowing unauthenticated access.
+   * Error handling: `'throw'` (default), `'deny'` (fail-closed), `'proceed'` (dangerous: fail-open).
    */
   onError?: OnError | undefined
 }
 
 /**
- * Cedar authorization intervention handler.
+ * Cedar authorization intervention handler. Evaluates policies before each tool call.
  *
- * Evaluates {@link https://cedarpolicy.com | Cedar} policies before each tool call
- * using {@link https://www.npmjs.com/package/@cedar-policy/cedar-wasm | @cedar-policy/cedar-wasm}.
+ * Each tool maps to: Action = tool name, Resource = unconstrained,
+ * Context = `{ input: <tool args>, session: { hour_utc, call_count, ...enricher } }`.
  *
- * Uses the {@link https://github.com/cedar-policy/cedar-for-agents | cedar-for-agents}
- * schema generator conventions:
- * - One Cedar action per tool (e.g. `Action::"search"`)
- * - Resource is unconstrained by default
- * - Context is nested: `{ input: <tool args>, session: { hour_utc, call_count, ... } }`
- *
- * **`context.session.call_count` behavior:**
- * - Stored on `agent.appState` — persists across invocations when a session manager is configured
- * - Counts only **successful** (permitted) tool calls — denied attempts do not consume budget
- * - Scoped per-agent-instance — multiple agent instances or load-balanced workers have separate counters
- * - Resets when a new agent instance is created without restoring session state
- * - For hard distributed rate limiting, use an external store (Redis, etc.) via `contextEnricher`
- *
- * @see {@link https://docs.cedarpolicy.com/syntax-policy.html | Cedar policy syntax}
- * @see {@link https://docs.cedarpolicy.com/syntax-entity.html | Cedar entity model}
+ * @see {@link https://cedarpolicy.com | Cedar} · {@link https://github.com/cedar-policy/cedar-for-agents | cedar-for-agents}
  *
  * @example
  * ```typescript
- * import { CedarAuthorization } from '@strands-agents/sdk/vended-interventions/cedar'
- *
- * // Simple: permit specific tools, deny everything else
  * const cedar = new CedarAuthorization({
- *   policies: `
- *     permit(principal, action == Action::"search", resource);
- *     permit(principal, action == Action::"read_file", resource);
- *   `,
+ *   policies: 'permit(principal, action == Action::"search", resource);',
  * })
  *
- * // Role-based: pass role via invocationState, check in context
- * const cedar = new CedarAuthorization({
- *   policies: `
- *     permit(principal, action, resource) when { context.session.role == "admin" };
- *     permit(principal, action == Action::"search", resource) when { context.session.role == "analyst" };
- *   `,
- *   principalResolver: (state) => {
- *     if (!state.user_id) return undefined
- *     return { type: 'User', id: String(state.user_id) }
- *   },
- *   contextEnricher: ({ invocationState }) => ({
- *     role: String(invocationState.role ?? 'none'),
- *   }),
- * })
- *
- * // With schema validation (requires @cedar-policy/mcp-schema-generator-wasm)
- * const cedar = new CedarAuthorization({
- *   policies: './policies/agent.cedar',
- *   tools: [searchTool, deleteTool],  // auto-generates schema from tool definitions
- * })
+ * // With schema validation:
+ * const cedar = await CedarAuthorization.create({ policies: '...', tools: [searchTool] })
  * ```
  */
 export class CedarAuthorization extends InterventionHandler {
@@ -279,25 +142,13 @@ export class CedarAuthorization extends InterventionHandler {
     validatePolicies(this._policies, this._schema)
   }
 
-  /**
-   * Async factory that loads the MCP schema generator for policy validation
-   * against tool definitions. Use this when passing `tools` for automatic
-   * schema generation.
-   *
-   * @example
-   * ```typescript
-   * const cedar = await CedarAuthorization.create({
-   *   policies: './policies/agent.cedar',
-   *   tools: [searchTool, deleteTool],
-   * })
-   * ```
-   */
+  /** Async factory — use when passing `tools` for auto schema generation. */
   static async create(config: CedarAuthorizationConfig): Promise<CedarAuthorization> {
     let schemaGenerator: SchemaGenerator | undefined
     if (config.tools) {
       try {
-        const wasm = await import('@cedar-policy/mcp-schema-generator-wasm')
-        schemaGenerator = createSchemaGenerator(wasm)
+        const mcpSchemaGenerator = await import('@cedar-policy/mcp-schema-generator-wasm')
+        schemaGenerator = createSchemaGenerator(mcpSchemaGenerator)
       } catch {
         console.warn(
           'CedarAuthorization: `tools` provided but @cedar-policy/mcp-schema-generator-wasm is not installed. ' +
@@ -317,7 +168,7 @@ export class CedarAuthorization extends InterventionHandler {
     }
 
     const callCount = this._incrementCallCount(event.agent, event.toolUse.name)
-    const toolInput = (event.toolUse.input ?? {}) as Record<string, unknown>
+    const toolInput = (event.toolUse.input ?? {}) as Record<string, CedarValueJson>
 
     let action: TypeAndId
     let resource: TypeAndId
@@ -327,7 +178,7 @@ export class CedarAuthorization extends InterventionHandler {
       const request = this._schemaGenerator.generateRequest(
         this._tools,
         event.toolUse.name,
-        toolInput as Record<string, CedarValueJson>,
+        toolInput,
         principal
       )
       action = request.action
@@ -344,7 +195,7 @@ export class CedarAuthorization extends InterventionHandler {
       action,
       resource,
       context: {
-        input: toolInput as Record<string, CedarValueJson>,
+        input: toolInput,
         session: {
           ...(this._contextEnricher
             ? this._contextEnricher({ toolName: event.toolUse.name, toolInput, invocationState })
@@ -373,20 +224,13 @@ export class CedarAuthorization extends InterventionHandler {
     return proceed()
   }
 
-  /**
-   * Clears the rate-limit call counters stored on the agent's appState.
-   */
+  /** Clears rate-limit call counters. */
   resetCallCounts(agent: { appState: { set: (key: string, value: unknown) => void } }): void {
     this._callCounts.clear()
     agent.appState.set(this._stateKey, {})
   }
 
-  /**
-   * Reloads policies and entities from their original sources (file paths or inline).
-   * Use this to pick up policy file changes at runtime without recreating the handler.
-   *
-   * @throws If the policy file no longer exists or contains invalid Cedar syntax.
-   */
+  /** Reloads policies/entities from disk. Validates before committing. */
   reload(): void {
     const policies = loadPolicies(this._policySource)
     const entities = loadEntities(this._entitySource)
