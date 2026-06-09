@@ -10,12 +10,16 @@ import type { AgentExecutor } from '@a2a-js/sdk/server'
 import { A2AError } from '@a2a-js/sdk/server'
 import type { InvokableAgent, LocalAgent } from '../types/agent.js'
 import type { Snapshot } from '../types/snapshot.js'
-import { deepCopy } from '../types/json.js'
 import { ModelStreamUpdateEvent, ContentBlockEvent } from '../hooks/events.js'
 import { contentBlocksToParts, partsToContentBlocks } from './adapters.js'
 import { normalizeError } from '../errors.js'
 import { logger } from '../logging/logger.js'
 import { AsyncLock } from './async-lock.js'
+
+/** Deep-copies a snapshot. Snapshots are JSON-serializable, so a round-trip is sufficient. */
+function cloneSnapshot(snapshot: Snapshot): Snapshot {
+  return JSON.parse(JSON.stringify(snapshot)) as Snapshot
+}
 
 /**
  * A factory that builds a fresh {@link Agent} for a given A2A `contextId`.
@@ -46,11 +50,14 @@ interface ContextEntry {
 
 /**
  * Options for constructing an {@link A2AExecutor}.
+ *
+ * Provide exactly one of `agent` (deprecated) or `agentFactory`.
  */
 export interface A2AExecutorOptions {
+  /** A single agent reused across contexts. Deprecated; prefer `agentFactory`. */
+  agent?: InvokableAgent
   /**
    * Callable that takes a `contextId` and returns a fresh agent per context. Recommended.
-   * Provide exactly one of `agent` or `agentFactory`.
    */
   agentFactory?: AgentFactory
   /**
@@ -80,6 +87,16 @@ function asSnapshotAgent(agent: InvokableAgent): SnapshotAgent {
     )
   }
   return agent as unknown as SnapshotAgent
+}
+
+/**
+ * Whether an agent has a configured `sessionManager`. Single-agent mode rejects this:
+ * snapshot-swapping one shared instance would interleave every context into one session.
+ * `sessionManager` is an `Agent` field not declared on {@link InvokableAgent}, so it is
+ * read defensively here.
+ */
+function hasSessionManager(agent: InvokableAgent): boolean {
+  return (agent as { sessionManager?: unknown }).sessionManager !== undefined
 }
 
 /**
@@ -146,16 +163,15 @@ export class A2AExecutor implements AgentExecutor {
   /**
    * Creates a new A2AExecutor.
    *
-   * Provide exactly one of a single `agent` (deprecated) or `options.agentFactory`.
+   * Provide exactly one of `agent` (deprecated) or `agentFactory`.
    *
-   * @param agent - A single agent reused across contexts. Deprecated; prefer `agentFactory`.
-   * @param options - Executor options including `agentFactory` and `maxContexts`.
+   * @param options - Executor options: `agent` or `agentFactory`, plus optional `maxContexts`.
    */
-  constructor(agent?: InvokableAgent, options: A2AExecutorOptions = {}) {
-    const { agentFactory, maxContexts = DEFAULT_MAX_CONTEXTS } = options
+  constructor(options: A2AExecutorOptions = {}) {
+    const { agent, agentFactory, maxContexts = DEFAULT_MAX_CONTEXTS } = options
 
     if (maxContexts < 1) {
-      throw new Error(`maxContexts must be >= 1, got ${maxContexts}`)
+      throw new Error(`maxContexts must be at least 1, got ${maxContexts}`)
     }
     if ((agent === undefined) === (agentFactory === undefined)) {
       throw new Error("Provide exactly one of 'agent' or 'agentFactory'.")
@@ -168,7 +184,7 @@ export class A2AExecutor implements AgentExecutor {
     } else {
       // Single-agent mode: reuse one agent, swapping each context's snapshot on/off it.
       const sharedAgent = asSnapshotAgent(agent!)
-      if ((sharedAgent as { sessionManager?: unknown }).sessionManager !== undefined) {
+      if (hasSessionManager(sharedAgent)) {
         throw new Error(
           "A single 'agent' with a sessionManager is not supported: the session manager " +
             "persists every context's messages into one interleaved session. Use " +
@@ -198,14 +214,14 @@ export class A2AExecutor implements AgentExecutor {
    * snapshot in place (snapshots, including the template, are restored repeatedly).
    */
   private _restoreState(agent: LocalAgent, snapshot: Snapshot): void {
-    agent.loadSnapshot(deepCopy(snapshot) as unknown as Snapshot)
+    agent.loadSnapshot(cloneSnapshot(snapshot))
   }
 
   /** Evict least-recently-used contexts beyond `maxContexts`. Caller holds the contexts lock. */
   private _evictExcessContexts(): void {
     const contexts: Map<string, unknown> = this._agentFactory !== undefined ? this._contexts : this._snapshots
     // Map preserves insertion order; the first key is the least-recently-used because
-    // touched contexts are re-inserted at the end (see `_touch`).
+    // touched contexts are re-inserted at the end (delete-then-set on access).
     while (contexts.size > this._maxContexts) {
       const evictedId = contexts.keys().next().value as string
       contexts.delete(evictedId)
@@ -213,16 +229,7 @@ export class A2AExecutor implements AgentExecutor {
     }
   }
 
-  /** Move a key to the most-recently-used position (end) of a Map. */
-  private _touch<V>(map: Map<string, V>, key: string): void {
-    const value = map.get(key)!
-    map.delete(key)
-    map.set(key, value)
-  }
-
-  /**
-   * Return the dedicated agent and lock for a context, building it on first use (factory mode).
-   */
+  /** Return the dedicated agent and lock for a context, building it on first use (factory mode). */
   private async _acquireContextAgent(contextId: string): Promise<ContextEntry> {
     const release = await this._contextsLock.acquire()
     try {
@@ -232,7 +239,9 @@ export class A2AExecutor implements AgentExecutor {
         this._contexts.set(contextId, entry)
         this._evictExcessContexts()
       } else {
-        this._touch(this._contexts, contextId)
+        // Mark most-recently-used: delete-then-set moves the entry to the Map's end.
+        this._contexts.delete(contextId)
+        this._contexts.set(contextId, entry)
       }
       return entry
     } finally {
@@ -303,9 +312,10 @@ export class A2AExecutor implements AgentExecutor {
         await this._streamAgent(agent, context, contentBlocks, eventBus)
       } finally {
         // Persist this context's updated history (even on error, to retain partial turns),
-        // evict beyond the cap, then reset the shared agent for the next caller.
+        // evict beyond the cap, then reset the shared agent for the next caller. Delete-then-set
+        // places the entry at the most-recently-used end whether or not it already existed.
+        this._snapshots.delete(context.contextId)
         this._snapshots.set(context.contextId, this._captureState(agent))
-        this._touch(this._snapshots, context.contextId)
         this._evictExcessContexts()
         this._restoreState(agent, this._templateSnapshot!)
       }

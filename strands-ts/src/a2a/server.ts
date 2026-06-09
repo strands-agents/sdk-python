@@ -83,14 +83,16 @@ export class A2AServer {
    * @param config - Configuration for the server
    */
   constructor(config: A2AServerConfig) {
+    // Require exactly one agent source: `=== ` catches both "neither" and "both".
     if ((config.agent === undefined) === (config.agentFactory === undefined)) {
       throw new Error("Provide exactly one of 'agent' or 'agentFactory'.")
     }
 
     const httpUrl = config.httpUrl ?? ''
 
-    // The agent used to derive card metadata (name/description/skills). With a factory,
-    // build a representative agent once; per-request agents are created lazily by the executor.
+    // Derive card metadata (name/description) from a representative agent. In factory mode this
+    // builds a throwaway agent with a placeholder contextId — it is never used for requests, so
+    // factories should not unconditionally allocate expensive resources.
     const cardAgent = config.agent ?? config.agentFactory!(AGENT_CARD_CONTEXT_ID)
 
     this._agentCard = {
@@ -108,7 +110,8 @@ export class A2AServer {
     }
 
     const taskStore = config.taskStore ?? new InMemoryTaskStore()
-    const executor = new A2AExecutor(config.agent, {
+    const executor = new A2AExecutor({
+      ...(config.agent !== undefined && { agent: config.agent }),
       ...(config.agentFactory !== undefined && { agentFactory: config.agentFactory }),
       ...(config.maxContexts !== undefined && { maxContexts: config.maxContexts }),
     })

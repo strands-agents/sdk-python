@@ -12,4 +12,4 @@
 export { A2AServer, type A2AServerConfig } from './server.js'
 export { A2AAgent, type A2AAgentConfig } from './a2a-agent.js'
 export { A2AStreamUpdateEvent, A2AResultEvent, type A2AEventData, type A2AStreamEvent } from './events.js'
-export { A2AExecutor } from './executor.js'
+export { A2AExecutor, type AgentFactory, type A2AExecutorOptions, DEFAULT_MAX_CONTEXTS } from './executor.js'
