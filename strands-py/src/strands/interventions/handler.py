@@ -29,6 +29,14 @@ OnError = Literal["throw", "proceed", "deny"]
 class InterventionHandler(ABC):
     """Base class for intervention handlers.
 
+    .. warning::
+        This primitive is **fail-open by default**. All lifecycle methods return
+        ``Proceed()`` unless explicitly overridden. An agent with no intervention
+        handlers — or handlers that don't override a given method — imposes no
+        restrictions at that lifecycle point. Use at your own risk: if your security
+        model requires fail-closed behavior, ensure every relevant lifecycle method
+        is overridden with an explicit policy decision.
+
     Subclasses must define a ``name`` attribute and override the lifecycle
     methods they care about. The framework detects which methods are overridden
     and only calls those.
