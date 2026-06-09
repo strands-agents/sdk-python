@@ -155,7 +155,12 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   constructor(config: BedrockKnowledgeBaseStoreConfig) {
     this.name = config.name
     if (config.description !== undefined) this.description = config.description
-    if (config.maxSearchResults !== undefined) this.maxSearchResults = config.maxSearchResults
+    if (config.maxSearchResults !== undefined) {
+      if (config.maxSearchResults < 1) {
+        throw new Error('BedrockKnowledgeBaseStore: maxSearchResults must be at least 1.')
+      }
+      this.maxSearchResults = config.maxSearchResults
+    }
     this.writable = config.writable ?? false
 
     this._runtimeClient = config.runtimeClient ?? new BedrockAgentRuntimeClient({})
@@ -193,7 +198,10 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
    *   `_sourceLocation` (Bedrock retrieval location object).
    */
   async search(query: string, options?: SearchOptions): Promise<MemoryEntry[]> {
-    const limit = Math.max(options?.maxSearchResults || this.maxSearchResults || DEFAULT_MAX_SEARCH_RESULTS, 1)
+    if (options?.maxSearchResults !== undefined && options.maxSearchResults < 1) {
+      throw new Error('BedrockKnowledgeBaseStore: maxSearchResults must be at least 1.')
+    }
+    const limit = options?.maxSearchResults || this.maxSearchResults || DEFAULT_MAX_SEARCH_RESULTS
 
     let response
     try {

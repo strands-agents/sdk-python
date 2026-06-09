@@ -88,6 +88,15 @@ describe('BedrockKnowledgeBaseStore', () => {
       ).toThrow("add requires dataSourceType 'CUSTOM' or 'S3'")
     })
 
+    it('throws when maxSearchResults is less than 1', () => {
+      expect(() => new BedrockKnowledgeBaseStore({ name: 'kb', knowledgeBaseId: 'kb-1', maxSearchResults: 0 })).toThrow(
+        'maxSearchResults must be at least 1'
+      )
+      expect(
+        () => new BedrockKnowledgeBaseStore({ name: 'kb', knowledgeBaseId: 'kb-1', maxSearchResults: -5 })
+      ).toThrow('maxSearchResults must be at least 1')
+    })
+
     it("allows writable with a 'CUSTOM' data source", () => {
       const store = new BedrockKnowledgeBaseStore({
         name: 'kb',
