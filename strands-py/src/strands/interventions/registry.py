@@ -119,16 +119,15 @@ class InterventionRegistry:
             return False
         elif isinstance(action, Proceed):
             return False
-        else:
-            logger.warning("handler=<%s>, event=<before_invocation> | %s has no effect", handler_name, action.type)
-            return False
+        logger.warning("handler=<%s>, event=<before_invocation> | %s has no effect", handler_name, action.type)
+        return False
 
     def _apply_before_tool_call(self, event: LifecycleEvent, action: InterventionAction, handler_name: str) -> bool:
         if isinstance(action, Deny):
             event.cancel_tool = f"DENIED: {action.reason}"
             return True
         elif isinstance(action, Confirm):
-            result = event.interrupt(
+            result = event.interrupt(  # type: ignore[union-attr]
                 handler_name,
                 reason=action.prompt,
                 **({"response": action.response} if action.response is not None else {}),
@@ -146,9 +145,8 @@ class InterventionRegistry:
             return False
         elif isinstance(action, Proceed):
             return False
-        else:
-            logger.warning("handler=<%s>, event=<before_tool_call> | %s has no effect", handler_name, action.type)
-            return False
+        logger.warning("handler=<%s>, event=<before_tool_call> | %s has no effect", handler_name, action.type)  # type: ignore[unreachable]
+        return False
 
     def _apply_after_tool_call(self, event: LifecycleEvent, action: InterventionAction, handler_name: str) -> bool:
         if isinstance(action, Transform):
@@ -156,9 +154,8 @@ class InterventionRegistry:
             return False
         elif isinstance(action, Proceed):
             return False
-        else:
-            logger.warning("handler=<%s>, event=<after_tool_call> | %s has no effect", handler_name, action.type)
-            return False
+        logger.warning("handler=<%s>, event=<after_tool_call> | %s has no effect", handler_name, action.type)
+        return False
 
     def _apply_before_model_call(self, event: LifecycleEvent, action: InterventionAction, handler_name: str) -> bool:
         if isinstance(action, Deny):
@@ -172,9 +169,8 @@ class InterventionRegistry:
             return False
         elif isinstance(action, Proceed):
             return False
-        else:
-            logger.warning("handler=<%s>, event=<before_model_call> | %s has no effect", handler_name, action.type)
-            return False
+        logger.warning("handler=<%s>, event=<before_model_call> | %s has no effect", handler_name, action.type)
+        return False
 
     def _apply_after_model_call(self, event: LifecycleEvent, action: InterventionAction, handler_name: str) -> bool:
         if isinstance(action, Guide):
@@ -186,9 +182,8 @@ class InterventionRegistry:
             return False
         elif isinstance(action, Proceed):
             return False
-        else:
-            logger.warning("handler=<%s>, event=<after_model_call> | %s has no effect", handler_name, action.type)
-            return False
+        logger.warning("handler=<%s>, event=<after_model_call> | %s has no effect", handler_name, action.type)
+        return False
 
     async def _dispatch(
         self,

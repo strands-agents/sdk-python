@@ -982,7 +982,9 @@ class Agent(AgentBase):
                 )
                 cancel_message: Message = {"role": "assistant", "content": [{"text": cancel_text}]}
                 await self._append_messages(cancel_message)
-                yield EventLoopStopEvent(stop=("endTurn", cancel_message, {}, {}))
+                yield EventLoopStopEvent(
+                    "end_turn", cancel_message, self.event_loop_metrics, invocation_state.get("request_state", {})
+                )
                 await self.hooks.invoke_callbacks_async(
                     AfterInvocationEvent(agent=self, invocation_state=invocation_state)
                 )

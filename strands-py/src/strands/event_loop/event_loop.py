@@ -35,6 +35,7 @@ from ..types._events import (
 )
 from ..types.agent import Limits
 from ..types.content import Message, Messages
+from ..types.event_loop import Metrics, Usage
 from ..types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
@@ -508,9 +509,9 @@ async def _handle_model_execution(
                         else "model call denied by hook"
                     )
                     message: Message = {"role": "assistant", "content": [{"text": cancel_text}]}
-                    stop_reason: StopReason = "endTurn"
-                    usage: dict = {}
-                    metrics: dict = {}
+                    stop_reason: StopReason = "end_turn"
+                    usage: Usage = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
+                    metrics: Metrics = {"latencyMs": 0}
 
                     after_model_call_event = AfterModelCallEvent(
                         agent=agent,
