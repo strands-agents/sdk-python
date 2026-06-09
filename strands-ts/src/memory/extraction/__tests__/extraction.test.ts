@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { MemoryManager } from '../../memory-manager.js'
 import { InvocationTrigger, IntervalTrigger } from '../triggers.js'
+import { ExtractionCoordinator, SAVE_FAILURES_BEFORE_BACKOFF, BACKOFF_PROBE_INTERVAL } from '../coordinator.js'
+import type { Model } from '../../../models/model.js'
 import type { ExtractionConfig, Extractor } from '../types.js'
 import type { MemoryStore, MemoryEntry } from '../../types.js'
 import type { MessageData } from '../../../types/messages.js'
@@ -307,6 +309,154 @@ describe('MemoryManager extraction', () => {
 
       expect(store.addMessages).toHaveBeenCalledTimes(2)
       expect(store.addMessages.mock.calls[1]![0] as MessageData[]).toHaveLength(1)
+    })
+  })
+
+  describe('backing off and recovering from a failing store', () => {
+    /** Runs one turn: adds a message, fires the trigger, flushes. */
+    async function turn(agent: MockAgent, mm: MemoryManager, text: string): Promise<void> {
+      await addMessages(agent, userMsg(text))
+      await fireInvocation(agent, mm)
+    }
+
+    /** A coordinator with one always-failing store, driven via process() for exact attempt counts. */
+    function failingCoordinator(): {
+      coordinator: ExtractionCoordinator
+      store: ReturnType<typeof createExtractionStore>
+    } {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      store.addMessages.mockRejectedValue(new Error('backend down'))
+      const coordinator = new ExtractionCoordinator([store], {} as Model)
+      return { coordinator, store }
+    }
+
+    it('backs off to periodic probes after SAVE_FAILURES_BEFORE_BACKOFF failures in a row', async () => {
+      const { coordinator, store } = failingCoordinator()
+
+      // Each call buffers a message and requests a save; every save fails. Run enough backed-off
+      // requests for exactly two probe intervals.
+      const PROBES = 2
+      for (let i = 0; i < SAVE_FAILURES_BEFORE_BACKOFF + BACKOFF_PROBE_INTERVAL * PROBES; i++) {
+        coordinator.record(userMsg(`m${i}`).toJSON())
+        await coordinator.process(store)
+      }
+
+      // Attempts every request until backoff, then only every BACKOFF_PROBE_INTERVAL-th request.
+      expect(store.addMessages).toHaveBeenCalledTimes(SAVE_FAILURES_BEFORE_BACKOFF + PROBES)
+    })
+
+    it('recovers and saves the buffered backlog when the store comes back', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      store.addMessages.mockRejectedValue(new Error('down'))
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      // Enter backoff.
+      for (let i = 0; i < SAVE_FAILURES_BEFORE_BACKOFF; i++) {
+        await turn(agent, mm, `down${i}`)
+      }
+      // Store recovers; run probe-interval turns so a probe lands and succeeds.
+      store.addMessages.mockReset()
+      store.addMessages.mockResolvedValue(undefined)
+      for (let i = 0; i < BACKOFF_PROBE_INTERVAL; i++) {
+        await turn(agent, mm, `up${i}`)
+      }
+
+      // The recovering probe saved, and its batch includes the messages buffered during the outage.
+      expect(store.addMessages).toHaveBeenCalled()
+      const saved = store.addMessages.mock.calls.flatMap((c) => c[0] as MessageData[])
+      const texts = saved.flatMap((m) => m.content.map((b) => ('text' in b ? b.text : '')))
+      expect(texts).toContain('down0')
+      expect(texts).toContain('up0')
+    })
+
+    it('a healthy store keeps saving every request while a sibling is backed off', async () => {
+      const bad = createExtractionStore('bad', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      bad.addMessages.mockRejectedValue(new Error('down'))
+      const good = createExtractionStore('good', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      const coordinator = new ExtractionCoordinator([bad, good], {} as Model)
+
+      const PROBES = 2
+      const requests = SAVE_FAILURES_BEFORE_BACKOFF + BACKOFF_PROBE_INTERVAL * PROBES
+      for (let i = 0; i < requests; i++) {
+        coordinator.record(userMsg(`m${i}`).toJSON())
+        await coordinator.process(bad)
+        await coordinator.process(good)
+      }
+
+      // Good store saves every request; bad store stops at backoff + its probes.
+      expect(good.addMessages).toHaveBeenCalledTimes(requests)
+      expect(bad.addMessages).toHaveBeenCalledTimes(SAVE_FAILURES_BEFORE_BACKOFF + PROBES)
+    })
+
+    it('flush resolves even when a store is failing', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      store.addMessages.mockRejectedValue(new Error('down'))
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('x'))
+      await expect(fireInvocation(agent, mm)).resolves.toBeUndefined()
+      await expect(mm.flush()).resolves.toBeUndefined()
+    })
+
+    it('flush bypasses backoff and writes the backlog of a recovered store', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      store.addMessages.mockRejectedValue(new Error('down'))
+      const coordinator = new ExtractionCoordinator([store], {} as Model)
+
+      // Drive the store into backoff.
+      for (let i = 0; i < SAVE_FAILURES_BEFORE_BACKOFF; i++) {
+        coordinator.record(userMsg(`down${i}`).toJSON())
+        await coordinator.process(store)
+      }
+      // Store recovers and a final message arrives, but no probe has landed yet.
+      store.addMessages.mockReset()
+      store.addMessages.mockResolvedValue(undefined)
+      coordinator.record(userMsg('final').toJSON())
+
+      // A single flush must write the backlog despite backoff (not be probe-gated to a no-op).
+      await coordinator.flush()
+
+      expect(store.addMessages).toHaveBeenCalledTimes(1)
+      const saved = (store.addMessages.mock.calls[0]![0] as MessageData[]).flatMap((m) =>
+        m.content.map((b) => ('text' in b ? b.text : ''))
+      )
+      expect(saved).toContain('final')
+      expect(saved).toContain('down0')
+    })
+
+    it('a fully-filtered (empty) turn does not reset the failure streak', async () => {
+      // A no-extractor store; the default filter drops tool blocks. A turn of only tool blocks
+      // filters to empty, so the backend is never called - it must not be mistaken for a recovery and
+      // clear the prior failures. We prove that by showing backoff still engages at the threshold.
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      store.addMessages.mockRejectedValue(new Error('down'))
+      const coordinator = new ExtractionCoordinator([store], {} as Model)
+
+      // One short of backoff.
+      for (let i = 0; i < SAVE_FAILURES_BEFORE_BACKOFF - 1; i++) {
+        coordinator.record(userMsg(`m${i}`).toJSON())
+        await coordinator.process(store)
+      }
+      // An all-tool-blocks turn filters to empty: backend not called, streak not reset.
+      const toolOnly = new Message({
+        role: 'assistant',
+        content: [new ToolUseBlock({ name: 't', toolUseId: '1', input: {} })],
+      })
+      coordinator.record(toolOnly.toJSON())
+      await coordinator.process(store)
+      // The Nth real failure now tips into backoff (it would not if the empty turn had reset to 0).
+      coordinator.record(userMsg('nth').toJSON())
+      await coordinator.process(store)
+
+      // Backed off: the next request is probe-gated, so the backend isn't called immediately.
+      store.addMessages.mockClear()
+      coordinator.record(userMsg('after').toJSON())
+      await coordinator.process(store)
+      expect(store.addMessages).not.toHaveBeenCalled()
     })
   })
 

@@ -82,14 +82,7 @@ export interface Extractor {
 export interface ExtractionTriggerContext {
   /** The agent the trigger attaches its hooks to. */
   agent: LocalAgent
-  /**
-   * Signal that extraction should run for this trigger's store. **Non-blocking and fire-and-forget**:
-   * it dispatches the extraction (filter, optional model call, store write) onto the background and
-   * returns immediately, so calling it from a lifecycle hook never blocks the agent loop. Processes
-   * only messages added since the store's high-water mark (so repeated fires never re-process the
-   * same messages); per-store runs are serialized. Errors are handled by the manager (logged,
-   * non-fatal). To await completion (graceful shutdown, tests), use {@link MemoryManager.flush}.
-   */
+  /** Save this store's unsaved messages now. Runs in the background and returns immediately, so calling it from a hook never blocks the agent. To await completion, see {@link MemoryManager.flush}. */
   fire: () => void
 }
 
@@ -99,6 +92,11 @@ export interface ExtractionTriggerContext {
  * A trigger is a self-attaching value object: {@link attach} wires whatever agent hooks the trigger
  * needs and calls {@link ExtractionTriggerContext.fire} when extraction should happen. Extend this
  * class for custom triggering logic.
+ *
+ * A trigger must eventually fire for its store's buffered messages to be written: the high-water-mark
+ * dedup means skipped turns are still picked up on the *next* fire, but a trigger that never fires
+ * never extracts (and its messages stay buffered for the session). For a guaranteed final write at a
+ * boundary, the caller uses {@link MemoryManager.flush}, which force-completes regardless of triggers.
  */
 export abstract class ExtractionTrigger {
   /** Stable identifier for this trigger kind, used in logging. */
@@ -143,6 +141,9 @@ export interface ExtractionConfig {
   /**
    * Content blocks to strip before extraction. Defaults to {@link DEFAULT_MEMORY_MESSAGE_FILTER}
    * (excludes `toolUse` / `toolResult`).
+   *
+   * For use cases or extractors with value in distilling over the *full* turn you instead want
+   * everything: pass `{ exclude: [] }` so tool blocks reach `addMessages`.
    */
   filter?: MemoryMessageFilter
 }

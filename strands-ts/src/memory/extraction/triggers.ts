@@ -60,10 +60,11 @@ export class IntervalTrigger extends ExtractionTrigger {
     let count = 0
     context.agent.addHook(
       AfterInvocationEvent,
-      async () => {
+      () => {
         count++
+        // `fire` is fire-and-forget (returns void); it dispatches extraction in the background.
         if (count % this._turns === 0) {
-          await context.fire()
+          context.fire()
         }
       },
       { order: HookOrder.SDK_LAST }

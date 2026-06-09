@@ -176,15 +176,8 @@ export class MemoryManager implements Plugin {
   /**
    * Initializes the plugin with the agent.
    *
-   * When any store has an {@link ExtractionConfig}, registers a {@link MessageAddedEvent} hook that
-   * buffers conversation messages and attaches each store's triggers. A trigger fires extraction for
-   * its store, which processes only messages newer than that store's high-water mark (so repeated
-   * fires never duplicate writes) and routes them via extractor or `addMessages`. With no
-   * extraction-configured store this is a no-op.
-   *
-   * Extraction always runs in the background: a trigger's `fire` dispatches the work and returns
-   * immediately, so it never blocks the agent loop even though it is invoked from a lifecycle hook.
-   * Use {@link flush} to await completion.
+   * Wires up automatic extraction for any store configured with {@link ExtractionConfig}: buffers
+   * conversation messages and attaches each store's triggers. A no-op when no store uses extraction.
    *
    * @param agent - The agent this plugin is being attached to
    */
@@ -193,36 +186,32 @@ export class MemoryManager implements Plugin {
       return
     }
 
-    // The coordinator owns the message buffer, per-store dedup, and routing to write sinks.
     const coordinator = new ExtractionCoordinator(this._extractionStores, agent.model)
     this._coordinator = coordinator
 
-    // Buffer every framework-added message. The buffer is the source of truth for extraction,
-    // independent of `agent.messages` (which the conversation manager may evict).
+    // Buffer every message the agent adds, so extraction has its own copy to save from.
     agent.addHook(MessageAddedEvent, (event) => {
       coordinator.record(event.message.toJSON())
     })
 
     for (const store of this._extractionStores) {
       for (const trigger of normalizeTriggers(store.extraction!.trigger)) {
-        trigger.attach({
-          agent,
-          // Fire-and-forget: enqueue the work and return synchronously so the agent loop is never
-          // blocked. The coordinator serializes per store, logs failures, and is drained via flush().
-          fire: () => {
-            void coordinator.process(store)
-          },
-        })
+        trigger.attach({ agent, fire: () => void coordinator.process(store) })
       }
     }
   }
 
   /**
-   * Awaits all in-flight background extraction.
+   * Saves every store's remaining messages and waits for all saves to finish. No-op when no store has
+   * extraction configured.
    *
-   * Extraction is fire-and-forget by design, so a write enqueued on one turn may still be running
-   * after the agent responds. Call this for graceful shutdown or in tests to deterministically wait
-   * for pending writes to land. No-op when extraction is not configured.
+   * Extraction normally runs in the background, so the most recent turn may not be saved yet when the
+   * agent responds. Call this once at a boundary you control - typically your app's shutdown handler -
+   * so nothing is lost. A process killed before then (crash, hard timeout) may still lose the last
+   * unsaved turn; a more frequent trigger narrows that window.
+   *
+   * Do not call this after every turn alongside a periodic trigger: it forces a save each time and so
+   * defeats the trigger's schedule.
    */
   async flush(): Promise<void> {
     await this._coordinator?.flush()

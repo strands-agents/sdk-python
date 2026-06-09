@@ -11,10 +11,7 @@ Return ONLY a JSON array of objects, each: {"content": string}. Each object is o
 
 /** Options for {@link ModelExtractor}. */
 export interface ModelExtractorOptions {
-  /**
-   * Model used to extract facts. Defaults to the agent's own model (supplied by the
-   * {@link MemoryManager} via the extract context). Set an explicit, cheaper model to cut cost.
-   */
+  /** Model used to extract facts. Defaults to the agent's own model; set a cheaper one to cut cost. */
   model?: Model
   /** System prompt steering what counts as a fact. Defaults to a general fact-extraction prompt. */
   systemPrompt?: string
