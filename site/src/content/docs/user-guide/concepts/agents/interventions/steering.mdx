@@ -93,6 +93,8 @@ The handler returns one of two actions:
 The wider intervention vocabulary (`Deny`, `Transform`) is excluded at the type level — out-of-contract actions are caught at compile time. Subclass `SteeringHandler` when you want to write imperative steering logic:
 
 ```typescript
+--8<-- "user-guide/concepts/agents/interventions/steering_imports.ts:basic_steering_imports"
+
 --8<-- "user-guide/concepts/agents/interventions/steering.ts:basic_steering"
 ```
 
@@ -103,6 +105,8 @@ The wider intervention vocabulary (`Deny`, `Transform`) is excluded at the type 
 When you want to express steering rules in natural language rather than imperative code, use `LLMSteeringHandler`. It delegates decisions to an LLM that evaluates each tool call against your system prompt and the accumulated steering context.
 
 ```typescript
+--8<-- "user-guide/concepts/agents/interventions/steering_imports.ts:llm_steering_imports"
+
 --8<-- "user-guide/concepts/agents/interventions/steering.ts:llm_steering"
 ```
 
@@ -158,6 +162,8 @@ Context providers are passive observers that track agent activity and supply str
 - **`context`** (getter) — returns the current context snapshot for steering evaluation
 
 ```typescript
+--8<-- "user-guide/concepts/agents/interventions/steering_imports.ts:custom_context_provider_imports"
+
 --8<-- "user-guide/concepts/agents/interventions/steering.ts:custom_context_provider"
 ```
 
@@ -175,6 +181,8 @@ The built-in `ToolLedgerProvider` tracks tool call history within a session. It 
 This gives the steering LLM visibility into patterns like repeated failures, excessive retries, or tool usage sequences.
 
 ```typescript
+--8<-- "user-guide/concepts/agents/interventions/steering_imports.ts:tool_ledger_config_imports"
+
 --8<-- "user-guide/concepts/agents/interventions/steering.ts:tool_ledger_config"
 ```
 
