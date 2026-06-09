@@ -1,7 +1,7 @@
 name: Feature Request
 description: Suggest a new feature or enhancement for Strands Agents SDK
 title: "[FEATURE] "
-labels: ["enhancement", "triage"]
+labels: ["triage"]
 assignees: []
 body:
   - type: markdown

@@ -8,8 +8,9 @@ instructions: |
   Provider-specific bugs (Bedrock, OpenAI, Anthropic, Gemini, Ollama, etc.) belong to area-model.
   Issues about hook lifecycle events belong to area-hooks even if they mention tools or agents.
   Guardrails and content filtering belong to area-interventions, not area-hooks.
-  Documentation content issues belong to docs, not area-devx.
-  Session persistence/storage issues belong to area-sessions. Context window/token management belongs to area-context.
+  Documentation content issues belong to documentation, not area-devx.
+  Storage backend implementation issues (S3, DynamoDB, file) belong to area-persistence. Session lifecycle and interface issues belong to area-sessions.
+  Context window/token management belongs to area-context.
   General agent class behavior (invocation, streaming, result handling) belongs to area-agent.
 
 labels:
@@ -55,5 +56,5 @@ labels:
     description: "Structured output API, JSON schema enforcement, Pydantic output models, deterministic response formatting"
   area-tool:
     description: "Tool behavior, tool definitions, tool execution, @tool decorator, tool results, tool validation"
-  docs:
+  documentation:
     description: "Documentation changes, improvements, additions, content updates, site improvements, examples, guides"

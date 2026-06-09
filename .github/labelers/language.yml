@@ -8,6 +8,7 @@ instructions: |
   TypeScript paths (strands-ts/, .ts files, npm, package.json).
   If the issue clearly targets both languages equally, prefer the language where the bug or feature originates.
   If the issue is language-agnostic or unclear, do not assign a label.
+  Issues about general agent behavior, documentation content, or feature requests without language-specific file paths or package managers should not receive a language label.
 
 labels:
   python:

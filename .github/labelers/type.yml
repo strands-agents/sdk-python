@@ -6,6 +6,7 @@ instructions: |
   Choose exactly one type. If the title starts with [BUG] it is a bug.
   If the title starts with [FEATURE] it is an enhancement.
   CI/dependency PRs that open as issues are chores.
+  Documentation improvements or corrections are bugs. Requests for new docs or content additions are enhancements. Documentation questions are questions.
 
 labels:
   bug:
