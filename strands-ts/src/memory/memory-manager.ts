@@ -13,7 +13,7 @@ import type {
 import type { JSONValue } from '../types/json.js'
 import { MessageAddedEvent } from '../hooks/events.js'
 import { ExtractionCoordinator } from './extraction/coordinator.js'
-import { normalizeTriggers } from './extraction/types.js'
+import type { ExtractionTrigger } from './extraction/types.js'
 import { tool } from '../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../logging/logger.js'
@@ -42,6 +42,11 @@ function _flattenReasons(reasons: unknown[]): unknown[] {
  */
 function _hasWriteSink(store: MemoryStore): boolean {
   return typeof store.add === 'function' || typeof store.addMessages === 'function'
+}
+
+/** Normalizes a store's `trigger` field (a single trigger or an array) to an array. */
+function _normalizeTriggers(trigger: ExtractionTrigger | ExtractionTrigger[]): ExtractionTrigger[] {
+  return Array.isArray(trigger) ? trigger : [trigger]
 }
 
 /**
@@ -101,7 +106,7 @@ export class MemoryManager implements Plugin {
         if (!store.writable) {
           throw new Error(`MemoryManager: store '${store.name}' has extraction config but is not writable`)
         }
-        if (normalizeTriggers(store.extraction.trigger).length === 0) {
+        if (_normalizeTriggers(store.extraction.trigger).length === 0) {
           throw new Error(`MemoryManager: store '${store.name}' has extraction config but no triggers`)
         }
         // Each extraction shape needs its matching write sink. An extractor produces discrete entries
@@ -195,7 +200,7 @@ export class MemoryManager implements Plugin {
     })
 
     for (const store of this._extractionStores) {
-      for (const trigger of normalizeTriggers(store.extraction!.trigger)) {
+      for (const trigger of _normalizeTriggers(store.extraction!.trigger)) {
         trigger.attach({ agent, fire: () => void coordinator.process(store) })
       }
     }

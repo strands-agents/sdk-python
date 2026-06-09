@@ -79,7 +79,7 @@ export class ModelExtractor implements Extractor {
       .join('')
       .trim()
 
-    return _parseEntries(text, model)
+    return _parseEntries(text, model.constructor.name)
   }
 }
 
@@ -97,10 +97,10 @@ function _renderMessage(message: MessageData): string {
  * code block by extracting the first top-level bracketed array. Malformed output yields no entries
  * (logged) rather than throwing, so a single bad extraction never breaks the agent loop.
  */
-function _parseEntries(text: string, model: Model): ExtractionResult[] {
+function _parseEntries(text: string, modelName: string): ExtractionResult[] {
   const json = _extractJsonArray(text)
   if (json === undefined) {
-    logger.warn(`model=<${model.constructor.name}> | ModelExtractor: no JSON array in model output, skipping`)
+    logger.warn(`model=<${modelName}> | ModelExtractor: no JSON array in model output, skipping`)
     return []
   }
 
@@ -108,7 +108,7 @@ function _parseEntries(text: string, model: Model): ExtractionResult[] {
   try {
     parsed = JSON.parse(json)
   } catch (err) {
-    logger.warn(`model=<${model.constructor.name}>, error=<${String(err)}> | ModelExtractor: failed to parse output`)
+    logger.warn(`model=<${modelName}>, error=<${String(err)}> | ModelExtractor: failed to parse output`)
     return []
   }
 

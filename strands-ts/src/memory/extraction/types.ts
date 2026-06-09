@@ -113,11 +113,6 @@ export abstract class ExtractionTrigger {
   abstract attach(context: ExtractionTriggerContext): void
 }
 
-/** Normalizes the `trigger` field (a single trigger or an array) to an array. */
-export function normalizeTriggers(trigger: ExtractionTrigger | ExtractionTrigger[]): ExtractionTrigger[] {
-  return Array.isArray(trigger) ? trigger : [trigger]
-}
-
 /**
  * Per-store automatic-extraction configuration.
  *

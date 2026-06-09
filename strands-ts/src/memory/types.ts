@@ -91,6 +91,10 @@ export interface MemoryStore extends MemoryStoreConfig {
    * A store satisfies `writable: true` with `add`, {@link addMessages}, or both. A store may also
    * implement `add` while declaring `writable: false`, in which case it is never invoked.
    *
+   * Extraction writes are at-least-once: if one entry in a batch fails, the whole batch is retried, so
+   * `add` may be called again with content it already stored. Implementations used with extraction
+   * should tolerate duplicate writes (e.g. dedupe, or accept that retries may re-store an entry).
+   *
    * The resolved value is store-specific (e.g. a created record id or a write receipt) — each backend
    * may return whatever shape fits it. The {@link MemoryManager} does not consume this value (it only
    * awaits completion); callers using a store directly can read it.
