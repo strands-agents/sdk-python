@@ -12,14 +12,32 @@ import type { AgentCard, AgentSkill } from '@a2a-js/sdk'
 import type { TaskStore, A2ARequestHandler } from '@a2a-js/sdk/server'
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server'
 import type { InvokableAgent } from '../types/agent.js'
-import { A2AExecutor } from './executor.js'
+import { A2AExecutor, type AgentFactory } from './executor.js'
+
+/** Placeholder context id used to build a representative agent for card metadata in factory mode. */
+const AGENT_CARD_CONTEXT_ID = '__agent_card__'
 
 /**
  * Configuration options for creating an A2AServer.
+ *
+ * Provide exactly one of `agent` (deprecated) or `agentFactory`.
  */
 export interface A2AServerConfig {
-  /** The Strands Agent to serve via A2A protocol */
-  agent: InvokableAgent
+  /** The Strands Agent to serve via A2A protocol. Deprecated; prefer `agentFactory`. */
+  agent?: InvokableAgent
+  /**
+   * Callable that takes a `contextId` and returns a dedicated agent per A2A context.
+   * Contexts run concurrently and the factory is the place to wire per-context
+   * concerns such as a context-scoped `sessionManager`. The factory is invoked once
+   * at construction (with a placeholder context id) solely to derive the agent card
+   * metadata; that agent is not used for request handling.
+   */
+  agentFactory?: AgentFactory
+  /**
+   * Maximum number of per-context agents to retain concurrently (factory mode);
+   * the least-recently-used is evicted beyond this. Must be at least 1.
+   */
+  maxContexts?: number
   /** Human-readable name for the agent */
   name: string
   /** Optional description of the agent's purpose */
@@ -65,11 +83,19 @@ export class A2AServer {
    * @param config - Configuration for the server
    */
   constructor(config: A2AServerConfig) {
+    if ((config.agent === undefined) === (config.agentFactory === undefined)) {
+      throw new Error("Provide exactly one of 'agent' or 'agentFactory'.")
+    }
+
     const httpUrl = config.httpUrl ?? ''
+
+    // The agent used to derive card metadata (name/description/skills). With a factory,
+    // build a representative agent once; per-request agents are created lazily by the executor.
+    const cardAgent = config.agent ?? config.agentFactory!(AGENT_CARD_CONTEXT_ID)
 
     this._agentCard = {
       name: config.name,
-      description: config.description ?? '',
+      description: config.description ?? cardAgent.description ?? '',
       version: config.version ?? '0.0.1',
       protocolVersion: '0.2.0',
       url: httpUrl,
@@ -82,7 +108,10 @@ export class A2AServer {
     }
 
     const taskStore = config.taskStore ?? new InMemoryTaskStore()
-    const executor = new A2AExecutor(config.agent)
+    const executor = new A2AExecutor(config.agent, {
+      ...(config.agentFactory !== undefined && { agentFactory: config.agentFactory }),
+      ...(config.maxContexts !== undefined && { maxContexts: config.maxContexts }),
+    })
     this._requestHandler = new DefaultRequestHandler(this._agentCard, taskStore, executor)
   }
 
