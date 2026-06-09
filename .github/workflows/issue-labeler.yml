@@ -3,9 +3,12 @@ name: Issue Labeler
 on:
   issues:
     types: [opened]
+  pull_request_target:
+    types: [opened]
 
 permissions:
   issues: write
+  pull-requests: write
   id-token: write
   contents: read
 
