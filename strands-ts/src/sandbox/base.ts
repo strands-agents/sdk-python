@@ -2,7 +2,7 @@
  * Base sandbox interface.
  *
  * Defines the abstract {@link Sandbox} class that all sandbox implementations
- * must extend. The class provides seven abstract operations (command execution,
+ * must extend. The class provides six abstract operations (command execution,
  * code execution, and file I/O) and convenience wrappers for common patterns.
  */
 
@@ -110,19 +110,6 @@ export abstract class Sandbox {
    * @throws Error if the directory does not exist.
    */
   abstract listFiles(path: string): Promise<FileInfo[]>
-
-  /**
-   * Get metadata about a file or directory.
-   *
-   * Returns a {@link FileInfo} with `name` and `isDir` fields. `size` is
-   * populated when the backend can determine it cheaply. Throws if the path
-   * does not exist.
-   *
-   * @param path - Path to stat.
-   * @returns Metadata about the path.
-   * @throws Error if the path does not exist or is not accessible.
-   */
-  abstract statFile(path: string): Promise<FileInfo>
 
   /**
    * Tools this sandbox vends to an agent, registered during `Agent.initialize()`.

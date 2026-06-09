@@ -123,23 +123,11 @@ export abstract class PosixShellSandbox extends Sandbox {
     return entries
   }
 
-  /**
-   * Resolve path metadata in a single shell round-trip via `test`, avoiding the
-   * base implementation's probe (which reads the whole file just to confirm it
-   * exists). Emits `d` for a directory, `f` otherwise; a non-existent path exits
-   * non-zero and throws.
-   */
-  async statFile(path: string): Promise<FileInfo> {
-    const quoted = shellQuote(path)
-    const result = await this.execute(`test -e ${quoted} || exit 1; test -d ${quoted} && echo d || echo f`)
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr || `No such file or directory: ${path}`)
-    }
-    const name = path.split('/').filter(Boolean).pop() ?? path
-    return { name, isDir: result.stdout.trim() === 'd' }
-  }
-
   override getSystemPromptContext(): string {
-    return 'A sandbox is configured: commands, code, and file operations run inside it rather than on the host.'
+    const toolNames = this.getTools().map((t) => t.name)
+    return (
+      'A sandbox is configured: commands, code, and file operations run inside it rather than on the host.' +
+      (toolNames.length > 0 ? ` Sandbox-routed tools: ${toolNames.join(', ')}.` : '')
+    )
   }
 }

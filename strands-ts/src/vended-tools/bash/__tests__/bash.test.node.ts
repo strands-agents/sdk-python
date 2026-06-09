@@ -507,11 +507,11 @@ describe.skipIf(process.platform === 'win32')('bash tool (sandbox path)', () => 
     expect((result as BashOutput).error).toContain('oops')
   })
 
-  it('restart mode is a no-op in sandbox mode', async () => {
+  it('restart mode returns an informative message in sandbox mode', async () => {
     const context = createSandboxContext()
     const result = await bash.invoke({ mode: 'restart' }, context)
 
-    expect(result).toBe('Bash session restarted')
+    expect(result).toBe('Restart has no effect in a sandbox. Each command already executes in a fresh shell.')
   })
 
   it('rejects execute without command in sandbox mode', async () => {

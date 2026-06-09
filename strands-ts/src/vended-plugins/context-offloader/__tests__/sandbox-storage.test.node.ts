@@ -51,8 +51,7 @@ describe.skipIf(process.platform === 'win32')('SandboxStorage', () => {
   })
 
   it('uses a custom artifact directory', async () => {
-    const custom = new SandboxStorage('custom-artifacts')
-    custom.sandbox = sandbox
+    const custom = new SandboxStorage({ artifactDir: 'custom-artifacts', sandbox })
     const reference = await custom.store('key', new TextEncoder().encode('custom path'), 'text/plain')
     expect(reference.startsWith('custom-artifacts/')).toBe(true)
     expect(new TextDecoder().decode((await custom.retrieve(reference)).content)).toBe('custom path')

@@ -271,27 +271,26 @@ export class S3Storage implements Storage {
  * (Docker container, remote host, etc.), keeping large tool results out of the host
  * process. A `.metadata.json` sidecar in the artifact directory tracks content types.
  *
- * The sandbox is not supplied at construction. When used with {@link ContextOffloader},
- * the plugin injects the agent's sandbox into {@link sandbox} during initialization.
- *
- * @param artifactDir - Directory within the sandbox where artifact files will be stored
+ * The sandbox can be passed at construction or injected later by {@link ContextOffloader}
+ * during plugin initialization. `store`/`retrieve` throw until a sandbox is available.
  */
 export class SandboxStorage implements Storage {
   private static readonly METADATA_FILE = '.metadata.json'
   private readonly _artifactDir: string
+  private _sandbox: Sandbox | undefined
   private _counter = 0
   private _contentTypes: Record<string, string> = {}
   private _metadataLoaded = false
   private _metadataWriteChain: Promise<void> = Promise.resolve()
 
-  /**
-   * Sandbox the storage operates against. Injected by {@link ContextOffloader} during
-   * plugin initialization. `store`/`retrieve` throw until this is set.
-   */
-  sandbox: Sandbox | undefined
-
-  constructor(artifactDir: string = './artifacts') {
+  constructor({ artifactDir = './artifacts', sandbox }: { artifactDir?: string; sandbox?: Sandbox } = {}) {
     this._artifactDir = artifactDir
+    this._sandbox = sandbox
+  }
+
+  /** @internal Set by ContextOffloader during plugin init when no sandbox was provided at construction. */
+  set sandbox(value: Sandbox) {
+    if (!this._sandbox) this._sandbox = value
   }
 
   private static _extensionFor(contentType: string): string {
@@ -300,7 +299,7 @@ export class SandboxStorage implements Storage {
   }
 
   private async _ensureSandbox(): Promise<Sandbox> {
-    const sandbox = this.sandbox
+    const sandbox = this._sandbox
     if (!sandbox) {
       throw new Error('SandboxStorage requires a Sandbox to be configured on the agent.')
     }

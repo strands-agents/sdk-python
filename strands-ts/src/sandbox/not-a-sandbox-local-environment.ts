@@ -1,5 +1,5 @@
 import { readFile, writeFile, unlink, mkdir, readdir, stat } from 'fs/promises'
-import { basename, dirname, isAbsolute, join } from 'path'
+import { dirname, isAbsolute, join } from 'path'
 import { Sandbox } from './base.js'
 import type { ExecuteOptions } from './base.js'
 import { LANGUAGE_PATTERN, shellQuote } from './constants.js'
@@ -83,15 +83,5 @@ export class NotASandboxLocalEnvironment extends Sandbox {
     }
 
     return results
-  }
-
-  async statFile(path: string): Promise<FileInfo> {
-    const fullPath = this._resolvePath(path)
-    const fileStat = await stat(fullPath)
-    return {
-      name: basename(fullPath),
-      isDir: fileStat.isDirectory(),
-      size: fileStat.size,
-    }
   }
 }

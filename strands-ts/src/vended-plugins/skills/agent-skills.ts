@@ -111,8 +111,6 @@ export class AgentSkills implements Plugin {
   /** When true, skill validation errors throw instead of logging warnings. */
   private readonly _strict: boolean
   private readonly _stateKey: string
-  /** The sandbox path-based skills load from, captured at initAgent. `undefined` until then. */
-  private _sandbox: Sandbox | undefined
   /** Resolves when all async skill sources (URLs) have been loaded. */
   private _ready: Promise<void>
 
@@ -137,11 +135,7 @@ export class AgentSkills implements Plugin {
    */
   async initAgent(agent: LocalAgent): Promise<void> {
     await this._ready
-
-    // Load path-based skills through the agent's sandbox, which resolves to the host
-    // environment when no sandbox is configured.
-    this._sandbox = agent.sandbox
-    await this._loadSkillPaths(this._sandbox)
+    await this._loadSkillPaths(agent.sandbox)
 
     if (this._skills.size === 0) {
       logger.warn('no skills were loaded, the agent will have no skills available')
@@ -150,6 +144,7 @@ export class AgentSkills implements Plugin {
 
     agent.addHook(BeforeInvocationEvent, async (event) => {
       await this._ready
+      await this._loadSkillPaths(event.agent.sandbox)
       this._injectSkillsXml(event.agent)
     })
   }
@@ -185,11 +180,7 @@ export class AgentSkills implements Plugin {
     const { skills: resolved, ready, skillPaths } = this._resolveSkills(skills)
     this._skills = resolved
     this._skillPaths = skillPaths
-
-    // If a sandbox has already been captured (initAgent has run), fold the path load into
-    // `ready` so getAvailableSkills() and the injection hook await the path skills too.
-    const sandbox = this._sandbox
-    this._ready = sandbox ? ready.then(() => this._loadSkillPaths(sandbox)) : ready
+    this._ready = ready
   }
 
   /**
@@ -267,7 +258,9 @@ export class AgentSkills implements Plugin {
    * directory of skill subdirectories. Per-path failures are logged and skipped.
    */
   private async _loadSkillPaths(sandbox: Sandbox): Promise<void> {
-    // Load one skill; a failure (e.g. malformed SKILL.md) is logged and skipped so it does
+    if (this._skillPaths.length === 0) return
+
+    // A failure (e.g. malformed SKILL.md) is logged and skipped so it does
     // not abort sibling skills, matching Skill.fromDirectory's per-skill resilience.
     const loadSkill = async (skillDir: string, mdPath: string): Promise<void> => {
       try {
@@ -311,6 +304,7 @@ export class AgentSkills implements Plugin {
         logger.warn(`path=<${skillPath}> | failed to load skill from sandbox: ${error}`)
       }
     }
+    this._skillPaths = []
   }
 
   /**
@@ -518,11 +512,12 @@ export class AgentSkills implements Plugin {
 
     // List a directory recursively through the sandbox, returning paths relative to its root.
     // Replaces readdirSync(dir, { recursive: true }), which has no sandbox equivalent.
-    const listFilesRecursive = async (dir: string): Promise<string[]> => {
+    const listFilesRecursive = async (dir: string, depth = 0): Promise<string[]> => {
+      if (depth >= 3) return []
       const result: string[] = []
       for (const entry of await sandbox.listFiles(dir)) {
         if (entry.isDir)
-          result.push(...(await listFilesRecursive(`${dir}/${entry.name}`)).map((p) => `${entry.name}/${p}`))
+          result.push(...(await listFilesRecursive(`${dir}/${entry.name}`, depth + 1)).map((p) => `${entry.name}/${p}`))
         else result.push(entry.name)
       }
       return result

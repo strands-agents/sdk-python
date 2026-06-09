@@ -4,6 +4,7 @@ import { TestSandbox } from '../../__fixtures__/test-sandbox.node.js'
 import { buildShellEnvPrefix } from '../posix-shell.js'
 import { streamProcess } from '../stream-process.js'
 import type { ExecutionResult, StreamChunk } from '../types.js'
+import type { Tool } from '../../tools/tool.js'
 
 const TEST_DIR = '/tmp/strands-test-shell-sandbox'
 
@@ -229,41 +230,6 @@ describe.skipIf(process.platform === 'win32')('PosixShellSandbox', () => {
     })
   })
 
-  describe('statFile (via test -e shell probe)', () => {
-    it('reports a file as not a directory', async () => {
-      await sandbox.writeText('file.txt', 'hello')
-      const info = await sandbox.statFile('file.txt')
-      expect(info.name).toBe('file.txt')
-      expect(info.isDir).toBe(false)
-    })
-
-    it('reports a directory as a directory', async () => {
-      await sandbox.execute('mkdir -p subdir')
-      const info = await sandbox.statFile('subdir')
-      expect(info.name).toBe('subdir')
-      expect(info.isDir).toBe(true)
-    })
-
-    it('resolves the name from a nested path', async () => {
-      await sandbox.writeText('deep/nested/file.txt', 'deep')
-      const info = await sandbox.statFile('deep/nested/file.txt')
-      expect(info.name).toBe('file.txt')
-      expect(info.isDir).toBe(false)
-    })
-
-    it('throws on a nonexistent path', async () => {
-      await expect(sandbox.statFile('/tmp/nonexistent-path-xyz-12345')).rejects.toThrow()
-    })
-
-    it('handles paths with spaces', async () => {
-      await sandbox.execute('mkdir -p "with spaces"')
-      await sandbox.writeText('with spaces/file.txt', 'spaced')
-      const info = await sandbox.statFile('with spaces/file.txt')
-      expect(info.name).toBe('file.txt')
-      expect(info.isDir).toBe(false)
-    })
-  })
-
   describe('shellQuote', () => {
     it('handles paths with spaces', async () => {
       await sandbox.execute('mkdir -p "with spaces"')
@@ -385,5 +351,15 @@ describe.skipIf(process.platform === 'win32')('PosixShellSandbox', () => {
 describe('PosixShellSandbox.getSystemPromptContext', () => {
   it('declares that operations run inside the sandbox', () => {
     expect(new TestSandbox('/tmp').getSystemPromptContext()).toContain('run inside it rather than on the host')
+  })
+
+  it('lists sandbox-routed tool names when getTools returns tools', () => {
+    class SandboxWithTools extends TestSandbox {
+      override getTools() {
+        return [{ name: 'bash' }, { name: 'fileEditor' }] as Tool[]
+      }
+    }
+    const context = new SandboxWithTools('/tmp').getSystemPromptContext()
+    expect(context).toContain('Sandbox-routed tools: bash, fileEditor')
   })
 })

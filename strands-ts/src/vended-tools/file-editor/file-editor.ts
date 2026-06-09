@@ -58,16 +58,17 @@ export const fileEditor = tool({
   callback: async (input, context) => {
     if (!context) throw new Error('Tool context is required for fileEditor operations')
     const sandbox = context.agent.sandbox
+    const filePath = input.path.replace(/[/\\]+$/, '')
 
     switch (input.command) {
       case 'view':
-        return handleView(sandbox, input.path, input.view_range)
+        return handleView(sandbox, filePath, input.view_range)
       case 'create':
-        return handleCreate(sandbox, input.path, input.file_text!)
+        return handleCreate(sandbox, filePath, input.file_text!)
       case 'str_replace':
-        return handleStrReplace(sandbox, input.path, input.old_str!, input.new_str)
+        return handleStrReplace(sandbox, filePath, input.old_str!, input.new_str)
       case 'insert':
-        return handleInsert(sandbox, input.path, input.insert_line!, input.new_str!)
+        return handleInsert(sandbox, filePath, input.insert_line!, input.new_str!)
       default:
         throw new Error(`Unknown command: ${input.command}`)
     }
@@ -86,9 +87,9 @@ function validatePath(filePath: string): void {
     )
   }
 
-  // Check for directory traversal - reject paths containing '..' segments
-  const normalized = path.normalize(filePath)
-  if (normalized.includes('..')) {
+  // Check for '..' segments on the raw input — path.normalize resolves them away,
+  // so checking after normalize is ineffective.
+  if (filePath.split(/[/\\]/).includes('..')) {
     throw new Error(`Invalid path: path traversal is not allowed`)
   }
 }
@@ -234,21 +235,23 @@ function escapeRegExp(string: string): string {
 // ---- Sandbox-routed I/O helpers ----
 
 /**
- * Probes a path through the sandbox, reporting existence and directory-ness in a
- * single round-trip. Unlike {@link Sandbox.statFile}, a missing path resolves to
- * `exists: false` instead of throwing.
+ * Probes a path through the sandbox, reporting existence and directory-ness by listing
+ * the parent directory. A missing parent or entry resolves to `exists: false`.
  */
 async function probeSandboxPath(sandbox: Sandbox, filePath: string): Promise<{ exists: boolean; isDir: boolean }> {
+  const normalized = filePath.replaceAll('\\', '/')
+  const parent = normalized.split('/').slice(0, -1).join('/') || '/'
+  const name = normalized.split('/').pop()!
   try {
-    const info = await sandbox.statFile(filePath)
-    return { exists: true, isDir: info.isDir ?? false }
+    const entry = (await sandbox.listFiles(parent)).find((e) => e.name === name)
+    return entry ? { exists: true, isDir: entry.isDir ?? false } : { exists: false, isDir: false }
   } catch {
     return { exists: false, isDir: false }
   }
 }
 
 /**
- * Asserts content size is within the limit, checked after read since `statFile`
+ * Asserts content size is within the limit, checked after read since `listFiles`
  * does not reliably report size across sandbox backends.
  */
 function assertWithinSizeLimit(content: string, maxSize: number = DEFAULT_MAX_FILE_SIZE): void {

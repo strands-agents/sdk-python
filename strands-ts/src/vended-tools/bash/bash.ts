@@ -253,9 +253,8 @@ process.on('SIGTERM', () => {
 export const bash = tool({
   name: 'bash',
   description:
-    'Executes bash shell commands. Supports execute and restart modes. ' +
-    'When a Sandbox is configured, each call runs in a fresh shell that does not preserve state (variables, directory). ' +
-    'Otherwise, commands run in a persistent session that preserves state (variables, directory) across calls.',
+    'Executes bash shell commands in a persistent session. Supports execute and restart modes. ' +
+    'Commands persist state (variables, directory) within the session. Node.js only.',
   inputSchema: bashInputSchema,
   callback: async (input, context) => {
     if (!context) {
@@ -275,7 +274,7 @@ export const bash = tool({
     // and sandbox errors are mapped to bash's own error classes.
     if (!(sandbox instanceof NotASandboxLocalEnvironment)) {
       if (input.mode === 'restart') {
-        return 'Bash session restarted'
+        return 'Restart has no effect in a sandbox. Each command already executes in a fresh shell.'
       }
 
       try {

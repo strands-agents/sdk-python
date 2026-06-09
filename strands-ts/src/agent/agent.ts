@@ -740,7 +740,11 @@ export class Agent implements LocalAgent, InvokableAgent {
     // already provided under the same name, and fold in any context it wants the model to know.
     if (this._sandbox) {
       for (const tool of this._sandbox.getTools()) {
-        if (!this._toolRegistry.get(tool.name)) {
+        if (this._toolRegistry.get(tool.name)) {
+          logger.debug(
+            `tool_name=<${tool.name}> | sandbox-vended tool skipped, user has already registered tool with this name`
+          )
+        } else {
           this._toolRegistry.add(tool)
         }
       }
