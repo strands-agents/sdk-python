@@ -113,6 +113,7 @@ export class AgentSkills implements Plugin {
   private readonly _stateKey: string
   /** Resolves when all async skill sources (URLs) have been loaded. */
   private _ready: Promise<void>
+  private _agentSkills = new WeakMap<LocalAgent, Map<string, Skill>>()
 
   constructor(config: AgentSkillsConfig) {
     this._strict = config.strict ?? false
@@ -135,16 +136,19 @@ export class AgentSkills implements Plugin {
    */
   async initAgent(agent: LocalAgent): Promise<void> {
     await this._ready
-    await this._loadSkillPaths(agent.sandbox)
+    await this._loadSkillPaths(agent)
 
-    if (this._skills.size === 0) {
+    const agentSkills = this._agentSkills.get(agent)!
+    if (agentSkills.size === 0) {
       logger.warn('no skills were loaded, the agent will have no skills available')
     }
-    logger.debug(`skill_count=<${this._skills.size}> | skills plugin initialized`)
+    logger.debug(`skill_count=<${agentSkills.size}> | skills plugin initialized`)
 
     agent.addHook(BeforeInvocationEvent, async (event) => {
       await this._ready
-      await this._loadSkillPaths(event.agent.sandbox)
+      if (!this._agentSkills.has(event.agent)) {
+        await this._loadSkillPaths(event.agent)
+      }
       this._injectSkillsXml(event.agent)
     })
   }
@@ -157,11 +161,14 @@ export class AgentSkills implements Plugin {
   }
 
   /**
-   * Get the list of available skills.
+   * Get the list of available skills. When called with an agent, returns that agent's
+   * full skill set (base + path-loaded from its sandbox). Without an agent, returns
+   * the base skills only (Skill instances and URLs).
    */
-  async getAvailableSkills(): Promise<readonly Skill[]> {
+  async getAvailableSkills(agent?: LocalAgent): Promise<readonly Skill[]> {
     await this._ready
-    return [...this._skills.values()]
+    const skills = agent ? (this._agentSkills.get(agent) ?? this._skills) : this._skills
+    return [...skills.values()]
   }
 
   /**
@@ -181,6 +188,7 @@ export class AgentSkills implements Plugin {
     this._skills = resolved
     this._skillPaths = skillPaths
     this._ready = ready
+    this._agentSkills = new WeakMap()
   }
 
   /**
@@ -257,18 +265,24 @@ export class AgentSkills implements Plugin {
    * `Skill.fromDirectory`: a path may be a SKILL.md file, a skill directory, or a parent
    * directory of skill subdirectories. Per-path failures are logged and skipped.
    */
-  private async _loadSkillPaths(sandbox: Sandbox): Promise<void> {
-    if (this._skillPaths.length === 0) return
+  private async _loadSkillPaths(agent: LocalAgent): Promise<void> {
+    const skills = new Map(this._skills)
+    if (this._skillPaths.length === 0) {
+      this._agentSkills.set(agent, skills)
+      return
+    }
+
+    const sandbox = agent.sandbox
 
     // A failure (e.g. malformed SKILL.md) is logged and skipped so it does
     // not abort sibling skills, matching Skill.fromDirectory's per-skill resilience.
     const loadSkill = async (skillDir: string, mdPath: string): Promise<void> => {
       try {
         const skill = Skill.fromContent(await sandbox.readText(mdPath), { strict: this._strict, path: skillDir })
-        if (this._skills.has(skill.name)) {
+        if (skills.has(skill.name)) {
           logger.warn(`name=<${skill.name}> | duplicate skill name, overwriting previous skill`)
         }
-        this._skills.set(skill.name, skill)
+        skills.set(skill.name, skill)
       } catch (error) {
         logger.warn(`path=<${skillDir}> | failed to load skill: ${error}`)
       }
@@ -304,7 +318,7 @@ export class AgentSkills implements Plugin {
         logger.warn(`path=<${skillPath}> | failed to load skill from sandbox: ${error}`)
       }
     }
-    this._skillPaths = []
+    this._agentSkills.set(agent, skills)
   }
 
   /**
@@ -334,9 +348,10 @@ export class AgentSkills implements Plugin {
    * Handle skill activation from the tool callback.
    */
   private async _activateSkill(skillName: string, context: ToolContext): Promise<string> {
-    const found = this._skills.get(skillName)
+    const skills = this._agentSkills.get(context.agent) ?? this._skills
+    const found = skills.get(skillName)
     if (found == null) {
-      const available = [...this._skills.keys()].join(', ')
+      const available = [...skills.keys()].join(', ')
       return `Skill '${skillName}' not found. Available skills: ${available}`
     }
 
@@ -387,7 +402,7 @@ export class AgentSkills implements Plugin {
    * across multiple agents safely.
    */
   private _injectSkillsXml(agent: LocalAgent): void {
-    const skillsXml = this._generateSkillsXml()
+    const skillsXml = this._generateSkillsXml(agent)
     const systemPrompt = agent.systemPrompt
 
     if (systemPrompt == null || typeof systemPrompt === 'string') {
@@ -442,14 +457,15 @@ export class AgentSkills implements Plugin {
    * </available_skills>
    * ```
    */
-  private _generateSkillsXml(): string {
-    if (this._skills.size === 0) {
+  private _generateSkillsXml(agent: LocalAgent): string {
+    const skills = this._agentSkills.get(agent) ?? this._skills
+    if (skills.size === 0) {
       return '<available_skills>\nNo skills are currently available.\n</available_skills>'
     }
 
     const lines: string[] = ['<available_skills>']
 
-    for (const skill of this._skills.values()) {
+    for (const skill of skills.values()) {
       lines.push('<skill>')
       lines.push(`<name>${escapeXml(skill.name)}</name>`)
       lines.push(`<description>${escapeXml(skill.description)}</description>`)

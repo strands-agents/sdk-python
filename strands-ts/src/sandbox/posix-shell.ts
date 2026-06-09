@@ -122,12 +122,4 @@ export abstract class PosixShellSandbox extends Sandbox {
     }
     return entries
   }
-
-  override getSystemPromptContext(): string {
-    const toolNames = this.getTools().map((t) => t.name)
-    return (
-      'A sandbox is configured: commands, code, and file operations run inside it rather than on the host.' +
-      (toolNames.length > 0 ? ` Sandbox-routed tools: ${toolNames.join(', ')}.` : '')
-    )
-  }
 }

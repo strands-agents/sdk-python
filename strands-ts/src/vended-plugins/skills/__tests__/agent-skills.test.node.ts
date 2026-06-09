@@ -54,16 +54,18 @@ describe('AgentSkills', () => {
     it('resolves a skill directory path', async () => {
       await createSkillDir('my-skill', '---\nname: my-skill\ndescription: A skill\n---\nBody.')
       const plugin = new AgentSkills({ skills: [path.join(testDir, 'my-skill')] })
-      await plugin.initAgent(createMockAgent())
-      expect(await plugin.getAvailableSkills()).toHaveLength(1)
+      const agent = createMockAgent()
+      await plugin.initAgent(agent)
+      expect(await plugin.getAvailableSkills(agent)).toHaveLength(1)
     })
 
     it('resolves a parent directory with multiple skills', async () => {
       await createSkillDir('skill-a', '---\nname: skill-a\ndescription: Skill A\n---\nA.')
       await createSkillDir('skill-b', '---\nname: skill-b\ndescription: Skill B\n---\nB.')
       const plugin = new AgentSkills({ skills: [testDir] })
-      await plugin.initAgent(createMockAgent())
-      expect(await plugin.getAvailableSkills()).toHaveLength(2)
+      const agent = createMockAgent()
+      await plugin.initAgent(agent)
+      expect(await plugin.getAvailableSkills(agent)).toHaveLength(2)
     })
 
     it('handles mixed sources', async () => {
@@ -72,8 +74,9 @@ describe('AgentSkills', () => {
       const plugin = new AgentSkills({
         skills: [directSkill, path.join(testDir, 'file-skill')],
       })
-      await plugin.initAgent(createMockAgent())
-      expect(await plugin.getAvailableSkills()).toHaveLength(2)
+      const agent = createMockAgent()
+      await plugin.initAgent(agent)
+      expect(await plugin.getAvailableSkills(agent)).toHaveLength(2)
     })
 
     it('warns on duplicate names and keeps the last', async () => {
@@ -110,8 +113,9 @@ describe('AgentSkills', () => {
       await fs.writeFile(path.join(testDir, 'bad-skill', 'SKILL.md'), 'no frontmatter', 'utf-8')
 
       const plugin = new AgentSkills({ skills: [testDir] })
-      await plugin.initAgent(createMockAgent())
-      const skills = await plugin.getAvailableSkills()
+      const agent = createMockAgent()
+      await plugin.initAgent(agent)
+      const skills = await plugin.getAvailableSkills(agent)
       expect(skills).toHaveLength(1)
       expect(skills[0]!.name).toBe('good-skill')
     })
@@ -541,10 +545,11 @@ describe('AgentSkills', () => {
       const plugin = new AgentSkills({
         skills: ['https://example.com/SKILL.md', path.join(testDir, 'local-skill')],
       })
-      await plugin.initAgent(createMockAgent())
+      const agent = createMockAgent()
+      await plugin.initAgent(agent)
 
-      expect(await plugin.getAvailableSkills()).toHaveLength(2)
-      const names = new Set((await plugin.getAvailableSkills()).map((s) => s.name))
+      expect(await plugin.getAvailableSkills(agent)).toHaveLength(2)
+      const names = new Set((await plugin.getAvailableSkills(agent)).map((s) => s.name))
       expect(names).toEqual(new Set(['url-skill', 'local-skill']))
     })
 

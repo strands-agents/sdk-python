@@ -250,71 +250,83 @@ process.on('SIGTERM', () => {
  * console.log(result.output) // "Hello"
  * ```
  */
-export const bash = tool({
-  name: 'bash',
-  description:
-    'Executes bash shell commands in a persistent session. Supports execute and restart modes. ' +
-    'Commands persist state (variables, directory) within the session. Node.js only.',
-  inputSchema: bashInputSchema,
-  callback: async (input, context) => {
-    if (!context) {
-      throw new Error('Tool context is required for bash operations')
-    }
+const DEFAULT_DESCRIPTION =
+  'Executes bash shell commands in a persistent session. Supports execute and restart modes. ' +
+  'Commands persist state (variables, directory) within the session. Node.js only.'
 
-    const agent = context.agent
-    // Route through a real sandbox; the host default keeps bash's persistent local session.
-    const sandbox = agent.sandbox
+export const SANDBOX_BASH_DESCRIPTION =
+  'Executes bash shell commands. Each call runs in a fresh shell; ' +
+  'state such as variables and the working directory does not persist across calls.'
 
-    // Validate execute mode has command
-    if (input.mode === 'execute' && !input.command) {
-      throw new Error('command is required when mode is "execute"')
-    }
+export interface MakeBashOptions {
+  name?: string
+  description?: string
+  inputSchema?: z.ZodType
+}
 
-    // Real sandbox: stateless execution. Restart is a no-op (no shell state persists),
-    // and sandbox errors are mapped to bash's own error classes.
-    if (!(sandbox instanceof NotASandboxLocalEnvironment)) {
-      if (input.mode === 'restart') {
-        return 'Restart has no effect in a sandbox. Each command already executes in a fresh shell.'
+/**
+ * Build a bash tool instance.
+ *
+ * The standalone {@link bash} export is `makeBash()` with defaults. Sandboxes call
+ * this in `getTools()` to vend an instance whose description matches the environment,
+ * without mutating the shared singleton.
+ */
+export function makeBash(options: MakeBashOptions = {}): ReturnType<typeof tool> {
+  return tool({
+    name: options.name ?? 'bash',
+    description: options.description ?? DEFAULT_DESCRIPTION,
+    inputSchema: (options.inputSchema ?? bashInputSchema) as typeof bashInputSchema,
+    callback: async (input, context) => {
+      if (!context) {
+        throw new Error('Tool context is required for bash operations')
       }
 
-      try {
-        const result = await sandbox.execute(input.command!, {
-          timeout: input.timeout ?? 120,
-        })
-        return { output: result.stdout, error: result.stderr } as BashOutput
-      } catch (err) {
-        if (err instanceof SandboxTimeoutError) {
-          throw new BashTimeoutError(err.message)
+      const agent = context.agent
+      const sandbox = agent.sandbox
+
+      if (input.mode === 'execute' && !input.command) {
+        throw new Error('command is required when mode is "execute"')
+      }
+
+      // Real sandbox: stateless execution.
+      if (!(sandbox instanceof NotASandboxLocalEnvironment)) {
+        if (input.mode === 'restart') {
+          return 'Restart has no effect in a sandbox. Each command already executes in a fresh shell.'
         }
-        throw new BashSessionError((err as Error).message)
+
+        try {
+          const result = await sandbox.execute(input.command!, { timeout: input.timeout ?? 120 })
+          return { output: result.stdout, error: result.stderr } as BashOutput
+        } catch (err) {
+          if (err instanceof SandboxTimeoutError) throw new BashTimeoutError(err.message)
+          throw new BashSessionError((err as Error).message)
+        }
       }
-    }
 
-    // Handle restart mode
-    if (input.mode === 'restart') {
-      const existingSession = sessions.get(agent)
-      if (existingSession) {
-        existingSession.stop()
-        sessions.delete(agent)
+      // Host: persistent local session.
+      if (input.mode === 'restart') {
+        const existingSession = sessions.get(agent)
+        if (existingSession) {
+          existingSession.stop()
+          sessions.delete(agent)
+        }
+        const newSession = new BashSession(120)
+        sessions.set(agent, newSession)
+        sessionFinalizer.register(agent, newSession)
+        return 'Bash session restarted'
       }
-      // Create new session (will be added to activeSessions when started)
-      const newSession = new BashSession(120)
-      sessions.set(agent, newSession)
-      sessionFinalizer.register(agent, newSession)
-      return 'Bash session restarted'
-    }
 
-    // Handle execute mode
-    // Get or create session
-    let session = sessions.get(agent)
-    if (!session) {
-      session = new BashSession(input.timeout ?? 120)
-      sessions.set(agent, session)
-      sessionFinalizer.register(agent, session)
-    }
+      let session = sessions.get(agent)
+      if (!session) {
+        session = new BashSession(input.timeout ?? 120)
+        sessions.set(agent, session)
+        sessionFinalizer.register(agent, session)
+      }
 
-    // Execute command
-    const result = await session.run(input.command!, input.timeout)
-    return result
-  },
-})
+      return session.run(input.command!, input.timeout)
+    },
+  })
+}
+
+/** Default bash tool with host-oriented persistent session description. */
+export const bash = makeBash()

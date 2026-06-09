@@ -1,8 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { SshSandbox } from '../ssh.js'
 import { streamProcess } from '../stream-process.js'
-import { fileEditor } from '../../vended-tools/file-editor/file-editor.js'
-import { bash } from '../../vended-tools/bash/bash.js'
+import { SANDBOX_BASH_DESCRIPTION } from '../../vended-tools/bash/bash.js'
 
 vi.mock('../stream-process.js', () => ({
   streamProcess: vi.fn(async function* () {
@@ -314,7 +313,13 @@ describe('SshSandbox', () => {
   describe('getTools', () => {
     it('vends the sandbox-routed fileEditor and bash tools', () => {
       const tools = new SshSandbox({ host: 'myhost', workingDir: '/workspace' }).getTools()
-      expect(tools).toStrictEqual([fileEditor, bash])
+      expect(tools.map((t) => t.name)).toStrictEqual(['fileEditor', 'bash'])
+    })
+
+    it('vends bash with the sandbox description', () => {
+      const tools = new SshSandbox({ host: 'myhost', workingDir: '/workspace' }).getTools()
+      const bashTool = tools.find((t) => t.name === 'bash')!
+      expect(bashTool.description).toBe(SANDBOX_BASH_DESCRIPTION)
     })
   })
 })

@@ -4,7 +4,6 @@ import { TestSandbox } from '../../__fixtures__/test-sandbox.node.js'
 import { buildShellEnvPrefix } from '../posix-shell.js'
 import { streamProcess } from '../stream-process.js'
 import type { ExecutionResult, StreamChunk } from '../types.js'
-import type { Tool } from '../../tools/tool.js'
 
 const TEST_DIR = '/tmp/strands-test-shell-sandbox'
 
@@ -345,21 +344,5 @@ describe.skipIf(process.platform === 'win32')('PosixShellSandbox', () => {
         outputFiles: [],
       })
     })
-  })
-})
-
-describe('PosixShellSandbox.getSystemPromptContext', () => {
-  it('declares that operations run inside the sandbox', () => {
-    expect(new TestSandbox('/tmp').getSystemPromptContext()).toContain('run inside it rather than on the host')
-  })
-
-  it('lists sandbox-routed tool names when getTools returns tools', () => {
-    class SandboxWithTools extends TestSandbox {
-      override getTools() {
-        return [{ name: 'bash' }, { name: 'fileEditor' }] as Tool[]
-      }
-    }
-    const context = new SandboxWithTools('/tmp').getSystemPromptContext()
-    expect(context).toContain('Sandbox-routed tools: bash, fileEditor')
   })
 })

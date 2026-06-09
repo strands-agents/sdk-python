@@ -138,9 +138,3 @@ describe.skipIf(process.platform === 'win32')('NotASandboxLocalEnvironment', () 
     })
   })
 })
-
-describe('NotASandboxLocalEnvironment.getSystemPromptContext', () => {
-  it('inherits the base default of no context', () => {
-    expect(new NotASandboxLocalEnvironment().getSystemPromptContext()).toBeUndefined()
-  })
-})

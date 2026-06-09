@@ -50,10 +50,7 @@ describe.skipIf(process.platform === 'win32')('bash tool', () => {
 
     it('rejects invalid mode', async () => {
       const { context } = createFreshContext()
-      await expect(
-        // @ts-expect-error - Testing invalid input
-        bash.invoke({ mode: 'invalid' }, context)
-      ).rejects.toThrow()
+      await expect(bash.invoke({ mode: 'invalid' }, context)).rejects.toThrow()
     })
 
     it('rejects execute without command', async () => {

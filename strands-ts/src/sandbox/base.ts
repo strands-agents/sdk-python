@@ -112,21 +112,18 @@ export abstract class Sandbox {
   abstract listFiles(path: string): Promise<FileInfo[]>
 
   /**
+   * Prefix applied to tool names when registered on an agent (e.g. `'sandbox'` produces
+   * `sandbox_bash`). Set to `undefined` to disable prefixing. Defaults to `'sandbox'`.
+   */
+  toolPrefix: string | undefined = 'sandbox'
+
+  /**
    * Tools this sandbox vends to an agent, registered during `Agent.initialize()`.
    * A tool is skipped if the user already registered one with the same name.
    * Override to provide them.
    */
   getTools(): Tool[] {
     return []
-  }
-
-  /**
-   * Context appended to the agent's system prompt during `Agent.initialize()`, letting
-   * the model understand how this environment behaves. Override to provide it; returns
-   * `undefined` (no context) by default.
-   */
-  getSystemPromptContext(): string | undefined {
-    return undefined
   }
 
   // ---- Non-streaming convenience methods ----

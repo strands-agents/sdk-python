@@ -9,7 +9,7 @@ import { streamProcess } from './stream-process.js'
 import type { ExecutionResult, StreamChunk } from './types.js'
 import type { Tool } from '../tools/tool.js'
 import { fileEditor } from '../vended-tools/file-editor/file-editor.js'
-import { bash } from '../vended-tools/bash/bash.js'
+import { makeBash, SANDBOX_BASH_DESCRIPTION } from '../vended-tools/bash/bash.js'
 
 // Known-safe SSH options. Options that execute commands, tunnel traffic, or load
 // external config are excluded. Reviewed and approved by AppSec.
@@ -155,6 +155,6 @@ export class SshSandbox extends PosixShellSandbox {
   }
 
   override getTools(): Tool[] {
-    return [fileEditor, bash]
+    return [fileEditor, makeBash({ description: SANDBOX_BASH_DESCRIPTION })]
   }
 }

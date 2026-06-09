@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Agent } from '../../agent/agent.js'
 import { MockMessageModel } from '../../__fixtures__/mock-message-model.js'
-import { TestSandbox } from '../../__fixtures__/test-sandbox.node.js'
 import { NotASandboxLocalEnvironment } from '../not-a-sandbox-local-environment.js'
 import { defaultSandbox } from '../default.js'
 
@@ -25,20 +24,5 @@ describe('Agent.sandbox getter', () => {
     expect(new Agent({ model: new MockMessageModel(), sandbox: false }).sandbox).toBeInstanceOf(
       NotASandboxLocalEnvironment
     )
-  })
-})
-
-describe('Agent sandbox system prompt context', () => {
-  it('folds the sandbox context into the system prompt on initialize', async () => {
-    const sandbox = new TestSandbox('/tmp')
-    const agent = new Agent({ model: new MockMessageModel(), systemPrompt: 'base', sandbox })
-    await agent.initialize()
-    expect(agent.systemPrompt).toBe(`base\n\n${sandbox.getSystemPromptContext()}`)
-  })
-
-  it('leaves the system prompt untouched when no sandbox is configured', async () => {
-    const agent = new Agent({ model: new MockMessageModel(), systemPrompt: 'base' })
-    await agent.initialize()
-    expect(agent.systemPrompt).toBe('base')
   })
 })
