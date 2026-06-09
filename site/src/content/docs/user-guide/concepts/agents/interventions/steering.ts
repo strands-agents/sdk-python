@@ -73,6 +73,7 @@ async function basicSteeringExample() {
   })
 
   await agent.invoke('Send an urgent email to the team about the deadline')
+  // Handler detects "URGENT" → guides agent to rewrite with calmer tone → email sends
   // --8<-- [end:basic_steering]
 }
 
@@ -100,6 +101,7 @@ async function llmSteeringExample() {
   })
 
   await agent.invoke('Email the client about the project delay')
+  // LLM evaluates tone and content → may guide agent to soften language before sending
   // --8<-- [end:llm_steering]
 }
 
@@ -138,6 +140,7 @@ async function customContextProviderExample() {
   })
 
   await agent.invoke('Research the history of quantum computing')
+  // After 5+ tool calls, handler guides the agent to wrap up and produce a final answer
   // --8<-- [end:custom_context_provider]
 }
 
@@ -166,6 +169,7 @@ async function toolLedgerConfigExample() {
   })
 
   await agent.invoke('Find contact info for Acme Corp and send them a proposal')
+  // If search_web fails 3 times, handler guides agent to try a different approach
   // --8<-- [end:tool_ledger_config]
 }
 
