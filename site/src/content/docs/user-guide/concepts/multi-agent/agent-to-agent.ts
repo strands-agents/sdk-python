@@ -102,7 +102,8 @@ async function serverConfigExample() {
       }),
     name: 'My Agent',
     description: 'A helpful agent',
-    maxContexts: 1000, // Retain at most 1000 per context agents; evict least recently used
+    // Retain at most 1000 per context agents; evict least recently used
+    maxContexts: 1000,
     host: '0.0.0.0',
     port: 8080,
     version: '1.0.0',
