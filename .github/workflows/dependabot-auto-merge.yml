@@ -83,7 +83,10 @@ jobs:
 
   finalize:
     name: Finalize agent writes
-    if: always()
+    # Run even if analyze fails (to clear the strands-running label), but NOT
+    # when the pipeline was skipped entirely for a non-dependabot PR. Without
+    # this guard, always() would cascade verdict + terminal jobs onto every PR.
+    if: always() && needs.parse-input.result != 'skipped'
     needs: [parse-input, analyze]
     permissions:
       contents: write
@@ -183,7 +186,7 @@ jobs:
     # safe python/typescript verdict whose integration tests did not succeed
     # (failure, cancelled, or skipped due to a dispatch error).
     if: >-
-      always() &&
+      always() && needs.verdict.result == 'success' &&
       (needs.verdict.outputs.verdict != 'safe' ||
        ((needs.prep.outputs.ecosystem == 'python' || needs.prep.outputs.ecosystem == 'typescript') &&
         needs.integration-tests.result != 'success'))
