@@ -7,39 +7,12 @@ import {
   isAuthorized,
   checkParsePolicySet,
   validate,
-  type Entities,
   type CedarValueJson,
   type TypeAndId,
   type EntityJson,
 } from '@cedar-policy/cedar-wasm/nodejs'
 import { readFileSync, existsSync } from 'node:fs'
 
-/**
- * A {@link https://docs.cedarpolicy.com/syntax-entity.html | Cedar entity} identifier
- * consisting of a type and id. Re-exported from `@cedar-policy/cedar-wasm`.
- *
- * @example
- * ```typescript
- * const principal: CedarEntityUid = { type: 'User', id: 'alice@acme.com' }
- * const resource: CedarEntityUid = { type: 'Record', id: '42' }
- * ```
- */
-export type CedarEntityUid = TypeAndId
-
-/**
- * A {@link https://docs.cedarpolicy.com/syntax-entity.html | Cedar entity} with
- * attributes and parent relationships. Re-exported from `@cedar-policy/cedar-wasm`.
- *
- * @example
- * ```typescript
- * const entity: CedarEntity = {
- *   uid: { type: 'User', id: 'alice' },
- *   attrs: { role: 'admin', department: 'engineering' },
- *   parents: [{ type: 'Role', id: 'admin' }],
- * }
- * ```
- */
-export type CedarEntity = EntityJson
 
 /**
  * Minimal tool definition for schema generation. Matches MCP tool format.
@@ -108,7 +81,7 @@ export interface CedarAuthorizationConfig {
    * `principal in Role::"admin"` with parent relationships, or static
    * attributes that don't change per-request.
    */
-  entities?: CedarEntity[] | string
+  entities?: EntityJson[] | string
 
   /**
    * Cedar schema text, or a path to a `.cedarschema` file on disk.
@@ -135,7 +108,7 @@ export interface CedarAuthorizationConfig {
    * { principal: { type: 'User', id: 'alice@acme.com' } }
    * ```
    */
-  principal?: CedarEntityUid
+  principal?: TypeAndId
 
   /**
    * Dynamic principal resolver for multi-tenant agents. Called on every tool
@@ -152,7 +125,7 @@ export interface CedarAuthorizationConfig {
    * }
    * ```
    */
-  principalResolver?: ((invocationState: Record<string, unknown>) => CedarEntityUid | undefined) | undefined
+  principalResolver?: ((invocationState: Record<string, unknown>) => TypeAndId | undefined) | undefined
 
   /**
    * Adds extra fields to the `context.session` object passed to Cedar.
@@ -257,13 +230,13 @@ export class CedarAuthorization extends InterventionHandler {
   override readonly onError: OnError
 
   private _policies: string
-  private _entities: CedarEntity[]
+  private _entities: EntityJson[]
   private _schema: string | undefined
   private readonly _policySource: string
-  private readonly _entitySource: CedarEntity[] | string | undefined
-  private readonly _principal: CedarEntityUid | undefined
+  private readonly _entitySource: EntityJson[] | string | undefined
+  private readonly _principal: TypeAndId | undefined
   private readonly _principalResolver:
-    | ((invocationState: Record<string, unknown>) => CedarEntityUid | undefined)
+    | ((invocationState: Record<string, unknown>) => TypeAndId | undefined)
     | undefined
   private readonly _contextEnricher: CedarAuthorizationConfig['contextEnricher']
   private readonly _tools: ToolDefinition[] | undefined
@@ -344,9 +317,9 @@ export class CedarAuthorization extends InterventionHandler {
     const callCount = this._incrementCallCount(event.agent, event.toolUse.name)
     const toolInput = (event.toolUse.input ?? {}) as Record<string, unknown>
 
-    let action: CedarEntityUid
-    let resource: CedarEntityUid
-    let entities: Entities
+    let action: TypeAndId
+    let resource: TypeAndId
+    let entities: EntityJson[]
 
     if (this._schemaGenerator && this._tools) {
       const request = this._schemaGenerator.generateRequest(
@@ -488,11 +461,11 @@ function loadPolicies(policies: string): string {
   return policies
 }
 
-function loadEntities(entities: CedarEntity[] | string | undefined): CedarEntity[] {
+function loadEntities(entities: EntityJson[] | string | undefined): EntityJson[] {
   if (!entities) return []
-  let parsed: CedarEntity[]
+  let parsed: EntityJson[]
   if (typeof entities === 'string') {
-    parsed = JSON.parse(readFileSync(entities, 'utf-8')) as CedarEntity[]
+    parsed = JSON.parse(readFileSync(entities, 'utf-8')) as EntityJson[]
   } else {
     parsed = entities
   }
@@ -514,8 +487,8 @@ interface SchemaGenerator {
     tools: ToolDefinition[],
     toolName: string,
     toolInput: Record<string, CedarValueJson>,
-    principal: CedarEntityUid
-  ): { action: CedarEntityUid; resource: CedarEntityUid; entities: CedarEntity[] }
+    principal: TypeAndId
+  ): { action: TypeAndId; resource: TypeAndId; entities: EntityJson[] }
 }
 
 function createSchemaGenerator(wasm: {
@@ -558,8 +531,8 @@ namespace Agent {
       tools: ToolDefinition[],
       toolName: string,
       toolInput: Record<string, CedarValueJson>,
-      principal: CedarEntityUid
-    ): { action: CedarEntityUid; resource: CedarEntityUid; entities: CedarEntity[] } {
+      principal: TypeAndId
+    ): { action: TypeAndId; resource: TypeAndId; entities: EntityJson[] } {
       const input = JSON.stringify({ params: { tool: toolName, args: toolInput } })
       const config = JSON.stringify({ flattenNamespaces: true })
       const result = JSON.parse(
@@ -587,13 +560,13 @@ namespace Agent {
       return {
         action: parseEntityUid(result.action!),
         resource: parseEntityUid(result.resource!),
-        entities: result.entitiesJson ? (JSON.parse(result.entitiesJson) as CedarEntity[]) : [],
+        entities: result.entitiesJson ? (JSON.parse(result.entitiesJson) as EntityJson[]) : [],
       }
     },
   }
 }
 
-function parseEntityUid(uid: string): CedarEntityUid {
+function parseEntityUid(uid: string): TypeAndId {
   const match = uid.match(/(?:.*::)?([^:]+)::"([^"]+)"/)
   if (!match) return { type: 'Action', id: uid }
   return { type: match[1]!, id: match[2]! }
