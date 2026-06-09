@@ -157,7 +157,7 @@ export interface CedarAuthorizationConfig {
    * }
    * ```
    */
-  principalResolver?: ((invocationState: Record<string, CedarValueJson>) => CedarEntityUid | undefined) | undefined
+  principalResolver?: ((invocationState: Record<string, unknown>) => CedarEntityUid | undefined) | undefined
 
   /**
    * Adds extra fields to the `context.session` object passed to Cedar.
@@ -185,8 +185,8 @@ export interface CedarAuthorizationConfig {
   contextEnricher?:
     | ((context: {
         toolName: string
-        toolInput: Record<string, CedarValueJson>
-        invocationState: Record<string, CedarValueJson>
+        toolInput: Record<string, unknown>
+        invocationState: Record<string, unknown>
       }) => Record<string, CedarValueJson>)
     | undefined
 
@@ -268,12 +268,13 @@ export class CedarAuthorization extends InterventionHandler {
   private readonly _entitySource: CedarEntity[] | string | undefined
   private readonly _principal: CedarEntityUid | undefined
   private readonly _principalResolver:
-    | ((invocationState: Record<string, CedarValueJson>) => CedarEntityUid | undefined)
+    | ((invocationState: Record<string, unknown>) => CedarEntityUid | undefined)
     | undefined
   private readonly _contextEnricher: CedarAuthorizationConfig['contextEnricher']
   private readonly _tools: ToolDefinition[] | undefined
   private readonly _schemaGenerator: SchemaGenerator | undefined
-  private static readonly _stateKey = 'cedar-authorization'
+  private readonly _callCounts = new Map<string, number>()
+  private readonly _stateKey: string
 
   constructor(config: CedarAuthorizationConfig) {
     super()
@@ -302,20 +303,21 @@ export class CedarAuthorization extends InterventionHandler {
     }
     this._principalResolver = config.principalResolver
     this._contextEnricher = config.contextEnricher
+    this._stateKey = `cedar-authorization:${this.name}`
     this.onError = config.onError ?? 'throw'
 
     validatePolicies(this._policies, this._schema)
   }
 
   override beforeToolCall(event: BeforeToolCallEvent): InterventionAction {
-    const invocationState = event.invocationState as Record<string, CedarValueJson>
+    const invocationState = event.invocationState as Record<string, unknown>
     const principal = this._principal ?? this._principalResolver!(invocationState)
     if (!principal || !principal.type || !principal.id) {
       return deny('No principal identity found in invocation state')
     }
 
     const callCount = this._incrementCallCount(event.agent, event.toolUse.name)
-    const toolInput = (event.toolUse.input ?? {}) as Record<string, CedarValueJson>
+    const toolInput = (event.toolUse.input ?? {}) as Record<string, unknown>
 
     let action: CedarEntityUid
     let resource: CedarEntityUid
@@ -370,7 +372,8 @@ export class CedarAuthorization extends InterventionHandler {
    * Clears the rate-limit call counters stored on the agent's appState.
    */
   resetCallCounts(agent: { appState: { set: (key: string, value: unknown) => void } }): void {
-    agent.appState.set(CedarAuthorization._stateKey, {})
+    this._callCounts.clear()
+    agent.appState.set(this._stateKey, {})
   }
 
   /**
@@ -390,23 +393,24 @@ export class CedarAuthorization extends InterventionHandler {
   }
 
   private _incrementCallCount(
-    agent: { appState: { get: (key: string) => unknown; set: (key: string, value: unknown) => void } },
+    agent: { appState: { set: (key: string, value: unknown) => void } },
     toolName: string
   ): number {
-    const state = (agent.appState.get(CedarAuthorization._stateKey) ?? {}) as Record<string, number>
-    const next = (state[toolName] ?? 0) + 1
-    agent.appState.set(CedarAuthorization._stateKey, { ...state, [toolName]: next })
+    const current = this._callCounts.get(toolName) ?? 0
+    const next = current + 1
+    this._callCounts.set(toolName, next)
+    agent.appState.set(this._stateKey, Object.fromEntries(this._callCounts))
     return next
   }
 
   private _decrementCallCount(
-    agent: { appState: { get: (key: string) => unknown; set: (key: string, value: unknown) => void } },
+    agent: { appState: { set: (key: string, value: unknown) => void } },
     toolName: string
   ): void {
-    const state = (agent.appState.get(CedarAuthorization._stateKey) ?? {}) as Record<string, number>
-    const current = state[toolName] ?? 0
+    const current = this._callCounts.get(toolName) ?? 0
     if (current > 0) {
-      agent.appState.set(CedarAuthorization._stateKey, { ...state, [toolName]: current - 1 })
+      this._callCounts.set(toolName, current - 1)
+      agent.appState.set(this._stateKey, Object.fromEntries(this._callCounts))
     }
   }
 }
@@ -456,10 +460,18 @@ function loadPolicies(policies: string): string {
 
 function loadEntities(entities: CedarEntity[] | string | undefined): CedarEntity[] {
   if (!entities) return []
+  let parsed: CedarEntity[]
   if (typeof entities === 'string') {
-    return JSON.parse(readFileSync(entities, 'utf-8')) as CedarEntity[]
+    parsed = JSON.parse(readFileSync(entities, 'utf-8')) as CedarEntity[]
+  } else {
+    parsed = entities
   }
-  return entities
+  for (const entity of parsed) {
+    if (!entity.uid || !entity.uid.type || !entity.uid.id) {
+      throw new Error(`Invalid entity: each entity must have a uid with type and id`)
+    }
+  }
+  return parsed
 }
 
 interface SchemaGenerator {
