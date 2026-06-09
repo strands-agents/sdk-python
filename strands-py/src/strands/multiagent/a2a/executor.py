@@ -94,10 +94,6 @@ class StrandsA2AExecutor(AgentExecutor):
     # evicted to bound memory in long-running servers.
     DEFAULT_MAX_CONTEXTS = 1000
 
-    # Key under which a context snapshot's app_data carries _model_state (single-agent mode).
-    # _model_state is per-conversation but not part of the "session" snapshot preset.
-    _MODEL_STATE_KEY = "a2a_model_state"
-
     def __init__(
         self,
         agent: SAAgent | None = None,
@@ -180,22 +176,21 @@ class StrandsA2AExecutor(AgentExecutor):
             self._snapshots: OrderedDict[str, Snapshot] = OrderedDict()
 
     def _capture_state(self, agent: SAAgent) -> Snapshot:
-        """Snapshot an agent's session state, carrying _model_state in app_data.
+        """Snapshot an agent's session state.
 
-        ``take_snapshot`` deep-copies session fields and app_data, so the snapshot is independent
-        of the live agent.
+        The ``session`` preset includes ``model_state`` (provider runtime state such as
+        server-side response ids), so it is captured and restored automatically. ``take_snapshot``
+        deep-copies session fields, so the snapshot is independent of the live agent.
         """
-        return agent.take_snapshot(preset="session", app_data={self._MODEL_STATE_KEY: agent._model_state})
+        return agent.take_snapshot(preset="session")
 
     def _restore_state(self, agent: SAAgent, snapshot: Snapshot) -> None:
-        """Load a snapshot into an agent, restoring session state and _model_state.
+        """Load a snapshot into an agent, restoring its session state.
 
         Deep-copies once at the boundary so a run never mutates a stored or template snapshot in
         place (snapshots, including the template, are restored repeatedly).
         """
-        snapshot = copy.deepcopy(snapshot)
-        agent.load_snapshot(snapshot)
-        agent._model_state = snapshot.app_data.get(self._MODEL_STATE_KEY, {})
+        agent.load_snapshot(copy.deepcopy(snapshot))
 
     def _evict_excess_contexts(self) -> None:
         """Evict least-recently-used contexts beyond ``max_contexts``. Caller holds the lock."""
