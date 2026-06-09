@@ -9,12 +9,14 @@ import {
   validate,
   type Entities,
   type CedarValueJson,
+  type TypeAndId,
+  type EntityJson,
 } from '@cedar-policy/cedar-wasm/nodejs'
 import { readFileSync, existsSync } from 'node:fs'
 
 /**
  * A {@link https://docs.cedarpolicy.com/syntax-entity.html | Cedar entity} identifier
- * consisting of a type and id.
+ * consisting of a type and id. Re-exported from `@cedar-policy/cedar-wasm`.
  *
  * @example
  * ```typescript
@@ -22,14 +24,11 @@ import { readFileSync, existsSync } from 'node:fs'
  * const resource: CedarEntityUid = { type: 'Record', id: '42' }
  * ```
  */
-export interface CedarEntityUid {
-  type: string
-  id: string
-}
+export type CedarEntityUid = TypeAndId
 
 /**
  * A {@link https://docs.cedarpolicy.com/syntax-entity.html | Cedar entity} with
- * attributes and parent relationships.
+ * attributes and parent relationships. Re-exported from `@cedar-policy/cedar-wasm`.
  *
  * @example
  * ```typescript
@@ -40,11 +39,7 @@ export interface CedarEntityUid {
  * }
  * ```
  */
-export interface CedarEntity {
-  uid: CedarEntityUid
-  attrs: Record<string, CedarValueJson>
-  parents: CedarEntityUid[]
-}
+export type CedarEntity = EntityJson
 
 /**
  * Minimal tool definition for schema generation. Matches MCP tool format.
@@ -362,11 +357,11 @@ export class CedarAuthorization extends InterventionHandler {
       )
       action = request.action
       resource = request.resource
-      entities = [...(this._entities as Entities), ...(request.entities as Entities)]
+      entities = [...(this._entities), ...(request.entities)]
     } else {
       action = { type: 'Action', id: event.toolUse.name }
       resource = { type: 'Resource', id: 'agent' }
-      entities = this._entities as Entities
+      entities = this._entities
     }
 
     const result = isAuthorized({
