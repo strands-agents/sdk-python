@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi, type MockedFunction } from 'vitest'
 import { BedrockAgentRuntimeClient } from '@aws-sdk/client-bedrock-agent-runtime'
 import { BedrockAgentClient } from '@aws-sdk/client-bedrock-agent'
-import { BedrockKnowledgeBaseStore } from '../index.js'
+import { BedrockKnowledgeBaseStore } from '../store.js'
 import { logger } from '../../../logging/logger.js'
 
 // Mock the AWS SDK clients. Command classes are stubbed to echo their input as `{ input }`, so a
@@ -72,7 +72,7 @@ describe('BedrockKnowledgeBaseStore', () => {
 
     it('throws when writable is true but dataSourceType is omitted', () => {
       expect(() => new BedrockKnowledgeBaseStore({ name: 'kb', knowledgeBaseId: 'kb-1', writable: true })).toThrow(
-        "Only 'CUSTOM' and 'S3' data sources support document ingestion"
+        "add requires dataSourceType 'CUSTOM' or 'S3'"
       )
     })
 
@@ -85,7 +85,7 @@ describe('BedrockKnowledgeBaseStore', () => {
             writable: true,
             dataSourceType: 'OTHER',
           })
-      ).toThrow("dataSourceType is 'OTHER'")
+      ).toThrow("add requires dataSourceType 'CUSTOM' or 'S3'")
     })
 
     it("allows writable with a 'CUSTOM' data source", () => {
@@ -111,13 +111,12 @@ describe('BedrockKnowledgeBaseStore', () => {
       expect(store.writable).toBe(true)
     })
 
-    it('constructs a runtime client from runtimeClientConfig when none is injected', () => {
+    it('constructs a default runtime client when none is injected', () => {
       new BedrockKnowledgeBaseStore({
         name: 'kb',
         knowledgeBaseId: 'kb-1',
-        runtimeClientConfig: { region: 'us-west-2' },
       })
-      expect(vi.mocked(BedrockAgentRuntimeClient)).toHaveBeenCalledWith({ region: 'us-west-2' })
+      expect(vi.mocked(BedrockAgentRuntimeClient)).toHaveBeenCalledWith({})
     })
 
     it('uses the injected runtime client without constructing one', () => {
@@ -333,7 +332,7 @@ describe('BedrockKnowledgeBaseStore', () => {
             writable: true,
             dataSourceType: 'CUSTOM',
           })
-      ).toThrow('dataSourceId is missing')
+      ).toThrow('dataSourceId is required')
     })
 
     it('returns the generated custom document id', async () => {
@@ -420,17 +419,16 @@ describe('BedrockKnowledgeBaseStore', () => {
       errorSpy.mockRestore()
     })
 
-    it('lazily constructs an agent client from agentClientConfig when none is injected', async () => {
+    it('lazily constructs a default agent client when none is injected', async () => {
       const store = new BedrockKnowledgeBaseStore({
         name: 'kb',
         knowledgeBaseId: 'kb-1',
         writable: true,
         dataSourceType: 'CUSTOM',
         dataSourceId: 'ds-1',
-        agentClientConfig: { region: 'eu-west-1' },
       })
       await store.add('fact')
-      expect(vi.mocked(BedrockAgentClient)).toHaveBeenCalledWith({ region: 'eu-west-1' })
+      expect(vi.mocked(BedrockAgentClient)).toHaveBeenCalledWith({})
     })
   })
 
@@ -467,7 +465,7 @@ describe('BedrockKnowledgeBaseStore', () => {
             dataSourceType: 'S3',
             dataSourceId: 'ds-1',
           })
-      ).toThrow("requires an 's3' config")
+      ).toThrow('s3 config is required')
     })
 
     it("returns the uploaded content object's s3:// URI as the document id", async () => {

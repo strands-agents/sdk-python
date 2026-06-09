@@ -374,7 +374,7 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
             writable: true,
             dataSourceType: 'OTHER',
           })
-      ).toThrow("Only 'CUSTOM' and 'S3' data sources support document ingestion")
+      ).toThrow("add requires dataSourceType 'CUSTOM' or 'S3'")
     })
 
     it('throws when writable is set without dataSourceId', () => {
@@ -388,7 +388,7 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
             writable: true,
             dataSourceType: 'CUSTOM',
           })
-      ).toThrow('dataSourceId is missing')
+      ).toThrow('dataSourceId is required')
     })
 
     it('throws when writable S3 store is missing s3 config', () => {
@@ -403,7 +403,7 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
             dataSourceType: 'S3',
             dataSourceId: s3DataSourceId,
           })
-      ).toThrow("requires an 's3' config")
+      ).toThrow('s3 config is required')
     })
   })
 })
