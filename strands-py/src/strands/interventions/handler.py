@@ -1,0 +1,77 @@
+"""Base class for intervention handlers.
+
+Handlers override the lifecycle methods they care about. Default implementations
+return Proceed. The framework detects which methods are overridden and only
+registers hook callbacks for those.
+"""
+
+from abc import ABC, abstractmethod
+from typing import Literal
+
+from ..hooks.events import (
+    AfterModelCallEvent,
+    AfterToolCallEvent,
+    BeforeInvocationEvent,
+    BeforeModelCallEvent,
+    BeforeToolCallEvent,
+)
+from .actions import Confirm, Deny, Guide, Proceed, Transform
+
+OnError = Literal["throw", "proceed", "deny"]
+"""What to do when a handler throws during evaluation.
+
+- ``'throw'`` — rethrow the error (default, safest: a broken policy check blocks execution)
+- ``'proceed'`` — log the error and continue as if the handler returned Proceed
+- ``'deny'`` — log the error and treat it as a Deny (fail-closed)
+"""
+
+
+class InterventionHandler(ABC):
+    """Base class for intervention handlers.
+
+    Subclasses must define a ``name`` attribute and override the lifecycle
+    methods they care about. The framework detects which methods are overridden
+    and only calls those.
+
+    Example:
+        ```python
+        class CedarAuth(InterventionHandler):
+            name = "cedar-auth"
+
+            async def before_tool_call(self, event):
+                if not self.is_authorized(event):
+                    return deny("not authorized")
+                return proceed()
+        ```
+    """
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Unique name identifying this handler."""
+        ...
+
+    @property
+    def on_error(self) -> OnError:
+        """What to do when this handler throws. Defaults to 'throw'."""
+        return "throw"
+
+    async def before_invocation(self, event: BeforeInvocationEvent) -> Proceed | Deny | Guide | Transform:
+        """Called before an agent invocation begins."""
+        return Proceed()
+
+    async def before_tool_call(self, event: BeforeToolCallEvent) -> Proceed | Deny | Guide | Confirm | Transform:
+        """Called before a tool is executed."""
+        return Proceed()
+
+    async def after_tool_call(self, event: AfterToolCallEvent) -> Proceed | Transform:
+        """Called after a tool execution completes."""
+        return Proceed()
+
+    async def before_model_call(self, event: BeforeModelCallEvent) -> Proceed | Deny | Guide | Transform:
+        """Called before the model is invoked."""
+        return Proceed()
+
+    async def after_model_call(self, event: AfterModelCallEvent) -> Proceed | Guide | Transform:
+        """Called after the model invocation completes."""
+        return Proceed()

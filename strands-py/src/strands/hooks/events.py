@@ -54,13 +54,16 @@ class BeforeInvocationEvent(HookEvent):
             and dynamic configuration.
         messages: The input messages for this invocation. Can be modified by hooks
             to redact or transform content before processing.
+        cancel: When set, cancels the invocation. If a string, used as the cancellation message.
+            If True, a default message is used.
     """
 
     invocation_state: dict[str, Any] = field(default_factory=dict)
     messages: Messages | None = None
+    cancel: bool | str = False
 
     def _can_write(self, name: str) -> bool:
-        return name == "messages"
+        return name in ["messages", "cancel"]
 
 
 @dataclass
@@ -240,10 +243,16 @@ class BeforeModelCallEvent(HookEvent):
             Computed by the agent loop from message metadata and token estimation.
             Available for hooks and plugins (e.g. conversation managers) to make
             proactive decisions about context management. None if estimation failed.
+        cancel: When set, cancels the model call. If a string, used as the cancellation message.
+            If True, a default message is used.
     """
 
     invocation_state: dict[str, Any] = field(default_factory=dict)
     projected_input_tokens: int | None = None
+    cancel: bool | str = False
+
+    def _can_write(self, name: str) -> bool:
+        return name == "cancel"
 
 
 @dataclass

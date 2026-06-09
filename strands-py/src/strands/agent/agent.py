@@ -54,6 +54,8 @@ from ..hooks import (
 )
 from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
+from ..interventions.handler import InterventionHandler
+from ..interventions.registry import InterventionRegistry
 from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
@@ -143,6 +145,7 @@ class Agent(AgentBase):
         state: AgentState | dict | None = None,
         plugins: list[Plugin] | None = None,
         hooks: list[HookProvider | HookCallback] | None = None,
+        interventions: list[InterventionHandler] | None = None,
         session_manager: SessionManager | None = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
@@ -200,6 +203,12 @@ class Agent(AgentBase):
                 Defaults to None.
             hooks: Hooks to be added to the agent hook registry. Accepts HookProvider instances
                 or plain callable hook callbacks (functions with typed event parameters).
+                Defaults to None.
+            interventions: List of InterventionHandler instances for agent control.
+                Handlers are evaluated in registration order at each lifecycle event.
+                Cheapest handlers (authorization, guardrails) should be listed first;
+                expensive ones (LLM steering) last. Deny short-circuits immediately,
+                Guide feedback accumulates across handlers.
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
@@ -374,6 +383,9 @@ class Agent(AgentBase):
                     raise ValueError(
                         f"Invalid hook: {hook!r}. Must be a HookProvider instance or a callable hook callback."
                     )
+
+        # Register intervention handlers
+        self._intervention_registry = InterventionRegistry(interventions or [], self.hooks)
 
         # Register built-in plugins
         self._plugin_registry.add_and_init(_ModelPlugin())
@@ -961,6 +973,21 @@ class Agent(AgentBase):
             before_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
                 BeforeInvocationEvent(agent=self, invocation_state=invocation_state, messages=current_messages)
             )
+
+            if before_invocation_event.cancel:
+                cancel_text = (
+                    before_invocation_event.cancel
+                    if isinstance(before_invocation_event.cancel, str)
+                    else "invocation denied by hook"
+                )
+                cancel_message: Message = {"role": "assistant", "content": [{"text": cancel_text}]}
+                await self._append_messages(cancel_message)
+                yield EventLoopStopEvent(stop=("endTurn", cancel_message, {}, {}))
+                await self.hooks.invoke_callbacks_async(
+                    AfterInvocationEvent(agent=self, invocation_state=invocation_state)
+                )
+                return
+
             current_messages = (
                 before_invocation_event.messages if before_invocation_event.messages is not None else current_messages
             )
