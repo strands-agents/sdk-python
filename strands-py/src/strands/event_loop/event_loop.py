@@ -523,11 +523,9 @@ async def _handle_model_execution(
                     )
                     await agent.hooks.invoke_callbacks_async(after_model_call_event)
 
-                    if after_model_call_event.retry:
-                        tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
-                        continue
-
                     tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
+                    if after_model_call_event.retry:
+                        continue
                     break
 
                 if structured_output_context.forced_mode:

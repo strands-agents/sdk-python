@@ -237,6 +237,8 @@ class InterventionRegistry:
         if handler.on_error == "throw":
             raise error
         elif handler.on_error == "deny":
+            logger.warning("handler=<%s>, event=<%s>, on_error=<deny> | %s", handler.name, method, error_msg)
             return Deny(reason=f"Handler threw: {error_msg}")
         else:
+            logger.warning("handler=<%s>, event=<%s>, on_error=<proceed> | %s", handler.name, method, error_msg)
             return None
