@@ -497,7 +497,11 @@ function loadEntities(entities: CedarEntity[] | string | undefined): CedarEntity
     parsed = entities
   }
   for (const entity of parsed) {
-    if (!entity.uid || !entity.uid.type || !entity.uid.id) {
+    if (!entity.uid) {
+      throw new Error(`Invalid entity: each entity must have a uid with type and id`)
+    }
+    const uid = '__entity' in entity.uid ? entity.uid.__entity : entity.uid
+    if (!uid.type || !uid.id) {
       throw new Error(`Invalid entity: each entity must have a uid with type and id`)
     }
   }
