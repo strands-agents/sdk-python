@@ -69,7 +69,7 @@ def _normalize_messages(messages: Messages) -> Messages:
             has_tool_use = False
 
             # Ensure the tool-uses always have valid names before sending
-            # https://github.com/strands-agents/sdk-python/issues/1069
+            # https://github.com/strands-agents/harness-sdk/issues/1069
             for item in content:
                 if "toolUse" in item:
                     has_tool_use = True

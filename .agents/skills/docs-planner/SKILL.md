@@ -25,7 +25,7 @@ Compare the inventory against:
 
 - **SDK surface area**: Are all major features documented? Features without docs pages are gaps.
 - **Diataxis completeness**: For each feature area, does documentation exist across all four types? A feature with reference but no tutorial has a gap.
-- **Community signals**: If GitHub CLI is available, pull open issues labeled "documentation" from strands-agents/docs, strands-agents/sdk-python, and strands-agents/sdk-typescript. Map questions to existing docs (unclear/hard to find) or missing docs (content gap).
+- **Community signals**: If GitHub CLI is available, pull open issues labeled "documentation" from strands-agents/harness-sdk. Map questions to existing docs (unclear/hard to find) or missing docs (content gap).
 - **Competitive comparison** (if provided): What do LangChain, CrewAI, Anthropic, and OpenAI document about equivalent features that we don't?
 
 ### Step 3: Prioritize

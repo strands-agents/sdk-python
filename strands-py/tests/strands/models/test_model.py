@@ -1,3 +1,5 @@
+import json
+import math
 from unittest.mock import MagicMock
 
 import pytest
@@ -314,6 +316,53 @@ async def test_count_tokens_tool_result_block(model):
     ]
     result = await model.count_tokens(messages=messages)
     assert result == 4  # ceil(16/4)
+
+
+@pytest.mark.asyncio
+async def test_count_tokens_tool_result_with_json(model):
+    obj = {"x": "lorem ipsum " * 1000}
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "123",
+                        "content": [{"json": obj}],
+                        "status": "success",
+                    }
+                }
+            ],
+        }
+    ]
+    result = await model.count_tokens(messages=messages)
+    assert result == math.ceil(len(json.dumps(obj)) / 2)
+    assert result > 0
+
+
+@pytest.mark.asyncio
+async def test_count_tokens_tool_result_with_text_and_json(model):
+    text = "Here is the data"
+    obj = {"key": "value", "count": 42}
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "123",
+                        "content": [
+                            {"text": text},
+                            {"json": obj},
+                        ],
+                        "status": "success",
+                    }
+                }
+            ],
+        }
+    ]
+    result = await model.count_tokens(messages=messages)
+    assert result == math.ceil(len(text) / 4) + math.ceil(len(json.dumps(obj)) / 2)
 
 
 @pytest.mark.asyncio

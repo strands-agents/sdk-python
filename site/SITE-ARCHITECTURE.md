@@ -319,7 +319,7 @@ const rawNavLinks: NavLink[] = [
   },
   {
     label: 'Contribute ❤️',
-    href: 'https://github.com/strands-agents/sdk-python/blob/main/CONTRIBUTING.md',
+    href: 'https://github.com/strands-agents/harness-sdk/blob/main/CONTRIBUTING.md',
     external: true,  // Opens in new tab with arrow icon
   },
 ]

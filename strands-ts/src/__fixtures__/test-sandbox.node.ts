@@ -1,4 +1,4 @@
-import { PosixShellSandbox, shellQuote } from '../sandbox/posix-shell.js'
+import { buildShellEnvPrefix, PosixShellSandbox, shellQuote } from '../sandbox/posix-shell.js'
 import { streamProcess } from '../sandbox/stream-process.js'
 import type { ExecuteOptions } from '../sandbox/base.js'
 import type { ExecutionResult, StreamChunk } from '../sandbox/types.js'
@@ -22,7 +22,8 @@ export class TestSandbox extends PosixShellSandbox {
     options?: ExecuteOptions
   ): AsyncGenerator<StreamChunk | ExecutionResult, void, undefined> {
     const cwd = options?.cwd ?? this.workingDir
-    const fullCommand = `cd ${shellQuote(cwd)} && ${command}`
+    const envPrefix = buildShellEnvPrefix(options?.env)
+    const fullCommand = `cd ${shellQuote(cwd)} && ${envPrefix}${command}`
     yield* streamProcess('sh', ['-c', fullCommand], { timeout: options?.timeout, signal: options?.signal })
   }
 }

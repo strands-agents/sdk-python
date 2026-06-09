@@ -1,9 +1,9 @@
-import { describe, it, expect, afterEach } from 'vitest'
-import { spawnSync } from 'child_process'
-import fs from 'fs'
-import os from 'os'
-import path from 'path'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { execSync, spawnSync } from 'child_process'
 import { DockerSandbox } from '../../../src/sandbox/docker.js'
+
+// Unique suffix so concurrent runs (CI matrix, or local + CI) don't collide on the container name.
+const CONTAINER_NAME = `strands-integ-docker-sandbox-${Math.random().toString(16).slice(2, 8)}`
 
 function dockerAvailable(): boolean {
   if (process.platform === 'win32') return false
@@ -11,37 +11,18 @@ function dockerAvailable(): boolean {
 }
 
 describe.skipIf(!dockerAvailable())('DockerSandbox (integration)', () => {
-  let sandbox: DockerSandbox | undefined
-
-  afterEach(async () => {
-    if (sandbox) {
-      await sandbox.stop()
-      sandbox = undefined
-    }
+  beforeAll(() => {
+    spawnSync('docker', ['rm', '-f', CONTAINER_NAME], { stdio: 'pipe' })
+    // alpine (busybox) is tiny and ships sh + base64, all these tests need; executeCode runs via sh.
+    execSync(`docker run -d --name ${CONTAINER_NAME} alpine:latest tail -f /dev/null`, { stdio: 'pipe' })
   })
 
-  it('start() creates a container, stop() removes it', async () => {
-    sandbox = new DockerSandbox({ image: 'alpine:latest', name: 'strands-integ-lifecycle' })
-    await sandbox.start()
-
-    const ps = spawnSync('docker', ['ps', '--filter', 'name=strands-integ-lifecycle', '--format', '{{.Names}}'], {
-      encoding: 'utf-8',
-    })
-    expect(ps.stdout.trim()).toBe('strands-integ-lifecycle')
-
-    await sandbox.stop()
-
-    const psAfter = spawnSync(
-      'docker',
-      ['ps', '-a', '--filter', 'name=strands-integ-lifecycle', '--format', '{{.Names}}'],
-      { encoding: 'utf-8' }
-    )
-    expect(psAfter.stdout.trim()).toBe('')
+  afterAll(() => {
+    spawnSync('docker', ['rm', '-f', CONTAINER_NAME], { stdio: 'pipe' })
   })
 
   it('runs commands and captures stdout, stderr, and exit code', async () => {
-    sandbox = new DockerSandbox({ image: 'alpine:latest' })
-    await sandbox.start()
+    const sandbox = new DockerSandbox({ container: CONTAINER_NAME })
 
     const result = await sandbox.execute('echo hello && echo err >&2')
     expect(result).toStrictEqual({
@@ -53,21 +34,25 @@ describe.skipIf(!dockerAvailable())('DockerSandbox (integration)', () => {
     })
 
     const failed = await sandbox.execute('exit 42')
-    expect(failed.exitCode).toBe(42)
+    expect(failed).toStrictEqual({
+      type: 'executionResult',
+      exitCode: 42,
+      stdout: '',
+      stderr: '',
+      outputFiles: [],
+    })
   })
 
-  it('runs python via executeCode', async () => {
-    sandbox = new DockerSandbox({ image: 'python:3.12-slim' })
-    await sandbox.start()
+  it('runs code via executeCode', async () => {
+    const sandbox = new DockerSandbox({ container: CONTAINER_NAME })
 
-    const result = await sandbox.executeCode('print(6 * 7)', 'python3')
+    const result = await sandbox.executeCode('echo $((6 * 7))', 'sh')
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toBe('42\n')
   })
 
   it('round-trips text and binary files', async () => {
-    sandbox = new DockerSandbox({ image: 'alpine:latest' })
-    await sandbox.start()
+    const sandbox = new DockerSandbox({ container: CONTAINER_NAME })
 
     await sandbox.writeText('greeting.txt', 'hello docker')
     expect(await sandbox.readText('greeting.txt')).toBe('hello docker')
@@ -78,8 +63,7 @@ describe.skipIf(!dockerAvailable())('DockerSandbox (integration)', () => {
   })
 
   it('lists and removes files', async () => {
-    sandbox = new DockerSandbox({ image: 'alpine:latest' })
-    await sandbox.start()
+    const sandbox = new DockerSandbox({ container: CONTAINER_NAME })
 
     await sandbox.writeText('a.txt', 'a')
     await sandbox.writeText('b.txt', 'b')
@@ -92,43 +76,59 @@ describe.skipIf(!dockerAvailable())('DockerSandbox (integration)', () => {
     await expect(sandbox.readFile('a.txt')).rejects.toThrow()
   })
 
-  it('mounts host volumes when configured', async () => {
-    const hostDir = fs.mkdtempSync(path.join(os.tmpdir(), 'strands-integ-vol-'))
-    fs.writeFileSync(path.join(hostDir, 'file.txt'), 'from-host\n')
+  it('respects custom workingDir', async () => {
+    const sandbox = new DockerSandbox({ container: CONTAINER_NAME, workingDir: '/opt' })
 
-    try {
-      sandbox = new DockerSandbox({
-        image: 'alpine:latest',
-        volumes: [`${hostDir}:/mnt/shared`],
-        allowDangerousMounts: true,
-      })
-      await sandbox.start()
-
-      const result = await sandbox.execute('cat /mnt/shared/file.txt')
-      expect(result.stdout.trim()).toBe('from-host')
-    } finally {
-      fs.rmSync(hostDir, { recursive: true, force: true })
-    }
+    const result = await sandbox.execute('pwd')
+    expect(result.stdout.trim()).toBe('/opt')
   })
 
-  it('passes environment variables into the container', async () => {
-    sandbox = new DockerSandbox({ image: 'alpine:latest', env: { MY_VAR: 'hello-env' } })
-    await sandbox.start()
+  it('respects per-command cwd override', async () => {
+    const sandbox = new DockerSandbox({ container: CONTAINER_NAME })
 
-    const result = await sandbox.execute('echo $MY_VAR')
-    expect(result.stdout.trim()).toBe('hello-env')
+    const result = await sandbox.execute('pwd', { cwd: '/usr' })
+    expect(result.stdout.trim()).toBe('/usr')
   })
 
-  it('files inside the container do not exist on the host', async () => {
-    sandbox = new DockerSandbox({ image: 'alpine:latest' })
-    await sandbox.start()
+  it('kills command on timeout', async () => {
+    const sandbox = new DockerSandbox({ container: CONTAINER_NAME })
 
-    const marker = `strands-isolation-${Date.now()}`
-    await sandbox.writeText(marker, 'sandbox-only')
+    await expect(sandbox.execute('sleep 60', { timeout: 0.5 })).rejects.toThrow('timed out')
+  })
 
-    const content = await sandbox.readText(marker)
-    expect(content).toBe('sandbox-only')
+  it('kills command on abort signal', async () => {
+    const sandbox = new DockerSandbox({ container: CONTAINER_NAME })
+    const controller = new AbortController()
+    const promise = sandbox.execute('sleep 60', { signal: controller.signal })
+    setTimeout(() => controller.abort(), 100)
 
-    expect(fs.existsSync(`/tmp/${marker}`)).toBe(false)
+    await expect(promise).rejects.toThrow('aborted')
+  })
+
+  it('passes env vars to the command', async () => {
+    const sandbox = new DockerSandbox({ container: CONTAINER_NAME })
+
+    const result = await sandbox.execute('echo $MY_VAR', { env: { MY_VAR: 'hello-from-env' } })
+    expect(result.stdout.trim()).toBe('hello-from-env')
+  })
+
+  it('passes env values with shell metacharacters literally, without expansion', async () => {
+    const sandbox = new DockerSandbox({ container: CONTAINER_NAME })
+
+    // `-e KEY=VALUE` is argv, not shell input, so Docker stores the value verbatim.
+    // `printenv` reads the variable without a shell touching the value, isolating the
+    // Docker layer: any expansion of `$(whoami)`/`$HOME` here would be a real bug.
+    const value = '$(whoami) $HOME `id`'
+    const result = await sandbox.execute('printenv MY_VAR', { env: { MY_VAR: value } })
+    expect(result.exitCode).toBe(0)
+    expect(result.stdout.trim()).toBe(value)
+  })
+
+  it('returns error for non-existent container', async () => {
+    const sandbox = new DockerSandbox({ container: 'nonexistent123' })
+
+    const result = await sandbox.execute('echo hi')
+    expect(result.exitCode).not.toBe(0)
+    expect(result.stderr).toMatch(/No such container/)
   })
 })

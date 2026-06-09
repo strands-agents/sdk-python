@@ -206,7 +206,7 @@ def test_tool_returning_images(model, yellow_img):
     agent = Agent(model, tools=[tool_with_image_return])
     # NOTE - this currently fails with: "Invalid 'messages[3]'. Image URLs are only allowed for messages with role
     # 'user', but this message with role 'tool' contains an image URL."
-    # See https://github.com/strands-agents/sdk-python/issues/320 for additional details
+    # See https://github.com/strands-agents/harness-sdk/issues/320 for additional details
     agent("Run the the tool and analyze the image")
 
 

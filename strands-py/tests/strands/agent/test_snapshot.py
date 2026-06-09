@@ -128,7 +128,7 @@ def test_snapshot_structural_invariants(messages, state_dict, system_prompt):
     assert ISO_8601_UTC_RE.match(snapshot.created_at), f"created_at={snapshot.created_at!r} not ISO 8601 UTC"
     assert isinstance(snapshot.data, dict)
     assert isinstance(snapshot.app_data, dict)
-    for field in ("messages", "state", "conversation_manager_state", "interrupt_state"):
+    for field in ("messages", "state", "conversation_manager_state", "interrupt_state", "model_state"):
         assert field in snapshot.data
     assert "system_prompt" not in snapshot.data
 
@@ -202,6 +202,8 @@ def test_missing_fields_leave_agent_unchanged(omitted_field):
         before = fresh_agent.conversation_manager.get_state()
     elif omitted_field == "interrupt_state":
         before = fresh_agent._interrupt_state.to_dict()
+    elif omitted_field == "model_state":
+        before = dict(fresh_agent._model_state)
     else:
         pytest.fail(f"Unhandled field in test: {omitted_field!r}. Update this test when adding new snapshot fields.")
 
@@ -217,6 +219,8 @@ def test_missing_fields_leave_agent_unchanged(omitted_field):
         assert fresh_agent.conversation_manager.get_state() == before
     elif omitted_field == "interrupt_state":
         assert fresh_agent._interrupt_state.to_dict() == before
+    elif omitted_field == "model_state":
+        assert fresh_agent._model_state == before
     else:
         pytest.fail(f"Unhandled field in test: {omitted_field!r}. Update this test when adding new snapshot fields.")
 
@@ -451,3 +455,90 @@ def test_take_snapshot_system_prompt_is_independent_copy():
     agent.system_prompt = "mutated prompt"
     assert snapshot.data["system_prompt"] == original_content
     assert snapshot.data["system_prompt"] != agent._system_prompt_content
+
+
+# model_state snapshot field
+
+
+def test_model_state_is_valid_snapshot_field():
+    """model_state is recognized as a valid SnapshotField."""
+    assert "model_state" in ALL_SNAPSHOT_FIELDS
+
+
+def test_model_state_in_session_preset():
+    """model_state is included in the session preset."""
+    assert "model_state" in SNAPSHOT_PRESETS["session"]
+
+
+def test_take_snapshot_captures_model_state():
+    """take_snapshot with include=['model_state'] captures the agent's _model_state."""
+    agent = _make_agent()
+    agent._model_state = {"response_id": "resp_abc123"}
+    snapshot = agent.take_snapshot(include=["model_state"])
+
+    assert snapshot.data["model_state"] == {"response_id": "resp_abc123"}
+
+
+def test_take_snapshot_model_state_is_independent_copy():
+    """Mutating agent._model_state after take_snapshot doesn't corrupt the snapshot."""
+    agent = _make_agent()
+    agent._model_state = {"response_id": "resp_abc123"}
+    snapshot = agent.take_snapshot(include=["model_state"])
+
+    agent._model_state["response_id"] = "resp_mutated"
+    assert snapshot.data["model_state"]["response_id"] == "resp_abc123"
+
+
+def test_load_snapshot_restores_model_state():
+    """load_snapshot restores model_state onto the agent."""
+    agent = _make_agent()
+    agent._model_state = {"old": "state"}
+
+    snap = _make_snapshot(data={"model_state": {"response_id": "resp_restored"}})
+    agent.load_snapshot(snap)
+
+    assert agent._model_state == {"response_id": "resp_restored"}
+
+
+def test_load_snapshot_without_model_state_leaves_it_unchanged():
+    """A snapshot without model_state in data does not alter agent._model_state."""
+    agent = _make_agent()
+    agent._model_state = {"response_id": "resp_keep"}
+
+    snap = _make_snapshot(data={"messages": [{"role": "user", "content": [{"text": "hi"}]}]})
+    agent.load_snapshot(snap)
+
+    assert agent._model_state == {"response_id": "resp_keep"}
+
+
+def test_load_snapshot_with_empty_model_state_clears_it():
+    """A snapshot with model_state={} overwrites a non-empty _model_state."""
+    agent = _make_agent()
+    agent._model_state = {"response_id": "resp_existing"}
+
+    snap = _make_snapshot(data={"model_state": {}})
+    agent.load_snapshot(snap)
+
+    assert agent._model_state == {}
+
+
+def test_load_snapshot_model_state_is_independent_copy():
+    """Mutating agent._model_state after load_snapshot doesn't corrupt the snapshot."""
+    agent = _make_agent()
+    snap = _make_snapshot(data={"model_state": {"response_id": "resp_original"}})
+    agent.load_snapshot(snap)
+
+    agent._model_state["response_id"] = "resp_mutated"
+    assert snap.data["model_state"]["response_id"] == "resp_original"
+
+
+def test_model_state_round_trip():
+    """model_state survives take_snapshot -> load_snapshot round-trip."""
+    agent = _make_agent()
+    agent._model_state = {"response_id": "resp_xyz", "extra": 42}
+    snapshot = agent.take_snapshot(include=["model_state"])
+
+    fresh_agent = _make_agent()
+    fresh_agent.load_snapshot(snapshot)
+
+    assert fresh_agent._model_state == {"response_id": "resp_xyz", "extra": 42}

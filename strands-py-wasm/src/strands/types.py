@@ -32,18 +32,12 @@ from strands._generated.strands_agent.models import (
 )
 from strands._generated.strands_agent.vended import (
     AgentSkills,
-    BashTool,
     ContextOffloader,
-    FileEditorTool,
-    HttpRequestTool,
-    NotebookTool,
     VendedPlugin,
-    VendedTool,
 )
 
 ModelInput = ModelConfig | BedrockModel | AnthropicModel | OpenaiModel | GoogleModel | CustomModel
 ConversationManagerInput = ConversationManagerConfig | SlidingWindowConversationManager | SummarizingConversationManager
-VendedToolInput = VendedTool | BashTool | FileEditorTool | HttpRequestTool | NotebookTool
 VendedPluginInput = VendedPlugin | AgentSkills | ContextOffloader
 
 _DROPPED: set[str] = {
@@ -62,6 +56,5 @@ __all__ = sorted(  # pyright: ignore[reportUnsupportedDunderAll]
         "ConversationManagerInput",
         "ModelInput",
         "VendedPluginInput",
-        "VendedToolInput",
     }
 )

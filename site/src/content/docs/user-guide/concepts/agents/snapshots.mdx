@@ -26,10 +26,10 @@ snapshot = agent.take_snapshot(preset="session")
 
 print(snapshot.schema_version)  # "1.0"
 print(snapshot.created_at)      # ISO 8601 timestamp
-print(snapshot.data.keys())     # messages, state, conversation_manager_state, interrupt_state
+print(snapshot.data.keys())     # messages, state, conversation_manager_state, interrupt_state, model_state
 ```
 
-The `"session"` preset captures `messages`, `state`, `conversation_manager_state`, and `interrupt_state`. The `system_prompt` field is not included by default — see [Field Selection](#field-selection) to customize which fields are captured.
+The `"session"` preset captures `messages`, `state`, `conversation_manager_state`, `interrupt_state`, and `model_state`. The `system_prompt` field is not included by default — see [Field Selection](#field-selection) to customize which fields are captured.
 </Tab>
 <Tab label="TypeScript">
 
@@ -96,6 +96,7 @@ Snapshots support flexible field selection through presets, includes, and exclud
 | `conversation_manager_state` | Conversation manager internal state |
 | `interrupt_state` | Human-in-the-loop interrupt state |
 | `system_prompt` | System prompt content |
+| `model_state` | Model provider state (e.g. response IDs for stateful models) |
 
 </Tab>
 <Tab label="TypeScript">

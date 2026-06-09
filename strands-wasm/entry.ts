@@ -16,6 +16,7 @@
 /// <reference path="./generated/interfaces/strands-agent-sessions.d.ts" />
 /// <reference path="./generated/interfaces/strands-agent-conversation.d.ts" />
 /// <reference path="./generated/interfaces/strands-agent-tool-provider.d.ts" />
+/// <reference path="./generated/interfaces/strands-agent-vended.d.ts" />
 
 import type { AgentConfig, InvokeArgs, RespondArgs, AgentError } from 'strands:agent/api@0.1.0'
 import type {
@@ -34,9 +35,12 @@ import type {
 } from 'strands:agent/streaming@0.1.0'
 import type { ModelConfig as WitModelConfig, ModelParams as WitModelParams } from 'strands:agent/models@0.1.0'
 import type { ToolSpec, ToolChoice as WitToolChoice } from 'strands:agent/tools@0.1.0'
+import type { VendedTool as WitVendedTool } from 'strands:agent/vended@0.1.0'
 
 import { callTool } from 'strands:agent/tool-provider@0.1.0'
-import { Agent, FunctionTool, SessionManager, FileStorage } from '@strands-agents/sdk'
+import { Agent, FunctionTool, SessionManager, FileStorage, Tool } from '@strands-agents/sdk'
+import { httpRequest } from '@strands-agents/sdk/vended-tools/http-request'
+import { notebook } from '@strands-agents/sdk/vended-tools/notebook'
 import { S3Storage } from '@strands-agents/sdk/session/s3-storage'
 import { AnthropicModel } from '@strands-agents/sdk/models/anthropic'
 import { BedrockModel } from '@strands-agents/sdk/models/bedrock'
@@ -69,6 +73,8 @@ import {
   SummarizingConversationManager,
 } from '@strands-agents/sdk'
 import { z } from 'zod'
+
+import './polyfills/abort-signal.js'
 
 //
 // --- logging + error helpers --------------------------------------------
@@ -182,7 +188,7 @@ function mapToolResultContent(block: ToolResultContent): WitToolResultContent {
   const payload = JSON.parse(JSON.stringify(block))
   switch (block.type) {
     case 'textBlock': return { tag: 'text', val: payload } as WitToolResultContent
-    case 'jsonBlock': return { tag: 'json', val: payload } as WitToolResultContent
+    case 'jsonBlock': return { tag: 'json', val: { json: JSON.stringify(payload.json) } } as WitToolResultContent
     case 'imageBlock': return { tag: 'image', val: payload.image } as WitToolResultContent
     case 'videoBlock': return { tag: 'video', val: payload.video } as WitToolResultContent
     case 'documentBlock': return { tag: 'document', val: payload.document } as WitToolResultContent
@@ -381,9 +387,36 @@ function createModel(config?: WitModelConfig, params?: WitModelParams): Model<Ba
   }
 }
 
+/**
+ * Map each `vended-tool` arm to its TS implementation.
+ *
+ * `notebook` and `http-request` run in the WASM guest. `bash` and
+ * `file-editor` import Node-only APIs (`child_process`, `fs`) and throw at
+ * agent construction time so failure is immediate and traceable, rather than
+ * surfacing mid-conversation when the model picks the tool.
+ */
+function createVendedTools(vendedTools: WitVendedTool[] | undefined): Tool[] {
+  if (!vendedTools) return []
+  return vendedTools.map((vt) => {
+    switch (vt.tag) {
+      case 'notebook':
+        return notebook
+      case 'http-request':
+        return httpRequest
+      case 'bash':
+      case 'file-editor':
+        throw new Error(`vended-tool '${vt.tag}' is not yet supported.`)
+      default: {
+        vt satisfies never
+        throw new Error(`Unknown vended-tool arm`)
+      }
+    }
+  })
+}
+
 /** Convert WIT ToolSpecs into TS FunctionTools that call back to the host. */
-function createTools(specs: ToolSpec[] | undefined): FunctionTool[] | undefined {
-  if (!specs || specs.length === 0) return undefined
+function createTools(specs: ToolSpec[] | undefined): FunctionTool[] {
+  if (!specs) return []
 
   return specs.map(
     (spec) =>
@@ -532,12 +565,12 @@ function invokeInputFromWit(input: PromptInput): SdkInvokeArgs {
 
 class AgentImpl {
   private agent: Agent
-  private defaultTools: FunctionTool[] | undefined
+  private defaultTools: Tool[]
   private sessionManager: SessionManager | undefined
 
   constructor(config: AgentConfig) {
     const model = createModel(config.model, config.modelParams)
-    this.defaultTools = createTools(config.tools)
+    this.defaultTools = [...createTools(config.tools), ...createVendedTools(config.vendedTools)]
     this.sessionManager = createSessionManager(config)
 
     this.agent = new Agent({
@@ -553,9 +586,8 @@ class AgentImpl {
 
   generate(args: InvokeArgs): ResponseStreamImpl {
     if (args.tools) {
-      const requestTools = createTools(args.tools)
       this.agent.toolRegistry.clear()
-      if (requestTools) this.agent.toolRegistry.add(requestTools)
+      this.agent.toolRegistry.add(createTools(args.tools))
     }
 
     let originalModel: Model<BaseModelConfig> | undefined
@@ -672,14 +704,14 @@ class ResponseStreamImpl {
   private generator: AsyncGenerator<AgentStreamEvent, AgentResult | undefined, undefined>
   private interruptResolve: ((payload: string) => void) | null = null
   private agent: Agent
-  private defaultTools: FunctionTool[] | undefined
+  private defaultTools: Tool[]
   private originalModel: Model<BaseModelConfig> | undefined
   private pendingStop: WitStreamEvent | undefined
 
   constructor(
     agent: Agent,
     input: PromptInput,
-    defaultTools?: FunctionTool[],
+    defaultTools: Tool[],
     originalModel?: Model<BaseModelConfig>,
     structuredOutputSchema?: z.ZodSchema
   ) {
@@ -692,7 +724,7 @@ class ResponseStreamImpl {
   private restoreDefaults(): void {
     if (this.originalModel) this.agent.model = this.originalModel
     this.agent.toolRegistry.clear()
-    if (this.defaultTools) this.agent.toolRegistry.add(this.defaultTools)
+    this.agent.toolRegistry.add(this.defaultTools)
   }
 
   /** @internal Drains both the SDK iterator and any pending terminal stop. */

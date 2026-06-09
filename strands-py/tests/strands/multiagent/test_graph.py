@@ -2451,7 +2451,7 @@ def test_find_newly_ready_nodes_only_evaluates_outbound_edges():
     Previously, it iterated over ALL nodes, which could cause nodes to fire
     before their actual dependencies completed.
 
-    See: https://github.com/strands-agents/sdk-python/issues/685
+    See: https://github.com/strands-agents/harness-sdk/issues/685
     """
     # Build a graph: A -> B -> C, D -> E (independent chain)
     node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))

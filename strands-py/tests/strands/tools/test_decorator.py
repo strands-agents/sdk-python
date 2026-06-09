@@ -2028,7 +2028,7 @@ async def test_tool_result_event_carries_exception_assertion_error(alist):
 def test_tool_nullable_required_field_preserves_anyof():
     """Test that a required nullable field preserves anyOf so the model can pass null.
 
-    Regression test for https://github.com/strands-agents/sdk-python/issues/1525
+    Regression test for https://github.com/strands-agents/harness-sdk/issues/1525
     """
     from enum import Enum
 

@@ -288,7 +288,7 @@ Strength:    Formally verifiable, identity-aware, argument-level scoping per rol
 Hook points: BeforeToolCall
 ```
 
-Answers "is this principal authorized?" — identity-aware, argument-level scoping per role, formally verifiable. Returns `Interrupt` instead of `Deny` when a residual policy exists that would approve with human consent. See the [Cedar Authorization design doc](https://github.com/strands-agents/docs/designs/0006-cedar-authorization.md) for the full proposal.
+Answers "is this principal authorized?" — identity-aware, argument-level scoping per role, formally verifiable. Returns `Interrupt` instead of `Deny` when a residual policy exists that would approve with human consent. See the [Cedar Authorization design doc](https://github.com/strands-agents/harness-sdk/blob/main/designs/0006-cedar-authorization.md) for the full proposal.
 
 ```python
 cedar = CedarAuthHandler.builder()

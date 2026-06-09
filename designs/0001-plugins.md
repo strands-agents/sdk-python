@@ -136,7 +136,7 @@ agent = Agent()
 agent.add_hook(BeforeInvocationEvent, log_start)
 ```
 
-While both of these examples attach a hook to the agent, there is room for improvement to meet our [We are accessible to humans and agents](https://github.com/strands-agents/sdk-python/blob/main/CONTRIBUTING.md?plain=1#L46) tenet where we say, "We don’t take shortcuts on curated DX for humans".
+While both of these examples attach a hook to the agent, there is room for improvement to meet our [We are accessible to humans and agents](https://github.com/strands-agents/harness-sdk/blob/main/CONTRIBUTING.md?plain=1#L46) tenet where we say, "We don’t take shortcuts on curated DX for humans".
 
 To help improve this devex, a new `@hook` decorator can be introduced to make it easy to wrap a function as a plugin, and then pass it into agent initialization. This aligns more closely with our "curated DX for humans" that the Strands team attempts to excel in.
 
@@ -169,7 +169,7 @@ These features have related responsibilities, but their differences are nuanced,
 - **Plugin**: A high-level abstraction of the Strands SDK. A plugin represents some change to the standard behavior of an Agent, modifying the agents core attributes in order to elicit a desired behavior.
 - **Hooks**: A low-level primitive of the Strands SDK. A hook is a mechanism to execute code at a specific lifecycle event in the SDK, and gives relevant context at that specific lifecycle event in order to change the standard agents behavior.
 
-`Plugins` basically represent the usage/modification of **low-level primitives** like: system prompt, messages, tools, model, and **hooks**. The problem with this definition of `Plugins` is that it overlaps with the `HookProvider` abstraction currently present in the SDK. Well defined abstractions with clear separation of concerns align with the tenet [**The obvious path is the happy path**](https://github.com/strands-agents/sdk-python/blob/main/CONTRIBUTING.md?plain=1#L45), but including both of these goes against this tenet and can lead to customer confusion on which abstraction to choose. The code example below helps highlight this issue:
+`Plugins` basically represent the usage/modification of **low-level primitives** like: system prompt, messages, tools, model, and **hooks**. The problem with this definition of `Plugins` is that it overlaps with the `HookProvider` abstraction currently present in the SDK. Well defined abstractions with clear separation of concerns align with the tenet [**The obvious path is the happy path**](https://github.com/strands-agents/harness-sdk/blob/main/CONTRIBUTING.md?plain=1#L45), but including both of these goes against this tenet and can lead to customer confusion on which abstraction to choose. The code example below helps highlight this issue:
 
 ```python
 # HookProvider example

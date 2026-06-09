@@ -103,8 +103,8 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/strands-agents/sdk-python"
-"Bug Tracker" = "https://github.com/strands-agents/sdk-python/issues"
+Homepage = "https://github.com/strands-agents/harness-sdk"
+"Bug Tracker" = "https://github.com/strands-agents/harness-sdk/issues"
 Documentation = "https://strandsagents.com"
 
 

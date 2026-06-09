@@ -44,6 +44,7 @@
 - event-loop
 - failure-diagnosis
 - hooks
+- interventions
 - local-models
 - multi-agent
 - multimodal-evaluation

@@ -23,7 +23,7 @@ jobs:
         with:
           skip-check: false
           username: ${{ github.event.pull_request.user.login || 'invalid' }}
-          allowed-roles: 'triage,write,admin'
+          allowed-roles: 'triage,write,maintain,admin'
 
   trigger-review:
     name: Trigger Strands Review

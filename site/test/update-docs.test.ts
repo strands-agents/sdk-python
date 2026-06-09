@@ -55,7 +55,7 @@ See also [AgentResult](@api/python/strands.agent.agent_result#AgentResult).
     it('should not modify non-API links', () => {
       const input = `
 See the [quickstart guide](../user-guide/quickstart.md) for more info.
-Check out [GitHub](https://github.com/strands-agents/sdk-python).
+Check out [GitHub](https://github.com/strands-agents/harness-sdk).
 `
       expect(convertApiLinks(input)).toBe(input)
     })

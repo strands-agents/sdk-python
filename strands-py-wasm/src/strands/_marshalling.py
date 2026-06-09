@@ -47,13 +47,6 @@ CM_ARM_BY_TYPE: dict[type, type] = {
     types.SummarizingConversationManager: types.ConversationManagerConfig.Summarizing,
 }
 
-VENDED_TOOL_ARM_BY_TYPE: dict[type, type] = {
-    types.BashTool: types.VendedTool.Bash,
-    types.FileEditorTool: types.VendedTool.FileEditor,
-    types.HttpRequestTool: types.VendedTool.HttpRequest,
-    types.NotebookTool: types.VendedTool.Notebook,
-}
-
 VENDED_PLUGIN_ARM_BY_TYPE: dict[type, type] = {
     types.AgentSkills: types.VendedPlugin.Skills,
     types.ContextOffloader: types.VendedPlugin.ContextOffloader,

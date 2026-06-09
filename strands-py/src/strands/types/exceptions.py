@@ -121,3 +121,9 @@ class ConcurrencyException(Exception):
     """
 
     pass
+
+
+class CheckpointException(Exception):
+    """Exception raised when checkpoint operations fail (e.g., incompatible schema version)."""
+
+    pass

@@ -149,7 +149,7 @@ DEBUG | strands.event_loop.error_handler | message_index=<5> | found message wit
 Logs related to interactions with foundation models:
 
 ```
-DEBUG | strands.models.bedrock | config=<{'model_id': 'us.anthropic.claude-4-sonnet-20250219-v1:0'}> | initializing
+DEBUG | strands.models.bedrock | config=<{'model_id': 'global.anthropic.claude-sonnet-4-6'}> | initializing
 WARNING | strands.models.bedrock | bedrock threw context window overflow error
 DEBUG | strands.models.bedrock | Found blocked output guardrail. Redacting output.
 ```
@@ -174,7 +174,7 @@ WARN choice=<null> | invalid choice format in openai chunk
 WARN tool_call=<{"type":"function","id":"xyz"}> | received tool call with invalid index
 
 # Bedrock-specific logs
-DEBUG model_id=<us.anthropic.claude-sonnet-4-20250514-v1:0>, include_tool_result_status=<true> | auto-detected includeToolResultStatus
+DEBUG model_id=<global.anthropic.claude-sonnet-4-6>, include_tool_result_status=<true> | auto-detected includeToolResultStatus
 WARN block_key=<unknown_key> | skipping unsupported block key
 WARN event_type=<unknown_type> | unsupported bedrock event type
 ```

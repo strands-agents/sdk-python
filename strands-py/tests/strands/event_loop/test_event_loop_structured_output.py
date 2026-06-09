@@ -60,6 +60,11 @@ def mock_agent():
     agent._interrupt_state.activated = False
     agent._interrupt_state.context = {}
     agent._cancel_signal = threading.Event()
+    agent._model_state = {}
+    agent._checkpointing = False
+    agent._checkpoint = None
+    agent._checkpoint_cycle_index = 0
+    agent._checkpoint_resume_position = None
 
     return agent
 

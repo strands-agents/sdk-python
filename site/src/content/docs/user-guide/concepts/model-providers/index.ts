@@ -12,9 +12,7 @@ import { OpenAIModel } from '@strands-agents/sdk/models/openai'
 async function basicUsage() {
   // --8<-- [start:basic_usage]
   // Use Bedrock
-  const bedrockModel = new BedrockModel({
-    modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
-  })
+  const bedrockModel = new BedrockModel()
   let agent = new Agent({ model: bedrockModel })
   let response = await agent.invoke('What can you help me with?')
 

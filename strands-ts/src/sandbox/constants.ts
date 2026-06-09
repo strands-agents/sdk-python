@@ -4,3 +4,11 @@
  * Rejects path separators, spaces, and shell metacharacters to prevent injection.
  */
 export const LANGUAGE_PATTERN = /^[a-zA-Z0-9._-]+$/
+
+/**
+ * Regex pattern for validating environment variable names: a leading letter or
+ * underscore, followed by letters, digits, or underscores (valid POSIX names).
+ * Names outside this set are rejected to prevent shell-syntax injection where a
+ * key is interpolated into a command, and to fail with a clear error otherwise.
+ */
+export const ENV_KEY_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/

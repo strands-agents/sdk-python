@@ -480,7 +480,7 @@ class BedrockModel(Model):
                     continue
 
                 # DeepSeek models have issues with reasoningContent
-                # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/sdk-python/issues/780)
+                # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/harness-sdk/issues/780)
                 if "deepseek" in self.config["model_id"].lower() and "reasoningContent" in content_block:
                     dropped_deepseek_reasoning_content = True
                     continue

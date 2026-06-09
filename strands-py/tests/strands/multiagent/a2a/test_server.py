@@ -1,4 +1,4 @@
-"""Tests for the A2AAgent class."""
+"""Tests for the A2AServer class."""
 
 from collections import OrderedDict
 from unittest.mock import patch
@@ -10,9 +10,12 @@ from starlette.applications import Starlette
 
 from strands.multiagent.a2a.server import A2AServer
 
+# Tests here intentionally exercise the deprecated single-agent path.
+pytestmark = pytest.mark.filterwarnings("ignore:Passing a single 'agent'.*:DeprecationWarning")
+
 
 def test_a2a_agent_initialization(mock_strands_agent):
-    """Test that A2AAgent initializes correctly with default values."""
+    """Test that A2AServer initializes correctly with default values."""
     # Mock tool registry for default skills
     mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
     mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
@@ -32,7 +35,7 @@ def test_a2a_agent_initialization(mock_strands_agent):
 
 
 def test_a2a_agent_initialization_with_custom_values(mock_strands_agent):
-    """Test that A2AAgent initializes correctly with custom values."""
+    """Test that A2AServer initializes correctly with custom values."""
     a2a_agent = A2AServer(
         mock_strands_agent,
         host="127.0.0.1",
@@ -48,14 +51,14 @@ def test_a2a_agent_initialization_with_custom_values(mock_strands_agent):
 
 
 def test_a2a_agent_initialization_with_streaming_always_enabled(mock_strands_agent):
-    """Test that A2AAgent always initializes with streaming enabled."""
+    """Test that A2AServer always initializes with streaming enabled."""
     a2a_agent = A2AServer(mock_strands_agent)
 
     assert a2a_agent.capabilities.streaming is True
 
 
 def test_a2a_agent_initialization_with_custom_skills(mock_strands_agent):
-    """Test that A2AAgent initializes correctly with custom skills."""
+    """Test that A2AServer initializes correctly with custom skills."""
 
     custom_skills = [
         AgentSkill(name="custom_skill", id="custom_skill", description="A custom skill", tags=["test"]),
@@ -487,6 +490,26 @@ def test_executor_created_correctly(mock_strands_agent):
 
     assert isinstance(a2a_agent.request_handler.agent_executor, StrandsA2AExecutor)
     assert a2a_agent.request_handler.agent_executor.agent == mock_strands_agent
+
+
+def test_server_forwards_max_contexts_to_executor(mock_strands_agent):
+    """max_contexts passed to A2AServer is forwarded to the executor."""
+    a2a_agent = A2AServer(mock_strands_agent, max_contexts=42)
+
+    assert a2a_agent.request_handler.agent_executor._max_contexts == 42
+
+
+def test_server_factory_mode_derives_card_and_isolates(mock_strands_agent):
+    """A2AServer(agent_factory=...) derives card metadata and runs the executor in factory mode."""
+    from strands.multiagent.a2a.executor import StrandsA2AExecutor
+
+    a2a_agent = A2AServer(agent_factory=lambda context_id: mock_strands_agent)
+
+    assert a2a_agent.name == mock_strands_agent.name
+    assert a2a_agent.description == mock_strands_agent.description
+    executor = a2a_agent.request_handler.agent_executor
+    assert isinstance(executor, StrandsA2AExecutor)
+    assert executor.agent is None  # factory mode keeps no shared agent
 
 
 @patch("uvicorn.run", side_effect=KeyboardInterrupt)

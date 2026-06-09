@@ -41,3 +41,23 @@ const controllerResult = await agent.invoke('Hello', {
   cancelSignal: controller.signal,
 })
 // --8<-- [end:cancel_external_signal]
+
+async function limitsExample() {
+  // --8<-- [start:limits_basic]
+  const agent = new Agent()
+
+  const result = await agent.invoke('Summarize this document', {
+    limits: {
+      turns: 5,
+      outputTokens: 2000,
+      totalTokens: 10000,
+    },
+  })
+
+  if (result.stopReason === 'limitTurns') {
+    console.log('Hit turn budget')
+  } else if (result.stopReason === 'limitTotalTokens') {
+    console.log('Hit token budget')
+  }
+  // --8<-- [end:limits_basic]
+}

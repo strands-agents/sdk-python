@@ -15,6 +15,7 @@ strands-agents/
 ├── designs/            # Design proposals
 ├── dev-docs/           # TypeScript development docs
 ├── team/               # Team governance (tenets, decisions, API bar-raising)
+├── test-infra/         # CDK stack for integ tests that require provisioned AWS infra
 ├── .agents/            # Agent skills and references
 ├── package.json        # npm workspace root
 └── .github/workflows/  # CI (ci.yml is the merge gate)
@@ -24,6 +25,15 @@ When working on code, determine which sub-project you're in and follow its conve
 - **Python SDK**: See `strands-py/AGENTS.md`
 - **TypeScript SDK**: See `strands-ts/AGENTS.md`
 - **Documentation site**: See `site/AGENTS.md`
+- **Test infrastructure**: See `test-infra/README.md`
+
+### test-infra/ guardrails
+
+The `test-infra/` CDK stack deploys real AWS resources (Bedrock KBs, EC2 instances) that a small subset of integration tests depend on. Most tests do not need it — they run without provisioned infrastructure.
+
+- **Do not deploy this stack** unless you are explicitly working on the test infrastructure itself or iterating on tests that resolve SSM parameters from it.
+- **Never set `STRANDS_TEST_INFRA_INTERNAL=true`** unless deploying to the Strands team's own test account. This attaches a broad internal policy and GitHub OIDC trust that is meaningless (and wasteful) outside the internal account.
+- **To run infrastructure-dependent integ tests without deploying anything**, open a PR — CI runs them against pre-provisioned resources automatically.
 
 ## Shared Conventions
 

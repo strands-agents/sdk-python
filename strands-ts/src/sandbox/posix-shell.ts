@@ -9,7 +9,7 @@
 
 import { Sandbox } from './base.js'
 import type { ExecuteOptions } from './base.js'
-import { LANGUAGE_PATTERN } from './constants.js'
+import { ENV_KEY_PATTERN, LANGUAGE_PATTERN } from './constants.js'
 import type { ExecutionResult, FileInfo, StreamChunk } from './types.js'
 
 /**
@@ -27,6 +27,37 @@ export function shellQuote(value: string): string {
 }
 
 /**
+ * Validate environment variable names against {@link ENV_KEY_PATTERN}.
+ * @throws If any key is not a valid POSIX environment variable name.
+ */
+export function validateEnvKeys(env: Record<string, string>): void {
+  for (const key of Object.keys(env)) {
+    if (!ENV_KEY_PATTERN.test(key)) {
+      throw new Error(`Invalid environment variable name: ${key}`)
+    }
+  }
+}
+
+/**
+ * Build a shell `export KEY=VALUE && ...` prefix for a command, or `''` when there are none.
+ * Keys are validated; values are {@link shellQuote}d. Used by shell-string backends (e.g. SSH);
+ * backends that set env via native flags (e.g. Docker's `-e`) call {@link validateEnvKeys} directly.
+ *
+ * Uses `export` rather than an `env KEY=VALUE` command wrapper so the variables are set in the
+ * shell itself and inherited by every stage of a pipeline. `executeCode` runs `base64 ... | <lang>`,
+ * and an `env` wrapper would only bind the left side of the pipe, never reaching the interpreter.
+ * The trailing `&&` keeps the surrounding `cd ... && <prefix><command>` chain fail-fast.
+ */
+export function buildShellEnvPrefix(env?: Record<string, string>): string {
+  if (!env || Object.keys(env).length === 0) {
+    return ''
+  }
+  validateEnvKeys(env)
+  const assignments = Object.entries(env).map(([k, v]) => `${k}=${shellQuote(v)}`)
+  return `export ${assignments.join(' ')} && `
+}
+
+/**
  * Abstract sandbox that provides shell-based defaults for file and code operations.
  * Assumes a POSIX-compatible shell (sh/bash) on the target.
  *
@@ -38,6 +69,11 @@ export function shellQuote(value: string): string {
  * Subclasses may override any method with a native implementation for
  * better performance or to handle edge cases (e.g., binary-safe file
  * transfer via Docker stdin pipes, or native API calls for cloud backends).
+ *
+ * Subclasses must apply `options.env` in `executeStreaming` or it has no effect:
+ * backends that build a shell-command string prepend {@link buildShellEnvPrefix};
+ * backends that set env via process flags (e.g. Docker's `-e`) call
+ * {@link validateEnvKeys} and pass the values directly.
  */
 export abstract class PosixShellSandbox extends Sandbox {
   async *executeCodeStreaming(

@@ -808,7 +808,7 @@ async def test_stream_throttling_exception_from_event_stream_error(bedrock_clien
 
 @pytest.mark.asyncio
 async def test_stream_with_invalid_content_throws(bedrock_client, model, alist):
-    # We used to hang on None, so ensure we don't regress: https://github.com/strands-agents/sdk-python/issues/642
+    # We used to hang on None, so ensure we don't regress: https://github.com/strands-agents/harness-sdk/issues/642
     messages = [{"role": "user", "content": None}]
 
     with pytest.raises(TypeError):
@@ -1845,7 +1845,7 @@ def test_format_request_message_content_normalizes_empty_tool_result_content(mod
     Converse API, while others (e.g., Claude) accept them. The SDK should normalize empty
     content arrays to ensure cross-model compatibility.
 
-    See: https://github.com/strands-agents/sdk-python/issues/2122
+    See: https://github.com/strands-agents/harness-sdk/issues/2122
     """
     messages = [
         {"role": "user", "content": [{"text": "List tables"}]},

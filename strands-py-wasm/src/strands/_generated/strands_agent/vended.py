@@ -11,31 +11,6 @@ from wasmtime.component import Variant as _WitVariant
 from wasmtime.component import VariantCase as _WitVariantCase
 
 
-@dataclass(kw_only=True)
-class BashTool:
-    """Bash tool configuration."""
-    default_timeout_s: int | None
-
-
-@dataclass(kw_only=True)
-class FileEditorTool:
-    """File editor tool configuration."""
-    workspace_root: str | None
-
-
-@dataclass(kw_only=True)
-class HttpRequestTool:
-    """HTTP request tool configuration."""
-    allowed_hosts: list[str]
-    max_response_bytes: int
-
-
-@dataclass(kw_only=True)
-class NotebookTool:
-    """Notebook tool configuration."""
-    workspace_root: str | None
-
-
 class VendedTool:
     """Built-in tools."""
     if TYPE_CHECKING:
@@ -63,7 +38,7 @@ class _VendedTool_HttpRequest(_WitVariantCase, VendedTool):
 VendedTool.HttpRequest = _VendedTool_HttpRequest  # type: ignore[attr-defined]
 
 class _VendedTool_Notebook(_WitVariantCase, VendedTool):
-    """Read and execute Jupyter notebook cells."""
+    """Read and write named text notebooks stored in agent state."""
     tag = 'notebook'
 VendedTool.Notebook = _VendedTool_Notebook  # type: ignore[attr-defined]
 

@@ -241,7 +241,7 @@ class OpenAIModel(Model):
         # (image/document) content.  When all content is text, join into a
         # single string for broad compatibility with OpenAI-compatible
         # endpoints (e.g., Kimi K2.5, vLLM, Ollama).
-        # See https://github.com/strands-agents/sdk-python/issues/1696
+        # See https://github.com/strands-agents/harness-sdk/issues/1696
         merged: list[dict[str, Any]] = []
         has_non_text = False
         for content_block in contents:
@@ -379,7 +379,7 @@ class OpenAIModel(Model):
         if system_prompt and system_prompt_content is None:
             system_prompt_content = [{"text": system_prompt}]
 
-        # TODO: Handle caching blocks https://github.com/strands-agents/sdk-python/issues/1140
+        # TODO: Handle caching blocks https://github.com/strands-agents/harness-sdk/issues/1140
         return [
             {"role": "system", "content": content["text"]}
             for content in system_prompt_content or []

@@ -3,7 +3,7 @@
  */
 
 import type { ExecuteOptions } from './base.js'
-import { PosixShellSandbox, shellQuote } from './posix-shell.js'
+import { buildShellEnvPrefix, PosixShellSandbox, shellQuote } from './posix-shell.js'
 import { streamProcess } from './stream-process.js'
 import type { ExecutionResult, StreamChunk } from './types.js'
 
@@ -117,7 +117,8 @@ export class SshSandbox extends PosixShellSandbox {
     options?: ExecuteOptions
   ): AsyncGenerator<StreamChunk | ExecutionResult, void, undefined> {
     const cwd = options?.cwd ?? this.workingDir
-    const remoteCommand = `cd ${shellQuote(cwd)} && ${command}`
+    const envPrefix = buildShellEnvPrefix(options?.env)
+    const remoteCommand = `cd ${shellQuote(cwd)} && ${envPrefix}${command}`
 
     const sshArgs: string[] = [
       '-o',
