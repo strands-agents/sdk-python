@@ -287,7 +287,7 @@ export class CedarAuthorization extends InterventionHandler {
     this._entities = loadEntities(config.entities)
     this._tools = config.tools
 
-    this._schemaGenerator = config.tools ? loadSchemaGenerator() : undefined
+    this._schemaGenerator = config.tools ? loadSchemaGenerator(true) : undefined
     if (config.schema) {
       this._schema = loadSchema(config.schema)
     } else if (this._schemaGenerator && config.tools) {
@@ -324,7 +324,12 @@ export class CedarAuthorization extends InterventionHandler {
     let entities: Entities
 
     if (this._schemaGenerator && this._tools) {
-      const request = this._schemaGenerator.generateRequest(this._tools, event.toolUse.name, toolInput, principal)
+      const request = this._schemaGenerator.generateRequest(
+        this._tools,
+        event.toolUse.name,
+        toolInput as Record<string, CedarValueJson>,
+        principal
+      )
       action = request.action
       resource = request.resource
       entities = [...(this._entities as Entities), ...(request.entities as Entities)]
@@ -339,7 +344,7 @@ export class CedarAuthorization extends InterventionHandler {
       action,
       resource,
       context: {
-        input: toolInput,
+        input: toolInput as Record<string, CedarValueJson>,
         session: {
           ...(this._contextEnricher
             ? this._contextEnricher({ toolName: event.toolUse.name, toolInput, invocationState })
@@ -484,7 +489,7 @@ interface SchemaGenerator {
   ): { action: CedarEntityUid; resource: CedarEntityUid; entities: CedarEntity[] }
 }
 
-function loadSchemaGenerator(): SchemaGenerator | undefined {
+function loadSchemaGenerator(warn: boolean): SchemaGenerator | undefined {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const wasm = require('@cedar-policy/mcp-schema-generator-wasm') as {
@@ -502,15 +507,18 @@ function loadSchemaGenerator(): SchemaGenerator | undefined {
     }
 
     const defaultStub = `
-      @mcp_principal
-      entity User;
-      @mcp_resource
-      entity Resource;
-    `
+namespace Agent {
+  @mcp_principal
+  entity User;
+  @mcp_resource
+  entity Resource;
+}
+`
 
     return {
       generateSchema(tools: ToolDefinition[]): string {
-        const result = JSON.parse(wasm.generateSchema(defaultStub, JSON.stringify(tools))) as {
+        const config = JSON.stringify({ flattenNamespaces: true })
+        const result = JSON.parse(wasm.generateSchema(defaultStub, JSON.stringify(tools), config)) as {
           schema: string | null
           error: string | null
           isOk: boolean
@@ -518,7 +526,8 @@ function loadSchemaGenerator(): SchemaGenerator | undefined {
         if (!result.isOk || !result.schema) {
           throw new Error(`Schema generation failed: ${result.error}`)
         }
-        return result.schema
+        // Strip namespace wrapper so users can write unqualified action names
+        return result.schema.replace(/^namespace\s+\w+\s*\{/, '').replace(/\}\s*$/, '')
       },
 
       generateRequest(
@@ -528,6 +537,7 @@ function loadSchemaGenerator(): SchemaGenerator | undefined {
         principal: CedarEntityUid
       ) {
         const input = JSON.stringify({ params: { tool: toolName, args: toolInput } })
+        const config = JSON.stringify({ flattenNamespaces: true })
         const result = JSON.parse(
           wasm.generateRequest(
             defaultStub,
@@ -536,7 +546,8 @@ function loadSchemaGenerator(): SchemaGenerator | undefined {
             principal.type,
             principal.id,
             'Resource',
-            'agent'
+            'agent',
+            config
           )
         ) as {
           action: string | null
@@ -557,6 +568,13 @@ function loadSchemaGenerator(): SchemaGenerator | undefined {
       },
     }
   } catch {
+    if (warn) {
+      console.warn(
+        'CedarAuthorization: `tools` provided but @cedar-policy/mcp-schema-generator-wasm is not installed. ' +
+          'Schema validation and auto request generation are disabled. ' +
+          'Install it: npm install @cedar-policy/mcp-schema-generator-wasm'
+      )
+    }
     return undefined
   }
 }

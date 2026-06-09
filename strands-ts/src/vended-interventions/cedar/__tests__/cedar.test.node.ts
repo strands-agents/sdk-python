@@ -532,41 +532,43 @@ describe('CedarAuthorization', () => {
   })
 
   describe('session management', () => {
-    it('resetCallCounts clears counts on agent appState', async () => {
-      const model = new MockMessageModel()
-        .addTurn({ type: 'toolUseBlock', name: 'send_email', toolUseId: 'tool-1', input: {} })
-        .addTurn({ type: 'textBlock', text: 'Done' })
-
-      const tool = createMockTool('send_email', () => 'sent')
+    it('resetCallCounts clears counts and re-enables rate-limited tools', async () => {
+      let callCount = 0
 
       // Rate limit: < 2 calls allowed
       const cedar = new CedarAuthorization({
         policies: 'permit(principal, action, resource) when { context.session.call_count < 2 };',
-        entities: [{ uid: { type: 'Resource', id: 'agent' }, attrs: {}, parents: [] }],
         principalResolver: () => ({ type: 'User', id: 'alice' }),
       })
 
-      // First call succeeds
-      const agent1 = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
+      // First call succeeds (count = 1)
+      const model1 = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'send_email', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+      const tool1 = createMockTool('send_email', () => { callCount++; return 'sent' })
+      const agent1 = new Agent({ model: model1, tools: [tool1], interventions: [cedar], printer: false })
       await agent1.invoke('Send', { invocationState: {} })
+      expect(callCount).toBe(1)
 
-      // Reset the call counts
-      cedar.resetCallCounts(agent1)
-
-      // Next call succeeds again (counter reset)
-      let toolExecuted = false
+      // Second call succeeds (count = 2, but < 2 check passes for count at time of eval which is 2... denied)
       const model2 = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'send_email', toolUseId: 'tool-2', input: {} })
-        .addTurn({ type: 'textBlock', text: 'Done' })
-
-      const tool2 = createMockTool('send_email', () => {
-        toolExecuted = true
-        return 'sent'
-      })
-
+        .addTurn({ type: 'textBlock', text: 'Denied' })
+      const tool2 = createMockTool('send_email', () => { callCount++; return 'sent' })
       const agent2 = new Agent({ model: model2, tools: [tool2], interventions: [cedar], printer: false })
-      await agent2.invoke('Send again', { invocationState: {} })
-      expect(toolExecuted).toBe(true)
+      await agent2.invoke('Send', { invocationState: {} })
+      expect(callCount).toBe(1) // still 1 — second was denied
+
+      // Reset and try again — should succeed
+      cedar.resetCallCounts(agent2)
+
+      const model3 = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'send_email', toolUseId: 'tool-3', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+      const tool3 = createMockTool('send_email', () => { callCount++; return 'sent' })
+      const agent3 = new Agent({ model: model3, tools: [tool3], interventions: [cedar], printer: false })
+      await agent3.invoke('Send again', { invocationState: {} })
+      expect(callCount).toBe(2) // succeeded after reset
     })
   })
 
@@ -673,6 +675,79 @@ describe('CedarAuthorization', () => {
             principalResolver: () => ({ type: 'User', id: 'alice' }),
           })
       ).not.toThrow()
+    })
+  })
+
+  describe('tools config (schema generator integration)', () => {
+    const tools = [
+      { name: 'search', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+      { name: 'delete', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
+    ]
+
+    it('auto-generates schema and validates policies when tools are provided', () => {
+      // Valid policy referencing a tool that exists
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: 'permit(principal, action == Action::"search", resource);',
+            tools,
+          })
+      ).not.toThrow()
+    })
+
+    it('catches unknown action names via auto-generated schema', () => {
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: 'permit(principal, action == Action::"nonexistent", resource);',
+            tools,
+          })
+      ).toThrow()
+    })
+
+    it('uses generateRequest for action/resource resolution at eval time', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: { query: 'test' } })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('search', () => {
+        toolExecuted = true
+        return 'results'
+      })
+
+      const cedar = new CedarAuthorization({
+        policies: 'permit(principal, action == Action::"search", resource);',
+        tools,
+        principal: { type: 'User', id: 'alice' },
+      })
+
+      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
+      await agent.invoke('Search', { invocationState: {} })
+      expect(toolExecuted).toBe(true)
+    })
+
+    it('denies unknown tools when schema generator is active', async () => {
+      const model = new MockMessageModel()
+        .addTurn({ type: 'toolUseBlock', name: 'unknown_tool', toolUseId: 'tool-1', input: {} })
+        .addTurn({ type: 'textBlock', text: 'Done' })
+
+      let toolExecuted = false
+      const tool = createMockTool('unknown_tool', () => {
+        toolExecuted = true
+        return 'ran'
+      })
+
+      const cedar = new CedarAuthorization({
+        policies: 'permit(principal, action, resource);',
+        tools,
+        principal: { type: 'User', id: 'alice' },
+        onError: 'deny',
+      })
+
+      const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
+      await agent.invoke('Do something', { invocationState: {} })
+      expect(toolExecuted).toBe(false)
     })
   })
 })
