@@ -102,6 +102,12 @@ function buildLlmsTxt(docs: CollectionEntry<'docs'>[], sidebar: StarlightSidebar
     lines.push('')
   }
 
+  // Changelog - single aggregated markdown endpoint
+  lines.push(`## Changelog`)
+  lines.push('')
+  lines.push(`- [Changelog](${base}/changelog/index.md): All releases across the Harness and Evals SDKs`)
+  lines.push('')
+
   return lines.join('\n')
 }
 
