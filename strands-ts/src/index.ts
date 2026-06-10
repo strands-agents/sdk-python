@@ -318,6 +318,7 @@ export type {
   MemoryStore,
   MemoryStoreConfig,
   SearchOptions,
+  AddMessagesContext,
   MemorySearchOptions,
   MemoryAddOptions,
   MemoryToolConfig,

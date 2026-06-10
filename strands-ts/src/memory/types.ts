@@ -34,6 +34,13 @@ export interface SearchOptions {
 }
 
 /**
+ * Context the {@link MemoryManager} supplies to {@link MemoryStore.addMessages} alongside a batch.
+ */
+// Extension point: empty interface so fields can be added without a breaking signature change.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface AddMessagesContext {}
+
+/**
  * Declarative properties shared by every memory store and its config.
  *
  * This is the single source of truth for a store's identity and behavior knobs. Both the runtime
@@ -112,13 +119,14 @@ export interface MemoryStore extends MemoryStoreConfig {
    * Satisfies `writable: true` the same way {@link add} does. The resolved value is store-specific
    * and not consumed by the manager.
    *
-   * Any per-write context (e.g. tenant/session/actor identifiers) is the store's own concern: carry
-   * it on the store instance's config and stamp it here, mirroring how `add` implementations attach
-   * their own metadata. The manager does not supply batch-level metadata.
+   * A store scopes its writes (e.g. by tenant or namespace) through its own configuration. The
+   * {@link AddMessagesContext} parameter lets the manager pass additional per-batch context to the
+   * store.
    *
    * @param messages - The filtered messages to ingest, in order
+   * @param context - Manager-supplied per-batch context (see {@link AddMessagesContext})
    */
-  addMessages?(messages: MessageData[]): Promise<unknown>
+  addMessages?(messages: MessageData[], context?: AddMessagesContext): Promise<unknown>
   /**
    * Returns store-specific tools to register with the agent, through a {@link MemoryManager}. Registers
    * tools alongside `search_memory` / `add_memory` tools if enabled on the {@link MemoryManager}.
