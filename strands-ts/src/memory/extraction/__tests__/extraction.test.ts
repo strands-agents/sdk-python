@@ -24,7 +24,7 @@ import { MockMessageModel } from '../../../__fixtures__/mock-message-model.js'
  */
 function createExtractionStore(
   name: string,
-  extraction: ExtractionConfig,
+  extraction: boolean | ExtractionConfig | undefined,
   sink: 'add' | 'addMessages' | 'both' = 'both',
   options?: { entries?: MemoryEntry[] }
 ): MemoryStore & {
@@ -121,8 +121,7 @@ describe('MemoryManager extraction', () => {
   describe('config resolution', () => {
     it('enables extraction with defaults via the boolean shorthand', async () => {
       // `extraction: true` on an addMessages-capable store -> passthrough (no implicit model call).
-      const store = createExtractionStore('s', undefined as never, 'addMessages')
-      ;(store as { extraction?: unknown }).extraction = true
+      const store = createExtractionStore('s', true, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
       mm.initAgent(agent)
@@ -134,8 +133,7 @@ describe('MemoryManager extraction', () => {
     })
 
     it('treats extraction: false as disabled (no hooks, no writes)', async () => {
-      const store = createExtractionStore('s', undefined as never, 'addMessages')
-      ;(store as { extraction?: unknown }).extraction = false
+      const store = createExtractionStore('s', false, 'addMessages')
       const mm = new MemoryManager({ stores: [store] })
       const agent = createMockAgent()
       mm.initAgent(agent)

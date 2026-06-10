@@ -35,10 +35,9 @@ describe('resolveExtractionConfig', () => {
   describe('trigger defaulting and normalization', () => {
     it('defaults an omitted trigger to an IntervalTrigger of DEFAULT_EXTRACTION_TRIGGER_TURNS', () => {
       const resolved = resolveExtractionConfig({}, sinks('addMessages'))!
-      expect(resolved.triggers).toHaveLength(1)
-      const trigger = resolved.triggers[0]!
-      expect(trigger).toBeInstanceOf(IntervalTrigger)
-      expect((trigger as unknown as { _turns: number })._turns).toBe(DEFAULT_EXTRACTION_TRIGGER_TURNS)
+      // Structural equality compares the constructed IntervalTrigger (including its turns) without
+      // reaching into private fields, so it stays valid if IntervalTrigger's internals change.
+      expect(resolved.triggers).toEqual([new IntervalTrigger({ turns: DEFAULT_EXTRACTION_TRIGGER_TURNS })])
       expect(DEFAULT_EXTRACTION_TRIGGER_TURNS).toBe(5)
     })
 
