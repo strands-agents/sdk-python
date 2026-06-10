@@ -66,8 +66,12 @@ export interface BedrockKnowledgeBaseS3Config {
   prefix: string
 }
 
-/** Configuration for {@link BedrockKnowledgeBaseStore}. */
-export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
+/**
+ * Connection to a Bedrock Knowledge Base: which knowledge base, which data source, and the clients
+ * used to reach them. This is the reusable half of a store's config — build one and pass it to many
+ * {@link BedrockKnowledgeBaseStoreConfig}s that differ only by namespace.
+ */
+export interface BedrockKnowledgeBaseConfig {
   /** The Bedrock Knowledge Base identifier to query and ingest into. */
   knowledgeBaseId: string
   /**
@@ -96,16 +100,28 @@ export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
   dataSourceId?: string
   /** S3 ingestion settings. Required when `dataSourceType` is `'S3'`; ignored otherwise. */
   s3?: BedrockKnowledgeBaseS3Config
-  /** Logical namespace used to isolate documents; applied as a metadata filter on search. */
-  scope?: string
   /** Metadata attribute key used for scope-based filtering. Defaults to `'namespace'`. */
   scopeMetadataKey?: string
-  /** Explicit retrieval filter; overrides the auto-generated scope filter when provided. */
-  filter?: RetrievalFilter
   /** Pre-constructed runtime client for Retrieve calls. When omitted, a default client is constructed. */
   runtimeClient?: BedrockAgentRuntimeClient
   /** Pre-constructed agent client for IngestKnowledgeBaseDocuments calls. When omitted, a default client is constructed lazily on first write. */
   agentClient?: BedrockAgentClient
+}
+
+/**
+ * Configuration for {@link BedrockKnowledgeBaseStore}.
+ *
+ * The reusable connection lives in {@link config}; the per-store identity and behavior fields
+ * (`name`, `scope`, ...) sit beside it. To run one knowledge base across many namespaces, build a
+ * {@link config} once and reuse it, varying only `name` and `scope` per store.
+ */
+export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
+  /** Connection to the knowledge base. Reuse one `config` across stores that differ only by `scope`. */
+  config: BedrockKnowledgeBaseConfig
+  /** Logical namespace used to isolate documents; applied as a metadata filter on search and stamped on writes. */
+  scope?: string
+  /** Explicit retrieval filter; overrides the auto-generated scope filter when provided. */
+  filter?: RetrievalFilter
 }
 
 /** Result returned by {@link BedrockKnowledgeBaseStore.add}. */
@@ -123,12 +139,13 @@ export interface BedrockKnowledgeBaseAddResult {
  * import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
  *
  * const store = new BedrockKnowledgeBaseStore({
- *   name: 'personal',
- *   knowledgeBaseId: 'KB123',
- *   writable: true,
- *   dataSourceType: 'CUSTOM',
- *   dataSourceId: 'DS456',
+ *   config: {
+ *     knowledgeBaseId: 'KB123',
+ *     dataSourceType: 'CUSTOM',
+ *     dataSourceId: 'DS456',
+ *   },
  *   scope: 'user-abc',
+ *   writable: true,
  * })
  *
  * const results = await store.search('what are my preferences?')
@@ -151,37 +168,31 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
 
   /**
    * Logical namespace isolating documents: applied as a metadata filter on {@link search} and stamped
-   * on writes via {@link add}.
-   *
-   * Mutable at runtime — assign a new value to re-point subsequent `search`/`add` calls at a different
-   * partition (e.g. switching the active tenant on a reused store). The effective search filter is
-   * derived from this on each call (see {@link _resolveFilter}), so a change takes effect immediately;
-   * an explicit {@link filter} overrides it for search. Unlike {@link name}, this is not a store-identity
-   * field, so changing it never affects `MemoryManager` routing.
-   *
-   * A store instance shared across agents shares one `scope`. For concurrent per-tenant isolation,
-   * give each agent its own store instance (cheap — it is just config) rather than mutating a shared one.
+   * on writes via {@link add}. Unlike {@link name}, it is not a store-identity field, so it never
+   * affects `MemoryManager` routing. For per-tenant isolation, construct one store per scope — cheap,
+   * since they can share a single {@link BedrockKnowledgeBaseConfig}.
    */
-  public scope: string | undefined
-  /** Metadata attribute key used for scope-based filtering. Mutable at runtime; see {@link scope}. */
-  public scopeMetadataKey: string
+  public readonly scope: string | undefined
+  /** Metadata attribute key used for scope-based filtering. */
+  public readonly scopeMetadataKey: string
   /**
    * Explicit retrieval filter. When set, it overrides the scope-derived filter for {@link search}.
-   * Mutable at runtime — set to `undefined` to re-enable scope-derived search filtering. Note the
-   * asymmetry: an explicit filter affects search only; writes always scope by {@link scope}.
+   * Note the asymmetry: an explicit filter affects search only; writes always scope by {@link scope}.
    */
-  public filter: RetrievalFilter | undefined
+  public readonly filter: RetrievalFilter | undefined
 
-  constructor(config: BedrockKnowledgeBaseStoreConfig) {
-    this.name = config.name
-    if (config.description !== undefined) this.description = config.description
-    if (config.maxSearchResults !== undefined) {
-      if (config.maxSearchResults < 1) {
+  constructor(options: BedrockKnowledgeBaseStoreConfig) {
+    const { config, scope, name, description, writable, maxSearchResults, filter } = options
+
+    this.name = name
+    if (description !== undefined) this.description = description
+    if (maxSearchResults !== undefined) {
+      if (maxSearchResults < 1) {
         throw new Error('BedrockKnowledgeBaseStore: maxSearchResults must be at least 1.')
       }
-      this.maxSearchResults = config.maxSearchResults
+      this.maxSearchResults = maxSearchResults
     }
-    this.writable = config.writable ?? false
+    this.writable = writable ?? false
 
     this._runtimeClient = config.runtimeClient ?? new BedrockAgentRuntimeClient({})
     this._agentClient = config.agentClient
@@ -193,17 +204,14 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
 
     if (this.writable) this._validateWriteConfig()
 
-    // Store raw config only; the effective search filter is derived per call in `_resolveFilter` so
-    // runtime mutations of `scope` / `scopeMetadataKey` / `filter` take effect immediately.
-    this.scope = config.scope
+    this.scope = scope
     this.scopeMetadataKey = config.scopeMetadataKey ?? 'namespace'
-    this.filter = config.filter
+    this.filter = filter
   }
 
   /**
    * Resolves the effective retrieval filter for a search: an explicit {@link filter} wins; otherwise
-   * one is derived from the current {@link scope} / {@link scopeMetadataKey}. Computed per call (rather
-   * than precomputed at construction) so runtime mutations of those fields are reflected.
+   * one is derived from {@link scope} / {@link scopeMetadataKey}.
    */
   private _resolveFilter(): RetrievalFilter | undefined {
     if (this.filter) return this.filter
@@ -225,8 +233,6 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
       throw new Error('BedrockKnowledgeBaseStore: maxSearchResults must be at least 1.')
     }
     const limit = options?.maxSearchResults || this.maxSearchResults || DEFAULT_MAX_SEARCH_RESULTS
-    // Snapshot the filter at call entry (before the first await) so it is deterministic for this
-    // in-flight search even if `scope` / `filter` are mutated concurrently.
     const filter = this._resolveFilter()
 
     let response

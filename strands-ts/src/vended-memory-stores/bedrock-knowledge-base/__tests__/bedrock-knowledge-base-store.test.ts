@@ -2,12 +2,13 @@ import { describe, it, expect, beforeEach, vi, type MockedFunction } from 'vites
 import { BedrockAgentRuntimeClient } from '@aws-sdk/client-bedrock-agent-runtime'
 import { BedrockAgentClient } from '@aws-sdk/client-bedrock-agent'
 import { BedrockKnowledgeBaseStore } from '../store.js'
+import { MemoryManager } from '../../../memory/index.js'
 import { logger } from '../../../logging/logger.js'
 
 // Mock the AWS SDK clients. Command classes are stubbed to echo their input as `{ input }`, so a
 // test can assert on `send`'s argument — mirroring src/session/__tests__/s3-storage.test.ts. Client
 // constructors return a stub with a `send` spy; tests that exercise behavior inject their own client
-// instead (the store accepts `runtimeClient` / `agentClient` / `s3.client`).
+// instead (the store accepts `config.runtimeClient` / `config.agentClient` / `config.s3.client`).
 vi.mock('@aws-sdk/client-bedrock-agent-runtime', () => ({
   BedrockAgentRuntimeClient: vi.fn().mockImplementation(function () {
     return { send: vi.fn() }
@@ -45,6 +46,75 @@ function mockClient(): { send: MockedFunction<any> } {
   return { send: vi.fn() }
 }
 
+/**
+ * Builds a store from a base connection config plus per-store fields. `config` overrides merge onto
+ * the shared connection (`knowledgeBaseId: 'kb-1'` + injected runtime/agent clients); `overrides`
+ * carry the per-store fields that sit outside `config` (`name`, `scope`, `writable`, ...). The
+ * returned `runtime` / `agent` spies are the injected clients, ready to program and inspect.
+ */
+function makeStore(
+  overrides: Record<string, unknown> = {},
+  configOverrides: Record<string, unknown> = {}
+): {
+  store: BedrockKnowledgeBaseStore
+  runtime: { send: MockedFunction<any> }
+  agent: { send: MockedFunction<any> }
+} {
+  const runtime = mockClient()
+  runtime.send.mockResolvedValue({ retrievalResults: [] })
+  const agent = mockClient()
+  agent.send.mockResolvedValue({})
+  const store = new BedrockKnowledgeBaseStore({
+    config: { knowledgeBaseId: 'kb-1', runtimeClient: runtime as any, agentClient: agent as any, ...configOverrides },
+    name: 'kb',
+    ...overrides,
+  })
+  return { store, runtime, agent }
+}
+
+/** A writable CUSTOM store built via {@link makeStore}, with the data source wired into `config`. */
+function makeCustomStore(
+  overrides: Record<string, unknown> = {},
+  configOverrides: Record<string, unknown> = {}
+): { store: BedrockKnowledgeBaseStore; agent: { send: MockedFunction<any> } } {
+  const { store, agent } = makeStore(
+    { writable: true, ...overrides },
+    { dataSourceType: 'CUSTOM', dataSourceId: 'ds-1', ...configOverrides }
+  )
+  return { store, agent }
+}
+
+/** A writable S3 store built via {@link makeStore}, with the data source + bucket wired into `config`. */
+function makeS3Store(
+  overrides: Record<string, unknown> = {},
+  configOverrides: Record<string, unknown> = {}
+): { store: BedrockKnowledgeBaseStore; agent: { send: MockedFunction<any> }; s3: { send: MockedFunction<any> } } {
+  const s3 = mockClient()
+  s3.send.mockResolvedValue({})
+  const { store, agent } = makeStore(
+    { writable: true, ...overrides },
+    {
+      dataSourceType: 'S3',
+      dataSourceId: 'ds-1',
+      s3: { bucket: 'my-bucket', client: s3 as any, prefix: 'memories' },
+      ...configOverrides,
+    }
+  )
+  return { store, agent, s3 }
+}
+
+/** Reads the filter the most recent RetrieveCommand was sent with. */
+function lastSearchFilter(runtime: { send: MockedFunction<any> }): unknown {
+  const calls = runtime.send.mock.calls
+  return calls[calls.length - 1]?.[0].input.retrievalConfiguration.vectorSearchConfiguration.filter
+}
+
+/** Reads the inline attributes the most recent CUSTOM ingestion document carried. */
+function lastInlineAttributes(agent: { send: MockedFunction<any> }): any[] {
+  const calls = agent.send.mock.calls
+  return calls[calls.length - 1]?.[0].input.documents[0].metadata?.inlineAttributes ?? []
+}
+
 describe('BedrockKnowledgeBaseStore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -52,107 +122,69 @@ describe('BedrockKnowledgeBaseStore', () => {
 
   describe('constructor', () => {
     it('exposes name and defaults writable to false', () => {
-      const store = new BedrockKnowledgeBaseStore({ name: 'kb', knowledgeBaseId: 'kb-1' })
+      const { store } = makeStore()
       expect(store.name).toBe('kb')
       expect(store.writable).toBe(false)
       expect(store.description).toBeUndefined()
       expect(store.maxSearchResults).toBeUndefined()
     })
 
+    it('keeps name and scope as independent fields', () => {
+      const { store } = makeStore({ name: 'explicit', scope: 'user-abc' })
+      expect(store.name).toBe('explicit')
+      expect(store.scope).toBe('user-abc')
+    })
+
+    it('requires name at the type level', () => {
+      // @ts-expect-error name is required
+      new BedrockKnowledgeBaseStore({ config: { knowledgeBaseId: 'kb-1' }, scope: 'user-abc' })
+    })
+
     it('carries through description and maxSearchResults', () => {
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        description: 'product docs',
-        maxSearchResults: 7,
-      })
+      const { store } = makeStore({ description: 'product docs', maxSearchResults: 7 })
       expect(store.description).toBe('product docs')
       expect(store.maxSearchResults).toBe(7)
     })
 
     it('throws when writable is true but dataSourceType is omitted', () => {
-      expect(() => new BedrockKnowledgeBaseStore({ name: 'kb', knowledgeBaseId: 'kb-1', writable: true })).toThrow(
+      expect(() => makeStore({ writable: true })).toThrow("add requires dataSourceType 'CUSTOM' or 'S3'")
+    })
+
+    it("throws when writable is true but dataSourceType is 'OTHER'", () => {
+      expect(() => makeStore({ writable: true }, { dataSourceType: 'OTHER' })).toThrow(
         "add requires dataSourceType 'CUSTOM' or 'S3'"
       )
     })
 
-    it("throws when writable is true but dataSourceType is 'OTHER'", () => {
-      expect(
-        () =>
-          new BedrockKnowledgeBaseStore({
-            name: 'kb',
-            knowledgeBaseId: 'kb-1',
-            writable: true,
-            dataSourceType: 'OTHER',
-          })
-      ).toThrow("add requires dataSourceType 'CUSTOM' or 'S3'")
-    })
-
     it('throws when maxSearchResults is less than 1', () => {
-      expect(() => new BedrockKnowledgeBaseStore({ name: 'kb', knowledgeBaseId: 'kb-1', maxSearchResults: 0 })).toThrow(
-        'maxSearchResults must be at least 1'
-      )
-      expect(
-        () => new BedrockKnowledgeBaseStore({ name: 'kb', knowledgeBaseId: 'kb-1', maxSearchResults: -5 })
-      ).toThrow('maxSearchResults must be at least 1')
+      expect(() => makeStore({ maxSearchResults: 0 })).toThrow('maxSearchResults must be at least 1')
+      expect(() => makeStore({ maxSearchResults: -5 })).toThrow('maxSearchResults must be at least 1')
     })
 
     it("allows writable with a 'CUSTOM' data source", () => {
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        writable: true,
-        dataSourceType: 'CUSTOM',
-        dataSourceId: 'ds-1',
-      })
+      const { store } = makeCustomStore()
       expect(store.writable).toBe(true)
     })
 
     it("allows writable with an 'S3' data source", () => {
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        writable: true,
-        dataSourceType: 'S3',
-        dataSourceId: 'ds-1',
-        s3: { bucket: 'b', client: {} as any, prefix: 'p' },
-      })
+      const { store } = makeS3Store()
       expect(store.writable).toBe(true)
     })
 
     it('constructs a default runtime client when none is injected', () => {
-      new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-      })
+      new BedrockKnowledgeBaseStore({ config: { knowledgeBaseId: 'kb-1' }, name: 'kb' })
       expect(vi.mocked(BedrockAgentRuntimeClient)).toHaveBeenCalledWith({})
     })
 
     it('uses the injected runtime client without constructing one', () => {
-      const runtime = mockClient()
-      new BedrockKnowledgeBaseStore({ name: 'kb', knowledgeBaseId: 'kb-1', runtimeClient: runtime as any })
+      makeStore()
       expect(vi.mocked(BedrockAgentRuntimeClient)).not.toHaveBeenCalled()
     })
   })
 
   describe('search', () => {
-    function searchStore(overrides: Record<string, unknown> = {}): {
-      store: BedrockKnowledgeBaseStore
-      runtime: { send: MockedFunction<any> }
-    } {
-      const runtime = mockClient()
-      runtime.send.mockResolvedValue({ retrievalResults: [] })
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        runtimeClient: runtime as any,
-        ...overrides,
-      })
-      return { store, runtime }
-    }
-
     it('issues a RetrieveCommand with the query and a default result limit of 10', async () => {
-      const { store, runtime } = searchStore()
+      const { store, runtime } = makeStore()
       await store.search('how do refunds work')
       expect(runtime.send).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -166,7 +198,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it("uses the store's maxSearchResults when the caller omits one", async () => {
-      const { store, runtime } = searchStore({ maxSearchResults: 5 })
+      const { store, runtime } = makeStore({ maxSearchResults: 5 })
       await store.search('q')
       expect(runtime.send).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -178,7 +210,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('lets a per-call maxSearchResults override the store default', async () => {
-      const { store, runtime } = searchStore({ maxSearchResults: 5 })
+      const { store, runtime } = makeStore({ maxSearchResults: 5 })
       await store.search('q', { maxSearchResults: 2 })
       expect(runtime.send).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -190,7 +222,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('derives a scope filter (default key "namespace") and applies it to retrieval', async () => {
-      const { store, runtime } = searchStore({ scope: 'user-123' })
+      const { store, runtime } = makeStore({ scope: 'user-123' })
       await store.search('q')
       expect(runtime.send).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -207,7 +239,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('honors a custom scopeMetadataKey when building the scope filter', async () => {
-      const { store, runtime } = searchStore({ scope: 'acme', scopeMetadataKey: 'tenant' })
+      const { store, runtime } = makeStore({ scope: 'acme' }, { scopeMetadataKey: 'tenant' })
       await store.search('q')
       expect(runtime.send).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -224,7 +256,7 @@ describe('BedrockKnowledgeBaseStore', () => {
 
     it('prefers an explicit filter over a scope-derived one', async () => {
       const filter = { equals: { key: 'custom', value: 'v' } }
-      const { store, runtime } = searchStore({ scope: 'ignored', filter })
+      const { store, runtime } = makeStore({ scope: 'ignored', filter })
       await store.search('q')
       expect(runtime.send).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -238,7 +270,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('maps content, metadata, location, and score onto each entry', async () => {
-      const runtime = mockClient()
+      const { store, runtime } = makeStore()
       runtime.send.mockResolvedValue({
         retrievalResults: [
           {
@@ -248,11 +280,6 @@ describe('BedrockKnowledgeBaseStore', () => {
             score: 0.92,
           },
         ],
-      })
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        runtimeClient: runtime as any,
       })
 
       const results = await store.search('q')
@@ -269,43 +296,28 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('defaults missing content to an empty string and omits absent metadata', async () => {
-      const runtime = mockClient()
+      const { store, runtime } = makeStore()
       runtime.send.mockResolvedValue({ retrievalResults: [{}] })
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        runtimeClient: runtime as any,
-      })
 
       const results = await store.search('q')
       expect(results).toStrictEqual([{ content: '', metadata: {} }])
     })
 
     it('returns an empty array when the knowledge base yields no results', async () => {
-      const { store } = searchStore()
+      const { store } = makeStore()
       await expect(store.search('q')).resolves.toStrictEqual([])
     })
 
     it('returns an empty array when the response omits retrievalResults entirely', async () => {
-      const runtime = mockClient()
+      const { store, runtime } = makeStore()
       runtime.send.mockResolvedValue({})
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        runtimeClient: runtime as any,
-      })
       await expect(store.search('q')).resolves.toStrictEqual([])
     })
 
     it('logs and rethrows when the retrieve call fails', async () => {
       const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {})
-      const runtime = mockClient()
+      const { store, runtime } = makeStore()
       runtime.send.mockRejectedValue(new Error('retrieve boom'))
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        runtimeClient: runtime as any,
-      })
 
       await expect(store.search('q')).rejects.toThrow('retrieve boom')
       expect(errorSpy).toHaveBeenCalled()
@@ -314,56 +326,30 @@ describe('BedrockKnowledgeBaseStore', () => {
   })
 
   describe('add — CUSTOM data source', () => {
-    function customStore(overrides: Record<string, unknown> = {}): {
-      store: BedrockKnowledgeBaseStore
-      agent: { send: MockedFunction<any> }
-    } {
-      const agent = mockClient()
-      agent.send.mockResolvedValue({})
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        writable: true,
-        dataSourceType: 'CUSTOM',
-        dataSourceId: 'ds-1',
-        agentClient: agent as any,
-        ...overrides,
-      })
-      return { store, agent }
-    }
-
     it('throws when dataSourceId is missing', () => {
-      expect(
-        () =>
-          new BedrockKnowledgeBaseStore({
-            name: 'kb',
-            knowledgeBaseId: 'kb-1',
-            writable: true,
-            dataSourceType: 'CUSTOM',
-          })
-      ).toThrow('dataSourceId is required')
+      expect(() => makeStore({ writable: true }, { dataSourceType: 'CUSTOM' })).toThrow('dataSourceId is required')
     })
 
     it('throws when content is empty or whitespace-only', async () => {
-      const { store } = customStore()
+      const { store } = makeCustomStore()
       await expect(store.add('')).rejects.toThrow('content must not be empty')
       await expect(store.add('   ')).rejects.toThrow('content must not be empty')
     })
 
     it('returns the generated custom document id', async () => {
-      const { store } = customStore()
+      const { store } = makeCustomStore()
       await expect(store.add('fact')).resolves.toStrictEqual({ documentId: 'test-uuid-v7' })
     })
 
     it('uses the same id for the document identifier and the returned documentId', async () => {
-      const { store, agent } = customStore()
+      const { store, agent } = makeCustomStore()
       const result = await store.add('fact')
       const document = agent.send.mock.calls[0]?.[0].input.documents[0]
       expect(document.content.custom.customDocumentIdentifier.id).toBe(result.documentId)
     })
 
     it('ingests an inline CUSTOM document with no metadata field when no scope or metadata', async () => {
-      const { store, agent } = customStore()
+      const { store, agent } = makeCustomStore()
       await store.add('remember this')
       expect(agent.send).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -388,7 +374,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('attaches the scope as a leading inline attribute', async () => {
-      const { store, agent } = customStore({ scope: 'user-123' })
+      const { store, agent } = makeCustomStore({ scope: 'user-123' })
       await store.add('fact')
       const document = agent.send.mock.calls[0]?.[0].input.documents[0]
       expect(document.metadata.inlineAttributes).toStrictEqual([
@@ -397,7 +383,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('drops metadata keys that collide with scopeMetadataKey and preserves scope', async () => {
-      const { store, agent } = customStore({ scope: 'tenant-A' })
+      const { store, agent } = makeCustomStore({ scope: 'tenant-A' })
       const warnSpy = vi.spyOn(logger, 'warn')
       await store.add('fact', { namespace: 'tenant-EVIL', other: 'ok' })
       const document = agent.send.mock.calls[0]?.[0].input.documents[0]
@@ -410,7 +396,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('maps supported metadata value types and skips unsupported ones', async () => {
-      const { store, agent } = customStore()
+      const { store, agent } = makeCustomStore()
       await store.add('fact', {
         str: 'a',
         num: 1,
@@ -431,16 +417,8 @@ describe('BedrockKnowledgeBaseStore', () => {
 
     it('logs and rethrows when ingestion fails', async () => {
       const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {})
-      const agent = mockClient()
+      const { store, agent } = makeCustomStore()
       agent.send.mockRejectedValue(new Error('ingest boom'))
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        writable: true,
-        dataSourceType: 'CUSTOM',
-        dataSourceId: 'ds-1',
-        agentClient: agent as any,
-      })
 
       await expect(store.add('fact')).rejects.toThrow('ingest boom')
       expect(errorSpy).toHaveBeenCalled()
@@ -448,12 +426,11 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('lazily constructs a default agent client when none is injected', async () => {
+      // No injected agentClient, so construct directly rather than via the helper.
       const store = new BedrockKnowledgeBaseStore({
+        config: { knowledgeBaseId: 'kb-1', dataSourceType: 'CUSTOM', dataSourceId: 'ds-1' },
         name: 'kb',
-        knowledgeBaseId: 'kb-1',
         writable: true,
-        dataSourceType: 'CUSTOM',
-        dataSourceId: 'ds-1',
       })
       await store.add('fact')
       expect(vi.mocked(BedrockAgentClient)).toHaveBeenCalledWith({})
@@ -461,50 +438,21 @@ describe('BedrockKnowledgeBaseStore', () => {
   })
 
   describe('add — S3 data source', () => {
-    function s3Store(overrides: Record<string, unknown> = {}): {
-      store: BedrockKnowledgeBaseStore
-      agent: { send: MockedFunction<any> }
-      s3: { send: MockedFunction<any> }
-    } {
-      const agent = mockClient()
-      agent.send.mockResolvedValue({})
-      const s3 = mockClient()
-      s3.send.mockResolvedValue({})
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        writable: true,
-        dataSourceType: 'S3',
-        dataSourceId: 'ds-1',
-        agentClient: agent as any,
-        s3: { bucket: 'my-bucket', client: s3 as any, prefix: 'memories' },
-        ...overrides,
-      })
-      return { store, agent, s3 }
-    }
-
     it('throws when the s3 config is missing', () => {
-      expect(
-        () =>
-          new BedrockKnowledgeBaseStore({
-            name: 'kb',
-            knowledgeBaseId: 'kb-1',
-            writable: true,
-            dataSourceType: 'S3',
-            dataSourceId: 'ds-1',
-          })
-      ).toThrow('s3 config is required')
+      expect(() => makeStore({ writable: true }, { dataSourceType: 'S3', dataSourceId: 'ds-1' })).toThrow(
+        's3 config is required'
+      )
     })
 
     it("returns the uploaded content object's s3:// URI as the document id", async () => {
-      const { store } = s3Store()
+      const { store } = makeS3Store()
       await expect(store.add('content')).resolves.toStrictEqual({
         documentId: 's3://my-bucket/memories/test-uuid-v7.txt',
       })
     })
 
     it('uploads the content object and ingests an S3 document referencing it (no sidecar)', async () => {
-      const { store, agent, s3 } = s3Store()
+      const { store, agent, s3 } = makeS3Store()
       await store.add('s3 content')
 
       expect(s3.send).toHaveBeenCalledTimes(1)
@@ -539,15 +487,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     it('does not double up the slash when the prefix already ends in one', async () => {
       const client = mockClient()
       client.send.mockResolvedValue({})
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        writable: true,
-        dataSourceType: 'S3',
-        dataSourceId: 'ds-1',
-        agentClient: mockClient() as any,
-        s3: { bucket: 'my-bucket', client: client as any, prefix: 'memories/' },
-      })
+      const { store } = makeS3Store({}, { s3: { bucket: 'my-bucket', client: client as any, prefix: 'memories/' } })
       await store.add('content')
       expect(client.send).toHaveBeenCalledWith(
         expect.objectContaining({ input: expect.objectContaining({ Key: 'memories/test-uuid-v7.txt' }) })
@@ -555,7 +495,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('writes a sidecar carrying the scope and points the document metadata at it', async () => {
-      const { store, agent, s3 } = s3Store({ scope: 'team-a' })
+      const { store, agent, s3 } = makeS3Store({ scope: 'team-a' })
       await store.add('content')
 
       expect(s3.send).toHaveBeenCalledTimes(2)
@@ -582,7 +522,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('writes a sidecar built from caller metadata', async () => {
-      const { store, s3 } = s3Store()
+      const { store, s3 } = makeS3Store()
       await store.add('content', { priority: 'high' })
 
       expect(s3.send).toHaveBeenCalledTimes(2)
@@ -601,7 +541,7 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
 
     it('omits unsupported metadata values from the sidecar', async () => {
-      const { store, s3 } = s3Store()
+      const { store, s3 } = makeS3Store()
       await store.add('content', { keep: 'yes', drop: { nested: true } })
 
       expect(s3.send).toHaveBeenNthCalledWith(
@@ -622,12 +562,14 @@ describe('BedrockKnowledgeBaseStore', () => {
       const s3 = mockClient()
       s3.send.mockResolvedValue({})
       const store = new BedrockKnowledgeBaseStore({
+        config: {
+          knowledgeBaseId: 'kb-1',
+          dataSourceType: 'S3',
+          dataSourceId: 'ds-1',
+          s3: { bucket: 'my-bucket', client: s3 as any, prefix: 'memories' },
+        },
         name: 'kb',
-        knowledgeBaseId: 'kb-1',
         writable: true,
-        dataSourceType: 'S3',
-        dataSourceId: 'ds-1',
-        s3: { bucket: 'my-bucket', client: s3 as any, prefix: 'memories' },
       })
       await store.add('content')
       expect(vi.mocked(BedrockAgentClient)).toHaveBeenCalledWith({})
@@ -635,7 +577,7 @@ describe('BedrockKnowledgeBaseStore', () => {
 
     it('logs and rethrows when the S3 upload fails, before any ingestion', async () => {
       const errorSpy = vi.spyOn(logger, 'error').mockImplementation(() => {})
-      const { store, agent, s3 } = s3Store()
+      const { store, agent, s3 } = makeS3Store()
       s3.send.mockRejectedValue(new Error('upload boom'))
 
       await expect(store.add('content')).rejects.toThrow('upload boom')
@@ -649,157 +591,90 @@ describe('BedrockKnowledgeBaseStore', () => {
     it('throws when add is called on a non-writable store', async () => {
       const agent = mockClient()
       const store = new BedrockKnowledgeBaseStore({
+        config: { knowledgeBaseId: 'kb-1', dataSourceType: 'OTHER', dataSourceId: 'ds-1', agentClient: agent as any },
         name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        dataSourceType: 'OTHER',
-        dataSourceId: 'ds-1',
-        agentClient: agent as any,
       })
       await expect(store.add('fact')).rejects.toThrow('store is not writable')
       expect(agent.send).not.toHaveBeenCalled()
     })
   })
 
-  describe('dynamic scope mutability', () => {
-    /** A search store whose `send` echoes the RetrieveCommand and resolves to empty results. */
-    function searchStore(overrides: Record<string, unknown> = {}): {
-      store: BedrockKnowledgeBaseStore
-      runtime: { send: MockedFunction<any> }
-    } {
+  describe('config reuse across namespaces', () => {
+    it('reuses an injected runtime client across stores built from the same config', async () => {
       const runtime = mockClient()
       runtime.send.mockResolvedValue({ retrievalResults: [] })
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        runtimeClient: runtime as any,
-        ...overrides,
-      })
-      return { store, runtime }
-    }
+      const config = { knowledgeBaseId: 'kb-1', runtimeClient: runtime as any }
 
-    /** Reads the filter the most recent RetrieveCommand was sent with. */
-    function lastSearchFilter(runtime: { send: MockedFunction<any> }): unknown {
-      const calls = runtime.send.mock.calls
-      return calls[calls.length - 1]?.[0].input.retrievalConfiguration.vectorSearchConfiguration.filter
-    }
+      const personal = new BedrockKnowledgeBaseStore({ config, name: 'personal', scope: 'user-abc' })
+      const team = new BedrockKnowledgeBaseStore({ config, name: 'team', scope: 'other' })
 
-    /** A writable CUSTOM store whose agent `send` echoes the ingestion command. */
-    function customStore(overrides: Record<string, unknown> = {}): {
-      store: BedrockKnowledgeBaseStore
-      agent: { send: MockedFunction<any> }
-    } {
+      expect(vi.mocked(BedrockAgentRuntimeClient)).not.toHaveBeenCalled()
+      await personal.search('q')
+      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'user-abc' } })
+      await team.search('q')
+      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'other' } })
+    })
+
+    it('constructs a separate default runtime client per store when the config injects none', () => {
+      const config = { knowledgeBaseId: 'kb-1' }
+      new BedrockKnowledgeBaseStore({ config, name: 'a' })
+      new BedrockKnowledgeBaseStore({ config, name: 'b' })
+      expect(vi.mocked(BedrockAgentRuntimeClient)).toHaveBeenCalledTimes(2)
+    })
+
+    it('inherits the data source from the shared config when writing', async () => {
       const agent = mockClient()
       agent.send.mockResolvedValue({})
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        writable: true,
-        dataSourceType: 'CUSTOM',
-        dataSourceId: 'ds-1',
+      const config = {
+        knowledgeBaseId: 'kb-shared',
+        dataSourceType: 'CUSTOM' as const,
+        dataSourceId: 'ds-shared',
         agentClient: agent as any,
-        ...overrides,
-      })
-      return { store, agent }
-    }
-
-    /** Reads the inline attributes the most recent CUSTOM ingestion document carried. */
-    function lastInlineAttributes(agent: { send: MockedFunction<any> }): any[] {
-      const calls = agent.send.mock.calls
-      return calls[calls.length - 1]?.[0].input.documents[0].metadata?.inlineAttributes ?? []
-    }
-
-    it('reflects a mutated scope in the next search filter', async () => {
-      const { store, runtime } = searchStore({ scope: 'tenant-a' })
-      await store.search('q')
-      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'tenant-a' } })
-
-      store.scope = 'tenant-b'
-      await store.search('q')
-      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'tenant-b' } })
+      }
+      const store = new BedrockKnowledgeBaseStore({ config, name: 'personal', scope: 'user-abc', writable: true })
+      await store.add('fact')
+      expect(agent.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({ knowledgeBaseId: 'kb-shared', dataSourceId: 'ds-shared' }),
+        })
+      )
     })
 
-    it('reflects a mutated scopeMetadataKey in the derived filter', async () => {
-      const { store, runtime } = searchStore({ scope: 'acme' })
-      store.scopeMetadataKey = 'tenant'
-      await store.search('q')
-      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'tenant', value: 'acme' } })
+    it('registers distinct-name stores together in a MemoryManager', () => {
+      const config = { knowledgeBaseId: 'kb-1', runtimeClient: mockClient() as any }
+      const personal = new BedrockKnowledgeBaseStore({ config, name: 'personal', scope: 'user-abc' })
+      const team = new BedrockKnowledgeBaseStore({ config, name: 'team', scope: 'other' })
+      expect(() => new MemoryManager({ stores: [personal, team] })).not.toThrow()
     })
 
-    it('derives a filter once a scope is set on a previously unscoped store', async () => {
-      const { store, runtime } = searchStore()
+    it('rejects two stores with the same name in a MemoryManager', () => {
+      const config = { knowledgeBaseId: 'kb-1', runtimeClient: mockClient() as any }
+      const a = new BedrockKnowledgeBaseStore({ config, name: 'dupe', scope: 'user-abc' })
+      const b = new BedrockKnowledgeBaseStore({ config, name: 'dupe', scope: 'other' })
+      expect(() => new MemoryManager({ stores: [a, b] })).toThrow("duplicate store name 'dupe'")
+    })
+  })
+
+  describe('scope and filter resolution', () => {
+    it('applies no filter when the store has no scope', async () => {
+      const { store, runtime } = makeStore()
       await store.search('q')
       expect(lastSearchFilter(runtime)).toBeUndefined()
-
-      store.scope = 'later'
-      await store.search('q')
-      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'later' } })
     })
 
-    it('keeps using an explicit filter even after scope is mutated', async () => {
-      const filter = { equals: { key: 'custom', value: 'v' } }
-      const { store, runtime } = searchStore({ scope: 'a', filter })
-      store.scope = 'b'
-      await store.search('q')
-      expect(lastSearchFilter(runtime)).toStrictEqual(filter)
-    })
-
-    it('re-enables scope-derived filtering when the explicit filter is cleared', async () => {
-      const { store, runtime } = searchStore({ scope: 'a', filter: { equals: { key: 'custom', value: 'v' } } })
-      store.filter = undefined
-      await store.search('q')
-      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'a' } })
-    })
-
-    it('snapshots the filter at call entry, ignoring a scope mutation made after the call', async () => {
-      const { store, runtime } = searchStore({ scope: 'before' })
-      const pending = store.search('q')
-      store.scope = 'after' // mutate before the in-flight search settles
-      await pending
-      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'before' } })
-    })
-
-    it('stamps the current scope on writes after a mutation', async () => {
-      const { store, agent } = customStore({ scope: 'tenant-a' })
+    it('scopes writes by scope even when an explicit search filter is set (search/write asymmetry)', async () => {
+      const { store, agent } = makeCustomStore({ scope: 'tenant-a', filter: { equals: { key: 'custom', value: 'v' } } })
       await store.add('fact')
       expect(lastInlineAttributes(agent)).toStrictEqual([
         { key: 'namespace', value: { type: 'STRING', stringValue: 'tenant-a' } },
       ])
-
-      store.scope = 'tenant-b'
-      await store.add('fact')
-      expect(lastInlineAttributes(agent)).toStrictEqual([
-        { key: 'namespace', value: { type: 'STRING', stringValue: 'tenant-b' } },
-      ])
-    })
-
-    it('still scopes writes by scope even when an explicit search filter is set (search/write asymmetry)', async () => {
-      const { store, agent } = customStore({ scope: 'tenant-a', filter: { equals: { key: 'custom', value: 'v' } } })
-      await store.add('fact')
-      expect(lastInlineAttributes(agent)).toStrictEqual([
-        { key: 'namespace', value: { type: 'STRING', stringValue: 'tenant-a' } },
-      ])
-    })
-
-    it('leaves name (the routing identity) untouched when scope is mutated', () => {
-      const { store } = searchStore({ scope: 'a' })
-      store.scope = 'b'
-      expect(store.name).toBe('kb')
     })
   })
 
   describe('metadata logging', () => {
     it('logs a debug line when a CUSTOM document drops an unsupported metadata value', async () => {
       const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => {})
-      const agent = mockClient()
-      agent.send.mockResolvedValue({})
-      const store = new BedrockKnowledgeBaseStore({
-        name: 'kb',
-        knowledgeBaseId: 'kb-1',
-        writable: true,
-        dataSourceType: 'CUSTOM',
-        dataSourceId: 'ds-1',
-        agentClient: agent as any,
-      })
+      const { store } = makeCustomStore()
 
       await store.add('fact', { good: 'v', bad: { nested: true } })
       expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('key=<bad>'))

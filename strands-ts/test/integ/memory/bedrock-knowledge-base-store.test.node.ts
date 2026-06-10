@@ -61,13 +61,15 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       const { knowledgeBaseId, customDataSourceId } = config()
 
       const store = new BedrockKnowledgeBaseStore({
+        config: {
+          knowledgeBaseId,
+          dataSourceType: 'CUSTOM',
+          dataSourceId: customDataSourceId,
+          runtimeClient,
+          agentClient,
+        },
         name: 'integ-custom',
-        knowledgeBaseId,
         writable: true,
-        dataSourceType: 'CUSTOM',
-        dataSourceId: customDataSourceId,
-        runtimeClient,
-        agentClient,
       })
 
       const marker = uniqueMarker('custom-add')
@@ -93,13 +95,15 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
 
       const scope = uniqueMarker('scope')
       const store = new BedrockKnowledgeBaseStore({
+        config: {
+          knowledgeBaseId,
+          dataSourceType: 'CUSTOM',
+          dataSourceId: customDataSourceId,
+          runtimeClient,
+          agentClient,
+        },
         name: 'integ-custom-scoped',
-        knowledgeBaseId,
         writable: true,
-        dataSourceType: 'CUSTOM',
-        dataSourceId: customDataSourceId,
-        runtimeClient,
-        agentClient,
         scope,
       })
 
@@ -124,23 +128,27 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       const marker = uniqueMarker('isolation')
 
       const storeA = new BedrockKnowledgeBaseStore({
+        config: {
+          knowledgeBaseId,
+          dataSourceType: 'CUSTOM',
+          dataSourceId: customDataSourceId,
+          runtimeClient,
+          agentClient,
+        },
         name: 'integ-scope-a',
-        knowledgeBaseId,
         writable: true,
-        dataSourceType: 'CUSTOM',
-        dataSourceId: customDataSourceId,
-        runtimeClient,
-        agentClient,
         scope: scopeA,
       })
 
       const storeB = new BedrockKnowledgeBaseStore({
+        config: {
+          knowledgeBaseId,
+          dataSourceType: 'CUSTOM',
+          dataSourceId: customDataSourceId,
+          runtimeClient,
+          agentClient,
+        },
         name: 'integ-scope-b',
-        knowledgeBaseId,
-        dataSourceType: 'CUSTOM',
-        dataSourceId: customDataSourceId,
-        runtimeClient,
-        agentClient,
         scope: scopeB,
       })
 
@@ -163,13 +171,15 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       const { knowledgeBaseId, customDataSourceId } = config()
 
       const store = new BedrockKnowledgeBaseStore({
+        config: {
+          knowledgeBaseId,
+          dataSourceType: 'CUSTOM',
+          dataSourceId: customDataSourceId,
+          runtimeClient,
+          agentClient,
+        },
         name: 'integ-custom-meta',
-        knowledgeBaseId,
         writable: true,
-        dataSourceType: 'CUSTOM',
-        dataSourceId: customDataSourceId,
-        runtimeClient,
-        agentClient,
       })
 
       const marker = uniqueMarker('custom-meta')
@@ -200,14 +210,16 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       const { knowledgeBaseId, s3DataSourceId, s3Bucket } = config()
 
       const store = new BedrockKnowledgeBaseStore({
+        config: {
+          knowledgeBaseId,
+          dataSourceType: 'S3',
+          dataSourceId: s3DataSourceId,
+          runtimeClient,
+          agentClient,
+          s3: { bucket: s3Bucket, client: s3Client, prefix: `integ-test/${uniqueMarker('pfx')}/` },
+        },
         name: 'integ-s3',
-        knowledgeBaseId,
         writable: true,
-        dataSourceType: 'S3',
-        dataSourceId: s3DataSourceId,
-        runtimeClient,
-        agentClient,
-        s3: { bucket: s3Bucket, client: s3Client, prefix: `integ-test/${uniqueMarker('pfx')}/` },
       })
 
       const marker = uniqueMarker('s3-add')
@@ -235,15 +247,17 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
 
       const scope = uniqueMarker('s3scope')
       const store = new BedrockKnowledgeBaseStore({
+        config: {
+          knowledgeBaseId,
+          dataSourceType: 'S3',
+          dataSourceId: s3DataSourceId,
+          runtimeClient,
+          agentClient,
+          s3: { bucket: s3Bucket, client: s3Client, prefix: `integ-test/${uniqueMarker('pfx')}/` },
+        },
         name: 'integ-s3-scoped',
-        knowledgeBaseId,
         writable: true,
-        dataSourceType: 'S3',
-        dataSourceId: s3DataSourceId,
-        runtimeClient,
-        agentClient,
         scope,
-        s3: { bucket: s3Bucket, client: s3Client, prefix: `integ-test/${uniqueMarker('pfx')}/` },
       })
 
       const marker = uniqueMarker('s3-scoped')
@@ -268,26 +282,30 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       const marker = uniqueMarker('s3-isolation')
 
       const storeA = new BedrockKnowledgeBaseStore({
+        config: {
+          knowledgeBaseId,
+          dataSourceType: 'S3',
+          dataSourceId: s3DataSourceId,
+          runtimeClient,
+          agentClient,
+          s3: { bucket: s3Bucket, client: s3Client, prefix: `integ-test/${uniqueMarker('pfx')}/` },
+        },
         name: 'integ-s3-iso-a',
-        knowledgeBaseId,
         writable: true,
-        dataSourceType: 'S3',
-        dataSourceId: s3DataSourceId,
-        runtimeClient,
-        agentClient,
         scope: scopeA,
-        s3: { bucket: s3Bucket, client: s3Client, prefix: `integ-test/${uniqueMarker('pfx')}/` },
       })
 
       const storeB = new BedrockKnowledgeBaseStore({
+        config: {
+          knowledgeBaseId,
+          dataSourceType: 'S3',
+          dataSourceId: s3DataSourceId,
+          runtimeClient,
+          agentClient,
+          s3: { bucket: s3Bucket, client: s3Client, prefix: `integ-test/${uniqueMarker('pfx')}/` },
+        },
         name: 'integ-s3-iso-b',
-        knowledgeBaseId,
-        dataSourceType: 'S3',
-        dataSourceId: s3DataSourceId,
-        runtimeClient,
-        agentClient,
         scope: scopeB,
-        s3: { bucket: s3Bucket, client: s3Client, prefix: `integ-test/${uniqueMarker('pfx')}/` },
       })
 
       const result = await storeA.add(`S3 isolated: ${marker}`)
@@ -310,14 +328,16 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       const { knowledgeBaseId, s3DataSourceId, s3Bucket } = config()
 
       const store = new BedrockKnowledgeBaseStore({
+        config: {
+          knowledgeBaseId,
+          dataSourceType: 'S3',
+          dataSourceId: s3DataSourceId,
+          runtimeClient,
+          agentClient,
+          s3: { bucket: s3Bucket, client: s3Client, prefix: `integ-test/${uniqueMarker('pfx')}/` },
+        },
         name: 'integ-s3-meta',
-        knowledgeBaseId,
         writable: true,
-        dataSourceType: 'S3',
-        dataSourceId: s3DataSourceId,
-        runtimeClient,
-        agentClient,
-        s3: { bucket: s3Bucket, client: s3Client, prefix: `integ-test/${uniqueMarker('pfx')}/` },
       })
 
       const marker = uniqueMarker('s3-meta')
@@ -344,9 +364,8 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       const { knowledgeBaseId } = config()
 
       const store = new BedrockKnowledgeBaseStore({
+        config: { knowledgeBaseId, runtimeClient },
         name: 'integ-readonly',
-        knowledgeBaseId,
-        runtimeClient,
       })
 
       await expect(store.add('should fail')).rejects.toThrow()
@@ -356,9 +375,8 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       const { knowledgeBaseId } = config()
 
       const store = new BedrockKnowledgeBaseStore({
+        config: { knowledgeBaseId, runtimeClient },
         name: 'integ-readonly-search',
-        knowledgeBaseId,
-        runtimeClient,
       })
 
       const entries = await store.search('hello')
@@ -369,10 +387,9 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       expect(
         () =>
           new BedrockKnowledgeBaseStore({
+            config: { knowledgeBaseId: 'fake-id', dataSourceType: 'OTHER' },
             name: 'integ-other',
-            knowledgeBaseId: 'fake-id',
             writable: true,
-            dataSourceType: 'OTHER',
           })
       ).toThrow("add requires dataSourceType 'CUSTOM' or 'S3'")
     })
@@ -383,10 +400,9 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       expect(
         () =>
           new BedrockKnowledgeBaseStore({
+            config: { knowledgeBaseId, dataSourceType: 'CUSTOM' },
             name: 'integ-no-ds',
-            knowledgeBaseId,
             writable: true,
-            dataSourceType: 'CUSTOM',
           })
       ).toThrow('dataSourceId is required')
     })
@@ -397,11 +413,9 @@ describe('BedrockKnowledgeBaseStore Integration Tests', () => {
       expect(
         () =>
           new BedrockKnowledgeBaseStore({
+            config: { knowledgeBaseId, dataSourceType: 'S3', dataSourceId: s3DataSourceId },
             name: 'integ-no-s3',
-            knowledgeBaseId,
             writable: true,
-            dataSourceType: 'S3',
-            dataSourceId: s3DataSourceId,
           })
       ).toThrow('s3 config is required')
     })
