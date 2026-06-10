@@ -240,6 +240,8 @@
       if (!lang) return;
       setPreference(lang);
       syncAll(lang);
+      // Notify same-tab listeners (storage events only fire cross-tab).
+      window.dispatchEvent(new CustomEvent('lang-preference-changed', { detail: { lang: lang } }));
 
       // Navigate to paired page if one exists
       var paired = getPairedUrl(lang);

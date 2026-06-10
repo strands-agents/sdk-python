@@ -52,8 +52,9 @@ const areaCounts = getAreaCounts(allEntries)
     search: params.get('q') || '',
   }
 
+  // Site-wide default is TypeScript (see LanguageToggle.astro DEFAULT_LANG).
   function globalLang(): string {
-    try { return localStorage.getItem(LANG_KEY) || 'Python' } catch { return 'Python' }
+    try { return localStorage.getItem(LANG_KEY) || 'TypeScript' } catch { return 'TypeScript' }
   }
   function langSlug(): string { return globalLang() === 'TypeScript' ? 'typescript' : 'python' }
 
@@ -76,29 +77,46 @@ const areaCounts = getAreaCounts(allEntries)
   function apply() {
     const lang = effectiveLang()
     const q = state.search.trim().toLowerCase()
+    const hasEntryFilter = state.areas.size > 0 || q.length > 0
     let visible = 0
     for (const v of versions) {
       const vSdk = v.dataset.sdk
       const vLang = v.dataset.language
+      // Version-level gate: SDK, and (for harness) one language at a time.
       let show = vSdk === state.sdk
-      if (show && vSdk === 'harness') show = vLang === lang // one language at a time for harness
-      if (show && state.areas.size) {
-        const vAreas = new Set((v.dataset.areas || '').split(' ').filter(Boolean))
-        show = [...state.areas].some((a) => vAreas.has(a))
-      }
-      if (show && q) {
-        show = v.textContent!.toLowerCase().includes(q)
-      }
-      // Per-entry area filtering (hide non-matching entries when areas selected)
-      if (show && state.areas.size) {
-        const entries = v.querySelectorAll<HTMLElement>('.cl-entry')
-        entries.forEach((e) => {
+      if (show && vSdk === 'harness') show = vLang === lang
+      // Per-entry filtering by area + search; a version survives only if it
+      // still has at least one visible entry when entry-level filters are active.
+      const entries = Array.from(v.querySelectorAll<HTMLElement>('.cl-entry'))
+      let anyEntryVisible = false
+      for (const e of entries) {
+        let entryShow = true
+        if (state.areas.size) {
           const ea = new Set((e.dataset.areas || '').split(' ').filter(Boolean))
-          e.hidden = ![...state.areas].some((a) => ea.has(a))
-        })
-      } else {
-        v.querySelectorAll<HTMLElement>('.cl-entry').forEach((e) => (e.hidden = false))
+          entryShow = [...state.areas].some((a) => ea.has(a))
+        }
+        if (entryShow && q) {
+          entryShow = e.textContent!.toLowerCase().includes(q)
+        }
+        e.hidden = !entryShow
+        if (entryShow) anyEntryVisible = true
       }
+      if (show && hasEntryFilter) show = anyEntryVisible
+      // Hide group headers whose following entries are all hidden.
+      const children = Array.from(v.querySelectorAll<HTMLElement>('.cl-group, .cl-entry'))
+      let currentGroup: HTMLElement | null = null
+      let groupHasVisible = false
+      const flush = () => { if (currentGroup) currentGroup.hidden = !groupHasVisible }
+      for (const child of children) {
+        if (child.classList.contains('cl-group')) {
+          flush()
+          currentGroup = child
+          groupHasVisible = false
+        } else if (!child.hidden) {
+          groupHasVisible = true
+        }
+      }
+      flush()
       v.hidden = !show
       if (show) visible++
     }
@@ -137,7 +155,8 @@ const areaCounts = getAreaCounts(allEntries)
   searchInput?.addEventListener('input', () => { state.search = searchInput.value; apply() })
   if (searchInput && state.search) searchInput.value = state.search
 
-  // React to global language switch (other tabs + same tab via storage)
+  // React to global language switch: same tab (custom event) + other tabs (storage).
+  window.addEventListener('lang-preference-changed', () => apply())
   window.addEventListener('storage', (e) => { if (e.key === LANG_KEY) apply() })
 
   // Mobile drawer
