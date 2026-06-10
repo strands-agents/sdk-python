@@ -21,6 +21,34 @@ export const sourceLinkSchema = z.object({
 })
 export type SourceLink = z.infer<typeof sourceLinkSchema>
 
+export const changelogEntrySchema = z.object({
+  type: z.enum(['feat', 'fix', 'breaking', 'chore', 'docs', 'perf', 'refactor', 'test', 'other']),
+  breaking: z.boolean().default(false),
+  scope: z.string().nullable().default(null),
+  areas: z.array(z.string()).default([]),
+  title: z.string(),
+  pr: z.number().nullable().default(null),
+  prUrl: z.string().url().nullable().default(null),
+  commit: z.string().nullable().default(null),
+  commitUrl: z.string().url().nullable().default(null),
+  author: z.string().nullable().default(null),
+})
+export type ChangelogEntry = z.infer<typeof changelogEntrySchema>
+
+export const changelogFrontmatterSchema = z.object({
+  sdk: z.enum(['harness', 'evals']),
+  language: z.enum(['python', 'typescript']).optional(),
+  version: z.string(),
+  tag: z.string(),
+  date: z.coerce.date(),
+  releaseUrl: z.string().url(),
+  packageUrl: z.string().url(),
+  compareUrl: z.string().url().optional(),
+  highlights: z.string().optional(),
+  entries: z.array(changelogEntrySchema).default([]),
+})
+export type ChangelogFrontmatter = z.infer<typeof changelogFrontmatterSchema>
+
 const blogSchema = z.object({
   title: z.string(),
   date: z.coerce.date(),
@@ -46,6 +74,13 @@ export const collections = {
       pattern: '**/*.{md,mdx}',
     }),
     schema: blogSchema,
+  }),
+  changelog: defineCollection({
+    loader: glob({
+      base: 'src/content/changelog',
+      pattern: '**/*.{md,mdx}',
+    }),
+    schema: changelogFrontmatterSchema,
   }),
   testimonials: defineCollection({
     loader: glob({
