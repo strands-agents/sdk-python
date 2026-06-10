@@ -1,18 +1,8 @@
 /**
- * A held lock. Dispose it (e.g. via `using`) to release the lock for the next waiter.
- */
-export interface LockHandle {
-  [Symbol.dispose](): void
-}
-
-/**
  * Minimal async mutex for serializing access to a resource.
  *
- * JavaScript has no built-in equivalent of Python's `asyncio.Lock`. This
- * implements the same contract: `acquire()` resolves only once all previously
- * acquired holders have released, so awaiting callers run one at a time in FIFO
- * order. Used by {@link A2AExecutor} to serialize same-context requests (one
- * lock per context in factory mode) and all requests in single-agent mode.
+ * `acquire()` resolves only once all previously acquired holders have released,
+ * so awaiting callers run one at a time in FIFO order.
  */
 export class AsyncLock {
   /** Resolves when the currently-held lock (if any) is released. */
@@ -21,20 +11,12 @@ export class AsyncLock {
   /**
    * Acquires the lock, waiting until all previously-acquired holders release.
    *
-   * The returned handle releases the lock on disposal: declare it with `using`
-   * so the lock is freed when the block exits (including on throw), with no
-   * explicit `finally`.
+   * Declare the result with `using` to release the lock at scope exit:
+   * `using _lock = await lock.acquire()`.
    *
-   * @returns A handle whose disposal releases the lock for the next waiter.
-   *   Disposal is idempotent.
-   *
-   * @example
-   * ```typescript
-   * using _lock = await lock.acquire()
-   * // ... critical section; lock released at scope exit
-   * ```
+   * @returns A handle whose disposal releases the lock. Disposal is idempotent.
    */
-  async acquire(): Promise<LockHandle> {
+  async acquire(): Promise<{ [Symbol.dispose](): void }> {
     let release!: () => void
     const next = new Promise<void>((resolve) => {
       release = resolve
