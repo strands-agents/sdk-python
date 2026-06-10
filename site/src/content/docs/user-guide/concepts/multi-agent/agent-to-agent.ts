@@ -1,7 +1,7 @@
 // @ts-nocheck
 // NOTE: Type-checking is disabled because the examples reference remote services not available at build time.
 
-import { Agent, tool } from '@strands-agents/sdk'
+import { Agent, tool, SessionManager, FileStorage } from '@strands-agents/sdk'
 import { A2AAgent } from '@strands-agents/sdk/a2a'
 import { A2AExpressServer } from '@strands-agents/sdk/a2a/express'
 import { z } from 'zod'
@@ -77,13 +77,20 @@ async function basicServerExample() {
 
 async function factoryServerExample() {
   // --8<-- [start:factory_server]
-  // The factory runs once per contextId. Wire per context concerns such as a
-  // session manager here so each conversation stays isolated.
+  // The factory runs once per contextId and returns a dedicated agent, so each conversation
+  // is isolated. Wire an optional sessionManager here to persist that conversation's history,
+  // scoped to the contextId.
+  const storage = new FileStorage('./sessions')
+
   const server = new A2AExpressServer({
     agentFactory: (contextId) =>
       new Agent({
         name: 'Calculator Agent',
         description: 'A calculator agent.',
+        sessionManager: new SessionManager({
+          sessionId: contextId,
+          storage: { snapshot: storage },
+        }),
       }),
     name: 'Calculator Agent',
     maxContexts: 1000,

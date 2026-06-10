@@ -326,11 +326,9 @@ The server serves the agent card at `/.well-known/agent-card.json` and handles J
 
 The A2A protocol identifies each conversation with a `context_id`. The server isolates conversation state per `context_id` so that callers in different contexts never read or influence each other's history. Two modes control how that isolation works.
 
-The recommended mode is `agent_factory`. You provide a callable that takes a `context_id` and returns a fresh agent.
+The recommended mode is `agent_factory` — you provide a callable that takes a `context_id` and returns a dedicated agent for each conversation, reusing it for later requests in that context. This enables different conversations to run concurrently because each owns an independent agent.
 
-The server builds a dedicated agent the first time it sees a `context_id`, gives it its own lock, and reuses it for later requests in that context. Different contexts run concurrently because each owns an independent agent.
-
-The factory is also where you wire per context concerns such as a context scoped `session_manager`.
+The factory is also where you wire per-conversation concerns such as a `session_manager` to persist that conversation's history.
 
 <Tabs>
 <Tab label="Python">
@@ -354,7 +352,7 @@ a2a_server.serve()
 <Tab label="TypeScript">
 
 ```typescript
-import { Agent } from '@strands-agents/sdk'
+import { Agent, SessionManager, FileStorage } from '@strands-agents/sdk'
 import { A2AExpressServer } from '@strands-agents/sdk/a2a/express'
 
 --8<-- "user-guide/concepts/multi-agent/agent-to-agent.ts:factory_server"
@@ -369,9 +367,9 @@ The server retains at most `max_contexts` contexts at once (default 1000). When 
 Contexts are keyed on the client supplied `context_id`. A caller who knows another caller's `context_id` can attach to that conversation. Multi-tenant deployments must enforce authenticated identity at the transport or gateway layer.
 :::
 
-Passing a single `agent` instead of an `agent_factory` is deprecated. In that mode the server reuses one agent across every context, swapping each context's saved state on and off the shared instance under a lock. This serializes all requests.
-
-A single `agent` with a configured `session_manager` is rejected, because the session manager would persist every context into one interleaved session. Prefer `agent_factory` for any deployment that serves more than one conversation.
+:::caution[Passing a single `agent` is deprecated]
+In single-agent mode the server reuses one agent across every context, swapping each context's saved state on and off the shared instance under a lock, which serializes all requests. A single `agent` with a configured `session_manager` is rejected, because the session manager would persist every context into one interleaved session. Prefer `agent_factory` for any deployment that serves more than one conversation.
+:::
 
 ### Server Configuration Options
 
