@@ -10,7 +10,6 @@ streamed requests to the A2AServer.
 
 import asyncio
 import base64
-import copy
 import json
 import logging
 import mimetypes
@@ -182,10 +181,11 @@ class StrandsA2AExecutor(AgentExecutor):
     def _restore_state(self, agent: SAAgent, snapshot: Snapshot) -> None:
         """Load a snapshot into an agent, restoring its session state.
 
-        Deep-copies once at the boundary so a run never mutates a stored or template snapshot in
-        place (snapshots, including the template, are restored repeatedly).
+        No defensive copy is needed: ``load_snapshot`` deep-copies every field it restores (and
+        ``take_snapshot`` deep-copies on capture), so a run never mutates a stored or template
+        snapshot in place.
         """
-        agent.load_snapshot(copy.deepcopy(snapshot))
+        agent.load_snapshot(snapshot)
 
     def _evict_excess_contexts(self) -> None:
         """Evict least-recently-used contexts beyond ``max_contexts``. Caller holds the lock."""

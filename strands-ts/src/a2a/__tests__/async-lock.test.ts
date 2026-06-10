@@ -7,13 +7,9 @@ describe('AsyncLock', () => {
     const order: number[] = []
 
     async function task(id: number, delayMs: number): Promise<void> {
-      const release = await lock.acquire()
-      try {
-        order.push(id)
-        await new Promise((resolve) => setTimeout(resolve, delayMs))
-      } finally {
-        release()
-      }
+      using _release = await lock.acquire()
+      order.push(id)
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
     }
 
     // Start three tasks "concurrently". Despite descending delays, the lock
@@ -29,15 +25,11 @@ describe('AsyncLock', () => {
     let maxActive = 0
 
     async function task(): Promise<void> {
-      const release = await lock.acquire()
-      try {
-        active++
-        maxActive = Math.max(maxActive, active)
-        await new Promise((resolve) => setTimeout(resolve, 5))
-        active--
-      } finally {
-        release()
-      }
+      using _release = await lock.acquire()
+      active++
+      maxActive = Math.max(maxActive, active)
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      active--
     }
 
     await Promise.all([task(), task(), task(), task()])
@@ -48,18 +40,15 @@ describe('AsyncLock', () => {
   it('releases the lock even if the holder throws', async () => {
     const lock = new AsyncLock()
 
-    const release = await lock.acquire()
     try {
+      using _release = await lock.acquire()
       throw new Error('boom')
     } catch {
-      // swallow
-    } finally {
-      release()
+      // swallow; the `using` handle is disposed as the block unwinds
     }
 
     // A subsequent acquire must resolve (would hang if the lock leaked).
-    const release2 = await lock.acquire()
-    release2()
+    using _release2 = await lock.acquire()
     expect(true).toBe(true)
   })
 })

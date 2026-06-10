@@ -1,4 +1,11 @@
 /**
+ * A held lock. Dispose it (e.g. via `using`) to release the lock for the next waiter.
+ */
+export interface LockHandle {
+  [Symbol.dispose](): void
+}
+
+/**
  * Minimal async mutex for serializing access to a resource.
  *
  * JavaScript has no built-in equivalent of Python's `asyncio.Lock`. This
@@ -14,10 +21,20 @@ export class AsyncLock {
   /**
    * Acquires the lock, waiting until all previously-acquired holders release.
    *
-   * @returns A release function. Call it exactly once (e.g. in a `finally`) to
-   *   let the next waiter proceed.
+   * The returned handle releases the lock on disposal: declare it with `using`
+   * so the lock is freed when the block exits (including on throw), with no
+   * explicit `finally`.
+   *
+   * @returns A handle whose disposal releases the lock for the next waiter.
+   *   Disposal is idempotent.
+   *
+   * @example
+   * ```typescript
+   * using _lock = await lock.acquire()
+   * // ... critical section; lock released at scope exit
+   * ```
    */
-  async acquire(): Promise<() => void> {
+  async acquire(): Promise<LockHandle> {
     let release!: () => void
     const next = new Promise<void>((resolve) => {
       release = resolve
@@ -28,6 +45,13 @@ export class AsyncLock {
     this._tail = previous.then(() => next)
     await previous
 
-    return release
+    let released = false
+    return {
+      [Symbol.dispose](): void {
+        if (released) return
+        released = true
+        release()
+      },
+    }
   }
 }

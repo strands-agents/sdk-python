@@ -17,11 +17,6 @@ import { normalizeError } from '../errors.js'
 import { logger } from '../logging/logger.js'
 import { AsyncLock } from './async-lock.js'
 
-/** Deep-copies a snapshot. Snapshots are JSON-serializable, so a round-trip is sufficient. */
-function cloneSnapshot(snapshot: Snapshot): Snapshot {
-  return JSON.parse(JSON.stringify(snapshot)) as Snapshot
-}
-
 /**
  * A factory that builds a fresh {@link Agent} for a given A2A `contextId`.
  *
@@ -150,8 +145,8 @@ export class A2AExecutor implements AgentExecutor {
   private readonly _agentFactory?: AgentFactory
   private readonly _maxContexts: number
 
-  /** Guards the per-context bookkeeping maps below. */
-  private readonly _contextsLock = new AsyncLock()
+  /** Serializes single-agent mode: only one request may use the shared agent at a time. */
+  private readonly _sharedAgentLock = new AsyncLock()
 
   // Factory mode: a dedicated agent and lock per context.
   private readonly _contexts = new Map<string, ContextEntry>()
@@ -211,14 +206,16 @@ export class A2AExecutor implements AgentExecutor {
   /**
    * Load a snapshot into an agent, restoring its session state.
    *
-   * Deep-copies once at the boundary so a run never mutates a stored or template
-   * snapshot in place (snapshots, including the template, are restored repeatedly).
+   * No defensive copy is needed: `loadSnapshot` reconstructs the agent's state
+   * from the snapshot rather than referencing it — messages are rebuilt as new
+   * instances and `StateStore` deep-copies the state on load — so a subsequent
+   * run cannot mutate a stored or template snapshot in place.
    */
   private _restoreState(agent: LocalAgent, snapshot: Snapshot): void {
-    agent.loadSnapshot(cloneSnapshot(snapshot))
+    agent.loadSnapshot(snapshot)
   }
 
-  /** Evict least-recently-used contexts beyond `maxContexts`. Caller holds the contexts lock. */
+  /** Evict least-recently-used contexts beyond `maxContexts`. Must be called without yielding. */
   private _evictExcessContexts(): void {
     const contexts: Map<string, unknown> = this._agentFactory !== undefined ? this._contexts : this._snapshots
     // Map preserves insertion order; the first key is the least-recently-used because
@@ -230,24 +227,27 @@ export class A2AExecutor implements AgentExecutor {
     }
   }
 
-  /** Return the dedicated agent and lock for a context, building it on first use (factory mode). */
-  private async _acquireContextAgent(contextId: string): Promise<ContextEntry> {
-    const release = await this._contextsLock.acquire()
-    try {
-      let entry = this._contexts.get(contextId)
-      if (entry === undefined) {
-        entry = { agent: this._agentFactory!(contextId), lock: new AsyncLock() }
-        this._contexts.set(contextId, entry)
-        this._evictExcessContexts()
-      } else {
-        // Mark most-recently-used: delete-then-set moves the entry to the Map's end.
-        this._contexts.delete(contextId)
-        this._contexts.set(contextId, entry)
-      }
-      return entry
-    } finally {
-      release()
+  /**
+   * Return the dedicated agent and lock for a context, building it on first use (factory mode).
+   *
+   * No lock guards the map here: the factory is synchronous, so this method never yields between
+   * reading and writing `_contexts`, and JavaScript's run-to-completion semantics make the
+   * check-then-create-or-reorder sequence atomic with respect to other contexts.
+   */
+  private _acquireContextAgent(contextId: string): ContextEntry {
+    let entry = this._contexts.get(contextId)
+    if (entry === undefined) {
+      entry = { agent: this._agentFactory!(contextId), lock: new AsyncLock() }
+      this._contexts.set(contextId, entry)
+      this._evictExcessContexts()
+    } else {
+      // Mark most-recently-used: delete-then-set moves the entry to the Map's end.
+      // ECMAScript guarantees Map iteration in insertion order, and `set` on an existing
+      // key keeps its position, so delete-then-set is the spec-guaranteed way to reorder.
+      this._contexts.delete(contextId)
+      this._contexts.set(contextId, entry)
     }
+    return entry
   }
 
   /**
@@ -285,13 +285,9 @@ export class A2AExecutor implements AgentExecutor {
     contentBlocks: ContentBlock[],
     eventBus: ExecutionEventBus
   ): Promise<void> {
-    const { agent, lock } = await this._acquireContextAgent(context.contextId)
-    const release = await lock.acquire()
-    try {
-      await this._streamAgent(agent, context, contentBlocks, eventBus)
-    } finally {
-      release()
-    }
+    const { agent, lock } = this._acquireContextAgent(context.contextId)
+    using _release = await lock.acquire()
+    await this._streamAgent(agent, context, contentBlocks, eventBus)
   }
 
   /**
@@ -306,22 +302,18 @@ export class A2AExecutor implements AgentExecutor {
     eventBus: ExecutionEventBus
   ): Promise<void> {
     const agent = this._agent!
-    const release = await this._contextsLock.acquire()
+    using _release = await this._sharedAgentLock.acquire()
+    this._restoreState(agent, this._snapshots.get(context.contextId) ?? this._templateSnapshot!)
     try {
-      this._restoreState(agent, this._snapshots.get(context.contextId) ?? this._templateSnapshot!)
-      try {
-        await this._streamAgent(agent, context, contentBlocks, eventBus)
-      } finally {
-        // Persist this context's updated history (even on error, to retain partial turns),
-        // evict beyond the cap, then reset the shared agent for the next caller. Delete-then-set
-        // places the entry at the most-recently-used end whether or not it already existed.
-        this._snapshots.delete(context.contextId)
-        this._snapshots.set(context.contextId, this._captureState(agent))
-        this._evictExcessContexts()
-        this._restoreState(agent, this._templateSnapshot!)
-      }
+      await this._streamAgent(agent, context, contentBlocks, eventBus)
     } finally {
-      release()
+      // Persist this context's updated history (even on error, to retain partial turns),
+      // evict beyond the cap, then reset the shared agent for the next caller. Delete-then-set
+      // places the entry at the most-recently-used end whether or not it already existed.
+      this._snapshots.delete(context.contextId)
+      this._snapshots.set(context.contextId, this._captureState(agent))
+      this._evictExcessContexts()
+      this._restoreState(agent, this._templateSnapshot!)
     }
   }
 
