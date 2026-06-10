@@ -178,6 +178,28 @@ test('community mode uses AccountPrincipal trust', () => {
   });
 });
 
+test('internal mode with RUNNER_ROLES adds AssumeRole trust for those roles', () => {
+  process.env.STRANDS_TEST_INFRA_RUNNER_ROLES = 'MyTestRunner';
+  try {
+    const template = synth({ internal: true, testFeatures: ['bedrock-knowledge-base'] });
+
+    template.hasResourceProperties('AWS::IAM::Role', {
+      AssumeRolePolicyDocument: {
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: 'sts:AssumeRole',
+            Principal: {
+              AWS: Match.stringLikeRegexp(':role/MyTestRunner$'),
+            },
+          }),
+        ]),
+      },
+    });
+  } finally {
+    delete process.env.STRANDS_TEST_INFRA_RUNNER_ROLES;
+  }
+});
+
 test('community mode does not attach the legacy broad policy', () => {
   const template = synth({ internal: false });
 

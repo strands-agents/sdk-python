@@ -43,22 +43,30 @@ export class IntegTestRole extends Construct {
       ? requiredInternalEnv('STRANDS_TEST_INFRA_PRIVATE_REPOS').split(',')
       : [];
 
+    const account = cdk.Stack.of(this).account;
+    const runnerRoleNames = process.env.STRANDS_TEST_INFRA_RUNNER_ROLES?.split(',') ?? [];
+
     const assumedBy = props.internal
-      ? new iam.FederatedPrincipal(
-          `arn:aws:iam::${cdk.Stack.of(this).account}:oidc-provider/token.actions.githubusercontent.com`,
-          {
-            StringEquals: {
-              'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+      ? new iam.CompositePrincipal(
+          new iam.FederatedPrincipal(
+            `arn:aws:iam::${account}:oidc-provider/token.actions.githubusercontent.com`,
+            {
+              StringEquals: {
+                'token.actions.githubusercontent.com:aud': 'sts.amazonaws.com',
+              },
+              StringLike: {
+                'token.actions.githubusercontent.com:sub': [...publicRepos, ...privateRepos].map(
+                  (repo) => `repo:strands-agents/${repo}:*`,
+                ),
+              },
             },
-            StringLike: {
-              'token.actions.githubusercontent.com:sub': [...publicRepos, ...privateRepos].map(
-                (repo) => `repo:strands-agents/${repo}:*`,
-              ),
-            },
-          },
-          'sts:AssumeRoleWithWebIdentity',
+            'sts:AssumeRoleWithWebIdentity',
+          ),
+          ...runnerRoleNames.map(
+            (name) => new iam.ArnPrincipal(`arn:aws:iam::${account}:role/${name}`),
+          ),
         )
-      : new iam.AccountPrincipal(cdk.Stack.of(this).account);
+      : new iam.AccountPrincipal(account);
 
     this.role = new iam.Role(this, 'IntegRole', {
       assumedBy,
