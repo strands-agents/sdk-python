@@ -1357,7 +1357,7 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
         _ = openai_client
         model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={"region": "us-east-1"})
         resolved = model._resolve_client_args()
-        assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/v1"
+        assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/openai/v1"
         assert resolved["api_key"] == "bedrock-api-key-deadbeef&Version=1"
         mock_provide_token.assert_called_once_with(region="us-east-1")
 
@@ -1401,7 +1401,7 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
             bedrock_mantle_config={"region": "us-east-1"},
         )
         resolved = model._resolve_client_args()
-        assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/v1"
+        assert resolved["base_url"] == "https://bedrock-mantle.us-east-1.api.aws/openai/v1"
         assert resolved["api_key"] == "bedrock-api-key-deadbeef&Version=1"
         assert resolved["timeout"] == 42
         assert resolved["http_client"] is sentinel_http_client
@@ -1436,7 +1436,7 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
             model = OpenAIResponsesModel(model_id="openai.gpt-oss-120b", bedrock_mantle_config={})
             resolved = model._resolve_client_args()
 
-        assert resolved["base_url"] == "https://bedrock-mantle.eu-west-1.api.aws/v1"
+        assert resolved["base_url"] == "https://bedrock-mantle.eu-west-1.api.aws/openai/v1"
         mock_provide_token.assert_called_once_with(region="eu-west-1")
 
     def test_bedrock_mantle_config_region_resolved_from_boto_session(self, openai_client, mock_provide_token):
@@ -1451,7 +1451,7 @@ class TestOpenAIResponsesModelBedrockMantleConfig:
 
         resolved = model._resolve_client_args()
 
-        assert resolved["base_url"] == "https://bedrock-mantle.ap-southeast-2.api.aws/v1"
+        assert resolved["base_url"] == "https://bedrock-mantle.ap-southeast-2.api.aws/openai/v1"
         mock_provide_token.assert_called_once_with(region="ap-southeast-2")
 
     def test_bedrock_mantle_config_wraps_token_failures_with_context(self, openai_client, mock_provide_token):

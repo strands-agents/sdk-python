@@ -20,7 +20,7 @@ from typing import Any, TypedDict
 import boto3
 from botocore.credentials import CredentialProvider
 
-_MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws/v1"
+_MANTLE_BASE_URL_TEMPLATE = "https://bedrock-mantle.{region}.api.aws/openai/v1"
 _MANTLE_DOCS_URL = "https://docs.aws.amazon.com/bedrock/latest/userguide/inference-openai.html"
 
 

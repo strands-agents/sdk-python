@@ -2,7 +2,7 @@
 
 Exercises the ``bedrock_mantle_config`` pathway on ``OpenAIModel`` (Chat Completions) and
 ``OpenAIResponsesModel`` (Responses API) against the live
-``bedrock-mantle.<region>.api.aws/v1`` endpoint. Credentials come from the
+``bedrock-mantle.<region>.api.aws/openai/v1`` endpoint. Credentials come from the
 ambient AWS credential chain; no explicit API key is passed by the user.
 """
 
