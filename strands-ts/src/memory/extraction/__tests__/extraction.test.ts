@@ -4,7 +4,7 @@ import { InvocationTrigger, IntervalTrigger } from '../triggers.js'
 import { ExtractionCoordinator, SAVE_FAILURES_BEFORE_BACKOFF, BACKOFF_PROBE_INTERVAL } from '../coordinator.js'
 import type { Model } from '../../../models/model.js'
 import type { ExtractionConfig, Extractor } from '../types.js'
-import type { MemoryStore, MemoryEntry } from '../../types.js'
+import type { MemoryStore, MemoryEntry, AddMessagesContext } from '../../types.js'
 import type { MessageData } from '../../../types/messages.js'
 import { Message, TextBlock, ToolUseBlock } from '../../../types/messages.js'
 import { AfterInvocationEvent, MessageAddedEvent } from '../../../hooks/events.js'
@@ -130,6 +130,119 @@ describe('MemoryManager extraction', () => {
       expect(batch).toHaveLength(2)
       expect(batch[0]!.role).toBe('user')
       expect(batch[1]!.role).toBe('assistant')
+    })
+  })
+
+  describe('addMessages context (per-message seqs)', () => {
+    it('passes sequenceNumbers index-aligned with the filtered batch', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('first'), userMsg('second'))
+      await fireInvocation(agent, mm)
+
+      const batch = store.addMessages.mock.calls[0]![0] as MessageData[]
+      const ctx = store.addMessages.mock.calls[0]![1] as AddMessagesContext
+      // Assert the whole context so an unexpected field added to the envelope later is caught.
+      expect(ctx).toEqual({ sequenceNumbers: [0, 1] })
+      expect(ctx.sequenceNumbers).toHaveLength(batch.length)
+    })
+
+    it('keeps a message seq when a message before it is filtered to empty (gap)', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      // seq 0 (kept), seq 1 (tool-only, filtered to empty and dropped), seq 2 (kept).
+      const toolOnly = new Message({
+        role: 'assistant',
+        content: [new ToolUseBlock({ name: 't', toolUseId: '1', input: {} })],
+      })
+      await addMessages(agent, userMsg('a'), toolOnly, userMsg('b'))
+      await fireInvocation(agent, mm)
+
+      const batch = store.addMessages.mock.calls[0]![0] as MessageData[]
+      const ctx = store.addMessages.mock.calls[0]![1] as AddMessagesContext
+      expect(batch).toHaveLength(2)
+      // The dropped message leaves a gap: 1 is missing, the surviving messages keep their own seqs.
+      expect(ctx).toEqual({ sequenceNumbers: [0, 2] })
+    })
+
+    it('re-fires the same seqs for a multi-message batch whose save failed (stable across retries)', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      store.addMessages.mockRejectedValueOnce(new Error('backend down'))
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('first'), userMsg('second'))
+      await fireInvocation(agent, mm) // fails, mark rolled back
+      await fireInvocation(agent, mm) // retries the same batch
+
+      expect(store.addMessages).toHaveBeenCalledTimes(2)
+      const first = store.addMessages.mock.calls[0]![1] as AddMessagesContext
+      const second = store.addMessages.mock.calls[1]![1] as AddMessagesContext
+      expect(first).toEqual({ sequenceNumbers: [0, 1] })
+      // The retry carries the identical context in order, not a fresh renumbering.
+      expect(second).toEqual(first)
+    })
+
+    it('anchors the seq to the message, not the batch position', async () => {
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      // First turn (seq 0) saves cleanly; second turn (seq 1) fails then retries.
+      await addMessages(agent, userMsg('turn one'))
+      await fireInvocation(agent, mm)
+      store.addMessages.mockRejectedValueOnce(new Error('backend down'))
+      await addMessages(agent, userMsg('turn two'))
+      await fireInvocation(agent, mm) // fails, rolled back
+      await fireInvocation(agent, mm) // retries turn two
+
+      expect(store.addMessages).toHaveBeenCalledTimes(3)
+      const retried = store.addMessages.mock.calls[2]![1] as AddMessagesContext
+      // Retried batch carries the message's original seq (1), not a renumbered 0.
+      expect(retried).toEqual({ sequenceNumbers: [1] })
+    })
+
+    it('gives each store index-aligned seqs from the shared buffer', async () => {
+      const a = createExtractionStore('a', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      const b = createExtractionStore('b', { trigger: [new InvocationTrigger()] }, 'addMessages')
+      const mm = new MemoryManager({ stores: [a, b] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('first'), userMsg('second'))
+      await fireInvocation(agent, mm)
+
+      const ctxA = a.addMessages.mock.calls[0]![1] as AddMessagesContext
+      const ctxB = b.addMessages.mock.calls[0]![1] as AddMessagesContext
+      expect(ctxA).toEqual({ sequenceNumbers: [0, 1] })
+      expect(ctxB).toEqual({ sequenceNumbers: [0, 1] })
+    })
+
+    it('does not pass sequenceNumbers on the extractor route', async () => {
+      const extractor: Extractor = { extract: vi.fn().mockResolvedValue([{ content: 'fact' }]) }
+      const store = createExtractionStore('s', { trigger: [new InvocationTrigger()], extractor }, 'both')
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      await addMessages(agent, userMsg('something happened'))
+      await fireInvocation(agent, mm)
+
+      expect(store.addMessages).not.toHaveBeenCalled()
+      // The extractor receives (messages, context); the context is the extractor envelope only, with
+      // no sequenceNumbers. Assert the whole object so a future stray field is caught positively.
+      expect(extractor.extract).toHaveBeenCalledTimes(1)
+      const extractArgs = (extractor.extract as ReturnType<typeof vi.fn>).mock.calls[0]!
+      expect(extractArgs).toHaveLength(2)
+      expect(extractArgs[1]).toEqual({ defaultModel: undefined })
     })
   })
 

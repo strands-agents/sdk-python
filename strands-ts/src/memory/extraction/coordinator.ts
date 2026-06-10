@@ -24,17 +24,23 @@ function _blockKind(block: ContentBlockData): string {
   return Object.keys(block)[0] ?? ''
 }
 
-/** Removes excluded content blocks, and drops any message left empty. Does not mutate the input. */
-function _filterMessages(messages: MessageData[], filter: MemoryMessageFilter): MessageData[] {
+/**
+ * Removes excluded content blocks, and drops any message left empty. Does not mutate the input.
+ * Carries each message's sequence number through so it stays aligned with the filtered batch.
+ */
+function _filterMessages(buffered: BufferedMessage[], filter: MemoryMessageFilter): BufferedMessage[] {
   const exclude = new Set<string>(filter.exclude)
-  const result: MessageData[] = []
-  for (const message of messages) {
+  const result: BufferedMessage[] = []
+  for (const { seq, message } of buffered) {
     const content = message.content.filter((block) => !exclude.has(_blockKind(block)))
     if (content.length > 0) {
       result.push({
-        role: message.role,
-        content,
-        ...(message.metadata !== undefined && { metadata: message.metadata }),
+        seq,
+        message: {
+          role: message.role,
+          content,
+          ...(message.metadata !== undefined && { metadata: message.metadata }),
+        },
       })
     }
   }
@@ -173,10 +179,7 @@ export class ExtractionCoordinator {
 
     const extraction = store.extraction!
     const filter = extraction.filter ?? DEFAULT_MEMORY_MESSAGE_FILTER
-    const filtered = _filterMessages(
-      fresh.map((buffered) => buffered.message),
-      filter
-    )
+    const filtered = _filterMessages(fresh, filter)
 
     try {
       if (filtered.length > 0) {
@@ -223,8 +226,9 @@ export class ExtractionCoordinator {
    * Fact writes run in parallel. If any fails we throw, which makes the caller retry the whole batch
    * next time - so a fact that already saved may be written again (stores should expect duplicates).
    */
-  private async _write(store: MemoryStore, messages: MessageData[]): Promise<void> {
+  private async _write(store: MemoryStore, buffered: BufferedMessage[]): Promise<void> {
     const extractor = store.extraction!.extractor
+    const messages = buffered.map((buffer) => buffer.message)
 
     if (extractor) {
       const entries = await extractor.extract(messages, { defaultModel: this._defaultModel })
@@ -232,14 +236,15 @@ export class ExtractionCoordinator {
       const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       if (failures.length > 0) {
         throw new AggregateError(
-          failures.map((f) => f.reason),
+          failures.map((failure) => failure.reason),
           `failed to write ${failures.length} of ${entries.length} extracted entries`
         )
       }
       return
     }
 
-    await store.addMessages!(messages)
+    // Pass each message's sequence number so a store can build an idempotency key surviving retries.
+    await store.addMessages!(messages, { sequenceNumbers: buffered.map((buffer) => buffer.seq) })
   }
 
   /**

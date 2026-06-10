@@ -35,10 +35,20 @@ export interface SearchOptions {
 
 /**
  * Context the {@link MemoryManager} supplies to {@link MemoryStore.addMessages} alongside a batch.
+ *
+ * An extension point: fields are added here without changing the {@link MemoryStore.addMessages}
+ * signature.
  */
-// Extension point: empty interface so fields can be added without a breaking signature change.
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface AddMessagesContext {}
+export interface AddMessagesContext {
+  /**
+   * Per-message identities aligned one-to-one with `messages` (`sequenceNumbers[i]` identifies
+   * `messages[i]`). A retried batch reuses the same numbers, so a store can build an idempotency key
+   * that survives retries - unlike a content hash, which collides when two messages share text (e.g.
+   * "ok"). Numbers increase with order but may have gaps, and reset to 0 each agent run, so a durable
+   * dedup token must combine one with a run-unique id.
+   */
+  readonly sequenceNumbers?: readonly number[]
+}
 
 /**
  * Declarative properties shared by every memory store and its config.
