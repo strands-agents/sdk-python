@@ -3,6 +3,11 @@ import { BedrockAgentRuntimeClient } from '@aws-sdk/client-bedrock-agent-runtime
 import { BedrockAgentClient } from '@aws-sdk/client-bedrock-agent'
 import { BedrockKnowledgeBaseStore } from '../store.js'
 import { MemoryManager } from '../../../memory/index.js'
+import { InvocationTrigger } from '../../../memory/extraction/triggers.js'
+import type { Extractor } from '../../../memory/extraction/types.js'
+import { Message, TextBlock } from '../../../types/messages.js'
+import { AfterInvocationEvent, MessageAddedEvent } from '../../../hooks/events.js'
+import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
 import { logger } from '../../../logging/logger.js'
 
 // Mock the AWS SDK clients. Command classes are stubbed to echo their input as `{ input }`, so a
@@ -179,6 +184,28 @@ describe('BedrockKnowledgeBaseStore', () => {
     it('uses the injected runtime client without constructing one', () => {
       makeStore()
       expect(vi.mocked(BedrockAgentRuntimeClient)).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('extraction config', () => {
+    const extractor = { extract: vi.fn() }
+
+    it('defaults extraction to undefined', () => {
+      const { store } = makeStore()
+      expect(store.extraction).toBeUndefined()
+    })
+
+    it('exposes a configured extraction config verbatim', () => {
+      const extraction = { trigger: new InvocationTrigger(), extractor }
+      const { store } = makeCustomStore({ extraction })
+      expect(store.extraction).toBe(extraction)
+    })
+
+    it('exposes the boolean shorthand verbatim', () => {
+      // The store passes `extraction` straight through; the MemoryManager resolves the shorthand and
+      // (since a KB is add-only, with no addMessages) defaults it to a ModelExtractor.
+      const { store } = makeCustomStore({ extraction: true })
+      expect(store.extraction).toBe(true)
     })
   })
 
@@ -680,6 +707,38 @@ describe('BedrockKnowledgeBaseStore', () => {
       expect(debugSpy).toHaveBeenCalledWith(expect.stringContaining('key=<bad>'))
       expect(debugSpy).not.toHaveBeenCalledWith(expect.stringContaining('key=<good>'))
       debugSpy.mockRestore()
+    })
+  })
+
+  // End-to-end: a writable CUSTOM store carrying an extraction config is picked up by MemoryManager,
+  // and on a trigger fire the extracted facts are ingested through the store's own `add` (i.e. via
+  // IngestKnowledgeBaseDocuments on the injected agent client). No AWS calls; clients are mocked.
+  describe('extraction via MemoryManager', () => {
+    it('ingests extracted facts through add when the trigger fires', async () => {
+      const extractor: Extractor = {
+        extract: vi.fn().mockResolvedValue([{ content: 'user prefers dark mode' }]),
+      }
+      const { store, agent: agentClient } = makeCustomStore({
+        extraction: { trigger: new InvocationTrigger(), extractor },
+      })
+
+      const mm = new MemoryManager({ stores: [store] })
+      const agent = createMockAgent()
+      mm.initAgent(agent)
+
+      // Buffer a turn, then fire the after-invocation hook and flush the background save.
+      const message = new Message({ role: 'user', content: [new TextBlock('I like dark mode')] })
+      const added = agent.trackedHooks.filter((h) => h.eventType === MessageAddedEvent)
+      for (const hook of added) await hook.callback(new MessageAddedEvent({ agent, message, invocationState: {} }))
+      const after = agent.trackedHooks.filter((h) => h.eventType === AfterInvocationEvent)
+      for (const hook of after) await hook.callback(new AfterInvocationEvent({ agent, invocationState: {} }))
+      await mm.flush()
+
+      expect(extractor.extract).toHaveBeenCalledTimes(1)
+      // The fact was ingested via IngestKnowledgeBaseDocuments with the extracted content.
+      expect(agentClient.send).toHaveBeenCalledTimes(1)
+      const document = agentClient.send.mock.calls[0]?.[0].input.documents[0]
+      expect(document.content.custom.inlineContent.textContent.data).toBe('user prefers dark mode')
     })
   })
 })

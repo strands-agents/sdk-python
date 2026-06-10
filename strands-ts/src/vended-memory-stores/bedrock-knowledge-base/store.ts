@@ -9,6 +9,7 @@ import type { S3Client } from '@aws-sdk/client-s3'
 import { v7 as uuidv7 } from 'uuid'
 
 import type { MemoryEntry, MemoryStore, MemoryStoreConfig, SearchOptions } from '../../memory/types.js'
+import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { JSONValue } from '../../types/json.js'
 import { logger } from '../../logging/logger.js'
 
@@ -157,6 +158,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   readonly description?: string
   readonly maxSearchResults?: number
   readonly writable: boolean
+  readonly extraction?: boolean | ExtractionConfig
 
   private readonly _runtimeClient: BedrockAgentRuntimeClient
   private _agentClient: BedrockAgentClient | undefined
@@ -182,7 +184,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   public readonly filter: RetrievalFilter | undefined
 
   constructor(options: BedrockKnowledgeBaseStoreConfig) {
-    const { config, scope, name, description, writable, maxSearchResults, filter } = options
+    const { config, scope, name, description, writable, maxSearchResults, filter, extraction } = options
 
     this.name = name
     if (description !== undefined) this.description = description
@@ -193,6 +195,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
       this.maxSearchResults = maxSearchResults
     }
     this.writable = writable ?? false
+    if (extraction !== undefined) this.extraction = extraction
 
     this._runtimeClient = config.runtimeClient ?? new BedrockAgentRuntimeClient({})
     this._agentClient = config.agentClient

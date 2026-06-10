@@ -122,10 +122,11 @@ export abstract class ExtractionTrigger {
  */
 export interface ExtractionConfig {
   /**
-   * When to run extraction. A single trigger or an array; an empty array is rejected at
-   * construction. Multiple triggers compose (extraction runs whenever any of them fires).
+   * When to run extraction. A single trigger or an array; multiple triggers compose (extraction runs
+   * whenever any of them fires). Omit to default to every 5 turns; an explicit empty array is
+   * rejected at construction.
    */
-  trigger: ExtractionTrigger | ExtractionTrigger[]
+  trigger?: ExtractionTrigger | ExtractionTrigger[]
   /**
    * How to turn messages into entries. When set, the store must implement `add` (entries are written
    * to it). When omitted, the manager hands the filtered messages straight to the store's
