@@ -1,0 +1,154 @@
+---
+import ChangelogLayout from '../../layouts/ChangelogLayout.astro'
+import ChangelogHeader from '../../components/changelog/ChangelogHeader.astro'
+import ChangelogFilters from '../../components/changelog/ChangelogFilters.astro'
+import ChangelogVersion from '../../components/changelog/ChangelogVersion.astro'
+import { getReleases, getAreaCounts } from '../../util/changelog'
+import '../../styles/changelog.css'
+
+const releases = await getReleases()
+const allEntries = releases.flatMap((r) => r.data.entries)
+const areaCounts = getAreaCounts(allEntries)
+---
+<ChangelogLayout title="Changelog" description="Every release across the Strands Agents SDKs.">
+  <div class="cl-page">
+    <ChangelogHeader />
+    <div class="cl-mobile-bar">
+      <button class="cl-filter-btn" type="button" data-cl-filter-open>
+        ☰ Filters <span class="cl-badge" data-cl-active-count hidden>0</span>
+      </button>
+      <span class="cl-note" data-cl-count>{releases.length} releases</span>
+    </div>
+    <div class="cl-body">
+      <ChangelogFilters areas={areaCounts} />
+      <div class="cl-feed">
+        <div class="cl-feed-inner" data-cl-feed>
+          {releases.map((release) => <ChangelogVersion release={release} />)}
+          <p class="cl-empty" data-cl-empty hidden>No releases match the current filters.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</ChangelogLayout>
+
+<script>
+  // Client-side faceted filtering. State: SDK (toggle), language (global pref), areas (chips), search.
+  const LANG_KEY = 'starlight-synced-tabs__jarkqt' // shared with the global LanguageToggle
+  const SDK_LANGS: Record<string, string[]> = { harness: ['python', 'typescript'], evals: ['python'] }
+
+  const root = document
+  const versions = Array.from(root.querySelectorAll<HTMLElement>('.cl-version'))
+  const sdkBtns = Array.from(root.querySelectorAll<HTMLElement>('[data-cl-sdk-btn]'))
+  const areaBtns = Array.from(root.querySelectorAll<HTMLElement>('[data-cl-area]'))
+  const searchInput = root.querySelector<HTMLInputElement>('[data-cl-search]')
+  const emptyEl = root.querySelector<HTMLElement>('[data-cl-empty]')
+  const countEl = root.querySelector<HTMLElement>('[data-cl-count]')
+  const activeCountEl = root.querySelector<HTMLElement>('[data-cl-active-count]')
+
+  const params = new URLSearchParams(location.search)
+  const state = {
+    sdk: params.get('sdk') || 'harness',
+    areas: new Set((params.get('area') || '').split(',').filter(Boolean)),
+    search: params.get('q') || '',
+  }
+
+  function globalLang(): string {
+    try { return localStorage.getItem(LANG_KEY) || 'Python' } catch { return 'Python' }
+  }
+  function langSlug(): string { return globalLang() === 'TypeScript' ? 'typescript' : 'python' }
+
+  // Effective language for the current SDK: evals is python-only, so fall back.
+  function effectiveLang(): string {
+    const allowed = SDK_LANGS[state.sdk]
+    const pref = langSlug()
+    return allowed.includes(pref) ? pref : allowed[0]
+  }
+
+  function syncUrl() {
+    const p = new URLSearchParams()
+    if (state.sdk !== 'harness') p.set('sdk', state.sdk)
+    if (state.areas.size) p.set('area', [...state.areas].join(','))
+    if (state.search) p.set('q', state.search)
+    const qs = p.toString()
+    history.replaceState(null, '', qs ? `?${qs}` : location.pathname)
+  }
+
+  function apply() {
+    const lang = effectiveLang()
+    const q = state.search.trim().toLowerCase()
+    let visible = 0
+    for (const v of versions) {
+      const vSdk = v.dataset.sdk
+      const vLang = v.dataset.language
+      let show = vSdk === state.sdk
+      if (show && vSdk === 'harness') show = vLang === lang // one language at a time for harness
+      if (show && state.areas.size) {
+        const vAreas = new Set((v.dataset.areas || '').split(' ').filter(Boolean))
+        show = [...state.areas].some((a) => vAreas.has(a))
+      }
+      if (show && q) {
+        show = v.textContent!.toLowerCase().includes(q)
+      }
+      // Per-entry area filtering (hide non-matching entries when areas selected)
+      if (show && state.areas.size) {
+        const entries = v.querySelectorAll<HTMLElement>('.cl-entry')
+        entries.forEach((e) => {
+          const ea = new Set((e.dataset.areas || '').split(' ').filter(Boolean))
+          e.hidden = ![...state.areas].some((a) => ea.has(a))
+        })
+      } else {
+        v.querySelectorAll<HTMLElement>('.cl-entry').forEach((e) => (e.hidden = false))
+      }
+      v.hidden = !show
+      if (show) visible++
+    }
+    if (emptyEl) emptyEl.hidden = visible > 0
+    if (countEl) countEl.textContent = `${visible} release${visible === 1 ? '' : 's'}`
+    if (activeCountEl) {
+      activeCountEl.textContent = String(state.areas.size)
+      activeCountEl.hidden = state.areas.size === 0
+    }
+    syncUrl()
+  }
+
+  // SDK toggle
+  sdkBtns.forEach((btn) => {
+    btn.setAttribute('aria-pressed', btn.dataset.clSdkBtn === state.sdk ? 'true' : 'false')
+    btn.addEventListener('click', () => {
+      state.sdk = btn.dataset.clSdkBtn!
+      sdkBtns.forEach((b) => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'))
+      apply()
+    })
+  })
+
+  // Area chips
+  areaBtns.forEach((btn) => {
+    const area = btn.dataset.clArea!
+    btn.setAttribute('aria-pressed', state.areas.has(area) ? 'true' : 'false')
+    btn.addEventListener('click', () => {
+      if (state.areas.has(area)) state.areas.delete(area)
+      else state.areas.add(area)
+      btn.setAttribute('aria-pressed', state.areas.has(area) ? 'true' : 'false')
+      apply()
+    })
+  })
+
+  // Search
+  searchInput?.addEventListener('input', () => { state.search = searchInput.value; apply() })
+  if (searchInput && state.search) searchInput.value = state.search
+
+  // React to global language switch (other tabs + same tab via storage)
+  window.addEventListener('storage', (e) => { if (e.key === LANG_KEY) apply() })
+
+  // Mobile drawer
+  const rail = root.querySelector<HTMLElement>('[data-cl-rail]')
+  const scrim = root.querySelector<HTMLElement>('[data-cl-scrim]')
+  root.querySelector('[data-cl-filter-open]')?.addEventListener('click', () => {
+    rail?.setAttribute('data-open', 'true'); scrim?.setAttribute('data-open', 'true')
+  })
+  scrim?.addEventListener('click', () => {
+    rail?.removeAttribute('data-open'); scrim?.removeAttribute('data-open')
+  })
+
+  apply()
+</script>
