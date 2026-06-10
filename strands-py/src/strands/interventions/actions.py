@@ -27,6 +27,12 @@ def default_evaluate(response: Any) -> bool:
     """Default evaluate function for the confirm action.
 
     Accepts: True, 'y'/'yes' (case-insensitive, whitespace-trimmed).
+
+    Args:
+        response: The human's response value to evaluate.
+
+    Returns:
+        True if the response is considered an approval, False otherwise.
     """
     if response is True:
         return True
@@ -62,6 +68,11 @@ class Guide:
     On beforeToolCall/beforeInvocation, sets cancel so the model sees the feedback.
     On beforeModelCall, injects feedback as a user message.
     On afterModelCall, the response is discarded and the model retries with feedback.
+
+    .. warning::
+        On ``after_model_call``, Guide triggers a model retry. Handlers **must** ensure
+        convergence (e.g., by tracking retry count and escalating to Deny after repeated
+        failures). The framework imposes no retry cap on guide-triggered retries.
     """
 
     type: str = field(default="guide", init=False)
@@ -122,17 +133,30 @@ Action-to-event compatibility matrix::
 
 
 def proceed(*, reason: str | None = None) -> Proceed:
-    """Allow the operation to continue."""
+    """Allow the operation to continue.
+
+    Args:
+        reason: Optional metadata for debugging/logging. Not shown to the model.
+    """
     return Proceed(reason=reason)
 
 
 def deny(reason: str) -> Deny:
-    """Block the operation."""
+    """Block the operation.
+
+    Args:
+        reason: Why the operation was blocked. Shown to the model as the cancellation message.
+    """
     return Deny(reason=reason)
 
 
 def guide(feedback: str, *, reason: str | None = None) -> Guide:
-    """Provide feedback to steer behavior."""
+    """Provide feedback to steer behavior.
+
+    Args:
+        feedback: The guidance text shown to the model.
+        reason: Optional metadata for debugging/logging. Not shown to the model.
+    """
     return Guide(feedback=feedback, reason=reason)
 
 
@@ -143,7 +167,17 @@ def confirm(
     response: Any = None,
     evaluate: Callable[[Any], bool] | None = None,
 ) -> Confirm:
-    """Request human approval."""
+    """Request human approval before proceeding (before_tool_call only).
+
+    Args:
+        prompt: Message shown to the user/system requesting approval.
+        reason: Optional metadata for debugging/logging.
+        response: Preemptive response value. If not None, the agent does not pause —
+            the response is passed directly to ``evaluate``. None is reserved as the
+            "no response provided" sentinel.
+        evaluate: Predicate that determines approval. Receives the response value.
+            Defaults to accepting True, 'y', or 'yes' (case-insensitive).
+    """
     return Confirm(
         prompt=prompt,
         reason=reason,
@@ -153,5 +187,10 @@ def confirm(
 
 
 def transform(apply: Callable[[LifecycleEvent], None], *, reason: str | None = None) -> Transform:
-    """Modify event content in-place."""
+    """Modify event content in-place.
+
+    Args:
+        apply: Function that mutates the event. Later handlers see the change.
+        reason: Optional metadata for debugging/logging. Not shown to the model.
+    """
     return Transform(apply=apply, reason=reason)

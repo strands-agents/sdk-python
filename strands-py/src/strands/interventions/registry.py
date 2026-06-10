@@ -5,6 +5,7 @@ that override that method in registration order, with short-circuiting on Deny
 (and denied Confirms) and accumulation for Guide.
 """
 
+import inspect
 import logging
 from collections.abc import Callable
 
@@ -203,7 +204,9 @@ class InterventionRegistry:
 
             action: InterventionAction | None = None
             try:
-                action = await getattr(handler, method)(event)
+                method_fn = getattr(handler, method)
+                result = method_fn(event)
+                action = await result if inspect.iscoroutinefunction(method_fn) else result
             except Exception as error:
                 action = self._handle_error(handler, method, error)
                 if action is None:
@@ -239,6 +242,13 @@ class InterventionRegistry:
         elif handler.on_error == "deny":
             logger.warning("handler=<%s>, event=<%s>, on_error=<deny> | %s", handler.name, method, error_msg)
             return Deny(reason=f"Handler threw: {error_msg}")
-        else:
-            logger.warning("handler=<%s>, event=<%s>, on_error=<proceed> | %s", handler.name, method, error_msg)
+        elif handler.on_error == "proceed":
+            logger.warning(
+                "handler=<%s>, event=<%s>, on_error=<proceed> | handler error skipped (fail-open) | %s",
+                handler.name,
+                method,
+                error_msg,
+            )
             return None
+        else:
+            raise error

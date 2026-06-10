@@ -20,21 +20,8 @@ Example:
     ```
 """
 
-from .actions import (
-    Confirm,
-    Deny,
-    Guide,
-    InterventionAction,
-    Proceed,
-    Transform,
-    confirm,
-    deny,
-    guide,
-    proceed,
-    transform,
-)
-from .handler import InterventionHandler, OnError
-from .registry import InterventionRegistry
+from .actions import confirm, deny, guide, proceed, transform
+from .handler import InterventionHandler as InterventionHandler
 
 
 class InterventionActions:
@@ -52,27 +39,12 @@ class InterventionActions:
         ```
     """
 
+    def __new__(cls) -> "InterventionActions":
+        """Prevent instantiation — this is a namespace, not a class."""
+        raise TypeError("InterventionActions is a namespace, not instantiable")
+
     proceed = staticmethod(proceed)
     deny = staticmethod(deny)
     guide = staticmethod(guide)
     confirm = staticmethod(confirm)
     transform = staticmethod(transform)
-
-
-__all__ = [
-    "Confirm",
-    "Deny",
-    "Guide",
-    "InterventionAction",
-    "InterventionActions",
-    "InterventionHandler",
-    "InterventionRegistry",
-    "OnError",
-    "Proceed",
-    "Transform",
-    "confirm",
-    "deny",
-    "guide",
-    "proceed",
-    "transform",
-]

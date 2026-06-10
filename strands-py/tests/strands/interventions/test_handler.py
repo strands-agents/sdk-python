@@ -31,8 +31,7 @@ def agent():
 
 
 class TestInterventionHandler:
-    @pytest.mark.asyncio
-    async def test_default_methods_return_proceed(self, agent):
+    def test_default_methods_return_proceed(self, agent):
         handler = NoOpHandler()
 
         event = BeforeToolCallEvent(
@@ -41,14 +40,14 @@ class TestInterventionHandler:
             tool_use={"toolUseId": "test", "name": "test", "input": {}},
             invocation_state={},
         )
-        result = await handler.before_tool_call(event)
+        result = handler.before_tool_call(event)
         assert result.type == "proceed"
 
         model_event = AfterModelCallEvent(
             agent=agent,
             invocation_state={},
         )
-        result = await handler.after_model_call(model_event)
+        result = handler.after_model_call(model_event)
         assert result.type == "proceed"
 
     def test_override_detection_via_class_comparison(self):
