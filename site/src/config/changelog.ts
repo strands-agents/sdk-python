@@ -20,8 +20,3 @@ export function getPackageUrl(sdk: Sdk, language: Language | undefined, version:
   if (language === 'typescript') return NPM('@strands-agents/sdk', version)
   return PYPI('strands-agents', version) // harness python (default)
 }
-
-/** Default language shown for an SDK when no global preference applies. */
-export function defaultLanguage(sdk: Sdk): Language {
-  return SDK_META[sdk].languages[0]
-}
