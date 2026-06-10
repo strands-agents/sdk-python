@@ -31,6 +31,10 @@ navbar:
     href: /blog/
     basePath: /blog/
     align: right
+  - label: Changelog
+    href: /changelog/
+    basePath: /changelog/
+    align: right
   - label: Labs
     href: https://github.com/strands-labs
     external: true
