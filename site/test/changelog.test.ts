@@ -86,3 +86,46 @@ describe('SDK_META', () => {
     expect(SDK_META.evals.languages).toEqual(['python'])
   })
 })
+
+import { groupEntries, getAreaCounts, formatChangelogDate } from '../src/util/changelog'
+import type { ChangelogEntry } from '../src/content.config'
+
+const mk = (over: Partial<ChangelogEntry>): ChangelogEntry => ({
+  type: 'feat', breaking: false, scope: null, areas: [], title: 't',
+  pr: null, prUrl: null, commit: null, commitUrl: null, author: null, ...over,
+})
+
+describe('groupEntries', () => {
+  it('splits into features, fixes, other and keeps breaking in features', () => {
+    const g = groupEntries([
+      mk({ type: 'feat', title: 'a' }),
+      mk({ type: 'breaking', title: 'b' }),
+      mk({ type: 'fix', title: 'c' }),
+      mk({ type: 'chore', title: 'd' }),
+      mk({ type: 'docs', title: 'e' }),
+    ])
+    expect(g.features.map((e) => e.title)).toEqual(['b', 'a']) // breaking first
+    expect(g.fixes.map((e) => e.title)).toEqual(['c'])
+    expect(g.other.map((e) => e.title)).toEqual(['d', 'e'])
+  })
+})
+
+describe('getAreaCounts', () => {
+  it('counts entries per area, sorted desc', () => {
+    const counts = getAreaCounts([
+      mk({ areas: ['model'] }),
+      mk({ areas: ['model', 'mcp'] }),
+      mk({ areas: [] }),
+    ])
+    expect(counts).toEqual([
+      { area: 'model', count: 2 },
+      { area: 'mcp', count: 1 },
+    ])
+  })
+})
+
+describe('formatChangelogDate', () => {
+  it('formats as a short date', () => {
+    expect(formatChangelogDate(new Date('2026-06-01T00:00:00Z'))).toMatch(/Jun 1, 2026/)
+  })
+})
