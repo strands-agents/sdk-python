@@ -30,6 +30,9 @@
 .cl-page :where(h1, h2, p, div, button, ul, li) { margin-top: 0; }
 .cl-page :where(svg) { margin: 0; }
 
+/* Controls stack: SDK toggle on top, language toggle beneath, right-aligned. */
+.cl-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 0.5rem; }
+
 /* SDK segmented toggle */
 .cl-sdk { display: inline-flex; align-items: stretch; flex: 0 0 auto; border: 1px solid var(--sl-color-gray-5); border-radius: 10px; overflow: hidden; }
 .cl-sdk button { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.85rem;
@@ -39,6 +42,14 @@
 .cl-sdk button[aria-pressed='true'] { background: color-mix(in srgb, var(--sl-color-accent) 14%, transparent); color: var(--sl-color-accent); }
 .cl-sdk .cl-langs { display: inline-flex; align-items: center; gap: 0.3rem; opacity: 0.85; }
 .cl-icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
+
+/* Local language toggle (mirrors the global header switcher) */
+.cl-lang { display: inline-flex; align-items: stretch; flex: 0 0 auto; border: 1px solid var(--sl-color-gray-5); border-radius: 8px; overflow: hidden; }
+.cl-lang button { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.7rem;
+  background: transparent; color: var(--sl-color-gray-3); font: inherit; line-height: 1.2; font-size: 0.72rem; font-weight: 600;
+  border: 0; cursor: pointer; white-space: nowrap; }
+.cl-lang button + button { border-left: 1px solid var(--sl-color-gray-5); }
+.cl-lang button[aria-pressed='true'] { background: color-mix(in srgb, var(--sl-color-accent) 14%, transparent); color: var(--sl-color-accent); }
 
 /* layout: rail + feed */
 .cl-body { display: flex; border: 1px solid var(--sl-color-hairline); border-radius: 12px; overflow: hidden; }
@@ -139,4 +150,5 @@
 
 /* hidden by filtering */
 .cl-version[hidden], .cl-entry[hidden], .cl-group[hidden], .cl-area[hidden],
-.cl-empty[hidden], .cl-novel[hidden], .cl-badge[hidden] { display: none !important; }
+.cl-empty[hidden], .cl-novel[hidden], .cl-badge[hidden],
+.cl-lang button[hidden] { display: none !important; }

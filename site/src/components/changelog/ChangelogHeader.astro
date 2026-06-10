@@ -1,9 +1,10 @@
 ---
-import { SDK_META, type Sdk } from '../../config/changelog'
+import { SDK_META, LANGUAGE_META, type Sdk, type Language } from '../../config/changelog'
 import { ICONS } from './icons.ts'
 import { pathWithBase } from '../../util/links'
 
 const sdks = Object.keys(SDK_META) as Sdk[]
+const languages = Object.keys(LANGUAGE_META) as Language[]
 ---
 <div class="cl-head">
   <div>
@@ -13,18 +14,30 @@ const sdks = Object.keys(SDK_META) as Sdk[]
       <a href={pathWithBase('/changelog/feed.xml')}>RSS</a>
     </p>
   </div>
-  <div class="cl-sdk" role="group" aria-label="Select SDK" data-cl-sdk>
-    {sdks.map((sdk, i) => (
-      <button type="button" data-cl-sdk-btn={sdk} aria-pressed={i === 0 ? 'true' : 'false'}>
-        {SDK_META[sdk].label}
-        <span class="cl-langs">
-          {SDK_META[sdk].languages.map((lang) => (
-            <svg class="cl-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-              {ICONS[lang].map((p) => <path fill="currentColor" d={p} />)}
-            </svg>
-          ))}
-        </span>
-      </button>
-    ))}
+  <div class="cl-controls">
+    <div class="cl-sdk" role="group" aria-label="Select SDK" data-cl-sdk>
+      {sdks.map((sdk, i) => (
+        <button type="button" data-cl-sdk-btn={sdk} aria-pressed={i === 0 ? 'true' : 'false'}>
+          {SDK_META[sdk].label}
+          <span class="cl-langs">
+            {SDK_META[sdk].languages.map((lang) => (
+              <svg class="cl-icon" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+                {ICONS[lang].map((p) => <path fill="currentColor" d={p} />)}
+              </svg>
+            ))}
+          </span>
+        </button>
+      ))}
+    </div>
+    <div class="cl-lang" role="group" aria-label="Select language" data-cl-lang>
+      {languages.map((lang) => (
+        <button type="button" data-cl-lang-btn={lang} aria-pressed="false">
+          <svg class="cl-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true">
+            {ICONS[lang].map((p) => <path fill="currentColor" d={p} />)}
+          </svg>
+          {LANGUAGE_META[lang].label}
+        </button>
+      ))}
+    </div>
   </div>
 </div>

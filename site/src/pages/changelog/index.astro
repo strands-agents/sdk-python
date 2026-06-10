@@ -62,6 +62,7 @@ const areaCounts = getAreaCounts(allEntries)
   const root = document
   const versions = Array.from(root.querySelectorAll<HTMLElement>('.cl-version'))
   const sdkBtns = Array.from(root.querySelectorAll<HTMLElement>('[data-cl-sdk-btn]'))
+  const langBtns = Array.from(root.querySelectorAll<HTMLElement>('[data-cl-lang-btn]'))
   const areaBtns = Array.from(root.querySelectorAll<HTMLElement>('[data-cl-area]'))
   const searchInput = root.querySelector<HTMLInputElement>('[data-cl-search]')
   const emptyEl = root.querySelector<HTMLElement>('[data-cl-empty]')
@@ -81,6 +82,14 @@ const areaCounts = getAreaCounts(allEntries)
     try { return localStorage.getItem(LANG_KEY) || 'TypeScript' } catch { return 'TypeScript' }
   }
   function langSlug(): string { return globalLang() === 'TypeScript' ? 'typescript' : 'python' }
+
+  // Set the global language preference (slug form) and notify the whole site,
+  // keeping the header LanguageToggle and our local toggle in sync.
+  function setLang(slug: string) {
+    const label = slug === 'typescript' ? 'TypeScript' : 'Python'
+    try { localStorage.setItem(LANG_KEY, label) } catch {}
+    window.dispatchEvent(new CustomEvent('lang-preference-changed', { detail: { lang: label } }))
+  }
 
   // The language the user is asking for (global pref), unconstrained by SDK.
   function requestedLang(): string { return langSlug() }
@@ -143,6 +152,15 @@ const areaCounts = getAreaCounts(allEntries)
     // Special case: user asked for TypeScript but Evals is Python-only.
     const tsEvals = state.sdk === 'evals' && !sdkHasRequestedLang()
     if (tsEvalsEl) tsEvalsEl.hidden = !tsEvals
+
+    // Sync the local language toggle: only show languages this SDK ships,
+    // and mark the effective one as pressed.
+    const sdkLangs = SDK_LANGS[state.sdk]
+    for (const btn of langBtns) {
+      const l = btn.dataset.clLangBtn!
+      btn.hidden = !sdkLangs.includes(l)
+      btn.setAttribute('aria-pressed', l === lang ? 'true' : 'false')
+    }
 
     refreshAreaChips(lang)
 
@@ -211,6 +229,19 @@ const areaCounts = getAreaCounts(allEntries)
     btn.addEventListener('click', () => {
       state.sdk = btn.dataset.clSdkBtn!
       sdkBtns.forEach((b) => b.setAttribute('aria-pressed', b === btn ? 'true' : 'false'))
+      // Selecting an SDK that doesn't ship the current language: flip to one it
+      // does (e.g. Evals → Python), so users never land on the dead-end panel.
+      if (!SDK_LANGS[state.sdk].includes(langSlug())) {
+        setLang(SDK_LANGS[state.sdk][0])
+      }
+      apply()
+    })
+  })
+
+  // Local language toggle (mirrors the global header switcher)
+  langBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setLang(btn.dataset.clLangBtn!)
       apply()
     })
   })
