@@ -5,7 +5,7 @@ import * as s3vectors from 'aws-cdk-lib/aws-s3vectors';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as bedrock from 'aws-cdk-lib/aws-bedrock';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
-import { TestFeatureConstruct } from './test-feature-construct';
+import { TestFeatureConstruct, TestFeatureConstructProps } from './test-feature-construct';
 
 /**
  * Titan Text Embeddings v2 produces 1024-dimensional vectors and Bedrock
@@ -22,13 +22,7 @@ const EMBEDDING_DIMENSION = 1024;
  */
 const NON_FILTERABLE_METADATA_KEYS = ['AMAZON_BEDROCK_TEXT', 'AMAZON_BEDROCK_METADATA'];
 
-export interface BedrockKnowledgeBaseTestResourcesProps {
-  /**
-   * Shared integration-test role granted permission to query the knowledge
-   * base and ingest documents into it. When omitted the usage grant is skipped.
-   */
-  readonly role?: iam.IRole;
-}
+export interface BedrockKnowledgeBaseTestResourcesProps extends TestFeatureConstructProps {}
 
 /**
  * A Bedrock knowledge base backed by an S3 Vectors index, its source bucket,

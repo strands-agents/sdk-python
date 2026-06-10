@@ -65,6 +65,13 @@ export class IntegTestRole extends Construct {
       maxSessionDuration: cdk.Duration.hours(1),
     });
 
+    this.role.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['sts:GetCallerIdentity'],
+        resources: ['*'],
+      }),
+    );
+
     if (props.internal) {
       this.addLegacyBasePolicy();
     }
@@ -96,6 +103,7 @@ export class IntegTestRole extends Construct {
           'arn:aws:bedrock:*:*:foundation-model/anthropic.claude-3-haiku-20240307-v1:0',
           'arn:aws:bedrock:*:*:foundation-model/anthropic.claude-sonnet-4-5-20250929-v1:0',
           'arn:aws:bedrock:*:*:foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0',
+          'arn:aws:bedrock:*:*:inference-profile/us.anthropic.claude-sonnet-4-5-20250929-v1:0',
           'arn:aws:bedrock:*:*:inference-profile/global.anthropic.claude-sonnet-4-5-20250929-v1:0',
           'arn:aws:bedrock:*:*:foundation-model/meta.llama3-2-90b-instruct-v1:0',
           'arn:aws:bedrock:*:*:inference-profile/us.meta.llama3-2-90b-instruct-v1:0',
