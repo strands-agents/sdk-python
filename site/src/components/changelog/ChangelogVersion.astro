@@ -1,0 +1,59 @@
+---
+import type { ChangelogRelease } from '../../util/changelog'
+import { groupEntries, formatChangelogDate } from '../../util/changelog'
+import { LANGUAGE_META } from '../../config/changelog'
+import ChangelogEntry from './ChangelogEntry.astro'
+import { ICONS } from './icons.ts'
+
+interface Props { release: ChangelogRelease }
+const { release } = Astro.props
+const d = release.data
+const { features, fixes, other } = groupEntries(d.entries)
+const langIcon = d.language ? ICONS[d.language] : undefined
+const allAreas = [...new Set(d.entries.flatMap((e) => e.areas))]
+const isPackagePyPI = d.packageUrl.includes('pypi.org')
+---
+<article class="cl-version" data-sdk={d.sdk} data-language={d.language ?? ''} data-areas={allAreas.join(' ')}>
+  <div class="cl-version-meta">
+    <div class="cl-version-num">v{d.version}</div>
+    <div class="cl-version-date">{formatChangelogDate(d.date)}</div>
+    <div class="cl-version-links">
+      <a href={d.releaseUrl} target="_blank" rel="noopener">GitHub release ↗</a>
+      <a href={d.packageUrl} target="_blank" rel="noopener">
+        {langIcon && (
+          <svg class="cl-icon" width="11" height="11" viewBox="0 0 24 24" aria-hidden="true">
+            {langIcon.map((p) => <path fill="currentColor" d={p} />)}
+          </svg>
+        )}
+        {isPackagePyPI ? 'PyPI' : 'npm'} {d.version} ↗
+      </a>
+    </div>
+  </div>
+  <div class="cl-rail-line"><span class="cl-dot" /><span class="cl-line" /></div>
+  <div class="cl-version-body">
+    {d.highlights && (
+      <div class="cl-highlights">
+        <span class="cl-rail-label">★ Highlights</span>
+        <p>{d.highlights}</p>
+      </div>
+    )}
+    {features.length > 0 && (
+      <>
+        <div class="cl-group">✦ Features <span class="cl-n">{features.length}</span></div>
+        {features.map((e) => <ChangelogEntry entry={e} />)}
+      </>
+    )}
+    {fixes.length > 0 && (
+      <>
+        <div class="cl-group fixes">⊘ Fixes <span class="cl-n">{fixes.length}</span></div>
+        {fixes.map((e) => <ChangelogEntry entry={e} />)}
+      </>
+    )}
+    {other.length > 0 && (
+      <>
+        <div class="cl-group fixes">⋯ Other <span class="cl-n">{other.length}</span></div>
+        {other.map((e) => <ChangelogEntry entry={e} />)}
+      </>
+    )}
+  </div>
+</article>

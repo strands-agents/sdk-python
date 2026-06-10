@@ -1,0 +1,24 @@
+---
+import type { ChangelogEntry } from '../../content.config'
+
+interface Props { entry: ChangelogEntry }
+const { entry } = Astro.props
+const isBreaking = entry.breaking || entry.type === 'breaking'
+---
+<div class="cl-entry" data-areas={entry.areas.join(' ')} data-type={entry.type}>
+  {isBreaking && <span class="cl-break">break</span>}
+  <span class="cl-entry-title">{entry.title}</span>
+  {entry.areas.map((a) => <span class="cl-atag">{a}</span>)}
+  <span class="cl-entry-links">
+    {entry.prUrl && <a href={entry.prUrl} target="_blank" rel="noopener">#{entry.pr}</a>}
+    {entry.commitUrl && (
+      <a href={entry.commitUrl} target="_blank" rel="noopener" title="commit">
+        <svg class="cl-icon" width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="3.5" fill="none" stroke="currentColor" stroke-width="2" />
+          <path stroke="currentColor" stroke-width="2" d="M2 12h6.5M15.5 12H22" />
+        </svg>{entry.commit}
+      </a>
+    )}
+    {entry.author && <span class="cl-entry-author">@{entry.author}</span>}
+  </span>
+</div>
