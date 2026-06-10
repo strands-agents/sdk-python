@@ -113,11 +113,12 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           # Only trust comments authored by github-actions[bot] (the agent posts
-          # via GITHUB_TOKEN). This prevents a non-privileged commenter from
-          # injecting a forged verdict block. Take the most recent such comment.
+          # via GITHUB_TOKEN) AND carrying the DEPENDABOT_VERDICT marker, so an
+          # unrelated agent comment (e.g. a prior /strands review) can't be
+          # mistaken for this PR's verdict. Take the most recent matching comment.
           BODY=$(gh api "repos/$REPO/issues/$PR/comments" \
-            --jq 'map(select(.user.login == "github-actions[bot]")) | last.body // ""')
-          VERDICT=$(printf '%s' "$BODY" | grep -oE '\{"verdict": *"(safe|needs-review|breaking)"\}' | tail -1 | python -c 'import json,sys; print(json.load(sys.stdin)["verdict"])' 2>/dev/null || echo "needs-review")
+            --jq 'map(select(.user.login == "github-actions[bot]" and (.body | contains("DEPENDABOT_VERDICT:")))) | last.body // ""')
+          VERDICT=$(printf '%s' "$BODY" | grep -oE 'DEPENDABOT_VERDICT: *\{"verdict": *"(safe|needs-review|breaking)"\}' | tail -1 | grep -oE '\{"verdict": *"(safe|needs-review|breaking)"\}' | python -c 'import json,sys; print(json.load(sys.stdin)["verdict"])' 2>/dev/null || echo "needs-review")
           echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
       - name: Create check run
         env:
