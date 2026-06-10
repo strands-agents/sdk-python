@@ -25,6 +25,29 @@ const areaCounts = getAreaCounts(allEntries)
         <div class="cl-feed-inner" data-cl-feed>
           {releases.map((release) => <ChangelogVersion release={release} />)}
           <p class="cl-empty" data-cl-empty hidden>No releases match the current filters.</p>
+          <div class="cl-novel" data-cl-ts-evals hidden>
+            <div class="cl-novel-emoji">🛸</div>
+            <h2 class="cl-novel-title">Evals hasn't learned TypeScript… yet.</h2>
+            <p class="cl-novel-body">
+              Strands Evals is currently Python-only. Our TypeScript support is still
+              somewhere in the backlog, sipping espresso and refusing to compile.
+            </p>
+            <p class="cl-novel-body">
+              Want to nudge it along? Tell us you'd use it — the more
+              <code>+1</code>s, the sooner it ships.
+            </p>
+            <div class="cl-novel-actions">
+              <a
+                class="cl-novel-btn"
+                href="https://github.com/strands-agents/evals/issues/new?title=Feature%20request%3A%20TypeScript%20support%20for%20Strands%20Evals&body=I%27d%20like%20to%20use%20Strands%20Evals%20from%20TypeScript."
+                target="_blank"
+                rel="noopener"
+              >Request TypeScript support ↗</a>
+              <button class="cl-novel-link" type="button" data-cl-switch-python>
+                …or show me the Python releases
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -42,6 +65,7 @@ const areaCounts = getAreaCounts(allEntries)
   const areaBtns = Array.from(root.querySelectorAll<HTMLElement>('[data-cl-area]'))
   const searchInput = root.querySelector<HTMLInputElement>('[data-cl-search]')
   const emptyEl = root.querySelector<HTMLElement>('[data-cl-empty]')
+  const tsEvalsEl = root.querySelector<HTMLElement>('[data-cl-ts-evals]')
   const countEl = root.querySelector<HTMLElement>('[data-cl-count]')
   const activeCountEl = root.querySelector<HTMLElement>('[data-cl-active-count]')
 
@@ -58,11 +82,51 @@ const areaCounts = getAreaCounts(allEntries)
   }
   function langSlug(): string { return globalLang() === 'TypeScript' ? 'typescript' : 'python' }
 
-  // Effective language for the current SDK: evals is python-only, so fall back.
+  // The language the user is asking for (global pref), unconstrained by SDK.
+  function requestedLang(): string { return langSlug() }
+  // Whether the current SDK actually ships the requested language.
+  function sdkHasRequestedLang(): boolean {
+    return SDK_LANGS[state.sdk].includes(requestedLang())
+  }
+  // The language whose versions we display. For harness this is the requested
+  // language; for evals (python-only) it's always python.
   function effectiveLang(): string {
     const allowed = SDK_LANGS[state.sdk]
-    const pref = langSlug()
+    const pref = requestedLang()
     return allowed.includes(pref) ? pref : allowed[0]
+  }
+
+  // Does a version belong to the current SDK + effective language view?
+  function inCurrentStream(v: HTMLElement, lang: string): boolean {
+    if (v.dataset.sdk !== state.sdk) return false
+    if (state.sdk === 'harness') return v.dataset.language === lang
+    return true
+  }
+
+  // Recompute area chip counts + visibility from the versions in the current
+  // SDK+language stream (independent of which areas are selected).
+  function refreshAreaChips(lang: string) {
+    const counts = new Map<string, number>()
+    for (const v of versions) {
+      if (!inCurrentStream(v, lang)) continue
+      const seen = new Set<string>()
+      v.querySelectorAll<HTMLElement>('.cl-entry').forEach((e) => {
+        for (const a of (e.dataset.areas || '').split(' ').filter(Boolean)) seen.add(a)
+      })
+      for (const a of seen) counts.set(a, (counts.get(a) ?? 0) + 1)
+    }
+    for (const btn of areaBtns) {
+      const area = btn.dataset.clArea!
+      const n = counts.get(area) ?? 0
+      const cE = btn.querySelector<HTMLElement>('.cl-count')
+      if (cE) cE.textContent = String(n)
+      // Hide chips with no releases in this stream; deselect them too.
+      btn.hidden = n === 0
+      if (n === 0 && state.areas.has(area)) {
+        state.areas.delete(area)
+        btn.setAttribute('aria-pressed', 'false')
+      }
+    }
   }
 
   function syncUrl() {
@@ -76,10 +140,17 @@ const areaCounts = getAreaCounts(allEntries)
 
   function apply() {
     const lang = effectiveLang()
+    // Special case: user asked for TypeScript but Evals is Python-only.
+    const tsEvals = state.sdk === 'evals' && !sdkHasRequestedLang()
+    if (tsEvalsEl) tsEvalsEl.hidden = !tsEvals
+
+    refreshAreaChips(lang)
+
     const q = state.search.trim().toLowerCase()
     const hasEntryFilter = state.areas.size > 0 || q.length > 0
     let visible = 0
     for (const v of versions) {
+      if (tsEvals) { v.hidden = true; continue }
       const vSdk = v.dataset.sdk
       const vLang = v.dataset.language
       // Version-level gate: SDK, and (for harness) one language at a time.
@@ -120,8 +191,13 @@ const areaCounts = getAreaCounts(allEntries)
       v.hidden = !show
       if (show) visible++
     }
-    if (emptyEl) emptyEl.hidden = visible > 0
-    if (countEl) countEl.textContent = `${visible} release${visible === 1 ? '' : 's'}`
+    // Generic empty state only when not showing the witty TS/Evals panel.
+    if (emptyEl) emptyEl.hidden = tsEvals || visible > 0
+    if (countEl) {
+      countEl.textContent = tsEvals
+        ? 'Python only'
+        : `${visible} release${visible === 1 ? '' : 's'}`
+    }
     if (activeCountEl) {
       activeCountEl.textContent = String(state.areas.size)
       activeCountEl.hidden = state.areas.size === 0
@@ -158,6 +234,14 @@ const areaCounts = getAreaCounts(allEntries)
   // React to global language switch: same tab (custom event) + other tabs (storage).
   window.addEventListener('lang-preference-changed', () => apply())
   window.addEventListener('storage', (e) => { if (e.key === LANG_KEY) apply() })
+
+  // "…show me the Python releases" escape hatch on the TS/Evals panel:
+  // flip the global preference to Python and notify the rest of the site.
+  root.querySelector('[data-cl-switch-python]')?.addEventListener('click', () => {
+    try { localStorage.setItem(LANG_KEY, 'Python') } catch {}
+    window.dispatchEvent(new CustomEvent('lang-preference-changed', { detail: { lang: 'Python' } }))
+    apply()
+  })
 
   // Mobile drawer
   const rail = root.querySelector<HTMLElement>('[data-cl-rail]')

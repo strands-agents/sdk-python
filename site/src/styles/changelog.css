@@ -24,15 +24,21 @@
 .cl-subtitle { color: var(--sl-color-gray-3); font-size: 0.9rem; margin: 0.25rem 0 0; }
 .cl-subtitle a { color: var(--sl-color-accent); }
 
+/* Reset Starlight's .sl-markdown-content spacing/typography on our subtree.
+   The page renders inside .sl-markdown-content, which adds top margins to
+   headings/lists and can deform the inline-flex toggle. */
+.cl-page :where(h1, h2, p, div, button, ul, li) { margin-top: 0; }
+.cl-page :where(svg) { margin: 0; }
+
 /* SDK segmented toggle */
-.cl-sdk { display: inline-flex; border: 1px solid var(--sl-color-gray-5); border-radius: 10px; overflow: hidden; }
+.cl-sdk { display: inline-flex; align-items: stretch; flex: 0 0 auto; border: 1px solid var(--sl-color-gray-5); border-radius: 10px; overflow: hidden; }
 .cl-sdk button { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.85rem;
-  background: transparent; color: var(--sl-color-gray-2); font: inherit; font-size: 0.8rem; font-weight: 600;
-  border: 0; cursor: pointer; }
+  background: transparent; color: var(--sl-color-gray-2); font: inherit; line-height: 1.2; font-size: 0.8rem; font-weight: 600;
+  border: 0; cursor: pointer; white-space: nowrap; }
 .cl-sdk button + button { border-left: 1px solid var(--sl-color-gray-5); }
 .cl-sdk button[aria-pressed='true'] { background: color-mix(in srgb, var(--sl-color-accent) 14%, transparent); color: var(--sl-color-accent); }
-.cl-sdk .cl-langs { display: inline-flex; gap: 0.3rem; opacity: 0.85; }
-.cl-icon { display: inline-block; vertical-align: middle; }
+.cl-sdk .cl-langs { display: inline-flex; align-items: center; gap: 0.3rem; opacity: 0.85; }
+.cl-icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
 /* layout: rail + feed */
 .cl-body { display: flex; border: 1px solid var(--sl-color-hairline); border-radius: 12px; overflow: hidden; }
@@ -117,5 +123,20 @@
   .cl-feed-inner { padding: 0; max-width: none; }
 }
 
+/* witty "Evals isn't on TypeScript yet" panel */
+.cl-novel { text-align: center; max-width: 30rem; margin: 3rem auto; padding: 2rem 1.5rem; }
+.cl-novel-emoji { font-size: 2.75rem; line-height: 1; margin-bottom: 0.75rem; }
+.cl-novel-title { font-size: clamp(1.25rem, 3vw, 1.6rem); font-weight: 700; color: var(--sl-color-white); margin: 0 0 0.75rem; }
+.cl-novel-body { color: var(--sl-color-gray-2); font-size: 0.95rem; line-height: 1.55; margin: 0 0 0.75rem; }
+.cl-novel-body code { font-size: 0.85em; }
+.cl-novel-actions { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; margin-top: 1.25rem; }
+.cl-novel-btn { display: inline-block; padding: 0.5rem 1.1rem; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
+  background: var(--sl-color-accent); color: var(--sl-color-text-invert); text-decoration: none;
+  border: 1px solid var(--sl-color-accent); }
+.cl-novel-btn:hover { background: color-mix(in srgb, var(--sl-color-accent) 85%, black); }
+.cl-novel-link { background: transparent; border: 0; color: var(--sl-color-gray-3); font: inherit; font-size: 0.8rem; cursor: pointer; text-decoration: underline; }
+.cl-novel-link:hover { color: var(--sl-color-accent); }
+
 /* hidden by filtering */
-.cl-version[hidden], .cl-entry[hidden], .cl-group[hidden] { display: none !important; }
+.cl-version[hidden], .cl-entry[hidden], .cl-group[hidden], .cl-area[hidden],
+.cl-empty[hidden], .cl-novel[hidden], .cl-badge[hidden] { display: none !important; }
