@@ -7,8 +7,9 @@ import { PosixShellSandbox, validateEnvKeys } from './posix-shell.js'
 import { streamProcess } from './stream-process.js'
 import type { ExecutionResult, StreamChunk } from './types.js'
 import type { Tool } from '../tools/tool.js'
-import { fileEditor } from '../vended-tools/file-editor/file-editor.js'
-import { makeBash, SANDBOX_BASH_DESCRIPTION } from '../vended-tools/bash/bash.js'
+import { makeFileEditor, DEFAULT_FILE_EDITOR_DESCRIPTION } from '../vended-tools/file-editor/file-editor.js'
+import { makeBash } from '../vended-tools/bash/make-bash.js'
+import { SANDBOX_BASH_DESCRIPTION } from '../vended-tools/bash/types.js'
 
 /**
  * Options for constructing a {@link DockerSandbox}.
@@ -81,6 +82,16 @@ export class DockerSandbox extends PosixShellSandbox {
   }
 
   override getTools(): Tool[] {
-    return [fileEditor, makeBash({ description: SANDBOX_BASH_DESCRIPTION })]
+    const cwd = this.workingDir ? ` Working directory: ${this.workingDir}.` : ''
+    return [
+      makeFileEditor({
+        sandbox: this,
+        description: `${DEFAULT_FILE_EDITOR_DESCRIPTION} Files are in Docker container "${this.container}".`,
+      }),
+      makeBash({
+        sandbox: this,
+        description: `${SANDBOX_BASH_DESCRIPTION} Runs in Docker container "${this.container}".${cwd}`,
+      }),
+    ]
   }
 }

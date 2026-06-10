@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { DockerSandbox } from '../docker.js'
 import { streamProcess } from '../stream-process.js'
 import type { ExecutionResult } from '../types.js'
-import { SANDBOX_BASH_DESCRIPTION } from '../../vended-tools/bash/bash.js'
+import { SANDBOX_BASH_DESCRIPTION } from '../../vended-tools/bash/types.js'
 
 const OK: ExecutionResult = { type: 'executionResult', exitCode: 0, stdout: '', stderr: '', outputFiles: [] }
 
@@ -103,7 +103,8 @@ describe('DockerSandbox', () => {
     it('vends bash with the sandbox description', () => {
       const tools = new DockerSandbox({ container: 'my-container' }).getTools()
       const bashTool = tools.find((t) => t.name === 'bash')!
-      expect(bashTool.description).toBe(SANDBOX_BASH_DESCRIPTION)
+      expect(bashTool.description).toContain(SANDBOX_BASH_DESCRIPTION)
+      expect(bashTool.description).toContain('my-container')
     })
   })
 })

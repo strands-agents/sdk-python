@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { bash } from '../index.js'
+import { bash, makeBash } from '../index.js'
 import { BashTimeoutError, BashSessionError, type BashOutput } from '../index.js'
 import type { ToolContext } from '../../../index.js'
 import { StateStore } from '../../../state-store.js'
@@ -50,6 +50,7 @@ describe.skipIf(process.platform === 'win32')('bash tool', () => {
 
     it('rejects invalid mode', async () => {
       const { context } = createFreshContext()
+      // @ts-expect-error - Testing invalid input
       await expect(bash.invoke({ mode: 'invalid' }, context)).rejects.toThrow()
     })
 
@@ -474,12 +475,13 @@ describe.skipIf(process.platform === 'win32')('bash tool', () => {
   })
 })
 
-describe.skipIf(process.platform === 'win32')('bash tool (sandbox path)', () => {
-  const createSandboxContext = (): ToolContext => {
+describe.skipIf(process.platform === 'win32')('makeBash (sandbox-bound)', () => {
+  const createSandboxBash = (): { sandboxBash: ReturnType<typeof makeBash>; context: ToolContext } => {
     const workDir = mkdtempSync(join(tmpdir(), 'bash-sandbox-test-'))
     const sandbox = new TestSandbox(workDir)
-    const agent = createMockAgent({ extra: { sandbox } as any })
-    return {
+    const sandboxBash = makeBash({ sandbox })
+    const agent = createMockAgent()
+    const context: ToolContext = {
       toolUse: { name: 'bash', toolUseId: 'test-id', input: {} },
       agent,
       invocationState: {},
@@ -487,47 +489,34 @@ describe.skipIf(process.platform === 'win32')('bash tool (sandbox path)', () => 
         throw new Error('interrupt not available in mock context')
       },
     }
+    return { sandboxBash, context }
   }
 
   it('executes command via sandbox', async () => {
-    const context = createSandboxContext()
-    const result = await bash.invoke({ mode: 'execute', command: 'echo "hello sandbox"' }, context)
+    const { sandboxBash, context } = createSandboxBash()
+    const result = await sandboxBash.invoke({ command: 'echo "hello sandbox"' }, context)
 
     expect((result as BashOutput).output).toContain('hello sandbox')
     expect((result as BashOutput).error).toBe('')
   })
 
   it('captures stderr via sandbox', async () => {
-    const context = createSandboxContext()
-    const result = await bash.invoke({ mode: 'execute', command: 'echo "oops" >&2' }, context)
+    const { sandboxBash, context } = createSandboxBash()
+    const result = await sandboxBash.invoke({ command: 'echo "oops" >&2' }, context)
 
     expect((result as BashOutput).error).toContain('oops')
   })
 
-  it('restart mode returns an informative message in sandbox mode', async () => {
-    const context = createSandboxContext()
-    const result = await bash.invoke({ mode: 'restart' }, context)
-
-    expect(result).toBe('Restart has no effect in a sandbox. Each command already executes in a fresh shell.')
-  })
-
-  it('rejects execute without command in sandbox mode', async () => {
-    const context = createSandboxContext()
-    await expect(bash.invoke({ mode: 'execute' }, context)).rejects.toThrow(
-      'command is required when mode is "execute"'
-    )
-  })
-
   it('does not persist state between calls (stateless)', async () => {
-    const context = createSandboxContext()
-    await bash.invoke({ mode: 'execute', command: 'export MY_VAR=hello' }, context)
-    const result = await bash.invoke({ mode: 'execute', command: 'echo "${MY_VAR:-empty}"' }, context)
+    const { sandboxBash, context } = createSandboxBash()
+    await sandboxBash.invoke({ command: 'export MY_VAR=hello' }, context)
+    const result = await sandboxBash.invoke({ command: 'echo "${MY_VAR:-empty}"' }, context)
 
     expect((result as BashOutput).output.trim()).toBe('empty')
   })
 
   it('respects timeout', async () => {
-    const context = createSandboxContext()
-    await expect(bash.invoke({ mode: 'execute', command: 'sleep 10', timeout: 0.1 }, context)).rejects.toThrow()
+    const { sandboxBash, context } = createSandboxBash()
+    await expect(sandboxBash.invoke({ command: 'sleep 10', timeout: 0.1 }, context)).rejects.toThrow()
   })
 })
