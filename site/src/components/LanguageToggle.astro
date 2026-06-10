@@ -256,5 +256,16 @@
         syncAll(e.newValue);
       }
     });
+
+    // Listen for same-tab preference changes (storage events don't fire in the
+    // tab that wrote the value). Other components dispatch this when they change
+    // the language programmatically (e.g. the changelog auto-switching to Python).
+    window.addEventListener('lang-preference-changed', function (e) {
+      var lang = e && e.detail && e.detail.lang;
+      if (lang) {
+        setPreference(lang);
+        syncAll(lang);
+      }
+    });
   })();
 </script>
