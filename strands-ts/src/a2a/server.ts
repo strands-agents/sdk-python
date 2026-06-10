@@ -27,10 +27,10 @@ export interface A2AServerConfig {
   agent?: InvokableAgent
   /**
    * Callable that takes a `contextId` and returns a dedicated agent per A2A context.
-   * Contexts run concurrently and the factory is the place to wire per-context
-   * concerns such as a context-scoped `sessionManager`. The factory is invoked once
-   * at construction (with a placeholder context id) solely to derive the agent card
-   * metadata; that agent is not used for request handling.
+   * Contexts run concurrently and the factory is where per-context concerns such as a
+   * context-scoped `sessionManager` are wired. At construction it is invoked once with a
+   * placeholder context id to derive the agent card metadata, so it should not
+   * unconditionally allocate expensive resources.
    */
   agentFactory?: AgentFactory
   /**
@@ -83,16 +83,13 @@ export class A2AServer {
    * @param config - Configuration for the server
    */
   constructor(config: A2AServerConfig) {
-    // Require exactly one agent source: `=== ` catches both "neither" and "both".
     if ((config.agent === undefined) === (config.agentFactory === undefined)) {
       throw new Error("Provide exactly one of 'agent' or 'agentFactory'.")
     }
 
     const httpUrl = config.httpUrl ?? ''
 
-    // Derive card metadata (name/description) from a representative agent. In factory mode this
-    // builds a throwaway agent with a placeholder contextId — it is never used for requests, so
-    // factories should not unconditionally allocate expensive resources.
+    // Build a representative agent for card metadata (via the factory in factory mode).
     const cardAgent = config.agent ?? config.agentFactory!(AGENT_CARD_CONTEXT_ID)
 
     this._agentCard = {
