@@ -148,9 +148,29 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   private readonly _knowledgeBaseId: string
   private readonly _dataSourceType: 'CUSTOM' | 'S3' | 'OTHER' | undefined
   private readonly _dataSourceId: string | undefined
-  private readonly _scope: string | undefined
-  private readonly _scopeMetadataKey: string
-  private readonly _filter: RetrievalFilter | undefined
+
+  /**
+   * Logical namespace isolating documents: applied as a metadata filter on {@link search} and stamped
+   * on writes via {@link add}.
+   *
+   * Mutable at runtime — assign a new value to re-point subsequent `search`/`add` calls at a different
+   * partition (e.g. switching the active tenant on a reused store). The effective search filter is
+   * derived from this on each call (see {@link _resolveFilter}), so a change takes effect immediately;
+   * an explicit {@link filter} overrides it for search. Unlike {@link name}, this is not a store-identity
+   * field, so changing it never affects `MemoryManager` routing.
+   *
+   * A store instance shared across agents shares one `scope`. For concurrent per-tenant isolation,
+   * give each agent its own store instance (cheap — it is just config) rather than mutating a shared one.
+   */
+  public scope: string | undefined
+  /** Metadata attribute key used for scope-based filtering. Mutable at runtime; see {@link scope}. */
+  public scopeMetadataKey: string
+  /**
+   * Explicit retrieval filter. When set, it overrides the scope-derived filter for {@link search}.
+   * Mutable at runtime — set to `undefined` to re-enable scope-derived search filtering. Note the
+   * asymmetry: an explicit filter affects search only; writes always scope by {@link scope}.
+   */
+  public filter: RetrievalFilter | undefined
 
   constructor(config: BedrockKnowledgeBaseStoreConfig) {
     this.name = config.name
@@ -173,19 +193,22 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
 
     if (this.writable) this._validateWriteConfig()
 
-    this._scope = config.scope
-    this._scopeMetadataKey = config.scopeMetadataKey ?? 'namespace'
+    // Store raw config only; the effective search filter is derived per call in `_resolveFilter` so
+    // runtime mutations of `scope` / `scopeMetadataKey` / `filter` take effect immediately.
+    this.scope = config.scope
+    this.scopeMetadataKey = config.scopeMetadataKey ?? 'namespace'
+    this.filter = config.filter
+  }
 
-    if (config.filter) {
-      this._filter = config.filter
-    } else if (config.scope) {
-      this._filter = {
-        equals: {
-          key: this._scopeMetadataKey,
-          value: config.scope,
-        },
-      }
-    }
+  /**
+   * Resolves the effective retrieval filter for a search: an explicit {@link filter} wins; otherwise
+   * one is derived from the current {@link scope} / {@link scopeMetadataKey}. Computed per call (rather
+   * than precomputed at construction) so runtime mutations of those fields are reflected.
+   */
+  private _resolveFilter(): RetrievalFilter | undefined {
+    if (this.filter) return this.filter
+    if (this.scope) return { equals: { key: this.scopeMetadataKey, value: this.scope } }
+    return undefined
   }
 
   /**
@@ -202,6 +225,9 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
       throw new Error('BedrockKnowledgeBaseStore: maxSearchResults must be at least 1.')
     }
     const limit = options?.maxSearchResults || this.maxSearchResults || DEFAULT_MAX_SEARCH_RESULTS
+    // Snapshot the filter at call entry (before the first await) so it is deterministic for this
+    // in-flight search even if `scope` / `filter` are mutated concurrently.
+    const filter = this._resolveFilter()
 
     let response
     try {
@@ -212,7 +238,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
           retrievalConfiguration: {
             vectorSearchConfiguration: {
               numberOfResults: limit,
-              ...(this._filter && { filter: this._filter }),
+              ...(filter && { filter }),
             },
           },
         })
@@ -402,13 +428,13 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   ): Array<{ key: string; value: MetadataAttributeValue }> {
     const attrs: Array<{ key: string; value: MetadataAttributeValue }> = []
 
-    if (this._scope) {
-      attrs.push({ key: this._scopeMetadataKey, value: { type: 'STRING', stringValue: this._scope } })
+    if (this.scope) {
+      attrs.push({ key: this.scopeMetadataKey, value: { type: 'STRING', stringValue: this.scope } })
     }
 
     if (metadata) {
       for (const [key, value] of Object.entries(metadata)) {
-        if (this._scope && key === this._scopeMetadataKey) {
+        if (this.scope && key === this.scopeMetadataKey) {
           logger.warn(`store=<${this.name}>, key=<${key}> | dropping metadata key that collides with scopeMetadataKey`)
           continue
         }

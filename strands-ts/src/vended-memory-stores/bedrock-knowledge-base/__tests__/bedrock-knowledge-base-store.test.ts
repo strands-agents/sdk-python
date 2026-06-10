@@ -660,6 +660,133 @@ describe('BedrockKnowledgeBaseStore', () => {
     })
   })
 
+  describe('dynamic scope mutability', () => {
+    /** A search store whose `send` echoes the RetrieveCommand and resolves to empty results. */
+    function searchStore(overrides: Record<string, unknown> = {}): {
+      store: BedrockKnowledgeBaseStore
+      runtime: { send: MockedFunction<any> }
+    } {
+      const runtime = mockClient()
+      runtime.send.mockResolvedValue({ retrievalResults: [] })
+      const store = new BedrockKnowledgeBaseStore({
+        name: 'kb',
+        knowledgeBaseId: 'kb-1',
+        runtimeClient: runtime as any,
+        ...overrides,
+      })
+      return { store, runtime }
+    }
+
+    /** Reads the filter the most recent RetrieveCommand was sent with. */
+    function lastSearchFilter(runtime: { send: MockedFunction<any> }): unknown {
+      const calls = runtime.send.mock.calls
+      return calls[calls.length - 1]?.[0].input.retrievalConfiguration.vectorSearchConfiguration.filter
+    }
+
+    /** A writable CUSTOM store whose agent `send` echoes the ingestion command. */
+    function customStore(overrides: Record<string, unknown> = {}): {
+      store: BedrockKnowledgeBaseStore
+      agent: { send: MockedFunction<any> }
+    } {
+      const agent = mockClient()
+      agent.send.mockResolvedValue({})
+      const store = new BedrockKnowledgeBaseStore({
+        name: 'kb',
+        knowledgeBaseId: 'kb-1',
+        writable: true,
+        dataSourceType: 'CUSTOM',
+        dataSourceId: 'ds-1',
+        agentClient: agent as any,
+        ...overrides,
+      })
+      return { store, agent }
+    }
+
+    /** Reads the inline attributes the most recent CUSTOM ingestion document carried. */
+    function lastInlineAttributes(agent: { send: MockedFunction<any> }): any[] {
+      const calls = agent.send.mock.calls
+      return calls[calls.length - 1]?.[0].input.documents[0].metadata?.inlineAttributes ?? []
+    }
+
+    it('reflects a mutated scope in the next search filter', async () => {
+      const { store, runtime } = searchStore({ scope: 'tenant-a' })
+      await store.search('q')
+      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'tenant-a' } })
+
+      store.scope = 'tenant-b'
+      await store.search('q')
+      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'tenant-b' } })
+    })
+
+    it('reflects a mutated scopeMetadataKey in the derived filter', async () => {
+      const { store, runtime } = searchStore({ scope: 'acme' })
+      store.scopeMetadataKey = 'tenant'
+      await store.search('q')
+      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'tenant', value: 'acme' } })
+    })
+
+    it('derives a filter once a scope is set on a previously unscoped store', async () => {
+      const { store, runtime } = searchStore()
+      await store.search('q')
+      expect(lastSearchFilter(runtime)).toBeUndefined()
+
+      store.scope = 'later'
+      await store.search('q')
+      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'later' } })
+    })
+
+    it('keeps using an explicit filter even after scope is mutated', async () => {
+      const filter = { equals: { key: 'custom', value: 'v' } }
+      const { store, runtime } = searchStore({ scope: 'a', filter })
+      store.scope = 'b'
+      await store.search('q')
+      expect(lastSearchFilter(runtime)).toStrictEqual(filter)
+    })
+
+    it('re-enables scope-derived filtering when the explicit filter is cleared', async () => {
+      const { store, runtime } = searchStore({ scope: 'a', filter: { equals: { key: 'custom', value: 'v' } } })
+      store.filter = undefined
+      await store.search('q')
+      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'a' } })
+    })
+
+    it('snapshots the filter at call entry, ignoring a scope mutation made after the call', async () => {
+      const { store, runtime } = searchStore({ scope: 'before' })
+      const pending = store.search('q')
+      store.scope = 'after' // mutate before the in-flight search settles
+      await pending
+      expect(lastSearchFilter(runtime)).toStrictEqual({ equals: { key: 'namespace', value: 'before' } })
+    })
+
+    it('stamps the current scope on writes after a mutation', async () => {
+      const { store, agent } = customStore({ scope: 'tenant-a' })
+      await store.add('fact')
+      expect(lastInlineAttributes(agent)).toStrictEqual([
+        { key: 'namespace', value: { type: 'STRING', stringValue: 'tenant-a' } },
+      ])
+
+      store.scope = 'tenant-b'
+      await store.add('fact')
+      expect(lastInlineAttributes(agent)).toStrictEqual([
+        { key: 'namespace', value: { type: 'STRING', stringValue: 'tenant-b' } },
+      ])
+    })
+
+    it('still scopes writes by scope even when an explicit search filter is set (search/write asymmetry)', async () => {
+      const { store, agent } = customStore({ scope: 'tenant-a', filter: { equals: { key: 'custom', value: 'v' } } })
+      await store.add('fact')
+      expect(lastInlineAttributes(agent)).toStrictEqual([
+        { key: 'namespace', value: { type: 'STRING', stringValue: 'tenant-a' } },
+      ])
+    })
+
+    it('leaves name (the routing identity) untouched when scope is mutated', () => {
+      const { store } = searchStore({ scope: 'a' })
+      store.scope = 'b'
+      expect(store.name).toBe('kb')
+    })
+  })
+
   describe('metadata logging', () => {
     it('logs a debug line when a CUSTOM document drops an unsupported metadata value', async () => {
       const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => {})
