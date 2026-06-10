@@ -326,7 +326,7 @@ The server serves the agent card at `/.well-known/agent-card.json` and handles J
 
 The A2A protocol identifies each conversation with a `context_id`. The server isolates conversation state per `context_id` so that callers in different contexts never read or influence each other's history. Two modes control how that isolation works.
 
-The recommended mode is `agent_factory` — you provide a callable that takes a `context_id` and returns a dedicated agent for each conversation, reusing it for later requests in that context. This enables different conversations to run concurrently because each owns an independent agent.
+The recommended mode is `agent_factory` - you provide a callable that takes a `context_id` and returns a dedicated agent for each conversation, reusing it for later requests in that context. This enables different conversations to run concurrently because each owns an independent agent.
 
 The factory is also where you wire per-conversation concerns such as a `session_manager` to persist that conversation's history.
 
