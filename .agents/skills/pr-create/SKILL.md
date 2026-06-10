@@ -38,15 +38,12 @@ Ensure the final PR body is written to `.local/pr-body.md` (create `.local/` if 
 gh pr create \
   --title "<title>" \
   --body-file .local/pr-body.md \
-  --draft \
-  --web
+  --draft
 ```
 
 - Default to `--draft`. Only omit it if the user explicitly asks for a non-draft PR.
 - Do NOT pass `--repo` — let `gh` infer the upstream from the git remotes so the PR targets the correct upstream repository.
-- Always pass `--web` to open the PR in the browser for final review before submission.
 
 ## Rules
 
-- Never create the PR without `--web` — the user must confirm in the browser.
 - If `gh` is not authenticated or the command fails, show the error and stop.
