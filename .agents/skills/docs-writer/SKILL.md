@@ -82,6 +82,7 @@ Then self-check against hard constraints:
 - Code examples are contextually complete (imports present, runnable)
 - Code examples use proper backtick formatting
 - Never name the language inside its own tab. The reader selected the tab; they already know. State facts directly without prefixing the language name.
+- Headings describe the concept, never the API. No language-specific parameter names or syntax in headings (e.g. don't write `### Foo (preserveContext=false)`).
 
 ### Step 4b: Verify code accuracy
 

@@ -1,7 +1,6 @@
 ---
 title: GoalLoop
-description: "Iterative refinement plugin that validates agent responses
-  against a goal, looping with feedback until satisfied."
+description: "Iterative refinement plugin that validates agent responses against a goal, looping with feedback until satisfied."
 tags: [hooks, plugins]
 sidebar:
   badge:
@@ -9,24 +8,13 @@ sidebar:
     variant: tip
 ---
 
-When your agent's response needs to meet a quality bar before
-returning, `GoalLoop` handles the retry loop. It validates the
-response after each invocation, feeds feedback back as a user
-message on failure, and re-invokes the agent. This continues
-until validation passes, a max attempt count is reached, or a
-timeout elapses.
+When your agent's response needs to meet a quality bar before returning, `GoalLoop` handles the retry loop. It validates the response after each invocation, feeds feedback back as a user message on failure, and re-invokes the agent. This continues until validation passes, a max attempt count is reached, or a timeout elapses.
 
 ## The Problem
 
-A single-pass agent response often misses the mark: too verbose,
-wrong format, incomplete reasoning, or failing a test suite. You
-could wrap the agent call in a manual retry loop, but that means
-reimplementing timeout logic, attempt tracking, feedback injection,
-and state management every time.
+A single-pass agent response often misses the mark: too verbose, wrong format, incomplete reasoning, or failing a test suite. You could wrap the agent call in a manual retry loop, but that means reimplementing timeout logic, attempt tracking, feedback injection, and state management every time.
 
-GoalLoop handles all of that as a plugin. Define what "done" means,
-attach it to your agent, and the retry loop runs automatically
-inside the existing hook lifecycle.
+GoalLoop handles all of that as a plugin. Define what "done" means, attach it to your agent, and the retry loop runs automatically inside the existing hook lifecycle.
 
 ## How It Works
 
@@ -39,25 +27,16 @@ flowchart LR
     E --> B
 ```
 
-1. `BeforeInvocationEvent` starts a fresh run (or continues an
-   in-progress one).
+1. `BeforeInvocationEvent` starts a fresh run (or continues an in-progress one).
 2. The agent processes the prompt and produces a response.
-3. `AfterInvocationEvent` fires. GoalLoop extracts the last
-   assistant message and runs the validator.
-4. If the validator passes, the run terminates with
-   `stop_reason="satisfied"`.
-5. If the validator fails and budget remains, GoalLoop sets
-   `event.resume` with feedback. The agent re-invokes with
-   that feedback as a new user message.
-6. If `max_attempts` or `timeout` is exhausted, the run
-   terminates without retrying.
+3. `AfterInvocationEvent` fires. GoalLoop extracts the last assistant message and runs the validator.
+4. If the validator passes, the run terminates with `stop_reason="satisfied"`.
+5. If the validator fails and budget remains, GoalLoop sets `event.resume` with feedback. The agent re-invokes with that feedback as a new user message.
+6. If `max_attempts` or `timeout` is exhausted, the run terminates without retrying.
 
 ## Getting Started
 
-Pass a natural-language goal string. GoalLoop builds an internal
-judge agent (using the host agent's model) that grades each
-response against the goal and returns structured feedback on
-failure.
+Pass a natural-language goal string. GoalLoop builds an internal judge agent (using the host agent's model) that grades each response against the goal and returns structured feedback on failure.
 
 <Tabs>
 <Tab label="Python">
@@ -77,8 +56,7 @@ result = agent("Explain how rainbows form.")
 print(concise.last_result(agent))
 
 # Typical output:
-# GoalResult(passed=True, stop_reason='satisfied',
-#   attempts=[...])
+# GoalResult(passed=True, stop_reason='satisfied', attempts=[...])
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -93,12 +71,9 @@ print(concise.last_result(agent))
 
 ## Programmatic Validators
 
-For checks that don't need a language model (word count, schema
-conformance, test suite exit codes), pass a function as `goal`.
-This skips the judge agent entirely.
+For checks that don't need a language model (word count, schema conformance, test suite exit codes), pass a function as `goal`. This skips the judge agent entirely.
 
-A validator receives the last assistant message and the host
-agent. It returns:
+A validator receives the last assistant message and the host agent. It returns:
 
 - `true` / `false` (shorthand: pass or fail with no feedback)
 - A dict/object with `passed` and optional `feedback`
@@ -141,8 +116,7 @@ plugin = GoalLoop(
 </Tab>
 </Tabs>
 
-Async validators work too. Run a test suite, call an external
-API, or await any I/O inside the validator:
+Async validators work too. Run a test suite, call an external API, or await any I/O inside the validator:
 
 <Tabs>
 <Tab label="Python">
@@ -210,16 +184,13 @@ plugin = GoalLoop(goal=tests_pass, max_attempts=10)
 </Tab>
 </Tabs>
 
-When both `max_attempts` and `timeout` are left unbounded (the
-defaults), the plugin warns at construction time. Set at least
-one bound in production to prevent runaway loops.
+When both `max_attempts` and `timeout` are left unbounded (the defaults), the plugin warns at construction time. Set at least one bound in production to prevent runaway loops.
 
 ## Advanced Usage
 
 ### Inspecting Results
 
-After an invocation completes, call `last_result()` /
-`lastResult()` with the agent to get the full attempt history:
+After an invocation completes, call `last_result()` / `lastResult()` with the agent to get the full attempt history:
 
 <Tabs>
 <Tab label="Python">
@@ -241,21 +212,11 @@ if result and not result.passed:
 </Tab>
 </Tabs>
 
-The result is `undefined` / `None` before the first completed
-run and while a run is in-flight. It resets at the start of
-each new invocation.
+The result is `None` / `undefined` before the first completed run and while a run is in-flight. It resets at the start of each new invocation.
 
-### Stateless Retries (preserve_context=False)
+### Stateless Retries
 
-By default, the agent sees its own prior attempts and the
-validator's feedback, letting it build on previous work.
-
-Set `preserve_context=False` to restore the agent's full session
-state (messages, system prompt, model state) to the snapshot
-captured immediately before the first model call. Each retry
-starts fresh, seeing only the original input plus the latest
-feedback. Use this when prior attempts would confuse the model
-rather than help it.
+By default, the agent sees its own prior attempts and the validator's feedback, letting it build on previous work. Set `preserve_context=False` to restore the agent's full session state (messages, system prompt, model state) to the snapshot captured immediately before the first model call. Each retry starts fresh, seeing only the original input plus the latest feedback. Use this when prior attempts would confuse the model rather than help it.
 
 <Tabs>
 <Tab label="Python">
@@ -276,15 +237,11 @@ plugin = GoalLoop(
 </Tab>
 </Tabs>
 
-The snapshot excludes agent state (`state` / `appState`)
-deliberately — other plugins (rate limiters, cost trackers)
-rely on their mutations persisting across attempts.
+The snapshot excludes agent state (`state` / `appState`) deliberately — other plugins (rate limiters, cost trackers) rely on their mutations persisting across attempts.
 
 ### Custom Judge Configuration
 
-When `goal` is a string, GoalLoop builds a judge agent from the
-host agent's model. Override the model or system prompt to tune
-cost and behavior:
+When `goal` is a string, GoalLoop builds a judge agent from the host agent's model. Override the model or system prompt to tune cost and behavior:
 
 <Tabs>
 <Tab label="Python">
@@ -314,10 +271,7 @@ plugin = GoalLoop(
 
 ### Custom Resume Prompt
 
-Override how feedback is injected before each retry. The
-template receives the trimmed feedback string (or
-`None`/`undefined` when the validator gave none) and returns
-the user message content:
+Override how feedback is injected before each retry. The template receives the trimmed feedback string (or `None`/`undefined` when the validator gave none) and returns the user message content:
 
 <Tabs>
 <Tab label="Python">
@@ -345,9 +299,7 @@ plugin = GoalLoop(
 
 ### Building a Custom Judge
 
-The judge primitives are exported for use in function validators.
-Build your own judge with a custom model or prompt while reusing
-the same transcript format:
+The judge primitives are exported for use in function validators. Build your own judge with a custom model or prompt while reusing the same transcript format:
 
 <Tabs>
 <Tab label="Python">
@@ -390,13 +342,6 @@ plugin = GoalLoop(goal=custom_judge, max_attempts=3)
 
 ## Limitations
 
-- **One GoalLoop per agent.** Attaching a second instance
-  throws at initialization. Compose multiple constraints in a
-  single validator function instead.
-- **Timeout is checked between attempts, not mid-stream.** An
-  in-flight model call runs to completion before timeout fires,
-  so actual wall-clock may exceed the budget by one attempt's
-  duration.
-- **NL judge cost.** Each failed attempt spawns a fresh judge
-  agent invocation. For cost-sensitive workloads, use a cheaper
-  model via `judge.model` or switch to a programmatic validator.
+- **One GoalLoop per agent.** Attaching a second instance throws at initialization. Compose multiple constraints in a single validator function instead.
+- **Timeout is checked between attempts, not mid-stream.** An in-flight model call runs to completion before timeout fires, so actual wall-clock may exceed the budget by one attempt's duration.
+- **NL judge cost.** Each failed attempt spawns a fresh judge agent invocation. For cost-sensitive workloads, use a cheaper model via `judge.model` or switch to a programmatic validator.
