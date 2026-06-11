@@ -7,7 +7,7 @@ recall and persistence, alongside any tools the stores themselves provide via
 :meth:`~strands.memory.types.MemoryStore.get_tools`.
 
 As a :class:`~strands.plugins.plugin.Plugin`, the manager builds its tools at
-construction (assigning them to ``self._tools``) and wires automatic extraction
+construction (exposed via the ``tools`` property) and wires automatic extraction
 in :meth:`MemoryManager.init_agent` for any store configured with an
 ``ExtractionConfig``.
 
@@ -21,12 +21,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from ..hooks.events import AfterInvocationEvent, MessageAddedEvent
 from ..hooks.registry import HookOrder
 from ..plugins.plugin import Plugin
-from ..tools.decorator import DecoratedFunctionTool, tool
+from ..tools.decorator import tool
 from ..types.exceptions import AggregateMemoryError
 from ..types.tools import AgentTool
 from .extraction.coordinator import ExtractionCoordinator
@@ -232,9 +232,9 @@ class MemoryManager(Plugin):
 
         self._flush_on_invocation_end = flush_on_invocation_end
 
-        # Build the manager's tools now and surface them via the Plugin
-        # ``tools`` property (the agent reads ``self._tools``).
-        self._tools = cast("list[DecoratedFunctionTool]", self._build_tools())
+        # Build the manager's tools now and surface them via the ``tools``
+        # property (which the plugin registry reads to register them).
+        self._memory_tools: list[AgentTool] = self._build_tools()
 
     def _resolve_add_tool_stores(self, tool_config: MemoryAddToolConfig) -> list[MemoryStore]:
         """Resolve the writable stores the ``add_memory`` tool may write to.
@@ -299,13 +299,15 @@ class MemoryManager(Plugin):
 
         return tools
 
-    def get_tools(self) -> list[AgentTool]:
-        """Return the tools registered by this plugin.
+    @property
+    def tools(self) -> list[AgentTool]:  # type: ignore[override]
+        """Tools registered by this plugin: search/add plus any store-provided tools.
 
-        Returns:
-            The manager's tools (a copy of the built list).
+        Widens the base :class:`~strands.plugins.plugin.Plugin` annotation
+        (``list[DecoratedFunctionTool]``) because a store's ``get_tools`` may
+        contribute any :class:`~strands.types.tools.AgentTool`.
         """
-        return list(self._tools)
+        return list(self._memory_tools)
 
     async def search(self, query: str, options: MemorySearchOptions | None = None) -> list[MemoryEntry]:
         """Search stores for entries matching the query.
@@ -661,9 +663,9 @@ class MemoryManager(Plugin):
             agent.add_hook(self._flush_after_invocation, AfterInvocationEvent, order=HookOrder.SDK_LAST)
         else:
             logger.warning(
-                "flush_on_invocation_end=<False> | extraction runs in the background and is lost if the event "
-                "loop closes before it finishes (e.g. the synchronous Agent(...) entry point). Enable "
-                "flush_on_invocation_end or await MemoryManager.flush() at a boundary to persist it."
+                "flush_on_invocation_end=<False> | background extraction is lost if the event loop closes "
+                "before it finishes (e.g. the synchronous Agent(...) entry point); safe to ignore if you "
+                "await MemoryManager.flush() at a shutdown boundary or enable flush_on_invocation_end."
             )
 
     async def _flush_after_invocation(self, event: AfterInvocationEvent) -> None:
@@ -674,15 +676,8 @@ class MemoryManager(Plugin):
     def _make_fire(coordinator: ExtractionCoordinator, store: MemoryStore) -> Callable[[], None]:
         """Build a zero-arg ``fire`` callback bound to a specific store.
 
-        Binding the store here (rather than in a loop-body lambda) avoids the
-        late-binding closure pitfall, so each trigger fires for its own store.
-
-        Args:
-            coordinator: The coordinator to schedule a save on.
-            store: The store this trigger's ``fire`` saves for.
-
-        Returns:
-            A callback that schedules a background save for ``store``.
+        Binds the store here (rather than in a loop-body lambda) to avoid the
+        late-binding closure pitfall and to keep a clean ``Callable[[], None]``.
         """
 
         def fire() -> None:

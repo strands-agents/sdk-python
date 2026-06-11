@@ -143,15 +143,15 @@ def _named_tool(name: str) -> Any:
 
 def _tool_named(mm: MemoryManager, name: str) -> Any:
     """Return the manager-registered tool with the given ``tool_name``."""
-    for built in mm.get_tools():
+    for built in mm.tools:
         if built.tool_name == name:
             return built
-    registered_names = [registered_tool.tool_name for registered_tool in mm.get_tools()]
+    registered_names = [registered_tool.tool_name for registered_tool in mm.tools]
     raise AssertionError(f"tool {name!r} not registered; have {registered_names}")
 
 
 def _tool_names(mm: MemoryManager) -> list[str]:
-    return [registered_tool.tool_name for registered_tool in mm.get_tools()]
+    return [registered_tool.tool_name for registered_tool in mm.tools]
 
 
 def _added_metadata(call: Any) -> Any:
@@ -393,7 +393,7 @@ def test_get_tools_empty_when_search_and_add_disabled_and_no_store_tools():
         search_tool_config=False,
         add_tool_config=False,
     )
-    assert mm.get_tools() == []
+    assert mm.tools == []
 
 
 def test_get_tools_uses_custom_tool_names():
