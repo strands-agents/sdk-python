@@ -1028,6 +1028,43 @@ const agent = new Agent({
 Strands uses a default Claude 4 Sonnet inference model from the region of your credentials when no model is provided. So if you did not pass in any model id and are getting the above error, it's very likely due to the `region` from the credentials not supporting inference profiles.
 :::
 
+### CacheConfig with ARN-based inference profiles
+
+If you're using an ARN-based application inference profile as your `model_id` (e.g., `arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123`), `CacheConfig(strategy="auto")` will not automatically enable prompt caching.
+
+**Why this happens:** The `strategy="auto"` detection checks the model ID string for `"claude"` or `"anthropic"` substrings. Cross-region inference profile ARNs (e.g., `us.anthropic.claude-sonnet-4-20250514-v1:0`) contain `"anthropic"` and are detected correctly. Application inference profiles use opaque resource IDs (`application-inference-profile/abc123`) that have no connection to the underlying model name, so detection returns `None`, caching is skipped, and Strands logs a warning: `cache_config is enabled but this model does not support automatic caching`.
+
+**Solution:** Use `strategy="anthropic"` explicitly:
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.models import BedrockModel, CacheConfig
+
+bedrock_model = BedrockModel(
+    model_id="arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123",
+    cache_config=CacheConfig(strategy="anthropic")
+)
+
+agent = Agent(model=bedrock_model)
+```
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+const bedrockModel = new BedrockModel({
+  modelId: 'arn:aws:bedrock:us-east-1:123456789012:application-inference-profile/abc123',
+  cacheConfig: { strategy: 'anthropic' },
+})
+
+const agent = new Agent({ model: bedrockModel })
+```
+</Tab>
+</Tabs>
+
+`strategy="anthropic"` has identical performance to `strategy="auto"` and requires no additional API calls or IAM permissions.
 
 ## Related Resources
 
