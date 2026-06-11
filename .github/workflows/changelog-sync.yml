@@ -11,13 +11,20 @@ on:
         description: 'Backfill all releases'
         type: boolean
         default: false
+      tag:
+        description: 'Single release tag to sync (ignored when backfill is checked)'
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 jobs:
   sync:
-    # On release: only our in-scope tag prefixes. Cron/dispatch: always run.
+    # On release: only our in-scope tag prefixes. The bare `v` prefix is for
+    # pre-monorepo python releases; the action itself rejects any tag that
+    # isn't `v<digit>`, so a stray non-version `v…` tag produces a no-op run.
+    # Cron/dispatch: always run.
     if: >
       github.event_name != 'release' ||
       startsWith(github.event.release.tag_name, 'python/v') ||
@@ -32,5 +39,5 @@ jobs:
         with:
           source-repo: strands-agents/harness-sdk
           mode: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.backfill)) && 'backfill' || 'single' }}
-          tag: ${{ github.event.release.tag_name }}
+          tag: ${{ github.event.release.tag_name || inputs.tag }}
           github-token: ${{ github.token }}
