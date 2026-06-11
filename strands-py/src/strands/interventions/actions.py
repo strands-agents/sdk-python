@@ -98,7 +98,7 @@ class Confirm:
     prompt: str = ""
     reason: str | None = None
     response: Any = None
-    evaluate: Callable[[Any], bool] = field(default=default_evaluate)
+    evaluate: Callable[[Any], bool] | None = field(default=default_evaluate)
 
 
 @dataclass(frozen=True)
