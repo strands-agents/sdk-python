@@ -39,5 +39,16 @@ The `test-infra/` CDK stack deploys real AWS resources (Bedrock KBs, EC2 instanc
 
 - **Branching**: `git checkout -b agent-tasks/{ISSUE_NUMBER}`
 - **Commits**: Use [conventional commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, etc.
-- **Pull requests**: See PR guidelines ([Python](./strands-py/docs/PR.md), [TypeScript](./dev-docs/PR.md))
+- **Pull requests**: See PR guidelines ([Python](./strands-py/docs/PR.md), [TypeScript](./dev-docs/PR.md)). Use the `pr-create` and `pr-writer` skills under `.agents/skills/` to draft and open PRs.
 - **CI**: The `ci.yml` merge gate detects which paths changed and runs only relevant checks
+
+## Quality Bar for PRs
+
+If you are opening a PR on behalf of a contributor, the human is the author and is accountable for everything you submit. A small, focused change that its author fully understands is the single biggest predictor of a fast review and an accepted PR. (See [CONTRIBUTING.md](./CONTRIBUTING.md#using-ai-tools) for the human-facing version.)
+
+- **Understand before you submit.** The contributor must be able to explain why every line works and defend the design. If you produced code you cannot explain plainly, simplify or explain it before opening the PR.
+- **Keep it small and focused.** One logical change per PR. A branch that touches several sub-projects (`strands-py/`, `strands-ts/`, `site/`) is almost always several PRs. Smaller PRs are easier to understand, guide, and merge.
+- **Open an issue first for anything significant**, so maintainers can align on the approach before time is invested.
+- **Don't pad the change.** No drive-by reformatting, unrelated refactors, or speculative abstractions — they make the diff hard to review and the change hard to trust.
+- **Verify before opening.** Run the relevant sub-project's checks (see "Development Environment") and make sure the change passes the `ci.yml` merge gate locally. Don't open a PR with known lint, type, or test failures.
+- **Self-review the diff** end to end as if you were the reviewer, and confirm you can truthfully check every box in the PR template — including "I have reviewed and understand every line of code in this PR." Then use the `pr-writer` skill so the description explains the **why**.
