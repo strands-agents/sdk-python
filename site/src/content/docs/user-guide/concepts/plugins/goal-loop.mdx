@@ -85,21 +85,9 @@ print(concise.last_result(agent))
 <Tab label="TypeScript">
 
 ```typescript
-import { Agent } from '@strands-agents/sdk'
-import { GoalLoop } from '@strands-agents/sdk/vended-plugins/goal'
+--8<-- "user-guide/concepts/plugins/goal-loop_imports.ts:getting_started"
 
-const concise = new GoalLoop({
-  goal: 'At most 3 sentences, accessible to a 10-year-old, '
-    + 'no jargon.',
-  maxAttempts: 3,
-})
-
-const agent = new Agent({ plugins: [concise] })
-await agent.invoke('Explain how rainbows form.')
-console.log(concise.lastResult(agent))
-
-// Typical output:
-// { passed: true, stopReason: 'satisfied', attempts: [...] }
+--8<-- "user-guide/concepts/plugins/goal-loop.ts:getting_started"
 ```
 </Tab>
 </Tabs>
@@ -147,23 +135,9 @@ plugin = GoalLoop(
 <Tab label="TypeScript">
 
 ```typescript
-import { GoalLoop } from '@strands-agents/sdk/vended-plugins/goal'
+--8<-- "user-guide/concepts/plugins/goal-loop_imports.ts:word_count_validator"
 
-const plugin = new GoalLoop({
-  goal: (response) => {
-    const text = response.content
-      .flatMap((b) => (b.type === 'textBlock' ? [b.text] : []))
-      .join(' ')
-    const words = text.trim().split(/\s+/).length
-    if (words <= 50) return true
-    return {
-      passed: false,
-      feedback: `Too long (${words} words). Cap at 50.`,
-    }
-  },
-  maxAttempts: 5,
-  timeout: 30_000,
-})
+--8<-- "user-guide/concepts/plugins/goal-loop.ts:word_count_validator"
 ```
 </Tab>
 </Tabs>
@@ -199,25 +173,9 @@ plugin = GoalLoop(goal=tests_pass, max_attempts=10)
 <Tab label="TypeScript">
 
 ```typescript
-import { exec } from 'node:child_process'
-import { promisify } from 'node:util'
-import { GoalLoop } from '@strands-agents/sdk/vended-plugins/goal'
+--8<-- "user-guide/concepts/plugins/goal-loop_imports.ts:async_validator"
 
-const execAsync = promisify(exec)
-
-const plugin = new GoalLoop({
-  goal: async () => {
-    try {
-      await execAsync('npm test')
-      return true
-    } catch (err) {
-      const e = err as { stdout?: string, stderr?: string }
-      const out = `${e.stdout ?? ''}${e.stderr ?? ''}`.slice(-4000)
-      return { passed: false, feedback: `Tests failed.\n${out}` }
-    }
-  },
-  maxAttempts: 10,
-})
+--8<-- "user-guide/concepts/plugins/goal-loop.ts:async_validator"
 ```
 </Tab>
 </Tabs>
@@ -281,14 +239,7 @@ if result and not result.passed:
 <Tab label="TypeScript">
 
 ```typescript
-const result = concise.lastResult(agent)
-if (result && !result.passed) {
-  console.log(`Stopped after ${result.attempts.length} attempts`)
-  console.log(`Reason: ${result.stopReason}`)
-  for (const attempt of result.attempts) {
-    console.log(`  #${attempt.attempt}: ${attempt.feedback}`)
-  }
-}
+--8<-- "user-guide/concepts/plugins/goal-loop.ts:inspecting_results"
 ```
 </Tab>
 </Tabs>
@@ -323,11 +274,7 @@ plugin = GoalLoop(
 <Tab label="TypeScript">
 
 ```typescript
-const plugin = new GoalLoop({
-  goal: testsPass,
-  maxAttempts: 10,
-  preserveContext: false,
-})
+--8<-- "user-guide/concepts/plugins/goal-loop.ts:preserve_context_false"
 ```
 </Tab>
 </Tabs>
@@ -363,16 +310,9 @@ plugin = GoalLoop(
 <Tab label="TypeScript">
 
 ```typescript
-import { BedrockModel } from '@strands-agents/sdk'
-import { GoalLoop } from '@strands-agents/sdk/vended-plugins/goal'
+--8<-- "user-guide/concepts/plugins/goal-loop_imports.ts:judge_config"
 
-const plugin = new GoalLoop({
-  goal: 'Response must cite at least two sources.',
-  maxAttempts: 3,
-  judge: {
-    model: new BedrockModel({ modelId: 'us.amazon.nova-lite-v1:0' }),
-  },
-})
+--8<-- "user-guide/concepts/plugins/goal-loop.ts:judge_config"
 ```
 </Tab>
 </Tabs>
@@ -403,16 +343,7 @@ plugin = GoalLoop(
 <Tab label="TypeScript">
 
 ```typescript
-const plugin = new GoalLoop({
-  goal: '...',
-  maxAttempts: 3,
-  resumePromptTemplate: (feedback) => {
-    if (!feedback) {
-      return 'Tu respuesta no cumple el objetivo. Intenta de nuevo.'
-    }
-    return `Problemas: ${feedback}\n\nCorrige todo lo anterior.`
-  },
-})
+--8<-- "user-guide/concepts/plugins/goal-loop.ts:custom_resume_prompt"
 ```
 </Tab>
 </Tabs>
@@ -455,28 +386,9 @@ plugin = GoalLoop(goal=custom_judge, max_attempts=3)
 <Tab label="TypeScript">
 
 ```typescript
-import { Agent } from '@strands-agents/sdk'
-import {
-  GoalLoop,
-  buildJudgePrompt,
-  JUDGE_SYSTEM_PROMPT,
-  JUDGE_OUTCOME_SCHEMA,
-} from '@strands-agents/sdk/vended-plugins/goal'
+--8<-- "user-guide/concepts/plugins/goal-loop_imports.ts:custom_judge"
 
-const plugin = new GoalLoop({
-  goal: async (_response, agent) => {
-    const judge = new Agent({
-      printer: false,
-      systemPrompt: JUDGE_SYSTEM_PROMPT,
-    })
-    const result = await judge.invoke(
-      buildJudgePrompt('Be concise.', agent.messages),
-      { structuredOutputSchema: JUDGE_OUTCOME_SCHEMA }
-    )
-    return result.structuredOutput ?? { passed: false }
-  },
-  maxAttempts: 3,
-})
+--8<-- "user-guide/concepts/plugins/goal-loop.ts:custom_judge"
 ```
 </Tab>
 </Tabs>
