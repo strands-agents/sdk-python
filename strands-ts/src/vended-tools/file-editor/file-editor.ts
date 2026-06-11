@@ -1,7 +1,7 @@
 import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { Buffer } from 'buffer'
-import type { Sandbox } from '../../sandbox/base.js'
+import { Sandbox } from '../../sandbox/base.js'
 import * as path from 'path'
 
 const SNIPPET_LINES = 4
@@ -54,24 +54,34 @@ export const DEFAULT_FILE_EDITOR_DESCRIPTION =
   'Filesystem editor tool for viewing, creating, and editing files. Supports view (with line ranges), create, str_replace, and insert operations. Files must use absolute paths.'
 
 export interface MakeFileEditorOptions {
-  sandbox?: Sandbox
   name?: string
   description?: string
 }
 
 /**
- * Create a file editor tool. If a sandbox is provided, it's bound at creation time.
+ * Create a file editor tool. If a sandbox is passed, it's bound at creation time.
  * Otherwise, the tool reads from `context.agent.sandbox` at call time.
  * Used by sandbox implementations in `getTools()` and by users who want a customized file editor.
  */
-export function makeFileEditor(options: MakeFileEditorOptions = {}): ReturnType<typeof tool> {
+export function makeSandboxFileEditor(options?: MakeFileEditorOptions): ReturnType<typeof tool>
+export function makeSandboxFileEditor(
+  sandbox: Sandbox | undefined,
+  options?: MakeFileEditorOptions
+): ReturnType<typeof tool>
+export function makeSandboxFileEditor(
+  sandboxOrOptions?: Sandbox | MakeFileEditorOptions,
+  maybeOptions?: MakeFileEditorOptions
+): ReturnType<typeof tool> {
+  const boundSandbox = sandboxOrOptions instanceof Sandbox ? sandboxOrOptions : undefined
+  const options = sandboxOrOptions instanceof Sandbox || maybeOptions ? (maybeOptions ?? {}) : (sandboxOrOptions ?? {})
+
   return tool({
     name: options.name ?? 'fileEditor',
     description: options.description ?? DEFAULT_FILE_EDITOR_DESCRIPTION,
     inputSchema: fileEditorInputSchema,
     callback: async (input, context) => {
       if (!context) throw new Error('Tool context is required for fileEditor operations')
-      const sandbox = options.sandbox ?? context.agent.sandbox
+      const sandbox = boundSandbox ?? context.agent.sandbox
       const filePath = input.path.replace(/[/\\]+$/, '')
 
       switch (input.command) {

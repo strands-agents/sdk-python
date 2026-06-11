@@ -1,20 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
-import { SandboxStorage } from '../storage.js'
+import { FileStorage } from '../storage.js'
 import { TestSandbox } from '../../../__fixtures__/test-sandbox.node.js'
 
-const TEST_DIR = '/tmp/strands-test-sandbox-storage'
+const TEST_DIR = '/tmp/strands-test-file-storage-sandbox'
 
-describe.skipIf(process.platform === 'win32')('SandboxStorage', () => {
+describe.skipIf(process.platform === 'win32')('FileStorage with sandbox', () => {
   let sandbox: TestSandbox
-  let storage: SandboxStorage
+  let storage: FileStorage
 
   beforeEach(() => {
     fs.rmSync(TEST_DIR, { recursive: true, force: true })
     fs.mkdirSync(TEST_DIR, { recursive: true })
     sandbox = new TestSandbox(TEST_DIR)
-    storage = new SandboxStorage()
-    storage.sandbox = sandbox
+    storage = new FileStorage({ sandbox })
   })
 
   afterEach(() => {
@@ -51,7 +50,7 @@ describe.skipIf(process.platform === 'win32')('SandboxStorage', () => {
   })
 
   it('uses a custom artifact directory', async () => {
-    const custom = new SandboxStorage({ artifactDir: 'custom-artifacts', sandbox })
+    const custom = new FileStorage({ artifactDir: 'custom-artifacts', sandbox })
     const reference = await custom.store('key', new TextEncoder().encode('custom path'), 'text/plain')
     expect(reference.startsWith('custom-artifacts/')).toBe(true)
     expect(new TextDecoder().decode((await custom.retrieve(reference)).content)).toBe('custom path')
@@ -60,9 +59,7 @@ describe.skipIf(process.platform === 'win32')('SandboxStorage', () => {
   it('persists content types across instances via .metadata.json', async () => {
     const reference = await storage.store('persist', new TextEncoder().encode('{}'), 'application/json')
 
-    // Fresh instance against the same sandbox: content type recovered from metadata.
-    const reopened = new SandboxStorage()
-    reopened.sandbox = sandbox
+    const reopened = new FileStorage({ sandbox })
     expect((await reopened.retrieve(reference)).contentType).toBe('application/json')
   })
 
@@ -80,12 +77,5 @@ describe.skipIf(process.platform === 'win32')('SandboxStorage', () => {
     expect(ref1).not.toBe(ref2)
     expect(new TextDecoder().decode((await storage.retrieve(ref1)).content)).toBe('first')
     expect(new TextDecoder().decode((await storage.retrieve(ref2)).content)).toBe('second')
-  })
-
-  it('throws a clear error when no sandbox is configured', async () => {
-    const detached = new SandboxStorage()
-    await expect(detached.store('k', new TextEncoder().encode('x'))).rejects.toThrow(
-      'SandboxStorage requires a Sandbox'
-    )
   })
 })

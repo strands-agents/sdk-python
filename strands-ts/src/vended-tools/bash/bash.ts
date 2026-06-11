@@ -263,22 +263,27 @@ export const bash = tool({
 
     const agent = context.agent
 
+    // Validate execute mode has command
     if (input.mode === 'execute' && !input.command) {
       throw new Error('command is required when mode is "execute"')
     }
 
+    // Handle restart mode
     if (input.mode === 'restart') {
       const existingSession = sessions.get(agent)
       if (existingSession) {
         existingSession.stop()
         sessions.delete(agent)
       }
+      // Create new session (will be added to activeSessions when started)
       const newSession = new BashSession(120)
       sessions.set(agent, newSession)
       sessionFinalizer.register(agent, newSession)
       return 'Bash session restarted'
     }
 
+    // Handle execute mode
+    // Get or create session
     let session = sessions.get(agent)
     if (!session) {
       session = new BashSession(input.timeout ?? 120)
@@ -286,6 +291,7 @@ export const bash = tool({
       sessionFinalizer.register(agent, session)
     }
 
+    // Execute command
     return session.run(input.command!, input.timeout)
   },
 })

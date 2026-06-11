@@ -272,6 +272,7 @@ export class AgentSkills implements Plugin {
       return
     }
 
+    // Falls back to the default NotASandboxLocalEnvironment when the agent has no explicit sandbox
     const sandbox = agent.sandbox
 
     // A failure (e.g. malformed SKILL.md) is logged and skipped so it does
@@ -289,33 +290,36 @@ export class AgentSkills implements Plugin {
     }
 
     for (const skillPath of this._skillPaths) {
-      try {
-        let entries: FileInfo[]
-        try {
-          entries = await sandbox.listFiles(skillPath)
-        } catch {
-          // Not a directory: accept a direct path to a SKILL.md file, as Skill.fromFile does.
-          if (skillPath.toLowerCase().endsWith('skill.md')) {
-            await loadSkill(skillPath.slice(0, skillPath.lastIndexOf('/')), skillPath)
-          } else {
-            logger.warn(`path=<${skillPath}> | skill source does not exist or is not a valid path`)
-          }
-          continue
-        }
-
-        const mdName = findSkillMdName(entries)
-        if (mdName) {
-          await loadSkill(skillPath, `${skillPath}/${mdName}`)
+      const entries = await sandbox.listFiles(skillPath).catch(async () => {
+        // Not a directory: accept a direct path to a SKILL.md file, as Skill.fromFile does.
+        if (skillPath.toLowerCase().endsWith('skill.md')) {
+          const slashIndex = skillPath.lastIndexOf('/')
+          await loadSkill(slashIndex === -1 ? '.' : skillPath.slice(0, slashIndex), skillPath)
         } else {
-          // Parent directory: load each subdirectory that contains a skill.
-          for (const entry of entries.filter((e) => e.isDir).sort((a, b) => a.name.localeCompare(b.name))) {
-            const childDir = `${skillPath}/${entry.name}`
-            const childMd = findSkillMdName(await sandbox.listFiles(childDir))
-            if (childMd) await loadSkill(childDir, `${childDir}/${childMd}`)
-          }
+          logger.warn(`path=<${skillPath}> | skill source does not exist or is not a valid path`)
         }
-      } catch (error) {
-        logger.warn(`path=<${skillPath}> | failed to load skill from sandbox: ${error}`)
+        return undefined
+      })
+
+      if (!entries) continue
+
+      const mdName = findSkillMdName(entries)
+      if (mdName) {
+        await loadSkill(skillPath, `${skillPath}/${mdName}`)
+        continue
+      }
+
+      // Parent directory: load each subdirectory that contains a skill.
+      for (const entry of entries.filter((e) => e.isDir).sort((a, b) => a.name.localeCompare(b.name))) {
+        const childDir = `${skillPath}/${entry.name}`
+        const childEntries = await sandbox.listFiles(childDir).catch((error) => {
+          logger.warn(`path=<${childDir}> | failed to load skill from sandbox: ${error}`)
+          return undefined
+        })
+        if (!childEntries) continue
+
+        const childMd = findSkillMdName(childEntries)
+        if (childMd) await loadSkill(childDir, `${childDir}/${childMd}`)
       }
     }
     this._agentSkills.set(agent, skills)

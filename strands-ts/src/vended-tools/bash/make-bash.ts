@@ -8,7 +8,7 @@
 import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { SandboxTimeoutError } from '../../sandbox/errors.js'
-import type { Sandbox } from '../../sandbox/base.js'
+import { Sandbox } from '../../sandbox/base.js'
 import type { BashOutput } from './types.js'
 import { BashTimeoutError, BashSessionError, SANDBOX_BASH_DESCRIPTION } from './types.js'
 
@@ -18,18 +18,25 @@ const sandboxBashInputSchema = z.object({
 })
 
 export interface MakeBashOptions {
-  sandbox?: Sandbox
   name?: string
   description?: string
   inputSchema?: z.ZodType
 }
 
 /**
- * Create a sandbox bash tool. If a sandbox is provided, it's bound at creation time.
+ * Create a sandbox bash tool. If a sandbox is passed, it's bound at creation time.
  * Otherwise, the tool reads from `context.agent.sandbox` at call time.
  * Used by sandbox implementations in `getTools()` and by users who want a customized bash tool.
  */
-export function makeBash(options: MakeBashOptions = {}): ReturnType<typeof tool> {
+export function makeSandboxBash(options?: MakeBashOptions): ReturnType<typeof tool>
+export function makeSandboxBash(sandbox: Sandbox | undefined, options?: MakeBashOptions): ReturnType<typeof tool>
+export function makeSandboxBash(
+  sandboxOrOptions?: Sandbox | MakeBashOptions,
+  maybeOptions?: MakeBashOptions
+): ReturnType<typeof tool> {
+  const boundSandbox = sandboxOrOptions instanceof Sandbox ? sandboxOrOptions : undefined
+  const options = sandboxOrOptions instanceof Sandbox || maybeOptions ? (maybeOptions ?? {}) : (sandboxOrOptions ?? {})
+
   return tool({
     name: options.name ?? 'bash',
     description: options.description ?? SANDBOX_BASH_DESCRIPTION,
@@ -39,7 +46,7 @@ export function makeBash(options: MakeBashOptions = {}): ReturnType<typeof tool>
         throw new Error('Tool context is required for bash operations')
       }
 
-      const sandbox = options.sandbox ?? context.agent.sandbox
+      const sandbox = boundSandbox ?? context.agent.sandbox
       try {
         const result = await sandbox.execute(input.command, { timeout: input.timeout ?? 120 })
         return { output: result.stdout, error: result.stderr } as BashOutput
