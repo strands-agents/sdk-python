@@ -237,8 +237,8 @@ class GoalLoop(Plugin):
             raise ValueError("GoalLoop: `goal` is required (a natural-language string or a validator function)")
         if max_attempts < 1:
             raise ValueError(f"max_attempts=<{max_attempts}> | must be at least 1")
-        if timeout < 0:
-            raise ValueError(f"timeout=<{timeout}> | must be non-negative")
+        if timeout <= 0:
+            raise ValueError(f"timeout=<{timeout}> | must be positive")
 
         self._name = name
 

@@ -71,9 +71,11 @@ class TestConstructorValidation:
         with pytest.raises(ValueError, match="must be at least 1"):
             GoalLoop(goal="test goal", max_attempts=-1)
 
-    def test_negative_timeout_rejected(self):
-        with pytest.raises(ValueError, match="must be non-negative"):
+    def test_non_positive_timeout_rejected(self):
+        with pytest.raises(ValueError, match="must be positive"):
             GoalLoop(goal="test goal", timeout=-1)
+        with pytest.raises(ValueError, match="must be positive"):
+            GoalLoop(goal="test goal", timeout=0)
 
     def test_unbounded_warns(self):
         with pytest.warns(UserWarning, match="unbounded"):

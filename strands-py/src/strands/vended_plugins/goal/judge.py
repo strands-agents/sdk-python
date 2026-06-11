@@ -125,4 +125,4 @@ def _truncate(text: str, max_len: int = 500) -> str:
     """Trim long strings so a single tool call can't dominate the judge prompt."""
     if len(text) <= max_len:
         return text
-    return f"{text[:max_len]}... [{len(text) - max_len} more chars]"
+    return f"{text[:max_len]}… [{len(text) - max_len} more chars]"
