@@ -22,11 +22,11 @@ jobs:
         with:
           sparse-checkout: .github/labelers
           sparse-checkout-cone-mode: false
-      # max_labels omitted: issues may span multiple areas
       - uses: strands-agents/devtools/issue-labeler@main
         with:
           aws_role_arn: ${{ secrets.AWS_ROLE_ARN }}
           config_path: '.github/labelers/area.yml'
+          max_labels: '2'
 
   label-type:
     name: "Label: Type"
