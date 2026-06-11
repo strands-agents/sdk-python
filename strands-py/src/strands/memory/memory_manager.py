@@ -29,7 +29,6 @@ from ..plugins.plugin import Plugin
 from ..tools.decorator import DecoratedFunctionTool, tool
 from ..types.exceptions import AggregateMemoryError
 from ..types.tools import AgentTool
-from ._errors import _flatten_reasons
 from .extraction.coordinator import ExtractionCoordinator
 from .extraction.types import ExtractionTrigger, ExtractionTriggerContext
 from .types import (
@@ -73,6 +72,28 @@ def _normalize_triggers(trigger: ExtractionTrigger | list[ExtractionTrigger]) ->
         The triggers as a list.
     """
     return list(trigger) if isinstance(trigger, list) else [trigger]
+
+
+def _flatten_reasons(reasons: list[BaseException]) -> list[BaseException]:
+    """Flatten nested aggregate errors so the leaves are concrete reasons.
+
+    Any ``AggregateMemoryError`` in ``reasons`` is replaced by its own
+    (recursively flattened) ``errors``, so the result holds concrete underlying
+    errors rather than aggregates-of-aggregates.
+
+    Args:
+        reasons: The exceptions to flatten.
+
+    Returns:
+        A flat list of concrete leaf exceptions.
+    """
+    flattened: list[BaseException] = []
+    for reason in reasons:
+        if isinstance(reason, AggregateMemoryError):
+            flattened.extend(_flatten_reasons(reason.errors))
+        else:
+            flattened.append(reason)
+    return flattened
 
 
 class MemoryManager(Plugin):
