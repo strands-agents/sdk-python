@@ -43,6 +43,7 @@ For each code block:
 - Focused on one concept.
 - Non-deterministic output labeled "Typical output" per voice guide patterns.
 - Claim parity: every claim made by surrounding prose or in-snippet comments is demonstrated by the code. If the prose says "this retries an additional error type," the code must show the override. If a comment says "preserves the status field," that field must appear in the reconstruction. Type-correct snippets that don't back their claims slip past typecheck and erode trust faster than missing examples.
+- **Site build conventions:** TypeScript code must use `--8<--` snippet includes from sibling `.ts` files, never inlined in the MDX. Each TypeScript fence should include both an imports snippet and a body snippet so the rendered block is self-contained and runnable. A body-only include missing its imports is incomplete. Python may be inlined. Flag any TypeScript code block that contains raw code instead of include directives. Reference `../../references/mdx-authoring.md` for the expected pattern.
 
 ### 4. Human+AI Readability
 

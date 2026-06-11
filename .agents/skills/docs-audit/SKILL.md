@@ -52,6 +52,7 @@ Specific checks:
 - Are parameter names and types correct against the latest SDK source?
 - Are any documented features deprecated or removed?
 - Are internal cross-reference links working?
+- **Snippet file conventions:** TypeScript code must live in sibling `.ts` snippet files (included via `--8<--`), never inlined in MDX. Each TypeScript fence should include both an imports snippet (`_imports.ts`) and a body snippet so the rendered block is self-contained. Verify that each `--8<-- "path:region"` directive references a real file with a matching `[start:region]`/`[end:region]` pair. Flag inlined TypeScript or missing imports includes as structural issues.
 
 ### Step 4: AI-readability check
 

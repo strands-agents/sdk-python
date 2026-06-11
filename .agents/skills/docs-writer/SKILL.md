@@ -56,23 +56,16 @@ Apply MDX formatting patterns from `../../references/mdx-authoring.md` — espec
 
 When shared prose needs to reference a language-specific identifier (method name, parameter, class, etc.), use `<Syntax py="..." ts="..." />`. This keeps prose clean and adapts to the reader's language selection. Never spell out both variants manually in prose.
 
-**CRITICAL: TypeScript code must NEVER be inlined in the MDX file.** All TypeScript examples live in runnable `.ts` source files alongside the MDX page and are pulled in via `--8<--` include directives. This is a hard requirement, not a suggestion. The pattern:
+**TypeScript code is never inlined in MDX.** All TypeScript examples live in runnable `.ts` snippet files alongside the page and are included via `--8<--` directives. Two files per page:
 
-1. Create `<page-name>_imports.ts` — one snippet region per example's import set (`// @ts-nocheck` at top since imports repeat across snippets).
-2. Create `<page-name>.ts` — body snippets wrapped in block scopes `{ }` with `// --8<-- [start:name]` / `// --8<-- [end:name]` markers inside the braces.
-3. In the MDX, reference both files inside a single ` ```typescript ` fence:
+- **`<page>_imports.ts`** — one named snippet region per example's import set. Every example gets its own imports snippet so the rendered block is self-contained.
+- **`<page>.ts`** — body snippets scoped in blocks.
 
-````markdown
-```typescript
---8<-- "user-guide/concepts/plugins/page-name_imports.ts:snippet_name"
+In the MDX, each TypeScript code fence contains two `--8<--` includes (imports + body) inside a single fence so it renders as one copy-pasteable block. Every example must include its imports — a body-only include that omits the import line produces a snippet that isn't runnable.
 
---8<-- "user-guide/concepts/plugins/page-name.ts:snippet_name"
-```
-````
+Read `../../references/mdx-authoring.md` ("Snippet Inclusion" and "TypeScript Snippet Scoping") for the full specification. Look at any existing page with TypeScript tabs in the same directory for the concrete file layout.
 
-For short snippets with no imports, the body-only include is fine (skip the imports line). See `context-offloader.ts` and `context-offloader_imports.ts` as the canonical reference implementation.
-
-Python code may be inlined directly in the MDX (no snippet file needed) since Python doesn't have the `isolatedModules` scoping constraint.
+Python code may be inlined directly in the MDX since Python files in the docs tree don't go through a type-checker.
 
 ### Step 4: Constrain
 
@@ -139,7 +132,7 @@ Follow the git workflow described in the repo's `AGENTS.md` and `CONTRIBUTING.md
 
 ## Gotchas
 
-- **Never inline TypeScript in MDX.** TypeScript code always lives in sibling `.ts` snippet files (`<page>_imports.ts` + `<page>.ts`) and is pulled into the MDX via `--8<--` include syntax. Inlined TypeScript is a build/review failure. See Step 3b.
+- **Never inline TypeScript in MDX.** TypeScript examples live in sibling `.ts` snippet files and are included via `--8<--` directives. Inlined TypeScript fails review. See Step 3b and `mdx-authoring.md`.
 - Always verify code against SDK source. The most common failure mode is plausible imports that don't exist or parameters with wrong names.
 - Terminology lock is strict. "Hook" not "callback." "Plugin" not "middleware." "Tool" not "function." Check before drafting.
 - The constraint overrides table relaxes different rules per content type. Don't apply tutorial constraints to reference pages.
