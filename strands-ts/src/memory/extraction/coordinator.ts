@@ -4,7 +4,7 @@ import type { Model } from '../../models/model.js'
 import { logger } from '../../logging/logger.js'
 import { normalizeError } from '../../errors.js'
 import type { MemoryMessageFilter } from './types.js'
-import type { ResolvedExtractionConfig } from './resolve.js'
+import type { ResolvedExtractionConfig } from './resolve-extraction-config.js'
 
 /** A store paired with its fully-resolved extraction config. */
 export interface ExtractionBinding {
@@ -87,7 +87,7 @@ function _filterMessages(buffered: BufferedMessage[], filter: MemoryMessageFilte
 export class ExtractionCoordinator {
   private readonly _stores: MemoryStore[]
   /** Per store: its resolved extraction config (triggers, extractor, filter). */
-  private readonly _configs = new Map<MemoryStore, ResolvedExtractionConfig>()
+  private readonly _storeToExtractionConfig = new Map<MemoryStore, ResolvedExtractionConfig>()
   private readonly _defaultModel: Model
   /** The shared list of messages waiting to be saved, oldest first. Each is tagged with its `seq`. */
   private _pending: BufferedMessage[] = []
@@ -110,7 +110,7 @@ export class ExtractionCoordinator {
     this._stores = stores.map((s) => s.store)
     this._defaultModel = defaultModel
     for (const { store, config } of stores) {
-      this._configs.set(store, config)
+      this._storeToExtractionConfig.set(store, config)
       this._marks.set(store, -1)
     }
   }
@@ -189,7 +189,7 @@ export class ExtractionCoordinator {
     const highestSeq = fresh[fresh.length - 1]!.seq
     this._marks.set(store, highestSeq)
 
-    const filter = this._configs.get(store)!.filter
+    const filter = this._storeToExtractionConfig.get(store)!.filter
     const filtered = _filterMessages(fresh, filter)
 
     try {
@@ -238,7 +238,7 @@ export class ExtractionCoordinator {
    * next time - so a fact that already saved may be written again (stores should expect duplicates).
    */
   private async _write(store: MemoryStore, buffered: BufferedMessage[]): Promise<void> {
-    const extractor = this._configs.get(store)!.extractor
+    const extractor = this._storeToExtractionConfig.get(store)!.extractor
     const messages = buffered.map((buffer) => buffer.message)
 
     if (extractor) {

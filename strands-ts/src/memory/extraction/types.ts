@@ -128,10 +128,11 @@ export interface ExtractionConfig {
    */
   trigger?: ExtractionTrigger | ExtractionTrigger[]
   /**
-   * How to turn messages into entries. When set, the store must implement `add` (entries are written
-   * to it). When omitted, the manager hands the filtered messages straight to the store's
-   * `addMessages` (which the store must then implement) — so backends that extract server-side need
-   * no client-side extractor.
+   * How to turn messages into entries (client-side extraction). When set, the store must implement
+   * `add` and each produced entry is stored through it. When omitted, the default depends on the
+   * store's write methods: a store implementing `addMessages` uses server-side extraction (the manager
+   * hands it the raw messages, no model call), while a store implementing only `add` defaults to a
+   * {@link ModelExtractor} that distills facts client-side.
    */
   extractor?: Extractor
   /**

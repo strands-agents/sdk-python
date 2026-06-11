@@ -13,7 +13,7 @@ import type {
 import type { JSONValue } from '../types/json.js'
 import { MessageAddedEvent } from '../hooks/events.js'
 import { ExtractionCoordinator, type ExtractionBinding } from './extraction/coordinator.js'
-import { resolveExtractionConfig } from './extraction/resolve.js'
+import { resolveExtractionConfig } from './extraction/resolve-extraction-config.js'
 import { tool } from '../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../logging/logger.js'

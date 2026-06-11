@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { resolveExtractionConfig, DEFAULT_EXTRACTION_TRIGGER_TURNS } from '../resolve.js'
+import { resolveExtractionConfig, DEFAULT_EXTRACTION_TRIGGER_TURNS } from '../resolve-extraction-config.js'
 import { IntervalTrigger, InvocationTrigger } from '../triggers.js'
 import { ModelExtractor } from '../model-extractor.js'
 import { DEFAULT_MEMORY_MESSAGE_FILTER, type Extractor } from '../types.js'

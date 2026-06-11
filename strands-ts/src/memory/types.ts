@@ -78,9 +78,11 @@ export interface MemoryStoreConfig {
    * Automatic-extraction config for this writable store, as a `boolean | config` shorthand. `true`
    * enables it with defaults; an {@link ExtractionConfig} defaults any unset field; `false`/omitted is off.
    *
-   * The defaults run every 5 turns with a capability-based extractor: an `add`-only store
-   * gets a {@link ModelExtractor} that calls the agent's model to distill facts and writes them via
-   * `add` (client-side extraction); a store with `addMessages` instead gets the no-model passthrough of raw messages (server-side extraction).
+   * The defaults run every 5 turns, and the extraction method depends on the store's write methods. A
+   * store implementing `addMessages` uses server-side extraction: the manager hands it the raw messages
+   * and the backend extracts them, with no model call. A store implementing only `add` uses a
+   * {@link ModelExtractor} for client-side extraction: it calls the agent's model to distill facts and
+   * stores each one via `add`.
    *
    * @defaultValue false
    */

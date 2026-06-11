@@ -20,7 +20,10 @@ export const DEFAULT_EXTRACTION_TRIGGER_TURNS = 5
 export interface ResolvedExtractionConfig {
   /** Normalized to an array (a single trigger is wrapped). Never empty for a resolved config. */
   triggers: ExtractionTrigger[]
-  /** The extractor to distill facts, or `undefined` for the raw-message `addMessages` passthrough. */
+  /**
+   * The extractor that distills facts client-side and stores them via the store's `add` method, or
+   * `undefined` to use the store's `addMessages` method (server-side extraction).
+   */
   extractor?: Extractor
   /** The content-block filter applied before extraction. */
   filter: MemoryMessageFilter
@@ -31,13 +34,18 @@ export interface ResolvedExtractionConfig {
  *
  * The single place the `boolean | ExtractionConfig` shorthand is interpreted: `false`/omitted is off
  * (returns `undefined`), `true` enables all defaults, an {@link ExtractionConfig} defaults its unset
- * fields. Defaults are: trigger every {@link DEFAULT_EXTRACTION_TRIGGER_TURNS} turns (an explicit empty
- * array is left empty for the {@link MemoryManager} to reject); a capability-based extractor (add-only
- * stores get a {@link ModelExtractor}; stores with `addMessages` get the no-extractor passthrough, with
- * no model call); and {@link DEFAULT_MEMORY_MESSAGE_FILTER}.
+ * fields. The defaults are:
+ * - **trigger**: every {@link DEFAULT_EXTRACTION_TRIGGER_TURNS} turns. An explicit empty array is left
+ *   empty for the {@link MemoryManager} to reject.
+ * - **extractor**: chosen from the methods the store implements. A store that implements `addMessages`
+ *   supports server-side extraction, so it defaults to no extractor: the manager hands raw messages to
+ *   `addMessages` and the backend extracts them itself, with no model call. A store that implements only
+ *   `add` cannot extract server-side, so it defaults to a {@link ModelExtractor} that distills facts
+ *   client-side (via model calls) and stores each one through `add`.
+ * - **filter**: {@link DEFAULT_MEMORY_MESSAGE_FILTER}.
  *
  * @param extraction - The store's `extraction` setting
- * @param store - The store, inspected for its write sinks to pick the default extractor
+ * @param store - The store, inspected for the write methods it implements to pick the default extractor
  * @returns The resolved config, or `undefined` when extraction is disabled
  */
 export function resolveExtractionConfig(
@@ -58,18 +66,23 @@ export function resolveExtractionConfig(
 
   let extractor = config.extractor
   if (extractor === undefined) {
-    // A store with addMessages (or both sinks) takes the passthrough - no implicit model call. Only an
-    // add-only store defaults to distilling facts with a ModelExtractor.
-    const hasAdd = typeof store.add === 'function'
-    const hasAddMessages = typeof store.addMessages === 'function'
-    if (hasAdd && !hasAddMessages) {
+    // Pick the default extractor from the store's write methods:
+    // - implements `addMessages` (whether or not it also implements `add`): extract server-side. Leave
+    //   the extractor undefined so raw messages go straight to `addMessages` with no model call.
+    // - implements only `add`: it cannot extract server-side, so default to a ModelExtractor that
+    //   distills facts client-side and stores each via `add`.
+    const implementsAdd = typeof store.add === 'function'
+    const implementsAddMessages = typeof store.addMessages === 'function'
+    if (implementsAdd && !implementsAddMessages) {
       extractor = new ModelExtractor()
     }
   }
 
+  const filter = config.filter ?? DEFAULT_MEMORY_MESSAGE_FILTER
+
   return {
     triggers,
     ...(extractor !== undefined && { extractor }),
-    filter: config.filter ?? DEFAULT_MEMORY_MESSAGE_FILTER,
+    filter,
   }
 }

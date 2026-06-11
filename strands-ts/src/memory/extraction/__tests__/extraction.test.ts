@@ -7,7 +7,7 @@ import {
   BACKOFF_PROBE_INTERVAL,
   type ExtractionBinding,
 } from '../coordinator.js'
-import { resolveExtractionConfig } from '../resolve.js'
+import { resolveExtractionConfig } from '../resolve-extraction-config.js'
 import type { Model } from '../../../models/model.js'
 import type { ExtractionConfig, Extractor } from '../types.js'
 import type { MemoryStore, MemoryEntry, AddMessagesContext } from '../../types.js'
