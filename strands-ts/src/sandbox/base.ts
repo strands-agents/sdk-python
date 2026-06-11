@@ -7,6 +7,7 @@
  */
 
 import type { ExecutionResult, FileInfo, StreamChunk } from './types.js'
+import type { Tool } from '../tools/tool.js'
 
 /**
  * Options for command and code execution.
@@ -109,6 +110,21 @@ export abstract class Sandbox {
    * @throws Error if the directory does not exist.
    */
   abstract listFiles(path: string): Promise<FileInfo[]>
+
+  /**
+   * Prefix applied to tool names when registered on an agent (e.g. `'sandbox'` produces
+   * `sandbox_bash`). Set to `undefined` to disable prefixing. Defaults to `'sandbox'`.
+   */
+  toolPrefix: string | undefined = 'sandbox'
+
+  /**
+   * Tools this sandbox vends to an agent, registered during `Agent.initialize()`.
+   * A tool is skipped if the user already registered one with the same name.
+   * Override to provide them.
+   */
+  getTools(): Tool[] {
+    return []
+  }
 
   // ---- Non-streaming convenience methods ----
 

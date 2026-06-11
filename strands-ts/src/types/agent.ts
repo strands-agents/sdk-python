@@ -1,3 +1,4 @@
+import type { Sandbox } from '../sandbox/base.js'
 import type { StateStore } from '../state-store.js'
 import type { ContentBlock, ContentBlockData, Message, MessageData, StopReason, SystemPrompt } from './messages.js'
 import type { Interrupt } from '../interrupt.js'
@@ -270,6 +271,14 @@ export interface LocalAgent {
    * The tool registry for registering tools with the agent.
    */
   readonly toolRegistry: ToolRegistry
+
+  /**
+   * Execution environment for running commands, code, and file operations.
+   *
+   * @throws DefaultNotConfiguredError if no sandbox is configured for this
+   * environment (e.g. browsers, where no host default is registered).
+   */
+  readonly sandbox: Sandbox
 
   /**
    * The model provider used by the agent for inference.

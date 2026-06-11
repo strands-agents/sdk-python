@@ -1,5 +1,5 @@
 import type { Plugin } from '../../plugins/plugin.js'
-import type { Tool } from '../../tools/tool.js'
+import type { Tool, ToolContext } from '../../tools/tool.js'
 import type { LocalAgent } from '../../types/agent.js'
 import { AfterToolCallEvent } from '../../hooks/events.js'
 import { TextBlock, JsonBlock, ToolResultBlock, Message } from '../../types/messages.js'
@@ -10,7 +10,7 @@ import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../../logging/logger.js'
 import type { JSONValue } from '../../types/json.js'
-import type { Storage } from './storage.js'
+import { FileStorage, type Storage } from './storage.js'
 import { isSearchableContent, searchContent } from './search.js'
 
 const CHARS_PER_TOKEN = 4
@@ -137,6 +137,7 @@ export class ContextOffloader implements Plugin {
   private readonly _maxResultTokens: number
   private readonly _previewTokens: number
   private readonly _includeRetrievalTool: boolean
+  private readonly _storageByAgent = new WeakMap<LocalAgent, Storage>()
   private _retrievalTool: Tool | undefined
 
   constructor(config: ContextOffloaderConfig) {
@@ -154,6 +155,7 @@ export class ContextOffloader implements Plugin {
   }
 
   initAgent(agent: LocalAgent): void {
+    this._storageForAgent(agent)
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))
   }
 
@@ -163,8 +165,26 @@ export class ContextOffloader implements Plugin {
     return [this._retrievalTool]
   }
 
+  private _storageForAgent(agent: LocalAgent): Storage {
+    if (!(this._storage instanceof FileStorage)) return this._storage
+
+    let storage = this._storageByAgent.get(agent)
+    if (!storage) {
+      storage = this._storage.forSandbox(agent.sandbox)
+      this._storageByAgent.set(agent, storage)
+    }
+    return storage
+  }
+
+  private _storageForToolContext(context?: ToolContext): Storage {
+    if (!(this._storage instanceof FileStorage)) return this._storage
+    if (!context) {
+      throw new Error('FileStorage retrieval requires a tool execution context.')
+    }
+    return this._storageForAgent(context.agent)
+  }
+
   private _createRetrievalTool(): Tool {
-    const storage = this._storage
     const maxChars = this._maxResultTokens * CHARS_PER_TOKEN
 
     return tool({
@@ -185,8 +205,9 @@ export class ContextOffloader implements Plugin {
         '  { reference: "ref_1", line_range: { start: 10, end: 25 } } → lines 10-25\n' +
         '  { reference: "ref_1", pattern: "TODO", line_range: { start: 1, end: 50 } } → search within range',
       inputSchema: retrievalInputSchema,
-      callback: async (input) => {
+      callback: async (input, context) => {
         try {
+          const storage = this._storageForToolContext(context)
           const result = await storage.retrieve(input.reference)
 
           if (!input.pattern && !input.line_range && input.context_lines === undefined) {
@@ -215,17 +236,18 @@ export class ContextOffloader implements Plugin {
   }
 
   private async _storeBlock(
+    storage: Storage,
     block: ToolResultContent,
     key: string
   ): Promise<{ ref: string; contentType: string; description: string }> {
     if (block instanceof TextBlock && block.text) {
-      const ref = await this._storage.store(key, new TextEncoder().encode(block.text), 'text/plain')
+      const ref = await storage.store(key, new TextEncoder().encode(block.text), 'text/plain')
       return { ref, contentType: 'text/plain', description: `text, ${block.text.length.toLocaleString()} chars` }
     }
     if (block instanceof JsonBlock) {
       const jsonStr = JSON.stringify(block.json, null, 2)
       const jsonBytes = new TextEncoder().encode(jsonStr)
-      const ref = await this._storage.store(key, jsonBytes, 'application/json')
+      const ref = await storage.store(key, jsonBytes, 'application/json')
       return { ref, contentType: 'application/json', description: `json, ${jsonBytes.length.toLocaleString()} bytes` }
     }
     if (block instanceof ImageBlock || block instanceof VideoBlock || block instanceof DocumentBlock) {
@@ -238,7 +260,7 @@ export class ContextOffloader implements Plugin {
             : `application/${block.format}`
       const label = block instanceof DocumentBlock ? block.name : contentType
       if (bytes) {
-        const ref = await this._storage.store(key, bytes, contentType)
+        const ref = await storage.store(key, bytes, contentType)
         return { ref, contentType, description: `${label}, ${bytes.length.toLocaleString()} bytes` }
       }
       return { ref: '', contentType, description: `${label}, 0 bytes` }
@@ -304,7 +326,8 @@ export class ContextOffloader implements Plugin {
     // Store each content block to the storage backend
     let references: Array<{ ref: string; contentType: string; description: string }>
     try {
-      references = await Promise.all(content.map((block, i) => this._storeBlock(block, `${toolUseId}_${i}`)))
+      const storage = this._storageForAgent(event.agent)
+      references = await Promise.all(content.map((block, i) => this._storeBlock(storage, block, `${toolUseId}_${i}`)))
     } catch (err) {
       logger.warn(`tool_use_id=<${toolUseId}> | failed to offload tool result, keeping original`, err)
       return

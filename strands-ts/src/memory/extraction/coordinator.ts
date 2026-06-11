@@ -3,12 +3,30 @@ import type { MessageData, ContentBlockData } from '../../types/messages.js'
 import type { Model } from '../../models/model.js'
 import { logger } from '../../logging/logger.js'
 import { normalizeError } from '../../errors.js'
-import { DEFAULT_MEMORY_MESSAGE_FILTER, type MemoryMessageFilter } from './types.js'
+import type { MemoryMessageFilter } from './types.js'
+import type { ResolvedExtractionConfig } from './resolve-extraction-config.js'
 
-/** Number of consecutive save failures after which a store backs off (stops trying every turn). */
+/**
+ * A store paired with its fully-resolved extraction config.
+ * @internal
+ */
+export interface ExtractionBinding {
+  /** The memory store to extract into. */
+  store: MemoryStore
+  /** The store's fully-resolved extraction config (triggers, extractor, filter). */
+  config: ResolvedExtractionConfig
+}
+
+/**
+ * Number of consecutive save failures after which a store backs off (stops trying every turn).
+ * @internal
+ */
 export const SAVE_FAILURES_BEFORE_BACKOFF = 10
 
-/** While backed off, a store retries only once every this many save attempts (a probe). */
+/**
+ * While backed off, a store retries only once every this many save attempts (a probe).
+ * @internal
+ */
 export const BACKOFF_PROBE_INTERVAL = 3
 
 /** A buffered message and its sequence number. */
@@ -24,17 +42,23 @@ function _blockKind(block: ContentBlockData): string {
   return Object.keys(block)[0] ?? ''
 }
 
-/** Removes excluded content blocks, and drops any message left empty. Does not mutate the input. */
-function _filterMessages(messages: MessageData[], filter: MemoryMessageFilter): MessageData[] {
+/**
+ * Removes excluded content blocks, and drops any message left empty. Does not mutate the input.
+ * Carries each message's sequence number through so it stays aligned with the filtered batch.
+ */
+function _filterMessages(buffered: BufferedMessage[], filter: MemoryMessageFilter): BufferedMessage[] {
   const exclude = new Set<string>(filter.exclude)
-  const result: MessageData[] = []
-  for (const message of messages) {
+  const result: BufferedMessage[] = []
+  for (const { seq, message } of buffered) {
     const content = message.content.filter((block) => !exclude.has(_blockKind(block)))
     if (content.length > 0) {
       result.push({
-        role: message.role,
-        content,
-        ...(message.metadata !== undefined && { metadata: message.metadata }),
+        seq,
+        message: {
+          role: message.role,
+          content,
+          ...(message.metadata !== undefined && { metadata: message.metadata }),
+        },
       })
     }
   }
@@ -68,9 +92,12 @@ function _filterMessages(messages: MessageData[], filter: MemoryMessageFilter): 
  *
  * Saving itself either runs the store's extractor to pull out facts, or hands the raw messages to the
  * store - see {@link _write}.
+ * @internal
  */
 export class ExtractionCoordinator {
   private readonly _stores: MemoryStore[]
+  /** Per store: its resolved extraction config (triggers, extractor, filter). */
+  private readonly _storeToExtractionConfig = new Map<MemoryStore, ResolvedExtractionConfig>()
   private readonly _defaultModel: Model
   /** The shared list of messages waiting to be saved, oldest first. Each is tagged with its `seq`. */
   private _pending: BufferedMessage[] = []
@@ -86,13 +113,14 @@ export class ExtractionCoordinator {
   private readonly _backoffCounters = new Map<MemoryStore, number>()
 
   /**
-   * @param stores - The extraction-configured stores this coordinator manages
+   * @param stores - The extraction-configured stores this coordinator manages, each with its resolved config
    * @param defaultModel - The agent's model, passed to extractors that don't configure their own
    */
-  constructor(stores: MemoryStore[], defaultModel: Model) {
-    this._stores = stores
+  constructor(stores: ExtractionBinding[], defaultModel: Model) {
+    this._stores = stores.map((s) => s.store)
     this._defaultModel = defaultModel
-    for (const store of stores) {
+    for (const { store, config } of stores) {
+      this._storeToExtractionConfig.set(store, config)
       this._marks.set(store, -1)
     }
   }
@@ -171,12 +199,8 @@ export class ExtractionCoordinator {
     const highestSeq = fresh[fresh.length - 1]!.seq
     this._marks.set(store, highestSeq)
 
-    const extraction = store.extraction!
-    const filter = extraction.filter ?? DEFAULT_MEMORY_MESSAGE_FILTER
-    const filtered = _filterMessages(
-      fresh.map((buffered) => buffered.message),
-      filter
-    )
+    const filter = this._storeToExtractionConfig.get(store)!.filter
+    const filtered = _filterMessages(fresh, filter)
 
     try {
       if (filtered.length > 0) {
@@ -223,8 +247,9 @@ export class ExtractionCoordinator {
    * Fact writes run in parallel. If any fails we throw, which makes the caller retry the whole batch
    * next time - so a fact that already saved may be written again (stores should expect duplicates).
    */
-  private async _write(store: MemoryStore, messages: MessageData[]): Promise<void> {
-    const extractor = store.extraction!.extractor
+  private async _write(store: MemoryStore, buffered: BufferedMessage[]): Promise<void> {
+    const extractor = this._storeToExtractionConfig.get(store)!.extractor
+    const messages = buffered.map((buffer) => buffer.message)
 
     if (extractor) {
       const entries = await extractor.extract(messages, { defaultModel: this._defaultModel })
@@ -232,14 +257,15 @@ export class ExtractionCoordinator {
       const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       if (failures.length > 0) {
         throw new AggregateError(
-          failures.map((f) => f.reason),
+          failures.map((failure) => failure.reason),
           `failed to write ${failures.length} of ${entries.length} extracted entries`
         )
       }
       return
     }
 
-    await store.addMessages!(messages)
+    // Pass each message's sequence number so a store can build an idempotency key surviving retries.
+    await store.addMessages!(messages, { sequenceNumbers: buffered.map((buffer) => buffer.seq) })
   }
 
   /**

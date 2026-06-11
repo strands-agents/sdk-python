@@ -44,7 +44,7 @@ jobs:
       - name: Configure Credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
-         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+         role-to-assume: ${{ secrets.STRANDS_INTEG_TEST_ROLE }}
          aws-region: us-east-1
          mask-aws-account-id: true
 

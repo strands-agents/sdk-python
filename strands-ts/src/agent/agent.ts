@@ -115,6 +115,8 @@ import { isInterruptResponseContent, type InterruptResponseContent } from '../ty
 import { takeSnapshot as takeSnapshotInternal, loadSnapshot as loadSnapshotInternal } from './snapshot.js'
 import type { TakeSnapshotOptions } from './snapshot.js'
 import type { Snapshot } from '../types/snapshot.js'
+import type { Sandbox } from '../sandbox/base.js'
+import { defaultSandbox } from '../sandbox/default.js'
 
 /**
  * Recursive type definition for nested tool arrays.
@@ -280,6 +282,20 @@ export type AgentConfig = {
    * Defaults to `'concurrent'`. See {@link ToolExecutorStrategy} for details.
    */
   toolExecutor?: ToolExecutorStrategy
+  /**
+   * Execution environment for running commands, code, and file operations.
+   * When provided, sandbox-aware tools route operations through it.
+   *
+   * Two distinct intents, even though they resolve to the same host execution
+   * in Node today:
+   * - Omitted: use the environment's default sandbox (host execution in Node).
+   *   This default is the slot reserved for richer behavior later.
+   * - `false`: explicitly opt out of a managed sandbox and run on the host.
+   *
+   * Keep `false` distinct from omitting so the opt-out stays stable even if the
+   * default changes.
+   */
+  sandbox?: Sandbox | false
 }
 
 /**
@@ -408,6 +424,18 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   public readonly memoryManager?: MemoryManager | undefined
 
+  private readonly _sandbox: Sandbox | false | undefined
+
+  /**
+   * Execution environment for running commands, code, and file operations.
+   *
+   * @throws DefaultNotConfiguredError if no sandbox is configured for this
+   * environment (e.g. browsers, where no host default is registered).
+   */
+  get sandbox(): Sandbox {
+    return this._sandbox || defaultSandbox.get()
+  }
+
   private readonly _hooksRegistry: HookRegistryImplementation
   private readonly _middlewareRegistry: MiddlewareRegistry
   private readonly _pluginRegistry: PluginRegistry
@@ -450,6 +478,7 @@ export class Agent implements LocalAgent, InvokableAgent {
         : config?.memoryManager
           ? new MemoryManager(config.memoryManager)
           : undefined
+    this._sandbox = config?.sandbox
 
     if (typeof config?.model === 'string') {
       this.model = new BedrockModel({ modelId: config.model })
@@ -706,6 +735,27 @@ export class Agent implements LocalAgent, InvokableAgent {
         }
       })
     )
+
+    // Register tools vended by an explicitly-configured sandbox, applying the sandbox's
+    // toolPrefix to names (like MCP's prefix for server-vended tools).
+    if (this._sandbox) {
+      const prefix = this._sandbox.toolPrefix
+      for (const tool of this._sandbox.getTools()) {
+        const prefixed = prefix
+          ? Object.create(tool, {
+              name: { value: `${prefix}_${tool.name}` },
+              toolSpec: { value: { ...tool.toolSpec, name: `${prefix}_${tool.name}` } },
+            })
+          : tool
+        if (this._toolRegistry.get(prefixed.name)) {
+          logger.debug(
+            `tool_name=<${prefixed.name}> | sandbox-vended tool skipped, user has already registered tool with this name`
+          )
+        } else {
+          this._toolRegistry.add(prefixed)
+        }
+      }
+    }
 
     await this._pluginRegistry.initialize(this)
 

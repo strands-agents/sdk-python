@@ -14,8 +14,8 @@ import type {
 import type { JSONValue } from '../types/json.js'
 import type { MessageData } from '../types/messages.js'
 import { MessageAddedEvent } from '../hooks/events.js'
-import { ExtractionCoordinator } from './extraction/coordinator.js'
-import type { ExtractionTrigger } from './extraction/types.js'
+import { ExtractionCoordinator, type ExtractionBinding } from './extraction/coordinator.js'
+import { resolveExtractionConfig } from './extraction/resolve-extraction-config.js'
 import { tool } from '../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../logging/logger.js'
@@ -59,11 +59,6 @@ function _hasWriteSink(store: MemoryStore): boolean {
   return typeof store.add === 'function' || typeof store.addMessages === 'function'
 }
 
-/** Normalizes a store's `trigger` field (a single trigger or an array) to an array. */
-function _normalizeTriggers(trigger: ExtractionTrigger | ExtractionTrigger[]): ExtractionTrigger[] {
-  return Array.isArray(trigger) ? trigger : [trigger]
-}
-
 /**
  * Provides cross-session memory retrieval and storage for agents.
  *
@@ -96,8 +91,8 @@ export class MemoryManager implements Plugin {
   private readonly _searchToolConfig: MemoryToolConfig | false
   private readonly _addToolConfig: MemoryAddToolConfig | false
   private readonly _addToolStores: MemoryStore[]
-  /** Stores with an extraction config and at least one trigger; wired up in {@link initAgent}. */
-  private readonly _extractionStores: MemoryStore[]
+  /** Stores with extraction enabled, each paired with its resolved config; wired up in {@link initAgent}. */
+  private readonly _extractionStores: ExtractionBinding[]
   /** Background extraction coordinator, created in {@link initAgent} when extraction is configured. */
   private _coordinator: ExtractionCoordinator | undefined
   /** Resolved injection config, or `false` when injection is disabled. */
@@ -109,6 +104,7 @@ export class MemoryManager implements Plugin {
     }
 
     const seenNames = new Set<string>()
+    const extractionStores: ExtractionBinding[] = []
     for (const store of config.stores) {
       if (seenNames.has(store.name)) {
         throw new Error(`MemoryManager: duplicate store name '${store.name}'`)
@@ -123,12 +119,13 @@ export class MemoryManager implements Plugin {
         if (!store.writable) {
           throw new Error(`MemoryManager: store '${store.name}' has extraction config but is not writable`)
         }
-        if (_normalizeTriggers(store.extraction.trigger).length === 0) {
+        const resolved = resolveExtractionConfig(store.extraction, store)!
+        if (resolved.triggers.length === 0) {
           throw new Error(`MemoryManager: store '${store.name}' has extraction config but no triggers`)
         }
         // Each extraction shape needs its matching write sink. An extractor produces discrete entries
         // written via `add`; without an extractor the raw message batch goes to `addMessages`.
-        if (store.extraction.extractor) {
+        if (resolved.extractor) {
           if (typeof store.add !== 'function') {
             throw new Error(
               `MemoryManager: store '${store.name}' has an extractor but no add method (extracted entries are written via add)`
@@ -139,6 +136,7 @@ export class MemoryManager implements Plugin {
             `MemoryManager: store '${store.name}' has extraction config without an extractor but no addMessages method`
           )
         }
+        extractionStores.push({ store, config: resolved })
       }
     }
 
@@ -146,7 +144,7 @@ export class MemoryManager implements Plugin {
     this._searchStores = config.stores
     // `add`-targeting paths (tool / programmatic) need an `add` method specifically.
     this._addStores = config.stores.filter((s) => s.writable && typeof s.add === 'function')
-    this._extractionStores = config.stores.filter((s) => s.writable && s.extraction)
+    this._extractionStores = extractionStores
 
     this._searchToolConfig =
       config.searchToolConfig === false
@@ -233,8 +231,8 @@ export class MemoryManager implements Plugin {
       coordinator.record(event.message.toJSON())
     })
 
-    for (const store of this._extractionStores) {
-      for (const trigger of _normalizeTriggers(store.extraction!.trigger)) {
+    for (const { store, config } of this._extractionStores) {
+      for (const trigger of config.triggers) {
         trigger.attach({ agent, fire: () => void coordinator.process(store) })
       }
     }

@@ -9,6 +9,7 @@ import type { S3Client } from '@aws-sdk/client-s3'
 import { v7 as uuidv7 } from 'uuid'
 
 import type { MemoryEntry, MemoryStore, MemoryStoreConfig, SearchOptions } from '../../memory/types.js'
+import type { ExtractionConfig } from '../../memory/extraction/types.js'
 import type { JSONValue } from '../../types/json.js'
 import { logger } from '../../logging/logger.js'
 
@@ -66,8 +67,12 @@ export interface BedrockKnowledgeBaseS3Config {
   prefix: string
 }
 
-/** Configuration for {@link BedrockKnowledgeBaseStore}. */
-export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
+/**
+ * Connection to a Bedrock Knowledge Base: which knowledge base, which data source, and the clients
+ * used to reach them. This is the reusable half of a store's config — build one and pass it to many
+ * {@link BedrockKnowledgeBaseStoreConfig}s that differ only by namespace.
+ */
+export interface BedrockKnowledgeBaseConfig {
   /** The Bedrock Knowledge Base identifier to query and ingest into. */
   knowledgeBaseId: string
   /**
@@ -96,16 +101,28 @@ export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
   dataSourceId?: string
   /** S3 ingestion settings. Required when `dataSourceType` is `'S3'`; ignored otherwise. */
   s3?: BedrockKnowledgeBaseS3Config
-  /** Logical namespace used to isolate documents; applied as a metadata filter on search. */
-  scope?: string
   /** Metadata attribute key used for scope-based filtering. Defaults to `'namespace'`. */
   scopeMetadataKey?: string
-  /** Explicit retrieval filter; overrides the auto-generated scope filter when provided. */
-  filter?: RetrievalFilter
   /** Pre-constructed runtime client for Retrieve calls. When omitted, a default client is constructed. */
   runtimeClient?: BedrockAgentRuntimeClient
   /** Pre-constructed agent client for IngestKnowledgeBaseDocuments calls. When omitted, a default client is constructed lazily on first write. */
   agentClient?: BedrockAgentClient
+}
+
+/**
+ * Configuration for {@link BedrockKnowledgeBaseStore}.
+ *
+ * The reusable connection lives in {@link config}; the per-store identity and behavior fields
+ * (`name`, `scope`, ...) sit beside it. To run one knowledge base across many namespaces, build a
+ * {@link config} once and reuse it, varying only `name` and `scope` per store.
+ */
+export interface BedrockKnowledgeBaseStoreConfig extends MemoryStoreConfig {
+  /** Connection to the knowledge base. Reuse one `config` across stores that differ only by `scope`. */
+  config: BedrockKnowledgeBaseConfig
+  /** Logical namespace used to isolate documents; applied as a metadata filter on search and stamped on writes. */
+  scope?: string
+  /** Explicit retrieval filter; overrides the auto-generated scope filter when provided. */
+  filter?: RetrievalFilter
 }
 
 /** Result returned by {@link BedrockKnowledgeBaseStore.add}. */
@@ -123,12 +140,13 @@ export interface BedrockKnowledgeBaseAddResult {
  * import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
  *
  * const store = new BedrockKnowledgeBaseStore({
- *   name: 'personal',
- *   knowledgeBaseId: 'KB123',
- *   writable: true,
- *   dataSourceType: 'CUSTOM',
- *   dataSourceId: 'DS456',
+ *   config: {
+ *     knowledgeBaseId: 'KB123',
+ *     dataSourceType: 'CUSTOM',
+ *     dataSourceId: 'DS456',
+ *   },
  *   scope: 'user-abc',
+ *   writable: true,
  * })
  *
  * const results = await store.search('what are my preferences?')
@@ -140,6 +158,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   readonly description?: string
   readonly maxSearchResults?: number
   readonly writable: boolean
+  readonly extraction?: boolean | ExtractionConfig
 
   private readonly _runtimeClient: BedrockAgentRuntimeClient
   private _agentClient: BedrockAgentClient | undefined
@@ -148,20 +167,35 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   private readonly _knowledgeBaseId: string
   private readonly _dataSourceType: 'CUSTOM' | 'S3' | 'OTHER' | undefined
   private readonly _dataSourceId: string | undefined
-  private readonly _scope: string | undefined
-  private readonly _scopeMetadataKey: string
-  private readonly _filter: RetrievalFilter | undefined
 
-  constructor(config: BedrockKnowledgeBaseStoreConfig) {
-    this.name = config.name
-    if (config.description !== undefined) this.description = config.description
-    if (config.maxSearchResults !== undefined) {
-      if (config.maxSearchResults < 1) {
+  /**
+   * Logical namespace isolating documents: applied as a metadata filter on {@link search} and stamped
+   * on writes via {@link add}. Unlike {@link name}, it is not a store-identity field, so it never
+   * affects `MemoryManager` routing. For per-tenant isolation, construct one store per scope — cheap,
+   * since they can share a single {@link BedrockKnowledgeBaseConfig}.
+   */
+  public readonly scope: string | undefined
+  /** Metadata attribute key used for scope-based filtering. */
+  public readonly scopeMetadataKey: string
+  /**
+   * Explicit retrieval filter. When set, it overrides the scope-derived filter for {@link search}.
+   * Note the asymmetry: an explicit filter affects search only; writes always scope by {@link scope}.
+   */
+  public readonly filter: RetrievalFilter | undefined
+
+  constructor(options: BedrockKnowledgeBaseStoreConfig) {
+    const { config, scope, name, description, writable, maxSearchResults, filter, extraction } = options
+
+    this.name = name
+    if (description !== undefined) this.description = description
+    if (maxSearchResults !== undefined) {
+      if (maxSearchResults < 1) {
         throw new Error('BedrockKnowledgeBaseStore: maxSearchResults must be at least 1.')
       }
-      this.maxSearchResults = config.maxSearchResults
+      this.maxSearchResults = maxSearchResults
     }
-    this.writable = config.writable ?? false
+    this.writable = writable ?? false
+    if (extraction !== undefined) this.extraction = extraction
 
     this._runtimeClient = config.runtimeClient ?? new BedrockAgentRuntimeClient({})
     this._agentClient = config.agentClient
@@ -173,19 +207,19 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
 
     if (this.writable) this._validateWriteConfig()
 
-    this._scope = config.scope
-    this._scopeMetadataKey = config.scopeMetadataKey ?? 'namespace'
+    this.scope = scope
+    this.scopeMetadataKey = config.scopeMetadataKey ?? 'namespace'
+    this.filter = filter
+  }
 
-    if (config.filter) {
-      this._filter = config.filter
-    } else if (config.scope) {
-      this._filter = {
-        equals: {
-          key: this._scopeMetadataKey,
-          value: config.scope,
-        },
-      }
-    }
+  /**
+   * Resolves the effective retrieval filter for a search: an explicit {@link filter} wins; otherwise
+   * one is derived from {@link scope} / {@link scopeMetadataKey}.
+   */
+  private _resolveFilter(): RetrievalFilter | undefined {
+    if (this.filter) return this.filter
+    if (this.scope) return { equals: { key: this.scopeMetadataKey, value: this.scope } }
+    return undefined
   }
 
   /**
@@ -202,6 +236,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
       throw new Error('BedrockKnowledgeBaseStore: maxSearchResults must be at least 1.')
     }
     const limit = options?.maxSearchResults || this.maxSearchResults || DEFAULT_MAX_SEARCH_RESULTS
+    const filter = this._resolveFilter()
 
     let response
     try {
@@ -212,7 +247,7 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
           retrievalConfiguration: {
             vectorSearchConfiguration: {
               numberOfResults: limit,
-              ...(this._filter && { filter: this._filter }),
+              ...(filter && { filter }),
             },
           },
         })
@@ -402,13 +437,13 @@ export class BedrockKnowledgeBaseStore implements MemoryStore {
   ): Array<{ key: string; value: MetadataAttributeValue }> {
     const attrs: Array<{ key: string; value: MetadataAttributeValue }> = []
 
-    if (this._scope) {
-      attrs.push({ key: this._scopeMetadataKey, value: { type: 'STRING', stringValue: this._scope } })
+    if (this.scope) {
+      attrs.push({ key: this.scopeMetadataKey, value: { type: 'STRING', stringValue: this.scope } })
     }
 
     if (metadata) {
       for (const [key, value] of Object.entries(metadata)) {
-        if (this._scope && key === this._scopeMetadataKey) {
+        if (this.scope && key === this.scopeMetadataKey) {
           logger.warn(`store=<${this.name}>, key=<${key}> | dropping metadata key that collides with scopeMetadataKey`)
           continue
         }

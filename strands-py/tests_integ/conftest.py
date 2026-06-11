@@ -125,6 +125,8 @@ def retry_on_flaky(
 
 
 def pytest_sessionstart(session):
+    os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-1")
+    os.environ.setdefault("AWS_REGION", "us-east-1")
     _load_api_keys_from_secrets_manager()
 
 

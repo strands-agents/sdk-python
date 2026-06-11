@@ -3,6 +3,14 @@ import { Construct } from 'constructs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import { TestFeature, ssmParameterPath } from '../constants';
 
+export interface TestFeatureConstructProps {
+  /**
+   * Shared integration-test role granted scoped permissions by the feature.
+   * When omitted the usage grant is skipped.
+   */
+  readonly role?: iam.IRole;
+}
+
 export abstract class TestFeatureConstruct extends Construct {
   abstract readonly featureName: TestFeature;
 

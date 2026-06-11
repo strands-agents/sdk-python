@@ -1,6 +1,6 @@
 ---
 name: pr-writer
-description: Generates pull request titles and descriptions. Use when the user asks to write, draft, or generate a PR, pull request, or merge request description.
+description: Generates pull request titles and descriptions. Use when the user asks to create, open, write, draft, or generate a PR, pull request, or merge request description.
 ---
 
 # PR Writer Skill
