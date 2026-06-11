@@ -3,7 +3,85 @@ import type { MessageData } from '../types/messages.js'
 import { logger } from '../logging/logger.js'
 import { normalizeError } from '../errors.js'
 import type { InvokeModelContext } from '../middleware/index.js'
-import type { InjectionMiddlewareOptions, InjectionTrigger } from './types.js'
+import type { InjectionMiddlewareOptions, InjectionTrigger, InjectionContext } from './types.js'
+
+/**
+ * Builds an `InvokeModelStage` `Input` handler that folds {@link InjectionMiddlewareOptions.renderContent}'s
+ * text into the latest user message, ephemerally — the model sees the augmented input for this one call
+ * while the agent's durable history is never touched.
+ *
+ * Runs as an input-phase transformer (`(ctx) => ctx`): it gates on the resolved trigger, asks
+ * `renderContent` for the text, and returns a context with the folded messages. Anything that skips —
+ * the trigger not firing, `renderContent` returning empty, or any callback throwing — returns the
+ * context unchanged so the model call proceeds (fail open). The injected text never enters durable
+ * history because the input phase only rewrites the per-call context, not the agent's stored messages.
+ *
+ * @param opts - The trigger and `renderContent` callback the handler uses
+ * @returns An `InvokeModelStage.Input` handler that returns a (possibly) folded context
+ * @internal Delivery primitive. Reach injection through `ContextInjector` or `MemoryManager`.
+ */
+export function createInjectionMiddleware(
+  opts: InjectionMiddlewareOptions
+): (context: InvokeModelContext) => Promise<InvokeModelContext> {
+  const trigger = resolveTrigger(opts.trigger)
+  return async (context) => {
+    const agent = context.agent
+    const injectionContext: InjectionContext = {
+      messages: context.messages.map((message) => message.toJSON()),
+      appState: agent.appState,
+      signal: agent.cancelSignal,
+      agent,
+    }
+    if (!trigger(injectionContext)) {
+      return context
+    }
+
+    let text: string | undefined
+    try {
+      text = await opts.renderContent(injectionContext)
+    } catch (error) {
+      logger.warn(`reason=<${normalizeError(error).message}> | injection renderContent threw; skipping injection`)
+      return context
+    }
+    if (!text?.trim()) {
+      return context
+    }
+
+    return { ...context, messages: foldIntoLastUserMessage([...context.messages], text) }
+  }
+}
+
+/**
+ * Resolves an {@link InjectionTrigger} name or predicate into a single gate predicate over the
+ * {@link InjectionContext}.
+ *
+ * `'userTurn'` maps to {@link isUserTurn} (over `ctx.messages`); `'everyTurn'` to an always-true gate;
+ * a user-supplied predicate is wrapped so that a throw fails open (logs and skips injection rather than
+ * aborting the model call).
+ *
+ * @param trigger - An {@link InjectionTrigger} name, a predicate, or `undefined` (defaults to `'userTurn'`)
+ * @returns A predicate that, given the {@link InjectionContext}, returns whether to inject this call
+ * @internal Delivery primitive. Reach injection through `ContextInjector` or `MemoryManager`.
+ */
+export function resolveTrigger(
+  trigger: InjectionTrigger | ((context: InjectionContext) => boolean) | undefined
+): (context: InjectionContext) => boolean {
+  if (trigger === undefined || trigger === 'userTurn') {
+    return (context) => isUserTurn(context.messages)
+  }
+  if (trigger === 'everyTurn') {
+    return () => true
+  }
+  const predicate = trigger
+  return (context) => {
+    try {
+      return predicate(context)
+    } catch (error) {
+      logger.warn(`reason=<${normalizeError(error).message}> | injection trigger threw; skipping injection`)
+      return false
+    }
+  }
+}
 
 /**
  * Whether the latest message is a fresh user ask: a `user` message carrying no tool result. This is
@@ -11,40 +89,11 @@ import type { InjectionMiddlewareOptions, InjectionTrigger } from './types.js'
  *
  * @param messages - The current conversation, as data
  * @returns `true` when the latest message is a plain user ask, otherwise `false`
+ * @internal Delivery primitive. Reach injection through `ContextInjector` or `MemoryManager`.
  */
 export function isUserTurn(messages: MessageData[]): boolean {
   const last = messages[messages.length - 1]
   return !!last && last.role === 'user' && !last.content.some((block) => 'toolResult' in block)
-}
-
-/**
- * Resolves an {@link InjectionTrigger} name or predicate into a single gate predicate.
- *
- * `'userTurn'` maps to {@link isUserTurn}; `'everyTurn'` to an always-true gate; a user-supplied
- * predicate is wrapped so that a throw fails open (logs and skips injection rather than aborting the
- * model call).
- *
- * @param trigger - An {@link InjectionTrigger} name, a predicate, or `undefined` (defaults to `'userTurn'`)
- * @returns A predicate that, given the current messages, returns whether to inject this call
- */
-export function resolveTrigger(
-  trigger: InjectionTrigger | ((messages: MessageData[]) => boolean) | undefined
-): (messages: MessageData[]) => boolean {
-  if (trigger === undefined || trigger === 'userTurn') {
-    return isUserTurn
-  }
-  if (trigger === 'everyTurn') {
-    return () => true
-  }
-  const predicate = trigger
-  return (messages) => {
-    try {
-      return predicate(messages)
-    } catch (error) {
-      logger.warn(`reason=<${normalizeError(error).message}> | injection trigger threw; skipping injection`)
-      return false
-    }
-  }
 }
 
 /**
@@ -60,6 +109,7 @@ export function resolveTrigger(
  * @param messages - The conversation to fold into
  * @param text - The text to prepend to the most recent user message
  * @returns A new array with the folded message, or the input array when there is no user message
+ * @internal Delivery primitive. Reach injection through `ContextInjector` or `MemoryManager`.
  */
 export function foldIntoLastUserMessage(messages: Message[], text: string): Message[] {
   let targetIndex = -1
@@ -83,43 +133,4 @@ export function foldIntoLastUserMessage(messages: Message[], text: string): Mess
   const result = [...messages]
   result[targetIndex] = folded
   return result
-}
-
-/**
- * Builds an {@link InvokeModelStage} `Input` handler that folds {@link InjectionMiddlewareOptions.provide}'s
- * text into the latest user message, ephemerally — the model sees the augmented input for this one call
- * while the agent's durable history is never touched.
- *
- * Runs as an input-phase transformer (`(ctx) => ctx`): it gates on the resolved trigger, asks `provide`
- * for the text, and returns a context with the folded messages. Anything that skips — the trigger not
- * firing, `provide` returning empty, or any callback throwing — returns the context unchanged so the
- * model call proceeds (fail open). The injected text never enters durable history because the input
- * phase only rewrites the per-call context, not the agent's stored messages.
- *
- * @param opts - The trigger and `provide` callback the handler uses
- * @returns An `InvokeModelStage.Input` handler that returns a (possibly) folded context
- */
-export function createInjectionMiddleware(
-  opts: InjectionMiddlewareOptions
-): (context: InvokeModelContext) => Promise<InvokeModelContext> {
-  const trigger = resolveTrigger(opts.trigger)
-  return async (context) => {
-    const messages = context.messages.map((message) => message.toJSON())
-    if (!trigger(messages)) {
-      return context
-    }
-
-    let text: string | undefined
-    try {
-      text = await opts.provide(messages)
-    } catch (error) {
-      logger.warn(`reason=<${normalizeError(error).message}> | injection provide threw; skipping injection`)
-      return context
-    }
-    if (!text?.trim()) {
-      return context
-    }
-
-    return { ...context, messages: foldIntoLastUserMessage([...context.messages], text) }
-  }
 }

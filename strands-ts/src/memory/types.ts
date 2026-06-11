@@ -193,23 +193,25 @@ export interface MemoryAddToolConfig extends MemoryToolConfig {
 /**
  * Configuration for memory context injection.
  *
- * When enabled on a {@link MemoryManager}, the manager searches memory before a model call and folds
- * the top results into the most recent user message (ahead of the user's own content), so relevant
- * knowledge is present without the model choosing to search. The injected text is ephemeral: it
- * augments the model input for that call only and never persists into the durable conversation or
- * session.
+ * When enabled on a {@link MemoryManager}, the manager searches memory before a model call and makes
+ * the top results available to the model for that call, so relevant knowledge is present without the
+ * model choosing to search. The injected text is ephemeral: it augments the model input for that call
+ * only and never persists into the durable conversation or session.
  *
  * Extends the generic {@link InjectionConfig} (which carries `trigger`) with the memory-owned knobs:
- * how many entries to retrieve, how to derive the query, and how to render the results. These are
- * memory concerns and intentionally do not live on the generic injection engine.
+ * how many entries to retrieve, how to derive the query, and how to render the results.
  */
 export interface MemoryInjectionConfig extends InjectionConfig {
   /**
    * Maximum number of entries to retrieve and inject per model call.
    *
-   * @defaultValue 1
+   * A store ranks by semantic similarity, which is not the same as contextual usefulness, so the
+   * default injects a small candidate set rather than betting on the top hit. Raising this improves
+   * recall at the cost of a larger prepend (context bloat); lower it for a tighter injection.
+   *
+   * @defaultValue 5
    */
-  maxInjectedSearchResults?: number
+  maxEntries?: number
   /**
    * Derives the search query from the current conversation. Return `undefined` or an empty string to
    * skip injection for this call. A callback that throws fails open (injection is skipped).
@@ -217,15 +219,17 @@ export interface MemoryInjectionConfig extends InjectionConfig {
    * Defaults to an adaptive query: the latest user message's text on a user turn, otherwise the most
    * recent assistant message's text (the previous step on an autonomous turn).
    */
-  query?: (messages: MessageData[]) => string | undefined
+  query?: (context: { messages: MessageData[] }) => string | undefined
   /**
    * Renders retrieved entries into the injected text. A callback that throws fails open (injection is
    * skipped).
    *
    * Defaults to a `<memory>` XML block with one `<entry>` per result, carrying a `source` attribute
-   * naming the originating store (when known) so the model can attribute and weigh each memory.
+   * naming the originating store (when known) so the model can attribute and weigh each memory. The
+   * default escapes entry content and source, so a custom `format` that emits markup is responsible
+   * for its own escaping.
    */
-  format?: (entries: MemoryEntry[]) => string
+  format?: (context: { entries: MemoryEntry[] }) => string
 }
 
 /**
@@ -244,6 +248,16 @@ export interface MemoryManagerConfig {
   /**
    * Memory context injection. Defaults to `false` (opt-in). `true` uses the default injection
    * settings; pass a {@link MemoryInjectionConfig} to customize retrieval, timing, and formatting.
+   *
+   * `true` is equivalent to:
+   * ```ts
+   * {
+   *   trigger: 'userTurn',          // inject only on a fresh user ask
+   *   maxEntries: 5,                // retrieve and inject up to 5 entries
+   *   // query:  the latest user text on a user turn, else the most recent assistant text
+   *   // format: a <memory> block with one <entry source="STORE_NAME"> per result (content escaped)
+   * }
+   * ```
    */
   injection?: boolean | MemoryInjectionConfig
 }

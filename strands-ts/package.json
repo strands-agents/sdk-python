@@ -84,6 +84,10 @@
       "types": "./dist/src/vended-plugins/context-offloader/index.d.ts",
       "default": "./dist/src/vended-plugins/context-offloader/index.js"
     },
+    "./vended-plugins/context-injector": {
+      "types": "./dist/src/vended-plugins/context-injector/index.d.ts",
+      "default": "./dist/src/vended-plugins/context-injector/index.js"
+    },
     "./vended-plugins/goal": {
       "types": "./dist/src/vended-plugins/goal/index.d.ts",
       "default": "./dist/src/vended-plugins/goal/index.js"

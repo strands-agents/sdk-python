@@ -1,2 +1,5 @@
-export { foldIntoLastUserMessage, isUserTurn, resolveTrigger, createInjectionMiddleware } from './message-injection.js'
-export type { InjectionConfig, InjectionTrigger, InjectionMiddlewareOptions } from './types.js'
+/**
+ * Configuration types for context injection, shared by the `ContextInjector` plugin and
+ * `MemoryManager`'s `injection` config.
+ */
+export type { InjectionConfig, InjectionTrigger, InjectionContext } from './types.js'
