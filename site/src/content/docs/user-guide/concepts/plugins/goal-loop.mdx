@@ -30,14 +30,13 @@ inside the existing hook lifecycle.
 
 ## How It Works
 
-```
-invoke("Explain X") ──▶ Agent responds ──▶ Validate
-                                              │
-                             ┌── pass ────────┘────── done (satisfied)
-                             │
-                             ▼
-                      Inject feedback     ──▶ Re-invoke ──▶ Validate ...
-                      as user message          (attempt 2)
+```mermaid
+flowchart LR
+    A[invoke] --> B[Agent responds]
+    B --> C{Validate}
+    C -->|pass| D[Done]
+    C -->|fail| E[Inject feedback]
+    E --> B
 ```
 
 1. `BeforeInvocationEvent` starts a fresh run (or continues an
