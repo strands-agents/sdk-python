@@ -1,6 +1,7 @@
 import type { CedarValueJson, TypeAndId, EntityJson } from '@cedar-policy/cedar-wasm/nodejs'
 import type { ToolDefinition } from './cedar.js'
 
+/** Adapter for `@cedar-policy/mcp-schema-generator-wasm` — generates schemas and authorization requests from tool definitions. */
 export interface SchemaGenerator {
   generateSchema(tools: ToolDefinition[]): string
   generateRequest(
@@ -11,6 +12,7 @@ export interface SchemaGenerator {
   ): { action: TypeAndId; resource: TypeAndId; entities: EntityJson[] }
 }
 
+/** Creates a SchemaGenerator from the loaded `@cedar-policy/mcp-schema-generator-wasm` module. */
 export function createSchemaGenerator(wasm: {
   generateSchema: (stub: string, toolsJson: string, configJson?: string) => string
   generateRequest: (
@@ -88,6 +90,8 @@ namespace Agent {
 
 function parseEntityUid(uid: string): TypeAndId {
   const match = uid.match(/(?:.*::)?([^:]+)::"([^"]+)"/)
-  if (!match) return { type: 'Action', id: uid }
+  if (!match) {
+    throw new Error(`Failed to parse Cedar entity UID: "${uid}"`)
+  }
   return { type: match[1]!, id: match[2]! }
 }

@@ -12,6 +12,7 @@ import {
   type EntityJson,
 } from '@cedar-policy/cedar-wasm/nodejs'
 import { readFileSync, existsSync } from 'node:fs'
+import { logger } from '../../logging/logger.js'
 import type { SchemaGenerator } from './schema-generator.js'
 import { createSchemaGenerator } from './schema-generator.js'
 
@@ -153,12 +154,18 @@ export class CedarAuthorization extends InterventionHandler {
       try {
         const mcpSchemaGenerator = await import('@cedar-policy/mcp-schema-generator-wasm')
         schemaGenerator = createSchemaGenerator(mcpSchemaGenerator)
-      } catch {
-        console.warn(
-          'CedarAuthorization: `tools` provided but @cedar-policy/mcp-schema-generator-wasm is not installed. ' +
-            'Schema validation and auto request generation are disabled. ' +
-            'Install it: npm install @cedar-policy/mcp-schema-generator-wasm'
-        )
+      } catch (e: unknown) {
+        const isModuleNotFound = e instanceof Error && 'code' in e && (e as { code: string }).code === 'ERR_MODULE_NOT_FOUND'
+        if (isModuleNotFound) {
+          logger.warn(
+            'tools provided but @cedar-policy/mcp-schema-generator-wasm is not installed. ' +
+              'Install it: npm install @cedar-policy/mcp-schema-generator-wasm'
+          )
+        } else {
+          logger.warn(
+            `tools provided but @cedar-policy/mcp-schema-generator-wasm failed to load: ${e instanceof Error ? e.message : String(e)}`
+          )
+        }
       }
     }
     return new CedarAuthorization(config, schemaGenerator)
