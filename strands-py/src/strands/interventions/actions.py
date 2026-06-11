@@ -1,4 +1,4 @@
-"""Intervention action types and factory functions.
+"""Intervention action types.
 
 Each action represents a typed decision that a handler returns after evaluating
 an event. The framework uses these to compose decisions across multiple handlers.
