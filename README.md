@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/strands-agents-harness-sdk-badge.png)](https://mseep.ai/app/strands-agents-harness-sdk)
+
 <div align="center">
   <div>
     <a href="https://strandsagents.com">
