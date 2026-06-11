@@ -163,16 +163,16 @@ def _last_assistant_message(messages: Messages) -> Message | None:
     return None
 
 
-def _normalize_validator_return(raw: ValidatorReturn) -> ValidationOutcome:
+def _normalize_validator_return(result: ValidatorReturn) -> ValidationOutcome:
     """Coerce the various validator return shapes into a canonical ValidationOutcome."""
-    if isinstance(raw, bool):
-        return ValidationOutcome(passed=raw)
-    if isinstance(raw, ValidationOutcome):
-        return raw
+    if isinstance(result, bool):
+        return ValidationOutcome(passed=result)
+    if isinstance(result, ValidationOutcome):
+        return result
     # Must be dict — the only remaining type in the union
     return ValidationOutcome(
-        passed=raw.get("passed", False),
-        feedback=raw.get("feedback"),
+        passed=result.get("passed", False),
+        feedback=result.get("feedback"),
     )
 
 
@@ -364,10 +364,10 @@ class GoalLoop(Plugin):
             async def _fn_validator(response: Message) -> ValidationOutcome:
                 import inspect
 
-                raw = validator_fn(response, host_agent)
-                if inspect.isawaitable(raw):
-                    raw = await raw
-                return _normalize_validator_return(raw)
+                result = validator_fn(response, host_agent)
+                if inspect.isawaitable(result):
+                    result = await result
+                return _normalize_validator_return(result)
 
             return _fn_validator
 
