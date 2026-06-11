@@ -5,6 +5,9 @@ updates:
     schedule:
       interval: "daily"
     open-pull-requests-limit: 100
+    labels:
+      - "dependencies"
+      - "python"
     commit-message:
       prefix: "ci(python)"
     groups:
@@ -50,6 +53,9 @@ updates:
     directory: "/strands-py-wasm"
     schedule:
       interval: "daily"
+    labels:
+      - "dependencies"
+      - "python"
     commit-message:
       prefix: "ci(python)"
   - package-ecosystem: "github-actions"
