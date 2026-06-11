@@ -1,19 +1,15 @@
 import { getCollection, type CollectionEntry } from 'astro:content'
 import type { ChangelogEntry } from '../content.config'
-import type { Sdk, Language } from '../config/changelog'
 
 export type ChangelogRelease = CollectionEntry<'changelog'>
 
 const FEATURE_TYPES = new Set(['feat', 'breaking', 'perf'])
 const FIX_TYPES = new Set(['fix'])
 
-/** All releases sorted newest first, optionally filtered by sdk/language. */
-export async function getReleases(opts: { sdk?: Sdk; language?: Language } = {}): Promise<ChangelogRelease[]> {
+/** All releases sorted newest first. Filtering by SDK/language happens client-side on the page. */
+export async function getReleases(): Promise<ChangelogRelease[]> {
   const releases = await getCollection('changelog')
-  return releases
-    .filter((r) => (opts.sdk ? r.data.sdk === opts.sdk : true))
-    .filter((r) => (opts.language ? r.data.language === opts.language : true))
-    .sort((a, b) => b.data.date.getTime() - a.data.date.getTime())
+  return releases.sort((a, b) => b.data.date.getTime() - a.data.date.getTime())
 }
 
 export interface GroupedEntries {
@@ -38,11 +34,22 @@ export interface AreaCount {
   count: number
 }
 
-/** Count entries per area across the given entries, sorted by count desc then name. */
+/**
+ * An entry's effective areas: its `area-*` labels plus its conventional-commit
+ * scope. Folding in the scope keeps the area facet useful while `area-*` labels
+ * are still sparse. Must mirror the client-side `entryAreas` in the page script.
+ */
+export function effectiveAreas(entry: ChangelogEntry): string[] {
+  const set = new Set(entry.areas)
+  if (entry.scope) set.add(entry.scope)
+  return [...set]
+}
+
+/** Count entries per area (labels + scope) across the given entries, sorted by count desc then name. */
 export function getAreaCounts(entries: ChangelogEntry[]): AreaCount[] {
   const map = new Map<string, number>()
   for (const e of entries) {
-    for (const area of e.areas) {
+    for (const area of effectiveAreas(e)) {
       map.set(area, (map.get(area) ?? 0) + 1)
     }
   }

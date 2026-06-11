@@ -8,6 +8,9 @@ import '../../styles/changelog.css'
 
 const releases = await getReleases()
 const allEntries = releases.flatMap((r) => r.data.entries)
+// Build the area facet from both area-* labels and conventional-commit scopes,
+// so subsystems are filterable even where labels haven't been backfilled yet.
+// (Counts shown on chips are recomputed client-side per active SDK+language.)
 const areaCounts = getAreaCounts(allEntries)
 ---
 <ChangelogLayout title="Changelog" description="Every release across the Strands Agents SDKs.">
@@ -112,6 +115,17 @@ const areaCounts = getAreaCounts(allEntries)
     return true
   }
 
+  // An entry's effective areas: its area-* labels PLUS its conventional-commit
+  // scope (e.g. feat(model) → 'model'). Labels are sparse today, so folding in
+  // the scope makes the area filter meaningfully cover entries that share a
+  // subsystem name even before labels are backfilled.
+  function entryAreas(e: HTMLElement): Set<string> {
+    const set = new Set((e.dataset.areas || '').split(' ').filter(Boolean))
+    const scope = (e.dataset.scope || '').trim()
+    if (scope) set.add(scope)
+    return set
+  }
+
   // Recompute area chip counts + visibility from the versions in the current
   // SDK+language stream (independent of which areas are selected).
   function refreshAreaChips(lang: string) {
@@ -120,7 +134,7 @@ const areaCounts = getAreaCounts(allEntries)
       if (!inCurrentStream(v, lang)) continue
       const seen = new Set<string>()
       v.querySelectorAll<HTMLElement>('.cl-entry').forEach((e) => {
-        for (const a of (e.dataset.areas || '').split(' ').filter(Boolean)) seen.add(a)
+        for (const a of entryAreas(e)) seen.add(a)
       })
       for (const a of seen) counts.set(a, (counts.get(a) ?? 0) + 1)
     }
@@ -181,11 +195,13 @@ const areaCounts = getAreaCounts(allEntries)
       for (const e of entries) {
         let entryShow = true
         if (state.areas.size) {
-          const ea = new Set((e.dataset.areas || '').split(' ').filter(Boolean))
+          const ea = entryAreas(e)
           entryShow = [...state.areas].some((a) => ea.has(a))
         }
         if (entryShow && q) {
-          entryShow = e.textContent!.toLowerCase().includes(q)
+          // Search the entry's title + author only (precomputed), not structural
+          // text like commit SHAs or PR numbers.
+          entryShow = (e.dataset.search || '').includes(q)
         }
         e.hidden = !entryShow
         if (entryShow) anyEntryVisible = true

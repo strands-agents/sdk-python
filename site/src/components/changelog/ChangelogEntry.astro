@@ -5,7 +5,13 @@ interface Props { entry: ChangelogEntry }
 const { entry } = Astro.props
 const isBreaking = entry.breaking || entry.type === 'breaking'
 ---
-<div class="cl-entry" data-areas={entry.areas.join(' ')} data-type={entry.type}>
+<div
+  class="cl-entry"
+  data-areas={entry.areas.join(' ')}
+  data-scope={entry.scope ?? ''}
+  data-type={entry.type}
+  data-search={`${entry.title} ${entry.author ?? ''}`.toLowerCase()}
+>
   {isBreaking && <span class="cl-break">break</span>}
   <span class="cl-entry-title">{entry.title}</span>
   {entry.areas.map((a) => <span class="cl-atag">{a}</span>)}

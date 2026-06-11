@@ -1,7 +1,8 @@
 ---
+import { render } from 'astro:content'
+import MarkdownIt from 'markdown-it'
 import type { ChangelogRelease } from '../../util/changelog'
 import { groupEntries, formatChangelogDate } from '../../util/changelog'
-import { LANGUAGE_META } from '../../config/changelog'
 import ChangelogEntry from './ChangelogEntry.astro'
 import { ICONS } from './icons.ts'
 
@@ -12,6 +13,14 @@ const { features, fixes, other } = groupEntries(d.entries)
 const langIcon = d.language ? ICONS[d.language] : undefined
 const allAreas = [...new Set(d.entries.flatMap((e) => e.areas))]
 const isPackagePyPI = d.packageUrl.includes('pypi.org')
+
+// Render the optional curated highlights string as inline markdown (code,
+// links, emphasis) so authors can use backticks etc.
+const md = new MarkdownIt({ html: false, linkify: true })
+const highlightsHtml = d.highlights ? md.renderInline(d.highlights.trim()) : ''
+
+// Render the optional curated markdown body (longer-form release notes).
+const { Content } = await render(release)
 ---
 <article class="cl-version" data-sdk={d.sdk} data-language={d.language ?? ''} data-areas={allAreas.join(' ')}>
   <div class="cl-version-meta">
@@ -34,7 +43,7 @@ const isPackagePyPI = d.packageUrl.includes('pypi.org')
     {d.highlights && (
       <div class="cl-highlights">
         <span class="cl-rail-label">★ Highlights</span>
-        <p>{d.highlights}</p>
+        <p set:html={highlightsHtml} />
       </div>
     )}
     {features.length > 0 && (
@@ -55,5 +64,8 @@ const isPackagePyPI = d.packageUrl.includes('pypi.org')
         {other.map((e) => <ChangelogEntry entry={e} />)}
       </>
     )}
+    <div class="cl-version-notes">
+      <Content />
+    </div>
   </div>
 </article>

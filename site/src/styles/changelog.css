@@ -94,6 +94,15 @@
   padding: 0.5rem 0.7rem; margin: 0.5rem 0 0.5rem; }
 .cl-highlights .cl-rail-label { color: var(--sl-color-accent); margin: 0; }
 .cl-highlights p { margin: 0.3rem 0 0; font-size: 0.95rem; color: var(--sl-color-gray-1); }
+.cl-highlights code { font-size: 0.85em; }
+
+/* Optional curated markdown body (longer-form notes) below the entry groups. */
+.cl-version-notes { font-size: 0.95rem; color: var(--sl-color-gray-1); }
+.cl-version-notes:not(:empty) { margin-top: 1rem; }
+.cl-version-notes :where(h1, h2, h3, h4) { font-size: 1rem; margin: 1rem 0 0.4rem; color: var(--sl-color-white); }
+.cl-version-notes :where(p, ul, ol) { margin: 0.4rem 0; }
+.cl-version-notes a { color: var(--sl-color-accent); }
+.cl-version-notes code { font-size: 0.85em; }
 
 .cl-group { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.03em; color: var(--sl-color-gray-2);
   margin: 0.9rem 0 0.3rem; display: flex; align-items: center; gap: 0.45rem; }
