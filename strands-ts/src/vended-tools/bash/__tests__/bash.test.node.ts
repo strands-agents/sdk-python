@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { bash, makeSandboxBash } from '../index.js'
+import { bash, makeBash } from '../index.js'
 import { BashTimeoutError, BashSessionError, type BashOutput } from '../index.js'
 import type { ToolContext } from '../../../index.js'
 import { StateStore } from '../../../state-store.js'
@@ -475,11 +475,11 @@ describe.skipIf(process.platform === 'win32')('bash tool', () => {
   })
 })
 
-describe.skipIf(process.platform === 'win32')('makeSandboxBash', () => {
-  const createSandboxBash = (): { sandboxBash: ReturnType<typeof makeSandboxBash>; context: ToolContext } => {
+describe.skipIf(process.platform === 'win32')('makeBash', () => {
+  const createSandboxBash = (): { sandboxBash: ReturnType<typeof makeBash>; context: ToolContext } => {
     const workDir = mkdtempSync(join(tmpdir(), 'bash-sandbox-test-'))
     const sandbox = new TestSandbox(workDir)
-    const sandboxBash = makeSandboxBash(sandbox)
+    const sandboxBash = makeBash(sandbox)
     const agent = createMockAgent()
     const context: ToolContext = {
       toolUse: { name: 'bash', toolUseId: 'test-id', input: {} },

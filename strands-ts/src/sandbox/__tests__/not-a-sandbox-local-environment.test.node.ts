@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import path from 'path'
 import { NotASandboxLocalEnvironment } from '../not-a-sandbox-local-environment.js'
+import { SandboxPathNotFoundError } from '../errors.js'
 
 const TEST_DIR = '/tmp/strands-test-not-a-sandbox'
 // Written relative (resolved against process.cwd()) to exercise _resolvePath; cleaned up below.
@@ -120,8 +121,17 @@ describe.skipIf(process.platform === 'win32')('NotASandboxLocalEnvironment', () 
       expect(files.find((f) => f.name === 'sub')?.isDir).toBe(true)
     })
 
-    it('throws on a nonexistent directory', async () => {
-      await expect(sandbox.listFiles(path.join(TEST_DIR, 'no-such-dir'))).rejects.toThrow()
+    it('throws SandboxPathNotFoundError on a nonexistent directory', async () => {
+      await expect(sandbox.listFiles(path.join(TEST_DIR, 'no-such-dir'))).rejects.toBeInstanceOf(
+        SandboxPathNotFoundError
+      )
+    })
+
+    it('throws SandboxPathNotFoundError when a path component is a file', async () => {
+      await sandbox.writeText(path.join(TEST_DIR, 'file.txt'), 'x')
+      await expect(sandbox.listFiles(path.join(TEST_DIR, 'file.txt', 'nested'))).rejects.toBeInstanceOf(
+        SandboxPathNotFoundError
+      )
     })
   })
 

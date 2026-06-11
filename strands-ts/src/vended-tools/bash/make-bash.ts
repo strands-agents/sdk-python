@@ -28,9 +28,9 @@ export interface MakeBashOptions {
  * Otherwise, the tool reads from `context.agent.sandbox` at call time.
  * Used by sandbox implementations in `getTools()` and by users who want a customized bash tool.
  */
-export function makeSandboxBash(options?: MakeBashOptions): ReturnType<typeof tool>
-export function makeSandboxBash(sandbox: Sandbox | undefined, options?: MakeBashOptions): ReturnType<typeof tool>
-export function makeSandboxBash(
+export function makeBash(options?: MakeBashOptions): ReturnType<typeof tool>
+export function makeBash(sandbox: Sandbox | undefined, options?: MakeBashOptions): ReturnType<typeof tool>
+export function makeBash(
   sandboxOrOptions?: Sandbox | MakeBashOptions,
   maybeOptions?: MakeBashOptions
 ): ReturnType<typeof tool> {

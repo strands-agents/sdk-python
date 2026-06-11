@@ -2,6 +2,7 @@ import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { Buffer } from 'buffer'
 import { Sandbox } from '../../sandbox/base.js'
+import { SandboxPathNotFoundError } from '../../sandbox/errors.js'
 import * as path from 'path'
 
 const SNIPPET_LINES = 4
@@ -63,12 +64,9 @@ export interface MakeFileEditorOptions {
  * Otherwise, the tool reads from `context.agent.sandbox` at call time.
  * Used by sandbox implementations in `getTools()` and by users who want a customized file editor.
  */
-export function makeSandboxFileEditor(options?: MakeFileEditorOptions): ReturnType<typeof tool>
-export function makeSandboxFileEditor(
-  sandbox: Sandbox | undefined,
-  options?: MakeFileEditorOptions
-): ReturnType<typeof tool>
-export function makeSandboxFileEditor(
+export function makeFileEditor(options?: MakeFileEditorOptions): ReturnType<typeof tool>
+export function makeFileEditor(sandbox: Sandbox | undefined, options?: MakeFileEditorOptions): ReturnType<typeof tool>
+export function makeFileEditor(
   sandboxOrOptions?: Sandbox | MakeFileEditorOptions,
   maybeOptions?: MakeFileEditorOptions
 ): ReturnType<typeof tool> {
@@ -103,29 +101,7 @@ export function makeSandboxFileEditor(
 /**
  * Default file editor tool. Reads the sandbox from the agent's context at call time.
  */
-export const fileEditor = tool({
-  name: 'fileEditor',
-  description: DEFAULT_FILE_EDITOR_DESCRIPTION,
-  inputSchema: fileEditorInputSchema,
-  callback: async (input, context) => {
-    if (!context) throw new Error('Tool context is required for fileEditor operations')
-    const sandbox = context.agent.sandbox
-    const filePath = input.path.replace(/[/\\]+$/, '')
-
-    switch (input.command) {
-      case 'view':
-        return handleView(sandbox, filePath, input.view_range)
-      case 'create':
-        return handleCreate(sandbox, filePath, input.file_text!)
-      case 'str_replace':
-        return handleStrReplace(sandbox, filePath, input.old_str!, input.new_str)
-      case 'insert':
-        return handleInsert(sandbox, filePath, input.insert_line!, input.new_str!)
-      default:
-        throw new Error(`Unknown command: ${input.command}`)
-    }
-  },
-})
+export const fileEditor = makeFileEditor()
 
 /**
  * Validates that a path is absolute and doesn't contain directory traversal.
@@ -288,7 +264,8 @@ function escapeRegExp(string: string): string {
 
 /**
  * Probes a path through the sandbox, reporting existence and directory-ness by listing
- * the parent directory. A missing parent or entry resolves to `exists: false`.
+ * the parent directory. A missing parent or entry resolves to `exists: false`; permission,
+ * transport, and other failures propagate so they aren't disguised as non-existence.
  */
 async function probeSandboxPath(sandbox: Sandbox, filePath: string): Promise<{ exists: boolean; isDir: boolean }> {
   const normalized = filePath.replaceAll('\\', '/')
@@ -296,9 +273,15 @@ async function probeSandboxPath(sandbox: Sandbox, filePath: string): Promise<{ e
   const name = normalized.split('/').pop()!
   try {
     const entry = (await sandbox.listFiles(parent)).find((e) => e.name === name)
-    return entry ? { exists: true, isDir: entry.isDir ?? false } : { exists: false, isDir: false }
-  } catch {
-    return { exists: false, isDir: false }
+    if (!entry) {
+      return { exists: false, isDir: false }
+    }
+    return { exists: true, isDir: entry.isDir ?? false }
+  } catch (err) {
+    if (err instanceof SandboxPathNotFoundError) {
+      return { exists: false, isDir: false }
+    }
+    throw err
   }
 }
 

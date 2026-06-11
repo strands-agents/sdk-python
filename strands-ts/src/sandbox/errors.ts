@@ -24,3 +24,14 @@ export class SandboxAbortError extends Error {
     this.name = 'SandboxAbortError'
   }
 }
+
+/**
+ * Thrown by {@link Sandbox.listFiles} when the path does not exist, distinguishing
+ * genuine absence from permission or transport failures (which throw plain errors).
+ */
+export class SandboxPathNotFoundError extends Error {
+  constructor(path: string) {
+    super(`Path not found: ${path}`)
+    this.name = 'SandboxPathNotFoundError'
+  }
+}

@@ -566,6 +566,24 @@ describe.skipIf(process.platform === 'win32')('fileEditor tool (sandbox path)', 
     await expect(fileEditor.invoke({ command: 'view', path: filePath }, context)).rejects.toThrow('does not exist')
   })
 
+  it('propagates non-not-found listFiles errors instead of reporting non-existence', async () => {
+    const sandbox = new TestSandbox(testDir)
+    sandbox.listFiles = async () => {
+      throw new Error('EACCES: permission denied')
+    }
+    const agent = createMockAgent({ extra: { sandbox } as any })
+    const errContext: ToolContext = {
+      toolUse: { name: 'fileEditor', toolUseId: 'test-id', input: {} },
+      agent,
+      invocationState: {},
+      interrupt: () => {
+        throw new Error('interrupt not available in mock context')
+      },
+    }
+    const promise = fileEditor.invoke({ command: 'view', path: path.join(testDir, 'x.txt') }, errContext)
+    await expect(promise).rejects.toThrow('permission denied')
+  })
+
   it('detects directory via sandbox listFiles', async () => {
     const dirPath = path.join(testDir, 'subdir')
     await fs.mkdir(dirPath)

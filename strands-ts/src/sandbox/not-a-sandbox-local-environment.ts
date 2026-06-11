@@ -3,12 +3,18 @@ import { dirname, isAbsolute, join } from 'path'
 import { Sandbox } from './base.js'
 import type { ExecuteOptions } from './base.js'
 import { LANGUAGE_PATTERN, shellQuote } from './constants.js'
+import { SandboxPathNotFoundError } from './errors.js'
 import { streamProcess } from './stream-process.js'
 import type { ExecutionResult, FileInfo, StreamChunk } from './types.js'
-<<<<<<< HEAD
-import { buildShellEnvPrefix, shellQuote } from './posix-shell.js'
-=======
->>>>>>> f554d0ca (feat: update vended tools/plugins for sandbox compatibility)
+import { buildShellEnvPrefix } from './posix-shell.js'
+
+/** Returns true if the error is a missing entry (ENOENT) or a non-directory path component (ENOTDIR). */
+function isMissingPathError(error: unknown): boolean {
+  if (error === null || typeof error !== 'object' || !('code' in error)) {
+    return false
+  }
+  return error.code === 'ENOENT' || error.code === 'ENOTDIR'
+}
 
 /**
  * Runs on the host with no isolation. Used as the default when no sandbox is configured.
@@ -70,7 +76,17 @@ export class NotASandboxLocalEnvironment extends Sandbox {
 
   async listFiles(path: string): Promise<FileInfo[]> {
     const fullPath = this._resolvePath(path)
-    const entries = await readdir(fullPath, { withFileTypes: true })
+    let entries
+    try {
+      entries = await readdir(fullPath, { withFileTypes: true })
+    } catch (err) {
+      // A missing path (or a file where a directory was expected) is non-existence;
+      // permission and other errors propagate so callers can surface them.
+      if (isMissingPathError(err)) {
+        throw new SandboxPathNotFoundError(path)
+      }
+      throw err
+    }
     const results: FileInfo[] = []
 
     for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
