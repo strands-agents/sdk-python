@@ -158,7 +158,7 @@ class TestInMemoryStorageEviction:
         storage.retrieve(ref)  # refreshes last_accessed to turn 1
 
         storage._evict(storage._current_cycle + 1)  # turn 2
-        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 3 - 2 = 1, last_accessed = 1, 1 < 1 is false
+        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 1, last_accessed = 1, 1 < 1 is false
         assert storage.retrieve(ref) == (b"content", "text/plain")
 
     def test_multiple_entries_evicted_independently(self):
@@ -179,6 +179,17 @@ class TestInMemoryStorageEviction:
         assert storage._current_cycle == 0
         storage._evict(5)
         assert storage._current_cycle == 5
+
+    def test_rejects_shared_storage_across_agents(self):
+        storage = InMemoryStorage()
+        storage._bind(1)
+        with pytest.raises(ValueError, match="cannot be shared"):
+            storage._bind(2)
+
+    def test_allows_same_agent_repeated_bind(self):
+        storage = InMemoryStorage()
+        storage._bind(42)
+        storage._bind(42)
 
     def test_thread_safety_with_eviction(self):
         storage = InMemoryStorage(evict_after_turns=5)

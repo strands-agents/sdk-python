@@ -155,6 +155,9 @@ export class ContextOffloader implements Plugin {
   }
 
   initAgent(agent: LocalAgent): void {
+    if (this._storage instanceof InMemoryStorage) {
+      this._storage._bind(agent)
+    }
     this._storageForAgent(agent)
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))
     let cycleCount = 0

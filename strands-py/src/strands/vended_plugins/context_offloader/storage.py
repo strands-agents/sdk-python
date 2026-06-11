@@ -223,7 +223,9 @@ class InMemoryStorage:
 
     Note:
         Content does not survive process restarts. For multi-session
-        persistence, use ``FileStorage`` or ``S3Storage``.
+        persistence, use ``FileStorage`` or ``S3Storage``. Each agent should
+        use its own ``InMemoryStorage`` instance — sharing one across multiple
+        agents is not supported when eviction is enabled.
 
         Evicted entries are permanently deleted from memory. The agent will
         receive an error if it attempts to retrieve evicted content. The
@@ -254,6 +256,7 @@ class InMemoryStorage:
         self._counter: int = 0
         self._current_cycle: int = 0
         self._evict_after_turns: int | None = evict_after_turns
+        self._bound_agent_id: int | None = None
         self._lock = threading.Lock()
 
     def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
@@ -295,6 +298,21 @@ class InMemoryStorage:
             self._store[reference] = (content, content_type, self._current_cycle)
             return content, content_type
 
+    def _bind(self, agent_id: int) -> None:
+        """Claim this storage for a single agent.
+
+        Raises:
+            ValueError: If already bound to a different agent.
+        """
+        with self._lock:
+            if self._bound_agent_id is None:
+                self._bound_agent_id = agent_id
+            elif self._bound_agent_id != agent_id:
+                raise ValueError(
+                    "InMemoryStorage cannot be shared across multiple agents. "
+                    "Use a separate InMemoryStorage instance per agent."
+                )
+
     def _evict(self, cycle: int) -> None:
         """Update current cycle and evict stale entries.
 
@@ -306,7 +324,7 @@ class InMemoryStorage:
             cycle: The agent's current event loop cycle count.
         """
         with self._lock:
-            self._current_cycle = max(self._current_cycle, cycle)
+            self._current_cycle = cycle
             if self._evict_after_turns is None:
                 return
             threshold = cycle - self._evict_after_turns

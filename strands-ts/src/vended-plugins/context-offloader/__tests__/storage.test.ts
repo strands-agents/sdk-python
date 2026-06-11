@@ -116,6 +116,21 @@ describe('InMemoryStorage eviction', () => {
     const result = await storage.retrieve(ref2)
     expect(new TextDecoder().decode(result.content)).toBe('second')
   })
+
+  it('rejects shared storage across agents', () => {
+    const storage = new InMemoryStorage()
+    const agentA = {}
+    const agentB = {}
+    storage._bind(agentA)
+    expect(() => storage._bind(agentB)).toThrow('cannot be shared')
+  })
+
+  it('allows same agent repeated bind', () => {
+    const storage = new InMemoryStorage()
+    const agent = {}
+    storage._bind(agent)
+    storage._bind(agent)
+  })
 })
 
 describe('S3Storage', () => {

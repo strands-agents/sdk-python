@@ -53,7 +53,9 @@ function sanitizeId(rawId: string): string {
  * calls `_evict`. Eviction is enabled by default (20 cycles). Pass `null` to disable.
  *
  * Note: content does not survive process restarts. For multi-session persistence,
- * use {@link FileStorage} or {@link S3Storage}.
+ * use {@link FileStorage} or {@link S3Storage}. Each agent should use its own
+ * `InMemoryStorage` instance — sharing one across multiple agents is not supported
+ * when eviction is enabled.
  *
  * Evicted entries are permanently deleted from memory. The agent will receive
  * an error if it attempts to retrieve evicted content.
@@ -65,6 +67,7 @@ export class InMemoryStorage implements Storage {
   private _counter = 0
   private _currentCycle = 0
   private readonly _evictAfterTurns: number | null
+  private _boundAgent: WeakRef<object> | null = null
 
   static readonly DEFAULT_EVICT_AFTER_TURNS = 20
 
@@ -94,12 +97,27 @@ export class InMemoryStorage implements Storage {
   }
 
   /**
+   * Claim this storage for a single agent. Throws if already bound to a different agent.
+   * @internal
+   */
+  _bind(agent: object): void {
+    if (this._boundAgent === null) {
+      this._boundAgent = new WeakRef(agent)
+    } else if (this._boundAgent.deref() !== agent) {
+      throw new Error(
+        'InMemoryStorage cannot be shared across multiple agents. ' +
+          'Use a separate InMemoryStorage instance per agent.'
+      )
+    }
+  }
+
+  /**
    * Update current cycle and evict stale entries.
    * Called by the ContextOffloader plugin on each BeforeModelCallEvent.
    * @internal
    */
   _evict(cycle: number): void {
-    this._currentCycle = Math.max(this._currentCycle, cycle)
+    this._currentCycle = cycle
     if (this._evictAfterTurns === null) return
     const threshold = cycle - this._evictAfterTurns
     let evicted = 0

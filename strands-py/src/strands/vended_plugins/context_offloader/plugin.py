@@ -140,7 +140,9 @@ class ContextOffloader(Plugin):
         super().__init__()
 
     def init_agent(self, agent: Agent) -> None:
-        """Conditionally register the retrieval tool."""
+        """Conditionally register the retrieval tool and bind storage."""
+        if isinstance(self._storage, InMemoryStorage):
+            self._storage._bind(id(agent))
         if not self._include_retrieval_tool:
             # Remove the auto-discovered retrieval tool
             self._tools = [t for t in self._tools if t.tool_name != "retrieve_offloaded_content"]
