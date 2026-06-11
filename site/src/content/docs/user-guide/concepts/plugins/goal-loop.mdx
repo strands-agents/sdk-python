@@ -30,9 +30,9 @@ flowchart LR
 1. `BeforeInvocationEvent` starts a fresh run (or continues an in-progress one).
 2. The agent processes the prompt and produces a response.
 3. `AfterInvocationEvent` fires. GoalLoop extracts the last assistant message and runs the validator.
-4. If the validator passes, the run terminates with `stop_reason="satisfied"`.
+4. If the validator passes, the run terminates with a "satisfied" stop reason.
 5. If the validator fails and budget remains, GoalLoop sets `event.resume` with feedback. The agent re-invokes with that feedback as a new user message.
-6. If `max_attempts` or `timeout` is exhausted, the run terminates without retrying.
+6. If the attempt limit or timeout is exhausted, the run terminates without retrying.
 
 ## Getting Started
 
@@ -184,13 +184,13 @@ plugin = GoalLoop(goal=tests_pass, max_attempts=10)
 </Tab>
 </Tabs>
 
-When both `max_attempts` and `timeout` are left unbounded (the defaults), the plugin warns at construction time. Set at least one bound in production to prevent runaway loops.
+When both the attempt limit and timeout are left unbounded (the defaults), the plugin warns at construction time. Set at least one bound in production to prevent runaway loops.
 
 ## Advanced Usage
 
 ### Inspecting Results
 
-After an invocation completes, call `last_result()` / `lastResult()` with the agent to get the full attempt history:
+After an invocation completes, retrieve the result from the plugin to get the full attempt history:
 
 <Tabs>
 <Tab label="Python">
@@ -216,7 +216,7 @@ The result is `None` / `undefined` before the first completed run and while a ru
 
 ### Stateless Retries
 
-By default, the agent sees its own prior attempts and the validator's feedback, letting it build on previous work. Set `preserve_context=False` to restore the agent's full session state (messages, system prompt, model state) to the snapshot captured immediately before the first model call. Each retry starts fresh, seeing only the original input plus the latest feedback. Use this when prior attempts would confuse the model rather than help it.
+By default, the agent sees its own prior attempts and the validator's feedback, letting it build on previous work. Disable context preservation to restore the agent's full session state (messages, system prompt, model state) to the snapshot captured immediately before the first model call. Each retry starts fresh, seeing only the original input plus the latest feedback. Use this when prior attempts would confuse the model rather than help it.
 
 <Tabs>
 <Tab label="Python">

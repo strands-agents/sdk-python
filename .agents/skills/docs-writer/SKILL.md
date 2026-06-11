@@ -81,8 +81,9 @@ Then self-check against hard constraints:
 - Terminology matches the lock file
 - Code examples are contextually complete (imports present, runnable)
 - Code examples use proper backtick formatting
-- Never name the language inside its own tab. The reader selected the tab; they already know. State facts directly without prefixing the language name.
-- Headings describe the concept, never the API. No language-specific parameter names or syntax in headings (e.g. don't write `### Foo (preserveContext=false)`).
+- All prose outside a `<Tab>` is language-neutral. No Python or TypeScript parameter names, no language-specific syntax (e.g. `preserve_context=False` or `preserveContext: false`). Describe the concept in plain English; the code inside each tab shows the language-specific spelling.
+- Headings describe the concept, never the API. No parameter names or syntax in headings.
+- Never name the language inside its own tab. The reader selected the tab; they already know.
 
 ### Step 4b: Verify code accuracy
 
