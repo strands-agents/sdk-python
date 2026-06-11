@@ -8,8 +8,8 @@ async function basic() {
   // --8<-- [end:basic]
 }
 
-async function customCm() {
-  // --8<-- [start:custom_cm]
+async function customConversationManager() {
+  // --8<-- [start:custom_conversation_manager]
   // Your conversation manager is used;
   // ContextOffloader is still added automatically
   const agent = new Agent({
@@ -18,5 +18,5 @@ async function customCm() {
       windowSize: 30,
     }),
   })
-  // --8<-- [end:custom_cm]
+  // --8<-- [end:custom_conversation_manager]
 }

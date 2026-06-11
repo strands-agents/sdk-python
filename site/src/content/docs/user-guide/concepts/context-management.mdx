@@ -8,21 +8,13 @@ sidebar:
     variant: tip
 ---
 
-As conversations grow, your agent's context window fills with
-messages, tool results, and system prompts. Without management,
-this leads to token limit errors, degraded performance, and
-loss of relevant information.
+As conversations grow, your agent's context window fills with messages, tool results, and system prompts. Without management, this leads to token limit errors, degraded performance, and loss of relevant information.
 
-The SDK provides several layers of context management that you
-can use independently or together.
+The SDK provides several layers of context management that you can use independently or together.
 
 ## Automatic context management
 
-For most agents with multi-turn conversations, you don't need
-to configure conversation management and context offloading
-separately. Pass `context_manager="auto"` (Python) or
-`contextManager: "auto"` (TypeScript) and the SDK wires up
-both with tuned defaults:
+For most agents with multi-turn conversations, you don't need to configure conversation management and context offloading separately. Pass `context_manager="auto"` (Python) or `contextManager: "auto"` (TypeScript) and the SDK wires up both with tuned defaults:
 
 <Tabs>
 <Tab label="Python">
@@ -45,36 +37,19 @@ agent = Agent(context_manager="auto")
 
 ### What it sets up
 
-This composes two components whose defaults were optimal on
-[ContextBench](https://arxiv.org/abs/2602.05892):
+This composes two components whose defaults scored highest across [ContextBench](https://arxiv.org/abs/2602.05892) evaluations relative to other Strands Agent configurations:
 
-- **SummarizingConversationManager** (`summary_ratio=0.3`,
-  `compression_threshold=0.85`): proactively summarizes older
-  messages before the context window fills, preserving key
-  information while freeing space for new turns.
-- **ContextOffloader plugin** (`max_result_tokens=1500`,
-  `preview_tokens=750`): intercepts large tool results at
-  execution time, stores them externally, and keeps a truncated
-  preview in context. Registers a
-  `retrieve_offloaded_content` tool so the agent can fetch
-  full content on demand.
+- **SummarizingConversationManager** (summary ratio of 0.3, compression threshold of 0.85): proactively summarizes older messages before the context window fills, preserving key information while freeing space for new turns.
+- **ContextOffloader plugin** (max result tokens of 1,500, preview tokens of 750): intercepts large tool results at execution time, stores them externally, and keeps a truncated preview in context. Registers a `retrieve_offloaded_content` tool so the agent can fetch full content on demand.
 
-For full details on each component, see
-[Conversation Management](./agents/conversation-management#summarizingconversationmanager)
-and [Context Offloader](./plugins/context-offloader).
+For full details on each component, see [Conversation Management](./agents/conversation-management#summarizingconversationmanager) and [Context Offloader](./plugins/context-offloader).
 
 ### Combining with explicit configuration
 
-Your own settings take precedence when you need fine-grained
-control:
+Your own settings take precedence when you need fine-grained control:
 
-- **Custom conversation manager**: If you also pass
-  `conversation_manager` / `conversationManager`, your manager
-  replaces the auto-composed `SummarizingConversationManager`.
-  The SDK still adds the `ContextOffloader` plugin.
-- **Existing ContextOffloader**: If your `plugins` list already
-  contains a `ContextOffloader` instance, no duplicate is added.
-  Your configuration is preserved.
+- **Custom conversation manager**: If you also pass `conversation_manager` / `conversationManager`, your manager replaces the auto-composed `SummarizingConversationManager`. The SDK still adds the `ContextOffloader` plugin.
+- **Existing ContextOffloader**: If your `plugins` list already contains a `ContextOffloader` instance, no duplicate is added. Your configuration is preserved.
 
 <Tabs>
 <Tab label="Python">
@@ -98,9 +73,9 @@ agent = Agent(
 <Tab label="TypeScript">
 
 ```typescript
---8<-- "user-guide/concepts/context-management_imports.ts:custom_cm_imports"
+--8<-- "user-guide/concepts/context-management_imports.ts:custom_conversation_manager_imports"
 
---8<-- "user-guide/concepts/context-management.ts:custom_cm"
+--8<-- "user-guide/concepts/context-management.ts:custom_conversation_manager"
 ```
 </Tab>
 </Tabs>
@@ -108,14 +83,7 @@ agent = Agent(
 ### Limitations
 
 :::caution[Not compatible with stateful models]
-Stateful models manage conversation state server-side.
-Setting `context_manager="auto"` with a stateful model raises
-a `ValueError` (Python) or `Error` (TypeScript).
+Stateful models manage conversation state server-side. Setting `context_manager="auto"` with a stateful model raises a `ValueError` (Python) or `Error` (TypeScript).
 :::
 
-The auto-composed offloader uses in-memory storage that does not
-persist across process restarts. If your agent uses session
-management and needs durable offloaded content, configure an
-explicit `ContextOffloader` with `FileStorage` or `S3Storage`.
-See [Storage Backends](./plugins/context-offloader#storage-backends).
-
+The auto-composed offloader uses in-memory storage that does not persist across process restarts. If your agent uses session management and needs durable offloaded content, configure an explicit `ContextOffloader` with `FileStorage` or `S3Storage`. See [Storage Backends](./plugins/context-offloader#storage-backends).
