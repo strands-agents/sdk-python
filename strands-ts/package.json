@@ -217,7 +217,6 @@
     "@aws-sdk/client-s3": "^3.943.0",
     "@aws/bedrock-token-generator": "^1.1.0",
     "@cedar-policy/cedar-wasm": "^4.0.0",
-    "@cedar-policy/mcp-schema-generator-wasm": "^0.6.0",
     "@google/genai": "^1.40.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@opentelemetry/api": "^1.9.0",
@@ -279,9 +278,6 @@
       "optional": true
     },
     "@cedar-policy/cedar-wasm": {
-      "optional": true
-    },
-    "@cedar-policy/mcp-schema-generator-wasm": {
       "optional": true
     }
   },
