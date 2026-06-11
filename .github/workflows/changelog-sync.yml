@@ -1,0 +1,36 @@
+name: "Changelog: Sync"
+
+on:
+  release:
+    types: [published]
+  schedule:
+    - cron: '17 7 * * *'   # daily backstop for missed release events
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: 'Backfill all releases'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    # On release: only our in-scope tag prefixes. Cron/dispatch: always run.
+    if: >
+      github.event_name != 'release' ||
+      startsWith(github.event.release.tag_name, 'python/v') ||
+      startsWith(github.event.release.tag_name, 'typescript/v') ||
+      startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: strands-agents/devtools/changelog-release-pr@main
+        with:
+          source-repo: strands-agents/harness-sdk
+          mode: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.backfill)) && 'backfill' || 'single' }}
+          tag: ${{ github.event.release.tag_name }}
+          github-token: ${{ github.token }}
