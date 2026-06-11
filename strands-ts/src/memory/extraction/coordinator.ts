@@ -6,7 +6,10 @@ import { normalizeError } from '../../errors.js'
 import type { MemoryMessageFilter } from './types.js'
 import type { ResolvedExtractionConfig } from './resolve-extraction-config.js'
 
-/** A store paired with its fully-resolved extraction config. */
+/**
+ * A store paired with its fully-resolved extraction config.
+ * @internal
+ */
 export interface ExtractionBinding {
   /** The memory store to extract into. */
   store: MemoryStore
@@ -14,10 +17,16 @@ export interface ExtractionBinding {
   config: ResolvedExtractionConfig
 }
 
-/** Number of consecutive save failures after which a store backs off (stops trying every turn). */
+/**
+ * Number of consecutive save failures after which a store backs off (stops trying every turn).
+ * @internal
+ */
 export const SAVE_FAILURES_BEFORE_BACKOFF = 10
 
-/** While backed off, a store retries only once every this many save attempts (a probe). */
+/**
+ * While backed off, a store retries only once every this many save attempts (a probe).
+ * @internal
+ */
 export const BACKOFF_PROBE_INTERVAL = 3
 
 /** A buffered message and its sequence number. */
@@ -83,6 +92,7 @@ function _filterMessages(buffered: BufferedMessage[], filter: MemoryMessageFilte
  *
  * Saving itself either runs the store's extractor to pull out facts, or hands the raw messages to the
  * store - see {@link _write}.
+ * @internal
  */
 export class ExtractionCoordinator {
   private readonly _stores: MemoryStore[]

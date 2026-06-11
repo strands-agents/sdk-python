@@ -9,13 +9,17 @@ import {
   type MemoryMessageFilter,
 } from './types.js'
 
-/** Default cadence when an {@link ExtractionConfig} omits its `trigger`: extract every N turns. */
+/**
+ * Default cadence when an {@link ExtractionConfig} omits its `trigger`: extract every N turns.
+ * @internal
+ */
 export const DEFAULT_EXTRACTION_TRIGGER_TURNS = 5
 
 /**
  * An {@link ExtractionConfig} with every field resolved to a concrete value, ready to drive
  * extraction. Produced by {@link resolveExtractionConfig} so the {@link MemoryManager} and
  * {@link ExtractionCoordinator} never have to re-apply defaults or normalize shapes.
+ * @internal
  */
 export interface ResolvedExtractionConfig {
   /** Normalized to an array (a single trigger is wrapped). Never empty for a resolved config. */
@@ -47,6 +51,7 @@ export interface ResolvedExtractionConfig {
  * @param extraction - The store's `extraction` setting
  * @param store - The store, inspected for the write methods it implements to pick the default extractor
  * @returns The resolved config, or `undefined` when extraction is disabled
+ * @internal
  */
 export function resolveExtractionConfig(
   extraction: boolean | ExtractionConfig | undefined,
