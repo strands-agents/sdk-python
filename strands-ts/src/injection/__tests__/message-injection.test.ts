@@ -1,7 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import { Message, TextBlock, ToolResultBlock } from '../../types/messages.js'
+import type { MessageData } from '../../types/messages.js'
 import { foldIntoLastUserMessage, isUserTurn, resolveTrigger, createInjectionMiddleware } from '../message-injection.js'
 import type { InvokeModelContext } from '../../middleware/index.js'
+import type { InjectionContext } from '../types.js'
+import { createMockAgent } from '../../__fixtures__/agent-helpers.js'
 import { logger } from '../../logging/logger.js'
 
 const user = (text: string) => new Message({ role: 'user', content: [new TextBlock(text)] })
@@ -11,20 +14,21 @@ const toolResult = () =>
     role: 'user',
     content: [new ToolResultBlock({ toolUseId: 't1', status: 'success', content: [new TextBlock('done')] })],
   })
+
+// resolveTrigger predicates take an InjectionContext; tests only exercise `messages`, so a minimal bag suffices.
+const injectionCtx = (messages: MessageData[]) => ({ messages }) as unknown as InjectionContext
 describe('foldIntoLastUserMessage', () => {
   it('prepends the text as a leading TextBlock on the last user message, ahead of its content', () => {
     const messages = [user('original task'), assistant('prior step'), user('next ask')]
     const result = foldIntoLastUserMessage(messages, 'INJECTED')
 
-    expect(result).toHaveLength(3)
-    expect(result.map((m) => m.role)).toStrictEqual(['user', 'assistant', 'user'])
-    const target = result[2]!
-    expect(target.content).toHaveLength(2)
-    expect(target.content[0]).toBeInstanceOf(TextBlock)
-    expect((target.content[0] as TextBlock).text).toBe('INJECTED')
-    expect((target.content[1] as TextBlock).text).toBe('next ask')
-    // The user message stays last so the user's ask remains in the recency slot.
-    expect(result[result.length - 1]).toBe(target)
+    // The earlier user/assistant turns are untouched; the last user message gains a leading INJECTED
+    // block ahead of its own content, keeping the user's ask in the recency slot.
+    expect(result.map((m) => m.toJSON())).toStrictEqual([
+      { role: 'user', content: [{ text: 'original task' }] },
+      { role: 'assistant', content: [{ text: 'prior step' }] },
+      { role: 'user', content: [{ text: 'INJECTED' }, { text: 'next ask' }] },
+    ])
   })
 
   it('returns a new array and does not mutate the input or its messages', () => {
@@ -94,26 +98,26 @@ describe('isUserTurn', () => {
 describe('resolveTrigger', () => {
   it('defaults (undefined) to the userTurn policy', () => {
     const trigger = resolveTrigger(undefined)
-    expect(trigger([user('ask').toJSON()])).toBe(true)
-    expect(trigger([toolResult().toJSON()])).toBe(false)
+    expect(trigger(injectionCtx([user('ask').toJSON()]))).toBe(true)
+    expect(trigger(injectionCtx([toolResult().toJSON()]))).toBe(false)
   })
 
   it("'userTurn' uses isUserTurn", () => {
     const trigger = resolveTrigger('userTurn')
-    expect(trigger([user('ask').toJSON()])).toBe(true)
-    expect(trigger([toolResult().toJSON()])).toBe(false)
+    expect(trigger(injectionCtx([user('ask').toJSON()]))).toBe(true)
+    expect(trigger(injectionCtx([toolResult().toJSON()]))).toBe(false)
   })
 
   it("'everyTurn' always fires", () => {
     const trigger = resolveTrigger('everyTurn')
-    expect(trigger([])).toBe(true)
-    expect(trigger([toolResult().toJSON()])).toBe(true)
+    expect(trigger(injectionCtx([]))).toBe(true)
+    expect(trigger(injectionCtx([toolResult().toJSON()]))).toBe(true)
   })
 
-  it('uses a custom predicate', () => {
-    const trigger = resolveTrigger((messages) => messages.length >= 2)
-    expect(trigger([user('a').toJSON()])).toBe(false)
-    expect(trigger([user('a').toJSON(), assistant('b').toJSON()])).toBe(true)
+  it('uses a custom predicate over the context', () => {
+    const trigger = resolveTrigger((context) => context.messages.length >= 2)
+    expect(trigger(injectionCtx([user('a').toJSON()]))).toBe(false)
+    expect(trigger(injectionCtx([user('a').toJSON(), assistant('b').toJSON()]))).toBe(true)
   })
 
   it('fails open (returns false, logs) when a custom predicate throws', () => {
@@ -121,32 +125,33 @@ describe('resolveTrigger', () => {
     const trigger = resolveTrigger(() => {
       throw new Error('boom')
     })
-    expect(trigger([user('ask').toJSON()])).toBe(false)
+    expect(trigger(injectionCtx([user('ask').toJSON()]))).toBe(false)
     expect(warn).toHaveBeenCalled()
     warn.mockRestore()
   })
 })
 
 describe('createInjectionMiddleware', () => {
-  // The handler is an InvokeModelStage.Input transformer: it only reads `context.messages` and spreads
-  // the rest through, so a context carrying just `messages` exercises it faithfully.
-  const ctx = (messages: Message[]) => ({ messages }) as unknown as InvokeModelContext
+  // The handler is an InvokeModelStage.Input transformer. It reads `context.messages` and derives the
+  // InjectionContext (appState/signal) from `context.agent`, then spreads the rest through, so a context
+  // carrying `messages` plus a mock agent exercises it faithfully.
+  const ctx = (messages: Message[]) => ({ messages, agent: createMockAgent() }) as unknown as InvokeModelContext
 
-  it('folds provide() text into the latest user message, leaving other context fields intact', async () => {
-    const handler = createInjectionMiddleware({ provide: async () => 'INJECTED' })
+  it('folds renderContent() text into the latest user message, leaving other context fields intact', async () => {
+    const handler = createInjectionMiddleware({ renderContent: async () => 'INJECTED' })
     const result = await handler(ctx([assistant('prior'), user('ask')]))
 
-    expect(result.messages).toHaveLength(2)
-    const target = result.messages[1]!
-    expect((target.content[0] as TextBlock).text).toBe('INJECTED')
-    expect((target.content[1] as TextBlock).text).toBe('ask')
+    expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
+      { role: 'assistant', content: [{ text: 'prior' }] },
+      { role: 'user', content: [{ text: 'INJECTED' }, { text: 'ask' }] },
+    ])
   })
 
-  it('passes the conversation (as data) to provide', async () => {
+  it('passes an InjectionContext carrying the conversation (as data) to renderContent', async () => {
     const seen: string[] = []
     const handler = createInjectionMiddleware({
-      provide: async (messages) => {
-        seen.push(...messages.map((m) => m.role))
+      renderContent: async (context) => {
+        seen.push(...context.messages.map((m) => m.role))
         return 'x'
       },
     })
@@ -155,18 +160,37 @@ describe('createInjectionMiddleware', () => {
     expect(seen).toStrictEqual(['assistant', 'user'])
   })
 
+  it('exposes appState and the cancel signal on the InjectionContext', async () => {
+    const signal = new AbortController().signal
+    const appState = { get: () => 'stashed' }
+    const input = {
+      messages: [user('ask')],
+      agent: { appState, cancelSignal: signal },
+    } as unknown as InvokeModelContext
+    let received: { appState: unknown; signal: unknown } | undefined
+    const handler = createInjectionMiddleware({
+      renderContent: async (context) => {
+        received = { appState: context.appState, signal: context.signal }
+        return undefined
+      },
+    })
+    await handler(input)
+
+    expect(received).toStrictEqual({ appState, signal })
+  })
+
   it('returns the context unchanged when the trigger does not fire', async () => {
-    const provide = vi.fn(async () => 'x')
-    const handler = createInjectionMiddleware({ provide }) // default 'userTurn'
+    const renderContent = vi.fn(async () => 'x')
+    const handler = createInjectionMiddleware({ renderContent }) // default 'userTurn'
     const input = ctx([user('task'), assistant('a'), toolResult()])
     const result = await handler(input)
 
     expect(result).toBe(input)
-    expect(provide).not.toHaveBeenCalled()
+    expect(renderContent).not.toHaveBeenCalled()
   })
 
   it("'everyTurn' injects on an autonomous tool-result turn", async () => {
-    const handler = createInjectionMiddleware({ trigger: 'everyTurn', provide: async () => 'INJECTED' })
+    const handler = createInjectionMiddleware({ trigger: 'everyTurn', renderContent: async () => 'INJECTED' })
     const result = await handler(ctx([user('task'), assistant('a'), toolResult()]))
 
     // The most recent user message on a tool-result turn is the tool-result itself; the fold prepends
@@ -176,18 +200,18 @@ describe('createInjectionMiddleware', () => {
     expect(folded.content[1]!.type).toBe('toolResultBlock')
   })
 
-  it('returns the context unchanged when provide yields empty text', async () => {
-    const handler = createInjectionMiddleware({ provide: async () => '   ' })
+  it('returns the context unchanged when renderContent yields empty text', async () => {
+    const handler = createInjectionMiddleware({ renderContent: async () => '   ' })
     const input = ctx([assistant('prior'), user('ask')])
     const result = await handler(input)
 
     expect(result).toBe(input)
   })
 
-  it('fails open (returns the context unchanged, logs) when provide throws', async () => {
+  it('fails open (returns the context unchanged, logs) when renderContent throws', async () => {
     const warn = vi.spyOn(logger, 'warn').mockImplementation(() => {})
     const handler = createInjectionMiddleware({
-      provide: async () => {
+      renderContent: async () => {
         throw new Error('boom')
       },
     })
@@ -200,7 +224,7 @@ describe('createInjectionMiddleware', () => {
   })
 
   it('does not mutate the original context messages', async () => {
-    const handler = createInjectionMiddleware({ provide: async () => 'INJECTED' })
+    const handler = createInjectionMiddleware({ renderContent: async () => 'INJECTED' })
     const input = ctx([assistant('prior'), user('ask')])
     const before = input.messages[1]!
     await handler(input)

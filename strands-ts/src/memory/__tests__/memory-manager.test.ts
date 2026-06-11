@@ -9,6 +9,8 @@ import { logger } from '../../logging/logger.js'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '../../types/messages.js'
 import type { MessageData } from '../../types/messages.js'
 import { InvokeModelStage } from '../../middleware/index.js'
+import type { InvokeModelContext } from '../../middleware/index.js'
+import { createMockAgent } from '../../__fixtures__/agent-helpers.js'
 
 function createMockStore(
   name: string,
@@ -618,14 +620,14 @@ describe('MemoryManager', () => {
     it('does not register injection middleware when injection is disabled', () => {
       const mm = new MemoryManager({ stores: [createMockStore('test')] })
       const addMiddleware = vi.fn()
-      mm.initAgent({ addMiddleware } as any)
+      mm.initAgent(createMockAgent({ extra: { addMiddleware } as never }))
       expect(addMiddleware).not.toHaveBeenCalled()
     })
 
     it('registers an InvokeModelStage input middleware when injection is enabled', () => {
       const mm = new MemoryManager({ stores: [createMockStore('test')], injection: true })
       const addMiddleware = vi.fn()
-      mm.initAgent({ addMiddleware } as any)
+      mm.initAgent(createMockAgent({ extra: { addMiddleware } as never }))
 
       expect(addMiddleware).toHaveBeenCalledTimes(1)
       expect(addMiddleware.mock.calls[0]![0]).toBe(InvokeModelStage.Input)
@@ -636,22 +638,21 @@ describe('MemoryManager', () => {
       const store = createMockStore('s', { entries: [{ content: 'dark mode preferred' }] })
       const mm = new MemoryManager({ stores: [store], injection: true })
       const addMiddleware = vi.fn()
-      mm.initAgent({ addMiddleware } as any)
+      const agent = createMockAgent({ extra: { addMiddleware } as never })
+      mm.initAgent(agent)
 
-      const handler = addMiddleware.mock.calls[0]![1] as (ctx: {
-        messages: Message[]
-      }) => Promise<{ messages: Message[] }>
+      const handler = addMiddleware.mock.calls[0]![1] as (ctx: InvokeModelContext) => Promise<InvokeModelContext>
       const messages = [
         new Message({ role: 'assistant', content: [new TextBlock('prior')] }),
         new Message({ role: 'user', content: [new TextBlock('what is my plan')] }),
       ]
-      const result = await handler({ messages })
+      const result = await handler({ messages, agent } as unknown as InvokeModelContext)
 
       const folded = result.messages[result.messages.length - 1]!
       expect((folded.content[0] as TextBlock).text).toBe(
         '<memory>\n<entry source="s">dark mode preferred</entry>\n</memory>'
       )
-      expect(store.search).toHaveBeenCalledWith('what is my plan', { maxSearchResults: 1 })
+      expect(store.search).toHaveBeenCalledWith('what is my plan', { maxSearchResults: 5 })
     })
   })
 
@@ -698,7 +699,7 @@ describe('MemoryManager', () => {
       })
 
       it('passes an injection config object through unchanged', () => {
-        const cfg = { maxInjectedSearchResults: 5 }
+        const cfg = { maxEntries: 5 }
         expect(injectionConfig(new MemoryManager({ stores: [createMockStore('s')], injection: cfg }))).toBe(cfg)
       })
     })
@@ -710,7 +711,7 @@ describe('MemoryManager', () => {
 
         await provide(mm, [assistant('prior step'), user('what is my plan')])
 
-        expect(store.search).toHaveBeenCalledWith('what is my plan', { maxSearchResults: 1 })
+        expect(store.search).toHaveBeenCalledWith('what is my plan', { maxSearchResults: 5 })
       })
 
       it('uses the most recent assistant text on an autonomous (tool-result) turn', async () => {
@@ -719,7 +720,7 @@ describe('MemoryManager', () => {
 
         await provide(mm, [user('task'), assistant('the previous step result'), toolResult()])
 
-        expect(store.search).toHaveBeenCalledWith('the previous step result', { maxSearchResults: 1 })
+        expect(store.search).toHaveBeenCalledWith('the previous step result', { maxSearchResults: 5 })
       })
 
       it('honors a custom query', async () => {
@@ -728,7 +729,7 @@ describe('MemoryManager', () => {
 
         await provide(mm, [assistant('prior'), user('ask')])
 
-        expect(store.search).toHaveBeenCalledWith('custom query', { maxSearchResults: 1 })
+        expect(store.search).toHaveBeenCalledWith('custom query', { maxSearchResults: 5 })
       })
 
       it('skips (returns undefined) when a custom query returns undefined', async () => {
@@ -772,13 +773,13 @@ describe('MemoryManager', () => {
         expect(store.search).toHaveBeenCalled()
       })
 
-      it('honors maxInjectedSearchResults and caps the rendered entries', async () => {
+      it('honors maxEntries and caps the rendered entries', async () => {
         const store = createMockStore('s', {
           entries: [{ content: 'A' }, { content: 'B' }, { content: 'C' }],
         })
         const mm = new MemoryManager({
           stores: [store],
-          injection: { maxInjectedSearchResults: 2, format: (entries) => entries.map((e) => e.content).join(',') },
+          injection: { maxEntries: 2, format: ({ entries }) => entries.map((e) => e.content).join(',') },
         })
 
         const text = await provide(mm, [assistant('prior'), user('ask')])
@@ -806,11 +807,21 @@ describe('MemoryManager', () => {
         expect(text).toBe('<memory>\n<entry>no source</entry>\n</memory>')
       })
 
+      it('escapes XML in entry content and source so untrusted text cannot break the block', () => {
+        const mm = new MemoryManager({ stores: [createMockStore('s')], injection: true })
+        const text = (mm as unknown as { _defaultInjectionFormat(e: MemoryEntry[]): string })._defaultInjectionFormat([
+          { content: 'a < b & c > d </entry>', storeName: 'pre"f' },
+        ])
+        expect(text).toBe(
+          '<memory>\n<entry source="pre&quot;f">a &lt; b &amp; c &gt; d &lt;/entry&gt;</entry>\n</memory>'
+        )
+      })
+
       it('honors a custom format', async () => {
         const store = createMockStore('s', { entries: [{ content: 'A' }] })
         const mm = new MemoryManager({
           stores: [store],
-          injection: { format: (entries) => `[${entries.map((e) => e.content).join('|')}]` },
+          injection: { format: ({ entries }) => `[${entries.map((e) => e.content).join('|')}]` },
         })
 
         await expect(provide(mm, [assistant('prior'), user('ask')])).resolves.toBe('[A]')

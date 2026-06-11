@@ -344,6 +344,10 @@ export type {
   MemoryToolConfig,
   MemoryAddToolConfig,
   MemoryManagerConfig,
+  MemoryInjectionConfig,
+  InjectionConfig,
+  InjectionTrigger,
+  InjectionContext,
 } from './memory/index.js'
 export { ExtractionTrigger, InvocationTrigger, IntervalTrigger, ModelExtractor } from './memory/index.js'
 export type {

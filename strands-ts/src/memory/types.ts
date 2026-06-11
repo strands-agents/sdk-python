@@ -207,9 +207,13 @@ export interface MemoryInjectionConfig extends InjectionConfig {
   /**
    * Maximum number of entries to retrieve and inject per model call.
    *
-   * @defaultValue 1
+   * A store ranks by semantic similarity, which is not the same as contextual usefulness, so the
+   * default injects a small candidate set rather than betting on the top hit. Raising this improves
+   * recall at the cost of a larger prepend (context bloat); lower it for a tighter injection.
+   *
+   * @defaultValue 5
    */
-  maxInjectedSearchResults?: number
+  maxEntries?: number
   /**
    * Derives the search query from the current conversation. Return `undefined` or an empty string to
    * skip injection for this call. A callback that throws fails open (injection is skipped).
@@ -217,15 +221,17 @@ export interface MemoryInjectionConfig extends InjectionConfig {
    * Defaults to an adaptive query: the latest user message's text on a user turn, otherwise the most
    * recent assistant message's text (the previous step on an autonomous turn).
    */
-  query?: (messages: MessageData[]) => string | undefined
+  query?: (context: { messages: MessageData[] }) => string | undefined
   /**
    * Renders retrieved entries into the injected text. A callback that throws fails open (injection is
    * skipped).
    *
    * Defaults to a `<memory>` XML block with one `<entry>` per result, carrying a `source` attribute
-   * naming the originating store (when known) so the model can attribute and weigh each memory.
+   * naming the originating store (when known) so the model can attribute and weigh each memory. The
+   * default escapes entry content and source, so a custom `format` that emits markup is responsible
+   * for its own escaping.
    */
-  format?: (entries: MemoryEntry[]) => string
+  format?: (context: { entries: MemoryEntry[] }) => string
 }
 
 /**
@@ -244,6 +250,16 @@ export interface MemoryManagerConfig {
   /**
    * Memory context injection. Defaults to `false` (opt-in). `true` uses the default injection
    * settings; pass a {@link MemoryInjectionConfig} to customize retrieval, timing, and formatting.
+   *
+   * `true` is equivalent to:
+   * ```ts
+   * {
+   *   trigger: 'userTurn',          // inject only on a fresh user ask
+   *   maxEntries: 5,                // retrieve and inject up to 5 entries
+   *   // query:  the latest user text on a user turn, else the most recent assistant text
+   *   // format: a <memory> block with one <entry source="STORE_NAME"> per result (content escaped)
+   * }
+   * ```
    */
   injection?: boolean | MemoryInjectionConfig
 }
