@@ -73,6 +73,11 @@ class Guide:
         On ``after_model_call``, Guide triggers a model retry. Handlers **must** ensure
         convergence (e.g., by tracking retry count and escalating to Deny after repeated
         failures). The framework imposes no retry cap on guide-triggered retries.
+
+    .. note::
+        On ``before_model_call`` and ``after_model_call``, guidance messages are injected
+        directly into ``agent.messages`` and bypass session management. Session managers
+        will not track these injected messages.
     """
 
     type: str = field(default="guide", init=False)

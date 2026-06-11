@@ -32,8 +32,9 @@ class InterventionHandler(ABC):
     """Base class for intervention handlers.
 
     Subclasses must define a ``name`` attribute and override the lifecycle
-    methods they care about. The framework detects which methods are overridden
-    and only calls those.
+    methods they care about at the **class level**. The framework detects which
+    methods are overridden and only calls those. Instance-level assignments
+    (e.g., ``handler.before_tool_call = my_func``) are not detected.
 
     Example:
         ```python

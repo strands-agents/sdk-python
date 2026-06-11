@@ -526,6 +526,7 @@ async def _handle_model_execution(
                     tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
                     if after_model_call_event.retry:
                         continue
+                    yield ModelStopReason(stop_reason=stop_reason, message=message, usage=usage, metrics=metrics)
                     break
 
                 if structured_output_context.forced_mode:

@@ -212,6 +212,11 @@ class InterventionRegistry:
                 if action is None:
                     continue
 
+            if action is None:
+                raise TypeError(
+                    f"handler '{handler.name}.{method}' returned None; expected an InterventionAction"
+                )
+
             logger.debug("handler=<%s>, event=<%s> | returned %s", handler.name, method, action.type)
 
             if isinstance(action, Guide):
