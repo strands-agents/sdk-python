@@ -80,32 +80,49 @@ def build_judge_prompt(description: str, transcript: Messages) -> str:
     Returns:
         Composed input prompt string ready to feed to a judge Agent.
     """
-    lines: list[str] = []
-    for message in transcript:
-        parts: list[str] = []
-        for block in message["content"]:
-            if "text" in block:
-                parts.append(block["text"])
-            elif "toolUse" in block:
-                tool_use = block["toolUse"]
-                parts.append(f"[tool-call: {tool_use['name']}] input={_truncate(json.dumps(tool_use['input']))}")
-            elif "toolResult" in block:
-                tool_result = block["toolResult"]
-                text_parts: list[str] = []
-                for inner in tool_result.get("content", []):
-                    if "text" in inner:
-                        text_parts.append(inner["text"])
-                    elif "json" in inner:
-                        text_parts.append(json.dumps(inner["json"]))
-                text = " ".join(text_parts)
-                status = tool_result.get("status", "unknown")
-                parts.append(f"[tool-result: {status}] {_truncate(text)}")
-        lines.append(f"[{message['role']}]\n" + "\n".join(parts))
-    return f"Goal:\n{description}\n\nConversation transcript:\n" + "\n\n".join(lines)
+    rendered = "\n\n".join(_render_message(m) for m in transcript)
+    return f"Goal:\n{description}\n\nConversation transcript:\n{rendered}"
+
+
+def _render_message(message: dict) -> str:
+    """Render a single message as [role] followed by its content blocks."""
+    parts = [_render_block(block) for block in message["content"]]
+    body = "\n".join(p for p in parts if p)
+    return f"[{message['role']}]\n{body}"
+
+
+def _render_block(block: dict) -> str | None:
+    """Render a content block to its text representation, or None to skip."""
+    if "text" in block:
+        return block["text"]
+
+    if "toolUse" in block:
+        name = block["toolUse"]["name"]
+        input_summary = _truncate(json.dumps(block["toolUse"]["input"]))
+        return f"[tool-call: {name}] input={input_summary}"
+
+    if "toolResult" in block:
+        result = block["toolResult"]
+        status = result.get("status", "unknown")
+        text = " ".join(_extract_result_text(result.get("content", [])))
+        return f"[tool-result: {status}] {_truncate(text)}"
+
+    return None
+
+
+def _extract_result_text(content: list[dict]) -> list[str]:
+    """Pull text/json values out of a tool result's content blocks."""
+    out: list[str] = []
+    for inner in content:
+        if "text" in inner:
+            out.append(inner["text"])
+        elif "json" in inner:
+            out.append(json.dumps(inner["json"]))
+    return out
 
 
 def _truncate(text: str, max_len: int = 500) -> str:
-    """Trim long tool inputs/outputs so a single tool call can't dominate the judge prompt."""
+    """Trim long strings so a single tool call can't dominate the judge prompt."""
     if len(text) <= max_len:
         return text
     return f"{text[:max_len]}... [{len(text) - max_len} more chars]"

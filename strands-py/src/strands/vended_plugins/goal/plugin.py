@@ -374,7 +374,7 @@ class GoalLoop(Plugin):
         goal_description = self._goal
         assert goal_description is not None
 
-        async def _nl_validator(_response: Message) -> ValidationOutcome:
+        async def _judge_validator(_response: Message) -> ValidationOutcome:
             from ...agent.agent import Agent as _Agent
 
             judge = _Agent(
@@ -391,4 +391,4 @@ class GoalLoop(Plugin):
                 )
             return ValidationOutcome(passed=False, feedback="Judge produced no structured outcome.")
 
-        return _nl_validator
+        return _judge_validator
