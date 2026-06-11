@@ -210,11 +210,9 @@ plugin = GoalLoop(goal=tests_pass, max_attempts=10)
 </Tab>
 </Tabs>
 
-:::caution
-When both `max_attempts` and `timeout` are unbounded (the
-defaults), the plugin warns at construction time. Always set at
-least one bound in production to prevent runaway loops.
-:::
+When both `max_attempts` and `timeout` are left unbounded (the
+defaults), the plugin warns at construction time. Set at least
+one bound in production to prevent runaway loops.
 
 ## Advanced Usage
 
@@ -278,11 +276,9 @@ plugin = GoalLoop(
 </Tab>
 </Tabs>
 
-:::note
-The snapshot excludes agent state (the `state` / `appState`
-property) deliberately. Other plugins (rate limiters, cost
-trackers) rely on their mutations persisting across attempts.
-:::
+The snapshot excludes agent state (`state` / `appState`)
+deliberately — other plugins (rate limiters, cost trackers)
+rely on their mutations persisting across attempts.
 
 ### Custom Judge Configuration
 
