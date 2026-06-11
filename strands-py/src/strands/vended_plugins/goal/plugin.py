@@ -137,7 +137,7 @@ class _RunState:
     initial_snapshot: Snapshot | None = None
 
 
-_agents_with_goal_loop: weakref.WeakSet[Any] = weakref.WeakSet()
+_agents_with_goal_loop: weakref.WeakSet[Agent] = weakref.WeakSet()
 
 
 def _default_resume_prompt(feedback: str | None) -> str:
@@ -256,7 +256,7 @@ class GoalLoop(Plugin):
         self._timeout = timeout
         self._preserve_context = preserve_context
         self._resume_prompt_template = resume_prompt_template or _default_resume_prompt
-        self._runs: weakref.WeakKeyDictionary[Any, _RunState] = weakref.WeakKeyDictionary()
+        self._runs: weakref.WeakKeyDictionary[Agent, _RunState] = weakref.WeakKeyDictionary()
 
         if self._max_attempts == float("inf") and self._timeout == float("inf"):
             warnings.warn(
