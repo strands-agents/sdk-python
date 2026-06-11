@@ -692,13 +692,13 @@ describe('CedarAuthorization', () => {
       expect(cedar.name).toBe('cedar-authorization')
     })
 
-    it('catches unknown action names via auto-generated schema', async () => {
-      await expect(
-        CedarAuthorization.create({
-          policies: 'permit(principal, action == Action::"nonexistent", resource);',
-          tools,
-        })
-      ).rejects.toThrow()
+    it('does not validate policies against auto-generated schema (session fields are handler-injected)', async () => {
+      // Policies referencing context.session.* should not fail with auto-generated schema
+      const cedar = await CedarAuthorization.create({
+        policies: 'permit(principal, action == Action::"search", resource) when { context.session.role == "admin" };',
+        tools,
+      })
+      expect(cedar.name).toBe('cedar-authorization')
     })
 
     it('uses generateRequest for action/resource resolution at eval time', async () => {

@@ -99,6 +99,7 @@ export class CedarAuthorization extends InterventionHandler {
   private _schema: string | undefined
   private readonly _policySource: string
   private readonly _entitySource: EntityJson[] | string | undefined
+  private readonly _schemaSource: string | undefined
   private readonly _principal: TypeAndId | undefined
   private readonly _principalResolver:
     | ((invocationState: Record<string, unknown>) => TypeAndId | undefined)
@@ -107,7 +108,7 @@ export class CedarAuthorization extends InterventionHandler {
   private readonly _tools: ToolDefinition[] | undefined
   private readonly _schemaGenerator: SchemaGenerator | undefined
   private readonly _callCounts = new Map<string, number>()
-  private readonly _stateKey: string
+  private static readonly _stateKey = 'cedar-authorization'
 
   constructor(config: CedarAuthorizationConfig, schemaGenerator?: SchemaGenerator) {
     super()
@@ -116,6 +117,7 @@ export class CedarAuthorization extends InterventionHandler {
     }
     this._policySource = config.policies
     this._entitySource = config.entities
+    this._schemaSource = config.schema
     this._policies = loadPolicies(config.policies)
     this._entities = loadEntities(config.entities)
     this._tools = config.tools
@@ -124,7 +126,10 @@ export class CedarAuthorization extends InterventionHandler {
     if (config.schema) {
       this._schema = loadSchema(config.schema)
     } else if (schemaGenerator && config.tools) {
-      this._schema = schemaGenerator.generateSchema(config.tools)
+      // Auto-generated schema only covers context.input (from tool definitions).
+      // We don't use it for validate() since it can't know about context.session fields.
+      // It's still used by generateRequest() for action/resource resolution.
+      this._schema = undefined
     } else {
       this._schema = undefined
     }
@@ -136,7 +141,6 @@ export class CedarAuthorization extends InterventionHandler {
     }
     this._principalResolver = config.principalResolver
     this._contextEnricher = config.contextEnricher
-    this._stateKey = `cedar-authorization:${this.name}`
     this.onError = config.onError ?? 'throw'
 
     validatePolicies(this._policies, this._schema)
@@ -227,14 +231,19 @@ export class CedarAuthorization extends InterventionHandler {
   /** Clears rate-limit call counters. */
   resetCallCounts(agent: { appState: { set: (key: string, value: unknown) => void } }): void {
     this._callCounts.clear()
-    agent.appState.set(this._stateKey, {})
+    agent.appState.set(CedarAuthorization._stateKey, {})
   }
 
-  /** Reloads policies/entities from disk. Validates before committing. */
+  /** Reloads policies/entities/schema from disk. Validates before committing. */
   reload(): void {
     const policies = loadPolicies(this._policySource)
     const entities = loadEntities(this._entitySource)
-    const schema = this._schemaGenerator && this._tools ? this._schemaGenerator.generateSchema(this._tools) : undefined
+    let schema: string | undefined
+    if (this._schemaSource) {
+      schema = loadSchema(this._schemaSource)
+    } else if (this._schemaGenerator && this._tools) {
+      schema = this._schemaGenerator.generateSchema(this._tools)
+    }
     validatePolicies(policies, schema)
     this._policies = policies
     this._entities = entities
@@ -242,13 +251,21 @@ export class CedarAuthorization extends InterventionHandler {
   }
 
   private _incrementCallCount(
-    agent: { appState: { set: (key: string, value: unknown) => void } },
+    agent: { appState: { get: (key: string) => unknown; set: (key: string, value: unknown) => void } },
     toolName: string
   ): number {
+    if (this._callCounts.size === 0) {
+      const stored = agent.appState.get(CedarAuthorization._stateKey) as Record<string, number> | undefined
+      if (stored) {
+        for (const [k, v] of Object.entries(stored)) {
+          this._callCounts.set(k, v)
+        }
+      }
+    }
     const current = this._callCounts.get(toolName) ?? 0
     const next = current + 1
     this._callCounts.set(toolName, next)
-    agent.appState.set(this._stateKey, Object.fromEntries(this._callCounts))
+    agent.appState.set(CedarAuthorization._stateKey, Object.fromEntries(this._callCounts))
     return next
   }
 
@@ -259,7 +276,7 @@ export class CedarAuthorization extends InterventionHandler {
     const current = this._callCounts.get(toolName) ?? 0
     if (current > 0) {
       this._callCounts.set(toolName, current - 1)
-      agent.appState.set(this._stateKey, Object.fromEntries(this._callCounts))
+      agent.appState.set(CedarAuthorization._stateKey, Object.fromEntries(this._callCounts))
     }
   }
 }
