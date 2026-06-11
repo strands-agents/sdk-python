@@ -53,7 +53,7 @@ Write each section following the outline.
 
 ### Step 3b: Apply MDX formatting
 
-Apply MDX formatting patterns from `../../references/mdx-authoring.md` — especially Tabs/Tab syntax, the `<Syntax>` component for inline language-specific identifiers, snippet includes, and callout syntax.
+Apply MDX formatting patterns from `../../references/mdx-authoring.md` — especially Tabs/Tab syntax, the `<Syntax>` component for inline language-specific identifiers, snippet includes, and callout syntax (default to inline prose; callouts are rare).
 
 When shared prose needs to reference a language-specific identifier (method name, parameter, class, etc.), use `<Syntax py="..." ts="..." />`. This keeps prose clean and adapts to the reader's language selection. Never spell out both variants manually in prose.
 
