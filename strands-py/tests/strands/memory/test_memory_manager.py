@@ -1121,3 +1121,27 @@ async def test_flush_on_invocation_end_disabled_by_default_registers_no_flush_ho
     await _invoke_all(agent, AfterInvocationEvent(agent=agent))
 
     extraction_store.add_messages.assert_not_called()
+
+
+def test_init_agent_warns_when_extraction_configured_without_flush_on_invocation_end(caplog):
+    extraction_store = _store(
+        "s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig(trigger=InvocationTrigger())
+    )
+    memory_manager = MemoryManager(stores=[extraction_store])
+
+    with caplog.at_level(logging.WARNING):
+        memory_manager.init_agent(_FakeAgent())
+
+    assert "flush_on_invocation_end" in caplog.text
+
+
+def test_init_agent_does_not_warn_when_flush_on_invocation_end_enabled(caplog):
+    extraction_store = _store(
+        "s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig(trigger=InvocationTrigger())
+    )
+    memory_manager = MemoryManager(stores=[extraction_store], flush_on_invocation_end=True)
+
+    with caplog.at_level(logging.WARNING):
+        memory_manager.init_agent(_FakeAgent())
+
+    assert "flush_on_invocation_end" not in caplog.text

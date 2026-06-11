@@ -659,6 +659,12 @@ class MemoryManager(Plugin):
 
         if self._flush_on_invocation_end:
             agent.add_hook(self._flush_after_invocation, AfterInvocationEvent, order=HookOrder.SDK_LAST)
+        else:
+            logger.warning(
+                "flush_on_invocation_end=<False> | extraction runs in the background and is lost if the event "
+                "loop closes before it finishes (e.g. the synchronous Agent(...) entry point). Enable "
+                "flush_on_invocation_end or await MemoryManager.flush() at a boundary to persist it."
+            )
 
     async def _flush_after_invocation(self, event: AfterInvocationEvent) -> None:
         """Await pending extraction writes at the end of an agent invocation."""
@@ -689,6 +695,9 @@ class MemoryManager(Plugin):
 
         A no-op when no store has extraction configured. Call this at a boundary
         you control (typically app shutdown) so the most recent turn is not lost.
+
+        Drains automatic extraction only; ``add_memory`` fire-and-forget writes
+        (``wait_for_writes=False``) are dispatched but not awaited here.
         """
         if self._coordinator is not None:
             await self._coordinator.flush()
