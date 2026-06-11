@@ -6,45 +6,26 @@ InterventionHandler that intercepts lifecycle events and returns typed decisions
 
 Example:
     ```python
-    from strands import Agent, InterventionHandler, InterventionActions
+    from strands import Agent, InterventionHandler
+    from strands.interventions import Deny, Proceed
 
     class MyAuth(InterventionHandler):
         name = "my-auth"
 
-        async def before_tool_call(self, event):
+        def before_tool_call(self, event):
             if not self.is_authorized(event):
-                return InterventionActions.deny("not authorized")
-            return InterventionActions.proceed()
+                return Deny(reason="not authorized")
+            return Proceed()
 
     agent = Agent(interventions=[MyAuth()])
     ```
 """
 
-from .actions import confirm, deny, guide, proceed, transform
+from .actions import Confirm as Confirm
+from .actions import Deny as Deny
+from .actions import Guide as Guide
+from .actions import InterventionAction as InterventionAction
+from .actions import Proceed as Proceed
+from .actions import Transform as Transform
 from .handler import InterventionHandler as InterventionHandler
-
-
-class InterventionActions:
-    """Namespaced factory functions for intervention actions.
-
-    Usage:
-        ```python
-        from strands import InterventionActions
-
-        InterventionActions.proceed()
-        InterventionActions.deny("not authorized")
-        InterventionActions.guide("try a different approach")
-        InterventionActions.confirm("approve this action?")
-        InterventionActions.transform(lambda e: None)
-        ```
-    """
-
-    def __new__(cls) -> "InterventionActions":
-        """Prevent instantiation — this is a namespace, not a class."""
-        raise TypeError("InterventionActions is a namespace, not instantiable")
-
-    proceed = staticmethod(proceed)
-    deny = staticmethod(deny)
-    guide = staticmethod(guide)
-    confirm = staticmethod(confirm)
-    transform = staticmethod(transform)
+from .handler import OnError as OnError

@@ -6,7 +6,7 @@ registers hook callbacks for those.
 """
 
 from abc import ABC, abstractmethod
-from typing import Literal
+from typing import Any, Literal
 
 from ..hooks.events import (
     AfterModelCallEvent,
@@ -43,8 +43,8 @@ class InterventionHandler(ABC):
 
             def before_tool_call(self, event):
                 if not self.is_authorized(event):
-                    return deny("not authorized")
-                return proceed()
+                    return Deny(reason="not authorized")
+                return Proceed()
         ```
     """
 
@@ -59,22 +59,24 @@ class InterventionHandler(ABC):
         """What to do when this handler throws. Defaults to 'throw'."""
         return "throw"
 
-    def before_invocation(self, event: BeforeInvocationEvent) -> Proceed | Deny | Guide | Transform:
+    def before_invocation(self, event: BeforeInvocationEvent, **kwargs: Any) -> Proceed | Deny | Guide | Transform:
         """Called before an agent invocation begins."""
         return Proceed()
 
-    def before_tool_call(self, event: BeforeToolCallEvent) -> Proceed | Deny | Guide | Confirm | Transform:
+    def before_tool_call(
+        self, event: BeforeToolCallEvent, **kwargs: Any
+    ) -> Proceed | Deny | Guide | Confirm | Transform:
         """Called before a tool is executed."""
         return Proceed()
 
-    def after_tool_call(self, event: AfterToolCallEvent) -> Proceed | Transform:
+    def after_tool_call(self, event: AfterToolCallEvent, **kwargs: Any) -> Proceed | Transform:
         """Called after a tool execution completes."""
         return Proceed()
 
-    def before_model_call(self, event: BeforeModelCallEvent) -> Proceed | Deny | Guide | Transform:
+    def before_model_call(self, event: BeforeModelCallEvent, **kwargs: Any) -> Proceed | Deny | Guide | Transform:
         """Called before the model is invoked."""
         return Proceed()
 
-    def after_model_call(self, event: AfterModelCallEvent) -> Proceed | Guide | Transform:
+    def after_model_call(self, event: AfterModelCallEvent, **kwargs: Any) -> Proceed | Guide | Transform:
         """Called after the model invocation completes."""
         return Proceed()

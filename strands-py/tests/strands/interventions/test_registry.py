@@ -19,7 +19,6 @@ from strands.interventions.actions import (
     Guide,
     Proceed,
     Transform,
-    deny,
 )
 from strands.interventions.handler import InterventionHandler
 from strands.interventions.registry import InterventionRegistry
@@ -245,7 +244,7 @@ class TestDeny:
             name = "invocation-deny"
 
             async def before_invocation(self, event):
-                return deny("unauthorized user")
+                return Deny(reason="unauthorized user")
 
         InterventionRegistry([InvocationDeny()], hook_registry)
 
@@ -259,7 +258,7 @@ class TestDeny:
             name = "model-deny"
 
             async def before_model_call(self, event):
-                return deny("prompt injection detected")
+                return Deny(reason="prompt injection detected")
 
         InterventionRegistry([ModelDeny()], hook_registry)
 
