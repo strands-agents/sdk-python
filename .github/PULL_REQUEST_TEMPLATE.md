@@ -21,7 +21,7 @@ Other (please describe):
 
 ## Testing
 
-How have you tested the change?  Verify that the changes do not break functionality or introduce warnings in consuming repositories: agents-docs, agents-tools, agents-cli
+How have you tested the change? Verify that the changes do not break functionality or introduce new warnings.
 
 - [ ] I ran `hatch run prepare`
 
