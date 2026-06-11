@@ -545,7 +545,10 @@ describe('CedarAuthorization', () => {
       const model1 = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'send_email', toolUseId: 'tool-1', input: {} })
         .addTurn({ type: 'textBlock', text: 'Done' })
-      const tool1 = createMockTool('send_email', () => { callCount++; return 'sent' })
+      const tool1 = createMockTool('send_email', () => {
+        callCount++
+        return 'sent'
+      })
       const agent1 = new Agent({ model: model1, tools: [tool1], interventions: [cedar], printer: false })
       await agent1.invoke('Send', { invocationState: {} })
       expect(callCount).toBe(1)
@@ -554,7 +557,10 @@ describe('CedarAuthorization', () => {
       const model2 = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'send_email', toolUseId: 'tool-2', input: {} })
         .addTurn({ type: 'textBlock', text: 'Denied' })
-      const tool2 = createMockTool('send_email', () => { callCount++; return 'sent' })
+      const tool2 = createMockTool('send_email', () => {
+        callCount++
+        return 'sent'
+      })
       const agent2 = new Agent({ model: model2, tools: [tool2], interventions: [cedar], printer: false })
       await agent2.invoke('Send', { invocationState: {} })
       expect(callCount).toBe(1) // still 1 — second was denied
@@ -565,7 +571,10 @@ describe('CedarAuthorization', () => {
       const model3 = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'send_email', toolUseId: 'tool-3', input: {} })
         .addTurn({ type: 'textBlock', text: 'Done' })
-      const tool3 = createMockTool('send_email', () => { callCount++; return 'sent' })
+      const tool3 = createMockTool('send_email', () => {
+        callCount++
+        return 'sent'
+      })
       const agent3 = new Agent({ model: model3, tools: [tool3], interventions: [cedar], printer: false })
       await agent3.invoke('Send again', { invocationState: {} })
       expect(callCount).toBe(2) // succeeded after reset
@@ -680,7 +689,10 @@ describe('CedarAuthorization', () => {
 
   describe('tools config (schema generator integration)', () => {
     const tools = [
-      { name: 'search', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } },
+      {
+        name: 'search',
+        inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+      },
       { name: 'delete', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
     ]
 

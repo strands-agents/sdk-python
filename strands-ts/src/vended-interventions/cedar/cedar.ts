@@ -16,7 +16,6 @@ import { logger } from '../../logging/logger.js'
 import type { SchemaGenerator } from './schema-generator.js'
 import { createSchemaGenerator } from './schema-generator.js'
 
-
 /**
  * Minimal tool definition for schema generation. Matches MCP tool format.
  */
@@ -102,9 +101,7 @@ export class CedarAuthorization extends InterventionHandler {
   private readonly _entitySource: EntityJson[] | string | undefined
   private readonly _schemaSource: string | undefined
   private readonly _principal: TypeAndId | undefined
-  private readonly _principalResolver:
-    | ((invocationState: Record<string, unknown>) => TypeAndId | undefined)
-    | undefined
+  private readonly _principalResolver: ((invocationState: Record<string, unknown>) => TypeAndId | undefined) | undefined
   private readonly _contextEnricher: CedarAuthorizationConfig['contextEnricher']
   private readonly _tools: ToolDefinition[] | undefined
   private readonly _schemaGenerator: SchemaGenerator | undefined
@@ -154,7 +151,8 @@ export class CedarAuthorization extends InterventionHandler {
         const mcpSchemaGenerator = await import('@cedar-policy/mcp-schema-generator-wasm')
         schemaGenerator = createSchemaGenerator(mcpSchemaGenerator)
       } catch (e: unknown) {
-        const isModuleNotFound = e instanceof Error && 'code' in e && (e as { code: string }).code === 'ERR_MODULE_NOT_FOUND'
+        const isModuleNotFound =
+          e instanceof Error && 'code' in e && (e as { code: string }).code === 'ERR_MODULE_NOT_FOUND'
         if (isModuleNotFound) {
           logger.warn(
             'tools provided but @cedar-policy/mcp-schema-generator-wasm is not installed. ' +
@@ -185,15 +183,10 @@ export class CedarAuthorization extends InterventionHandler {
     let entities: EntityJson[]
 
     if (this._schemaGenerator && this._tools) {
-      const request = this._schemaGenerator.generateRequest(
-        this._tools,
-        event.toolUse.name,
-        toolInput,
-        principal
-      )
+      const request = this._schemaGenerator.generateRequest(this._tools, event.toolUse.name, toolInput, principal)
       action = request.action
       resource = request.resource
-      entities = [...(this._entities), ...(request.entities)]
+      entities = [...this._entities, ...request.entities]
     } else {
       action = { type: 'Action', id: event.toolUse.name }
       resource = { type: 'Resource', id: 'agent' }
@@ -363,4 +356,3 @@ function loadEntities(entities: EntityJson[] | string | undefined): EntityJson[]
   }
   return parsed
 }
-
