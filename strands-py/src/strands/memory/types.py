@@ -82,7 +82,10 @@ class MemorySearchOptions(SearchOptions):
     routing.
 
     Attributes:
-        stores: Filter to specific stores by name. Omit to search all.
+        stores: Filter to specific stores by name. Omit to search all. Note: a
+            programmatic ``MemoryManager.search`` with an empty list searches no
+            stores (returns ``[]``), whereas the ``search_memory`` tool treats an
+            empty list as "search all in-scope stores".
     """
 
     stores: list[str] | None = None
@@ -95,7 +98,9 @@ class MemoryAddOptions:
     Attributes:
         metadata: Metadata to associate with the added entry.
         stores: Filter to specific writable stores by name. Omit to write to all
-            writable stores.
+            writable stores. Note: a programmatic ``MemoryManager.add`` with an
+            empty list matches no store (raises), whereas the ``add_memory`` tool
+            treats an empty list as "write to all in-scope stores".
     """
 
     metadata: Metadata | None = None
@@ -156,11 +161,14 @@ class MemoryManagerConfig:
             ``True`` lets the tool write to all writable stores; pass a
             :class:`MemoryAddToolConfig` with ``stores`` to restrict it to
             specific ones.
+        flush_on_invocation_end: When ``True``, await pending extraction writes
+            at the end of each agent invocation. Defaults to ``False``.
     """
 
     stores: list[MemoryStore]
     search_tool_config: MemoryToolConfig | bool = True
     add_tool_config: MemoryAddToolConfig | bool = False
+    flush_on_invocation_end: bool = False
 
 
 @dataclass
