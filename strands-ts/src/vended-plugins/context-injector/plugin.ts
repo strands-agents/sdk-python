@@ -21,9 +21,8 @@ export interface ContextInjectorConfig {
   trigger?: InjectionTrigger | ((context: InjectionContext) => boolean)
   /**
    * Renders the text to inject for this call, or `undefined`/`''` to skip. The text reaches the model
-   * verbatim, so it is a prompt-injection surface: escape any attacker-influenced fields yourself (an
-   * `escapeXml` helper is exported alongside this plugin). A callback that throws fails open (injection
-   * is skipped, the model call proceeds).
+   * verbatim, so it is a prompt-injection surface: escape any attacker-influenced fields yourself. A
+   * callback that throws fails open (injection is skipped, the model call proceeds).
    */
   renderContent: (context: InjectionContext) => Promise<string | undefined>
 }

@@ -139,7 +139,7 @@ describe('resolveTrigger', () => {
 
 describe('createInjectionMiddleware', () => {
   // The handler is an InvokeModelStage.Input transformer. It reads `context.messages` and derives the
-  // InjectionContext (appState/signal) from `context.agent`, then spreads the rest through, so a context
+  // InjectionContext (appState/agent) from `context.agent`, then spreads the rest through, so a context
   // carrying `messages` plus a mock agent exercises it faithfully.
   const ctx = (messages: Message[]) => ({ messages, agent: createMockAgent() }) as unknown as InvokeModelContext
 
@@ -166,23 +166,20 @@ describe('createInjectionMiddleware', () => {
     expect(seen).toStrictEqual(['assistant', 'user'])
   })
 
-  it('exposes appState and the cancel signal on the InjectionContext', async () => {
-    const signal = new AbortController().signal
+  it('exposes appState and the agent on the InjectionContext', async () => {
     const appState = { get: () => 'stashed' }
-    const input = {
-      messages: [user('ask')],
-      agent: { appState, cancelSignal: signal },
-    } as unknown as InvokeModelContext
-    let received: { appState: unknown; signal: unknown } | undefined
+    const agent = { appState } as unknown as InvokeModelContext['agent']
+    const input = { messages: [user('ask')], agent } as unknown as InvokeModelContext
+    let received: { appState: unknown; agent: unknown } | undefined
     const handler = createInjectionMiddleware({
       renderContent: async (context) => {
-        received = { appState: context.appState, signal: context.signal }
+        received = { appState: context.appState, agent: context.agent }
         return undefined
       },
     })
     await handler(input)
 
-    expect(received).toStrictEqual({ appState, signal })
+    expect(received).toStrictEqual({ appState, agent })
   })
 
   it('returns the context unchanged when the trigger does not fire', async () => {

@@ -24,8 +24,6 @@ export interface InjectionContext {
   messages: MessageData[]
   /** Durable app state shared across calls, hooks, and tools — read what a tool stashed last turn. */
   appState: StateStore
-  /** The run's cancellation signal; forward it to async I/O in `renderContent` so it aborts with the run. */
-  signal: AbortSignal
   /** The agent the injection is attached to (escape hatch for advanced consumers). */
   agent: LocalAgent
 }

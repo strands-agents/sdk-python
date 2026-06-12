@@ -29,7 +29,6 @@ export function createInjectionMiddleware(
     const injectionContext: InjectionContext = {
       messages: context.messages.map((message) => message.toJSON()),
       appState: agent.appState,
-      signal: agent.cancelSignal,
       agent,
     }
     if (!trigger(injectionContext)) {

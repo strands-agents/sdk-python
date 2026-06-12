@@ -1,6 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
 import { ContextInjector } from '../plugin.js'
-import { escapeXml } from '../index.js'
 import { InvokeModelStage } from '../../../middleware/index.js'
 import { Message, TextBlock } from '../../../types/messages.js'
 import type { InvokeModelContext } from '../../../middleware/index.js'
@@ -76,13 +75,13 @@ describe('ContextInjector', () => {
       ])
     })
 
-    it('exposes appState and the cancel signal to renderContent', async () => {
+    it('exposes appState and the agent to renderContent', async () => {
       const { agent, addMiddleware } = makeAgent()
-      let sawSignal = false
+      let sawAgent = false
       let sawAppState = false
       new ContextInjector({
         renderContent: async (ctx) => {
-          sawSignal = ctx.signal === agent.cancelSignal
+          sawAgent = ctx.agent === agent
           sawAppState = ctx.appState === agent.appState
           return undefined
         },
@@ -90,7 +89,7 @@ describe('ContextInjector', () => {
       const handler = addMiddleware.mock.calls[0]![1] as (ctx: InvokeModelContext) => Promise<InvokeModelContext>
       await handler({ messages: [user('ask')], agent } as unknown as InvokeModelContext)
 
-      expect(sawSignal).toBe(true)
+      expect(sawAgent).toBe(true)
       expect(sawAppState).toBe(true)
     })
 
@@ -108,12 +107,6 @@ describe('ContextInjector', () => {
         { role: 'assistant', content: [{ text: 'prior' }] },
         { role: 'user', content: [{ text: 'ask' }] },
       ])
-    })
-  })
-
-  describe('escapeXml helper', () => {
-    it('escapes &, <, >, ", and \' so the value is safe in content or an attribute', () => {
-      expect(escapeXml('a < b & c > d " e \' f')).toBe('a &lt; b &amp; c &gt; d &quot; e &#39; f')
     })
   })
 })

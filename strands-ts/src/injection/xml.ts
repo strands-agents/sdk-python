@@ -13,7 +13,7 @@
  *
  * @param value - The raw text to escape
  * @returns The escaped text, safe to place in element content
- * @internal Use the public {@link escapeXml} alias.
+ * @internal Used by the memory default formatter
  */
 export function escapeXmlText(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -30,11 +30,3 @@ export function escapeXmlText(value: string): string {
 export function escapeXmlAttr(value: string): string {
   return escapeXmlText(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
-
-/**
- * Escapes `&`, `<`, `>`, `"`, and `'` so a value is safe in XML **anywhere** — both element content and
- * attribute values. Exposed to consumers (e.g. a {@link ContextInjector} renderer) who render XML
- * themselves and want one helper that is safe regardless of where the value lands. Never applied
- * automatically by the injection engine — escaping is the renderer's responsibility.
- */
-export const escapeXml = escapeXmlAttr
