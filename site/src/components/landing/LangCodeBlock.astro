@@ -104,13 +104,26 @@ const hasTs = !!tsCode
 
   setLang('TypeScript')
 
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  if (!reducedMotion) {
+  const startCycle = () => {
+    if (timer !== undefined) return
     timer = window.setInterval(() => {
       if (pinned || hoverCount > 0) return
       setLang(currentLang() === 'Python' ? 'TypeScript' : 'Python')
     }, CYCLE_MS)
   }
+
+  const stopCycle = () => {
+    if (timer === undefined) return
+    window.clearInterval(timer)
+    timer = undefined
+  }
+
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+  if (!reducedMotion.matches) startCycle()
+  reducedMotion.addEventListener('change', () => {
+    if (reducedMotion.matches || pinned) stopCycle()
+    else startCycle()
+  })
 
   // Pause while the reader hovers any switchable block.
   document
@@ -126,8 +139,10 @@ const hasTs = !!tsCode
 
   // A copy click pins the whole page to that language for this visit.
   window.addEventListener('strands-home-lang-pin', ((e: CustomEvent<{ lang: Lang }>) => {
+    const lang = e.detail?.lang
+    if (lang !== 'Python' && lang !== 'TypeScript') return
     pinned = true
-    setLang(e.detail.lang)
-    if (timer !== undefined) window.clearInterval(timer)
+    setLang(lang)
+    stopCycle()
   }) as EventListener)
 </script>
