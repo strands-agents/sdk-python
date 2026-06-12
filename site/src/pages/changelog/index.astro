@@ -162,7 +162,9 @@ const areaCounts = getAreaCounts(allEntries)
     if (state.areas.size) p.set('area', [...state.areas].join(','))
     if (state.search) p.set('q', state.search)
     const qs = p.toString()
-    history.replaceState(null, '', qs ? `?${qs}` : location.pathname)
+    // Preserve the hash — apply() runs on initial load, and rebuilding the URL
+    // without location.hash would strip a deep-link anchor before we scroll.
+    history.replaceState(null, '', (qs ? `?${qs}` : location.pathname) + location.hash)
   }
 
   function apply() {

@@ -85,19 +85,21 @@
 /* Version number row: copy-link icon sits inline, immediately left of the
    number (mirrors the docs heading anchor affordance, but copies the link). */
 .cl-version-num { color: var(--sl-color-white); font-weight: 700; font-size: 1.3rem;
-  display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; }
+  position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; }
 .cl-anchor { display: inline-flex; align-items: center; padding: 0.15rem;
   background: transparent; border: 0; cursor: pointer; color: var(--sl-color-gray-4);
   opacity: 0; transition: opacity 0.12s ease; }
 .cl-version:hover .cl-anchor, .cl-anchor:focus-visible { opacity: 1; }
 .cl-anchor:hover { color: var(--sl-color-accent); }
-/* On copy, the icon swaps to an inline "✓ Copied" — everything stays inside
-   the version box (content-visibility paint-containment clips anything
-   positioned outside it, so no floating tooltips here). */
-.cl-anchor-tip { display: none; font-size: 0.7rem; font-weight: 700; color: var(--sl-color-accent); white-space: nowrap; }
-.cl-anchor.copied { opacity: 1; }
-.cl-anchor.copied svg { display: none; }
-.cl-anchor.copied .cl-anchor-tip { display: inline; }
+/* "✓ Copied" floats as a tooltip ABOVE the version number — absolutely
+   positioned relative to .cl-version-num so no layout shift, and it stays
+   inside the version box (content-visibility paint-containment clips
+   anything positioned outside the box, so it must overlay, not escape). */
+.cl-anchor-tip { position: absolute; bottom: calc(100% + 0.2rem); right: 0; z-index: 2;
+  padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;
+  background: var(--sl-color-accent); color: var(--sl-color-text-invert);
+  white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.15s ease; }
+.cl-anchor.copied .cl-anchor-tip { opacity: 1; }
 /* Touch devices have no hover — keep the affordance visible. */
 @media (hover: none) { .cl-anchor { opacity: 0.6; } }
 .cl-version-date { color: var(--sl-color-gray-3); font-size: 0.8rem; margin-top: 2px; }
