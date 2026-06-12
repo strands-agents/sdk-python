@@ -211,7 +211,15 @@ const areaCounts = getAreaCounts(allEntries)
         if (entryShow) anyEntryVisible = true
       }
       if (show && hasEntryFilter) show = anyEntryVisible
-      // Hide group headers whose following entries are all hidden.
+      // Hide overflow expanders whose entries are all filtered out, so a
+      // misleading "Show N more" never lingers.
+      v.querySelectorAll<HTMLElement>('details.cl-more').forEach((det) => {
+        const any = Array.from(det.querySelectorAll<HTMLElement>('.cl-entry')).some((e) => !e.hidden)
+        det.hidden = !any
+      })
+      // Hide group headers whose following entries are all hidden. The flat
+      // child walk treats an expander as one unit (its inner entries count
+      // toward the preceding group header).
       const children = Array.from(v.querySelectorAll<HTMLElement>('.cl-group, .cl-entry'))
       let currentGroup: HTMLElement | null = null
       let groupHasVisible = false

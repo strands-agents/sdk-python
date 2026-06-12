@@ -46,6 +46,7 @@ export const changelogFrontmatterSchema = z.object({
   compareUrl: z.string().url().optional(),
   highlights: z.string().optional(),
   entries: z.array(changelogEntrySchema).default([]),
+  newContributors: z.array(z.object({ login: z.string(), pr: z.number() })).default([]),
 })
 export type ChangelogFrontmatter = z.infer<typeof changelogFrontmatterSchema>
 

@@ -13,6 +13,17 @@ const { features, fixes, other } = groupEntries(d.entries)
 const langIcon = d.language ? ICONS[d.language] : undefined
 const isPackagePyPI = d.packageUrl.includes('pypi.org')
 
+// Readability: show the first N entries of a section, tuck the rest behind a
+// native <details> expander so huge releases don't dominate the page.
+const SECTION_CAP = 8
+const split = (list: typeof d.entries) => ({
+  visible: list.slice(0, SECTION_CAP),
+  overflow: list.slice(SECTION_CAP),
+})
+const feat = split(features)
+const fix = split(fixes)
+const hasEntries = d.entries.length > 0
+
 // Render the optional curated highlights string as inline markdown (code,
 // links, emphasis) so authors can use backticks etc.
 const md = new MarkdownIt({ html: false, linkify: true })
@@ -52,20 +63,51 @@ const { Content } = await render(release)
     {features.length > 0 && (
       <>
         <div class="cl-group">✦ Features <span class="cl-n">{features.length}</span></div>
-        {features.map((e) => <ChangelogEntry entry={e} />)}
+        {feat.visible.map((e) => <ChangelogEntry entry={e} />)}
+        {feat.overflow.length > 0 && (
+          <details class="cl-more">
+            <summary>Show {feat.overflow.length} more features</summary>
+            {feat.overflow.map((e) => <ChangelogEntry entry={e} />)}
+          </details>
+        )}
       </>
     )}
     {fixes.length > 0 && (
       <>
         <div class="cl-group fixes">⊘ Fixes <span class="cl-n">{fixes.length}</span></div>
-        {fixes.map((e) => <ChangelogEntry entry={e} />)}
+        {fix.visible.map((e) => <ChangelogEntry entry={e} />)}
+        {fix.overflow.length > 0 && (
+          <details class="cl-more">
+            <summary>Show {fix.overflow.length} more fixes</summary>
+            {fix.overflow.map((e) => <ChangelogEntry entry={e} />)}
+          </details>
+        )}
       </>
     )}
     {other.length > 0 && (
-      <>
-        <div class="cl-group fixes">⋯ Other <span class="cl-n">{other.length}</span></div>
+      <details class="cl-more cl-other">
+        <summary>⋯ {other.length} more change{other.length === 1 ? '' : 's'} (chores, docs, tests)</summary>
         {other.map((e) => <ChangelogEntry entry={e} />)}
-      </>
+      </details>
+    )}
+    {!hasEntries && !d.highlights && (
+      <p class="cl-no-entries">
+        Itemized notes weren't generated for this release —
+        <a href={d.releaseUrl} target="_blank" rel="noopener">see the release on GitHub ↗</a>
+      </p>
+    )}
+    {d.newContributors.length > 0 && (
+      <div class="cl-new-contributors">
+        <span class="cl-nc-label">🎉 First-time contributors</span>
+        <span class="cl-nc-list">
+          {d.newContributors.map((c) => (
+            <a class="cl-nc" href={`https://github.com/${c.login}`} target="_blank" rel="noopener" title={`@${c.login} — first contribution in #${c.pr}`}>
+              <img src={`https://github.com/${c.login}.png?size=40`} alt="" width="20" height="20" loading="lazy" />
+              @{c.login}
+            </a>
+          ))}
+        </span>
+      </div>
     )}
     <div class="cl-version-notes">
       <Content />
