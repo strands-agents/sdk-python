@@ -55,7 +55,8 @@ Build an agent harness. Control it end-to-end.
 - **Model agnostic** — First-class support for Amazon Bedrock, Anthropic, OpenAI, and Gemini, plus [many more providers](https://strandsagents.com/docs/user-guide/concepts/model-providers/) and custom ones.
 - **Stay in control** — The agent loop traces every decision by default. Hooks let you intercept any step to log it, validate it, or redirect it.
 - **Deliver outcomes that work** — Guardrails catch mistakes before they run. Steering handlers let agents correct themselves instead of failing silently.
-- **Built-in MCP** — Native Model Context Protocol support connects agents to thousands of pre-built tools.
+
+Plus everything you'd expect: native MCP support, streaming, multi-agent patterns, and structured output.
 
 ## Quick Start
 
