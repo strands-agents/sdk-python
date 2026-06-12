@@ -24,7 +24,7 @@ After each tool call, the plugin estimates the result's token count and compares
 1. Stores each content block individually in the configured storage backend, preserving its content type
 2. Replaces the in-context result with the first <Syntax py="preview_tokens" ts="previewTokens" /> tokens (default: 1,000) plus per-block storage references
 
-Token estimation uses `model.count_tokens()`, which delegates to the model provider's native counting API if available, otherwise falling back to a character-based heuristic (chars/4 for text, chars/2 for JSON).
+Token estimation uses <Syntax py="model.count_tokens()" ts="model.countTokens()" />, which delegates to the model provider's native counting API if available, otherwise falling back to a character-based heuristic (chars/4 for text, chars/2 for JSON).
 
 Results under the threshold pass through unchanged.
 
