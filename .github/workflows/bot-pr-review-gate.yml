@@ -1,0 +1,178 @@
+name: Bot PR Review Gate
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+jobs:
+  check-bot-reviews:
+    name: Bot/Agent PR Review Requirement
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
+    steps:
+      - name: Enforce 2 maintainer reviews for bot/agent PRs
+        uses: actions/github-script@v9
+        env:
+          REQUIRED_APPROVALS: '2'
+          MAINTAINER_ROLES: 'maintain,admin'
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+
+            if (pr.base.ref !== 'main') {
+              console.log(`PR targets ${pr.base.ref}, not main — skipping.`);
+              return;
+            }
+
+            const requiredApprovals = parseInt(process.env.REQUIRED_APPROVALS, 10);
+            const maintainerRoles = process.env.MAINTAINER_ROLES
+              .split(',')
+              .map(r => r.trim())
+              .filter(r => r);
+
+            const author = pr.user.login;
+            const authorType = pr.user.type;
+
+            // --- Detection: username patterns ---
+            const botUsernamePatterns = [
+              /\[bot\]$/,
+              /bot$/i,
+              /^dependabot/i,
+              /^github-actions$/i,
+              /^renovate/i,
+              /^snyk/i,
+              /^codecov/i,
+              /^mergify/i,
+              /^greenkeeper/i,
+              /agent$/i,
+              /-agent/i,
+              /agent-/i,
+              /'s[ -]agent/i,
+              /automation/i,
+              /^ci-/i,
+              /^cd-/i,
+            ];
+
+            // --- Detection: known bot email patterns in commits ---
+            const botEmailPatterns = [
+              /\[bot\]@/i,
+              /noreply@github\.com$/,
+              /@users\.noreply\.github\.com$/,
+              /bot@/i,
+              /agent@/i,
+              /automation@/i,
+            ];
+
+            // --- Detection: labels that indicate automation ---
+            const botLabels = new Set([
+              'bot',
+              'dependencies',
+              'automated',
+              'auto-generated',
+              'agent',
+            ]);
+
+            const reasons = [];
+
+            // Check 1: GitHub user type
+            if (authorType === 'Bot') {
+              reasons.push(`user type is "Bot"`);
+            }
+
+            // Check 2: Username patterns
+            if (botUsernamePatterns.some(p => p.test(author))) {
+              reasons.push(`username "${author}" matches bot/agent pattern`);
+            }
+
+            // Check 3: PR labels
+            const prLabels = pr.labels.map(l => l.name.toLowerCase());
+            const matchedLabels = prLabels.filter(l => botLabels.has(l));
+            if (matchedLabels.length > 0) {
+              reasons.push(`PR has label(s): ${matchedLabels.join(', ')}`);
+            }
+
+            // Check 4: PR created via a GitHub App
+            if (pr.performed_via_github_app) {
+              reasons.push(`PR created via GitHub App "${pr.performed_via_github_app.name}"`);
+            }
+
+            // Check 5: Commit author emails
+            const { data: commits } = await github.rest.pulls.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 5,
+            });
+            const botEmails = commits
+              .map(c => c.commit.author.email)
+              .filter(email => botEmailPatterns.some(p => p.test(email)));
+            if (botEmails.length > 0) {
+              const unique = [...new Set(botEmails)];
+              reasons.push(`commit author email(s) match bot pattern: ${unique.join(', ')}`);
+            }
+
+            const isBot = reasons.length > 0;
+            console.log(`PR author: ${author}, type: ${authorType}, isBot: ${isBot}`);
+            if (isBot) {
+              console.log(`Detection reasons:\n  - ${reasons.join('\n  - ')}`);
+            }
+
+            if (!isBot) {
+              console.log('PR is not from a bot/agent — no additional review requirement.');
+              return;
+            }
+
+            // Fetch all reviews for this PR
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+            });
+
+            // Only count the latest review per user.
+            const latestReviewByUser = new Map();
+            for (const review of reviews) {
+              if (!review.user) continue;
+              latestReviewByUser.set(review.user.login, review.state);
+            }
+
+            // A maintainer is determined by repository role, mirroring the
+            // authorization-check pattern (repos.getCollaboratorPermissionLevel).
+            // This avoids the org-team read scope that the default GITHUB_TOKEN lacks.
+            async function isMaintainer(username) {
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username,
+                });
+                return maintainerRoles.includes(data.role_name);
+              } catch (error) {
+                console.log(`⚠️ Failed to check permission for ${username}: ${error.message}`);
+                return false;
+              }
+            }
+
+            const approvedBy = [];
+            for (const [login, state] of latestReviewByUser.entries()) {
+              if (state !== 'APPROVED') continue;
+              if (await isMaintainer(login)) {
+                approvedBy.push(login);
+              }
+            }
+
+            console.log(`Maintainer approvals: ${approvedBy.length}/${requiredApprovals}`);
+            console.log(`Approved by: ${approvedBy.join(', ') || 'none'}`);
+
+            if (approvedBy.length < requiredApprovals) {
+              core.setFailed(
+                `Bot/agent PRs require at least ${requiredApprovals} maintainer approvals before merging. ` +
+                `Currently have ${approvedBy.length}/${requiredApprovals}. ` +
+                `Maintainers are repository collaborators with role: ${maintainerRoles.join(' or ')}.`
+              );
+            }
