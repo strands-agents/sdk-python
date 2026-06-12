@@ -159,7 +159,8 @@ describe.skipIf(bedrock.skip)('Agentic Context Manager Integration', () => {
         model,
         contextManager: 'agentic',
         printer: false,
-        systemPrompt: 'You are a helpful assistant. When the user asks you to compress or summarize context, use your summarize_context tool.',
+        systemPrompt:
+          'You are a helpful assistant. When the user asks you to compress or summarize context, use your summarize_context tool.',
       })
 
       await agent.invoke('Tell me about the solar system in 2 sentences.')
@@ -195,9 +196,7 @@ describe.skipIf(bedrock.skip)('Agentic Context Manager Integration', () => {
       const hasOriginalSkyMsg = agent.messages.some(
         (msg) =>
           msg.role === 'user' &&
-          msg.content.some(
-            (block) => block.type === 'textBlock' && (block as TextBlock).text === 'The sky is blue.'
-          )
+          msg.content.some((block) => block.type === 'textBlock' && (block as TextBlock).text === 'The sky is blue.')
       )
       expect(hasOriginalSkyMsg).toBe(false)
     }, 60_000)
@@ -208,7 +207,8 @@ describe.skipIf(bedrock.skip)('Agentic Context Manager Integration', () => {
         model,
         contextManager: 'agentic',
         printer: false,
-        systemPrompt: 'When asked to truncate, call truncate_context with keepRecent=4 then stop. Keep responses to 1 sentence.',
+        systemPrompt:
+          'When asked to truncate, call truncate_context with keepRecent=4 then stop. Keep responses to 1 sentence.',
       })
 
       await agent.invoke('Message one.')
@@ -229,7 +229,8 @@ describe.skipIf(bedrock.skip)('Agentic Context Manager Integration', () => {
         model,
         contextManager: 'agentic',
         printer: false,
-        systemPrompt: 'When asked to pin, use the pin tool. When asked to truncate, use truncate_context. Keep responses to 1 sentence.',
+        systemPrompt:
+          'When asked to pin, use the pin tool. When asked to truncate, use truncate_context. Keep responses to 1 sentence.',
       })
 
       await agent.invoke('IMPORTANT: The secret code is ZEBRA-9.')

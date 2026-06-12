@@ -22,7 +22,6 @@ import { logger } from '../logging/logger.js'
 import { normalizeError } from '../errors.js'
 import type { Model } from '../models/model.js'
 
-
 /**
  * Configuration for the summarization conversation manager.
  */
@@ -172,5 +171,4 @@ export class SummarizingConversationManager extends ConversationManager {
 
     return true
   }
-
 }

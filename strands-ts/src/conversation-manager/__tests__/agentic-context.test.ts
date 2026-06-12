@@ -106,7 +106,9 @@ describe('summarizeContextTool', () => {
       new Message({ role: 'assistant', content: [new ToolUseBlock({ toolUseId: 'id-1', name: 'tool1', input: {} })] }),
       new Message({
         role: 'user',
-        content: [new ToolResultBlock({ toolUseId: 'id-1', status: 'success', content: [new TextBlock('Important result')] })],
+        content: [
+          new ToolResultBlock({ toolUseId: 'id-1', status: 'success', content: [new TextBlock('Important result')] }),
+        ],
       }),
       ...makeMessages(14),
     ]
@@ -122,11 +124,7 @@ describe('summarizeContextTool', () => {
 
   it('preserves message order after summarization with pinned assistant message', async () => {
     const model = mockModel('Summary')
-    const messages = [
-      textMsg('user', 'First'),
-      textMsg('assistant', 'Pinned response'),
-      ...makeMessages(18),
-    ]
+    const messages = [textMsg('user', 'First'), textMsg('assistant', 'Pinned response'), ...makeMessages(18)]
     pinMessage(messages, 1)
 
     await summarizeContextTool.invoke({ keepRecent: 10, summaryRatio: 0.3 }, makeContext(messages, model))
@@ -156,11 +154,7 @@ describe('truncateContextTool', () => {
   })
 
   it('preserves message order when pinned assistant message exists', async () => {
-    const messages = [
-      textMsg('user', 'First'),
-      textMsg('assistant', 'Response'),
-      ...makeMessages(18),
-    ]
+    const messages = [textMsg('user', 'First'), textMsg('assistant', 'Response'), ...makeMessages(18)]
     pinMessage(messages, 1)
 
     await truncateContextTool.invoke({ keepRecent: 5 }, makeContext(messages))

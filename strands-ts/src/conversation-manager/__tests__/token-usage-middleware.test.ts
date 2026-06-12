@@ -120,8 +120,14 @@ describe('createTokenUsageMiddleware', () => {
 describe('token usage middleware integration', () => {
   it('injects context status into messages sent to model on second call', async () => {
     const model = new MockMessageModel()
-      .addTurn({ type: 'textBlock', text: 'First response' }, { usage: { inputTokens: 1000, outputTokens: 200, totalTokens: 1200 } })
-      .addTurn({ type: 'textBlock', text: 'Second response' }, { usage: { inputTokens: 2000, outputTokens: 300, totalTokens: 2300 } })
+      .addTurn(
+        { type: 'textBlock', text: 'First response' },
+        { usage: { inputTokens: 1000, outputTokens: 200, totalTokens: 1200 } }
+      )
+      .addTurn(
+        { type: 'textBlock', text: 'Second response' },
+        { usage: { inputTokens: 2000, outputTokens: 300, totalTokens: 2300 } }
+      )
 
     model.updateConfig({ contextWindowLimit: 100_000 })
 
@@ -140,8 +146,10 @@ describe('token usage middleware integration', () => {
   })
 
   it('injects on first call when token estimation succeeds', async () => {
-    const model = new MockMessageModel()
-      .addTurn({ type: 'textBlock', text: 'First response' }, { usage: { inputTokens: 1000, outputTokens: 200, totalTokens: 1200 } })
+    const model = new MockMessageModel().addTurn(
+      { type: 'textBlock', text: 'First response' },
+      { usage: { inputTokens: 1000, outputTokens: 200, totalTokens: 1200 } }
+    )
 
     model.updateConfig({ contextWindowLimit: 100_000 })
 
@@ -159,8 +167,14 @@ describe('token usage middleware integration', () => {
 
   it('does not register middleware when contextManager is not agentic', async () => {
     const model = new MockMessageModel()
-      .addTurn({ type: 'textBlock', text: 'First response' }, { usage: { inputTokens: 1000, outputTokens: 200, totalTokens: 1200 } })
-      .addTurn({ type: 'textBlock', text: 'Second response' }, { usage: { inputTokens: 2000, outputTokens: 300, totalTokens: 2300 } })
+      .addTurn(
+        { type: 'textBlock', text: 'First response' },
+        { usage: { inputTokens: 1000, outputTokens: 200, totalTokens: 1200 } }
+      )
+      .addTurn(
+        { type: 'textBlock', text: 'Second response' },
+        { usage: { inputTokens: 2000, outputTokens: 300, totalTokens: 2300 } }
+      )
 
     model.updateConfig({ contextWindowLimit: 100_000 })
 

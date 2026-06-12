@@ -155,7 +155,6 @@ export async function generateSummary(
   })
 }
 
-
 export type MessageTypeFilter = 'tools' | 'messages' | 'all'
 
 /**
@@ -171,4 +170,3 @@ export function matchesMessageType(message: Message, filter: MessageTypeFilter):
   if (filter === 'messages') return !hasTool
   return false
 }
-
