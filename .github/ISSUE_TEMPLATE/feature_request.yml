@@ -8,6 +8,17 @@ body:
     attributes:
       value: |
         Thanks for suggesting a new feature for Strands Agents SDK!
+  - type: dropdown
+    id: sdk-language
+    attributes:
+      label: SDK Language
+      description: Which Strands SDK is this feature for?
+      options:
+        - Python
+        - TypeScript
+        - Both / Not language-specific
+    validations:
+      required: true
   - type: textarea
     id: problem-statement
     attributes:

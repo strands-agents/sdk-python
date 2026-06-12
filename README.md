@@ -18,7 +18,10 @@
     <a href="https://github.com/strands-agents/harness-sdk/issues"><img alt="GitHub open issues" src="https://img.shields.io/github/issues/strands-agents/harness-sdk"/></a>
     <a href="https://github.com/strands-agents/harness-sdk/pulls"><img alt="GitHub open pull requests" src="https://img.shields.io/github/issues-pr/strands-agents/harness-sdk"/></a>
     <a href="https://github.com/strands-agents/harness-sdk/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/strands-agents/harness-sdk"/></a>
+    <a href="https://github.com/strands-agents/harness-sdk/releases?q=python%2F&expanded=false"><img alt="Latest Python release" src="https://img.shields.io/github/v/release/strands-agents/harness-sdk?filter=python%2F*&label=python"/></a>
+    <a href="https://github.com/strands-agents/harness-sdk/releases?q=typescript%2F&expanded=false"><img alt="Latest TypeScript release" src="https://img.shields.io/github/v/release/strands-agents/harness-sdk?filter=typescript%2F*&label=typescript"/></a>
     <a href="https://pypi.org/project/strands-agents/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/strands-agents"/></a>
+    <a href="https://www.npmjs.com/package/@strands-agents/sdk"><img alt="npm version" src="https://img.shields.io/npm/v/%40strands-agents%2Fsdk"/></a>
     <a href="https://python.org"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/strands-agents"/></a>
     <a href="https://discord.gg/strands"><img alt="Strands Discord" src="https://img.shields.io/badge/Discord-Strands-5865F2?logo=discord&logoColor=white"/></a>
   </div>
@@ -38,8 +41,8 @@ This monorepo contains the Python SDK, TypeScript SDK, documentation site, and s
 
 | Directory | Description |
 |-----------|-------------|
-| `strands-py/` | Python SDK — agent loop, model providers, tools ([PyPI](https://pypi.org/project/strands-agents/)) |
-| `strands-ts/` | TypeScript SDK — agent loop, model providers, tools ([npm](https://www.npmjs.com/package/@strands/agent)) |
+| `strands-py/` | Python SDK — agent loop, model providers, tools ([PyPI](https://pypi.org/project/strands-agents/) · [releases](https://github.com/strands-agents/harness-sdk/releases?q=python%2F&expanded=false)) |
+| `strands-ts/` | TypeScript SDK — agent loop, model providers, tools ([npm](https://www.npmjs.com/package/@strands-agents/sdk) · [releases](https://github.com/strands-agents/harness-sdk/releases?q=typescript%2F&expanded=false)) |
 | `strands-wasm/` | WebAssembly bindings for running Python tools from TypeScript agents |
 | `strands-py-wasm/` | Python host for WASM components (bridges WIT interfaces to Python) |
 | `strandly/` | Developer CLI for local builds, codegen, and workspace tooling |
