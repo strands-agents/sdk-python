@@ -24,10 +24,27 @@ jobs:
         env:
           REQUIRED_APPROVALS: '2'
           MAINTAINER_ROLES: 'maintain,admin'
-          # Trusted automation that is exempt from the 2-approver requirement.
+          # Trusted automation that bypasses the gate entirely. dependabot is a
+          # GitHub bot, but dependency bumps don't need two human approvals.
           EXEMPT_AUTHORS: 'dependabot[bot]'
         with:
           script: |
+            // ┌──────────────────────────────────────────────────────────────┐
+            // │ WHAT THIS BLOCKS                                               │
+            // │ A PR into `main` cannot merge until REQUIRED_APPROVALS         │
+            // │ maintainers approve IF it is authored by a bot/agent.          │
+            // │                                                                │
+            // │ A PR counts as bot/agent when ANY of these are true:           │
+            // │   1. the author account is a GitHub Bot   (user.type)          │
+            // │   2. the author login matches a bot/agent name pattern         │
+            // │   3. the PR carries a bot/automation label                     │
+            // │   4. the PR was opened via a GitHub App                        │
+            // │   5. a commit is authored by a `[bot]@` email                  │
+            // │                                                                │
+            // │ EXEMPT_AUTHORS (e.g. dependabot) skip the gate entirely.       │
+            // │ Everything else — i.e. human PRs — is never affected.          │
+            // └──────────────────────────────────────────────────────────────┘
+
             const pr = context.payload.pull_request;
             if (pr.base.ref !== 'main') {
               console.log(`PR targets ${pr.base.ref}, not main — skipping.`);
@@ -41,84 +58,73 @@ jobs:
               .split(',').map(a => a.trim().toLowerCase()).filter(Boolean);
 
             const author = pr.user.login;
-            const authorType = pr.user.type;
 
-            // Trusted automation (e.g. dependabot) is exempt — its PRs don't
-            // require 2 maintainer approvals.
+            // Trusted automation is exempt before any detection runs.
             if (exemptAuthors.includes(author.toLowerCase())) {
-              console.log(`Author ${author} is exempt — skipping.`);
+              console.log(`Author "${author}" is exempt — no review requirement.`);
               return;
             }
 
+            // Bot/agent author-name patterns. Named service bots are anchored;
+            // the `agent` patterns are intentionally broad so accounts like
+            // "kiro-agent" / "agent-of-x" are gated (may also match a human
+            // handle containing "agent" — such PRs can still merge with the
+            // required approvals).
             const botUsernamePatterns = [
-              /\[bot\]$/,                       // reserved GitHub App suffix
+              /\[bot\]$/,
               /^renovate(\[bot\])?$/i,
               /^github-actions(\[bot\])?$/i,
               /^snyk-bot$/i,
               /^codecov(\[bot\])?$/i,
               /^mergify(\[bot\])?$/i,
               /^greenkeeper(\[bot\])?$/i,
-              // Agent accounts — intentionally broad so handles like
-              // "kiro-agent" / "agent-of-x" are gated. This can also match a
-              // human handle containing "agent"; that is an accepted tradeoff,
-              // and such PRs can still merge with 2 maintainer approvals.
-              /agent$/i,
-              /-agent/i,
-              /agent-/i,
-              /'s[ -]agent/i,
+              /agent$/i, /-agent/i, /agent-/i, /'s[ -]agent/i,
             ];
-
-            // Only the reserved `[bot]@` email shape. Broad noreply patterns are
-            // excluded because `…@users.noreply.github.com` is the default
-            // privacy email for *human* accounts.
+            // Reserved `[bot]@` commit-email shape only. Broad noreply patterns
+            // are excluded — they are the default privacy email for *humans*.
             const botEmailPatterns = [/\[bot\]@/i];
-
             // Labels a maintainer can apply to opt a PR into the gate.
             const botLabels = new Set([
               'bot', 'dependencies', 'automated', 'auto-generated', 'agent',
             ]);
 
-            const reasons = [];
+            // --- Evaluate each signal -------------------------------------
+            const isBotAccount = pr.user.type === 'Bot';
+            const nameMatches = botUsernamePatterns.some(p => p.test(author));
+            const matchedLabels = (pr.labels || [])
+              .map(l => l.name.toLowerCase())
+              .filter(l => botLabels.has(l));
+            const viaGitHubApp = Boolean(pr.performed_via_github_app);
 
-            if (authorType === 'Bot') {
-              reasons.push('user type is "Bot"');
-            }
-            if (botUsernamePatterns.some(p => p.test(author))) {
-              reasons.push(`username "${author}" matches a bot/agent pattern`);
-            }
-            const prLabels = (pr.labels || []).map(l => l.name.toLowerCase());
-            const matchedLabels = prLabels.filter(l => botLabels.has(l));
-            if (matchedLabels.length > 0) {
-              reasons.push(`PR has label(s): ${matchedLabels.join(', ')}`);
-            }
-            if (pr.performed_via_github_app) {
-              reasons.push(`PR created via GitHub App "${pr.performed_via_github_app.name}"`);
-            }
-
-            // Inspect all commit author emails (paginated, not just first page).
             const commits = await github.paginate(github.rest.pulls.listCommits, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               pull_number: pr.number,
             });
-            const botEmails = commits
-              .map(c => c.commit.author && c.commit.author.email)
-              .filter(email => email && botEmailPatterns.some(p => p.test(email)));
-            if (botEmails.length > 0) {
-              reasons.push(`commit author email(s) match bot pattern: ${[...new Set(botEmails)].join(', ')}`);
-            }
+            const botCommitEmails = [...new Set(
+              commits
+                .map(c => c.commit.author && c.commit.author.email)
+                .filter(email => email && botEmailPatterns.some(p => p.test(email)))
+            )];
 
-            const isBot = reasons.length > 0;
-            console.log(`PR author: ${author}, type: ${authorType}, isBot: ${isBot}`);
-            if (!isBot) {
-              console.log('PR is not from a bot/agent — no additional review requirement.');
+            // --- What (if anything) flagged this PR -----------------------
+            const reasons = [];
+            if (isBotAccount)            reasons.push('author is a GitHub Bot account');
+            if (nameMatches)             reasons.push(`author name "${author}" matches a bot/agent pattern`);
+            if (matchedLabels.length)    reasons.push(`labelled: ${matchedLabels.join(', ')}`);
+            if (viaGitHubApp)            reasons.push(`opened via GitHub App "${pr.performed_via_github_app.name}"`);
+            if (botCommitEmails.length)  reasons.push(`bot commit email: ${botCommitEmails.join(', ')}`);
+
+            if (reasons.length === 0) {
+              console.log(`PR author "${author}" is not a bot/agent — no review requirement.`);
               return;
             }
-            console.log(`Detection reasons:\n  - ${reasons.join('\n  - ')}`);
+            console.log(`Bot/agent PR detected:\n  - ${reasons.join('\n  - ')}`);
 
-            // Count maintainer approvals. Only the latest review per user counts.
-            // COMMENTED reviews are ignored: per GitHub merge semantics a later
-            // comment does not revoke an existing APPROVED state.
+            // --- Count maintainer approvals -------------------------------
+            // Only the latest review per user counts. COMMENTED reviews are
+            // ignored: per GitHub merge semantics a later comment does not
+            // revoke an existing APPROVED state.
             const reviews = await github.paginate(github.rest.pulls.listReviews, {
               owner: context.repo.owner,
               repo: context.repo.repo,
