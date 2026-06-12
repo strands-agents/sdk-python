@@ -50,9 +50,10 @@ describe('ContextInjector', () => {
         assistant('prior'),
         user('ask'),
       ])
-      const target = result.messages[result.messages.length - 1]!
-      expect((target.content[0] as TextBlock).text).toBe('INJECTED')
-      expect((target.content[1] as TextBlock).text).toBe('ask')
+      expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
+        { role: 'assistant', content: [{ text: 'prior' }] },
+        { role: 'user', content: [{ text: 'INJECTED' }, { text: 'ask' }] },
+      ])
     })
 
     it('skips on a non-user turn by default (userTurn trigger)', async () => {
@@ -69,7 +70,10 @@ describe('ContextInjector', () => {
         assistant('reply'),
       ])
       // No later user message than index 0, so the fold targets it.
-      expect((result.messages[0]!.content[0] as TextBlock).text).toBe('INJECTED')
+      expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
+        { role: 'user', content: [{ text: 'INJECTED' }, { text: 'ask' }] },
+        { role: 'assistant', content: [{ text: 'reply' }] },
+      ])
     })
 
     it('exposes appState and the cancel signal to renderContent', async () => {
@@ -99,16 +103,17 @@ describe('ContextInjector', () => {
         }),
         [assistant('prior'), user('ask')]
       )
-      // Unchanged: the single original user message, no injected block.
-      const target = result.messages[result.messages.length - 1]!
-      expect(target.content).toHaveLength(1)
-      expect((target.content[0] as TextBlock).text).toBe('ask')
+      // Unchanged: the original messages, no injected block.
+      expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
+        { role: 'assistant', content: [{ text: 'prior' }] },
+        { role: 'user', content: [{ text: 'ask' }] },
+      ])
     })
   })
 
   describe('escapeXml helper', () => {
-    it('escapes &, <, > for safe element content', () => {
-      expect(escapeXml('a < b & c > d')).toBe('a &lt; b &amp; c &gt; d')
+    it('escapes &, <, >, ", and \' so the value is safe in content or an attribute', () => {
+      expect(escapeXml('a < b & c > d " e \' f')).toBe('a &lt; b &amp; c &gt; d &quot; e &#39; f')
     })
   })
 })

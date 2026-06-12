@@ -648,10 +648,16 @@ describe('MemoryManager', () => {
       ]
       const result = await handler({ messages, agent } as unknown as InvokeModelContext)
 
-      const folded = result.messages[result.messages.length - 1]!
-      expect((folded.content[0] as TextBlock).text).toBe(
-        '<memory>\n<entry source="s">dark mode preferred</entry>\n</memory>'
-      )
+      expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
+        { role: 'assistant', content: [{ text: 'prior' }] },
+        {
+          role: 'user',
+          content: [
+            { text: '<memory>\n<entry source="s">dark mode preferred</entry>\n</memory>' },
+            { text: 'what is my plan' },
+          ],
+        },
+      ])
       expect(store.search).toHaveBeenCalledWith('what is my plan', { maxSearchResults: 5 })
     })
   })

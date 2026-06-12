@@ -32,8 +32,9 @@ export function escapeXmlAttr(value: string): string {
 }
 
 /**
- * Convenience alias for {@link escapeXmlText}. Exposed to consumers (e.g. a {@link ContextInjector}
- * provider) who choose to render XML themselves and want safe element content. Never applied
- * automatically by the injection engine — escaping is the provider's responsibility.
+ * Escapes `&`, `<`, `>`, `"`, and `'` so a value is safe in XML **anywhere** — both element content and
+ * attribute values. Exposed to consumers (e.g. a {@link ContextInjector} renderer) who render XML
+ * themselves and want one helper that is safe regardless of where the value lands. Never applied
+ * automatically by the injection engine — escaping is the renderer's responsibility.
  */
-export const escapeXml = escapeXmlText
+export const escapeXml = escapeXmlAttr

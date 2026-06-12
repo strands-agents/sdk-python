@@ -209,6 +209,9 @@ export interface MemoryInjectionConfig extends InjectionConfig {
    * default injects a small candidate set rather than betting on the top hit. Raising this improves
    * recall at the cost of a larger prepend (context bloat); lower it for a tighter injection.
    *
+   * With multiple stores, results are concatenated in store-registration order with no cross-store
+   * ranking, so this cap can favor entries from earlier-registered stores.
+   *
    * @defaultValue 5
    */
   maxEntries?: number

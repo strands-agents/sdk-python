@@ -42,22 +42,28 @@ describe('foldIntoLastUserMessage', () => {
     expect(result[1]).not.toBe(original)
   })
 
-  it('folds into a tool-result user message ahead of the tool result block', () => {
-    const messages = [user('task'), assistant('thinking'), toolResult()]
-    const result = foldIntoLastUserMessage(messages, 'INJECTED')
+  it('appends after the tool result block when the target is a tool-result turn', () => {
+    const tr = toolResult()
+    const result = foldIntoLastUserMessage([user('task'), assistant('thinking'), tr], 'INJECTED')
 
-    const target = result[2]!
-    expect(target.content[0]).toBeInstanceOf(TextBlock)
-    expect((target.content[0] as TextBlock).text).toBe('INJECTED')
-    expect(target.content[1]!.type).toBe('toolResultBlock')
+    // Providers require the tool result to be the first block in the turn, so the injected text is
+    // appended rather than prepended here.
+    expect(result.map((m) => m.toJSON())).toStrictEqual([
+      { role: 'user', content: [{ text: 'task' }] },
+      { role: 'assistant', content: [{ text: 'thinking' }] },
+      { role: 'user', content: [tr.toJSON().content[0], { text: 'INJECTED' }] },
+    ])
   })
 
   it('targets the most recent user message when several exist', () => {
     const messages = [user('first'), assistant('a'), user('second')]
     const result = foldIntoLastUserMessage(messages, 'INJECTED')
 
-    expect((result[0]!.content[0] as TextBlock).text).toBe('first') // earlier user untouched
-    expect((result[2]!.content[0] as TextBlock).text).toBe('INJECTED')
+    expect(result.map((m) => m.toJSON())).toStrictEqual([
+      { role: 'user', content: [{ text: 'first' }] }, // earlier user untouched
+      { role: 'assistant', content: [{ text: 'a' }] },
+      { role: 'user', content: [{ text: 'INJECTED' }, { text: 'second' }] },
+    ])
   })
 
   it('preserves message metadata on the folded message', () => {
@@ -189,15 +195,18 @@ describe('createInjectionMiddleware', () => {
     expect(renderContent).not.toHaveBeenCalled()
   })
 
-  it("'everyTurn' injects on an autonomous tool-result turn", async () => {
+  it("'everyTurn' injects on an autonomous tool-result turn, keeping the tool result first", async () => {
     const handler = createInjectionMiddleware({ trigger: 'everyTurn', renderContent: async () => 'INJECTED' })
-    const result = await handler(ctx([user('task'), assistant('a'), toolResult()]))
+    const tr = toolResult()
+    const result = await handler(ctx([user('task'), assistant('a'), tr]))
 
-    // The most recent user message on a tool-result turn is the tool-result itself; the fold prepends
-    // ahead of its tool-result block.
-    const folded = result.messages[2]!
-    expect((folded.content[0] as TextBlock).text).toBe('INJECTED')
-    expect(folded.content[1]!.type).toBe('toolResultBlock')
+    // The most recent user message on a tool-result turn carries the tool result, which must stay the
+    // first block, so the injected text is appended after it.
+    expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
+      { role: 'user', content: [{ text: 'task' }] },
+      { role: 'assistant', content: [{ text: 'a' }] },
+      { role: 'user', content: [tr.toJSON().content[0], { text: 'INJECTED' }] },
+    ])
   })
 
   it('returns the context unchanged when renderContent yields empty text', async () => {

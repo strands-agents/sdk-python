@@ -97,17 +97,23 @@ export function isUserTurn(messages: MessageData[]): boolean {
 }
 
 /**
- * Folds `text` into the most recent `user` message as a leading {@link TextBlock}, ahead of that
- * message's own content (block-prepend), returning a NEW array. Other messages are returned as-is.
+ * Folds `text` into the most recent `user` message as a {@link TextBlock}, returning a NEW array. Other
+ * messages are returned as-is.
  *
- * Prepending into the existing user message (rather than inserting a standalone message) keeps role
- * alternation valid in both chat and the autonomous tool loop, and keeps the user's own ask in the
- * recency slot — the last thing the model reads. {@link Message} fields are readonly, so the target is
- * rebuilt as a new {@link Message}. When there is no `user` message, the input array is returned
- * unchanged.
+ * Folding into the existing user message (rather than inserting a standalone message) keeps role
+ * alternation valid in both chat and the autonomous tool loop. The block is placed to keep the message
+ * valid for the model:
+ * - A plain user ask: the text is **prepended**, leaving the user's own ask in the recency slot — the
+ *   last thing the model reads.
+ * - A tool-result turn (the message carries a `ToolResultBlock`): the text is **appended**,
+ *   because providers require the tool result to be the first content block in the turn that answers a
+ *   tool use.
+ *
+ * {@link Message} fields are readonly, so the target is rebuilt as a new {@link Message}. When there is
+ * no `user` message, the input array is returned unchanged.
  *
  * @param messages - The conversation to fold into
- * @param text - The text to prepend to the most recent user message
+ * @param text - The text to fold into the most recent user message
  * @returns A new array with the folded message, or the input array when there is no user message
  * @internal Delivery primitive. Reach injection through `ContextInjector` or `MemoryManager`.
  */
@@ -124,9 +130,14 @@ export function foldIntoLastUserMessage(messages: Message[], text: string): Mess
   }
 
   const target = messages[targetIndex]!
+  const injected = new TextBlock(text)
+  // A tool result must stay the first block in the turn that answers a tool use, so append rather than
+  // prepend when the target carries one.
+  const hasToolResult = target.content.some((block) => block.type === 'toolResultBlock')
+  const content = hasToolResult ? [...target.content, injected] : [injected, ...target.content]
   const folded = new Message({
     role: target.role,
-    content: [new TextBlock(text), ...target.content],
+    content,
     ...(target.metadata !== undefined && { metadata: target.metadata }),
   })
 
