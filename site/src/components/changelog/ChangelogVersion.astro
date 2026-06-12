@@ -60,6 +60,19 @@ const { Content } = await render(release)
         <p set:html={highlightsHtml} />
       </div>
     )}
+    {d.newContributors.length > 0 && (
+      <div class="cl-new-contributors">
+        <span class="cl-nc-label">🎉 First-time contributors</span>
+        <span class="cl-nc-list">
+          {d.newContributors.map((c) => (
+            <a class="cl-nc" href={`https://github.com/${c.login}`} target="_blank" rel="noopener" title={`@${c.login} — first contribution in #${c.pr}`}>
+              <img src={`https://github.com/${c.login}.png?size=40`} alt="" width="20" height="20" loading="lazy" />
+              @{c.login}
+            </a>
+          ))}
+        </span>
+      </div>
+    )}
     {features.length > 0 && (
       <>
         <div class="cl-group">✦ Features <span class="cl-n">{features.length}</span></div>
@@ -95,19 +108,6 @@ const { Content } = await render(release)
         Itemized notes weren't generated for this release —
         <a href={d.releaseUrl} target="_blank" rel="noopener">see the release on GitHub ↗</a>
       </p>
-    )}
-    {d.newContributors.length > 0 && (
-      <div class="cl-new-contributors">
-        <span class="cl-nc-label">🎉 First-time contributors</span>
-        <span class="cl-nc-list">
-          {d.newContributors.map((c) => (
-            <a class="cl-nc" href={`https://github.com/${c.login}`} target="_blank" rel="noopener" title={`@${c.login} — first contribution in #${c.pr}`}>
-              <img src={`https://github.com/${c.login}.png?size=40`} alt="" width="20" height="20" loading="lazy" />
-              @{c.login}
-            </a>
-          ))}
-        </span>
-      </div>
     )}
     <div class="cl-version-notes">
       <Content />

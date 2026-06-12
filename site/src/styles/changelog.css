@@ -133,16 +133,17 @@
 .cl-no-entries { color: var(--sl-color-gray-3); font-size: 0.9rem; margin: 0.5rem 0; }
 .cl-no-entries a { color: var(--sl-color-accent); text-decoration: none; }
 
-/* first-time contributor celebration */
-.cl-new-contributors { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem;
-  padding: 0.55rem 0.75rem; border-radius: 9px;
+/* first-time contributor celebration (sits right under highlights) */
+.cl-new-contributors { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;
+  margin: 0.5rem 0 0.75rem; padding: 0.5rem 0.75rem; border-radius: 9px; line-height: 1;
   background: color-mix(in srgb, var(--sl-color-accent) 5%, transparent);
   border: 1px dashed color-mix(in srgb, var(--sl-color-accent) 30%, transparent); }
-.cl-nc-label { font-size: 0.78rem; font-weight: 700; color: var(--sl-color-gray-2); white-space: nowrap; }
-.cl-nc-list { display: inline-flex; gap: 0.7rem; flex-wrap: wrap; }
-.cl-nc { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.82rem; color: var(--sl-color-gray-2); text-decoration: none; }
+.cl-nc-label { font-size: 0.78rem; font-weight: 700; color: var(--sl-color-gray-2); white-space: nowrap; line-height: 1.4; }
+.cl-nc-list { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.cl-nc { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.82rem; line-height: 1.4;
+  color: var(--sl-color-gray-2); text-decoration: none; }
 .cl-nc:hover { color: var(--sl-color-accent); }
-.cl-nc img { border-radius: 999px; vertical-align: middle; }
+.cl-nc img { display: block; border-radius: 999px; flex-shrink: 0; }
 
 /* empty state (e.g. evals + typescript) */
 .cl-empty { color: var(--sl-color-gray-3); font-size: 0.85rem; padding: 2rem 0; text-align: center; }
