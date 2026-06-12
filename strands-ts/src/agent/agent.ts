@@ -119,6 +119,7 @@ import type { TakeSnapshotOptions } from './snapshot.js'
 import type { Snapshot } from '../types/snapshot.js'
 import type { Sandbox } from '../sandbox/base.js'
 import { defaultSandbox } from '../sandbox/default.js'
+import { summarizeContextTool, truncateContextTool, pinTool, createTokenUsageMiddleware } from '../conversation-manager/agentic/index.js'
 
 /**
  * Recursive type definition for nested tool arrays.
@@ -148,7 +149,7 @@ export type ToolExecutorStrategy = 'sequential' | 'concurrent'
 /**
  * Supported values for the `contextManager` parameter.
  */
-export type ContextManagerStrategy = 'auto'
+export type ContextManagerStrategy = 'auto' | 'agentic'
 
 /** Benchmark-validated token threshold for offloading tool results. */
 const CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
@@ -217,15 +218,15 @@ export type AgentConfig = {
    */
   conversationManager?: ConversationManager
   /**
-   * Context management strategy. When set to `"auto"`, composes a ContextOffloader
-   * plugin (maxResultTokens=1500, previewTokens=750) with a SummarizingConversationManager
-   * (summaryRatio=0.3, compressionThreshold=0.85) using benchmark-validated defaults.
-   * If `conversationManager` is also provided, the user's conversation manager is used instead.
-   * Defaults to undefined (no context management).
+   * Context management strategy.
    *
-   * @remarks The offloader uses in-memory storage that does not persist across process
-   * restarts. For agents using `sessionManager`, provide an explicit `ContextOffloader`
-   * with durable storage via the `plugins` parameter.
+   * - `"auto"`: SummarizingConversationManager with proactive compression + ContextOffloader.
+   * - `"agentic"`: Lets the model drive context management via injected tools
+   *   (summarize_context, truncate_context, pin). Uses SummarizingConversationManager
+   *   without proactive compression as a reactive safety net, plus ContextOffloader.
+   *
+   * If `conversationManager` is also provided, the user's conversation manager is used instead.
+   * Defaults to undefined (SlidingWindowConversationManager, no offloader).
    */
   contextManager?: ContextManagerStrategy
   /**
@@ -304,15 +305,21 @@ export type AgentConfig = {
  * Resolve the contextManager facade into a concrete ConversationManager.
  *
  * When contextManager is undefined, falls back to the default SlidingWindowConversationManager.
- * When "auto", uses SummarizingConversationManager with benchmark-validated defaults,
- * unless the user already provided a conversationManager.
+ * When "auto", uses SummarizingConversationManager with proactive compression.
+ * When "agentic", uses SummarizingConversationManager without proactive compression
+ * (the agent manages its context via tools; the CM is only a reactive safety net).
  */
 function resolveConversationManager(
   contextManager: ContextManagerStrategy | undefined,
   conversationManager: ConversationManager | undefined
 ): ConversationManager {
-  if (contextManager !== undefined && contextManager !== 'auto') {
-    throw new Error(`Unsupported contextManager value: "${contextManager}". Supported values: "auto"`)
+  if (contextManager === 'agentic') {
+    return (
+      conversationManager ??
+      new SummarizingConversationManager({
+        summaryRatio: CONTEXT_MANAGER_SUMMARY_RATIO,
+      })
+    )
   }
   if (contextManager === 'auto') {
     return (
@@ -322,6 +329,9 @@ function resolveConversationManager(
         proactiveCompression: { compressionThreshold: CONTEXT_MANAGER_COMPRESSION_THRESHOLD },
       })
     )
+  }
+  if (contextManager !== undefined) {
+    throw new Error(`Unsupported contextManager value: "${contextManager}". Supported values: "auto", "agentic"`)
   }
   return conversationManager ?? new SlidingWindowConversationManager({ windowSize: 40 })
 }
@@ -501,6 +511,9 @@ export class Agent implements LocalAgent, InvokableAgent {
     }
 
     const { tools, mcpClients } = flattenTools(config?.tools ?? [])
+    if (config?.contextManager === 'agentic') {
+      tools.push(summarizeContextTool, truncateContextTool, pinTool)
+    }
     this._toolRegistry = new ToolRegistry(tools)
     this._mcpClients = mcpClients
 
@@ -511,6 +524,10 @@ export class Agent implements LocalAgent, InvokableAgent {
 
     // Initialize middleware registry
     this._middlewareRegistry = new MiddlewareRegistry()
+
+    if (config?.contextManager === 'agentic') {
+      this._middlewareRegistry.addInput(InvokeModelStage.Input, createTokenUsageMiddleware(this.model))
+    }
 
     // `undefined` (omitted) → install the default; `null`/`[]` → explicit opt-out.
     const retryStrategies: RetryStrategy[] =
@@ -537,7 +554,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       this._conversationManager,
       ...retryStrategies,
       ...(config?.plugins ?? []),
-      ...(config?.contextManager === 'auto' && !hasOffloader
+      ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
             new ContextOffloader({
               storage: new InMemoryStorage(),
@@ -1834,7 +1851,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       }
 
       try {
-        const result = yield* this._invokeModelWithMiddleware(invocationState, toolChoice)
+        const result = yield* this._invokeModelWithMiddleware(invocationState, toolChoice, projectedInputTokens)
 
         // Accumulate token usage and model latency metrics
         this._meter.updateCycle(result.metadata)
@@ -1917,7 +1934,8 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   private async *_invokeModelWithMiddleware(
     invocationState: InvocationState,
-    toolChoice?: ToolChoice
+    toolChoice?: ToolChoice,
+    projectedInputTokens?: number
   ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
     const context: InvokeModelContext = {
       agent: this,
@@ -1926,6 +1944,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       toolSpecs: deepCopy(this._toolRegistry.list().map((tool) => tool.toolSpec)) as unknown as ToolSpec[],
       ...(toolChoice !== undefined && { toolChoice: deepCopy(toolChoice) as unknown as ToolChoice }),
       invocationState,
+      ...(projectedInputTokens !== undefined && { projectedInputTokens }),
     }
 
     // Snapshot model state before middleware runs so concurrent mutations don't leak in.

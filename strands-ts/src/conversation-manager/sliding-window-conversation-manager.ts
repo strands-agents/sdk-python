@@ -14,7 +14,8 @@ import {
   type ProactiveCompressionConfig,
   type ConversationManagerReduceOptions,
 } from './conversation-manager.js'
-import { isPinned, applyPinFirst } from './pin-message.js'
+import { isPinned, applyPinFirst } from './compression/pin-message.js'
+import { findValidTrimPoint } from './compression/context-compression.js'
 import { logger } from '../logging/logger.js'
 
 const PRESERVE_CHARS = 200
@@ -231,45 +232,8 @@ export class SlidingWindowConversationManager extends ConversationManager {
 
     // Try to trim messages when tool result cannot be truncated anymore
     // If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size
-    let trimIndex = messages.length <= this._windowSize ? 2 : messages.length - this._windowSize
-
-    // Find the next valid trim point that:
-    // 1. Starts with a user message (required by some models)
-    // 2. Does not start with an orphaned toolResult
-    // 3. Does not start with a toolUse unless its toolResult immediately follows
-    while (trimIndex < messages.length) {
-      const oldestMessage = messages[trimIndex]
-      if (!oldestMessage) {
-        break
-      }
-
-      // Must start with a user message
-      if (oldestMessage.role !== 'user') {
-        trimIndex++
-        continue
-      }
-
-      // Cannot start with an orphaned toolResult
-      const hasToolResult = oldestMessage.content.some((block) => block.type === 'toolResultBlock')
-      if (hasToolResult) {
-        trimIndex++
-        continue
-      }
-
-      // toolUse is only valid if the next message is its toolResult
-      const hasToolUse = oldestMessage.content.some((block) => block.type === 'toolUseBlock')
-      if (hasToolUse) {
-        const nextMessage = messages[trimIndex + 1]
-        const nextHasToolResult = nextMessage && nextMessage.content.some((block) => block.type === 'toolResultBlock')
-        if (!nextHasToolResult) {
-          trimIndex++
-          continue
-        }
-      }
-
-      // Valid trim point found
-      break
-    }
+    const startIndex = messages.length <= this._windowSize ? 2 : messages.length - this._windowSize
+    const trimIndex = findValidTrimPoint(messages, startIndex)
 
     // If no valid trim point was found, return false and let the caller handle it.
     // When windowSize is 0, trimIndex === messages.length is expected (remove all), so allow it through.
