@@ -11,7 +11,7 @@ All public field and method names use ``snake_case``.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ..types.content import Message
 from ..types.tools import AgentTool
@@ -168,65 +168,24 @@ class MemoryManagerConfig:
     flush_on_invocation_end: bool = False
 
 
-@dataclass
-class MemoryStoreConfig:
-    """Declarative config shape shared by every memory store.
-
-    This captures a store's identity and behavior knobs. It is the config-shape
-    counterpart to the runtime :class:`MemoryStore` contract: the runtime
-    protocol declares the same fields alongside its methods, while this type
-    documents the plain configuration shape. Concrete stores add their own
-    backend-specific config fields on top.
+class MemoryStoreConfig(Protocol):
+    """Declarative identity and behavior fields shared by every memory store.
 
     Attributes:
-        name: Identifier for this store, used to target specific stores in
-            search/add tools. Must be unique.
-        description: Human-readable description of what this store contains.
-            Included in tool descriptions.
+        name: Unique identifier for this store, used to target it in search/add
+            tools. Must be unique across the manager's stores.
+        description: Human-readable description of what this store contains;
+            included in tool descriptions.
         max_search_results: Default maximum number of results this store returns
             per search, used when a caller does not pass a per-call
             ``max_search_results``.
-        writable: Whether this store accepts writes. Semantically defaults to
-            ``False`` (caller intent); concrete stores resolve it to a definite
-            boolean on the :class:`MemoryStore` contract.
+        writable: Whether this store accepts writes. A writable store requires at
+            least one write sink (:meth:`MemoryStore.add` or
+            :meth:`MemoryStore.add_messages`).
         extraction: Automatic-extraction configuration for this store. When set,
             the manager runs the configured triggers and writes extracted (or,
             with no extractor, raw) messages to this store. Requires the store to
-            be writable. Omit for a purely tool-driven store.
-    """
-
-    name: str
-    description: str | None = None
-    max_search_results: int | None = None
-    writable: bool = False
-    extraction: ExtractionConfig | None = None
-
-
-@runtime_checkable
-class MemoryStore(Protocol):
-    """Runtime contract for a memory store backend.
-
-    Every store is searchable; the resolved ``writable`` flag declares whether it
-    also accepts writes, which is how the ``MemoryManager`` decides where to route
-    them. The search tool can query all stores, while the add tool can only write
-    to ``writable`` stores.
-
-    A store author implements the identity attributes plus :meth:`search`, and
-    optionally one or more of :meth:`add`, :meth:`add_messages`, and
-    :meth:`get_tools`.
-
-    Attributes:
-        name: Unique identifier for this store, used to target it in
-            search/add tools.
-        description: Human-readable description of what this store contains.
-        max_search_results: Default maximum number of results returned per
-            search.
-        writable: Whether this store accepts writes. Defaults to ``False``
-            semantically (searchable only). A store declaring ``writable=True``
-            requires at least one write sink -- :meth:`add`, :meth:`add_messages`,
-            or both -- to be implemented.
-        extraction: Optional automatic-extraction configuration. Requires the
-            store to be writable.
+            be writable.
     """
 
     name: str
@@ -234,6 +193,20 @@ class MemoryStore(Protocol):
     max_search_results: int | None
     writable: bool
     extraction: ExtractionConfig | None
+
+
+class MemoryStore(MemoryStoreConfig, Protocol):
+    """Runtime contract for a memory store backend.
+
+    Extends :class:`MemoryStoreConfig` with the runtime methods a store provides.
+    Every store is searchable; the resolved ``writable`` flag declares whether it
+    also accepts writes, which is how the ``MemoryManager`` decides where to route
+    them. The search tool can query all stores, while the add tool can only write
+    to ``writable`` stores.
+
+    A store author implements the config fields plus :meth:`search`, and optionally
+    one or more of :meth:`add`, :meth:`add_messages`, and :meth:`get_tools`.
+    """
 
     async def search(self, query: str, options: SearchOptions | None = None) -> list[MemoryEntry]:
         """Search the store for entries matching the query, ordered by relevance.

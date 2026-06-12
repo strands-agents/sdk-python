@@ -179,15 +179,16 @@ class ExtractionCoordinator:
     async def _run_chain(self, store: MemoryStore, previous: asyncio.Task | None) -> None:
         """Await the previous save for ``store`` (if any) then run this one.
 
+        Serializes a single store's saves so they never overlap or reorder. The
+        previous save handles its own outcome internally (errors are logged and
+        swallowed in :meth:`_extract`), so it always completes normally.
+
         Args:
             store: The store to save for.
             previous: The previous chain task to wait behind, or ``None``.
         """
         if previous is not None:
-            try:
-                await previous
-            except BaseException:  # noqa: BLE001 - the previous save's outcome is its own concern.
-                pass
+            await previous
         await self._extract(store)
 
     def _should_attempt(self, store: MemoryStore) -> bool:

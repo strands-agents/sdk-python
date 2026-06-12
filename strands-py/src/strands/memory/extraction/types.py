@@ -15,7 +15,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from ...models.model import Model
 from ...types.content import Message
@@ -82,7 +82,6 @@ class ExtractorContext:
     default_model: Model | None = None
 
 
-@runtime_checkable
 class Extractor(Protocol):
     """Transforms conversation messages into discrete, searchable entries.
 
