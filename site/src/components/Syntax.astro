@@ -2,22 +2,22 @@
 interface Props {
   py: string;
   ts: string;
-  code?: boolean;
+  plain?: boolean;
 }
 
-const { py, ts, code = true } = Astro.props;
+const { py, ts, plain = false } = Astro.props;
 ---
 
 <syntax-switch>
-  {code ? (
-    <>
-      <code data-lang="Python">{py}</code>
-      <code data-lang="TypeScript">{ts}</code>
-    </>
-  ) : (
+  {plain ? (
     <>
       <span data-lang="Python">{py}</span>
       <span data-lang="TypeScript">{ts}</span>
+    </>
+  ) : (
+    <>
+      <code data-lang="Python">{py}</code>
+      <code data-lang="TypeScript">{ts}</code>
     </>
   )}
 </syntax-switch>

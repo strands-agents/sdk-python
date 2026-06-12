@@ -277,7 +277,7 @@ Pass <Syntax py="context_manager" ts="contextManager" /> to configure...
 Props:
 - `py` (required): Python syntax variant
 - `ts` (required): TypeScript syntax variant
-- `code` (default: `true`): Wraps output in `<code>`. Set `code={false}` for plain text.
+- `plain` (default: `false`): Renders as plain text instead of `<code>`.
 
 The component reads the same `localStorage` key as the language toggle and swaps live without page reload.
 

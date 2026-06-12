@@ -29,7 +29,7 @@ Use <Syntax py=".as_tool()" ts=".asTool()" /> to customize the tool name.
 The <Syntax py="Agent.retry_strategy" ts="Agent.retryStrategy" /> parameter controls retry behavior.
 ```
 
-Renders as inline `<code>` by default. Pass `code={false}` for plain text. Reacts live to the global language toggle — no page reload.
+Renders as inline `<code>` by default. Pass `plain` for plain text. Reacts live to the global language toggle — no page reload.
 
 **When to use `<Syntax>` vs `<Tabs>`:**
 - `<Syntax>`: single identifier or short expression that differs by language, embedded in a prose sentence.
