@@ -44,7 +44,7 @@ This monorepo contains the Python SDK, TypeScript SDK, documentation site, and s
 | `strands-wasm/` | WebAssembly bindings for running Python tools from TypeScript agents |
 | `strands-py-wasm/` | Python host for WASM components (bridges WIT interfaces to Python) |
 | `strandly/` | Developer CLI for local builds, codegen, and workspace tooling |
-| `site/` | Documentation site built with Astro/Starlight ([strandsagents.com](https://strandsagents.com)) |
+| `site/` | Source for the [strandsagents.com](https://strandsagents.com) documentation site (Astro/Starlight) |
 | `designs/` | Design proposals for significant features (RFC-style) |
 
 ## Why Strands
@@ -108,6 +108,8 @@ For detailed guidance & examples, explore our documentation:
 - [Examples](https://strandsagents.com/docs/examples/)
 - [API Reference — Python](https://strandsagents.com/docs/api/python/strands.agent.agent/) · [TypeScript](https://strandsagents.com/docs/api/typescript/)
 - [Production & Deployment Guide](https://strandsagents.com/docs/user-guide/deploy/operating-agents-in-production/)
+
+The docs are part of this monorepo — every page on strandsagents.com is built from [`site/`](site/). Spot a problem? Edit the page and open a PR.
 
 ## Development
 
