@@ -3,20 +3,20 @@ name: Bot PR Review Gate
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review]
   pull_request_review:
     types: [submitted, dismissed]
 
-# pull_request_target runs in the base-repo context with a write-capable token.
-# This job only reads PR metadata, counts reviews, and posts a status comment —
-# it never checks out or executes PR head code.
+# pull_request_target runs in the base-repo context. This job only reads PR
+# metadata and reviews and sets the check status — it never checks out or
+# executes PR head code, and needs no write scope.
 permissions:
   contents: read
-  pull-requests: write
+  pull-requests: read
 
 jobs:
   check-bot-reviews:
-    name: Bot/Agent PR Review Requirement
+    name: 2 Approvers for Bots
     runs-on: ubuntu-latest
     steps:
       - name: Enforce maintainer reviews for bot/agent PRs
@@ -24,6 +24,8 @@ jobs:
         env:
           REQUIRED_APPROVALS: '2'
           MAINTAINER_ROLES: 'maintain,admin'
+          # Trusted automation that is exempt from the 2-approver requirement.
+          EXEMPT_AUTHORS: 'dependabot[bot]'
         with:
           script: |
             const pr = context.payload.pull_request;
@@ -35,30 +37,43 @@ jobs:
             const requiredApprovals = parseInt(process.env.REQUIRED_APPROVALS, 10);
             const maintainerRoles = process.env.MAINTAINER_ROLES
               .split(',').map(r => r.trim()).filter(Boolean);
+            const exemptAuthors = (process.env.EXEMPT_AUTHORS || '')
+              .split(',').map(a => a.trim().toLowerCase()).filter(Boolean);
 
             const author = pr.user.login;
             const authorType = pr.user.type;
 
-            // Anchored, named bot accounts plus the `[bot]` suffix GitHub reserves
-            // for app accounts. Generic fragments (bot$, agent, automation) were
-            // intentionally dropped — they match human handles (Talbot, *-agent).
+            // Trusted automation (e.g. dependabot) is exempt — its PRs don't
+            // require 2 maintainer approvals.
+            if (exemptAuthors.includes(author.toLowerCase())) {
+              console.log(`Author ${author} is exempt — skipping.`);
+              return;
+            }
+
             const botUsernamePatterns = [
-              /\[bot\]$/,
-              /^dependabot(\[bot\])?$/i,
+              /\[bot\]$/,                       // reserved GitHub App suffix
               /^renovate(\[bot\])?$/i,
               /^github-actions(\[bot\])?$/i,
               /^snyk-bot$/i,
               /^codecov(\[bot\])?$/i,
               /^mergify(\[bot\])?$/i,
               /^greenkeeper(\[bot\])?$/i,
+              // Agent accounts — intentionally broad so handles like
+              // "kiro-agent" / "agent-of-x" are gated. This can also match a
+              // human handle containing "agent"; that is an accepted tradeoff,
+              // and such PRs can still merge with 2 maintainer approvals.
+              /agent$/i,
+              /-agent/i,
+              /agent-/i,
+              /'s[ -]agent/i,
             ];
 
-            // Only the reserved `[bot]@` email shape. The broad noreply patterns
-            // were removed because `…@users.noreply.github.com` is the default
+            // Only the reserved `[bot]@` email shape. Broad noreply patterns are
+            // excluded because `…@users.noreply.github.com` is the default
             // privacy email for *human* accounts.
             const botEmailPatterns = [/\[bot\]@/i];
 
-            // Labels a maintainer/automation can apply to opt a PR into the gate.
+            // Labels a maintainer can apply to opt a PR into the gate.
             const botLabels = new Set([
               'bot', 'dependencies', 'automated', 'auto-generated', 'agent',
             ]);
@@ -69,7 +84,7 @@ jobs:
               reasons.push('user type is "Bot"');
             }
             if (botUsernamePatterns.some(p => p.test(author))) {
-              reasons.push(`username "${author}" matches a known bot account`);
+              reasons.push(`username "${author}" matches a bot/agent pattern`);
             }
             const prLabels = (pr.labels || []).map(l => l.name.toLowerCase());
             const matchedLabels = prLabels.filter(l => botLabels.has(l));
@@ -80,7 +95,7 @@ jobs:
               reasons.push(`PR created via GitHub App "${pr.performed_via_github_app.name}"`);
             }
 
-            // Inspect all commit author emails (paginated, not just the first page).
+            // Inspect all commit author emails (paginated, not just first page).
             const commits = await github.paginate(github.rest.pulls.listCommits, {
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -95,44 +110,11 @@ jobs:
 
             const isBot = reasons.length > 0;
             console.log(`PR author: ${author}, type: ${authorType}, isBot: ${isBot}`);
-            if (isBot) {
-              console.log(`Detection reasons:\n  - ${reasons.join('\n  - ')}`);
-            }
-
-            // Sticky status comment, identified by a hidden marker.
-            const MARKER = '<!-- bot-pr-review-gate -->';
-            async function findGateComment() {
-              const comments = await github.paginate(github.rest.issues.listComments, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-              });
-              return comments.find(c => c.body && c.body.includes(MARKER));
-            }
-
             if (!isBot) {
               console.log('PR is not from a bot/agent — no additional review requirement.');
-              // A PR can transition bot -> non-bot only by having a gating label
-              // removed. In that case, tidy up any previously-posted gate comment
-              // so it isn't left stale (scoped to label removal to avoid an API
-              // call on every human PR).
-              if (context.payload.action === 'unlabeled') {
-                try {
-                  const existing = await findGateComment();
-                  if (existing) {
-                    await github.rest.issues.deleteComment({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      comment_id: existing.id,
-                    });
-                    console.log('Removed stale gate comment — PR is no longer flagged.');
-                  }
-                } catch (error) {
-                  console.log(`Could not remove stale gate comment: ${error.message}`);
-                }
-              }
               return;
             }
+            console.log(`Detection reasons:\n  - ${reasons.join('\n  - ')}`);
 
             // Count maintainer approvals. Only the latest review per user counts.
             // COMMENTED reviews are ignored: per GitHub merge semantics a later
@@ -169,40 +151,10 @@ jobs:
               if (await isMaintainer(login)) approvedBy.push(login);
             }
 
-            const satisfied = approvedBy.length >= requiredApprovals;
             console.log(`Maintainer approvals: ${approvedBy.length}/${requiredApprovals}`);
             console.log(`Approved by: ${approvedBy.join(', ') || 'none'}`);
 
-            // Post a single sticky status comment so authors know why a PR is
-            // gated and how many approvals remain. Idempotent via the marker.
-            const body = satisfied
-              ? `${MARKER}\n✅ **Bot/agent PR review requirement satisfied** ` +
-                `(${approvedBy.length}/${requiredApprovals} maintainer approvals).`
-              : `${MARKER}\n🤖 This PR was detected as bot/agent-authored, so it requires ` +
-                `**${requiredApprovals} maintainer approvals** before merging ` +
-                `(currently **${approvedBy.length}/${requiredApprovals}**).\n\n` +
-                `Maintainers are repository collaborators with role: ${maintainerRoles.join(' or ')}.\n\n` +
-                `<details><summary>Why was this flagged?</summary>\n\n- ${reasons.join('\n- ')}\n</details>`;
-            try {
-              const existing = await findGateComment();
-              if (existing) {
-                if (existing.body !== body) {
-                  await github.rest.issues.updateComment({
-                    owner: context.repo.owner, repo: context.repo.repo,
-                    comment_id: existing.id, body,
-                  });
-                }
-              } else {
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner, repo: context.repo.repo,
-                  issue_number: pr.number, body,
-                });
-              }
-            } catch (error) {
-              console.log(`Could not upsert status comment: ${error.message}`);
-            }
-
-            if (!satisfied) {
+            if (approvedBy.length < requiredApprovals) {
               core.setFailed(
                 `Bot/agent PRs require at least ${requiredApprovals} maintainer approvals before merging. ` +
                 `Currently have ${approvedBy.length}/${requiredApprovals}. ` +
