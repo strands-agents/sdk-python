@@ -82,8 +82,6 @@ agent = Agent(
 
 ### Limitations
 
-:::caution[Not compatible with stateful models]
-Stateful models manage conversation state server-side. Setting `context_manager="auto"` with a stateful model raises a `ValueError` (Python) or `Error` (TypeScript).
-:::
+**Stateful models**: Stateful models manage conversation state server-side. Setting `context_manager="auto"` with a stateful model raises a `ValueError` (Python) or `Error` (TypeScript).
 
 The auto-composed offloader uses in-memory storage that does not persist across process restarts. If your agent uses session management and needs durable offloaded content, configure an explicit `ContextOffloader` with `FileStorage` or `S3Storage`. See [Storage Backends](./plugins/context-offloader#storage-backends).
