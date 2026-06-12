@@ -15,5 +15,4 @@ entries:
   - { type: fix, breaking: false, scope: null, areas: [multiagent], title: "swarm bug \"Failed to detach context\" with opentelemetry", pr: 2281, prUrl: "https://github.com/strands-agents/sdk-python/pull/2281", commit: "fa74d80", commitUrl: "https://github.com/strands-agents/sdk-python/commit/fa74d80", author: mehtarac }
 newContributors:
   - { login: paliwalvimal, pr: 2236 }
-  - { login: Albertozhao, pr: 2285 }
 ---

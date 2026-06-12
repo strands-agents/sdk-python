@@ -30,7 +30,4 @@ entries:
   - { type: feat, breaking: false, scope: null, areas: [hooks, tool, server], title: "update vended tools/plugins for sandbox compatibility", pr: 2649, prUrl: "https://github.com/strands-agents/harness-sdk/pull/2649", commit: "1333d3a", commitUrl: "https://github.com/strands-agents/harness-sdk/commit/1333d3a", author: gautamsirdeshmukh }
   - { type: feat, breaking: false, scope: null, areas: [], title: "pass sequenceNumber to memory store addMessages method", pr: 2721, prUrl: "https://github.com/strands-agents/harness-sdk/pull/2721", commit: "3a3fe7b", commitUrl: "https://github.com/strands-agents/harness-sdk/commit/3a3fe7b", author: opieter-aws }
   - { type: feat, breaking: false, scope: null, areas: [community], title: "add extraction defaults and support for bedrock kbs", pr: 2719, prUrl: "https://github.com/strands-agents/harness-sdk/pull/2719", commit: "1383997", commitUrl: "https://github.com/strands-agents/harness-sdk/commit/1383997", author: opieter-aws }
-newContributors:
-  - { login: senthilkumarmohan, pr: 2623 }
-  - { login: ianholtz, pr: 2651 }
 ---

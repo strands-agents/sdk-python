@@ -31,5 +31,4 @@ entries:
   - { type: feat, breaking: false, scope: mcp, areas: [mcp], title: "forward agent cancel signal to MCP server", pr: 1069, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/1069", commit: "2c4c5c1", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/2c4c5c1", author: gautamsirdeshmukh }
 newContributors:
   - { login: Luffy2208, pr: 966 }
-  - { login: Albertozhao, pr: 1051 }
 ---

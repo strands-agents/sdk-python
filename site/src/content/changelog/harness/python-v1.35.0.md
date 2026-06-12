@@ -9,7 +9,6 @@ packageUrl: https://pypi.org/project/strands-agents/1.35.0/
 entries: []
 newContributors:
   - { login: mananpatel320, pr: 1918 }
-  - { login: opieter-aws, pr: 2044 }
   - { login: mattdai01, pr: 2046 }
   - { login: KKamJi98, pr: 1906 }
   - { login: gautamsirdeshmukh, pr: 2047 }
