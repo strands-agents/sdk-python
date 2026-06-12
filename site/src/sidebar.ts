@@ -2,11 +2,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import yaml from 'js-yaml'
 
+// A badge rendered next to a sidebar label. A bare string is shorthand for the default variant.
+type SidebarBadge = string | { text: string; variant?: 'note' | 'tip' | 'caution' | 'danger' | 'success' | 'default' }
+
 // Starlight sidebar item types
 export type StarlightSidebarItem =
   | { slug: string; label?: string; attrs?: Record<string, string> } // Internal link
   | { label: string; link: string; attrs?: Record<string, string> } // External link
-  | { label: string; items: StarlightSidebarItem[]; collapsed?: boolean } // Group
+  | { label: string; items: StarlightSidebarItem[]; collapsed?: boolean; badge?: SidebarBadge } // Group
 
 // Navigation config types
 interface NavConfigItem {
@@ -14,6 +17,7 @@ interface NavConfigItem {
   items?: NavConfigItem[]
   slug?: string // For labeled leaf items "Adding Tools"
   collapsed?: boolean // Explicit collapse state for groups (overrides auto-collapse)
+  badge?: SidebarBadge // Badge on a group label (leaf badges come from page frontmatter)
 }
 type NavConfigEntry = string | NavConfigItem
 
@@ -86,6 +90,7 @@ function convertConfigItem(item: NavConfigEntry, ctx: ConvertContext): Starlight
         label: item.label,
         items: children,
         ...(typeof item.collapsed === 'boolean' && { collapsed: item.collapsed }),
+        ...(item.badge !== undefined && { badge: item.badge }),
       }
     }
 

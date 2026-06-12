@@ -15,6 +15,9 @@ One concept, one term. Never vary for stylistic reasons. This file is the canoni
 | Configuring which model to use | model provider | model backend, LLM provider, inference provider |
 | Maintaining conversation across turns (user-facing concept) | session management | context persistence, memory, conversation history |
 | The SDK class that implements session management | conversation manager | session handler, context manager (note: `ConversationManager` is the API class name; "session management" is the user-facing concept in docs) |
+| Durable knowledge an agent recalls across sessions | memory (or long-term memory) | knowledge store, recall, persistent memory |
+| The SDK class that implements memory management | memory manager | knowledge store, recall, memory store, knowledge base |
+| The SDK class that implements the backend containing memories | memory store | knowledge store, recall |
 | Controlling agent behavior at runtime | hooks | middleware, interceptors, callbacks (hooks is Strands-specific) |
 | Multiple agents working together | multi-agent | multi-agent system, agent orchestration, agent coordination |
 | Agent-to-agent communication pattern | agents as tools | agent chaining, agent delegation, nested agents |
