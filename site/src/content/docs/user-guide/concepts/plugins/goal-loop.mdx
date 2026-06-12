@@ -1,7 +1,7 @@
 ---
 title: GoalLoop
 description: "Iterative refinement plugin that validates agent responses against a goal, looping with feedback until satisfied."
-tags: [hooks, event-loop]
+tags: [hooks, event-loop, prompt-authoring]
 sidebar:
   badge:
     text: New
@@ -27,12 +27,11 @@ flowchart LR
     E --> B
 ```
 
-1. `BeforeInvocationEvent` starts a fresh run (or continues an in-progress one).
-2. The agent processes the prompt and produces a response.
-3. `AfterInvocationEvent` fires. GoalLoop extracts the last assistant message and runs the validator.
-4. If the validator passes, the run terminates with a "satisfied" stop reason.
-5. If the validator fails and budget remains, GoalLoop sets `event.resume` with feedback. The agent re-invokes with that feedback as a new user message.
-6. If the attempt limit or timeout is exhausted, the run terminates without retrying.
+1. The agent processes the prompt and produces a response.
+2. GoalLoop extracts the last assistant message and runs the validator.
+3. If the validator passes, the loop terminates with a "satisfied" result.
+4. If the validator fails and budget remains, GoalLoop injects feedback as a new user message and re-invokes the agent.
+5. If the attempt limit or timeout is exhausted, the loop terminates without retrying.
 
 ## Getting Started
 
@@ -196,7 +195,7 @@ After an invocation completes, retrieve the result from the plugin to get the fu
 <Tab label="Python">
 
 ```python
-result = concise.last_result(agent)
+result = plugin.last_result(agent)
 if result and not result.passed:
     print(f"Stopped after {len(result.attempts)} attempts")
     print(f"Reason: {result.stop_reason}")
@@ -212,7 +211,7 @@ if result and not result.passed:
 </Tab>
 </Tabs>
 
-The result is `None` / `undefined` before the first completed run and while a run is in-flight. It resets at the start of each new invocation.
+The result is <Syntax py="None" ts="undefined" /> before the first completed run and while a run is in-flight. It resets at the start of each new invocation.
 
 ### Stateless Retries
 
@@ -237,7 +236,7 @@ plugin = GoalLoop(
 </Tab>
 </Tabs>
 
-The snapshot excludes agent state (`state` / `appState`) deliberately — other plugins (rate limiters, cost trackers) rely on their mutations persisting across attempts.
+The snapshot excludes agent state (<Syntax py="state" ts="appState" />) deliberately — other plugins (rate limiters, cost trackers) rely on their mutations persisting across attempts.
 
 ### Custom Judge Configuration
 
@@ -271,21 +270,21 @@ plugin = GoalLoop(
 
 ### Custom Resume Prompt
 
-Override how feedback is injected before each retry. The template receives the trimmed feedback string (or `None`/`undefined` when the validator gave none) and returns the user message content:
+Override how feedback is injected before each retry. The template receives the trimmed feedback string (or <Syntax py="None" ts="undefined" /> when the validator gave none) and returns the user message content:
 
 <Tabs>
 <Tab label="Python">
 
 ```python
-def spanish_prompt(feedback):
+def custom_resume(feedback):
     if not feedback:
-        return "Tu respuesta no cumple el objetivo. Intenta de nuevo."
-    return f"Problemas: {feedback}\n\nCorrige todo lo anterior."
+        return "Your response did not meet the goal. Try again."
+    return f"Issues:\n{feedback}\n\nFix all of the above before responding."
 
 plugin = GoalLoop(
     goal="...",
     max_attempts=3,
-    resume_prompt_template=spanish_prompt,
+    resume_prompt_template=custom_resume,
 )
 ```
 </Tab>

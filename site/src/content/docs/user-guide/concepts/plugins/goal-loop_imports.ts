@@ -8,6 +8,7 @@ import { GoalLoop } from '@strands-agents/sdk/vended-plugins/goal'
 // --8<-- [end:getting_started]
 
 // --8<-- [start:word_count_validator]
+import { Message } from '@strands-agents/sdk'
 import { GoalLoop } from '@strands-agents/sdk/vended-plugins/goal'
 // --8<-- [end:word_count_validator]
 

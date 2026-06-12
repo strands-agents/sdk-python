@@ -1,4 +1,4 @@
-import { Agent } from '@strands-agents/sdk'
+import { Agent, Message } from '@strands-agents/sdk'
 import { BedrockModel } from '@strands-agents/sdk'
 import {
   GoalLoop,
@@ -39,14 +39,14 @@ const execAsync = promisify(exec)
 // =====================
 
 {
-  const concise = new GoalLoop({
+  const plugin = new GoalLoop({
     goal: 'Be concise.',
     maxAttempts: 3,
   })
-  const agent = new Agent({ plugins: [concise] })
+  const agent = new Agent({ plugins: [plugin] })
 
   // --8<-- [start:inspecting_results]
-  const result = concise.lastResult(agent)
+  const result = plugin.lastResult(agent)
   if (result && !result.passed) {
     console.log(
       `Stopped after ${result.attempts.length} attempts`
@@ -65,20 +65,17 @@ const execAsync = promisify(exec)
 
 {
   // --8<-- [start:word_count_validator]
+  function wordCountValidator(response: Message) {
+    const text = response.content
+      .flatMap((b) => (b.type === 'textBlock' ? [b.text] : []))
+      .join(' ')
+    const words = text.trim().split(/\s+/).length
+    if (words <= 50) return true
+    return { passed: false, feedback: `Too long (${words} words). Cap at 50.` }
+  }
+
   const plugin = new GoalLoop({
-    goal: (response) => {
-      const text = response.content
-        .flatMap((b) =>
-          b.type === 'textBlock' ? [b.text] : []
-        )
-        .join(' ')
-      const words = text.trim().split(/\s+/).length
-      if (words <= 50) return true
-      return {
-        passed: false,
-        feedback: `Too long (${words} words). Cap at 50.`,
-      }
-    },
+    goal: wordCountValidator,
     maxAttempts: 5,
     timeout: 30_000,
   })
@@ -167,11 +164,11 @@ const execAsync = promisify(exec)
     maxAttempts: 3,
     resumePromptTemplate: (feedback) => {
       if (!feedback) {
-        return 'Tu respuesta no cumple el objetivo. '
-          + 'Intenta de nuevo.'
+        return 'Your response did not meet the goal. '
+          + 'Try again.'
       }
-      return `Problemas: ${feedback}\n\n`
-        + 'Corrige todo lo anterior.'
+      return `Issues:\n${feedback}\n\n`
+        + 'Fix all of the above before responding.'
     },
   })
   // --8<-- [end:custom_resume_prompt]

@@ -142,6 +142,8 @@ class _RunState:
     initial_snapshot: Snapshot | None = None
 
 
+# Two GoalLoops on one agent both write event.resume in AfterInvocation — only the
+# last callback's value survives, silently breaking the other's retry loop. Guard here.
 _agents_with_goal_loop: weakref.WeakSet[Agent] = weakref.WeakSet()
 
 
@@ -261,6 +263,8 @@ class GoalLoop(Plugin):
         self._timeout = timeout
         self._preserve_context = preserve_context
         self._resume_prompt_template = resume_prompt_template or _default_resume_prompt
+        # Per-agent run state — keyed by agent so one plugin instance can serve many.
+        # WeakKeyDictionary lets agents GC normally when the caller drops them.
         self._runs: weakref.WeakKeyDictionary[Agent, _RunState] = weakref.WeakKeyDictionary()
 
         if self._max_attempts == float("inf") and self._timeout == float("inf"):
