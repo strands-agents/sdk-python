@@ -19,10 +19,10 @@ The default [`SlidingWindowConversationManager`](../agents/conversation-manageme
 
 ## How It Works
 
-After each tool call, the plugin estimates the result's token count and compares it against the `max_result_tokens` threshold (default: 2,500 tokens). If the result exceeds it, the plugin:
+After each tool call, the plugin estimates the result's token count and compares it against the <Syntax py="max_result_tokens" ts="maxResultTokens" /> threshold (default: 2,500 tokens). If the result exceeds it, the plugin:
 
 1. Stores each content block individually in the configured storage backend, preserving its content type
-2. Replaces the in-context result with the first `preview_tokens` tokens (default: 1,000) plus per-block storage references
+2. Replaces the in-context result with the first <Syntax py="preview_tokens" ts="previewTokens" /> tokens (default: 1,000) plus per-block storage references
 
 Token estimation uses `model.count_tokens()`, which delegates to the model provider's native counting API if available, otherwise falling back to a character-based heuristic (chars/4 for text, chars/2 for JSON).
 
@@ -43,7 +43,7 @@ For non-text content, the plugin replaces the result with a descriptive placehol
 
 | Content Type | What the agent sees |
 |-------------|----------|
-| Text / JSON | First `preview_tokens` tokens + storage reference |
+| Text / JSON | First <Syntax py="preview_tokens" ts="previewTokens" /> tokens + storage reference |
 | Image | `[image: format, N bytes]` placeholder + storage reference |
 | Document | `[document: format, name, N bytes]` placeholder + storage reference |
 

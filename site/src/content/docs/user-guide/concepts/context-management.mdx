@@ -14,7 +14,7 @@ The SDK provides several layers of context management that you can use independe
 
 ## Automatic context management
 
-For most agents with multi-turn conversations, you don't need to configure conversation management and context offloading separately. Pass `context_manager="auto"` (Python) or `contextManager: "auto"` (TypeScript) and the SDK wires up both with tuned defaults:
+For most agents with multi-turn conversations, you don't need to configure conversation management and context offloading separately. Pass <Syntax py='context_manager="auto"' ts='contextManager: "auto"' /> and the SDK wires up both with tuned defaults:
 
 <Tabs>
 <Tab label="Python">
@@ -48,7 +48,7 @@ For full details on each component, see [Conversation Management](./agents/conve
 
 Your own settings take precedence when you need fine-grained control:
 
-- **Custom conversation manager**: If you also pass `conversation_manager` / `conversationManager`, your manager replaces the auto-composed `SummarizingConversationManager`. The SDK still adds the `ContextOffloader` plugin.
+- **Custom conversation manager**: If you also pass <Syntax py="conversation_manager" ts="conversationManager" />, your manager replaces the auto-composed `SummarizingConversationManager`. The SDK still adds the `ContextOffloader` plugin.
 - **Existing ContextOffloader**: If your `plugins` list already contains a `ContextOffloader` instance, no duplicate is added. Your configuration is preserved.
 
 <Tabs>
@@ -82,6 +82,6 @@ agent = Agent(
 
 ### Limitations
 
-**Stateful models**: Stateful models manage conversation state server-side. Setting `context_manager="auto"` with a stateful model raises a `ValueError` (Python) or `Error` (TypeScript).
+**Stateful models**: Stateful models manage conversation state server-side. Setting <Syntax py='context_manager="auto"' ts='contextManager: "auto"' /> with a stateful model raises a <Syntax py="ValueError" ts="Error" />.
 
 The auto-composed offloader uses in-memory storage that does not persist across process restarts. If your agent uses session management and needs durable offloaded content, configure an explicit `ContextOffloader` with `FileStorage` or `S3Storage`. See [Storage Backends](./plugins/context-offloader#storage-backends).

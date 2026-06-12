@@ -89,6 +89,22 @@ Code examples are critical—they show developers exactly what to do. Always tes
 - Add comments — explain non-obvious parts
 - Use realistic names — avoid foo/bar, use descriptive names
 
+### Inline language-specific names
+
+When prose references a method, parameter, or class name that differs between Python and TypeScript, use the `<Syntax>` component instead of writing both variants manually:
+
+```mdx
+<!-- Good: adapts to the reader's language selection -->
+Use <Syntax py=".as_tool()" ts=".asTool()" /> to customize the tool name.
+
+<!-- Bad: clutters prose with both variants -->
+Use `.as_tool()` (Python) or `.asTool()` (TypeScript) to customize the tool name.
+```
+
+`<Syntax>` is auto-imported (no `import` statement needed). It renders as inline `<code>` by default and reacts live to the global language toggle. Pass `code={false}` for plain text output.
+
+Use `<Syntax>` for simple name swaps. For code blocks or conceptual differences between SDKs, use `<Tabs>` instead.
+
 <Tabs>
 <Tab label="Python">
 
