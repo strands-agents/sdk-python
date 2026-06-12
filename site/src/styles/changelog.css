@@ -82,20 +82,22 @@
   /* Anchored version lands clear of the site header. */
   scroll-margin-top: 5.5rem; }
 .cl-version-meta { min-width: 104px; text-align: right; }
-.cl-version-num { color: var(--sl-color-white); font-weight: 700; font-size: 1.3rem; position: relative; }
-/* Hover-revealed copy-link button to the left of the version number
-   (mirrors the docs heading anchor affordance, but copies the deep link). */
-.cl-anchor { position: absolute; right: 100%; top: 50%; transform: translateY(-50%);
-  margin-right: 0.3rem; padding: 0.2rem; display: inline-flex; align-items: center;
+/* Version number row: copy-link icon sits inline, immediately left of the
+   number (mirrors the docs heading anchor affordance, but copies the link). */
+.cl-version-num { color: var(--sl-color-white); font-weight: 700; font-size: 1.3rem;
+  display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; }
+.cl-anchor { position: relative; display: inline-flex; align-items: center; padding: 0.15rem;
   background: transparent; border: 0; cursor: pointer; color: var(--sl-color-gray-4);
   opacity: 0; transition: opacity 0.12s ease; }
 .cl-version:hover .cl-anchor, .cl-anchor:focus-visible { opacity: 1; }
 .cl-anchor:hover { color: var(--sl-color-accent); }
-.cl-anchor-tip { position: absolute; right: 100%; top: 50%; transform: translateY(-50%);
-  margin-right: 0.3rem; padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;
+.cl-anchor-tip { position: absolute; right: calc(100% + 0.3rem); top: 50%; transform: translateY(-50%);
+  padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;
   background: var(--sl-color-accent); color: var(--sl-color-text-invert);
   white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.15s ease; }
 .cl-anchor.copied .cl-anchor-tip { opacity: 1; }
+/* Touch devices have no hover — keep the affordance visible. */
+@media (hover: none) { .cl-anchor { opacity: 0.6; } }
 .cl-version-date { color: var(--sl-color-gray-3); font-size: 0.8rem; margin-top: 2px; }
 .cl-version-links { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.5rem; align-items: flex-end; }
 .cl-version-links a { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; color: var(--sl-color-gray-3); text-decoration: none; }
