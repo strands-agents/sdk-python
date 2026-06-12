@@ -9,7 +9,8 @@ import type { ExtractionConfig } from '$/sdk/memory/extraction/types.js'
 import { BedrockKnowledgeBaseStore } from '$/sdk/vended-memory-stores/bedrock-knowledge-base/index.js'
 import { bedrock } from '../__fixtures__/model-providers.js'
 import { getMessageText } from '../__fixtures__/model-test-helpers.js'
-import { uniqueMarker, waitForIndexed, cleanupCustomDocument } from './_bedrock-kb-test-helpers.js'
+import { hasToolUse, waitFor } from '../__fixtures__/test-helpers.js'
+import { uniqueMarker, waitForIndexed, cleanupCustomDocument, searchUntil } from './_bedrock-kb-test-helpers.js'
 
 // Manual overrides — swap these to point at your own resources for local development.
 const OVERRIDES: Partial<{
@@ -21,10 +22,10 @@ const OVERRIDES: Partial<{
 }
 
 function config() {
-  const c = inject('provider-bedrock-kb')
+  const kb = inject('provider-bedrock-kb')
   return {
-    knowledgeBaseId: OVERRIDES.knowledgeBaseId ?? c.knowledgeBaseId!,
-    customDataSourceId: OVERRIDES.customDataSourceId ?? c.customDataSourceId!,
+    knowledgeBaseId: OVERRIDES.knowledgeBaseId ?? kb.knowledgeBaseId!,
+    customDataSourceId: OVERRIDES.customDataSourceId ?? kb.customDataSourceId!,
   }
 }
 
@@ -35,8 +36,14 @@ const ADD_TOOL = 'add_memory'
 
 // Seeded facts reused across the injection and search tests: a retrievable phrase plus the token each
 // test asserts the model surfaced.
-const WILLOW_FACT = { text: 'The most peaceful tree in the meditation garden is the weeping willow.', answer: 'willow' }
-const DOVE_FACT = { text: 'The calmest birdsong in the wildlife sanctuary belongs to the dove.', answer: 'dove' }
+function willowFact(): { text: string; answer: string } {
+  const answer = uniqueMarker('willow-tag')
+  return { text: `The weeping willow in the meditation garden carries botanical tag ${answer}.`, answer }
+}
+function doveFact(): { text: string; answer: string } {
+  const answer = uniqueMarker('dove-ring')
+  return { text: `The dove in the wildlife sanctuary wears identification ring ${answer}.`, answer }
+}
 
 /**
  * These tests drive the full {@link MemoryManager} — extraction, injection, and the search/add
@@ -132,47 +139,6 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       custom: { id: documentId },
     })
     return documentId
-  }
-
-  /**
-   * Polls a scope-isolated store search until at least one entry matches `predicate` (default: any
-   * result), or the timeout elapses. Used when the written content has no test-known document id
-   * (extraction rephrases; the add tool mints ids internally), so indexing can't be awaited by id.
-   */
-  async function searchUntil(
-    store: BedrockKnowledgeBaseStore,
-    query: string,
-    predicate: (content: string) => boolean = () => true,
-    { timeoutMs = 60_000, intervalMs = 2_000 } = {}
-  ): Promise<string | undefined> {
-    const deadline = Date.now() + timeoutMs
-    for (;;) {
-      const entries = await store.search(query, { maxSearchResults: 10 })
-      const match = entries.find((e) => predicate(e.content))
-      if (match) return match.content
-      if (Date.now() >= deadline) return undefined
-      await new Promise((r) => setTimeout(r, intervalMs))
-    }
-  }
-
-  /**
-   * Polls a synchronous predicate until it holds, or the timeout elapses. Used to await the
-   * background extraction path: a trigger's `fire()` dispatches `coordinator.process()` without
-   * awaiting it, so `agent.invoke()` returns before the extraction has written. Polling the captured
-   * id list (rather than calling `flush()`) exercises the real autonomous path.
-   */
-  async function waitFor(predicate: () => boolean, { timeoutMs = 45_000, intervalMs = 1_000 } = {}): Promise<boolean> {
-    const deadline = Date.now() + timeoutMs
-    for (;;) {
-      if (predicate()) return true
-      if (Date.now() >= deadline) return false
-      await new Promise((r) => setTimeout(r, intervalMs))
-    }
-  }
-
-  /** True if any message carries a toolUse block with the given tool name. */
-  function usedTool(messages: Message[], toolName: string): boolean {
-    return messages.some((m) => m.content.some((b) => b.type === 'toolUseBlock' && b.name === toolName))
   }
 
   /**
@@ -295,13 +261,15 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
   describe.skipIf(shouldSkip())('injection', () => {
     it('folds a <memory> block into the model input and never touches durable history', async () => {
       const store = makeStore('integ-mm-inject')
-      await seedFact(store, WILLOW_FACT.text)
+      const fact = willowFact()
+      await seedFact(store, fact.text)
 
       const memoryManager = new MemoryManager({ stores: [store], injection: true, searchToolConfig: false })
       const agent = new Agent({ model: bedrock.createModel({ maxTokens: 1024 }), memoryManager, printer: false })
       const getSeen = await observeModelInput(agent)
 
-      const prompt = 'Which tree in the meditation garden is the most peaceful?'
+      // The answer is a non-guessable code, so a correct response can only come from the injected fact.
+      const prompt = 'What botanical tag does the weeping willow in the meditation garden carry?'
       const result = await agent.invoke(prompt)
 
       // 1. The model input carried the injected memory (ephemeral fold into the latest user message).
@@ -310,7 +278,7 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       const injectedText = seen!.map((m) => getMessageText(m)).join('\n')
       expect(injectedText).toContain('<memory>')
       expect(injectedText).toContain(`source="${store.name}"`)
-      expect(injectedText).toContain(WILLOW_FACT.answer)
+      expect(injectedText).toContain(fact.answer)
 
       // 2. Durable history is untouched: the stored user message is byte-identical to the original
       //    prompt (injection folds into the per-call copy only, never agent.messages), and the search
@@ -318,17 +286,19 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       const firstUserMessage = agent.messages.find((m) => m.role === 'user')
       expect(firstUserMessage).toBeDefined()
       expect(getMessageText(firstUserMessage!)).toBe(prompt)
-      expect(usedTool(agent.messages, SEARCH_TOOL)).toBe(false)
+      expect(hasToolUse(agent.messages, SEARCH_TOOL)).toBe(false)
 
-      // 3. The model actually used the injected fact.
-      expect(getMessageText(result.lastMessage).toLowerCase()).toContain(WILLOW_FACT.answer)
+      // 3. The model actually used the injected fact (the unique tag can't be guessed).
+      expect(getMessageText(result.lastMessage)).toContain(fact.answer)
     }, 120_000)
 
     it('injects from multiple stores with per-store source attribution', async () => {
       const storeA = makeStore('alpha')
       const storeB = makeStore('beta')
-      await seedFact(storeA, WILLOW_FACT.text)
-      await seedFact(storeB, DOVE_FACT.text)
+      const willow = willowFact()
+      const dove = doveFact()
+      await seedFact(storeA, willow.text)
+      await seedFact(storeB, dove.text)
 
       const memoryManager = new MemoryManager({
         stores: [storeA, storeB],
@@ -338,17 +308,17 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       const agent = new Agent({ model: bedrock.createModel({ maxTokens: 1024 }), memoryManager, printer: false })
       const getSeen = await observeModelInput(agent)
 
-      await agent.invoke('Which tree is the most peaceful, and which bird has the calmest song?')
+      await agent.invoke("What is the willow's botanical tag, and what is the dove's identification ring?")
 
       const seen = getSeen()
       expect(seen).toBeDefined()
       const injectedText = seen!.map((m) => getMessageText(m)).join('\n')
       // Both stores contributed entries, each attributed to its own source AND carrying its own fact
-      // (asserting the values too, so an empty <entry source="..."> can't satisfy the test).
+      // (asserting the unique codes too, so an empty <entry source="..."> can't satisfy the test).
       expect(injectedText).toContain('source="alpha"')
       expect(injectedText).toContain('source="beta"')
-      expect(injectedText).toContain(WILLOW_FACT.answer)
-      expect(injectedText).toContain(DOVE_FACT.answer)
+      expect(injectedText).toContain(willow.answer)
+      expect(injectedText).toContain(dove.answer)
     }, 120_000)
   })
 
@@ -360,36 +330,38 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
   describe.skipIf(shouldSkip())('search_memory tool', () => {
     it('the model retrieves a seeded fact via the search_memory tool', async () => {
       const store = makeStore('integ-mm-search-tool')
-      await seedFact(store, DOVE_FACT.text)
+      const fact = doveFact()
+      await seedFact(store, fact.text)
 
       const memoryManager = new MemoryManager({ stores: [store] })
       const agent = new Agent({ model: bedrock.createModel({ maxTokens: 1024 }), memoryManager, printer: false })
       await forceToolOnce(agent, SEARCH_TOOL)
 
       const result = await agent.invoke(
-        'Use your memory tools to look up which bird has the calmest song, then tell me.'
+        "Use your memory tools to look up the dove's identification ring in the wildlife sanctuary, then tell me."
       )
 
-      expect(usedTool(agent.messages, SEARCH_TOOL)).toBe(true)
-      expect(getMessageText(result.lastMessage).toLowerCase()).toContain(DOVE_FACT.answer)
+      expect(hasToolUse(agent.messages, SEARCH_TOOL)).toBe(true)
+      expect(getMessageText(result.lastMessage)).toContain(fact.answer)
     }, 120_000)
 
     it('routes a search across multiple stores and finds the fact wherever it lives', async () => {
       const storeA = makeStore('integ-mm-search-a')
       const storeB = makeStore('integ-mm-search-b')
       // Fact lives only in store B — the manager must fan out across both.
-      await seedFact(storeB, DOVE_FACT.text)
+      const fact = doveFact()
+      await seedFact(storeB, fact.text)
 
       const memoryManager = new MemoryManager({ stores: [storeA, storeB] })
       const agent = new Agent({ model: bedrock.createModel({ maxTokens: 1024 }), memoryManager, printer: false })
       await forceToolOnce(agent, SEARCH_TOOL)
 
       const result = await agent.invoke(
-        'Use your memory tools to look up which bird has the calmest song, then tell me.'
+        "Use your memory tools to look up the dove's identification ring in the wildlife sanctuary, then tell me."
       )
 
-      expect(usedTool(agent.messages, SEARCH_TOOL)).toBe(true)
-      expect(getMessageText(result.lastMessage).toLowerCase()).toContain(DOVE_FACT.answer)
+      expect(hasToolUse(agent.messages, SEARCH_TOOL)).toBe(true)
+      expect(getMessageText(result.lastMessage)).toContain(fact.answer)
     }, 120_000)
   })
 
@@ -409,10 +381,10 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
 
       const marker = uniqueMarker('add-tool')
       await agent.invoke(
-        `Please remember for later, using your memory tools: the secret name of the quietest forest grove is ${marker}.`
+        `Please remember for later, using your memory tools: the quietest grove in the forest is cataloged as ${marker}.`
       )
 
-      expect(usedTool(agent.messages, ADD_TOOL)).toBe(true)
+      expect(hasToolUse(agent.messages, ADD_TOOL)).toBe(true)
       expect(ids.length).toBeGreaterThan(0)
       expect(await searchUntil(store, marker, (c) => c.includes(marker))).toBeDefined()
     }, 120_000)
