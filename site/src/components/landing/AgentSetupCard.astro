@@ -69,6 +69,8 @@ const tools = [
         role="tab"
         aria-selected={i === 0 ? 'true' : 'false'}
         data-tool={tool.id}
+        id={'agent-tab-' + tool.id}
+        aria-controls={'agent-panel-' + tool.id}
       >
         {tool.label}
       </button>
@@ -77,7 +79,7 @@ const tools = [
   </div>
 
   {tools.map((tool, i) => (
-    <div class="agent-tool-panel" role="tabpanel" data-tool={tool.id} hidden={i !== 0}>
+    <div class="agent-tool-panel" role="tabpanel" data-tool={tool.id} hidden={i !== 0} id={'agent-panel-' + tool.id} aria-labelledby={'agent-tab-' + tool.id}>
       <p class="agent-tool-note">{tool.note}</p>
       <CodeBlock code={tool.code} lang={tool.lang} />
     </div>
