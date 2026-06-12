@@ -364,12 +364,34 @@ const areaCounts = getAreaCounts(allEntries)
     return true
   }
 
+  // Scroll to the hash target reliably under content-visibility: versions
+  // above the target only have ESTIMATED heights until rendered, so a single
+  // immediate scrollIntoView lands short. Force real layout on everything up
+  // to the target first, scroll, then re-correct once more after the engine
+  // settles, and release the layout override.
+  function scrollToAnchor() {
+    const id = decodeURIComponent(location.hash.slice(1))
+    const target = id ? root.getElementById(id) : null
+    if (!target) return
+    const upTo: HTMLElement[] = []
+    for (const v of versions) {
+      if (!v.hidden) upTo.push(v)
+      if (v === target) break
+    }
+    upTo.forEach((v) => (v.style.contentVisibility = 'visible'))
+    target.scrollIntoView()
+    // Second pass after layout/paint settles catches any residual drift,
+    // then restore content-visibility for normal scrolling perf.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        target.scrollIntoView()
+        upTo.forEach((v) => (v.style.contentVisibility = ''))
+      })
+    })
+  }
+
   const hadAnchor = honorAnchor()
   apply()
-  if (hadAnchor) {
-    // After filters reveal the target, bring it into view (content-visibility
-    // resolves layout on demand, so scrollIntoView works).
-    root.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView()
-  }
-  window.addEventListener('hashchange', () => { if (honorAnchor()) { apply(); root.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView() } })
+  if (hadAnchor) scrollToAnchor()
+  window.addEventListener('hashchange', () => { if (honorAnchor()) { apply(); scrollToAnchor() } })
 </script>
