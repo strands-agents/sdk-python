@@ -56,7 +56,7 @@ Build an agent harness. Control it end-to-end.
 - **Stay in control.** The agent loop traces every decision by default. Hooks let you intercept any step to log it, validate it, or redirect it.
 - **Deliver outcomes that work.** Guardrails catch mistakes before they run. Steering handlers let agents correct themselves instead of failing silently.
 
-Plus everything you'd expect: native MCP support, streaming, multi-agent patterns, and structured output.
+MCP, streaming, multi-agent patterns, and structured output are all built in.
 
 ## Quick Start
 
@@ -78,7 +78,7 @@ agent = Agent(tools=[calculator])
 agent("What is the square root of 1764")
 ```
 
-Continue in the [Python SDK README](strands-py/) for tools, model providers, MCP, and bidirectional streaming.
+The [Python SDK README](strands-py/) covers tools, model providers, MCP, and bidirectional streaming.
 
 ### TypeScript
 
@@ -96,7 +96,7 @@ const result = await agent.invoke('What is the square root of 1764?')
 console.log(result)
 ```
 
-Continue in the [TypeScript SDK README](strands-ts/) for Zod-typed tools, structured output, MCP, and multi-agent patterns.
+More in the [TypeScript SDK README](strands-ts/), including Zod-typed tools, structured output, and multi-agent patterns.
 
 ## Documentation
 
@@ -109,7 +109,7 @@ For detailed guidance & examples, explore our documentation:
 - API Reference: [Python](https://strandsagents.com/docs/api/python/strands.agent.agent/) · [TypeScript](https://strandsagents.com/docs/api/typescript/)
 - [Production & Deployment Guide](https://strandsagents.com/docs/user-guide/deploy/operating-agents-in-production/)
 
-The docs are part of this monorepo: every page on strandsagents.com is built from [`site/`](site/). Spot a problem? Edit the page and open a PR.
+The docs themselves live in this monorepo under [`site/`](site/), and doc PRs are welcome alongside code changes.
 
 ## Development
 
