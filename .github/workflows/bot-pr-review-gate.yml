@@ -5,7 +5,7 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
   pull_request_review:
-    types: [submitted, dismissed, edited]
+    types: [submitted, dismissed]
 
 # pull_request_target runs in the base-repo context with a write-capable token.
 # This job only reads PR metadata, counts reviews, and posts a status comment —
