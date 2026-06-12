@@ -21,7 +21,7 @@ strands-agents/
 ├── strandly/           # CLI tooling
 ├── site/               # Documentation site (Astro) — see site/AGENTS.md
 ├── designs/            # Design proposals
-├── dev-docs/           # TypeScript development docs
+├── dev-docs/           # Cross-SDK development docs (PR guidelines, etc.)
 ├── team/               # Team governance (tenets, decisions, API bar-raising)
 ├── test-infra/         # CDK stack for integ tests that require provisioned AWS infra
 ├── .agents/            # Agent skills and references
@@ -47,7 +47,7 @@ The `test-infra/` CDK stack deploys real AWS resources (Bedrock KBs, EC2 instanc
 
 - **Branching**: `git checkout -b agent-tasks/{ISSUE_NUMBER}`
 - **Commits**: Use [conventional commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, etc.
-- **Pull requests**: See PR guidelines ([Python](./strands-py/docs/PR.md), [TypeScript](./dev-docs/PR.md)). Use the `pr-create` and `pr-writer` skills under `.agents/skills/` to draft and open PRs.
+- **Pull requests**: See [PR guidelines](./dev-docs/PR.md). Use the `pr-create` and `pr-writer` skills under `.agents/skills/` to draft and open PRs.
 - **CI**: The `ci.yml` merge gate detects which paths changed and runs only relevant checks
 
 ## Quality Bar for PRs
