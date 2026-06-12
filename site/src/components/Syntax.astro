@@ -1,19 +1,33 @@
 ---
 interface Props {
-  /** Python syntax variant */
   py: string;
-  /** TypeScript syntax variant */
   ts: string;
-  /** Render as inline code (default: true) */
   code?: boolean;
 }
 
 const { py, ts, code = true } = Astro.props;
 ---
 
-<syntax-switch data-py={py} data-ts={ts} data-code={code.toString()}>
-  {code ? <code></code> : <span></span>}
+<syntax-switch>
+  {code ? (
+    <>
+      <code data-lang="Python">{py}</code>
+      <code data-lang="TypeScript">{ts}</code>
+    </>
+  ) : (
+    <>
+      <span data-lang="Python">{py}</span>
+      <span data-lang="TypeScript">{ts}</span>
+    </>
+  )}
 </syntax-switch>
+
+<style>
+  /* Default: show TypeScript, hide Python (matches site-wide default) */
+  syntax-switch [data-lang="Python"] {
+    display: none;
+  }
+</style>
 
 <script is:inline>
   (function () {
@@ -30,10 +44,8 @@ const { py, ts, code = true } = Astro.props;
 
     function updateAll() {
       var lang = getLang();
-      document.querySelectorAll('syntax-switch').forEach(function (el) {
-        var text = lang === 'Python' ? el.getAttribute('data-py') : el.getAttribute('data-ts');
-        var target = el.querySelector('code') || el.querySelector('span');
-        if (target) target.textContent = text;
+      document.querySelectorAll('syntax-switch [data-lang]').forEach(function (el) {
+        el.style.display = el.getAttribute('data-lang') === lang ? 'inline' : 'none';
       });
     }
 
@@ -47,13 +59,9 @@ const { py, ts, code = true } = Astro.props;
       if (e.key === STORAGE_KEY) updateAll();
     });
 
-    // Listen for same-tab language changes from LanguageToggle click handler.
-    // The toggle sets localStorage but 'storage' only fires cross-tab, so we
-    // observe the key via a click listener on the toggle buttons.
     document.addEventListener('click', function (e) {
       var btn = e.target && e.target.closest && e.target.closest('.lang-option');
       if (btn) {
-        // Defer to next microtask so localStorage is already written by LanguageToggle
         Promise.resolve().then(updateAll);
       }
     });
