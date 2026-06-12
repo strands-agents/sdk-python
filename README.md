@@ -60,7 +60,7 @@ Plus everything you'd expect: native MCP support, streaming, multi-agent pattern
 
 ## Quick Start
 
-Both SDKs default to the Amazon Bedrock model provider — you'll need AWS credentials configured and model access enabled for Claude Sonnet. The [Quickstart Guide](https://strandsagents.com/docs/user-guide/quickstart/) covers configuring other providers (Anthropic, OpenAI, Gemini, Ollama, and more).
+Both SDKs default to the Amazon Bedrock model provider — you'll need AWS credentials configured and model access enabled for Claude Sonnet. The [Quickstart Guide](https://strandsagents.com/docs/user-guide/quickstart/overview/) covers configuring other providers (Anthropic, OpenAI, Gemini, Ollama, and more).
 
 ### Python
 
@@ -103,7 +103,7 @@ Continue in the [TypeScript SDK README](strands-ts/) — Zod-typed tools, struct
 For detailed guidance & examples, explore our documentation:
 
 - [User Guide](https://strandsagents.com/)
-- [Quick Start Guide](https://strandsagents.com/docs/user-guide/quickstart/)
+- [Quick Start Guide](https://strandsagents.com/docs/user-guide/quickstart/overview/)
 - [Agent Loop](https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/)
 - [Examples](https://strandsagents.com/docs/examples/)
 - [API Reference — Python](https://strandsagents.com/docs/api/python/strands.agent.agent/) · [TypeScript](https://strandsagents.com/docs/api/typescript/)
