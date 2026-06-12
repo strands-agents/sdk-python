@@ -98,8 +98,39 @@ jobs:
             if (isBot) {
               console.log(`Detection reasons:\n  - ${reasons.join('\n  - ')}`);
             }
+
+            // Sticky status comment, identified by a hidden marker.
+            const MARKER = '<!-- bot-pr-review-gate -->';
+            async function findGateComment() {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+              });
+              return comments.find(c => c.body && c.body.includes(MARKER));
+            }
+
             if (!isBot) {
               console.log('PR is not from a bot/agent — no additional review requirement.');
+              // A PR can transition bot -> non-bot only by having a gating label
+              // removed. In that case, tidy up any previously-posted gate comment
+              // so it isn't left stale (scoped to label removal to avoid an API
+              // call on every human PR).
+              if (context.payload.action === 'unlabeled') {
+                try {
+                  const existing = await findGateComment();
+                  if (existing) {
+                    await github.rest.issues.deleteComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      comment_id: existing.id,
+                    });
+                    console.log('Removed stale gate comment — PR is no longer flagged.');
+                  }
+                } catch (error) {
+                  console.log(`Could not remove stale gate comment: ${error.message}`);
+                }
+              }
               return;
             }
 
@@ -143,8 +174,7 @@ jobs:
             console.log(`Approved by: ${approvedBy.join(', ') || 'none'}`);
 
             // Post a single sticky status comment so authors know why a PR is
-            // gated and how many approvals remain. Idempotent via a marker.
-            const MARKER = '<!-- bot-pr-review-gate -->';
+            // gated and how many approvals remain. Idempotent via the marker.
             const body = satisfied
               ? `${MARKER}\n✅ **Bot/agent PR review requirement satisfied** ` +
                 `(${approvedBy.length}/${requiredApprovals} maintainer approvals).`
@@ -154,12 +184,7 @@ jobs:
                 `Maintainers are repository collaborators with role: ${maintainerRoles.join(' or ')}.\n\n` +
                 `<details><summary>Why was this flagged?</summary>\n\n- ${reasons.join('\n- ')}\n</details>`;
             try {
-              const comments = await github.paginate(github.rest.issues.listComments, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-              });
-              const existing = comments.find(c => c.body && c.body.includes(MARKER));
+              const existing = await findGateComment();
               if (existing) {
                 if (existing.body !== body) {
                   await github.rest.issues.updateComment({
