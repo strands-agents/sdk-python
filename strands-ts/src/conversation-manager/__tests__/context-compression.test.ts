@@ -4,8 +4,6 @@ import {
   findValidTrimPoint,
   generateSummary,
   matchesMessageType,
-  summarizeMessages,
-  trimMessages,
   DEFAULT_SUMMARIZATION_PROMPT,
 } from '../compression/context-compression.js'
 import { pinMessage, partitionPinned } from '../compression/pin-message.js'
@@ -223,91 +221,3 @@ describe('generateSummary', () => {
   })
 })
 
-describe('summarizeMessages', () => {
-  function mockModel(summaryText: string) {
-    const message = new Message({ role: 'user', content: [new TextBlock(summaryText)] })
-    return {
-      streamAggregated: vi.fn(() => ({
-        next: vi
-          .fn()
-          .mockResolvedValueOnce({ done: false, value: undefined })
-          .mockResolvedValueOnce({ done: true, value: { message } }),
-        [Symbol.asyncIterator]: vi.fn(),
-      })),
-    }
-  }
-
-  it('returns false when not enough messages to summarize', async () => {
-    const messages = [textMsg('user', 'hello'), textMsg('assistant', 'hi')]
-    const result = await summarizeMessages(messages, mockModel('Summary') as any, {
-      preserveRecentMessages: 10,
-    })
-    expect(result).toBe(false)
-    expect(messages).toHaveLength(2)
-  })
-
-  it('summarizes and splices messages in place', async () => {
-    const messages = Array.from({ length: 20 }, (_, i) =>
-      textMsg(i % 2 === 0 ? 'user' : 'assistant', `msg-${i}`)
-    )
-    const result = await summarizeMessages(messages, mockModel('Summary') as any, {
-      summaryRatio: 0.3,
-      preserveRecentMessages: 10,
-    })
-    expect(result).toBe(true)
-    expect(messages.length).toBeLessThan(20)
-  })
-
-  it('preserves pinned messages during summarization', async () => {
-    const messages = Array.from({ length: 20 }, (_, i) =>
-      textMsg(i % 2 === 0 ? 'user' : 'assistant', `msg-${i}`)
-    )
-    pinMessage(messages, 1)
-
-    await summarizeMessages(messages, mockModel('Summary') as any, {
-      summaryRatio: 0.5,
-      preserveRecentMessages: 5,
-    })
-
-    const texts = messages.map((m) => (m.content[0] as TextBlock).text)
-    expect(texts).toContain('msg-1')
-  })
-})
-
-describe('trimMessages', () => {
-  it('returns false when nothing to trim', () => {
-    const messages = [textMsg('user', 'hello'), textMsg('assistant', 'hi')]
-    expect(trimMessages(messages, 10)).toBe(false)
-  })
-
-  it('trims oldest messages keeping window', () => {
-    const messages = Array.from({ length: 20 }, (_, i) =>
-      textMsg(i % 2 === 0 ? 'user' : 'assistant', `msg-${i}`)
-    )
-    const result = trimMessages(messages, 10)
-    expect(result).toBe(true)
-    expect(messages.length).toBeLessThan(20)
-  })
-
-  it('preserves pinned messages during trim', () => {
-    const messages = Array.from({ length: 20 }, (_, i) =>
-      textMsg(i % 2 === 0 ? 'user' : 'assistant', `msg-${i}`)
-    )
-    pinMessage(messages, 0)
-
-    trimMessages(messages, 10)
-
-    const texts = messages.map((m) => (m.content[0] as TextBlock).text)
-    expect(texts).toContain('msg-0')
-  })
-
-  it('returns false when all messages in trim range are pinned', () => {
-    const messages = Array.from({ length: 12 }, (_, i) =>
-      textMsg(i % 2 === 0 ? 'user' : 'assistant', `msg-${i}`)
-    )
-    for (let i = 0; i < messages.length; i++) {
-      pinMessage(messages, i)
-    }
-    expect(trimMessages(messages, 10)).toBe(false)
-  })
-})

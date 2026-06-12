@@ -1,6 +1,5 @@
 import { Message, TextBlock } from '../../types/messages.js'
 import type { Model } from '../../models/model.js'
-import { partitionPinned } from './pin-message.js'
 
 export const DEFAULT_SUMMARIZATION_PROMPT = `You are a conversation summarizer. Provide a concise summary of the conversation \
 history.
@@ -173,65 +172,3 @@ export function matchesMessageType(message: Message, filter: MessageTypeFilter):
   return false
 }
 
-export type SummarizeMessagesOptions = {
-  summaryRatio?: number
-  preserveRecentMessages?: number
-  systemPrompt?: string
-}
-
-/**
- * Summarize the oldest messages in place, respecting pins and tool-pair integrity.
- *
- * Computes the summarization range, separates pinned from unpinned messages,
- * generates a model summary of the unpinned portion, and splices the result
- * back into the array (pinned messages preserved verbatim at the front).
- *
- * @returns `true` if summarization occurred, `false` if nothing could be done
- * @throws If the model fails to produce a response
- */
-export async function summarizeMessages(
-  messages: Message[],
-  model: Model,
-  options?: SummarizeMessagesOptions
-): Promise<boolean> {
-  const ratio = Math.max(0.1, Math.min(0.8, options?.summaryRatio ?? 0.3))
-  const preserveRecent = options?.preserveRecentMessages ?? 10
-
-  let count = Math.max(1, Math.floor(messages.length * ratio))
-  count = Math.min(count, messages.length - preserveRecent)
-
-  if (count <= 0) return false
-
-  count = adjustSplitPointForToolPairs(messages, count)
-
-  const [pinned, unpinned] = partitionPinned(messages, 0, count)
-
-  if (unpinned.length === 0) return false
-
-  const summaryMessage = await generateSummary(unpinned, model, options?.systemPrompt)
-  messages.splice(0, count, ...pinned, summaryMessage)
-
-  return true
-}
-
-/**
- * Trim the oldest messages in place, respecting pins and tool-pair integrity.
- *
- * Finds a valid trim point, preserves pinned messages from the trim range,
- * and splices the rest out.
- *
- * @returns `true` if any messages were removed, `false` otherwise
- */
-export function trimMessages(messages: Message[], windowSize: number): boolean {
-  const startIndex = messages.length <= windowSize ? 2 : messages.length - windowSize
-  const trimIndex = findValidTrimPoint(messages, startIndex)
-
-  if (trimIndex >= messages.length) return false
-
-  const [pinned] = partitionPinned(messages, 0, trimIndex)
-
-  if (pinned.length === trimIndex) return false
-
-  messages.splice(0, trimIndex, ...pinned)
-  return true
-}

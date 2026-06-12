@@ -100,6 +100,26 @@ describe('summarizeContextTool', () => {
     expect(result).toContain('No summarization performed')
   })
 
+  it('preserves pinned toolUse when its toolResult is in the eligible set', async () => {
+    const model = mockModel('Summary')
+    const messages: Message[] = [
+      new Message({ role: 'assistant', content: [new ToolUseBlock({ toolUseId: 'id-1', name: 'tool1', input: {} })] }),
+      new Message({
+        role: 'user',
+        content: [new ToolResultBlock({ toolUseId: 'id-1', status: 'success', content: [new TextBlock('Important result')] })],
+      }),
+      ...makeMessages(14),
+    ]
+    pinMessage(messages, 0)
+
+    await summarizeContextTool.invoke({ keepRecent: 10, summaryRatio: 0.3 }, makeContext(messages, model))
+
+    const hasToolUse = messages.some(
+      (m) => m.content.some((b) => b.type === 'toolUseBlock') && m.metadata?.custom?.pinned
+    )
+    expect(hasToolUse).toBe(true)
+  })
+
   it('returns failure message when model throws', async () => {
     const model = {
       streamAggregated: vi.fn(() => ({
@@ -298,8 +318,8 @@ describe('pinContextTool', () => {
     })
   })
 
-  describe('filter: tool_result', () => {
-    it('pins only tool result messages', async () => {
+  describe('filter: tools', () => {
+    it('pins only tool use and tool result messages', async () => {
       const messages = [
         textMsg('user', 'Do something'),
         new Message({ role: 'assistant', content: [new ToolUseBlock({ toolUseId: 'id-1', name: 't', input: {} })] }),
@@ -310,13 +330,13 @@ describe('pinContextTool', () => {
         textMsg('assistant', 'Done'),
       ]
       const result = await pinContextTool.invoke(
-        { select: 4, filter: 'tool_result', action: 'pin' as const },
+        { select: 4, filter: 'tools', action: 'pin' as const },
         makeContext(messages)
       )
-      expect(result).toContain('1 message(s)')
+      expect(result).toContain('2 message(s)')
+      expect(messages[1]!.metadata?.custom?.pinned).toBe(true)
       expect(messages[2]!.metadata?.custom?.pinned).toBe(true)
       expect(messages[0]!.metadata?.custom?.pinned).toBeUndefined()
-      expect(messages[1]!.metadata?.custom?.pinned).toBeUndefined()
       expect(messages[3]!.metadata?.custom?.pinned).toBeUndefined()
     })
   })

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { Message } from '../../../types/messages.js'
+import { Message, TextBlock } from '../../../types/messages.js'
 import { tool } from '../../../tools/tool-factory.js'
 import { pinMessage, unpinMessage, isPinned } from '../../compression/pin-message.js'
 import {
@@ -9,6 +9,10 @@ import {
   matchesMessageType,
   type MessageTypeFilter,
 } from '../../compression/context-compression.js'
+import type { InvokeModelContext } from '../../../middleware/stages.js'
+import type { MiddlewareInputHandler } from '../../../middleware/types.js'
+import type { Model } from '../../../models/model.js'
+import { DEFAULT_CONTEXT_WINDOW_LIMIT } from '../../conversation-manager.js'
 
 /** Default number of recent messages to preserve verbatim during summarization or truncation. */
 const DEFAULT_KEEP_RECENT_MESSAGES = 10
@@ -19,7 +23,7 @@ const MIN_SUMMARY_RATIO = 0.1
 /** Maximum allowed summary ratio (prevents summarizing nearly everything). */
 const MAX_SUMMARY_RATIO = 0.8
 /** Minimum conversation length required before any compression operation can run. */
-const MIN_MESSAGES_FOR_OPERATION = 2
+const MIN_MESSAGES_FOR_COMPRESSION = 2
 
 const messageTypeSchema = z
   .enum(['tools', 'messages', 'all'])
@@ -69,7 +73,7 @@ export const summarizeContextTool = tool({
     keepRecent: z
       .number()
       .int()
-      .min(MIN_MESSAGES_FOR_OPERATION)
+      .min(MIN_MESSAGES_FOR_COMPRESSION)
       .optional()
       .describe(`Minimum number of recent messages to preserve verbatim. Defaults to ${DEFAULT_KEEP_RECENT_MESSAGES}.`),
     summaryRatio: z
@@ -96,7 +100,11 @@ export const summarizeContextTool = tool({
       return `No summarization performed: not enough eligible messages to compress (conversation has ${originalMessageCount} messages, preserving recent ${preserveRecent}).`
     }
 
-    splitPoint = adjustSplitPointForToolPairs(messages, splitPoint)
+    try {
+      splitPoint = adjustSplitPointForToolPairs(messages, splitPoint)
+    } catch {
+      return `No summarization performed: no valid split point found (conversation has ${originalMessageCount} messages).`
+    }
 
     const { pinned, eligible, skipped } = partitionByFilter(messages, splitPoint, filter)
 
@@ -129,7 +137,7 @@ export const truncateContextTool = tool({
     keepRecent: z
       .number()
       .int()
-      .min(MIN_MESSAGES_FOR_OPERATION)
+      .min(MIN_MESSAGES_FOR_COMPRESSION)
       .optional()
       .describe(
         `Number of most recent messages to keep. Everything older (and unpinned) is dropped. Defaults to ${DEFAULT_KEEP_RECENT_MESSAGES}.`
@@ -143,11 +151,11 @@ export const truncateContextTool = tool({
     const filter: MessageTypeFilter = messageType ?? 'all'
     const windowSize = keepRecent ?? DEFAULT_KEEP_RECENT_MESSAGES
 
-    if (messages.length <= MIN_MESSAGES_FOR_OPERATION) {
+    if (messages.length <= MIN_MESSAGES_FOR_COMPRESSION) {
       return `No messages dropped: conversation only has ${originalMessageCount} messages.`
     }
 
-    const startIndex = messages.length <= windowSize ? MIN_MESSAGES_FOR_OPERATION : messages.length - windowSize
+    const startIndex = messages.length <= windowSize ? MIN_MESSAGES_FOR_COMPRESSION : messages.length - windowSize
     const trimPoint = findValidTrimPoint(messages, startIndex)
 
     if (trimPoint >= messages.length) {
@@ -166,6 +174,39 @@ export const truncateContextTool = tool({
     return `Dropped ${dropped} ${filter === 'all' ? '' : `"${filter}" `}message(s). ${messages.length} remaining.`
   },
 })
+
+export function createTokenUsageMiddleware(model: Model): MiddlewareInputHandler<InvokeModelContext> {
+  return async (context: InvokeModelContext): Promise<InvokeModelContext> => {
+    const projectedInputTokens = context.projectedInputTokens
+    if (projectedInputTokens === undefined) {
+      return context
+    }
+
+    const contextWindowLimit = model.getConfig().contextWindowLimit ?? DEFAULT_CONTEXT_WINDOW_LIMIT
+    const remaining = Math.max(0, contextWindowLimit - projectedInputTokens)
+    const percentUsed = ((projectedInputTokens / contextWindowLimit) * 100).toFixed(1)
+
+    const statusText =
+      `\n\n<context-status>\n` +
+      `<used>${projectedInputTokens.toLocaleString()} / ${contextWindowLimit.toLocaleString()} tokens (${percentUsed}%)</used>\n` +
+      `<remaining>~${remaining.toLocaleString()} tokens</remaining>\n` +
+      `</context-status>`
+
+    const messages = [...context.messages]
+    const lastMessage = messages[messages.length - 1]
+    if (!lastMessage) {
+      return context
+    }
+
+    messages[messages.length - 1] = new Message({
+      role: lastMessage.role,
+      content: [...lastMessage.content, new TextBlock(statusText)],
+      ...(lastMessage.metadata && { metadata: lastMessage.metadata }),
+    })
+
+    return { ...context, messages }
+  }
+}
 
 export const pinContextTool = tool({
   name: 'pin_context',
@@ -188,12 +229,12 @@ export const pinContextTool = tool({
         'Which messages to target. "last_turn" for the current exchange, a number for the last N messages, or an array of indices.'
       ),
     filter: z
-      .enum(['user', 'assistant', 'tool_use', 'tool_result'])
+      .enum(['user', 'assistant', 'tools'])
       .optional()
       .describe(
         'Narrow the selection to only messages matching this filter. ' +
           '"user" matches user text messages, "assistant" matches assistant text responses, ' +
-          '"tool_use" matches tool call messages, "tool_result" matches tool result messages.'
+          '"tools" matches tool call and tool result messages (pairs are always kept together).'
       ),
     action: z.enum(['pin', 'unpin']).default('pin').describe('Whether to pin or unpin the selected messages.'),
   }),
@@ -232,8 +273,8 @@ export const pinContextTool = tool({
           const msg = messages[i]!
           if (filter === 'user') return msg.role === 'user' && msg.content.some((b) => b.type === 'textBlock')
           if (filter === 'assistant') return msg.role === 'assistant' && msg.content.some((b) => b.type === 'textBlock')
-          if (filter === 'tool_use') return msg.content.some((b) => b.type === 'toolUseBlock')
-          if (filter === 'tool_result') return msg.content.some((b) => b.type === 'toolResultBlock')
+          if (filter === 'tools')
+            return msg.content.some((b) => b.type === 'toolUseBlock' || b.type === 'toolResultBlock')
           return true
         })
       : candidateIndices

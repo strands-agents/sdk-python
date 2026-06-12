@@ -124,7 +124,7 @@ import {
   truncateContextTool,
   pinContextTool,
   createTokenUsageMiddleware,
-} from '../conversation-manager/modes/agentic/index.js'
+} from '../conversation-manager/modes/agentic/agentic-context.js'
 
 /**
  * Recursive type definition for nested tool arrays.
