@@ -19,3 +19,4 @@ export {
   SummarizingConversationManager,
   type SummarizingConversationManagerConfig,
 } from './summarizing-conversation-manager.js'
+export { isPinned, pinMessage, unpinMessage } from './pin-message.js'

@@ -107,6 +107,7 @@ Key features of the `SlidingWindowConversationManager`:
 
     When disabled, full results are preserved but more historical messages may be removed. For a proactive alternative that preserves full content externally, see the [Context Offloader](../plugins/context-offloader) plugin.
 - **Per-Turn Management**: Optionally apply context management proactively during the agent loop execution, not just at the end.
+- **Message Pinning**: Protect specific messages from trimming during context reduction. See [Message Pinning](#message-pinning).
 - **Proactive Compression**: Pass `proactiveCompression: true` or `proactiveCompression: { compressionThreshold: 0.7 }` to trigger context reduction before the model call when projected input tokens exceed a configurable threshold. See [Proactive Context Compression](#proactive-context-compression).
 
 **Per-Turn Management**:
@@ -325,8 +326,94 @@ Pass a custom `model` to `SummarizingConversationManager` to override the model 
 - **Context Window Management**: Automatically reduces context when token limits are exceeded
 - **Intelligent Summarization**: Uses structured bullet-point summaries to capture key information
 - **Tool Pair Preservation**: Ensures tool use and result message pairs aren't broken during summarization
+- **Message Pinning**: Protect specific messages from summarization during context reduction. See [Message Pinning](#message-pinning).
 - **Flexible Configuration**: Customize summarization behavior through various parameters
 - **Fallback Safety**: Handles summarization failures gracefully
+
+## Message Pinning
+
+Message pinning protects specific messages from eviction during context reduction. Pinned messages survive both sliding-window trimming and summarization, which makes pinning useful for preserving system prompts, critical instructions, or key decisions that must remain in the conversation regardless of length.
+
+Messages are pinned by setting `metadata.custom.pinned = true` on the message object. The SDK provides both a declarative configuration (`pin_first` / `pinFirst`) and runtime utility functions for programmatic control.
+
+### Protecting Initial Messages with `pin_first`
+
+Both `SlidingWindowConversationManager` and `SummarizingConversationManager` accept a `pin_first` (Python) / `pinFirst` (TypeScript) parameter that permanently protects the first N messages from eviction. This is the simplest way to preserve system prompts or initial instructions across all context reductions.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.agent.conversation_manager import SlidingWindowConversationManager
+
+agent = Agent(
+    conversation_manager=SlidingWindowConversationManager(
+        window_size=40,
+        pin_first=1,
+    )
+)
+```
+
+The same parameter works with `SummarizingConversationManager`:
+
+```python
+from strands.agent.conversation_manager import SummarizingConversationManager
+
+agent = Agent(
+    conversation_manager=SummarizingConversationManager(
+        pin_first=2,
+    )
+)
+```
+
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/agents/conversation-management_imports.ts:pin_first_imports"
+
+--8<-- "user-guide/concepts/agents/conversation-management.ts:pin_first"
+```
+
+The same parameter works with `SummarizingConversationManager`.
+
+</Tab>
+</Tabs>
+
+The pin metadata is written during the first context reduction and remains set permanently, protecting those messages through all subsequent reductions.
+
+### Pinning Messages at Runtime
+
+For dynamic control, use the utility functions to pin or unpin messages by index. This enables agents or application logic to mark messages as important based on their content rather than position.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands.agent.conversation_manager import pin_message, unpin_message, is_pinned
+
+pin_message(agent.messages, 0)
+
+if is_pinned(agent.messages, 0):
+    print("Message is protected from eviction")
+
+unpin_message(agent.messages, 0)
+```
+
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+--8<-- "user-guide/concepts/agents/conversation-management_imports.ts:pin_message_imports"
+
+--8<-- "user-guide/concepts/agents/conversation-management.ts:pin_message_usage"
+```
+
+</Tab>
+</Tabs>
+
+**Tool-pair partner protection**: Pinning a `toolUse` message automatically protects its adjacent `toolResult` partner (matched by `toolUseId`), and vice versa. This prevents orphaned tool interactions in the conversation history.
 
 ## Proactive Context Compression
 

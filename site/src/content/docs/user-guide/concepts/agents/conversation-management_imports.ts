@@ -50,3 +50,11 @@ import { Agent, SlidingWindowConversationManager } from '@strands-agents/sdk'
 // --8<-- [start:proactive_summarizing_imports]
 import { Agent, SummarizingConversationManager } from '@strands-agents/sdk'
 // --8<-- [end:proactive_summarizing_imports]
+
+// --8<-- [start:pin_first_imports]
+import { Agent, SlidingWindowConversationManager } from '@strands-agents/sdk'
+// --8<-- [end:pin_first_imports]
+
+// --8<-- [start:pin_message_imports]
+import { pinMessage, unpinMessage, isPinned } from '@strands-agents/sdk'
+// --8<-- [end:pin_message_imports]
