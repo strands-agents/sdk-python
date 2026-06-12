@@ -124,6 +124,10 @@
     "./sandbox/ssh": {
       "types": "./dist/src/sandbox/ssh.d.ts",
       "default": "./dist/src/sandbox/ssh.js"
+    },
+    "./conversation-manager/pin-message": {
+      "types": "./dist/src/conversation-manager/pin-message.d.ts",
+      "default": "./dist/src/conversation-manager/pin-message.js"
     }
   },
   "scripts": {
