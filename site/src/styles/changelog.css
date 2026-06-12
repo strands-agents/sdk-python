@@ -116,6 +116,10 @@
 .cl-entry + .cl-entry { border-top: 1px solid var(--sl-color-gray-5); }
 .cl-entry-title { flex: 1; min-width: 140px; }
 .cl-entry a { color: var(--sl-color-accent); text-decoration: none; }
+/* Linked titles keep body color (a page of accent-colored titles is unreadable);
+   hover reveals the affordance. */
+a.cl-entry-title { color: var(--sl-color-gray-1); }
+a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underline; text-underline-offset: 3px; }
 /* metadata quieter than titles so titles scan cleanly */
 .cl-entry-links { display: inline-flex; gap: 0.5rem; white-space: nowrap; align-items: baseline; opacity: 0.75; }
 .cl-entry:hover .cl-entry-links { opacity: 1; }

@@ -13,7 +13,11 @@ const isBreaking = entry.breaking || entry.type === 'breaking'
   data-search={`${entry.title} ${entry.author ?? ''}`.toLowerCase()}
 >
   {isBreaking && <span class="cl-break">break</span>}
-  <span class="cl-entry-title">{entry.title}</span>
+  {entry.prUrl ? (
+    <a class="cl-entry-title" href={entry.prUrl} target="_blank" rel="noopener">{entry.title}</a>
+  ) : (
+    <span class="cl-entry-title">{entry.title}</span>
+  )}
   {entry.areas.map((a) => <span class="cl-atag">{a}</span>)}
   <span class="cl-entry-links">
     {entry.prUrl && <a href={entry.prUrl} target="_blank" rel="noopener">#{entry.pr}</a>}
