@@ -391,7 +391,7 @@ For dynamic control, use the utility functions to pin or unpin messages by index
 <Tab label="Python">
 
 ```python
-from strands.agent.conversation_manager import pin_message, unpin_message, is_pinned
+from strands.agent.conversation_manager.pin_message import pin_message, unpin_message, is_pinned
 
 pin_message(agent.messages, 0)
 
@@ -405,9 +405,15 @@ unpin_message(agent.messages, 0)
 <Tab label="TypeScript">
 
 ```typescript
---8<-- "user-guide/concepts/agents/conversation-management_imports.ts:pin_message_imports"
+import { pinMessage, unpinMessage, isPinned } from '@strands-agents/sdk/conversation-manager/pin-message'
 
---8<-- "user-guide/concepts/agents/conversation-management.ts:pin_message_usage"
+pinMessage(agent.messages, 0)
+
+if (isPinned(agent.messages, 0)) {
+  console.log('Message is protected from eviction')
+}
+
+unpinMessage(agent.messages, 0)
 ```
 
 </Tab>
