@@ -164,11 +164,12 @@ const execAsync = promisify(exec)
     maxAttempts: 3,
     resumePromptTemplate: (feedback) => {
       if (!feedback) {
-        return 'Your response did not meet the goal. '
-          + 'Try again.'
+        return 'That didn\'t pass. Start over from scratch '
+          + 'with a different approach.'
       }
-      return `Issues:\n${feedback}\n\n`
-        + 'Fix all of the above before responding.'
+      return `Validation failed:\n${feedback}\n\n`
+        + 'Do NOT edit your previous response. Start over '
+        + 'from scratch and take a completely different approach.'
     },
   })
   // --8<-- [end:custom_resume_prompt]

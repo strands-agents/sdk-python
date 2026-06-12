@@ -276,15 +276,19 @@ Override how feedback is injected before each retry. The template receives the t
 <Tab label="Python">
 
 ```python
-def custom_resume(feedback):
+def start_over_prompt(feedback):
     if not feedback:
-        return "Your response did not meet the goal. Try again."
-    return f"Issues:\n{feedback}\n\nFix all of the above before responding."
+        return "That didn't pass. Start over from scratch with a different approach."
+    return (
+        f"Validation failed:\n{feedback}\n\n"
+        "Do NOT edit your previous response. Start over from scratch "
+        "and take a completely different approach."
+    )
 
 plugin = GoalLoop(
     goal="...",
     max_attempts=3,
-    resume_prompt_template=custom_resume,
+    resume_prompt_template=start_over_prompt,
 )
 ```
 </Tab>
