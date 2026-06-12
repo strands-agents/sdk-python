@@ -783,5 +783,36 @@ describe('CedarAuthorization', () => {
       await agent.invoke('Create user', { invocationState: {} })
       expect(toolExecuted).toBe(true)
     })
+
+    it('surfaces schema generator errors for naming collisions in nested inputs', async () => {
+      const collidingTools = [
+        {
+          name: 'create_user',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              address: {
+                type: 'object',
+                properties: {
+                  street: { type: 'string' },
+                  geo: { type: 'object', properties: { lat: { type: 'number' }, lng: { type: 'number' } } },
+                },
+              },
+              address_geo: {
+                type: 'object',
+                properties: { lat: { type: 'string' }, lng: { type: 'string' } },
+              },
+            },
+          },
+        },
+      ]
+
+      await expect(
+        CedarAuthorization.create({
+          policies: 'permit(principal, action, resource);',
+          tools: collidingTools,
+        })
+      ).rejects.toThrow('Schema generation failed')
+    })
   })
 })
