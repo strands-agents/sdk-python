@@ -35,21 +35,17 @@ export interface AreaCount {
 }
 
 /**
- * An entry's effective areas: its `area-*` labels plus its conventional-commit
- * scope. Folding in the scope keeps the area facet useful while `area-*` labels
- * are still sparse. Must mirror the client-side `entryAreas` in the page script.
+ * Count entries per area across the given entries, sorted by count desc then
+ * name. Only the curated `areas` field counts — raw conventional-commit scopes
+ * are deliberately NOT folded in (they're an unbounded vocabulary: `tests`,
+ * `readme`, `gemini`, … which polluted the filter sidebar). Area values come
+ * from `area-*` labels or the backfill classifier, both on the canonical
+ * taxonomy. Must mirror the client-side `entryAreas` in the page script.
  */
-export function effectiveAreas(entry: ChangelogEntry): string[] {
-  const set = new Set(entry.areas)
-  if (entry.scope) set.add(entry.scope)
-  return [...set]
-}
-
-/** Count entries per area (labels + scope) across the given entries, sorted by count desc then name. */
 export function getAreaCounts(entries: ChangelogEntry[]): AreaCount[] {
   const map = new Map<string, number>()
   for (const e of entries) {
-    for (const area of effectiveAreas(e)) {
+    for (const area of e.areas) {
       map.set(area, (map.get(area) ?? 0) + 1)
     }
   }

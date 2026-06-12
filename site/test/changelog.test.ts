@@ -123,14 +123,13 @@ describe('getAreaCounts', () => {
     ])
   })
 
-  it('folds the conventional-commit scope into the area facet', () => {
+  it('counts only the curated areas field — scopes are not folded in', () => {
     const counts = getAreaCounts([
-      mk({ areas: ['model'], scope: 'model' }), // label + scope identical → counted once
-      mk({ areas: [], scope: 'mcp' }),          // scope only, no label
-      mk({ areas: ['tool'], scope: null }),     // label only
+      mk({ areas: ['model'], scope: 'model' }),
+      mk({ areas: [], scope: 'tests' }),    // raw scope must NOT become a facet
+      mk({ areas: ['tool'], scope: null }),
     ])
     expect(counts).toEqual([
-      { area: 'mcp', count: 1 },
       { area: 'model', count: 1 },
       { area: 'tool', count: 1 },
     ])

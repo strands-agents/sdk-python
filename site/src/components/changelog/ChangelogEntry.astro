@@ -8,7 +8,6 @@ const isBreaking = entry.breaking || entry.type === 'breaking'
 <div
   class="cl-entry"
   data-areas={entry.areas.join(' ')}
-  data-scope={entry.scope ?? ''}
   data-type={entry.type}
   data-search={`${entry.title} ${entry.author ?? ''}`.toLowerCase()}
 >

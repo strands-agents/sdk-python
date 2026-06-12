@@ -8,9 +8,8 @@ import '../../styles/changelog.css'
 
 const releases = await getReleases()
 const allEntries = releases.flatMap((r) => r.data.entries)
-// Build the area facet from both area-* labels and conventional-commit scopes,
-// so subsystems are filterable even where labels haven't been backfilled yet.
-// (Counts shown on chips are recomputed client-side per active SDK+language.)
+// Area facet from the curated `areas` field (canonical area-* taxonomy).
+// Counts shown on chips are recomputed client-side per active SDK+language.
 const areaCounts = getAreaCounts(allEntries)
 ---
 <ChangelogLayout title="Changelog" description="Every release across the Strands Agents SDKs.">
@@ -119,15 +118,13 @@ const areaCounts = getAreaCounts(allEntries)
     return true
   }
 
-  // An entry's effective areas: its area-* labels PLUS its conventional-commit
-  // scope (e.g. feat(model) → 'model'). Labels are sparse today, so folding in
-  // the scope makes the area filter meaningfully cover entries that share a
-  // subsystem name even before labels are backfilled.
+  // An entry's areas: the curated `areas` field only (canonical taxonomy from
+  // area-* labels / the backfill classifier). Raw conventional-commit scopes
+  // are deliberately NOT folded in — they're an unbounded vocabulary (`tests`,
+  // `readme`, `gemini`, …) that polluted the filter sidebar. Mirrors
+  // getAreaCounts in util/changelog.ts.
   function entryAreas(e: HTMLElement): Set<string> {
-    const set = new Set((e.dataset.areas || '').split(' ').filter(Boolean))
-    const scope = (e.dataset.scope || '').trim()
-    if (scope) set.add(scope)
-    return set
+    return new Set((e.dataset.areas || '').split(' ').filter(Boolean))
   }
 
   // Recompute area chip counts + visibility from the versions in the current
