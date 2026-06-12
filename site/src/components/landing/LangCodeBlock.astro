@@ -5,8 +5,10 @@
  * All instances on the page cross-fade between Python and TypeScript
  * together, driven by a data-active-lang attribute on <html>. The shared
  * script below cycles the language every 6s, pauses while a block is
- * hovered, and pins permanently when an install command is copied
- * (HeroSection dispatches 'strands-home-lang-pin').
+ * hovered, and pins permanently when the user makes an explicit language
+ * choice: either copying an install command (HeroSection dispatches
+ * 'strands-home-lang-pin') or clicking a language option in the header
+ * toggle (<language-toggle> .lang-option buttons).
  *
  * Pass both languages to get switching. Pass only pythonCode for
  * Python-only sections (e.g., steering); those render statically with a
@@ -84,9 +86,11 @@ const hasTs = !!tsCode
   // dedupes this script, so it runs once per page regardless of how many
   // LangCodeBlock instances render.
   //
-  // The homepage intentionally does NOT read the global language picker
-  // or localStorage: the page cycles both languages on its own, and only
-  // a copy click (HeroSection install commands) pins it.
+  // The homepage intentionally does NOT read localStorage on load and does
+  // NOT listen for storage events: cross-tab or global picker changes must
+  // not silently override the cycling experience. Pinning only happens on
+  // an express user action: copying an install command or clicking a
+  // language option in the header toggle. Both are deliberate choices.
   const CYCLE_MS = 6000
 
   type Lang = 'Python' | 'TypeScript'
@@ -118,6 +122,13 @@ const hasTs = !!tsCode
     timer = undefined
   }
 
+  // Shared pin logic: called by both pin sources below.
+  const pin = (lang: Lang) => {
+    pinned = true
+    setLang(lang)
+    stopCycle()
+  }
+
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
   if (!reducedMotion.matches) startCycle()
   reducedMotion.addEventListener('change', () => {
@@ -137,12 +148,25 @@ const hasTs = !!tsCode
       })
     })
 
-  // A copy click pins the whole page to that language for this visit.
+  // Pin source 1: a copy click on an install command in HeroSection.
   window.addEventListener('strands-home-lang-pin', ((e: CustomEvent<{ lang: Lang }>) => {
     const lang = e.detail?.lang
     if (lang !== 'Python' && lang !== 'TypeScript') return
-    pinned = true
-    setLang(lang)
-    stopCycle()
+    pin(lang)
   }) as EventListener)
+
+  // Pin source 2: an explicit click on a language option in the header
+  // toggle (<language-toggle> .lang-option). Clicking the toggle is a
+  // deliberate choice, so the homepage honors it. Passive sync via
+  // localStorage or storage events is intentionally absent: the homepage
+  // must not react to changes made in other tabs or pages.
+  document.addEventListener('click', (e: MouseEvent) => {
+    const target = e.target as Element | null
+    if (!target) return
+    const button = target.closest('language-toggle .lang-option') as HTMLElement | null
+    if (!button) return
+    const lang = button.dataset.lang
+    if (lang !== 'Python' && lang !== 'TypeScript') return
+    pin(lang)
+  })
 </script>
