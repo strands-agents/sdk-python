@@ -64,6 +64,7 @@ from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
+from ..sandbox import Sandbox, default_sandbox
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
@@ -176,6 +177,7 @@ class Agent(AgentBase):
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
         checkpointing: bool = False,
+        sandbox: Sandbox | Literal[False] | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -271,12 +273,24 @@ class Agent(AgentBase):
                 The SDK does not capture conversation state in the checkpoint;
                 pair with a SessionManager for cross-process state continuity.
                 Defaults to False. See :mod:`strands.experimental.checkpoint`.
+            sandbox: Execution environment for running commands, code, and file operations.
+                When provided, sandbox-aware tools route operations through it via
+                ``context.agent.sandbox``. Two distinct intents that currently resolve to the
+                same host execution:
+
+                - ``None`` (omitted): use the host default
+                  (:class:`~strands.sandbox.NotASandboxLocalEnvironment`, no isolation).
+                - ``False``: explicitly opt out of a managed sandbox and run on the host.
+
+                ``False`` is kept distinct from ``None`` so the opt-out stays stable even if
+                the default changes. Defaults to None.
 
         Raises:
             ValueError: If agent id contains path separators.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
+        self._sandbox = sandbox
         # initializing self._system_prompt for backwards compatibility
         self._system_prompt, self._system_prompt_content = split_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
@@ -589,6 +603,17 @@ class Agent(AgentBase):
             Multiple calls to cancel() are safe and idempotent.
         """
         self._cancel_signal.set()
+
+    @property
+    def sandbox(self) -> Sandbox:
+        """Execution environment for running commands, code, and file operations.
+
+        Returns the configured sandbox, or a host default
+        (:class:`~strands.sandbox.NotASandboxLocalEnvironment`, no isolation) when none was
+        configured or ``sandbox=False`` was passed.
+        """
+        # isinstance, not truthiness: a custom Sandbox could be falsy. False/None fall through.
+        return self._sandbox if isinstance(self._sandbox, Sandbox) else default_sandbox()
 
     @property
     def system_prompt(self) -> str | None:

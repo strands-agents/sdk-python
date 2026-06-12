@@ -8,7 +8,7 @@ import shlex
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from .shell import PosixShellSandbox, build_shell_env_prefix
+from .posix_shell import PosixShellSandbox, build_shell_env_prefix
 from .stream_process import stream_process
 from .types import ExecutionResult, StreamChunk
 

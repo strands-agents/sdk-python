@@ -3,7 +3,7 @@
 Mirrors ``strands-ts/src/sandbox/__tests__/posix-shell.test.node.ts`` and its
 ``TestSandbox`` fixture, plus the security/adversarial cases recovered from the
 prior Python sandbox attempt (PR #2198). Exercises the real
-:class:`~strands.sandbox.shell.PosixShellSandbox` code paths: base64 file
+:class:`~strands.sandbox.posix_shell.PosixShellSandbox` code paths: base64 file
 transport, shell quoting, ``ls`` parsing, language validation, env handling,
 timeout, and cancellation.
 
@@ -26,7 +26,7 @@ from strands.sandbox import (
     PosixShellSandbox,
     StreamChunk,
 )
-from strands.sandbox.shell import (
+from strands.sandbox.posix_shell import (
     build_shell_env_prefix,
     validate_env_keys,
 )

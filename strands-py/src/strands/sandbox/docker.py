@@ -6,7 +6,7 @@ Mirrors ``strands-ts/src/sandbox/docker.ts``.
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from .shell import PosixShellSandbox, validate_env_keys
+from .posix_shell import PosixShellSandbox, validate_env_keys
 from .stream_process import stream_process
 from .types import ExecutionResult, StreamChunk
 

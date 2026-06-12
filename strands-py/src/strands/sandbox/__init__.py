@@ -15,11 +15,7 @@ interface from ``strands-ts/src/sandbox/`` (the behavioral oracle):
   :class:`ExecutionResult`, and the :data:`StreamType` literal.
 - :data:`LANGUAGE_PATTERN` — interpreter-name validation pattern.
 
-.. note::
-   Per the "Prefer Flat Namespaces Over Nested Modules" decision record, the
-   commonly-used symbols here will be re-exported from the top-level ``strands``
-   package. That re-export is deferred to the Agent↔Sandbox integration
-   follow-up (where the public surface stabilizes).
+Commonly-used symbols are also re-exported from the top-level ``strands`` package.
 
 Example:
     A minimal shell-backed sandbox needs only ``execute_streaming``::
@@ -34,15 +30,26 @@ Example:
 from .base import Sandbox
 from .constants import LANGUAGE_PATTERN
 from .docker import DockerSandbox
-from .shell import PosixShellSandbox
+from .not_a_sandbox_local_environment import NotASandboxLocalEnvironment
+from .posix_shell import PosixShellSandbox
 from .ssh import SshSandbox
 from .types import ExecutionResult, FileInfo, OutputFile, StreamChunk, StreamType
+
+# One shared, stateless instance, mirroring the TS oracle's module-level default.
+_default_sandbox = NotASandboxLocalEnvironment()
+
+
+def default_sandbox() -> Sandbox:
+    """Return the shared host default used when an Agent has no sandbox configured."""
+    return _default_sandbox
+
 
 __all__ = [
     "DockerSandbox",
     "ExecutionResult",
     "FileInfo",
     "LANGUAGE_PATTERN",
+    "NotASandboxLocalEnvironment",
     "OutputFile",
     "PosixShellSandbox",
     "Sandbox",
