@@ -4,10 +4,11 @@ language: python
 version: "1.41.0"
 tag: python/v1.41.0
 date: 2026-05-21
-releaseUrl: https://github.com/strands-agents/harness-sdk/releases/tag/python%2Fv1.41.0
+releaseUrl: https://github.com/strands-agents/harness-sdk/releases/tag/python/v1.41.0
 packageUrl: https://pypi.org/project/strands-agents/1.41.0/
 entries:
-  - { type: breaking, scope: null, areas: [], title: "rename Agent.run() to Agent.invoke()", pr: 2299, prUrl: "https://github.com/strands-agents/harness-sdk/pull/2299", commit: 2c3d4e5, commitUrl: "https://github.com/strands-agents/harness-sdk/commit/2c3d4e5", author: pgrayy }
-  - { type: feat, scope: mcp, areas: [mcp], title: "streamable HTTP transport", pr: 2280, prUrl: "https://github.com/strands-agents/harness-sdk/pull/2280", commit: 6f7a8b9, commitUrl: "https://github.com/strands-agents/harness-sdk/commit/6f7a8b9", author: dbschmigelski }
-  - { type: fix, scope: null, areas: [], title: "handle None text in message content sanitization", pr: 1920, prUrl: "https://github.com/strands-agents/harness-sdk/pull/1920", commit: aa11bb2, commitUrl: "https://github.com/strands-agents/harness-sdk/commit/aa11bb2", author: yoppi }
+  - { type: feat, breaking: false, scope: plugins, areas: [multiagent], title: "add MultiAgentPlugin for Swarm and Graph orchestrators", pr: 2280, prUrl: "https://github.com/strands-agents/sdk-python/pull/2280", commit: "afb0dd9", commitUrl: "https://github.com/strands-agents/sdk-python/commit/afb0dd9", author: zastrowm }
+  - { type: feat, breaking: false, scope: null, areas: [], title: "bump starlette dependency to 1.x", pr: 2297, prUrl: "https://github.com/strands-agents/sdk-python/pull/2297", commit: "1232230", commitUrl: "https://github.com/strands-agents/sdk-python/commit/1232230", author: pgrayy }
+  - { type: feat, breaking: false, scope: bedrock, areas: [model], title: "add TTL support to auto-injected tool and system/user cache points", pr: 2232, prUrl: "https://github.com/strands-agents/sdk-python/pull/2232", commit: "46ce50b", commitUrl: "https://github.com/strands-agents/sdk-python/commit/46ce50b", author: kpx-dev }
+  - { type: fix, breaking: false, scope: tests, areas: [], title: "add use_native_token_count=True when expected", pr: 2311, prUrl: "https://github.com/strands-agents/sdk-python/pull/2311", commit: "64a6862", commitUrl: "https://github.com/strands-agents/sdk-python/commit/64a6862", author: lizradway }
 ---
