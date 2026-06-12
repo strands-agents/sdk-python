@@ -16,7 +16,6 @@ is critical for effective agent interactions.
 
 from .conversation_manager import ConversationManager, ProactiveCompressionConfig
 from .null_conversation_manager import NullConversationManager
-from .pin_message import is_pinned, pin_message, unpin_message
 from .sliding_window_conversation_manager import SlidingWindowConversationManager
 from .summarizing_conversation_manager import SummarizingConversationManager
 
@@ -26,7 +25,4 @@ __all__ = [
     "ProactiveCompressionConfig",
     "SlidingWindowConversationManager",
     "SummarizingConversationManager",
-    "is_pinned",
-    "pin_message",
-    "unpin_message",
 ]

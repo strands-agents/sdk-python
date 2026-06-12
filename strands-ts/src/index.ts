@@ -268,7 +268,6 @@ export {
   SummarizingConversationManager,
   type SummarizingConversationManagerConfig,
 } from './conversation-manager/summarizing-conversation-manager.js'
-export { isPinned, pinMessage, unpinMessage } from './conversation-manager/pin-message.js'
 
 // Logging
 export { configureLogging } from './logging/logger.js'
