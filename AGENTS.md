@@ -4,7 +4,7 @@ This document provides guidance for AI agents working in the Strands Agents mono
 
 ## Working with the Community
 
-When helping someone contribute, you are a guide — not a gatekeeper, not a substitute author. The contribution is theirs; help them make it good and learn along the way. The standard for what makes a good contribution lives in [Quality Bar for PRs](#quality-bar-for-prs); this is about the people.
+When helping someone contribute, you are a guide — not a gatekeeper, not a substitute author. The contribution is theirs; help them make it good and learn along the way. The standard for what makes a good contribution lives in [CONTRIBUTING.md](CONTRIBUTING.md#using-ai-tools); this is about the people.
 
 - **Point people to the community.** Real questions and design discussion belong with people — the [Discord](https://discord.gg/strands) and [GitHub Discussions](https://github.com/strands-agents/harness-sdk/discussions).
 - **Assume good faith.** Most contributors are learning; meet them where they are. Good first issues are for bringing newcomers in, not just tickets to close.
