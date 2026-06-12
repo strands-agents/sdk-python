@@ -232,15 +232,15 @@
       syncAll(current);
     }
 
-    // Handle toggle clicks
+    // Handle toggle clicks. setPreference/syncAll run via the
+    // lang-preference-changed listener below (single execution path — calling
+    // them here too would run side effects like tab clicks twice).
     document.addEventListener('click', function (e) {
       var btn = e.target.closest('.lang-option');
       if (!btn) return;
       var lang = btn.dataset.lang;
       if (!lang) return;
-      setPreference(lang);
-      syncAll(lang);
-      // Notify same-tab listeners (storage events only fire cross-tab).
+      // Notify same-tab listeners, including our own (storage events only fire cross-tab).
       window.dispatchEvent(new CustomEvent('lang-preference-changed', { detail: { lang: lang } }));
 
       // Navigate to paired page if one exists

@@ -58,9 +58,15 @@ const areaCounts = getAreaCounts(allEntries)
 
 <script>
   // Client-side faceted filtering. State: SDK (toggle), language (global pref), areas (chips), search.
+  // This is a processed (bundled) script, so importing shared config works —
+  // no hand-maintained mirror of SDK metadata.
+  import { SDK_META } from '../../config/changelog'
+
   const LANG_KEY = 'starlight-synced-tabs__jarkqt' // shared with the global LanguageToggle
-  // Must mirror SDK_META in src/config/changelog.ts (can't import server config here).
-  const SDK_LANGS: Record<string, string[]> = { harness: ['python', 'typescript'], evals: ['python'] }
+  const SDK_LANGS: Record<string, readonly string[]> = Object.fromEntries(
+    Object.entries(SDK_META).map(([sdk, meta]) => [sdk, meta.languages])
+  )
+  const isKnownSdk = (s: string) => Object.hasOwn(SDK_LANGS, s)
 
   const root = document
   const versions = Array.from(root.querySelectorAll<HTMLElement>('.cl-version'))
@@ -74,11 +80,11 @@ const areaCounts = getAreaCounts(allEntries)
   const activeCountEl = root.querySelector<HTMLElement>('[data-cl-active-count]')
 
   const params = new URLSearchParams(location.search)
-  // Validate the URL-provided sdk — an unknown value (typo'd/shared link)
-  // must fall back rather than crash every SDK_LANGS lookup below.
+  // Validate the URL-provided sdk with an own-property check — `in` would pass
+  // prototype-chain keys like ?sdk=toString and crash every lookup below.
   const urlSdk = params.get('sdk') || ''
   const state = {
-    sdk: urlSdk in SDK_LANGS ? urlSdk : 'harness',
+    sdk: isKnownSdk(urlSdk) ? urlSdk : 'harness',
     areas: new Set((params.get('area') || '').split(',').filter(Boolean)),
     search: params.get('q') || '',
   }
@@ -210,15 +216,18 @@ const areaCounts = getAreaCounts(allEntries)
         if (entryShow) anyEntryVisible = true
       }
       if (show && hasEntryFilter) show = anyEntryVisible
-      // Hide overflow expanders whose entries are all filtered out, so a
-      // misleading "Show N more" never lingers.
+      // Overflow expanders: hide when all their entries are filtered out (no
+      // misleading "Show N more"), and auto-open when a filter is active and
+      // a match is inside — otherwise matches hide behind a closed expander
+      // and look like missing results. Collapse again when filters clear.
       v.querySelectorAll<HTMLElement>('details.cl-more').forEach((det) => {
         const any = Array.from(det.querySelectorAll<HTMLElement>('.cl-entry')).some((e) => !e.hidden)
         det.hidden = !any
+        ;(det as HTMLDetailsElement).open = hasEntryFilter && any
       })
-      // Hide group headers whose following entries are all hidden. The flat
-      // child walk treats an expander as one unit (its inner entries count
-      // toward the preceding group header).
+      // Hide group headers whose following entries are all hidden. Entries
+      // inside the standalone "Other" expander belong to no header — exclude
+      // them so they can't keep the Fixes header alive on their own.
       const children = Array.from(v.querySelectorAll<HTMLElement>('.cl-group, .cl-entry'))
       let currentGroup: HTMLElement | null = null
       let groupHasVisible = false
@@ -228,7 +237,7 @@ const areaCounts = getAreaCounts(allEntries)
           flush()
           currentGroup = child
           groupHasVisible = false
-        } else if (!child.hidden) {
+        } else if (!child.hidden && !child.closest('details.cl-other')) {
           groupHasVisible = true
         }
       }
@@ -248,6 +257,8 @@ const areaCounts = getAreaCounts(allEntries)
       activeCountEl.hidden = state.areas.size === 0
     }
     syncUrl()
+    // Re-pick the rail highlight — the current version may just have been hidden.
+    refreshSpy()
   }
 
   // SDK toggle
@@ -324,36 +335,57 @@ const areaCounts = getAreaCounts(allEntries)
     })
   })
 
-  // Scroll-spy: light up the timeline rail of the version currently in view.
+  // Scroll-spy: light up the timeline rail of the version currently in the
+  // top band of the viewport. Observer callbacks only report elements whose
+  // intersection CHANGED, so track the full intersecting set across calls and
+  // recompute the topmost — otherwise the highlight latches onto a version
+  // that left the band while an earlier-entered one was still inside.
   let currentSpy: HTMLElement | null = null
+  const inBand = new Set<HTMLElement>()
+  function refreshSpy() {
+    let next: HTMLElement | null = null
+    let bestTop = Infinity
+    for (const v of inBand) {
+      if (v.hidden) continue
+      const top = v.getBoundingClientRect().top
+      if (top < bestTop) { bestTop = top; next = v }
+    }
+    if (next !== currentSpy) {
+      currentSpy?.classList.remove('cl-current')
+      next?.classList.add('cl-current')
+      currentSpy = next
+    }
+  }
   const spy = new IntersectionObserver(
     (records) => {
-      // Pick the intersecting version nearest the top band of the viewport.
-      const visible = records.filter((r) => r.isIntersecting).map((r) => r.target as HTMLElement)
-      if (!visible.length) return
-      const next = visible[0]
-      if (next !== currentSpy) {
-        currentSpy?.classList.remove('cl-current')
-        next.classList.add('cl-current')
-        currentSpy = next
+      for (const r of records) {
+        if (r.isIntersecting) inBand.add(r.target as HTMLElement)
+        else inBand.delete(r.target as HTMLElement)
       }
+      refreshSpy()
     },
     // A narrow band near the top of the viewport decides the "current" version.
     { rootMargin: '-10% 0px -70% 0px' }
   )
   versions.forEach((v) => spy.observe(v))
 
+  // Malformed hashes (e.g. '#%E0') make decodeURIComponent throw — a bad deep
+  // link must not abort the whole script before the initial apply().
+  function safeHashId(): string {
+    try { return decodeURIComponent(location.hash.slice(1)) } catch { return '' }
+  }
+
   // Deep links: if the URL anchors a version that the current filter state
   // hides (wrong SDK/language selected), switch filters so it's visible,
   // then scroll. Runs before the initial apply() so there's no flash.
   function honorAnchor() {
-    const id = decodeURIComponent(location.hash.slice(1))
+    const id = safeHashId()
     if (!id) return false
-    const target = id ? root.getElementById(id) : null
+    const target = root.getElementById(id)
     if (!target || !target.classList.contains('cl-version')) return false
     const tSdk = target.dataset.sdk
     const tLang = target.dataset.language
-    if (tSdk && tSdk !== state.sdk && tSdk in SDK_LANGS) {
+    if (tSdk && tSdk !== state.sdk && isKnownSdk(tSdk)) {
       state.sdk = tSdk
       sdkBtns.forEach((b) => b.setAttribute('aria-pressed', b.dataset.clSdkBtn === tSdk ? 'true' : 'false'))
     }
@@ -369,7 +401,7 @@ const areaCounts = getAreaCounts(allEntries)
   // to the target first, scroll, then re-correct once more after the engine
   // settles, and release the layout override.
   function scrollToAnchor() {
-    const id = decodeURIComponent(location.hash.slice(1))
+    const id = safeHashId()
     const target = id ? root.getElementById(id) : null
     if (!target) return
     const upTo: HTMLElement[] = []

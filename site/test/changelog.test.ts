@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { changelogEntrySchema, changelogFrontmatterSchema } from '../src/content.config'
-import { getPackageUrl, SDK_META, LANGUAGE_META } from '../src/config/changelog'
+import { SDK_META } from '../src/config/changelog'
 
 describe('changelogEntrySchema', () => {
   it('parses a full entry', () => {
@@ -59,24 +59,6 @@ describe('changelogFrontmatterSchema', () => {
       entries: [],
     })
     expect(fm.language).toBeUndefined()
-  })
-})
-
-describe('getPackageUrl', () => {
-  it('builds a PyPI url for harness python', () => {
-    expect(getPackageUrl('harness', 'python', '1.42.0')).toBe(
-      'https://pypi.org/project/strands-agents/1.42.0/'
-    )
-  })
-  it('builds an npm url for harness typescript', () => {
-    expect(getPackageUrl('harness', 'typescript', '1.4.0')).toBe(
-      'https://www.npmjs.com/package/@strands-agents/sdk/v/1.4.0'
-    )
-  })
-  it('builds a PyPI url for evals', () => {
-    expect(getPackageUrl('evals', undefined, '0.2.1')).toBe(
-      'https://pypi.org/project/strands-agents-evals/0.2.1/'
-    )
   })
 })
 

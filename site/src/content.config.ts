@@ -43,7 +43,6 @@ export const changelogFrontmatterSchema = z.object({
   date: z.coerce.date(),
   releaseUrl: z.string().url(),
   packageUrl: z.string().url(),
-  compareUrl: z.string().url().optional(),
   highlights: z.string().optional(),
   entries: z.array(changelogEntrySchema).default([]),
   newContributors: z.array(z.object({ login: z.string(), pr: z.number() })).default([]),
