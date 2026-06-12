@@ -6,7 +6,7 @@ const { areas } = Astro.props
 ---
 <div class="cl-scrim" data-cl-scrim></div>
 <aside class="cl-rail" data-cl-rail>
-  <input class="cl-search" type="search" placeholder="Search releases, PRs…" data-cl-search aria-label="Search changelog" />
+  <input class="cl-search" type="search" placeholder="Search titles, authors…" data-cl-search aria-label="Search changelog" />
   <div class="cl-rail-label">Area</div>
   <div class="cl-areas">
     {areas.map(({ area, count }) => (
