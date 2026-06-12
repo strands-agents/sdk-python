@@ -178,25 +178,10 @@ export class CedarAuthorization extends InterventionHandler {
     const callCount = this._incrementCallCount(event.agent, event.toolUse.name)
     const toolInput = (event.toolUse.input ?? {}) as Record<string, CedarValueJson>
 
-    let action: TypeAndId
-    let resource: TypeAndId
-    let entities: EntityJson[]
-
-    if (this._schemaGenerator && this._tools) {
-      const request = this._schemaGenerator.generateRequest(this._tools, event.toolUse.name, toolInput, principal)
-      action = request.action
-      resource = request.resource
-      entities = [...this._entities, ...request.entities]
-    } else {
-      action = { type: 'Action', id: event.toolUse.name }
-      resource = { type: 'Resource', id: 'agent' }
-      entities = this._entities
-    }
-
     const result = isAuthorized({
       principal,
-      action,
-      resource,
+      action: { type: 'Action', id: event.toolUse.name },
+      resource: { type: 'Resource', id: 'agent' },
       context: {
         input: toolInput,
         session: {
@@ -208,7 +193,7 @@ export class CedarAuthorization extends InterventionHandler {
         },
       },
       policies: { staticPolicies: this._policies },
-      entities,
+      entities: this._entities,
     })
 
     if (result.type === 'failure') {

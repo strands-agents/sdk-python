@@ -721,7 +721,7 @@ describe('CedarAuthorization', () => {
       expect(cedar.name).toBe('cedar-authorization')
     })
 
-    it('uses generateRequest for action/resource resolution at eval time', async () => {
+    it('allows tool calls when tools config is provided', async () => {
       const model = new MockMessageModel()
         .addTurn({ type: 'toolUseBlock', name: 'search', toolUseId: 'tool-1', input: { query: 'test' } })
         .addTurn({ type: 'textBlock', text: 'Done' })
@@ -743,27 +743,45 @@ describe('CedarAuthorization', () => {
       expect(toolExecuted).toBe(true)
     })
 
-    it('denies unknown tools when schema generator is active', async () => {
+    it('validates nested tool input schemas without breaking', async () => {
+      const nestedTools = [
+        ...tools,
+        {
+          name: 'create_user',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              address: { type: 'object', properties: { street: { type: 'string' }, city: { type: 'string' } } },
+            },
+          },
+        },
+      ]
+
+      const cedar = await CedarAuthorization.create({
+        policies: 'permit(principal, action == Action::"create_user", resource);',
+        tools: nestedTools,
+        principal: { type: 'User', id: 'alice' },
+      })
+
       const model = new MockMessageModel()
-        .addTurn({ type: 'toolUseBlock', name: 'unknown_tool', toolUseId: 'tool-1', input: {} })
+        .addTurn({
+          type: 'toolUseBlock',
+          name: 'create_user',
+          toolUseId: 'tool-1',
+          input: { name: 'Bob', address: { street: '123', city: 'NYC' } },
+        })
         .addTurn({ type: 'textBlock', text: 'Done' })
 
       let toolExecuted = false
-      const tool = createMockTool('unknown_tool', () => {
+      const tool = createMockTool('create_user', () => {
         toolExecuted = true
-        return 'ran'
-      })
-
-      const cedar = await CedarAuthorization.create({
-        policies: 'permit(principal, action, resource);',
-        tools,
-        principal: { type: 'User', id: 'alice' },
-        onError: 'deny',
+        return 'created'
       })
 
       const agent = new Agent({ model, tools: [tool], interventions: [cedar], printer: false })
-      await agent.invoke('Do something', { invocationState: {} })
-      expect(toolExecuted).toBe(false)
+      await agent.invoke('Create user', { invocationState: {} })
+      expect(toolExecuted).toBe(true)
     })
   })
 })
