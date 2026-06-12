@@ -7,7 +7,6 @@ import {
   SummarizingConversationManager,
   BedrockModel,
 } from '@strands-agents/sdk'
-import { pinMessage, unpinMessage, isPinned } from '@strands-agents/sdk/conversation-manager/pin-message'
 import { AnthropicModel } from '@strands-agents/sdk/models/anthropic'
 import type { LocalAgent, ConversationManagerReduceOptions } from '@strands-agents/sdk'
 
@@ -177,16 +176,4 @@ async function pinFirstExample() {
   // --8<-- [end:pin_first]
 }
 
-async function pinMessageUsage() {
-  const agent = new Agent({})
-  // --8<-- [start:pin_message_usage]
-  pinMessage(agent.messages, 0)
-
-  if (isPinned(agent.messages, 0)) {
-    console.log('Message is protected from eviction')
-  }
-
-  unpinMessage(agent.messages, 0)
-  // --8<-- [end:pin_message_usage]
-}
 
