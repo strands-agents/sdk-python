@@ -120,6 +120,20 @@ describe('summarizeContextTool', () => {
     expect(hasToolUse).toBe(true)
   })
 
+  it('preserves message order after summarization with pinned assistant message', async () => {
+    const model = mockModel('Summary')
+    const messages = [
+      textMsg('user', 'First'),
+      textMsg('assistant', 'Pinned response'),
+      ...makeMessages(18),
+    ]
+    pinMessage(messages, 1)
+
+    await summarizeContextTool.invoke({ keepRecent: 10, summaryRatio: 0.3 }, makeContext(messages, model))
+
+    expect(messages[0]!.role).toBe('user')
+  })
+
   it('returns failure message when model throws', async () => {
     const model = {
       streamAggregated: vi.fn(() => ({
@@ -134,6 +148,26 @@ describe('summarizeContextTool', () => {
 })
 
 describe('truncateContextTool', () => {
+  it('does not drop messages when keepRecent exceeds conversation length', async () => {
+    const messages = makeMessages(6)
+    const result = await truncateContextTool.invoke({ keepRecent: 10 }, makeContext(messages))
+    expect(result).toContain('No messages dropped')
+    expect(messages).toHaveLength(6)
+  })
+
+  it('preserves message order when pinned assistant message exists', async () => {
+    const messages = [
+      textMsg('user', 'First'),
+      textMsg('assistant', 'Response'),
+      ...makeMessages(18),
+    ]
+    pinMessage(messages, 1)
+
+    await truncateContextTool.invoke({ keepRecent: 5 }, makeContext(messages))
+
+    expect(messages[0]!.role).toBe('user')
+  })
+
   it('returns message when conversation is too short', async () => {
     const messages = makeMessages(2)
     const result = await truncateContextTool.invoke({}, makeContext(messages))

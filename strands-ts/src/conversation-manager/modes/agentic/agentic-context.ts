@@ -34,32 +34,32 @@ const messageTypeSchema = z
   )
 
 /**
- * Partition messages in [0, rangeEnd) into three buckets:
- * - pinned: protected from eviction (includes tool-pair partners)
- * - eligible: unpinned and matching the filter (will be evicted)
- * - skipped: unpinned but not matching the filter (preserved in place)
+ * Identify eligible messages in [0, rangeEnd) and return the messages to keep (in original order).
+ * The first user message is always preserved to maintain a valid conversation start
+ * (Bedrock rejects conversations that don't begin with a user message).
  */
-function partitionByFilter(
+function collectPreserved(
   messages: Message[],
   rangeEnd: number,
   filter: MessageTypeFilter
-): { pinned: Message[]; eligible: Message[]; skipped: Message[] } {
-  const pinned: Message[] = []
+): { eligible: Message[]; preserved: Message[] } {
   const eligible: Message[] = []
-  const skipped: Message[] = []
+  const preserved: Message[] = []
+  let foundFirstUser = false
 
   for (let i = 0; i < rangeEnd; i++) {
     const msg = messages[i]!
-    if (isPinned(messages, i)) {
-      pinned.push(msg)
-    } else if (matchesMessageType(msg, filter)) {
-      eligible.push(msg)
+    const isFirstUser = !foundFirstUser && msg.role === 'user'
+    if (isFirstUser) foundFirstUser = true
+
+    if (isFirstUser || isPinned(messages, i) || !matchesMessageType(msg, filter)) {
+      preserved.push(msg)
     } else {
-      skipped.push(msg)
+      eligible.push(msg)
     }
   }
 
-  return { pinned, eligible, skipped }
+  return { eligible, preserved }
 }
 
 export const summarizeContextTool = tool({
@@ -106,7 +106,7 @@ export const summarizeContextTool = tool({
       return `No summarization performed: no valid split point found (conversation has ${originalMessageCount} messages).`
     }
 
-    const { pinned, eligible, skipped } = partitionByFilter(messages, splitPoint, filter)
+    const { eligible, preserved } = collectPreserved(messages, splitPoint, filter)
 
     if (eligible.length === 0) {
       return `No summarization performed: no ${filter === 'all' ? 'eligible' : `"${filter}"`} messages found in range (conversation has ${originalMessageCount} messages).`
@@ -119,7 +119,7 @@ export const summarizeContextTool = tool({
       return 'Summarization failed: no response from model.'
     }
 
-    messages.splice(0, splitPoint, ...pinned, ...skipped, summaryMessage)
+    messages.splice(0, splitPoint, ...preserved, summaryMessage)
 
     const removed = originalMessageCount - messages.length
     return `Summarized ${eligible.length} ${filter === 'all' ? '' : `"${filter}" `}message(s). Removed ${removed} message(s), ${messages.length} remaining.`
@@ -151,24 +151,24 @@ export const truncateContextTool = tool({
     const filter: MessageTypeFilter = messageType ?? 'all'
     const windowSize = keepRecent ?? DEFAULT_KEEP_RECENT_MESSAGES
 
-    if (messages.length <= MIN_MESSAGES_FOR_COMPRESSION) {
+    if (messages.length <= MIN_MESSAGES_FOR_COMPRESSION || messages.length <= windowSize) {
       return `No messages dropped: conversation only has ${originalMessageCount} messages.`
     }
 
-    const startIndex = messages.length <= windowSize ? MIN_MESSAGES_FOR_COMPRESSION : messages.length - windowSize
+    const startIndex = messages.length - windowSize
     const trimPoint = findValidTrimPoint(messages, startIndex)
 
     if (trimPoint >= messages.length) {
       return `No messages dropped: no valid trim point found (conversation has ${originalMessageCount} messages).`
     }
 
-    const { pinned, eligible, skipped } = partitionByFilter(messages, trimPoint, filter)
+    const { eligible, preserved } = collectPreserved(messages, trimPoint, filter)
 
     if (eligible.length === 0) {
       return `No messages dropped: no ${filter === 'all' ? 'eligible' : `"${filter}"`} messages found in range (conversation has ${originalMessageCount} messages).`
     }
 
-    messages.splice(0, trimPoint, ...pinned, ...skipped)
+    messages.splice(0, trimPoint, ...preserved)
 
     const dropped = originalMessageCount - messages.length
     return `Dropped ${dropped} ${filter === 'all' ? '' : `"${filter}" `}message(s). ${messages.length} remaining.`
