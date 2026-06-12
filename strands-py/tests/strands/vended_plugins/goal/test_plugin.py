@@ -5,11 +5,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from strands.vended_plugins.goal import JudgeConfig
-
 from strands.hooks.events import AfterInvocationEvent, BeforeInvocationEvent, BeforeModelCallEvent
 from strands.types._snapshot import Snapshot
-from strands.vended_plugins.goal import GoalLoop, ValidationOutcome
+from strands.vended_plugins.goal import GoalAttempt, GoalLoop, GoalResult, JudgeConfig, ValidationOutcome
 from strands.vended_plugins.goal.judge import JUDGE_SYSTEM_PROMPT, JudgeOutcome, build_judge_prompt
 
 # --- Helpers ---
@@ -146,13 +144,11 @@ class TestFunctionValidator:
         after_event = AfterInvocationEvent(agent=agent)
         await hooks["after"][0](after_event)
 
-        result = plugin.last_result(agent)
-        assert result is not None
-        assert result.passed is True
-        assert result.stop_reason == "satisfied"
-        assert len(result.attempts) == 1
-        assert result.attempts[0].attempt == 1
-        assert result.attempts[0].passed is True
+        assert plugin.last_result(agent) == GoalResult(
+            passed=True,
+            stop_reason="satisfied",
+            attempts=[GoalAttempt(attempt=1, passed=True, feedback=None)],
+        )
 
     @pytest.mark.asyncio
     async def test_fails_then_passes(self):
@@ -181,14 +177,14 @@ class TestFunctionValidator:
         after_event2 = AfterInvocationEvent(agent=agent)
         await hooks["after"][0](after_event2)
 
-        result = plugin.last_result(agent)
-        assert result is not None
-        assert result.passed is True
-        assert result.stop_reason == "satisfied"
-        assert len(result.attempts) == 2
-        assert result.attempts[0].passed is False
-        assert result.attempts[0].feedback == "Not good enough"
-        assert result.attempts[1].passed is True
+        assert plugin.last_result(agent) == GoalResult(
+            passed=True,
+            stop_reason="satisfied",
+            attempts=[
+                GoalAttempt(attempt=1, passed=False, feedback="Not good enough"),
+                GoalAttempt(attempt=2, passed=True, feedback=None),
+            ],
+        )
 
     @pytest.mark.asyncio
     async def test_max_attempts_reached(self):
@@ -218,7 +214,7 @@ class TestFunctionValidator:
         assert result is not None
         assert result.passed is False
         assert result.stop_reason == "max_attempts"
-        assert len(result.attempts) == 3
+        assert len(result.attempts) == 3  # each attempt is non-deterministic feedback
 
     @pytest.mark.asyncio
     async def test_timeout(self):
@@ -581,10 +577,11 @@ async def test_nl_judge_passes_on_first_attempt():
         hooks["before"][0](BeforeInvocationEvent(agent=agent))
         await hooks["after"][0](AfterInvocationEvent(agent=agent))
 
-    result = plugin.last_result(agent)
-    assert result.passed is True
-    assert result.stop_reason == "satisfied"
-    assert len(result.attempts) == 1
+    assert plugin.last_result(agent) == GoalResult(
+        passed=True,
+        stop_reason="satisfied",
+        attempts=[GoalAttempt(attempt=1, passed=True, feedback=None)],
+    )
 
     mock_cls.assert_called_once_with(
         model=agent.model,
@@ -616,11 +613,14 @@ async def test_nl_judge_feeds_feedback_back():
         hooks["before"][0](BeforeInvocationEvent(agent=agent))
         await hooks["after"][0](AfterInvocationEvent(agent=agent))
 
-    result = plugin.last_result(agent)
-    assert result.passed is True
-    assert result.attempts[0].passed is False
-    assert result.attempts[0].feedback == "too verbose"
-    assert result.attempts[1].passed is True
+    assert plugin.last_result(agent) == GoalResult(
+        passed=True,
+        stop_reason="satisfied",
+        attempts=[
+            GoalAttempt(attempt=1, passed=False, feedback="too verbose"),
+            GoalAttempt(attempt=2, passed=True, feedback=None),
+        ],
+    )
 
 
 @pytest.mark.asyncio
@@ -685,10 +685,11 @@ async def test_nl_judge_no_structured_output_fallback():
         hooks["before"][0](BeforeInvocationEvent(agent=agent))
         await hooks["after"][0](AfterInvocationEvent(agent=agent))
 
-    result = plugin.last_result(agent)
-    assert result.passed is False
-    assert result.stop_reason == "max_attempts"
-    assert result.attempts[0].feedback == "Judge produced no structured outcome."
+    assert plugin.last_result(agent) == GoalResult(
+        passed=False,
+        stop_reason="max_attempts",
+        attempts=[GoalAttempt(attempt=1, passed=False, feedback="Judge produced no structured outcome.")],
+    )
 
 
 @pytest.mark.asyncio

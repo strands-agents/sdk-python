@@ -45,7 +45,7 @@ import warnings
 import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from ...hooks.events import AfterInvocationEvent, BeforeInvocationEvent, BeforeModelCallEvent
 from ...plugins import Plugin
@@ -76,19 +76,23 @@ the dict form ``{"passed": bool, "feedback": str}`` or ``ValidationOutcome``
 when you have actionable feedback for the next attempt.
 """
 
-Validator = Callable[
-    [Message, "Agent"],
-    ValidatorReturn | Awaitable[ValidatorReturn],
-]
-"""Programmatic validator callable.
+@runtime_checkable
+class Validator(Protocol):
+    """Programmatic validator callable.
 
-Must return True, False, a ValidationOutcome, or a dict with ``passed`` and
-optional ``feedback`` keys. May be sync or async.
+    Must return True, False, a ValidationOutcome, or a dict with ``passed`` and
+    optional ``feedback`` keys. May be sync or async.
 
-The second argument is the host agent — read ``agent.messages`` for the full
-transcript (the same view the built-in NL judge sees), or any other state
-the validator needs.
-"""
+    The second argument is the host agent — read ``agent.messages`` for the full
+    transcript (the same view the built-in NL judge sees), or any other state
+    the validator needs.
+    """
+
+    def __call__(
+        self, response: Message, agent: Agent, **kwargs: Any
+    ) -> ValidatorReturn | Awaitable[ValidatorReturn]:
+        """Validate the agent's response."""
+        ...
 
 GoalStopReason = Literal["satisfied", "max_attempts", "timeout"]
 """Why a goal run ended."""
@@ -308,6 +312,8 @@ class GoalLoop(Plugin):
             def _before_model_call(event: BeforeModelCallEvent) -> None:
                 run = self._runs.get(event.agent)
                 if run and run.initial_snapshot is None:
+                    # Python's "session" preset includes conversation_manager_state (no TS equivalent),
+                    # but lacks system_prompt — add it explicitly to match TS snapshot parity.
                     run.initial_snapshot = event.agent.take_snapshot(
                         preset="session", include=["system_prompt"], exclude=["state"]
                     )
@@ -333,7 +339,7 @@ class GoalLoop(Plugin):
             try:
                 outcome = await validator(response)
             except Exception as e:
-                logger.warning("%s: validator threw: %s", self._name, e)
+                logger.warning("plugin=<%s>, error=<%s> | validator threw", self._name, e)
                 outcome = ValidationOutcome(passed=False, feedback=f"Validator error: {e}")
 
             run.attempts.append(
