@@ -35,8 +35,8 @@ const ADD_TOOL = 'add_memory'
 
 // Seeded facts reused across the injection and search tests: a retrievable phrase plus the token each
 // test asserts the model surfaced.
-const NIMBUS_FACT = { text: 'The launch code for project Nimbus is 4471.', answer: '4471' }
-const ATLAS_FACT = { text: 'The mascot of team Atlas is a falcon.', answer: 'falcon' }
+const WILLOW_FACT = { text: 'The most peaceful tree in the meditation garden is the weeping willow.', answer: 'willow' }
+const DOVE_FACT = { text: 'The calmest birdsong in the wildlife sanctuary belongs to the dove.', answer: 'dove' }
 
 /**
  * These tests drive the full {@link MemoryManager} — extraction, injection, and the search/add
@@ -295,13 +295,13 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
   describe.skipIf(shouldSkip())('injection', () => {
     it('folds a <memory> block into the model input and never touches durable history', async () => {
       const store = makeStore('integ-mm-inject')
-      await seedFact(store, NIMBUS_FACT.text)
+      await seedFact(store, WILLOW_FACT.text)
 
       const memoryManager = new MemoryManager({ stores: [store], injection: true, searchToolConfig: false })
       const agent = new Agent({ model: bedrock.createModel({ maxTokens: 1024 }), memoryManager, printer: false })
       const getSeen = await observeModelInput(agent)
 
-      const prompt = 'What is the launch code for project Nimbus?'
+      const prompt = 'Which tree in the meditation garden is the most peaceful?'
       const result = await agent.invoke(prompt)
 
       // 1. The model input carried the injected memory (ephemeral fold into the latest user message).
@@ -310,7 +310,7 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       const injectedText = seen!.map((m) => getMessageText(m)).join('\n')
       expect(injectedText).toContain('<memory>')
       expect(injectedText).toContain(`source="${store.name}"`)
-      expect(injectedText).toContain(NIMBUS_FACT.answer)
+      expect(injectedText).toContain(WILLOW_FACT.answer)
 
       // 2. Durable history is untouched: the stored user message is byte-identical to the original
       //    prompt (injection folds into the per-call copy only, never agent.messages), and the search
@@ -320,15 +320,15 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       expect(getMessageText(firstUserMessage!)).toBe(prompt)
       expect(usedTool(agent.messages, SEARCH_TOOL)).toBe(false)
 
-      // 3. The model actually used the injected fact (tolerate separators like 4-4-7-1).
-      expect(getMessageText(result.lastMessage)).toMatch(/4\D?4\D?7\D?1/)
+      // 3. The model actually used the injected fact.
+      expect(getMessageText(result.lastMessage).toLowerCase()).toContain(WILLOW_FACT.answer)
     }, 120_000)
 
     it('injects from multiple stores with per-store source attribution', async () => {
       const storeA = makeStore('alpha')
       const storeB = makeStore('beta')
-      await seedFact(storeA, NIMBUS_FACT.text)
-      await seedFact(storeB, ATLAS_FACT.text)
+      await seedFact(storeA, WILLOW_FACT.text)
+      await seedFact(storeB, DOVE_FACT.text)
 
       const memoryManager = new MemoryManager({
         stores: [storeA, storeB],
@@ -338,7 +338,7 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       const agent = new Agent({ model: bedrock.createModel({ maxTokens: 1024 }), memoryManager, printer: false })
       const getSeen = await observeModelInput(agent)
 
-      await agent.invoke("What is project Nimbus's launch code and team Atlas's mascot?")
+      await agent.invoke('Which tree is the most peaceful, and which bird has the calmest song?')
 
       const seen = getSeen()
       expect(seen).toBeDefined()
@@ -347,8 +347,8 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       // (asserting the values too, so an empty <entry source="..."> can't satisfy the test).
       expect(injectedText).toContain('source="alpha"')
       expect(injectedText).toContain('source="beta"')
-      expect(injectedText).toContain(NIMBUS_FACT.answer)
-      expect(injectedText).toContain(ATLAS_FACT.answer)
+      expect(injectedText).toContain(WILLOW_FACT.answer)
+      expect(injectedText).toContain(DOVE_FACT.answer)
     }, 120_000)
   })
 
@@ -360,32 +360,36 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
   describe.skipIf(shouldSkip())('search_memory tool', () => {
     it('the model retrieves a seeded fact via the search_memory tool', async () => {
       const store = makeStore('integ-mm-search-tool')
-      await seedFact(store, ATLAS_FACT.text)
+      await seedFact(store, DOVE_FACT.text)
 
       const memoryManager = new MemoryManager({ stores: [store] })
       const agent = new Agent({ model: bedrock.createModel({ maxTokens: 1024 }), memoryManager, printer: false })
       await forceToolOnce(agent, SEARCH_TOOL)
 
-      const result = await agent.invoke('Use your memory tools to look up the mascot of team Atlas, then tell me.')
+      const result = await agent.invoke(
+        'Use your memory tools to look up which bird has the calmest song, then tell me.'
+      )
 
       expect(usedTool(agent.messages, SEARCH_TOOL)).toBe(true)
-      expect(getMessageText(result.lastMessage).toLowerCase()).toContain(ATLAS_FACT.answer)
+      expect(getMessageText(result.lastMessage).toLowerCase()).toContain(DOVE_FACT.answer)
     }, 120_000)
 
     it('routes a search across multiple stores and finds the fact wherever it lives', async () => {
       const storeA = makeStore('integ-mm-search-a')
       const storeB = makeStore('integ-mm-search-b')
       // Fact lives only in store B — the manager must fan out across both.
-      await seedFact(storeB, ATLAS_FACT.text)
+      await seedFact(storeB, DOVE_FACT.text)
 
       const memoryManager = new MemoryManager({ stores: [storeA, storeB] })
       const agent = new Agent({ model: bedrock.createModel({ maxTokens: 1024 }), memoryManager, printer: false })
       await forceToolOnce(agent, SEARCH_TOOL)
 
-      const result = await agent.invoke('Use your memory tools to look up the mascot of team Atlas, then tell me.')
+      const result = await agent.invoke(
+        'Use your memory tools to look up which bird has the calmest song, then tell me.'
+      )
 
       expect(usedTool(agent.messages, SEARCH_TOOL)).toBe(true)
-      expect(getMessageText(result.lastMessage).toLowerCase()).toContain(ATLAS_FACT.answer)
+      expect(getMessageText(result.lastMessage).toLowerCase()).toContain(DOVE_FACT.answer)
     }, 120_000)
   })
 
@@ -404,7 +408,9 @@ describe('BedrockKnowledgeBaseStore MemoryManager E2E', () => {
       await forceToolOnce(agent, ADD_TOOL)
 
       const marker = uniqueMarker('add-tool')
-      await agent.invoke(`Please remember for later, using your memory tools: the warehouse access PIN is ${marker}.`)
+      await agent.invoke(
+        `Please remember for later, using your memory tools: the secret name of the quietest forest grove is ${marker}.`
+      )
 
       expect(usedTool(agent.messages, ADD_TOOL)).toBe(true)
       expect(ids.length).toBeGreaterThan(0)
