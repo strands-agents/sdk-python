@@ -47,12 +47,15 @@ This monorepo contains the Python SDK, TypeScript SDK, documentation site, and s
 | `site/` | Documentation site built with Astro/Starlight ([strandsagents.com](https://strandsagents.com)) |
 | `designs/` | Design proposals for significant features (RFC-style) |
 
-## Feature Overview
+## Why Strands
 
-- **Lightweight & Flexible**: Simple agent loop that just works and is fully customizable
-- **Model Agnostic**: Support for Amazon Bedrock, Anthropic, Gemini, LiteLLM, Llama, Ollama, OpenAI, Writer, and custom providers
-- **Advanced Capabilities**: Multi-agent systems, autonomous agents, and streaming support
-- **Built-in MCP**: Native support for Model Context Protocol (MCP) servers, enabling access to thousands of pre-built tools
+Build an agent harness. Control it end-to-end.
+
+- **Build your way** — Any model, any cloud. Context management, execution limits, and observability built in before you write a line of config. Swap backends when you scale; your code stays the same.
+- **Model agnostic** — First-class support for Amazon Bedrock, Anthropic, OpenAI, and Gemini, plus [many more providers](https://strandsagents.com/docs/user-guide/concepts/model-providers/) and custom ones.
+- **Stay in control** — The agent loop traces every decision by default. Hooks let you intercept any step to log it, validate it, or redirect it.
+- **Deliver outcomes that work** — Guardrails catch mistakes before they run. Steering handlers let agents correct themselves instead of failing silently.
+- **Built-in MCP** — Native Model Context Protocol support connects agents to thousands of pre-built tools.
 
 ## Quick Start
 
