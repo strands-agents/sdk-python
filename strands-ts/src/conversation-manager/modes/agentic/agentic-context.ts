@@ -115,8 +115,8 @@ export const summarizeContextTool = tool({
     let summaryMessage
     try {
       summaryMessage = await generateSummary(eligible, agent.model)
-    } catch {
-      return 'Summarization failed: no response from model.'
+    } catch (err) {
+      return `Summarization failed: ${err instanceof Error ? err.message : 'unknown error'}`
     }
 
     messages.splice(0, splitPoint, ...preserved, summaryMessage)
