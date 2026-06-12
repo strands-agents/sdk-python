@@ -7,8 +7,6 @@ is to produce *some* assistant turn so the plugin's machinery (validation,
 resume, snapshot/restore) executes against a real agent loop end-to-end.
 """
 
-import pytest
-
 from strands import Agent
 from strands.vended_plugins.goal import GoalLoop
 

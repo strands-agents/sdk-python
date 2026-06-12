@@ -10,7 +10,8 @@ import json
 
 from pydantic import BaseModel, Field
 
-from ...types.content import Messages
+from ...types.content import ContentBlock, Message, Messages
+from ...types.tools import ToolResultContent
 
 JUDGE_SYSTEM_PROMPT = (
     "# Goal Evaluation\n"
@@ -84,14 +85,14 @@ def build_judge_prompt(description: str, transcript: Messages) -> str:
     return f"Goal:\n{description}\n\nConversation transcript:\n{rendered}"
 
 
-def _render_message(message: dict) -> str:
+def _render_message(message: Message) -> str:
     """Render a single message as [role] followed by its content blocks."""
     parts = [_render_block(block) for block in message["content"]]
     body = "\n".join(p for p in parts if p)
     return f"[{message['role']}]\n{body}"
 
 
-def _render_block(block: dict) -> str | None:
+def _render_block(block: ContentBlock) -> str | None:
     """Render a content block to its text representation, or None to skip."""
     if "text" in block:
         return block["text"]
@@ -110,7 +111,7 @@ def _render_block(block: dict) -> str | None:
     return None
 
 
-def _extract_result_text(content: list[dict]) -> list[str]:
+def _extract_result_text(content: list[ToolResultContent]) -> list[str]:
     """Pull text/json values out of a tool result's content blocks."""
     out: list[str] = []
     for inner in content:

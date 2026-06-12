@@ -38,13 +38,14 @@ Example:
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 import warnings
 import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from ...hooks.events import AfterInvocationEvent, BeforeInvocationEvent, BeforeModelCallEvent
 from ...plugins import Plugin
@@ -89,8 +90,8 @@ transcript (the same view the built-in NL judge sees), or any other state
 the validator needs.
 """
 
-GoalStopReason = str
-"""Why a goal run ended: 'satisfied', 'max_attempts', or 'timeout'."""
+GoalStopReason = Literal["satisfied", "max_attempts", "timeout"]
+"""Why a goal run ended."""
 
 
 @dataclass
@@ -307,7 +308,9 @@ class GoalLoop(Plugin):
             def _before_model_call(event: BeforeModelCallEvent) -> None:
                 run = self._runs.get(event.agent)
                 if run and run.initial_snapshot is None:
-                    run.initial_snapshot = event.agent.take_snapshot(preset="session", exclude=["state"])
+                    run.initial_snapshot = event.agent.take_snapshot(
+                        preset="session", include=["system_prompt"], exclude=["state"]
+                    )
 
             agent.add_hook(_before_model_call, BeforeModelCallEvent)
 
@@ -362,8 +365,6 @@ class GoalLoop(Plugin):
             validator_fn = self._validator
 
             async def _fn_validator(response: Message) -> ValidationOutcome:
-                import inspect
-
                 result = validator_fn(response, host_agent)
                 if inspect.isawaitable(result):
                     result = await result

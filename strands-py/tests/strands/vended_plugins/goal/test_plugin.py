@@ -1,9 +1,11 @@
 """Tests for the GoalLoop plugin."""
 
 import asyncio
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from strands.vended_plugins.goal import JudgeConfig
 
 from strands.hooks.events import AfterInvocationEvent, BeforeInvocationEvent, BeforeModelCallEvent
 from strands.types._snapshot import Snapshot
@@ -375,7 +377,7 @@ class TestPreserveContextFalse:
         hooks["before"][0](BeforeInvocationEvent(agent=agent))
         hooks["before_model"][0](BeforeModelCallEvent(agent=agent))
 
-        agent.take_snapshot.assert_called_once_with(preset="session", exclude=["state"])
+        agent.take_snapshot.assert_called_once_with(preset="session", include=["system_prompt"], exclude=["state"])
 
     @pytest.mark.asyncio
     async def test_snapshot_restored_on_retry(self):
@@ -554,3 +556,163 @@ class TestMultipleAgents:
         # Both should have independent results
         assert plugin.last_result(agent1).passed is True
         assert plugin.last_result(agent2).passed is True
+
+
+# --- NL judge validator path ---
+
+
+def _mock_invoke_result(passed, feedback=None):
+    """Build a mock invoke_async return with structured_output."""
+    result = MagicMock()
+    result.structured_output = JudgeOutcome(passed=passed, feedback=feedback)
+    return result
+
+
+@pytest.mark.asyncio
+async def test_nl_judge_passes_on_first_attempt():
+    agent = _make_mock_agent()
+    mock_judge = MagicMock()
+    mock_judge.invoke_async = AsyncMock(return_value=_mock_invoke_result(True))
+
+    with patch("strands.agent.agent.Agent", return_value=mock_judge) as mock_cls:
+        plugin = GoalLoop(goal="be concise", max_attempts=3)
+        hooks = _setup_plugin_with_hooks(plugin, agent)
+
+        hooks["before"][0](BeforeInvocationEvent(agent=agent))
+        await hooks["after"][0](AfterInvocationEvent(agent=agent))
+
+    result = plugin.last_result(agent)
+    assert result.passed is True
+    assert result.stop_reason == "satisfied"
+    assert len(result.attempts) == 1
+
+    mock_cls.assert_called_once_with(
+        model=agent.model,
+        callback_handler=None,
+        system_prompt=JUDGE_SYSTEM_PROMPT,
+        structured_output_model=JudgeOutcome,
+    )
+
+
+@pytest.mark.asyncio
+async def test_nl_judge_feeds_feedback_back():
+    agent = _make_mock_agent()
+    mock_judge = MagicMock()
+    mock_judge.invoke_async = AsyncMock(
+        side_effect=[
+            _mock_invoke_result(False, "too verbose"),
+            _mock_invoke_result(True),
+        ]
+    )
+
+    with patch("strands.agent.agent.Agent", return_value=mock_judge):
+        plugin = GoalLoop(goal="be concise", max_attempts=3)
+        hooks = _setup_plugin_with_hooks(plugin, agent)
+
+        hooks["before"][0](BeforeInvocationEvent(agent=agent))
+        await hooks["after"][0](AfterInvocationEvent(agent=agent))
+
+        # Simulate the resumed invocation
+        hooks["before"][0](BeforeInvocationEvent(agent=agent))
+        await hooks["after"][0](AfterInvocationEvent(agent=agent))
+
+    result = plugin.last_result(agent)
+    assert result.passed is True
+    assert result.attempts[0].passed is False
+    assert result.attempts[0].feedback == "too verbose"
+    assert result.attempts[1].passed is True
+
+
+@pytest.mark.asyncio
+async def test_nl_judge_model_override():
+    agent = _make_mock_agent()
+    custom_model = MagicMock()
+    mock_judge = MagicMock()
+    mock_judge.invoke_async = AsyncMock(return_value=_mock_invoke_result(True))
+
+    with patch("strands.agent.agent.Agent", return_value=mock_judge) as mock_cls:
+        plugin = GoalLoop(goal="be concise", max_attempts=1, judge=JudgeConfig(model=custom_model))
+        hooks = _setup_plugin_with_hooks(plugin, agent)
+
+        hooks["before"][0](BeforeInvocationEvent(agent=agent))
+        await hooks["after"][0](AfterInvocationEvent(agent=agent))
+
+    mock_cls.assert_called_once_with(
+        model=custom_model,
+        callback_handler=None,
+        system_prompt=JUDGE_SYSTEM_PROMPT,
+        structured_output_model=JudgeOutcome,
+    )
+
+
+@pytest.mark.asyncio
+async def test_nl_judge_system_prompt_override():
+    agent = _make_mock_agent()
+    mock_judge = MagicMock()
+    mock_judge.invoke_async = AsyncMock(return_value=_mock_invoke_result(True))
+
+    with patch("strands.agent.agent.Agent", return_value=mock_judge) as mock_cls:
+        plugin = GoalLoop(
+            goal="be concise",
+            max_attempts=1,
+            judge=JudgeConfig(system_prompt="CUSTOM_RUBRIC"),
+        )
+        hooks = _setup_plugin_with_hooks(plugin, agent)
+
+        hooks["before"][0](BeforeInvocationEvent(agent=agent))
+        await hooks["after"][0](AfterInvocationEvent(agent=agent))
+
+    mock_cls.assert_called_once_with(
+        model=agent.model,
+        callback_handler=None,
+        system_prompt="CUSTOM_RUBRIC",
+        structured_output_model=JudgeOutcome,
+    )
+
+
+@pytest.mark.asyncio
+async def test_nl_judge_no_structured_output_fallback():
+    agent = _make_mock_agent()
+    mock_judge = MagicMock()
+    result_no_output = MagicMock()
+    result_no_output.structured_output = None
+    mock_judge.invoke_async = AsyncMock(return_value=result_no_output)
+
+    with patch("strands.agent.agent.Agent", return_value=mock_judge):
+        plugin = GoalLoop(goal="be concise", max_attempts=1)
+        hooks = _setup_plugin_with_hooks(plugin, agent)
+
+        hooks["before"][0](BeforeInvocationEvent(agent=agent))
+        await hooks["after"][0](AfterInvocationEvent(agent=agent))
+
+    result = plugin.last_result(agent)
+    assert result.passed is False
+    assert result.stop_reason == "max_attempts"
+    assert result.attempts[0].feedback == "Judge produced no structured outcome."
+
+
+@pytest.mark.asyncio
+async def test_nl_judge_fresh_agent_per_validation():
+    """Each validation constructs a new judge Agent (no prompt leakage)."""
+    agent = _make_mock_agent()
+    call_count = 0
+
+    def make_judge(**kwargs):
+        nonlocal call_count
+        call_count += 1
+        j = MagicMock()
+        results = [_mock_invoke_result(False, "retry"), _mock_invoke_result(True)]
+        j.invoke_async = AsyncMock(return_value=results[call_count - 1])
+        return j
+
+    with patch("strands.agent.agent.Agent", side_effect=make_judge):
+        plugin = GoalLoop(goal="be concise", max_attempts=3)
+        hooks = _setup_plugin_with_hooks(plugin, agent)
+
+        hooks["before"][0](BeforeInvocationEvent(agent=agent))
+        await hooks["after"][0](AfterInvocationEvent(agent=agent))
+
+        hooks["before"][0](BeforeInvocationEvent(agent=agent))
+        await hooks["after"][0](AfterInvocationEvent(agent=agent))
+
+    assert call_count == 2
