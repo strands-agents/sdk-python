@@ -103,7 +103,7 @@ export const summarizeContextTool = tool({
     try {
       splitPoint = adjustSplitPointForToolPairs(messages, splitPoint)
     } catch {
-      return `No summarization performed: no valid split point found (conversation has ${originalMessageCount} messages).`
+      return `No summarization performed: no valid split boundary found from index ${splitPoint} onward (requires a message that isn't mid-tool-call). Try a smaller keepRecent, a larger summaryRatio, or use truncate_context with messageType="tools" instead.`
     }
 
     const { eligible, preserved } = collectPreserved(messages, splitPoint, filter)
@@ -159,7 +159,7 @@ export const truncateContextTool = tool({
     const trimPoint = findValidTrimPoint(messages, startIndex)
 
     if (trimPoint >= messages.length) {
-      return `No messages dropped: no valid trim point found (conversation has ${originalMessageCount} messages).`
+      return `No messages dropped: no valid trim boundary exists between index ${startIndex} and ${messages.length - 1} (requires a plain user text message). Try a larger keepRecent or use summarize_context instead.`
     }
 
     const { eligible, preserved } = collectPreserved(messages, trimPoint, filter)

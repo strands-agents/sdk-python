@@ -227,7 +227,7 @@ describe('truncateContextTool', () => {
     )
     const result = await truncateContextTool.invoke({ keepRecent: 2 }, makeContext(messages))
     expect(result).toContain('No messages dropped')
-    expect(result).toContain('no valid trim point')
+    expect(result).toContain('no valid trim boundary')
   })
 })
 
