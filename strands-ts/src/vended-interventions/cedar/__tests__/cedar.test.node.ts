@@ -696,25 +696,26 @@ describe('CedarAuthorization', () => {
       { name: 'delete', inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } },
     ]
 
-    it('auto-generates schema and validates policies when tools are provided', async () => {
-      const cedar = await CedarAuthorization.create({
+    it('auto-generates schema and validates policies when tools are provided', () => {
+      const cedar = new CedarAuthorization({
         policies: 'permit(principal, action == Action::"search", resource);',
         tools,
       })
       expect(cedar.name).toBe('cedar-authorization')
     })
 
-    it('catches unknown action names via auto-generated schema', async () => {
-      await expect(
-        CedarAuthorization.create({
-          policies: 'permit(principal, action == Action::"nonexistent", resource);',
-          tools,
-        })
-      ).rejects.toThrow('Cedar policy validation failed')
+    it('catches unknown action names via auto-generated schema', () => {
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: 'permit(principal, action == Action::"nonexistent", resource);',
+            tools,
+          })
+      ).toThrow('Cedar policy validation failed')
     })
 
-    it('allows policies referencing context.session (handler-injected, not in schema)', async () => {
-      const cedar = await CedarAuthorization.create({
+    it('allows policies referencing context.session (handler-injected, not in schema)', () => {
+      const cedar = new CedarAuthorization({
         policies: 'permit(principal, action == Action::"search", resource) when { context.session.role == "admin" };',
         tools,
       })
@@ -732,7 +733,7 @@ describe('CedarAuthorization', () => {
         return 'results'
       })
 
-      const cedar = await CedarAuthorization.create({
+      const cedar = new CedarAuthorization({
         policies: 'permit(principal, action == Action::"search", resource);',
         tools,
         principal: { type: 'User', id: 'alice' },
@@ -758,7 +759,7 @@ describe('CedarAuthorization', () => {
         },
       ]
 
-      const cedar = await CedarAuthorization.create({
+      const cedar = new CedarAuthorization({
         policies: 'permit(principal, action == Action::"create_user", resource);',
         tools: nestedTools,
         principal: { type: 'User', id: 'alice' },
@@ -807,12 +808,13 @@ describe('CedarAuthorization', () => {
         },
       ]
 
-      await expect(
-        CedarAuthorization.create({
-          policies: 'permit(principal, action, resource);',
-          tools: collidingTools,
-        })
-      ).rejects.toThrow('Schema generation failed')
+      expect(
+        () =>
+          new CedarAuthorization({
+            policies: 'permit(principal, action, resource);',
+            tools: collidingTools,
+          })
+      ).toThrow('Schema generation failed')
     })
   })
 })
