@@ -225,11 +225,11 @@ async def test_graph_execution(mock_strands_tracer, mock_use_span, mock_graph, m
         if edge.from_node.node_id == "start_agent" and edge.to_node.node_id == "conditional_agent"
     )
     assert conditional_edge.condition is not None
-    assert not conditional_edge.should_traverse(GraphState())
+    assert not conditional_edge.should_traverse(GraphState(), invocation_state={})
 
     # Create a mock GraphNode for testing
     start_node = mock_graph.nodes["start_agent"]
-    assert conditional_edge.should_traverse(GraphState(completed_nodes={start_node}))
+    assert conditional_edge.should_traverse(GraphState(completed_nodes={start_node}), invocation_state={})
 
     result = await mock_graph.invoke_async("Test comprehensive execution")
 
@@ -849,18 +849,18 @@ def test_graph_dataclasses_and_enums():
     assert edge_simple.from_node == node_a
     assert edge_simple.to_node == node_b
     assert edge_simple.condition is None
-    assert edge_simple.should_traverse(GraphState())
+    assert edge_simple.should_traverse(GraphState(), invocation_state={})
 
     def test_condition(state):
         return len(state.completed_nodes) > 0
 
     edge_conditional = GraphEdge(node_a, node_b, condition=test_condition)
     assert edge_conditional.condition is not None
-    assert not edge_conditional.should_traverse(GraphState())
+    assert not edge_conditional.should_traverse(GraphState(), invocation_state={})
 
     # Create a mock GraphNode for testing
     mock_completed_node = GraphNode("some_node", create_mock_agent("some_agent"))
-    assert edge_conditional.should_traverse(GraphState(completed_nodes={mock_completed_node}))
+    assert edge_conditional.should_traverse(GraphState(completed_nodes={mock_completed_node}), invocation_state={})
 
     # Test GraphEdge hashing
     node_x = GraphNode("x", mock_agent_a)
@@ -2412,8 +2412,8 @@ class TestEdgeConditionProtocol:
 
         edge = GraphEdge(from_node=node_a, to_node=node_b, condition=legacy_condition)
 
-        assert not edge.should_traverse(GraphState())
-        assert edge.should_traverse(GraphState(completed_nodes={node_a}))
+        assert not edge.should_traverse(GraphState(), invocation_state={})
+        assert edge.should_traverse(GraphState(completed_nodes={node_a}), invocation_state={})
 
     def test_legacy_condition_not_affected_by_invocation_state(self):
         """Legacy conditions should work even when invocation_state is passed."""
@@ -2454,7 +2454,7 @@ class TestEdgeConditionProtocol:
         node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
 
         edge = GraphEdge(from_node=node_a, to_node=node_b, condition=None)
-        assert edge.should_traverse(GraphState())
+        assert edge.should_traverse(GraphState(), invocation_state={})
         assert edge.should_traverse(GraphState(), invocation_state={"anything": True})
 
     def test_new_style_condition_with_kwargs_extensibility(self):
@@ -2468,8 +2468,8 @@ class TestEdgeConditionProtocol:
         edge = GraphEdge(from_node=node_a, to_node=node_b, condition=extensible_condition)
         assert edge.should_traverse(GraphState(), invocation_state={})
 
-    def test_invocation_state_defaults_to_empty_dict_when_none(self):
-        """Verify graceful behavior when invocation_state is None."""
+    def test_invocation_state_empty_dict_passed_through(self):
+        """Verify empty dict is passed through to context conditions."""
         node_a = GraphNode(node_id="A", executor=create_mock_agent("A"))
         node_b = GraphNode(node_id="B", executor=create_mock_agent("B"))
 
@@ -2480,7 +2480,7 @@ class TestEdgeConditionProtocol:
             return True
 
         edge = GraphEdge(from_node=node_a, to_node=node_b, condition=context_condition)
-        assert edge.should_traverse(GraphState(), invocation_state=None)
+        assert edge.should_traverse(GraphState(), invocation_state={})
         assert received == [{}]
 
 

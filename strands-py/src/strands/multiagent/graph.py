@@ -91,6 +91,11 @@ def _is_context_condition(condition: EdgeCondition) -> TypeGuard[EdgeConditionWi
 
     Uses inspect.signature() for reliable detection, returning a TypeGuard
     so mypy can narrow the type at call sites.
+
+    Detection keys on the parameter *name* only — any parameter named
+    ``invocation_state`` (positional or keyword) triggers the new calling
+    convention. The parameter must be passable as a keyword argument since
+    ``should_traverse`` always passes it by name.
     """
     try:
         sig = inspect.signature(condition)
@@ -191,7 +196,7 @@ class GraphEdge:
         """Return hash for GraphEdge based on from_node and to_node."""
         return hash((self.from_node.node_id, self.to_node.node_id))
 
-    def should_traverse(self, state: GraphState, *, invocation_state: dict[str, Any] | None = None) -> bool:
+    def should_traverse(self, state: GraphState, *, invocation_state: dict[str, Any]) -> bool:
         """Check if this edge should be traversed based on condition.
 
         Args:
@@ -204,7 +209,7 @@ class GraphEdge:
         if condition is None:
             return True
         if self._check_is_context_condition(condition):
-            return condition(state, invocation_state=invocation_state or {})
+            return condition(state, invocation_state=invocation_state)
         legacy_condition = cast(LegacyEdgeCondition, condition)
         return legacy_condition(state)
 
@@ -1329,10 +1334,17 @@ class Graph(MultiAgentBase):
         Edges whose condition evaluates to False are excluded from the check — they
         represent paths that were intentionally skipped.
 
-        Re-evaluates conditions (rather than caching traversal results) intentionally:
-        invocation_state may change between invocations, so conditions must reflect
-        current runtime context. This means condition logic changes between serialize
-        and resume will also take effect — consistent with the graph being defined in code.
+        Note: this method is called at serialize time (before persisting) using the
+        invocation_state that is in memory at that moment. The resulting node IDs are
+        stored as ``next_nodes_to_execute`` and loaded directly on resume — so the
+        initial resume batch reflects serialize-time state. Subsequent routing decisions
+        (after those initial nodes complete) re-evaluate conditions with whatever
+        invocation_state the caller passes on the resume invocation.
+
+        Uses AND-join semantics (all traversable edges must have completed sources),
+        unlike live execution which uses OR-join (any satisfied edge is sufficient).
+        This is intentional: on resume we know the full set of completed work, so we
+        wait for all expected inputs rather than eagerly firing on partial results.
         """
         traversable_edges = [
             e
