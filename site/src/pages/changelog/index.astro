@@ -60,6 +60,7 @@ const areaCounts = getAreaCounts(allEntries)
 <script>
   // Client-side faceted filtering. State: SDK (toggle), language (global pref), areas (chips), search.
   const LANG_KEY = 'starlight-synced-tabs__jarkqt' // shared with the global LanguageToggle
+  // Must mirror SDK_META in src/config/changelog.ts (can't import server config here).
   const SDK_LANGS: Record<string, string[]> = { harness: ['python', 'typescript'], evals: ['python'] }
 
   const root = document
@@ -74,8 +75,11 @@ const areaCounts = getAreaCounts(allEntries)
   const activeCountEl = root.querySelector<HTMLElement>('[data-cl-active-count]')
 
   const params = new URLSearchParams(location.search)
+  // Validate the URL-provided sdk — an unknown value (typo'd/shared link)
+  // must fall back rather than crash every SDK_LANGS lookup below.
+  const urlSdk = params.get('sdk') || ''
   const state = {
-    sdk: params.get('sdk') || 'harness',
+    sdk: urlSdk in SDK_LANGS ? urlSdk : 'harness',
     areas: new Set((params.get('area') || '').split(',').filter(Boolean)),
     search: params.get('q') || '',
   }

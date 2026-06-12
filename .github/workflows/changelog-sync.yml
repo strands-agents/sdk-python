@@ -35,9 +35,26 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: strands-agents/devtools/changelog-release-pr@main
+      - name: Sync harness releases
+        uses: strands-agents/devtools/changelog-release-pr@main
         with:
           source-repo: strands-agents/harness-sdk
           mode: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.backfill)) && 'backfill' || 'single' }}
+          # Cron is a cheap backstop: only generate missing files (no
+          # re-enrichment API cost, never regresses existing files). An explicit
+          # dispatch backfill is a full refresh.
+          skip-existing: ${{ github.event_name == 'schedule' }}
           tag: ${{ github.event.release.tag_name || inputs.tag }}
+          github-token: ${{ github.token }}
+
+      # Evals backstop: evals' own release workflow opens the cross-repo PR for
+      # instant sync, but this catches missed events with plain github.token —
+      # evals is public (reads need no auth) and the PR targets this repo.
+      - name: Sync missed evals releases
+        if: github.event_name == 'schedule'
+        uses: strands-agents/devtools/changelog-release-pr@main
+        with:
+          source-repo: strands-agents/evals
+          mode: backfill
+          skip-existing: 'true'
           github-token: ${{ github.token }}
