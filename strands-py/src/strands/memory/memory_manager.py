@@ -10,8 +10,6 @@ As a :class:`~strands.plugins.plugin.Plugin`, the manager builds its tools at
 construction (exposed via the ``tools`` property) and wires automatic extraction
 in :meth:`MemoryManager.init_agent` for any store configured with an
 ``ExtractionConfig``.
-
-All public field and method names use ``snake_case``.
 """
 
 from __future__ import annotations

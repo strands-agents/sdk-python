@@ -46,7 +46,7 @@ from ...models.model import Model
 from ...types.content import ContentBlock, Message
 from ...types.exceptions import AggregateMemoryError
 from ..types import MemoryStore
-from .types import DEFAULT_MEMORY_MESSAGE_FILTER, ExtractorContext, MemoryMessageFilter
+from .types import DEFAULT_MEMORY_MESSAGE_FILTER, Extractor, ExtractorContext, MemoryMessageFilter
 
 logger = logging.getLogger(__name__)
 
@@ -125,14 +125,16 @@ class ExtractionCoordinator:
     def schedule(self, store: MemoryStore) -> None:
         """Save this store's unsaved messages in the background, non-blocking.
 
-        Dispatches :meth:`process` as a tracked background task and returns
-        immediately, so a trigger calling this from a hook never blocks the
-        agent. Exceptions are swallowed and logged.
+        Dispatches the save and returns immediately, so a trigger calling this
+        from a hook never blocks the agent. Failures are logged. A no-op when the
+        store is backed off and this request is not a probe.
 
         Args:
             store: The store to save for.
         """
-        task = asyncio.create_task(self.process(store))
+        task = self.process(store)
+        if task is None:
+            return
         self._background.add(task)
 
         def _done(completed: asyncio.Task) -> None:
@@ -145,18 +147,21 @@ class ExtractionCoordinator:
 
         task.add_done_callback(_done)
 
-    async def process(self, store: MemoryStore) -> None:
-        """Save this store's unsaved messages, queued behind its previous save.
+    def process(self, store: MemoryStore) -> asyncio.Task | None:
+        """Queue a save for this store behind its previous save.
 
-        Skips the save when the store is backed off and this request is not a
-        probe (see :meth:`_should_attempt`).
+        Returns the task running the save, or ``None`` when the store is backed
+        off and this request is not a probe (see :meth:`_should_attempt`).
 
         Args:
             store: The store to save for.
+
+        Returns:
+            The queued save task, or ``None`` if the save was skipped.
         """
         if not self._should_attempt(store):
-            return
-        await self._enqueue(store)
+            return None
+        return self._enqueue(store)
 
     def _enqueue(self, store: MemoryStore) -> asyncio.Task:
         """Queue a save for the store behind its previous one.
@@ -248,19 +253,21 @@ class ExtractionCoordinator:
         if not fresh:
             return
 
+        extraction = store.extraction
+        if extraction is None:
+            return
+
         # Mark these messages as saved before we start saving, so a queued save
         # behind this one will not pick them up again. If the save fails we put
         # the mark back (below) and they retry.
         self._marks[id(store)] = fresh[-1].seq
 
-        extraction = store.extraction
-        assert extraction is not None  # noqa: S101 - extraction stores always configure this.
         message_filter = extraction.filter or DEFAULT_MEMORY_MESSAGE_FILTER
         filtered = self._filter_messages([buffered.message for buffered in fresh], message_filter)
 
         try:
             if filtered:
-                await self._write(store, filtered)
+                await self._write(store, filtered, extraction.extractor)
                 # A successful write clears the failure streak and ends any
                 # backoff. Only a real write counts as recovery -- a fully
                 # filtered (empty) turn never touched the backend, so it leaves
@@ -273,28 +280,26 @@ class ExtractionCoordinator:
         finally:
             self._trim()
 
-    async def _write(self, store: MemoryStore, messages: list[Message]) -> None:
+    async def _write(self, store: MemoryStore, messages: list[Message], extractor: Extractor | None) -> None:
         """Save the messages to the store, one of two ways.
 
-        - Store has an extractor: run it to pull out facts, then write each fact
-          via ``add``. Fact writes run concurrently; if any fails the whole batch
-          is re-raised so the caller retries it next time (so a fact that already
+        - With an extractor: run it to pull out facts, then write each fact via
+          ``add``. Fact writes run concurrently; if any fails the whole batch is
+          re-raised so the caller retries it next time (so a fact that already
           saved may be written again -- stores should expect duplicates).
-        - No extractor: hand the raw messages to ``add_messages`` so the store
-          keeps their roles.
+        - Without an extractor: hand the raw messages to ``add_messages`` so the
+          store keeps their roles.
 
         Args:
             store: The store to write to.
             messages: The filtered messages to save.
+            extractor: The store's extractor, or ``None`` for the passthrough route.
 
         Raises:
             AggregateMemoryError: If any concurrent ``add`` write fails.
         """
-        extraction = store.extraction
-        assert extraction is not None  # noqa: S101 - extraction stores always configure this.
-
-        if extraction.extractor is not None:
-            entries = await extraction.extractor.extract(messages, ExtractorContext(default_model=self._default_model))
+        if extractor is not None:
+            entries = await extractor.extract(messages, ExtractorContext(default_model=self._default_model))
             results = await asyncio.gather(
                 *(store.add(entry.content, entry.metadata) for entry in entries),
                 return_exceptions=True,
@@ -338,8 +343,7 @@ class ExtractionCoordinator:
     def _block_kind(self, block: ContentBlock) -> str:
         """Return the kind of a content block (e.g. ``"text"``, ``"toolUse"``).
 
-        A text block is ``{"text": ...}``; every other block is a single-key
-        wrapper (``{"toolUse": ...}``, ...).
+        Each content block is a single-key mapping whose key is its kind.
 
         Args:
             block: The content block to classify.
@@ -347,8 +351,6 @@ class ExtractionCoordinator:
         Returns:
             The block's kind, or ``""`` for an empty block.
         """
-        if "text" in block:
-            return "text"
         return next(iter(block.keys()), "")
 
     def _on_save_failed(self, store: MemoryStore, mark_before_save: int, error: BaseException) -> None:

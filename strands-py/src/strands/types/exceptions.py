@@ -133,9 +133,7 @@ class AggregateMemoryError(Exception):
     """Raised when one or more memory store operations fail.
 
     Carries a human-readable ``message`` naming the failed stores and exposes each
-    underlying failure through the ``errors`` attribute. Used instead of
-    ``ExceptionGroup`` so the SDK supports Python 3.10 (``ExceptionGroup`` is only
-    available on 3.11+).
+    underlying failure through the ``errors`` attribute.
 
     Attributes:
         errors: The underlying exceptions that caused this aggregate failure.

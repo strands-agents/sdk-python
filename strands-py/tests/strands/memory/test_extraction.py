@@ -147,6 +147,18 @@ def _saved_texts(mock: AsyncMock) -> list[str]:
     return texts
 
 
+async def _drive(coordinator: ExtractionCoordinator, store: Any) -> None:
+    """Request a save and await it.
+
+    ``process`` returns the queued save task, or ``None`` when the store is
+    backed off and this request is not a probe; awaiting the task drives the save
+    to completion for deterministic assertions.
+    """
+    task = coordinator.process(store)
+    if task is not None:
+        await task
+
+
 # --------------------------------------------------------------------------- #
 # No-extractor passthrough
 # --------------------------------------------------------------------------- #
@@ -159,7 +171,7 @@ async def test_no_extractor_passthrough_hands_raw_batch_to_add_messages():
 
     coordinator.record(_user_msg("I prefer dark mode"))
     coordinator.record(_assistant_msg("Noted"))
-    await coordinator.process(store)
+    await _drive(coordinator, store)
 
     store.add_messages.assert_called_once()
     batch = store.add_messages.call_args.args[0]
@@ -182,7 +194,7 @@ async def test_extractor_route_calls_extractor_and_writes_each_entry_via_add():
     coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
 
     coordinator.record(_user_msg("something happened"))
-    await coordinator.process(store)
+    await _drive(coordinator, store)
 
     extractor.extract.assert_called_once()
     assert store.add.call_count == 2
@@ -200,7 +212,7 @@ async def test_extractor_route_passes_default_model_in_context():
     coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
 
     coordinator.record(_user_msg("hi"))
-    await coordinator.process(store)
+    await _drive(coordinator, store)
 
     extractor.extract.assert_called_once()
     context = _extractor_context(extractor.extract.call_args)
@@ -233,7 +245,7 @@ async def test_extractor_route_writes_entries_concurrently():
     coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
 
     coordinator.record(_user_msg("x"))
-    await coordinator.process(store)
+    await _drive(coordinator, store)
 
     assert store.add.call_count == 2
     assert first_invoked_during_second is True
@@ -248,8 +260,8 @@ async def test_extractor_route_rolls_back_and_retries_batch_on_entry_failure():
     coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
 
     coordinator.record(_user_msg("x"))
-    await coordinator.process(store)  # fails, mark rolled back
-    await coordinator.process(store)  # retries the same batch
+    await _drive(coordinator, store)  # fails, mark rolled back
+    await _drive(coordinator, store)  # retries the same batch
 
     # 2 writes on the first attempt + 2 on the retry.
     assert store.add.call_count == 4
@@ -268,7 +280,7 @@ async def test_filter_drops_tool_blocks_by_default_and_empties():
 
     coordinator.record(_user_msg("keep me"))
     coordinator.record(_tool_use_msg())  # tool-only message -> emptied -> dropped
-    await coordinator.process(store)
+    await _drive(coordinator, store)
 
     store.add_messages.assert_called_once()
     batch = store.add_messages.call_args.args[0]
@@ -286,7 +298,7 @@ async def test_filter_honors_a_custom_filter():
     coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
 
     coordinator.record(_user_msg("this is text and should be excluded"))
-    await coordinator.process(store)
+    await _drive(coordinator, store)
 
     # The only message was text, excluded -> emptied -> nothing to write.
     store.add_messages.assert_not_called()
@@ -303,9 +315,9 @@ async def test_hwm_processes_only_messages_added_since_the_last_save():
     coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
 
     coordinator.record(_user_msg("turn one"))
-    await coordinator.process(store)
+    await _drive(coordinator, store)
     coordinator.record(_user_msg("turn two"))
-    await coordinator.process(store)
+    await _drive(coordinator, store)
 
     assert store.add_messages.call_count == 2
     assert len(store.add_messages.call_args_list[0].args[0]) == 1
@@ -320,8 +332,8 @@ async def test_hwm_does_nothing_when_no_new_messages_since_the_mark():
     coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
 
     coordinator.record(_user_msg("only turn"))
-    await coordinator.process(store)
-    await coordinator.process(store)  # no new messages
+    await _drive(coordinator, store)
+    await _drive(coordinator, store)  # no new messages
 
     assert store.add_messages.call_count == 1
 
@@ -333,8 +345,8 @@ async def test_hwm_retries_the_same_messages_on_the_next_save_if_a_write_fails()
     coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
 
     coordinator.record(_user_msg("important"))
-    await coordinator.process(store)  # fails, mark rolled back
-    await coordinator.process(store)  # retries
+    await _drive(coordinator, store)  # fails, mark rolled back
+    await _drive(coordinator, store)  # retries
 
     assert store.add_messages.call_count == 2
     assert len(store.add_messages.call_args_list[1].args[0]) == 1
@@ -357,7 +369,7 @@ async def test_backs_off_to_periodic_probes_after_threshold_failures():
     requests = SAVE_FAILURES_BEFORE_BACKOFF + BACKOFF_PROBE_INTERVAL * probes
     for index in range(requests):
         coordinator.record(_user_msg(f"m{index}"))
-        await coordinator.process(store)
+        await _drive(coordinator, store)
 
     # Attempts every request until backoff, then only every probe interval.
     assert store.add_messages.call_count == SAVE_FAILURES_BEFORE_BACKOFF + probes
@@ -372,7 +384,7 @@ async def test_recovers_and_saves_the_buffered_backlog_when_the_store_comes_back
     # Drive the store into backoff.
     for index in range(SAVE_FAILURES_BEFORE_BACKOFF):
         coordinator.record(_user_msg(f"down{index}"))
-        await coordinator.process(store)
+        await _drive(coordinator, store)
 
     # Store recovers; run probe-interval requests so a probe lands and succeeds.
     store.add_messages.reset_mock()
@@ -380,7 +392,7 @@ async def test_recovers_and_saves_the_buffered_backlog_when_the_store_comes_back
     store.add_messages.return_value = None
     for index in range(BACKOFF_PROBE_INTERVAL):
         coordinator.record(_user_msg(f"up{index}"))
-        await coordinator.process(store)
+        await _drive(coordinator, store)
 
     # The recovering probe saved, and its batch includes the outage backlog.
     assert store.add_messages.called
@@ -400,8 +412,8 @@ async def test_a_healthy_store_keeps_saving_every_request_while_a_sibling_is_bac
     requests = SAVE_FAILURES_BEFORE_BACKOFF + BACKOFF_PROBE_INTERVAL * probes
     for index in range(requests):
         coordinator.record(_user_msg(f"m{index}"))
-        await coordinator.process(bad)
-        await coordinator.process(good)
+        await _drive(coordinator, bad)
+        await _drive(coordinator, good)
 
     # Good store saves every request; bad store stops at backoff + its probes.
     assert good.add_messages.call_count == requests
@@ -415,7 +427,7 @@ async def test_flush_resolves_even_when_a_store_is_failing():
     coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
 
     coordinator.record(_user_msg("x"))
-    await coordinator.process(store)  # fails (swallowed)
+    await _drive(coordinator, store)  # fails (swallowed)
 
     assert await coordinator.flush() is None
 
@@ -429,7 +441,7 @@ async def test_flush_bypasses_backoff_and_writes_the_backlog_of_a_recovered_stor
     # Drive the store into backoff.
     for index in range(SAVE_FAILURES_BEFORE_BACKOFF):
         coordinator.record(_user_msg(f"down{index}"))
-        await coordinator.process(store)
+        await _drive(coordinator, store)
 
     # Store recovers and a final message arrives, but no probe has landed yet.
     store.add_messages.reset_mock()
@@ -459,20 +471,20 @@ async def test_a_fully_filtered_empty_turn_does_not_reset_the_failure_streak():
     # One short of backoff.
     for index in range(SAVE_FAILURES_BEFORE_BACKOFF - 1):
         coordinator.record(_user_msg(f"m{index}"))
-        await coordinator.process(store)
+        await _drive(coordinator, store)
 
     # An all-tool-blocks turn: its own content filters away.
     coordinator.record(_tool_use_msg())
-    await coordinator.process(store)
+    await _drive(coordinator, store)
 
     # The next real failure tips into backoff (it would not if the streak reset).
     coordinator.record(_user_msg("nth"))
-    await coordinator.process(store)
+    await _drive(coordinator, store)
 
     # Backed off: the next request is probe-gated, so the backend isn't called.
     store.add_messages.reset_mock()
     coordinator.record(_user_msg("after"))
-    await coordinator.process(store)
+    await _drive(coordinator, store)
     store.add_messages.assert_not_called()
 
 
@@ -503,7 +515,7 @@ async def test_flush_does_not_re_extract_messages_already_processed():
     coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
 
     coordinator.record(_user_msg("a"))
-    await coordinator.process(store)  # already extracted
+    await _drive(coordinator, store)  # already extracted
     assert store.add_messages.call_count == 1
 
     await coordinator.flush()  # nothing fresh -> no-op
