@@ -18,5 +18,4 @@ entries:
   - { type: fix, breaking: false, scope: null, areas: [], title: "integration test updates", pr: 2262, prUrl: "https://github.com/strands-agents/sdk-python/pull/2262", commit: "ead3179", commitUrl: "https://github.com/strands-agents/sdk-python/commit/ead3179", author: mehtarac }
 newContributors:
   - { login: aidandaly24, pr: 2238 }
-  - { login: cogwirrel, pr: 2248 }
 ---

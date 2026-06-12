@@ -15,7 +15,4 @@ entries:
   - { type: other, breaking: false, scope: null, areas: [], title: "docs - when to modify package-lock.json", pr: 510, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/510", commit: "a0e2a30", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/a0e2a30", author: pgrayy }
   - { type: feat, breaking: false, scope: gemini, areas: [model], title: "add image, video, document, and reasoning content support", pr: 495, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/495", commit: "0363aa2", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/0363aa2", author: dbschmigelski }
   - { type: other, breaking: false, scope: null, areas: [hooks], title: "Add AgentInitializedEvent to Hook System", pr: 512, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/512", commit: "70ca82e", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/70ca82e", author: JackYPCOnline }
-newContributors:
-  - { login: jsamuel1, pr: 509 }
-  - { login: JackYPCOnline, pr: 512 }
 ---

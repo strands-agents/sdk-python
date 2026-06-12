@@ -15,6 +15,4 @@ entries:
   - { type: fix, breaking: false, scope: null, areas: [multiagent], title: "update finalize condition for workflow execution", pr: 543, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/543", commit: "7abf690", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/7abf690", author: Unshure }
   - { type: feat, breaking: false, scope: null, areas: [], title: "add environment-specific unit test naming convention", pr: 541, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/541", commit: "10d56b0", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/10d56b0", author: zastrowm }
   - { type: fix, breaking: false, scope: null, areas: [], title: "update env auth parameter name", pr: 534, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/534", commit: "7ff8d43", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/7ff8d43", author: Unshure }
-newContributors:
-  - { login: mehtarac, pr: 522 }
 ---

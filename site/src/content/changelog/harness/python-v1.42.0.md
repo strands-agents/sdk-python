@@ -46,5 +46,4 @@ newContributors:
   - { login: gtholpadi, pr: 2349 }
   - { login: he-yufeng, pr: 2353 }
   - { login: yananym, pr: 2305 }
-  - { login: chaynabors, pr: 2386 }
 ---

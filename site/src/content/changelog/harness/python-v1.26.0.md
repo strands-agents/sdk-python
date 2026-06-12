@@ -15,7 +15,6 @@ entries:
   - { type: fix, breaking: false, scope: bedrock, areas: [model], title: "add 'prompt is too long' to context window overflow mes…", pr: 1663, prUrl: "https://github.com/strands-agents/sdk-python/pull/1663", commit: "66fb308", commitUrl: "https://github.com/strands-agents/sdk-python/commit/66fb308", author: eladb3 }
   - { type: fix, breaking: false, scope: null, areas: [mcp], title: "fix mcp tests", pr: 1664, prUrl: "https://github.com/strands-agents/sdk-python/pull/1664", commit: "a43e936", commitUrl: "https://github.com/strands-agents/sdk-python/commit/a43e936", author: afarntrog }
 newContributors:
-  - { login: LucaButBoring, pr: 1475 }
   - { login: punkyoon, pr: 1643 }
   - { login: eladb3, pr: 1663 }
 ---

@@ -19,7 +19,4 @@ entries:
   - { type: refactor, breaking: false, scope: ci, areas: [multiagent], title: "extract code quality checks into separate workflow", pr: 450, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/450", commit: "dcf83a2", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/dcf83a2", author: zastrowm }
   - { type: refactor, breaking: false, scope: null, areas: [], title: "replace string with StopReason type for type safety", pr: 322, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/322", commit: "cdd7ecb", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/cdd7ecb", author: konippi }
   - { type: fix, breaking: false, scope: tests, areas: [mcp], title: "pin MCP SDK to 1.25.2", pr: 449, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/449", commit: "1b43ef8", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/1b43ef8", author: lizradway }
-newContributors:
-  - { login: pgrayy, pr: 431 }
-  - { login: dbschmigelski, pr: 444 }
 ---

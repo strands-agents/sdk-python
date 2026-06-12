@@ -18,5 +18,4 @@ entries:
   - { type: feat, breaking: false, scope: null, areas: [otel], title: "expose metrics/usage on message metadata", pr: 815, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/815", commit: "010da77", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/010da77", author: lizradway }
 newContributors:
   - { login: cogwirrel, pr: 810 }
-  - { login: poshinchen, pr: 814 }
 ---

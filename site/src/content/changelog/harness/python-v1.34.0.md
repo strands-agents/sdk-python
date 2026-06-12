@@ -17,8 +17,6 @@ entries:
   - { type: feat, breaking: false, scope: null, areas: [model], title: "add built-in tool support for OpenAI Responses API", pr: 2011, prUrl: "https://github.com/strands-agents/sdk-python/pull/2011", commit: "de9b149", commitUrl: "https://github.com/strands-agents/sdk-python/commit/de9b149", author: pgrayy }
   - { type: fix, breaking: false, scope: null, areas: [], title: "handle reasoning content in OpenAIResponsesModel request formatting", pr: 2013, prUrl: "https://github.com/strands-agents/sdk-python/pull/2013", commit: "e267a64", commitUrl: "https://github.com/strands-agents/sdk-python/commit/e267a64", author: pgrayy }
 newContributors:
-  - { login: notowen333, pr: 1932 }
-  - { login: agent-of-mkmeral, pr: 1997 }
   - { login: sanjeed5, pr: 1818 }
   - { login: Christian-kam, pr: 1745 }
 ---

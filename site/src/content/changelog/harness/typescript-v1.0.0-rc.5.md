@@ -27,6 +27,4 @@ entries:
   - { type: fix, breaking: false, scope: anthropic, areas: [model], title: "update maxTokens default value, remove dead default and haiku fallback", pr: 824, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/824", commit: "47e86ed", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/47e86ed", author: opieter-aws }
   - { type: chore, breaking: false, scope: null, areas: [otel], title: "upgrade to otel js sdk v2", pr: 867, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/867", commit: "e1ca5d4", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/e1ca5d4", author: lizradway }
   - { type: feat, breaking: false, scope: null, areas: [], title: "export MultiagentSaveLatestStrategy in top level index", pr: 873, prUrl: "https://github.com/strands-agents/sdk-typescript/pull/873", commit: "986421d", commitUrl: "https://github.com/strands-agents/sdk-typescript/commit/986421d", author: JackYPCOnline }
-newContributors:
-  - { login: gautamsirdeshmukh, pr: 864 }
 ---
