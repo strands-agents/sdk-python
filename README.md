@@ -39,8 +39,8 @@ This monorepo contains the Python SDK, TypeScript SDK, documentation site, and s
 
 | Directory | Description |
 |-----------|-------------|
-| `strands-py/` | Python SDK — agent loop, model providers, tools ([PyPI](https://pypi.org/project/strands-agents/) · [releases](https://github.com/strands-agents/harness-sdk/releases?q=python%2F&expanded=false)) |
-| `strands-ts/` | TypeScript SDK — agent loop, model providers, tools ([npm](https://www.npmjs.com/package/@strands-agents/sdk) · [releases](https://github.com/strands-agents/harness-sdk/releases?q=typescript%2F&expanded=false)) |
+| `strands-py/` | Python SDK: agent loop, model providers, tools ([PyPI](https://pypi.org/project/strands-agents/) · [releases](https://github.com/strands-agents/harness-sdk/releases?q=python%2F&expanded=false)) |
+| `strands-ts/` | TypeScript SDK: agent loop, model providers, tools ([npm](https://www.npmjs.com/package/@strands-agents/sdk) · [releases](https://github.com/strands-agents/harness-sdk/releases?q=typescript%2F&expanded=false)) |
 | `strands-wasm/` | WebAssembly bindings for running Python tools from TypeScript agents |
 | `strands-py-wasm/` | Python host for WASM components (bridges WIT interfaces to Python) |
 | `strandly/` | Developer CLI for local builds, codegen, and workspace tooling |
@@ -51,16 +51,16 @@ This monorepo contains the Python SDK, TypeScript SDK, documentation site, and s
 
 Build an agent harness. Control it end-to-end.
 
-- **Build your way** — Any model, any cloud. Context management, execution limits, and observability built in before you write a line of config. Swap backends when you scale; your code stays the same.
-- **Model agnostic** — First-class support for Amazon Bedrock, Anthropic, OpenAI, and Gemini, plus [many more providers](https://strandsagents.com/docs/user-guide/concepts/model-providers/) and custom ones.
-- **Stay in control** — The agent loop traces every decision by default. Hooks let you intercept any step to log it, validate it, or redirect it.
-- **Deliver outcomes that work** — Guardrails catch mistakes before they run. Steering handlers let agents correct themselves instead of failing silently.
+- **Build your way.** Any model, any cloud. Context management, execution limits, and observability built in before you write a line of config. Swap backends when you scale; your code stays the same.
+- **Model agnostic.** First-class support for Amazon Bedrock, Anthropic, OpenAI, and Gemini, plus [many more providers](https://strandsagents.com/docs/user-guide/concepts/model-providers/) and custom ones.
+- **Stay in control.** The agent loop traces every decision by default. Hooks let you intercept any step to log it, validate it, or redirect it.
+- **Deliver outcomes that work.** Guardrails catch mistakes before they run. Steering handlers let agents correct themselves instead of failing silently.
 
 Plus everything you'd expect: native MCP support, streaming, multi-agent patterns, and structured output.
 
 ## Quick Start
 
-Both SDKs default to the Amazon Bedrock model provider — you'll need AWS credentials configured and model access enabled for Claude Sonnet. The [Quickstart Guide](https://strandsagents.com/docs/user-guide/quickstart/overview/) covers configuring other providers (Anthropic, OpenAI, Gemini, Ollama, and more).
+Both SDKs default to the Amazon Bedrock model provider, so you'll need AWS credentials configured and model access enabled for Claude Sonnet. The [Quickstart Guide](https://strandsagents.com/docs/user-guide/quickstart/overview/) covers configuring other providers (Anthropic, OpenAI, Gemini, Ollama, and more).
 
 ### Python
 
@@ -78,7 +78,7 @@ agent = Agent(tools=[calculator])
 agent("What is the square root of 1764")
 ```
 
-Continue in the [Python SDK README](strands-py/) — tools, model providers, MCP, bidirectional streaming.
+Continue in the [Python SDK README](strands-py/) for tools, model providers, MCP, and bidirectional streaming.
 
 ### TypeScript
 
@@ -96,7 +96,7 @@ const result = await agent.invoke('What is the square root of 1764?')
 console.log(result)
 ```
 
-Continue in the [TypeScript SDK README](strands-ts/) — Zod-typed tools, structured output, MCP, multi-agent patterns.
+Continue in the [TypeScript SDK README](strands-ts/) for Zod-typed tools, structured output, MCP, and multi-agent patterns.
 
 ## Documentation
 
@@ -106,10 +106,10 @@ For detailed guidance & examples, explore our documentation:
 - [Quick Start Guide](https://strandsagents.com/docs/user-guide/quickstart/overview/)
 - [Agent Loop](https://strandsagents.com/docs/user-guide/concepts/agents/agent-loop/)
 - [Examples](https://strandsagents.com/docs/examples/)
-- [API Reference — Python](https://strandsagents.com/docs/api/python/strands.agent.agent/) · [TypeScript](https://strandsagents.com/docs/api/typescript/)
+- API Reference: [Python](https://strandsagents.com/docs/api/python/strands.agent.agent/) · [TypeScript](https://strandsagents.com/docs/api/typescript/)
 - [Production & Deployment Guide](https://strandsagents.com/docs/user-guide/deploy/operating-agents-in-production/)
 
-The docs are part of this monorepo — every page on strandsagents.com is built from [`site/`](site/). Spot a problem? Edit the page and open a PR.
+The docs are part of this monorepo: every page on strandsagents.com is built from [`site/`](site/). Spot a problem? Edit the page and open a PR.
 
 ## Development
 
