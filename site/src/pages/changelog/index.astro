@@ -312,6 +312,38 @@ const areaCounts = getAreaCounts(allEntries)
     rail?.removeAttribute('data-open'); scrim?.removeAttribute('data-open')
   })
 
+  // Copy-link buttons: write the version's deep link to the clipboard and
+  // flash a "Copied!" tip. Also set the hash so the URL reflects the version.
+  root.querySelectorAll<HTMLElement>('[data-cl-copy-link]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.clCopyLink!
+      const url = `${location.origin}${location.pathname}${location.search}#${id}`
+      try { await navigator.clipboard.writeText(url) } catch { /* clipboard unavailable */ }
+      history.replaceState(null, '', `#${id}`)
+      btn.classList.add('copied')
+      setTimeout(() => btn.classList.remove('copied'), 1200)
+    })
+  })
+
+  // Scroll-spy: light up the timeline rail of the version currently in view.
+  let currentSpy: HTMLElement | null = null
+  const spy = new IntersectionObserver(
+    (records) => {
+      // Pick the intersecting version nearest the top band of the viewport.
+      const visible = records.filter((r) => r.isIntersecting).map((r) => r.target as HTMLElement)
+      if (!visible.length) return
+      const next = visible[0]
+      if (next !== currentSpy) {
+        currentSpy?.classList.remove('cl-current')
+        next.classList.add('cl-current')
+        currentSpy = next
+      }
+    },
+    // A narrow band near the top of the viewport decides the "current" version.
+    { rootMargin: '-10% 0px -70% 0px' }
+  )
+  versions.forEach((v) => spy.observe(v))
+
   // Deep links: if the URL anchors a version that the current filter state
   // hides (wrong SDK/language selected), switch filters so it's visible,
   // then scroll. Runs before the initial apply() so there's no flash.
