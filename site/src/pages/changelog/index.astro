@@ -312,5 +312,32 @@ const areaCounts = getAreaCounts(allEntries)
     rail?.removeAttribute('data-open'); scrim?.removeAttribute('data-open')
   })
 
+  // Deep links: if the URL anchors a version that the current filter state
+  // hides (wrong SDK/language selected), switch filters so it's visible,
+  // then scroll. Runs before the initial apply() so there's no flash.
+  function honorAnchor() {
+    const id = decodeURIComponent(location.hash.slice(1))
+    if (!id) return false
+    const target = id ? root.getElementById(id) : null
+    if (!target || !target.classList.contains('cl-version')) return false
+    const tSdk = target.dataset.sdk
+    const tLang = target.dataset.language
+    if (tSdk && tSdk !== state.sdk && tSdk in SDK_LANGS) {
+      state.sdk = tSdk
+      sdkBtns.forEach((b) => b.setAttribute('aria-pressed', b.dataset.clSdkBtn === tSdk ? 'true' : 'false'))
+    }
+    if (tSdk === 'harness' && tLang && tLang !== effectiveLang()) {
+      setLang(tLang)
+    }
+    return true
+  }
+
+  const hadAnchor = honorAnchor()
   apply()
+  if (hadAnchor) {
+    // After filters reveal the target, bring it into view (content-visibility
+    // resolves layout on demand, so scrollIntoView works).
+    root.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView()
+  }
+  window.addEventListener('hashchange', () => { if (honorAnchor()) { apply(); root.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView() } })
 </script>

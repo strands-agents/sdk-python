@@ -24,6 +24,9 @@ const feat = split(features)
 const fix = split(fixes)
 const hasEntries = d.entries.length > 0
 
+// Stable deep-link anchor, e.g. #harness-python-v1.43.0, #evals-v0.2.1
+const anchorId = [d.sdk, d.language, `v${d.version}`].filter(Boolean).join('-')
+
 // Render the optional curated highlights string as inline markdown (code,
 // links, emphasis) so authors can use backticks etc.
 const md = new MarkdownIt({ html: false, linkify: true })
@@ -36,9 +39,11 @@ const highlightsHtml = d.highlights ? md.renderInline(d.highlights.trim()) : ''
 // above is escaped (html:false); the body is not.
 const { Content } = await render(release)
 ---
-<article class="cl-version" data-sdk={d.sdk} data-language={d.language ?? ''}>
+<article class="cl-version" id={anchorId} data-sdk={d.sdk} data-language={d.language ?? ''}>
   <div class="cl-version-meta">
-    <div class="cl-version-num">v{d.version}</div>
+    <div class="cl-version-num">
+      <a class="cl-anchor" href={`#${anchorId}`} aria-label={`Link to v${d.version}`}>#</a>v{d.version}
+    </div>
     <div class="cl-version-date">{formatChangelogDate(d.date)}</div>
     <div class="cl-version-links">
       <a href={d.releaseUrl} target="_blank" rel="noopener">GitHub release ↗</a>

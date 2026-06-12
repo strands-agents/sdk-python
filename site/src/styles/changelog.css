@@ -74,9 +74,20 @@
   background: color-mix(in srgb, var(--sl-color-accent) 8%, transparent); }
 
 /* version block + timeline */
-.cl-version { display: flex; gap: 1.1rem; }
+.cl-version { display: flex; gap: 1.1rem;
+  /* Perf: skip layout/paint for off-screen versions; the intrinsic-size hint
+     keeps the scrollbar stable. DOM stays complete, so filtering, anchors,
+     and find-in-page all keep working. */
+  content-visibility: auto; contain-intrinsic-size: auto 320px;
+  /* Anchored version lands clear of the site header. */
+  scroll-margin-top: 5.5rem; }
 .cl-version-meta { min-width: 104px; text-align: right; }
-.cl-version-num { color: var(--sl-color-white); font-weight: 700; font-size: 1.3rem; }
+.cl-version-num { color: var(--sl-color-white); font-weight: 700; font-size: 1.3rem; position: relative; }
+/* Hover-revealed deep-link anchor to the left of the version number. */
+.cl-anchor { position: absolute; right: 100%; padding-right: 0.25rem; color: var(--sl-color-gray-4);
+  text-decoration: none; opacity: 0; transition: opacity 0.12s ease; }
+.cl-version:hover .cl-anchor, .cl-anchor:focus-visible { opacity: 1; }
+.cl-anchor:hover { color: var(--sl-color-accent); }
 .cl-version-date { color: var(--sl-color-gray-3); font-size: 0.8rem; margin-top: 2px; }
 .cl-version-links { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.5rem; align-items: flex-end; }
 .cl-version-links a { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; color: var(--sl-color-gray-3); text-decoration: none; }
