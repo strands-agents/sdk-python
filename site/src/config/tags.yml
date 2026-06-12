@@ -46,6 +46,7 @@
 - hooks
 - interventions
 - local-models
+- memory
 - multi-agent
 - multimodal-evaluation
 - prompt-authoring

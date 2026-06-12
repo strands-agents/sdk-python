@@ -1,0 +1,175 @@
+---
+title: Memory
+description: "Give agents long-term memory across sessions: store facts to configurable backends, recall them via tools or injection, and extract them automatically."
+languages: [typescript]
+tags: [memory]
+sidebar:
+  badge:
+    text: New
+    variant: tip
+---
+
+By default a Strands agent starts every conversation from zero. It cannot recall a user's preferences, past decisions, or anything it learned in an earlier session. The `MemoryManager` adds long-term memory: it persists knowledge to configurable backends, recalls it when relevant, and can extract it from conversations on its own.
+
+## Overview
+
+Memory is distinct from the SDK's other state features:
+
+- [Session management](./session-management) persists the full conversation so an agent can resume where it left off.
+- [Conversation management](./conversation-management) keeps the conversation within the model's context window during a session.
+- **Memory** carries durable knowledge *across* sessions, without replaying past conversations.
+
+A `MemoryManager` owns one or more [stores](#stores) and handles three jobs:
+
+1. **Recall** - letting the agent search stored knowledge on demand through a tool it calls.
+2. **Extraction** - turning conversation messages into durable entries and writing them to stores.
+3. **Injection** - passively folding relevant knowledge into the model input without the agent having to ask.
+
+## Getting Started
+
+Attach a `MemoryManager` to an agent through the `memoryManager` config field. It accepts either a config object (auto-wrapped) or a `MemoryManager` instance:
+
+```typescript
+--8<-- "user-guide/concepts/agents/memory_imports.ts:getting_started_imports"
+
+--8<-- "user-guide/concepts/agents/memory.ts:getting_started"
+```
+
+By default the manager registers a `search_memory` tool the agent can call to recall knowledge. The `add_memory` tool is opt-in (set `addToolConfig: true`) so the agent can also write to memory.
+
+Pass a `MemoryManager` instance instead of a config object when you want to call its methods directly:
+
+```typescript
+--8<-- "user-guide/concepts/agents/memory_imports.ts:instance_form_imports"
+
+--8<-- "user-guide/concepts/agents/memory.ts:instance_form"
+```
+
+## Stores
+
+A `MemoryStore` is a backend that holds and retrieves knowledge: a vector database, a managed service like [Amazon Bedrock Knowledge Bases](./bedrock-knowledge-base), or your own implementation. Every store is searchable; a store that also accepts writes sets `writable: true`.
+
+Stores carry their own configuration as instance properties:
+
+| Field | Purpose |
+|-------|---------|
+| `name` | Unique identifier, used to target the store from tools and the programmatic API. |
+| `description` | Human-readable summary, included in the memory tool descriptions so the model knows what each store holds. |
+| `maxSearchResults` | Default result cap per search when a caller does not pass one. The manager falls back to `3` if neither is set. |
+| `writable` | Whether the store accepts writes. A writable store must implement a write sink (`add`, `addMessages`, or both). |
+
+A manager can own several stores at once, which keeps multi-tenancy out of your application code. A single agent can query personal, team, and organization knowledge together, and each store handles its own scoping:
+
+```typescript
+--8<-- "user-guide/concepts/agents/memory_imports.ts:multi_store_imports"
+
+--8<-- "user-guide/concepts/agents/memory.ts:multi_store"
+```
+
+The manager attaches each store's `name` to its results, so the model (and your code) can tell which store produced each entry and target follow-up queries.
+
+## Memory Tools
+
+The manager registers two tools the agent can call during the loop, both configurable:
+
+```typescript
+--8<-- "user-guide/concepts/agents/memory_imports.ts:search_tool_config_imports"
+
+--8<-- "user-guide/concepts/agents/memory.ts:search_tool_config"
+```
+
+`search_memory` is registered by default; the agent calls it to recall knowledge. Disable it with `searchToolConfig: false`, or rename it as above. When the manager owns multiple stores, their names and descriptions are folded into the tool description so the model can target specific stores by name, or omit the target to search all of them.
+
+`add_memory` is opt-in. Set `addToolConfig: true` to let the agent write to every writable store, or pass a config object to restrict it to specific stores by name. By default the tool awaits writes so it can report failures back to the model; `waitForWrites: false` makes it fire-and-forget so a slow backend never blocks the agent loop.
+
+## Programmatic Access
+
+Given the `memoryManager` instance from above, you can search and write directly, outside the agent loop. Both methods target all relevant stores by default, or a subset by name:
+
+```typescript
+--8<-- "user-guide/concepts/agents/memory.ts:programmatic"
+```
+
+Partial failures are handled per method. `search` logs and skips any store that fails, returning whatever the rest produced. `add` validates the target stores first, then throws an `AggregateError` if any write fails, so a failed write is never silent.
+
+## Automatic Extraction
+
+Instead of relying on the agent to call `add_memory`, a writable store can extract knowledge from the conversation on its own. Set `extraction` on the store to enable it. The simplest form turns it on with defaults:
+
+```typescript
+--8<-- "user-guide/concepts/agents/memory_imports.ts:extraction_defaults_imports"
+
+--8<-- "user-guide/concepts/agents/memory.ts:extraction_defaults"
+```
+
+With defaults, extraction runs every 5 turns and uses a `ModelExtractor` to distill facts from the conversation.
+
+### Triggers and extractors
+
+An extraction config has two parts. A **trigger** decides *when* extraction runs; an **extractor** decides *how* messages become entries:
+
+```typescript
+--8<-- "user-guide/concepts/agents/memory_imports.ts:extraction_custom_imports"
+
+--8<-- "user-guide/concepts/agents/memory.ts:extraction_custom"
+```
+
+Two triggers ship with the SDK. `InvocationTrigger` runs after every turn: highest fidelity, but the most expensive when an extractor makes a model call each turn. `IntervalTrigger({ turns })` runs every N turns instead, a controllable middle ground; `extraction: true` uses it with an interval of 5. Pass an array of triggers to compose them (extraction runs whenever any fires), or extend `ExtractionTrigger` for custom logic.
+
+The `ModelExtractor` calls a language model to distill messages into discrete facts. It defaults to the agent's own model; pass a cheaper `model` to cut cost, or a `systemPrompt` to steer what counts as a fact. Some backends extract server-side instead: a store that implements the `addMessages` sink receives the raw message batch with no model call, so for those you omit the extractor.
+
+:::note[Extraction writes are at-least-once]
+The manager tracks a high-water mark per store, so messages are not extracted twice. But if a batch fails it is retried, so a store's `add` may be called again with content it already stored. Custom stores used with extraction should tolerate duplicate writes.
+:::
+
+Extraction runs in the background, so the most recent turn may not be saved when the agent responds. Call `memoryManager.flush()` at a boundary you control, typically your shutdown handler, to force a final save. Do not call it after every turn alongside a periodic trigger, since that forces a save each time and defeats the trigger's schedule.
+
+## Context Injection
+
+Injection searches memory *before* a model call and folds the top results into the prompt, so relevant knowledge is present without the model choosing to call `search_memory`. It is opt-in through the `injection` field:
+
+```typescript
+--8<-- "user-guide/concepts/agents/memory_imports.ts:injection_defaults_imports"
+
+--8<-- "user-guide/concepts/agents/memory.ts:injection_defaults"
+```
+
+With `injection: true`, the manager injects on a fresh user turn, retrieves up to 5 entries, derives the query adaptively from the latest message, and renders the results as a `<memory>` block.
+
+The injected text is **ephemeral by design**: it augments the model input for a single call and never persists into the durable conversation or session.
+
+Customize retrieval, timing, and formatting with a config object:
+
+```typescript
+--8<-- "user-guide/concepts/agents/memory_imports.ts:injection_custom_imports"
+
+--8<-- "user-guide/concepts/agents/memory.ts:injection_custom"
+```
+
+- `trigger` accepts `'userTurn'` (the default, inject only on a fresh user ask), `'everyTurn'` (inject before every model call, for autonomous agents), or a predicate over the conversation, as shown above.
+- `maxEntries` caps how many entries are retrieved and injected.
+- `query` overrides the adaptive default with your own query derivation. Return `undefined` to skip injection for this call.
+- `format` renders the retrieved entries. The default emits an escaped `<memory>` block; a custom formatter that emits markup owns its own escaping.
+
+:::note[The injection engine is generic]
+Memory injection is built on a reusable engine. For non-memory context (a clock, a sandbox descriptor, a fixed reminder), the same mechanism is exposed as the `ContextInjector` vended plugin: supply a `renderContent` callback and it folds the result into the model input the same way. See the `@strands-agents/sdk/vended-plugins/context-injector` subpath.
+:::
+
+## Best Practices
+
+- **Pick a retrieval mode that fits the agent.** The `search_memory` tool gives the model control but depends on its judgment to call it. Injection guarantees a baseline of context every turn at the cost of a larger prompt. They compose: enable both when you want guaranteed context plus on-demand lookups.
+- **Tune trigger cadence against cost.** Every-turn extraction with a model extractor means a model call per turn. An interval trigger trades coverage for cost; the high-water mark still picks up the skipped turns when it fires.
+- **Scope stores for multi-tenancy.** Give each tenant its own scoped store rather than mixing knowledge in one. Stores handle scoping in their own config (see [Bedrock Knowledge Base](./bedrock-knowledge-base)).
+- **Make custom stores tolerate duplicate writes** when used with extraction, since failed batches are retried.
+
+## Custom Stores
+
+Implement the `MemoryStore` interface to back memory with any system. Only `search` is required; add `add` or `addMessages` to make the store writable, and `getTools` to expose backend-native tools alongside the manager's:
+
+```typescript
+--8<-- "user-guide/concepts/agents/memory_imports.ts:custom_store_imports"
+
+--8<-- "user-guide/concepts/agents/memory.ts:custom_store"
+```
+
+For a reference implementation backed by a managed service, see the [Bedrock Knowledge Base store](./bedrock-knowledge-base).

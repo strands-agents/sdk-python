@@ -1,0 +1,157 @@
+---
+title: Bedrock Knowledge Base Store
+description: "Back agent memory with Amazon Bedrock Knowledge Bases: semantic search over a managed vector store and document ingestion for CUSTOM and S3 data sources."
+languages: [typescript]
+tags: [memory, bedrock, aws]
+sidebar:
+  label: "Bedrock Knowledge Base"
+  badge:
+    text: New
+    variant: tip
+---
+
+`BedrockKnowledgeBaseStore` is a [`MemoryStore`](./memory#stores) backed by Amazon Bedrock Knowledge Bases. It runs semantic search through the Bedrock Retrieve API and ingests documents through `IngestKnowledgeBaseDocuments`, so you get a managed vector store for long-term agent memory without running your own infrastructure.
+
+It is imported from its own subpath:
+
+```typescript
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base_imports.ts:read_only_imports"
+
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base.ts:read_only"
+```
+
+A store with only a `knowledgeBaseId` is read-only: the agent can search it but never writes to it. Searching is the only thing every store must support, so this is the minimal configuration.
+
+## Getting Started
+
+To let the agent (or extraction) write memories, set `writable: true` and point the store at a data source that accepts ingestion:
+
+```typescript
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base_imports.ts:writable_custom_imports"
+
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base.ts:writable_custom"
+```
+
+## Configuration
+
+The store's configuration is split into two objects so a single knowledge base connection can be reused across many stores.
+
+### Store config
+
+The outer `BedrockKnowledgeBaseStoreConfig` carries the per-store identity and behavior, plus the [shared `MemoryStore` fields](./memory#stores) (`name`, `description`, `maxSearchResults`, `writable`, `extraction`):
+
+| Field | Purpose |
+|-------|---------|
+| `config` | The knowledge base connection (see below). Reuse one across stores that differ only by `scope`. |
+| `scope` | Logical namespace isolating documents. Applied as a metadata filter on search and stamped on writes. |
+| `filter` | Explicit retrieval filter; overrides the auto-generated scope filter on search. |
+
+### Connection config
+
+The inner `BedrockKnowledgeBaseConfig` is the reusable connection: which knowledge base, which data source, and the clients used to reach them:
+
+| Field | Purpose |
+|-------|---------|
+| `knowledgeBaseId` | The Bedrock Knowledge Base to query and ingest into. Required. |
+| `dataSourceType` | `'CUSTOM'`, `'S3'`, or `'OTHER'`. Governs whether and how the store can be written to. |
+| `dataSourceId` | The data source to ingest into. Required for writes. |
+| `s3` | S3 ingestion settings (`bucket`, `prefix`). Required when `dataSourceType` is `'S3'`. |
+| `scopeMetadataKey` | Metadata attribute key used for scope filtering. Defaults to `'namespace'`. |
+| `runtimeClient` / `agentClient` | Pre-constructed AWS clients. When omitted, default clients are constructed using the standard credential chain. |
+
+Because the connection is a separate object, you build it once and vary only `name` and `scope` per store. This is the cheap way to give each tenant an isolated namespace over a single knowledge base:
+
+```typescript
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base_imports.ts:scoped_stores_imports"
+
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base.ts:scoped_stores"
+```
+
+## Data Source Types and Writability
+
+Only data sources that accept direct ingestion can be written to. The effective writability is `writable && (dataSourceType is 'CUSTOM' or 'S3')`: a store is writable only when you opt in *and* the backend supports ingestion.
+
+| `dataSourceType` | Writable | How `add` works |
+|------------------|----------|-----------------|
+| `CUSTOM` | Yes | Ingests the content as inline text, with scope and metadata attached as inline attributes. |
+| `S3` | Yes | Uploads the content to the configured `s3` bucket and ingests that object. Requires an `s3` config. |
+| `OTHER` | No | External backends such as Confluence, SharePoint, Web, or SQL that sync from their own source or are query-only. Read-only. |
+| omitted | No | Read-only. |
+
+A writable `CUSTOM` store needs `dataSourceId`. A writable `S3` store needs `dataSourceId` and an `s3` config:
+
+```typescript
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base_imports.ts:s3_store_imports"
+
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base.ts:s3_store"
+```
+
+:::note[S3 metadata sidecars]
+An S3 document can't carry metadata inline, so when `scope` or `metadata` are present a single `add` writes two objects: the content as a `.txt` object, and a `<object-key>.metadata.json` sidecar beside it (Bedrock's convention for attaching attributes to an S3 object). Uploads are not transactional: if a later step fails, any already-uploaded objects remain in the bucket un-ingested, where a future sync may pick them up or they can be cleaned up out of band.
+:::
+
+## Search and Ingestion
+
+`search` runs the Bedrock Retrieve API and returns entries ordered by relevance, while `add` ingests new content and returns its document id:
+
+```typescript
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base_imports.ts:search_imports"
+
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base.ts:search"
+```
+
+The search result cap defaults to `10` when neither the call nor the store sets one. Each entry's `metadata` carries the document's own attributes plus two reserved synthetic keys: `_relevanceScore` (the Bedrock relevance score) and `_sourceLocation` (the retrieval location). When `scope` is set, search filters to that namespace automatically; an explicit `filter` overrides the scope-derived one. Note the asymmetry: an explicit `filter` affects search only, while writes always scope by `scope`.
+
+The `documentId` from `add` is the generated UUID for a `CUSTOM` document, or the `s3://` URI of the uploaded object for `S3`. Writes require `dataSourceId` (and an `s3` config for S3 data sources); a write against a missing or read-only configuration throws.
+
+## Scope and Namespaces
+
+`scope` isolates documents within a single knowledge base. It is stamped on every write (under `scopeMetadataKey`, default `'namespace'`) and applied as a metadata filter on search. Unlike `name`, scope is not a routing identity, so it never affects which store the `MemoryManager` targets. For per-tenant isolation, construct one store per scope; since they share a connection, this is cheap.
+
+## Extraction
+
+Because the store implements `add` (not `addMessages`), enabling [automatic extraction](./memory#automatic-extraction) defaults to a client-side `ModelExtractor` that distills facts from the conversation and writes each one through `add`. Set `extraction: true` for defaults, or pass a config to customize the trigger and extractor:
+
+```typescript
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base_imports.ts:extraction_imports"
+
+--8<-- "user-guide/concepts/agents/bedrock-knowledge-base.ts:extraction"
+```
+
+See [Automatic Extraction](./memory#automatic-extraction) on the Memory page for triggers, extractors, and flushing.
+
+## Required IAM Permissions
+
+The credentials the store uses must allow the Bedrock operations it calls, plus S3 writes when using an S3 data source:
+
+- `bedrock:Retrieve` - for search.
+- `bedrock:IngestKnowledgeBaseDocuments` - for writes (`CUSTOM` and `S3`).
+- `s3:PutObject` - for writes to an `S3` data source, on the configured bucket and prefix.
+
+Here is a sample IAM policy for a writable store backed by a `CUSTOM` data source:
+
+```json
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:Retrieve",
+                "bedrock:IngestKnowledgeBaseDocuments"
+            ],
+            "Resource": "arn:aws:bedrock:*:*:knowledge-base/KB123"
+        }
+    ]
+}
+```
+
+For an `S3` data source, add `s3:PutObject` on the bucket and prefix the store uploads to:
+
+```json
+{
+    "Effect": "Allow",
+    "Action": "s3:PutObject",
+    "Resource": "arn:aws:s3:::my-agent-memories/memories/*"
+}
+```

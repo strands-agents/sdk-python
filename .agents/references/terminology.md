@@ -13,8 +13,9 @@ One concept, one term. Never vary for stylistic reasons. This file is the canoni
 | Pre-built tools from strands-agents-tools | community tools | built-in tools, standard tools, default tools |
 | The MCP protocol for tool integration | MCP tools | MCP functions, MCP integrations, protocol tools |
 | Configuring which model to use | model provider | model backend, LLM provider, inference provider |
-| Maintaining conversation across turns (user-facing concept) | session management | context persistence, memory, conversation history |
+| Maintaining conversation across turns (user-facing concept) | session management | context persistence, conversation history (and "memory" only when it means conversation persistence; see "long-term knowledge" below for the distinct `MemoryManager` feature) |
 | The SDK class that implements session management | conversation manager | session handler, context manager (note: `ConversationManager` is the API class name; "session management" is the user-facing concept in docs) |
+| Durable knowledge an agent recalls across sessions (the `MemoryManager` feature) | memory (or long-term memory) | knowledge store, recall (note: this is the `MemoryManager`/`MemoryStore` feature, distinct from session management; "memory" is correct here and only banned when it actually means session persistence) |
 | Controlling agent behavior at runtime | hooks | middleware, interceptors, callbacks (hooks is Strands-specific) |
 | Multiple agents working together | multi-agent | multi-agent system, agent orchestration, agent coordination |
 | Agent-to-agent communication pattern | agents as tools | agent chaining, agent delegation, nested agents |

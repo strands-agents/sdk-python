@@ -1,0 +1,47 @@
+// @ts-nocheck
+
+// --8<-- [start:getting_started_imports]
+import { Agent, BedrockModel } from '@strands-agents/sdk'
+import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+// --8<-- [end:getting_started_imports]
+
+// --8<-- [start:instance_form_imports]
+import { Agent, MemoryManager, BedrockModel } from '@strands-agents/sdk'
+import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+// --8<-- [end:instance_form_imports]
+
+// --8<-- [start:multi_store_imports]
+import { Agent, BedrockModel } from '@strands-agents/sdk'
+import {
+  BedrockKnowledgeBaseStore,
+  type BedrockKnowledgeBaseConfig,
+} from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+// --8<-- [end:multi_store_imports]
+
+// --8<-- [start:search_tool_config_imports]
+import { Agent, BedrockModel } from '@strands-agents/sdk'
+import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+// --8<-- [end:search_tool_config_imports]
+
+// --8<-- [start:extraction_defaults_imports]
+import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+// --8<-- [end:extraction_defaults_imports]
+
+// --8<-- [start:extraction_custom_imports]
+import { InvocationTrigger, ModelExtractor, BedrockModel } from '@strands-agents/sdk'
+import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+// --8<-- [end:extraction_custom_imports]
+
+// --8<-- [start:injection_defaults_imports]
+import { Agent, BedrockModel } from '@strands-agents/sdk'
+import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+// --8<-- [end:injection_defaults_imports]
+
+// --8<-- [start:injection_custom_imports]
+import { Agent, BedrockModel, type MessageData } from '@strands-agents/sdk'
+import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
+// --8<-- [end:injection_custom_imports]
+
+// --8<-- [start:custom_store_imports]
+import type { MemoryStore, MemoryEntry, SearchOptions } from '@strands-agents/sdk'
+// --8<-- [end:custom_store_imports]
