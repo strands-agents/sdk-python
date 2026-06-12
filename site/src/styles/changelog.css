@@ -91,11 +91,12 @@
   opacity: 0; transition: opacity 0.12s ease; }
 .cl-version:hover .cl-anchor, .cl-anchor:focus-visible { opacity: 1; }
 .cl-anchor:hover { color: var(--sl-color-accent); }
-/* "✓ Copied" floats as a tooltip ABOVE the version number — absolutely
-   positioned relative to .cl-version-num so no layout shift, and it stays
-   inside the version box (content-visibility paint-containment clips
-   anything positioned outside the box, so it must overlay, not escape). */
-.cl-anchor-tip { position: absolute; bottom: calc(100% + 0.2rem); right: 0; z-index: 2;
+/* "✓ Copied" floats as a tooltip BELOW the version number — absolutely
+   positioned (no layout shift). It must point DOWN into the box interior:
+   the version number sits at the box's top edge, so anything positioned
+   above it escapes the box and gets clipped by content-visibility's
+   paint containment. Below = inside the box = visible. */
+.cl-anchor-tip { position: absolute; top: calc(100% + 0.25rem); right: 0; z-index: 2;
   padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;
   background: var(--sl-color-accent); color: var(--sl-color-text-invert);
   white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.15s ease; }
