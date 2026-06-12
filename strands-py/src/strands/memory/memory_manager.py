@@ -2,14 +2,9 @@
 
 The :class:`MemoryManager` manages one or more
 :class:`~strands.memory.types.MemoryStore` backends and exposes ``search_memory``
-/ ``add_memory`` tools for agent-driven recall and persistence, alongside any
-tools the stores themselves provide via
-:meth:`~strands.memory.types.MemoryStore.get_tools`.
-
-As a :class:`~strands.plugins.plugin.Plugin`, the manager builds its tools at
-construction (exposed via the ``tools`` property) and wires automatic extraction
-in :meth:`MemoryManager.init_agent` for any store configured with an
-``ExtractionConfig``.
+/ ``add_memory`` tools, alongside any tools the stores provide. As a
+:class:`~strands.plugins.plugin.Plugin`, it builds its tools at construction and
+wires automatic extraction in :meth:`MemoryManager.init_agent`.
 """
 
 from __future__ import annotations
@@ -53,36 +48,17 @@ ADD_TOOL_DESCRIPTION = (
     "the user shares something worth recalling later."
 )
 
-# Default maximum results per store when neither the caller nor the store
-# specifies one. Resolved by the ``MemoryManager``.
+# Default maximum results per store when neither caller nor store specifies one.
 DEFAULT_MAX_SEARCH_RESULTS = 3
 
 
 def _normalize_triggers(trigger: ExtractionTrigger | list[ExtractionTrigger]) -> list[ExtractionTrigger]:
-    """Normalize a store's ``trigger`` field (a single trigger or a list) to a list.
-
-    Args:
-        trigger: A single trigger or a list of triggers.
-
-    Returns:
-        The triggers as a list.
-    """
+    """Normalize a store's ``trigger`` field (a single trigger or a list) to a list."""
     return list(trigger) if isinstance(trigger, list) else [trigger]
 
 
 def _flatten_reasons(reasons: list[BaseException]) -> list[BaseException]:
-    """Flatten nested aggregate errors so the leaves are concrete reasons.
-
-    Any ``AggregateMemoryError`` in ``reasons`` is replaced by its own
-    (recursively flattened) ``errors``, so the result holds concrete underlying
-    errors rather than aggregates-of-aggregates.
-
-    Args:
-        reasons: The exceptions to flatten.
-
-    Returns:
-        A flat list of concrete leaf exceptions.
-    """
+    """Flatten nested aggregate errors so the leaves are concrete reasons."""
     flattened: list[BaseException] = []
     for reason in reasons:
         if isinstance(reason, AggregateMemoryError):
@@ -96,12 +72,10 @@ class MemoryManager(Plugin):
     """Provides cross-session memory retrieval and storage for agents.
 
     Manages one or more :class:`~strands.memory.types.MemoryStore` backends,
-    exposing ``search_memory`` and ``add_memory`` tools for agent-driven recall
-    and persistence. Any tools the stores themselves provide (via
-    :meth:`~strands.memory.types.MemoryStore.get_tools`) are registered alongside
-    these.
+    exposing ``search_memory`` and ``add_memory`` tools plus any tools the stores
+    provide.
 
-    When driving the agent through the synchronous ``Agent(...)`` entry point, set
+    When using the synchronous ``Agent(...)`` entry point, set
     ``flush_on_invocation_end=True`` so extraction writes persist across its
     per-invocation event loop.
 
@@ -141,10 +115,10 @@ class MemoryManager(Plugin):
                 the add tool; ``True`` lets it write to all writable stores; a
                 :class:`MemoryAddToolConfig` restricts/customizes it.
             flush_on_invocation_end: When True, await pending extraction writes at
-                the end of each agent invocation. Enable this when driving the
-                agent through the synchronous ``Agent(...)`` entry point, whose
-                per-invocation event loop would otherwise cancel in-flight
-                background saves. Defaults to False (fire-and-forget).
+                the end of each agent invocation. Enable when driving the agent
+                through the synchronous ``Agent(...)`` entry point, whose
+                per-invocation event loop would otherwise cancel in-flight saves.
+                Defaults to False (fire-and-forget).
 
         Raises:
             ValueError: If ``stores`` is empty, a store name is duplicated, a
@@ -171,9 +145,7 @@ class MemoryManager(Plugin):
                     raise ValueError(f"MemoryManager: store '{store.name}' has extraction config but is not writable")
                 if len(_normalize_triggers(store.extraction.trigger)) == 0:
                     raise ValueError(f"MemoryManager: store '{store.name}' has extraction config but no triggers")
-                # Each extraction shape needs its matching write sink. An extractor
-                # produces discrete entries written via `add`; without an extractor
-                # the raw message batch goes to `add_messages`.
+                # Each extraction shape needs its matching write sink.
                 if store.extraction.extractor is not None:
                     if not _has_method(store, "add"):
                         raise ValueError(
@@ -208,8 +180,7 @@ class MemoryManager(Plugin):
             self._add_tool_config = False
             self._add_tool_stores = []
         else:
-            # The `add_memory` tool writes via `add` (not `add_messages`), so it
-            # needs an `add`-capable store.
+            # The `add_memory` tool writes via `add`, so needs an `add`-capable store.
             if len(self._add_stores) == 0:
                 raise ValueError("MemoryManager: add_tool_config is enabled but no writable stores implement add")
             resolved_config = (
@@ -218,33 +189,22 @@ class MemoryManager(Plugin):
             self._add_tool_config = resolved_config
             self._add_tool_stores = self._resolve_add_tool_stores(resolved_config)
 
-        # Background fire-and-forget tasks (e.g. the add tool's non-blocking
-        # writes), retained so they are not garbage collected mid-flight.
+        # Fire-and-forget background tasks, retained so they aren't GC'd mid-flight.
         self._background_tasks: set[asyncio.Task] = set()
 
-        # Background extraction coordinator, created in ``init_agent`` when
-        # extraction is configured.
+        # Extraction coordinator, created in ``init_agent`` when configured.
         self._coordinator: ExtractionCoordinator | None = None
 
         self._flush_on_invocation_end = flush_on_invocation_end
 
-        # Build the manager's tools now and surface them via the ``tools``
-        # property (which the plugin registry reads to register them).
+        # Build tools now; surfaced via the ``tools`` property.
         self._memory_tools: list[AgentTool] = self._build_tools()
 
     def _resolve_add_tool_stores(self, tool_config: MemoryAddToolConfig) -> list[MemoryStore]:
         """Resolve the writable stores the ``add_memory`` tool may write to.
 
-        When ``stores`` is given, each entry (a store name or a
-        :class:`~strands.memory.types.MemoryStore` instance) must resolve by name
-        to a configured, ``add``-capable writable store. Omitted means all such
-        stores.
-
-        Args:
-            tool_config: The add tool configuration.
-
-        Returns:
-            The allowlist of stores the add tool may write to.
+        Each entry (a store name or instance) must resolve by name to a
+        configured, ``add``-capable writable store. Omitted means all such stores.
 
         Raises:
             ValueError: If a referenced store is not configured, not writable, or
@@ -274,12 +234,9 @@ class MemoryManager(Plugin):
     def _build_tools(self) -> list[AgentTool]:
         """Build the tools this plugin registers.
 
-        Includes the manager's own ``search_memory`` / ``add_memory`` tools (per
-        their config) plus any tools the configured stores expose via
+        Includes the manager's ``search_memory`` / ``add_memory`` tools plus any
+        tools the stores expose via
         :meth:`~strands.memory.types.MemoryStore.get_tools`, in store order.
-
-        Returns:
-            The tools to register with the agent.
         """
         tools: list[AgentTool] = []
 
@@ -299,27 +256,18 @@ class MemoryManager(Plugin):
     def tools(self) -> list[AgentTool]:  # type: ignore[override]
         """Tools registered by this plugin: search/add plus any store-provided tools.
 
-        Widens the base :class:`~strands.plugins.plugin.Plugin` annotation
-        (``list[DecoratedFunctionTool]``) because a store's ``get_tools`` may
-        contribute any :class:`~strands.types.tools.AgentTool`.
+        Widens the base :class:`~strands.plugins.plugin.Plugin` annotation because
+        a store's ``get_tools`` may contribute any
+        :class:`~strands.types.tools.AgentTool`.
         """
         return list(self._memory_tools)
 
     async def search(self, query: str, options: MemorySearchOptions | None = None) -> list[MemoryEntry]:
         """Search stores for entries matching the query.
 
-        Unscoped: has full access to all configured stores. When
-        ``options.stores`` is omitted, all stores are searched; tool-level store
-        scoping is applied by the search tool callback.
-
-        Args:
-            query: The search query string.
-            options: Optional max results (forwarded to all stores) and store
-                name filter.
-
-        Returns:
-            Memory entries from matching stores, each attributed to its store via
-            ``store_name``, concatenated in target order.
+        Unscoped: searches all configured stores when ``options.stores`` is
+        omitted. Results are attributed to their store via ``store_name`` and
+        concatenated in target order.
 
         Raises:
             ValueError: If a named store is not found (raised before querying).
@@ -381,15 +329,10 @@ class MemoryManager(Plugin):
     async def add(self, content: str, options: MemoryAddOptions | None = None) -> None:
         """Add content to writable stores.
 
-        Unscoped: has full access to all configured writable stores; tool-level
-        scoping is applied by the add tool callback. Target stores are validated
-        first (an unknown or read-only named store raises), then writes are
-        awaited concurrently: per-store failures are logged and surfaced as an
+        Unscoped: targets all configured writable stores. Target stores are
+        validated first, then writes are awaited concurrently; per-store failures
+        are logged and surfaced as an
         :class:`~strands.types.exceptions.AggregateMemoryError`.
-
-        Args:
-            content: The text content to add.
-            options: Optional metadata and store name filter.
 
         Raises:
             ValueError: If a named store is not found or is read-only, or if no
@@ -440,17 +383,8 @@ class MemoryManager(Plugin):
     def _resolve_tool_targets(self, scoped_names: list[str], requested: list[str] | None) -> list[str]:
         """Resolve the store names a tool callback should target.
 
-        - Omitting ``requested`` (``None`` or empty) targets all scoped stores.
-        - In-scope names are kept; out-of-scope names are dropped with a warning.
-        - When every requested name is out of scope, raises so the model receives
-          an actionable error.
-
-        Args:
-            scoped_names: Store names available to this tool.
-            requested: Store names the model asked for, if any.
-
-        Returns:
-            A non-empty list of in-scope store names to target.
+        Omitting ``requested`` targets all scoped stores; in-scope names are kept
+        and out-of-scope names are dropped with a warning.
 
         Raises:
             ValueError: If every requested name is out of scope.
@@ -477,14 +411,7 @@ class MemoryManager(Plugin):
         return in_scope
 
     def _create_search_tool(self, config: MemoryToolConfig) -> AgentTool:
-        """Build the ``search_memory`` tool.
-
-        Args:
-            config: The search tool configuration.
-
-        Returns:
-            The search tool.
-        """
+        """Build the ``search_memory`` tool."""
         description = config.description if config.description is not None else SEARCH_TOOL_DESCRIPTION
         store_descriptions = [
             f"- {store.name}: {store.description}" for store in self._search_stores if store.description
@@ -535,15 +462,7 @@ class MemoryManager(Plugin):
         )(search_memory)
 
     def _create_add_tool(self, config: MemoryAddToolConfig, stores: list[MemoryStore]) -> AgentTool:
-        """Build the ``add_memory`` tool.
-
-        Args:
-            config: The add tool configuration.
-            stores: The writable stores this tool may write to.
-
-        Returns:
-            The add tool.
-        """
+        """Build the ``add_memory`` tool."""
         description = config.description if config.description is not None else ADD_TOOL_DESCRIPTION
         store_descriptions = [f"- {store.name}: {store.description}" for store in stores if store.description]
         if store_descriptions:
@@ -567,23 +486,19 @@ class MemoryManager(Plugin):
             Returns:
                 A summary of the write (``{"stored": n}`` or ``{"accepted": n}``).
             """
-            # The Python @tool validation model does not enforce the advertised
-            # JSON-schema ``minItems``, so guard against an empty batch here.
+            # @tool validation does not enforce ``minItems``, so guard here.
             if not entries:
                 raise ValueError("MemoryManager: add_memory requires at least one entry")
 
             targets = self._resolve_tool_targets(scoped_names, stores)
 
             if not wait_for_writes:
-                # Fire-and-forget: dispatch the writes without awaiting so the
-                # agent loop isn't blocked. ``add`` logs per-store failures;
-                # swallow the rejection so it isn't an unhandled exception.
+                # Fire-and-forget: dispatch without awaiting. ``add`` logs per-store failures.
                 for content in entries:
                     self._schedule_background(self._add_swallow(content, targets))
                 return {"accepted": len(entries)}
 
-            # Await mode: surface failures to the model with concrete reasons
-            # (not nested aggregate errors).
+            # Await mode: surface failures with concrete (flattened) reasons.
             settled = await asyncio.gather(
                 *(self.add(content, MemoryAddOptions(stores=targets)) for content in entries),
                 return_exceptions=True,
@@ -605,27 +520,14 @@ class MemoryManager(Plugin):
         )(add_memory)
 
     async def _add_swallow(self, content: str, targets: list[str]) -> None:
-        """Run a programmatic ``add`` and swallow any failure.
-
-        Used by the add tool's fire-and-forget mode: ``add`` already logs
-        per-store failures, so the raised aggregate is intentionally ignored here
-        to avoid an unhandled background exception.
-
-        Args:
-            content: The content to add.
-            targets: The resolved target store names.
-        """
+        """Run a programmatic ``add`` and swallow any failure (the add tool's fire-and-forget mode)."""
         try:
             await self.add(content, MemoryAddOptions(stores=targets))
         except Exception:  # noqa: BLE001 - failures are logged in ``add``; swallow here.
             pass
 
     def _schedule_background(self, coroutine: Any) -> None:
-        """Schedule a coroutine as a tracked background task.
-
-        Args:
-            coroutine: The coroutine to run in the background.
-        """
+        """Schedule a coroutine as a tracked background task."""
         task = asyncio.ensure_future(coroutine)
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
@@ -634,11 +536,7 @@ class MemoryManager(Plugin):
         """Initialize the plugin with the agent.
 
         Wires up automatic extraction for any store configured with an
-        ``ExtractionConfig``: buffers conversation messages and attaches each
-        store's triggers. A no-op when no store uses extraction.
-
-        Args:
-            agent: The agent this plugin is being attached to.
+        ``ExtractionConfig``. A no-op when no store uses extraction.
         """
         if len(self._extraction_stores) == 0:
             return
@@ -646,8 +544,7 @@ class MemoryManager(Plugin):
         coordinator = ExtractionCoordinator(self._extraction_stores, agent.model)
         self._coordinator = coordinator
 
-        # Buffer every message the agent adds, so extraction has its own copy to
-        # save from.
+        # Buffer every message so extraction has its own copy to save from.
         agent.add_hook(lambda event: coordinator.record(event.message), MessageAddedEvent)
 
         for store in self._extraction_stores:
@@ -670,11 +567,7 @@ class MemoryManager(Plugin):
 
     @staticmethod
     def _make_fire(coordinator: ExtractionCoordinator, store: MemoryStore) -> Callable[[], None]:
-        """Build a zero-arg ``fire`` callback bound to a specific store.
-
-        Binds the store here (rather than in a loop-body lambda) to avoid the
-        late-binding closure pitfall and to keep a clean ``Callable[[], None]``.
-        """
+        """Build a zero-arg ``fire`` callback bound to a specific store."""
 
         def fire() -> None:
             coordinator.schedule(store)
@@ -684,11 +577,9 @@ class MemoryManager(Plugin):
     async def flush(self) -> None:
         """Save every store's remaining messages and wait for all saves to finish.
 
-        A no-op when no store has extraction configured. Call this at a boundary
-        you control (typically app shutdown) so the most recent turn is not lost.
-
-        Drains automatic extraction only; ``add_memory`` fire-and-forget writes
-        (``wait_for_writes=False``) are dispatched but not awaited here.
+        A no-op when no store has extraction configured. Drains automatic
+        extraction only; ``add_memory`` fire-and-forget writes are not awaited
+        here.
         """
         if self._coordinator is not None:
             await self._coordinator.flush()

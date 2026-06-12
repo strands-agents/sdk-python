@@ -1,11 +1,8 @@
 """Core types for the Strands memory module.
 
-This module defines the data shapes and the store contract that the rest of the
-memory subsystem builds on: the :class:`MemoryEntry` record, the option/config
-dataclasses used by the manager and its tools, and the :class:`MemoryStore`
-runtime contract that pluggable backends implement.
-
-All public field and method names use ``snake_case``.
+Defines the data shapes and the store contract the rest of the memory subsystem
+builds on: the :class:`MemoryEntry` record, the option/config dataclasses, and
+the :class:`MemoryStore` runtime contract that backends implement.
 """
 
 from __future__ import annotations
@@ -17,13 +14,11 @@ from ..types.content import Message
 from ..types.tools import AgentTool
 
 if TYPE_CHECKING:
-    # Imported lazily to avoid a circular import with the extraction subpackage,
-    # whose ``types`` module imports from this one. ``ExtractionConfig`` is only
-    # referenced in annotations, so a ``TYPE_CHECKING`` import is sufficient.
+    # Lazy import to avoid a circular import with the extraction subpackage;
+    # ``ExtractionConfig`` is only referenced in annotations.
     from .extraction.types import ExtractionConfig
 
-# JSON-compatible metadata mapping. Modeled as ``dict[str, Any]`` because memory
-# metadata holds arbitrary JSON values (scores, ids, timestamps, etc.).
+# JSON-compatible metadata mapping (scores, ids, timestamps, etc.).
 Metadata = dict[str, Any]
 
 
@@ -32,12 +27,8 @@ class MemoryEntry:
     """A single memory entry retrieved from or stored to a memory store.
 
     Attributes:
-        content: The textual content of this memory entry.
-        store_name: Name of the store this entry came from. Populated by
-            ``MemoryManager.search`` so callers (and the model, via the search
-            tool) can tell which store produced each result and refine
-            targeting. Stores need not set this themselves.
-        metadata: Optional metadata (e.g., score, source, id, timestamp).
+        store_name: Name of the store this entry came from, set by
+            ``MemoryManager.search``. Stores need not set this themselves.
     """
 
     content: str
@@ -49,14 +40,8 @@ class MemoryEntry:
 class SearchOptions:
     """Options passed to :meth:`MemoryStore.search`.
 
-    Store implementations may extend this with backend-specific fields in their
-    own ``search`` signature. Note that ``MemoryManager.search`` only forwards
-    the base fields here across its (potentially heterogeneous) stores -- to use
-    a store's extended options, call that store's ``search`` directly, or set
-    them as per-instance defaults on the store.
-
-    Attributes:
-        max_search_results: Maximum number of results to return from this store.
+    Store implementations may extend this with backend-specific fields; note that
+    ``MemoryManager.search`` forwards only these base fields across its stores.
     """
 
     max_search_results: int | None = None
@@ -66,8 +51,8 @@ class SearchOptions:
 class AddMessagesContext:
     """Context the manager supplies to :meth:`MemoryStore.add_messages`.
 
-    This is an extension point: it is intentionally empty for now so fields can
-    be added later without a breaking signature change.
+    Intentionally empty for now so fields can be added later without a breaking
+    signature change.
     """
 
 
@@ -75,14 +60,11 @@ class AddMessagesContext:
 class MemorySearchOptions(SearchOptions):
     """Options for ``MemoryManager.search``.
 
-    Extends the store primitive :class:`SearchOptions` with manager-level store
-    routing.
-
     Attributes:
-        stores: Filter to specific stores by name. Omit to search all. Note: a
-            programmatic ``MemoryManager.search`` with an empty list searches no
-            stores (returns ``[]``), whereas the ``search_memory`` tool treats an
-            empty list as "search all in-scope stores".
+        stores: Filter to specific stores by name. Omit to search all. A
+            programmatic search with an empty list searches no stores, whereas
+            the ``search_memory`` tool treats an empty list as "search all
+            in-scope stores".
     """
 
     stores: list[str] | None = None
@@ -93,11 +75,10 @@ class MemoryAddOptions:
     """Options for ``MemoryManager.add``.
 
     Attributes:
-        metadata: Metadata to associate with the added entry.
-        stores: Filter to specific writable stores by name. Omit to write to all
-            writable stores. Note: a programmatic ``MemoryManager.add`` with an
-            empty list matches no store (raises), whereas the ``add_memory`` tool
-            treats an empty list as "write to all in-scope stores".
+        stores: Filter to specific writable stores by name. Omit to write to all.
+            A programmatic add with an empty list matches no store (raises),
+            whereas the ``add_memory`` tool treats an empty list as "write to all
+            in-scope stores".
     """
 
     metadata: Metadata | None = None
@@ -106,12 +87,7 @@ class MemoryAddOptions:
 
 @dataclass
 class MemoryToolConfig:
-    """Configuration for customizing a memory tool's name or description.
-
-    Attributes:
-        name: Custom tool name.
-        description: Custom tool description.
-    """
+    """Configuration for customizing a memory tool's name or description."""
 
     name: str | None = None
     description: str | None = None
@@ -121,23 +97,13 @@ class MemoryToolConfig:
 class MemoryAddToolConfig(MemoryToolConfig):
     """Configuration for the ``add_memory`` tool.
 
-    Extends :class:`MemoryToolConfig` with an explicit allowlist of stores the
-    tool may write to.
-
     Attributes:
-        stores: The writable stores the ``add_memory`` tool may write to, given
-            as store names or :class:`MemoryStore` instances. Each must be a
-            configured, ``writable`` store. Omit (or set ``add_tool_config`` to
-            ``True``) to allow all writable stores.
-        wait_for_writes: Whether the tool waits for store writes before returning
-            to the model. Defaults to ``True``.
-
-            - ``True`` (default): waits for writes -- the tool returns
-              ``{"stored": ...}`` on success, or surfaces a failure to the model
-              if any store write fails.
-            - ``False``: fire-and-forget -- the tool returns ``{"accepted": ...}``
-              once writes are dispatched (so a slow backend never blocks the
-              agent loop); per-store failures are logged.
+        stores: The writable stores the tool may write to, as store names or
+            :class:`MemoryStore` instances. Omit to allow all writable stores.
+        wait_for_writes: When ``True`` (default), wait for writes and return
+            ``{"stored": ...}`` (or surface a failure to the model). When
+            ``False``, fire-and-forget: return ``{"accepted": ...}`` once writes
+            are dispatched; per-store failures are logged.
     """
 
     stores: list[str | MemoryStore] | None = None
@@ -146,20 +112,16 @@ class MemoryAddToolConfig(MemoryToolConfig):
 
 @dataclass
 class MemoryManagerConfig:
-    """Configuration for the ``MemoryManager``.
-
-    Provided as a documentation/typing aid that mirrors the constructor kwargs;
-    the manager itself accepts these fields directly as keyword arguments.
+    """Configuration for the ``MemoryManager``, mirroring the constructor kwargs.
 
     Attributes:
         stores: One or more memory stores to manage.
         search_tool_config: Search tool configuration. Defaults to ``True``.
-        add_tool_config: Add tool configuration. Defaults to ``False`` (opt-in).
-            ``True`` lets the tool write to all writable stores; pass a
-            :class:`MemoryAddToolConfig` with ``stores`` to restrict it to
-            specific ones.
-        flush_on_invocation_end: When ``True``, await pending extraction writes
-            at the end of each agent invocation. Defaults to ``False``.
+        add_tool_config: Add tool configuration. Defaults to ``False`` (opt-in);
+            ``True`` allows all writable stores, or pass a
+            :class:`MemoryAddToolConfig` to restrict it.
+        flush_on_invocation_end: When ``True``, await pending extraction writes at
+            the end of each agent invocation. Defaults to ``False``.
     """
 
     stores: list[MemoryStore]
@@ -172,20 +134,15 @@ class MemoryStoreConfig(Protocol):
     """Declarative identity and behavior fields shared by every memory store.
 
     Attributes:
-        name: Unique identifier for this store, used to target it in search/add
-            tools. Must be unique across the manager's stores.
-        description: Human-readable description of what this store contains;
-            included in tool descriptions.
-        max_search_results: Default maximum number of results this store returns
-            per search, used when a caller does not pass a per-call
-            ``max_search_results``.
+        name: Unique identifier for this store, used to target it in tools.
+        description: Human-readable description; included in tool descriptions.
+        max_search_results: Default maximum results per search, used when a caller
+            does not pass a per-call value.
         writable: Whether this store accepts writes. A writable store requires at
             least one write sink (:meth:`MemoryStore.add` or
             :meth:`MemoryStore.add_messages`).
-        extraction: Automatic-extraction configuration for this store. When set,
-            the manager runs the configured triggers and writes extracted (or,
-            with no extractor, raw) messages to this store. Requires the store to
-            be writable.
+        extraction: Automatic-extraction configuration. Requires the store to be
+            writable.
     """
 
     name: str
@@ -198,116 +155,56 @@ class MemoryStoreConfig(Protocol):
 class MemoryStore(MemoryStoreConfig, Protocol):
     """Runtime contract for a memory store backend.
 
-    Extends :class:`MemoryStoreConfig` with the runtime methods a store provides.
-    Every store is searchable; the resolved ``writable`` flag declares whether it
-    also accepts writes, which is how the ``MemoryManager`` decides where to route
-    them. The search tool can query all stores, while the add tool can only write
-    to ``writable`` stores.
-
-    A store author implements the config fields plus :meth:`search`, and optionally
-    one or more of :meth:`add`, :meth:`add_messages`, and :meth:`get_tools`.
+    Extends :class:`MemoryStoreConfig` with runtime methods. Every store is
+    searchable; ``writable`` declares whether it also accepts writes. A store
+    author implements the config fields plus :meth:`search`, and optionally
+    :meth:`add`, :meth:`add_messages`, and :meth:`get_tools`.
     """
 
     async def search(self, query: str, options: SearchOptions | None = None) -> list[MemoryEntry]:
-        """Search the store for entries matching the query, ordered by relevance.
-
-        Args:
-            query: The search query.
-            options: Optional search options (e.g. ``max_search_results``).
-
-        Returns:
-            Matching entries, ordered by relevance.
-        """
+        """Search the store for entries matching the query, ordered by relevance."""
         ...
 
-    # --- Optional methods -------------------------------------------------
-    # The following are optional. A store implements them only when it supports
-    # the corresponding capability; use ``_has_method`` / ``_has_write_sink`` to
-    # detect presence rather than relying on the Protocol defaults below.
+    # --- Optional methods: detect presence via ``_has_method`` / ``_has_write_sink``.
 
     async def add(self, content: str, metadata: Metadata | None = None) -> Any:
         """Add a single piece of content to the store.
 
-        Used by the add tool, programmatic ``MemoryManager.add``, and by
-        extraction when an extractor produces discrete entries. Extraction writes
-        are at-least-once, so implementations used with extraction should tolerate
-        duplicate writes.
-
-        The resolved value is store-specific; the manager does not consume it.
-
-        Args:
-            content: The content to store.
-            metadata: Optional metadata to associate with the entry.
-
-        Returns:
-            A store-specific value (e.g. a created record id or write receipt).
+        Extraction writes are at-least-once, so implementations used with
+        extraction should tolerate duplicate writes. The resolved value is
+        store-specific and not consumed by the manager.
         """
         ...
 
     async def add_messages(self, messages: list[Message], context: AddMessagesContext | None = None) -> Any:
         """Ingest a batch of conversation messages, preserving role structure.
 
-        This is the sink for automatic extraction that does not distill facts
-        client-side: the manager hands the filtered message batch straight here
-        in one call. The resolved value is store-specific and not consumed by the
-        manager.
-
-        Args:
-            messages: The filtered messages to ingest, in order.
-            context: Manager-supplied per-batch context.
-
-        Returns:
-            A store-specific value.
+        The sink for extraction without a client-side extractor: the manager
+        hands the filtered batch straight here. The resolved value is
+        store-specific.
         """
         ...
 
     def get_tools(self) -> list[AgentTool]:
-        """Return store-specific tools to register with the agent.
-
-        Implement to expose backend-specific capabilities (e.g. a store-native
-        query tool). Registered alongside the manager's search/add tools.
-
-        Returns:
-            Tools provided by this store.
-        """
+        """Return store-specific tools to register alongside the manager's tools."""
         ...
 
 
 def _has_method(store: object, name: str) -> bool:
     """Return whether ``store`` actually implements the named method.
 
-    Optional store methods (``add``, ``add_messages``, ``get_tools``) are
-    detected by inspecting the store's own type rather than the instance, so a
-    method is only considered present when the concrete store class implements
-    it -- not when it is merely the :class:`MemoryStore` Protocol's default stub.
-
-    Args:
-        store: The store instance to inspect.
-        name: The method name to look for.
-
-    Returns:
-        ``True`` if the store's type implements ``name`` with a callable that is
-        distinct from the Protocol default; otherwise ``False``.
+    Inspects the store's type so a class that merely inherits the
+    :class:`MemoryStore` Protocol's stub counts as "not implemented".
     """
     method = getattr(type(store), name, None)
     if method is None:
         return False
-    # A class that explicitly subclasses the ``MemoryStore`` Protocol can inherit
-    # the Protocol's stub for an optional method; treat that as "not implemented".
+    # A subclass can inherit the Protocol's stub; treat that as "not implemented".
     if method is getattr(MemoryStore, name, None):
         return False
     return callable(method)
 
 
 def _has_write_sink(store: MemoryStore) -> bool:
-    """Return whether ``store`` provides at least one write sink.
-
-    A writable store must implement ``add``, ``add_messages``, or both.
-
-    Args:
-        store: The store to check.
-
-    Returns:
-        ``True`` if the store implements ``add`` or ``add_messages``.
-    """
+    """Return whether ``store`` provides at least one write sink (``add`` or ``add_messages``)."""
     return _has_method(store, "add") or _has_method(store, "add_messages")

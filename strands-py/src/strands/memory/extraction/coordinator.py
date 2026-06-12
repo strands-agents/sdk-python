@@ -2,38 +2,9 @@
 
 The :class:`ExtractionCoordinator` buffers every message the agent produces and,
 when a store's trigger fires, saves that store's unsaved messages in the
-background without slowing the agent loop down.
-
-How it works, in three pieces:
-
-1. **The buffer.** Every message the agent produces is copied into one shared
-   list (``_pending``). Each gets a number (``seq``) that only ever counts up,
-   so we can tell which messages are newer. We keep our own copy here (rather
-   than reading the agent's live message list) because the agent can delete old
-   messages to stay within its context window; our copy means we never lose one
-   before it is saved.
-
-2. **Per-store progress.** Each store can save at its own pace, so we remember,
-   per store, the ``seq`` of the last message it has already saved (``_marks``).
-   When a store saves, it only looks at messages newer than that number, so the
-   same message is never saved twice to the same store.
-
-3. **One save at a time per store.** A store might be asked to save again while a
-   previous save is still running. We chain each store's saves one after another
-   (``_chains``) so they cannot overlap or run out of order.
-
-If a store fails to save :data:`SAVE_FAILURES_BEFORE_BACKOFF` times in a row it
-backs off: instead of trying every turn, it retries only once every
-:data:`BACKOFF_PROBE_INTERVAL` attempts (a probe). A successful probe clears the
-failure streak and resumes normal saving -- so a transient outage recovers on
-its own and the messages buffered during it are saved once the store comes back.
-A permanently broken store keeps probing and logs an error each time, surfacing
-the misconfiguration.
-
-Scheduling uses ``asyncio.create_task`` for fire-and-forget saves, a per-store
-``asyncio.Task`` chain to serialize a single store's saves, and
-``asyncio.gather(..., return_exceptions=True)`` to run concurrent writes so one
-failure does not cancel the rest.
+background. It keeps a per-store high-water mark so each message is delivered to
+a store at most once, serializes a single store's saves through a per-store task
+chain, and backs off stores that fail repeatedly.
 """
 
 from __future__ import annotations
@@ -50,24 +21,16 @@ from .types import DEFAULT_MEMORY_MESSAGE_FILTER, Extractor, ExtractorContext, M
 
 logger = logging.getLogger(__name__)
 
-# Number of consecutive save failures after which a store backs off (stops trying
-# every turn).
+# Number of consecutive save failures after which a store backs off.
 SAVE_FAILURES_BEFORE_BACKOFF = 10
 
-# While backed off, a store retries only once every this many save attempts (a
-# probe).
+# While backed off, a store retries only once every this many save attempts.
 BACKOFF_PROBE_INTERVAL = 3
 
 
 @dataclass
 class _Buffered:
-    """A buffered message and its sequence number.
-
-    Attributes:
-        seq: The monotonically increasing sequence number assigned when the
-            message was recorded.
-        message: The buffered conversation message.
-    """
+    """A buffered message and its monotonically increasing sequence number."""
 
     seq: int
     message: Message
@@ -77,11 +40,10 @@ class ExtractionCoordinator:
     """Saves conversation messages to memory stores in the background.
 
     Buffers every recorded message and, per store, tracks a high-water mark of
-    the last ``seq`` saved so each message is delivered to a store at most once.
-    Saves for a single store are serialized through a per-store task chain;
-    saves for different stores run independently. Failures are logged and
-    swallowed so saving never breaks the agent loop, with per-store backoff for
-    repeatedly failing stores.
+    the last ``seq`` saved so each message is delivered at most once. A single
+    store's saves are serialized through a per-store task chain; different stores
+    save independently. Failures are logged and swallowed, with per-store backoff
+    for repeatedly failing stores.
     """
 
     def __init__(self, stores: list[MemoryStore], default_model: Model) -> None:
@@ -94,40 +56,31 @@ class ExtractionCoordinator:
         """
         self._stores = list(stores)
         self._default_model = default_model
-        # The shared list of messages waiting to be saved, oldest first.
+        # Messages waiting to be saved, oldest first.
         self._pending: list[_Buffered] = []
-        # The number to give the next message added to the buffer.
+        # The ``seq`` to assign the next buffered message.
         self._next_seq = 0
-        # Per store (keyed by ``id(store)``): the ``seq`` of the last message
-        # that store has already saved. Starts at -1 (saved none).
+        # Per store: ``seq`` of the last message it has saved (-1 means none).
         self._marks: dict[int, int] = {id(store): -1 for store in stores}
-        # Per store: the currently-running save task, so the next save waits its
-        # turn.
+        # Per store: the currently-running save task, so the next save waits its turn.
         self._chains: dict[int, asyncio.Task] = {}
-        # Per store: how many saves have failed in a row. Reset to 0 on success.
+        # Per store: consecutive save failures, reset to 0 on success.
         self._consecutive_failures: dict[int, int] = {}
-        # Per store: while backed off, counts save requests so we let every Nth
-        # through as a probe.
+        # Per store: save-request count while backed off, to let every Nth through as a probe.
         self._backoff_counters: dict[int, int] = {}
-        # Fire-and-forget background tasks, retained so they are not garbage
-        # collected mid-flight.
+        # Fire-and-forget background tasks, retained so they aren't GC'd mid-flight.
         self._background: set[asyncio.Task] = set()
 
     def record(self, message: Message) -> None:
-        """Add a message to the buffer.
-
-        Args:
-            message: The conversation message to buffer for later saving.
-        """
+        """Add a message to the buffer."""
         self._pending.append(_Buffered(self._next_seq, message))
         self._next_seq += 1
 
     def schedule(self, store: MemoryStore) -> None:
         """Save this store's unsaved messages in the background, non-blocking.
 
-        Dispatches the save and returns immediately, so a trigger calling this
-        from a hook never blocks the agent. Failures are logged. A no-op when the
-        store is backed off and this request is not a probe.
+        Dispatches the save and returns immediately. A no-op when the store is
+        backed off and this request is not a probe.
 
         Args:
             store: The store to save for.
@@ -151,7 +104,7 @@ class ExtractionCoordinator:
         """Queue a save for this store behind its previous save.
 
         Returns the task running the save, or ``None`` when the store is backed
-        off and this request is not a probe (see :meth:`_should_attempt`).
+        off and this request is not a probe.
 
         Args:
             store: The store to save for.
@@ -164,34 +117,14 @@ class ExtractionCoordinator:
         return self._enqueue(store)
 
     def _enqueue(self, store: MemoryStore) -> asyncio.Task:
-        """Queue a save for the store behind its previous one.
-
-        Creates a task that first awaits the store's previous chain task
-        (ignoring its result/exception) and then runs :meth:`_extract`, so saves
-        for a single store never overlap or reorder.
-
-        Args:
-            store: The store to save for.
-
-        Returns:
-            The task representing this queued save.
-        """
+        """Queue this store's save behind its previous one and return the task."""
         previous = self._chains.get(id(store))
         task = asyncio.create_task(self._run_chain(store, previous))
         self._chains[id(store)] = task
         return task
 
     async def _run_chain(self, store: MemoryStore, previous: asyncio.Task | None) -> None:
-        """Await the previous save for ``store`` (if any) then run this one.
-
-        Serializes a single store's saves so they never overlap or reorder. The
-        previous save handles its own outcome internally (errors are logged and
-        swallowed in :meth:`_extract`), so it always completes normally.
-
-        Args:
-            store: The store to save for.
-            previous: The previous chain task to wait behind, or ``None``.
-        """
+        """Run this store's save after its previous one completes."""
         if previous is not None:
             await previous
         await self._extract(store)
@@ -199,9 +132,9 @@ class ExtractionCoordinator:
     def _should_attempt(self, store: MemoryStore) -> bool:
         """Return whether to attempt a save now.
 
-        A healthy store always attempts. A backed-off store (too many failures in
-        a row) attempts only once every :data:`BACKOFF_PROBE_INTERVAL` requests
-        -- a probe to see if it has recovered -- and skips the rest.
+        A healthy store always attempts. A backed-off store attempts only once
+        every :data:`BACKOFF_PROBE_INTERVAL` requests (a probe) and skips the
+        rest.
 
         Args:
             store: The store to check.
@@ -218,13 +151,9 @@ class ExtractionCoordinator:
     async def flush(self) -> None:
         """Save every store's remaining messages and wait for all to finish.
 
-        Call this at a boundary you control -- typically app shutdown -- to make
-        sure nothing in the buffer is lost. It first tells every store to save
-        (bypassing backoff, so a recovered store still writes its backlog);
-        stores with nothing to save do nothing. Then it waits, re-checking until
-        no new save has started, so saves that begin while waiting are also
-        covered. Never raises (write errors are swallowed inside
-        :meth:`_extract`).
+        Call this at a boundary you control (typically app shutdown) so nothing
+        buffered is lost. Bypasses backoff, then waits until no new save has
+        started so saves that begin while waiting are also covered. Never raises.
         """
         for store in self._stores:
             self._enqueue(store)
@@ -232,7 +161,7 @@ class ExtractionCoordinator:
             snapshot = list(self._chains.values())
             await asyncio.gather(*snapshot, return_exceptions=True)
             current = list(self._chains.values())
-            # If nothing new started while we waited, everything is done.
+            # Done once nothing new started while we waited.
             if len(current) == len(snapshot) and all(
                 current_task is snapshot_task for current_task, snapshot_task in zip(current, snapshot, strict=True)
             ):
@@ -241,9 +170,7 @@ class ExtractionCoordinator:
     async def _extract(self, store: MemoryStore) -> None:
         """Save the store's messages newer than its high-water mark.
 
-        Reads and advances the per-store mark synchronously before the first
-        ``await`` so concurrent saves never pick up the same messages. On failure
-        the mark is rolled back so the batch retries next time.
+        On failure the mark is rolled back so the batch retries next time.
 
         Args:
             store: The store to save for.
@@ -257,9 +184,8 @@ class ExtractionCoordinator:
         if extraction is None:
             return
 
-        # Mark these messages as saved before we start saving, so a queued save
-        # behind this one will not pick them up again. If the save fails we put
-        # the mark back (below) and they retry.
+        # Mark saved before saving so a queued save won't pick these up again;
+        # rolled back below on failure.
         self._marks[id(store)] = fresh[-1].seq
 
         message_filter = extraction.filter or DEFAULT_MEMORY_MESSAGE_FILTER
@@ -268,11 +194,9 @@ class ExtractionCoordinator:
         try:
             if filtered:
                 await self._write(store, filtered, extraction.extractor)
-                # A successful write clears the failure streak and ends any
-                # backoff. Only a real write counts as recovery -- a fully
-                # filtered (empty) turn never touched the backend, so it leaves
-                # backoff state untouched (it still advances the mark above;
-                # those messages had nothing to save).
+                # Successful write clears the failure streak and ends backoff. A
+                # fully filtered (empty) turn never touched the backend, so it
+                # leaves backoff state untouched.
                 self._consecutive_failures[id(store)] = 0
                 self._backoff_counters.pop(id(store), None)
         except Exception as error:  # noqa: BLE001 - saving must never break the agent loop.
@@ -283,12 +207,10 @@ class ExtractionCoordinator:
     async def _write(self, store: MemoryStore, messages: list[Message], extractor: Extractor | None) -> None:
         """Save the messages to the store, one of two ways.
 
-        - With an extractor: run it to pull out facts, then write each fact via
-          ``add``. Fact writes run concurrently; if any fails the whole batch is
-          re-raised so the caller retries it next time (so a fact that already
-          saved may be written again -- stores should expect duplicates).
-        - Without an extractor: hand the raw messages to ``add_messages`` so the
-          store keeps their roles.
+        - With an extractor: run it, then write each fact via ``add``
+          concurrently. If any write fails the whole batch is re-raised and
+          retried later, so stores should expect duplicate writes.
+        - Without an extractor: hand the raw messages to ``add_messages``.
 
         Args:
             store: The store to write to.
@@ -317,9 +239,8 @@ class ExtractionCoordinator:
     def _filter_messages(self, messages: list[Message], message_filter: MemoryMessageFilter) -> list[Message]:
         """Remove excluded content blocks and drop any emptied message.
 
-        Pure: never mutates the input messages or their blocks; builds new
-        message dicts and content lists, preserving ``role`` and carrying
-        ``metadata`` when present.
+        Pure: builds new message dicts rather than mutating the inputs,
+        preserving ``role`` and carrying ``metadata`` when present.
 
         Args:
             messages: The messages to filter.
@@ -341,25 +262,15 @@ class ExtractionCoordinator:
         return result
 
     def _block_kind(self, block: ContentBlock) -> str:
-        """Return the kind of a content block (e.g. ``"text"``, ``"toolUse"``).
-
-        Each content block is a single-key mapping whose key is its kind.
-
-        Args:
-            block: The content block to classify.
-
-        Returns:
-            The block's kind, or ``""`` for an empty block.
-        """
+        """Return the content block's kind (its single key), or ``""`` if empty."""
         return next(iter(block.keys()), "")
 
     def _on_save_failed(self, store: MemoryStore, mark_before_save: int, error: BaseException) -> None:
         """Handle a failed save.
 
-        Puts the mark back so the messages retry next time. Once a store has
-        failed :data:`SAVE_FAILURES_BEFORE_BACKOFF` times in a row it logs an
-        error and enters backoff; before that it logs a warning. The messages
-        stay buffered either way, so a store that recovers saves them.
+        Rolls the mark back so the messages retry next time. After
+        :data:`SAVE_FAILURES_BEFORE_BACKOFF` consecutive failures the store
+        enters backoff and logs an error; before that it logs a warning.
 
         Args:
             store: The store whose save failed.
@@ -384,9 +295,8 @@ class ExtractionCoordinator:
     def _trim(self) -> None:
         """Drop buffered messages every store has already saved.
 
-        A store that has not saved a message yet keeps it buffered, so a store
-        stuck failing for good slowly grows the buffer; that surfaces as repeated
-        error logs and is bounded by the (non-persisted) session.
+        A store stuck failing keeps its messages buffered, so the buffer grows
+        until it recovers; this is bounded by the (non-persisted) session.
         """
         min_mark = min(self._marks.values())
         self._pending = [buffered for buffered in self._pending if buffered.seq > min_mark]

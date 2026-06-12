@@ -1,11 +1,8 @@
 """Model-backed :class:`Extractor` that distills messages into discrete facts.
 
 A :class:`ModelExtractor` calls a language model with a fact-extraction system
-prompt and parses the response into :class:`ExtractionResult` entries.
-
-Use for self-managed stores that hold plain text and want automatic
-distillation. Backends that extract server-side should omit the extractor
-entirely (the no-extractor passthrough hands them raw messages instead).
+prompt and parses the response into :class:`ExtractionResult` entries. Backends
+that extract server-side should omit the extractor entirely.
 """
 
 from __future__ import annotations
@@ -35,8 +32,7 @@ class ModelExtractor:
     """An :class:`Extractor` that calls a language model to distill messages into discrete facts.
 
     Use for self-managed stores that hold plain text and want automatic
-    distillation. Backends that extract server-side should omit the extractor
-    entirely (the no-extractor passthrough hands them raw messages instead).
+    distillation.
 
     Example:
         ```python
@@ -63,13 +59,6 @@ class ModelExtractor:
     async def extract(self, messages: list[Message], context: ExtractorContext | None = None) -> list[ExtractionResult]:
         """Extract entries from a batch of messages.
 
-        Args:
-            messages: The filtered messages to extract from.
-            context: Optional context (e.g. a fallback model).
-
-        Returns:
-            The entries to write to the store.
-
         Raises:
             ValueError: If no model is configured and no default is available.
             RuntimeError: If the model returns no response.
@@ -80,16 +69,14 @@ class ModelExtractor:
         if not messages:
             return []
 
-        # Present the transcript as a single user turn so the system prompt governs extraction,
-        # rather than feeding raw roles the model might try to continue.
+        # Present the transcript as a single user turn so the system prompt governs extraction.
         transcript = "\n".join(_render_message(message) for message in messages)
         prompt: Message = {
             "role": "user",
             "content": [{"text": f"Extract facts from the following transcript:\n\n{transcript}"}],
         }
 
-        # Imported lazily to avoid a circular import: ``event_loop.streaming`` pulls in a wide
-        # surface that need not load when the memory package is imported.
+        # Lazy import to avoid a circular import with ``event_loop.streaming``.
         from ...event_loop.streaming import stream_messages
 
         final_message: Message | None = None
@@ -125,10 +112,8 @@ def _extract_json_array(text: str) -> str | None:
 def _parse_entries(text: str, model_name: str) -> list[ExtractionResult]:
     """Parse the model's response into entries.
 
-    Tolerates the array being wrapped in prose or a fenced code block by
-    extracting the first top-level bracketed array. Malformed output yields no
-    entries (logged) rather than throwing, so a single bad extraction never
-    breaks the agent loop.
+    Tolerates the array being wrapped in prose or a code fence. Malformed output
+    yields no entries (logged) rather than throwing.
     """
     json_text = _extract_json_array(text)
     if json_text is None:
