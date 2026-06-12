@@ -1,12 +1,8 @@
 """Memory module for Strands Agents.
 
-This package ports the Strands TypeScript ``memory`` module to Python. It gives
-agents cross-session recall and persistence through a ``MemoryManager`` plugin
-that manages pluggable memory stores, exposes search/add tools, and runs
-automatic background extraction.
-
-The public surface mirrors the TypeScript ``src/memory/index.ts`` exports,
-adapted to Python ``snake_case`` naming.
+This package gives agents cross-session recall and persistence through a
+``MemoryManager`` plugin that manages pluggable memory stores, exposes search/add
+tools, and runs automatic background extraction.
 """
 
 from ..types.exceptions import AggregateMemoryError

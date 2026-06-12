@@ -5,10 +5,7 @@ memory subsystem builds on: the :class:`MemoryEntry` record, the option/config
 dataclasses used by the manager and its tools, and the :class:`MemoryStore`
 runtime contract that pluggable backends implement.
 
-These are Python ports of the TypeScript ``memory/types.ts`` interfaces. All
-public field and method names use ``snake_case`` per the requirements naming
-convention mapping (e.g. ``maxSearchResults`` -> ``max_search_results``,
-``addMessages`` -> ``add_messages``).
+All public field and method names use ``snake_case``.
 """
 
 from __future__ import annotations
@@ -178,9 +175,8 @@ class MemoryStoreConfig:
     This captures a store's identity and behavior knobs. It is the config-shape
     counterpart to the runtime :class:`MemoryStore` contract: the runtime
     protocol declares the same fields alongside its methods, while this type
-    documents the plain configuration shape for export parity with the
-    TypeScript module. Concrete stores add their own backend-specific config
-    fields on top.
+    documents the plain configuration shape. Concrete stores add their own
+    backend-specific config fields on top.
 
     Attributes:
         name: Identifier for this store, used to target specific stores in

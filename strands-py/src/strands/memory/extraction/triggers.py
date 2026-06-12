@@ -10,8 +10,6 @@ This module provides the two built-in triggers:
 * :class:`IntervalTrigger` -- fire once every ``turns`` invocations (a
   controllable middle ground; the high-water mark still picks up the skipped
   turns when the trigger does fire).
-
-These are Python ports of the TypeScript ``memory/extraction/triggers.ts``.
 """
 
 from __future__ import annotations
@@ -86,8 +84,7 @@ class IntervalTrigger(ExtractionTrigger):
             ValueError: If ``turns`` is not a positive integer. ``bool`` values
                 are rejected even though ``bool`` is a subclass of ``int``.
         """
-        # Reject bool explicitly (bool is a subclass of int) and any value < 1,
-        # mirroring the TS `Number.isInteger(turns) || turns < 1` guard.
+        # Reject bool explicitly (bool is a subclass of int) and any value < 1.
         if not isinstance(turns, int) or isinstance(turns, bool) or turns < 1:
             raise ValueError(f"IntervalTrigger: turns must be a positive integer, got {turns}")
         self._turns = turns

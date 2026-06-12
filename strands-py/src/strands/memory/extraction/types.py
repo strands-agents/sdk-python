@@ -7,10 +7,7 @@ from: the :class:`ExtractionResult` an extractor produces, the
 :class:`ExtractionTrigger` that decides *when* extraction runs, and the
 :class:`ExtractionConfig` that ties them together on a store.
 
-These are Python ports of the TypeScript ``memory/extraction/types.ts``
-interfaces. All public field and method names use ``snake_case`` per the
-requirements naming convention mapping (e.g. ``defaultModel`` ->
-``default_model``).
+All public field and method names use ``snake_case``.
 """
 
 from __future__ import annotations

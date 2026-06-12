@@ -132,11 +132,10 @@ class CheckpointException(Exception):
 class AggregateMemoryError(Exception):
     """Raised when one or more memory store operations fail.
 
-    Provides a Python 3.10-safe alternative to the JavaScript ``AggregateError``
-    used by the TypeScript memory module (Python's built-in ``ExceptionGroup`` is
-    only available on 3.11+, while the SDK targets ``>=3.10``). It carries a
-    human-readable ``message`` naming the failed stores and exposes each
-    underlying failure through the ``errors`` attribute.
+    Carries a human-readable ``message`` naming the failed stores and exposes each
+    underlying failure through the ``errors`` attribute. Used instead of
+    ``ExceptionGroup`` so the SDK supports Python 3.10 (``ExceptionGroup`` is only
+    available on 3.11+).
 
     Attributes:
         errors: The underlying exceptions that caused this aggregate failure.

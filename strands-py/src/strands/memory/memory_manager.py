@@ -1,9 +1,9 @@
 """Cross-session memory retrieval and storage for agents.
 
-This module is a Python port of the TypeScript ``memory/memory-manager.ts``. The
-:class:`MemoryManager` manages one or more :class:`~strands.memory.types.MemoryStore`
-backends and exposes ``search_memory`` / ``add_memory`` tools for agent-driven
-recall and persistence, alongside any tools the stores themselves provide via
+The :class:`MemoryManager` manages one or more
+:class:`~strands.memory.types.MemoryStore` backends and exposes ``search_memory``
+/ ``add_memory`` tools for agent-driven recall and persistence, alongside any
+tools the stores themselves provide via
 :meth:`~strands.memory.types.MemoryStore.get_tools`.
 
 As a :class:`~strands.plugins.plugin.Plugin`, the manager builds its tools at
@@ -11,9 +11,7 @@ construction (exposed via the ``tools`` property) and wires automatic extraction
 in :meth:`MemoryManager.init_agent` for any store configured with an
 ``ExtractionConfig``.
 
-All public field and method names use ``snake_case`` per the requirements naming
-convention mapping (e.g. ``maxSearchResults`` -> ``max_search_results``,
-``addMessages`` -> ``add_messages``).
+All public field and method names use ``snake_case``.
 """
 
 from __future__ import annotations

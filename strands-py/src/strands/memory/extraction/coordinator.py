@@ -1,6 +1,5 @@
 """Background coordinator that saves conversation messages to memory stores.
 
-This is a Python port of the TypeScript ``memory/extraction/coordinator.ts``.
 The :class:`ExtractionCoordinator` buffers every message the agent produces and,
 when a store's trigger fires, saves that store's unsaved messages in the
 background without slowing the agent loop down.
@@ -31,10 +30,10 @@ its own and the messages buffered during it are saved once the store comes back.
 A permanently broken store keeps probing and logs an error each time, surfacing
 the misconfiguration.
 
-The asyncio adaptation of the original promise-based design uses
-``asyncio.create_task`` for fire-and-forget scheduling, a per-store
-``asyncio.Task`` chain for serialized saves, and
-``asyncio.gather(..., return_exceptions=True)`` in place of ``Promise.allSettled``.
+Scheduling uses ``asyncio.create_task`` for fire-and-forget saves, a per-store
+``asyncio.Task`` chain to serialize a single store's saves, and
+``asyncio.gather(..., return_exceptions=True)`` to run concurrent writes so one
+failure does not cancel the rest.
 """
 
 from __future__ import annotations

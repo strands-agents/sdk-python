@@ -1,7 +1,6 @@
 """Model-backed :class:`Extractor` that distills messages into discrete facts.
 
-Python port of ``strands-ts/src/memory/extraction/model-extractor.ts``. A
-:class:`ModelExtractor` calls a language model with a fact-extraction system
+A :class:`ModelExtractor` calls a language model with a fact-extraction system
 prompt and parses the response into :class:`ExtractionResult` entries.
 
 Use for self-managed stores that hold plain text and want automatic
