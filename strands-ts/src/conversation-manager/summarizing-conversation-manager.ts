@@ -6,7 +6,6 @@
  * than simply discarding it.
  */
 
-import { Message } from '../types/messages.js'
 import type { LocalAgent } from '../types/agent.js'
 import {
   ConversationManager,

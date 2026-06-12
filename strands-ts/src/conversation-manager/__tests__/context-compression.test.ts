@@ -4,12 +4,11 @@ import {
   findValidTrimPoint,
   generateSummary,
   matchesMessageType,
-  partitionPinned,
   summarizeMessages,
   trimMessages,
   DEFAULT_SUMMARIZATION_PROMPT,
 } from '../compression/context-compression.js'
-import { pinMessage } from '../compression/pin-message.js'
+import { pinMessage, partitionPinned } from '../compression/pin-message.js'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '../../types/messages.js'
 
 function textMsg(role: 'user' | 'assistant', text: string): Message {
@@ -136,7 +135,7 @@ describe('partitionPinned', () => {
     const messages = [textMsg('user', 'a'), textMsg('assistant', 'b'), textMsg('user', 'c')]
     pinMessage(messages, 1)
 
-    const { pinned, unpinned } = partitionPinned(messages, 3)
+    const [pinned, unpinned] = partitionPinned(messages, 0, 3)
     expect(pinned).toHaveLength(1)
     expect(unpinned).toHaveLength(2)
   })
@@ -146,7 +145,7 @@ describe('partitionPinned', () => {
     pinMessage(messages, 0)
     pinMessage(messages, 2)
 
-    const { pinned, unpinned } = partitionPinned(messages, 2)
+    const [pinned, unpinned] = partitionPinned(messages, 0, 2)
     expect(pinned).toHaveLength(1)
     expect(unpinned).toHaveLength(1)
   })

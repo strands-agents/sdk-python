@@ -1,8 +1,8 @@
-import type { InvokeModelContext } from '../../middleware/stages.js'
-import type { MiddlewareInputHandler } from '../../middleware/types.js'
-import type { Model } from '../../models/model.js'
-import { Message, TextBlock } from '../../types/messages.js'
-import { DEFAULT_CONTEXT_WINDOW_LIMIT } from '../conversation-manager.js'
+import type { InvokeModelContext } from '../../../middleware/stages.js'
+import type { MiddlewareInputHandler } from '../../../middleware/types.js'
+import type { Model } from '../../../models/model.js'
+import { Message, TextBlock } from '../../../types/messages.js'
+import { DEFAULT_CONTEXT_WINDOW_LIMIT } from '../../conversation-manager.js'
 
 export function createTokenUsageMiddleware(model: Model): MiddlewareInputHandler<InvokeModelContext> {
   return async (context: InvokeModelContext): Promise<InvokeModelContext> => {
@@ -13,13 +13,12 @@ export function createTokenUsageMiddleware(model: Model): MiddlewareInputHandler
 
     const contextWindowLimit = model.getConfig().contextWindowLimit ?? DEFAULT_CONTEXT_WINDOW_LIMIT
     const remaining = Math.max(0, contextWindowLimit - projectedInputTokens)
-    const pct = ((projectedInputTokens / contextWindowLimit) * 100).toFixed(1)
+    const percentUsed = ((projectedInputTokens / contextWindowLimit) * 100).toFixed(1)
 
     const statusText =
       `\n\n<context-status>\n` +
-      `<used>${projectedInputTokens.toLocaleString()} / ${contextWindowLimit.toLocaleString()} tokens (${pct}%)</used>\n` +
+      `<used>${projectedInputTokens.toLocaleString()} / ${contextWindowLimit.toLocaleString()} tokens (${percentUsed}%)</used>\n` +
       `<remaining>~${remaining.toLocaleString()} tokens</remaining>\n` +
-      `<tools>summarize_context, truncate_context, pin</tools>\n` +
       `</context-status>`
 
     const messages = [...context.messages]

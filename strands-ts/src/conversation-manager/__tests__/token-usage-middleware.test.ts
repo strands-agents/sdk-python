@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createTokenUsageMiddleware } from '../agentic/token-usage-middleware.js'
+import { createTokenUsageMiddleware } from '../modes/agentic/token-usage-middleware.js'
 import { Message, TextBlock } from '../../types/messages.js'
 import type { InvokeModelContext } from '../../middleware/stages.js'
 import type { Model } from '../../models/model.js'
@@ -17,7 +17,6 @@ function createContext(overrides: Partial<InvokeModelContext> = {}): InvokeModel
     agent: {} as InvokeModelContext['agent'],
     messages: [new Message({ role: 'user', content: [new TextBlock('hello')] })],
     toolSpecs: [],
-    modelState: {} as InvokeModelContext['modelState'],
     invocationState: {},
     ...overrides,
   }
@@ -59,7 +58,7 @@ describe('createTokenUsageMiddleware', () => {
     const statusBlock = lastMsg.content[1] as TextBlock
     expect(statusBlock.text).toContain('<context-status>')
     expect(statusBlock.text).toContain('25.0%')
-    expect(statusBlock.text).toContain('summarize_context')
+    expect(statusBlock.text).toContain('<remaining>')
     expect(statusBlock.text).toContain('</context-status>')
   })
 
@@ -137,7 +136,7 @@ describe('token usage middleware integration', () => {
     const lastBlock = lastMessage.content[lastMessage.content.length - 1] as TextBlock
     expect(lastBlock.text).toContain('<context-status>')
     expect(lastBlock.text).toContain('100,000')
-    expect(lastBlock.text).toContain('summarize_context')
+    expect(lastBlock.text).toContain('<remaining>')
   })
 
   it('injects on first call when token estimation succeeds', async () => {

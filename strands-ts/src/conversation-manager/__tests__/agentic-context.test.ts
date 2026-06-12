@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { summarizeContextTool, truncateContextTool, pinTool } from '../agentic/agentic-context.js'
+import { summarizeContextTool, truncateContextTool, pinContextTool } from '../modes/agentic/agentic-context.js'
 import { pinMessage } from '../compression/pin-message.js'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '../../types/messages.js'
 
@@ -168,7 +168,7 @@ describe('truncateContextTool', () => {
       (_, i) =>
         new Message({
           role: 'user',
-          content: [new ToolResultBlock({ toolUseId: `id-${i}`, status: 'success', content: [new TextBlock(`R`)] })],
+          content: [new ToolResultBlock({ toolUseId: `id-${i}`, status: 'success', content: [new TextBlock('R')] })],
         })
     )
     const result = await truncateContextTool.invoke({ keepRecent: 2 }, makeContext(messages))
@@ -177,19 +177,16 @@ describe('truncateContextTool', () => {
   })
 })
 
-describe('pinTool', () => {
-  describe('current_turn selector', () => {
-    it('pins last user+assistant exchange', async () => {
+describe('pinContextTool', () => {
+  describe('select: last_turn', () => {
+    it('pins the entire current turn', async () => {
       const messages = [
         textMsg('user', 'First question'),
         textMsg('assistant', 'First answer'),
         textMsg('user', 'Second question'),
         textMsg('assistant', 'Second answer'),
       ]
-      const result = await pinTool.invoke(
-        { selector: { type: 'current_turn' as const }, action: 'pin' as const },
-        makeContext(messages)
-      )
+      const result = await pinContextTool.invoke({ select: 'last_turn', action: 'pin' as const }, makeContext(messages))
       expect(result).toContain('Pinned')
       expect(result).toContain('2 message(s)')
       expect(messages[2]!.metadata?.custom?.pinned).toBe(true)
@@ -197,23 +194,51 @@ describe('pinTool', () => {
       expect(messages[0]!.metadata?.custom?.pinned).toBeUndefined()
     })
 
-    it('pins trailing user messages when last is user role', async () => {
-      const messages = [textMsg('user', 'First'), textMsg('assistant', 'Answer'), textMsg('user', 'Follow-up')]
-      await pinTool.invoke(
-        { selector: { type: 'current_turn' as const }, action: 'pin' as const },
+    it('includes tool calls in the current turn', async () => {
+      const messages = [
+        textMsg('user', 'Old question'),
+        textMsg('assistant', 'Old answer'),
+        textMsg('user', 'Check weather'),
+        new Message({
+          role: 'assistant',
+          content: [new ToolUseBlock({ toolUseId: 'id-1', name: 'weather', input: {} })],
+        }),
+        new Message({
+          role: 'user',
+          content: [new ToolResultBlock({ toolUseId: 'id-1', status: 'success', content: [new TextBlock('Sunny')] })],
+        }),
+        textMsg('assistant', 'It is sunny'),
+      ]
+      const result = await pinContextTool.invoke({ select: 'last_turn', action: 'pin' as const }, makeContext(messages))
+      expect(result).toContain('4 message(s)')
+      expect(messages[2]!.metadata?.custom?.pinned).toBe(true)
+      expect(messages[3]!.metadata?.custom?.pinned).toBe(true)
+      expect(messages[4]!.metadata?.custom?.pinned).toBe(true)
+      expect(messages[5]!.metadata?.custom?.pinned).toBe(true)
+      expect(messages[0]!.metadata?.custom?.pinned).toBeUndefined()
+    })
+
+    it('pins with filter on last_turn', async () => {
+      const messages = [
+        textMsg('user', 'Old'),
+        textMsg('assistant', 'Old'),
+        textMsg('user', 'New question'),
+        textMsg('assistant', 'New answer'),
+      ]
+      const result = await pinContextTool.invoke(
+        { select: 'last_turn', filter: 'user', action: 'pin' as const },
         makeContext(messages)
       )
+      expect(result).toContain('1 message(s)')
       expect(messages[2]!.metadata?.custom?.pinned).toBe(true)
+      expect(messages[3]!.metadata?.custom?.pinned).toBeUndefined()
     })
   })
 
-  describe('last_n selector', () => {
+  describe('select: number (last N)', () => {
     it('pins the last N messages', async () => {
       const messages = makeMessages(6)
-      const result = await pinTool.invoke(
-        { selector: { type: 'last_n' as const, count: 3 }, action: 'pin' as const },
-        makeContext(messages)
-      )
+      const result = await pinContextTool.invoke({ select: 3, action: 'pin' as const }, makeContext(messages))
       expect(result).toContain('Pinned')
       expect(result).toContain('3 message(s)')
       expect(messages[3]!.metadata?.custom?.pinned).toBe(true)
@@ -222,23 +247,30 @@ describe('pinTool', () => {
       expect(messages[0]!.metadata?.custom?.pinned).toBeUndefined()
     })
 
-    it('clamps count to conversation length', async () => {
+    it('clamps to conversation length', async () => {
       const messages = makeMessages(3)
-      const result = await pinTool.invoke(
-        { selector: { type: 'last_n' as const, count: 100 }, action: 'pin' as const },
+      const result = await pinContextTool.invoke({ select: 100, action: 'pin' as const }, makeContext(messages))
+      expect(result).toContain('3 message(s)')
+    })
+
+    it('filters by role within last N', async () => {
+      const messages = makeMessages(6)
+      const result = await pinContextTool.invoke(
+        { select: 6, filter: 'user', action: 'pin' as const },
         makeContext(messages)
       )
       expect(result).toContain('3 message(s)')
+      expect(messages[0]!.metadata?.custom?.pinned).toBe(true)
+      expect(messages[2]!.metadata?.custom?.pinned).toBe(true)
+      expect(messages[4]!.metadata?.custom?.pinned).toBe(true)
+      expect(messages[1]!.metadata?.custom?.pinned).toBeUndefined()
     })
   })
 
-  describe('indices selector', () => {
+  describe('select: indices', () => {
     it('pins messages at specific indices', async () => {
       const messages = makeMessages(6)
-      const result = await pinTool.invoke(
-        { selector: { type: 'indices' as const, indices: [0, 2, 4] }, action: 'pin' as const },
-        makeContext(messages)
-      )
+      const result = await pinContextTool.invoke({ select: [0, 2, 4], action: 'pin' as const }, makeContext(messages))
       expect(result).toContain('Pinned')
       expect(result).toContain('3 message(s)')
       expect(messages[0]!.metadata?.custom?.pinned).toBe(true)
@@ -249,8 +281,8 @@ describe('pinTool', () => {
 
     it('returns error when all indices out of range', async () => {
       const messages = makeMessages(3)
-      const result = await pinTool.invoke(
-        { selector: { type: 'indices' as const, indices: [10, 20, 30] }, action: 'pin' as const },
+      const result = await pinContextTool.invoke(
+        { select: [10, 20, 30], action: 'pin' as const },
         makeContext(messages)
       )
       expect(result).toContain('All indices out of range')
@@ -259,13 +291,33 @@ describe('pinTool', () => {
 
     it('filters out-of-range indices but pins valid ones', async () => {
       const messages = makeMessages(4)
-      const result = await pinTool.invoke(
-        { selector: { type: 'indices' as const, indices: [1, 99] }, action: 'pin' as const },
-        makeContext(messages)
-      )
+      const result = await pinContextTool.invoke({ select: [1, 99], action: 'pin' as const }, makeContext(messages))
       expect(result).toContain('Pinned')
       expect(result).toContain('1 message(s)')
       expect(messages[1]!.metadata?.custom?.pinned).toBe(true)
+    })
+  })
+
+  describe('filter: tool_result', () => {
+    it('pins only tool result messages', async () => {
+      const messages = [
+        textMsg('user', 'Do something'),
+        new Message({ role: 'assistant', content: [new ToolUseBlock({ toolUseId: 'id-1', name: 't', input: {} })] }),
+        new Message({
+          role: 'user',
+          content: [new ToolResultBlock({ toolUseId: 'id-1', status: 'success', content: [new TextBlock('Result')] })],
+        }),
+        textMsg('assistant', 'Done'),
+      ]
+      const result = await pinContextTool.invoke(
+        { select: 4, filter: 'tool_result', action: 'pin' as const },
+        makeContext(messages)
+      )
+      expect(result).toContain('1 message(s)')
+      expect(messages[2]!.metadata?.custom?.pinned).toBe(true)
+      expect(messages[0]!.metadata?.custom?.pinned).toBeUndefined()
+      expect(messages[1]!.metadata?.custom?.pinned).toBeUndefined()
+      expect(messages[3]!.metadata?.custom?.pinned).toBeUndefined()
     })
   })
 
@@ -275,25 +327,19 @@ describe('pinTool', () => {
       pinMessage(messages, 1)
       pinMessage(messages, 2)
 
-      const result = await pinTool.invoke(
-        { selector: { type: 'indices' as const, indices: [1, 2] }, action: 'unpin' as const },
-        makeContext(messages)
-      )
+      const result = await pinContextTool.invoke({ select: [1, 2], action: 'unpin' as const }, makeContext(messages))
       expect(result).toContain('Unpinned')
       expect(result).toContain('2 message(s)')
       expect(messages[1]!.metadata?.custom?.pinned).toBeUndefined()
       expect(messages[2]!.metadata?.custom?.pinned).toBeUndefined()
     })
 
-    it('unpins with last_n selector', async () => {
+    it('unpins last N messages', async () => {
       const messages = makeMessages(4)
       pinMessage(messages, 2)
       pinMessage(messages, 3)
 
-      await pinTool.invoke(
-        { selector: { type: 'last_n' as const, count: 2 }, action: 'unpin' as const },
-        makeContext(messages)
-      )
+      await pinContextTool.invoke({ select: 2, action: 'unpin' as const }, makeContext(messages))
       expect(messages[2]!.metadata?.custom?.pinned).toBeUndefined()
       expect(messages[3]!.metadata?.custom?.pinned).toBeUndefined()
     })
@@ -301,10 +347,7 @@ describe('pinTool', () => {
 
   describe('empty conversation', () => {
     it('returns appropriate message', async () => {
-      const result = await pinTool.invoke(
-        { selector: { type: 'current_turn' as const }, action: 'pin' as const },
-        makeContext([])
-      )
+      const result = await pinContextTool.invoke({ select: 'last_turn', action: 'pin' as const }, makeContext([]))
       expect(result).toBe('No messages in the conversation.')
     })
   })

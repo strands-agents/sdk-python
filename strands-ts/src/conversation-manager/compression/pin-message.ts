@@ -58,26 +58,6 @@ export function pinMessage(messages: Message[], index: number): void {
 }
 
 /**
- * Unpin a message so it can be evicted during context reduction.
- * Mutates the message in place by removing the `pinned` flag from metadata.
- *
- * @param messages - The messages array containing the message to unpin.
- * @param index - The index of the message to unpin.
- */
-export function unpinMessage(messages: Message[], index: number): void {
-  const message = messages[index]!
-  const { pinned: _, ...restCustom } = message.metadata?.custom ?? {}
-  const { custom: __, ...restMetadata } = message.metadata ?? {}
-  const hasCustom = Object.keys(restCustom).length > 0
-  const hasMetadata = hasCustom || Object.keys(restMetadata).length > 0
-  if (hasMetadata) {
-    message.metadata = { ...restMetadata, ...(hasCustom ? { custom: restCustom } : {}) }
-  } else {
-    delete message.metadata
-  }
-}
-
-/**
  * Pin the first N messages in the array permanently.
  *
  * @param messages - The messages array.
@@ -108,4 +88,24 @@ export function partitionPinned(messages: Message[], start: number, end: number)
     }
   }
   return [pinned, unpinned]
+}
+
+/**
+ * Unpin a message so it can be evicted during context reduction.
+ * Mutates the message in place by removing the `pinned` flag from metadata.
+ *
+ * @param messages - The messages array containing the message to unpin.
+ * @param index - The index of the message to unpin.
+ */
+export function unpinMessage(messages: Message[], index: number): void {
+  const message = messages[index]!
+  const { pinned: _, ...restCustom } = message.metadata?.custom ?? {}
+  const { custom: __, ...restMetadata } = message.metadata ?? {}
+  const hasCustom = Object.keys(restCustom).length > 0
+  const hasMetadata = hasCustom || Object.keys(restMetadata).length > 0
+  if (hasMetadata) {
+    message.metadata = { ...restMetadata, ...(hasCustom ? { custom: restCustom } : {}) }
+  } else {
+    delete message.metadata
+  }
 }

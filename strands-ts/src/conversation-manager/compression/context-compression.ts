@@ -1,6 +1,6 @@
 import { Message, TextBlock } from '../../types/messages.js'
 import type { Model } from '../../models/model.js'
-import { isPinned } from './pin-message.js'
+import { partitionPinned } from './pin-message.js'
 
 export const DEFAULT_SUMMARIZATION_PROMPT = `You are a conversation summarizer. Provide a concise summary of the conversation \
 history.
@@ -156,24 +156,6 @@ export async function generateSummary(
   })
 }
 
-/**
- * Partition a range of messages into pinned and unpinned groups.
- */
-export function partitionPinned(
-  messages: Message[],
-  rangeEnd: number
-): { pinned: Message[]; unpinned: Message[] } {
-  const pinned: Message[] = []
-  const unpinned: Message[] = []
-  for (let i = 0; i < rangeEnd; i++) {
-    if (isPinned(messages, i)) {
-      pinned.push(messages[i]!)
-    } else {
-      unpinned.push(messages[i]!)
-    }
-  }
-  return { pinned, unpinned }
-}
 
 export type MessageTypeFilter = 'tools' | 'messages' | 'all'
 
@@ -222,7 +204,7 @@ export async function summarizeMessages(
 
   count = adjustSplitPointForToolPairs(messages, count)
 
-  const { pinned, unpinned } = partitionPinned(messages, count)
+  const [pinned, unpinned] = partitionPinned(messages, 0, count)
 
   if (unpinned.length === 0) return false
 
@@ -246,7 +228,7 @@ export function trimMessages(messages: Message[], windowSize: number): boolean {
 
   if (trimIndex >= messages.length) return false
 
-  const { pinned } = partitionPinned(messages, trimIndex)
+  const [pinned] = partitionPinned(messages, 0, trimIndex)
 
   if (pinned.length === trimIndex) return false
 

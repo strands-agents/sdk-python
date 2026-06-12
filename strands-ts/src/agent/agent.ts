@@ -119,7 +119,12 @@ import type { TakeSnapshotOptions } from './snapshot.js'
 import type { Snapshot } from '../types/snapshot.js'
 import type { Sandbox } from '../sandbox/base.js'
 import { defaultSandbox } from '../sandbox/default.js'
-import { summarizeContextTool, truncateContextTool, pinTool, createTokenUsageMiddleware } from '../conversation-manager/agentic/index.js'
+import {
+  summarizeContextTool,
+  truncateContextTool,
+  pinContextTool,
+  createTokenUsageMiddleware,
+} from '../conversation-manager/modes/agentic/index.js'
 
 /**
  * Recursive type definition for nested tool arrays.
@@ -149,10 +154,13 @@ export type ToolExecutorStrategy = 'sequential' | 'concurrent'
 /**
  * Supported values for the `contextManager` parameter.
  */
-export type ContextManagerStrategy = 'auto' | 'agentic'
+export const CONTEXT_MANAGER_STRATEGIES = ['auto', 'agentic'] as const
+export type ContextManagerStrategy = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
 
 /** Benchmark-validated token threshold for offloading tool results. */
 const CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
+/** Higher offload threshold for agentic mode — the model manages its own context, so we preserve more inline. */
+const AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS = 8_000
 /** Benchmark-validated preview token count for offloaded results. */
 const CONTEXT_MANAGER_PREVIEW_TOKENS = 750
 /** Benchmark-validated ratio of messages to summarize on overflow. */
@@ -221,12 +229,14 @@ export type AgentConfig = {
    * Context management strategy.
    *
    * - `"auto"`: SummarizingConversationManager with proactive compression + ContextOffloader.
-   * - `"agentic"`: Lets the model drive context management via injected tools
-   *   (summarize_context, truncate_context, pin). Uses SummarizingConversationManager
-   *   without proactive compression as a reactive safety net, plus ContextOffloader.
+   * - `"agentic"`: Lets the model drive context management via injected tools.
    *
    * If `conversationManager` is also provided, the user's conversation manager is used instead.
    * Defaults to undefined (SlidingWindowConversationManager, no offloader).
+   *
+   * @remarks The offloader uses in-memory storage that does not persist across process
+   * restarts. For agents using `sessionManager`, provide an explicit `ContextOffloader`
+   * with durable storage via the `plugins` parameter.
    */
   contextManager?: ContextManagerStrategy
   /**
@@ -307,7 +317,7 @@ export type AgentConfig = {
  * When contextManager is undefined, falls back to the default SlidingWindowConversationManager.
  * When "auto", uses SummarizingConversationManager with proactive compression.
  * When "agentic", uses SummarizingConversationManager without proactive compression
- * (the agent manages its context via tools; the CM is only a reactive safety net).
+ * (the agent manages its context via tools; the context manager is only a reactive safety net).
  */
 function resolveConversationManager(
   contextManager: ContextManagerStrategy | undefined,
@@ -331,7 +341,9 @@ function resolveConversationManager(
     )
   }
   if (contextManager !== undefined) {
-    throw new Error(`Unsupported contextManager value: "${contextManager}". Supported values: "auto", "agentic"`)
+    throw new Error(
+      `Unsupported contextManager value: "${contextManager}". Supported values: ${CONTEXT_MANAGER_STRATEGIES.map((s) => `"${s}"`).join(', ')}`
+    )
   }
   return conversationManager ?? new SlidingWindowConversationManager({ windowSize: 40 })
 }
@@ -512,7 +524,7 @@ export class Agent implements LocalAgent, InvokableAgent {
 
     const { tools, mcpClients } = flattenTools(config?.tools ?? [])
     if (config?.contextManager === 'agentic') {
-      tools.push(summarizeContextTool, truncateContextTool, pinTool)
+      tools.push(summarizeContextTool, truncateContextTool, pinContextTool)
     }
     this._toolRegistry = new ToolRegistry(tools)
     this._mcpClients = mcpClients
@@ -558,7 +570,10 @@ export class Agent implements LocalAgent, InvokableAgent {
         ? [
             new ContextOffloader({
               storage: new InMemoryStorage(),
-              maxResultTokens: CONTEXT_MANAGER_MAX_RESULT_TOKENS,
+              maxResultTokens:
+                config?.contextManager === 'agentic'
+                  ? AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS
+                  : CONTEXT_MANAGER_MAX_RESULT_TOKENS,
               previewTokens: CONTEXT_MANAGER_PREVIEW_TOKENS,
             }),
           ]
