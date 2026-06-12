@@ -7,12 +7,8 @@ on:
     - cron: '17 7 * * *'   # daily backstop for missed release events
   workflow_dispatch:
     inputs:
-      backfill:
-        description: 'Backfill all releases'
-        type: boolean
-        default: false
       tag:
-        description: 'Single release tag to sync (ignored when backfill is checked)'
+        description: 'Single release tag to sync'
         type: string
         default: ''
 
@@ -35,14 +31,16 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      # Note: historical backfill is a deliberate one-time manual operation
+      # (run the action locally / via a temporary dispatch and open a separate
+      # hand-reviewed PR) — not wired here.
       - name: Sync harness releases
         uses: strands-agents/devtools/changelog-release-pr@main
         with:
           source-repo: strands-agents/harness-sdk
-          mode: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.backfill)) && 'backfill' || 'single' }}
+          mode: ${{ github.event_name == 'schedule' && 'backfill' || 'single' }}
           # Cron is a cheap backstop: only generate missing files (no
-          # re-enrichment API cost, never regresses existing files). An explicit
-          # dispatch backfill is a full refresh.
+          # re-enrichment API cost, never regresses existing files).
           skip-existing: ${{ github.event_name == 'schedule' }}
           tag: ${{ github.event.release.tag_name || inputs.tag }}
           github-token: ${{ github.token }}
