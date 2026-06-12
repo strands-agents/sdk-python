@@ -74,9 +74,9 @@
   background: color-mix(in srgb, var(--sl-color-accent) 8%, transparent); }
 
 /* version block + timeline */
-.cl-version { display: flex; gap: 0.9rem; }
+.cl-version { display: flex; gap: 1.1rem; }
 .cl-version-meta { min-width: 104px; text-align: right; }
-.cl-version-num { color: var(--sl-color-white); font-weight: 700; font-size: 1.15rem; }
+.cl-version-num { color: var(--sl-color-white); font-weight: 700; font-size: 1.3rem; }
 .cl-version-date { color: var(--sl-color-gray-3); font-size: 0.8rem; margin-top: 2px; }
 .cl-version-links { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.5rem; align-items: flex-end; }
 .cl-version-links a { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; color: var(--sl-color-gray-3); text-decoration: none; }
@@ -87,13 +87,13 @@
 .cl-version:not(:first-child) .cl-dot { background: var(--sl-color-gray-4); box-shadow: none; }
 .cl-line { flex: 1; width: 2px; background: var(--sl-color-hairline); }
 .cl-version:first-child .cl-line { background: color-mix(in srgb, var(--sl-color-accent) 30%, transparent); }
-.cl-version-body { flex: 1; padding-bottom: 1.4rem; }
+.cl-version-body { flex: 1; padding-bottom: 2.5rem; }
 
 .cl-highlights { background: color-mix(in srgb, var(--sl-color-accent) 7%, transparent);
   border: 1px solid color-mix(in srgb, var(--sl-color-accent) 22%, transparent); border-radius: 9px;
-  padding: 0.5rem 0.7rem; margin: 0.5rem 0 0.5rem; }
+  padding: 0.75rem 1rem; margin: 0.5rem 0 0.85rem; }
 .cl-highlights .cl-rail-label { color: var(--sl-color-accent); margin: 0; }
-.cl-highlights p { margin: 0.3rem 0 0; font-size: 0.95rem; color: var(--sl-color-gray-1); }
+.cl-highlights p { margin: 0.35rem 0 0; font-size: 1rem; line-height: 1.55; color: var(--sl-color-gray-1); }
 .cl-highlights code { font-size: 0.85em; }
 
 /* Optional curated markdown body (longer-form notes) below the entry groups. */
@@ -104,12 +104,14 @@
 .cl-version-notes a { color: var(--sl-color-accent); }
 .cl-version-notes code { font-size: 0.85em; }
 
-.cl-group { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.03em; color: var(--sl-color-gray-2);
-  margin: 0.9rem 0 0.3rem; display: flex; align-items: center; gap: 0.45rem; }
-.cl-group .cl-n { color: var(--sl-color-gray-3); font-weight: 600; }
-.cl-group.fixes { color: var(--sl-color-gray-3); border-top: 1px dashed var(--sl-color-hairline); padding-top: 0.85rem; }
+.cl-group { font-size: 1rem; font-weight: 700; letter-spacing: 0.02em; color: var(--sl-color-white);
+  margin: 1.4rem 0 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
+.cl-version-body > .cl-group:first-child { margin-top: 0.4rem; }
+.cl-group .cl-n { color: var(--sl-color-gray-3); font-weight: 600; font-size: 0.8rem; }
+.cl-group.fixes { color: var(--sl-color-gray-1); border-top: 1px dashed var(--sl-color-hairline); padding-top: 1.1rem; }
 
-.cl-entry { font-size: 0.95rem; color: var(--sl-color-gray-1); padding: 0.4rem 0; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
+.cl-entry { font-size: 0.95rem; color: var(--sl-color-gray-1); padding: 0.45rem 0; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
+.cl-entry + .cl-entry { border-top: 1px solid color-mix(in srgb, var(--sl-color-hairline) 45%, transparent); }
 .cl-entry-title { flex: 1; min-width: 140px; }
 .cl-entry a { color: var(--sl-color-accent); text-decoration: none; }
 /* metadata quieter than titles so titles scan cleanly */
