@@ -3,6 +3,7 @@
  * Hero section: headline + subtext on left, code snippet on right.
  */
 import LangCodeBlock from './LangCodeBlock.astro'
+import AgentSetupCard from './AgentSetupCard.astro'
 import { getStarCount } from '../../util/github'
 
 interface Props {
@@ -73,7 +74,7 @@ agent.addHook(BeforeToolCallEvent, (event) => {
 await agent.invoke('Research AI agent frameworks')`
 ---
 
-<section class="hero-section">
+<section class="hero-section" data-audience="humans">
   <div class="hero-background"></div>
   <div class="hero-inner">
     <div class="hero-text">
@@ -120,12 +121,23 @@ await agent.invoke('Research AI agent frameworks')`
       </p>
     </div>
     <div class="hero-code">
-      <LangCodeBlock
-        pythonCode={heroPython}
-        pythonFilename="research_agent.py"
-        tsCode={heroTs}
-        tsFilename="research_agent.ts"
-      />
+      <div class="audience-toggle" role="radiogroup" aria-label="Audience">
+        <button class="audience-option" role="radio" aria-checked="true" data-audience="humans">For humans</button>
+        <button class="audience-option" role="radio" aria-checked="false" data-audience="agents">For agents</button>
+      </div>
+      <div class="hero-panels">
+        <div class="hero-panel" data-panel="humans">
+          <LangCodeBlock
+            pythonCode={heroPython}
+            pythonFilename="research_agent.py"
+            tsCode={heroTs}
+            tsFilename="research_agent.ts"
+          />
+        </div>
+        <div class="hero-panel" data-panel="agents">
+          <AgentSetupCard baseUrl={baseUrl} />
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -257,14 +269,14 @@ await agent.invoke('Research AI agent frameworks')`
      cycling code example (data-active-lang lives on <html>, set by
      LangCodeBlock's shared script). Without JS the attribute is absent and
      both commands render normally. */
-  :global(html[data-active-lang='Python']) .hero-install[data-lang='Python'],
-  :global(html[data-active-lang='TypeScript']) .hero-install[data-lang='TypeScript'] {
+  :global(html[data-active-lang='Python']) .hero-section[data-audience='humans'] .hero-install[data-lang='Python'],
+  :global(html[data-active-lang='TypeScript']) .hero-section[data-audience='humans'] .hero-install[data-lang='TypeScript'] {
     border-color: var(--strands-green);
     box-shadow: 0 0 12px rgba(0, 204, 95, 0.25);
   }
 
-  :global(html[data-active-lang='Python']) .hero-install[data-lang='TypeScript'],
-  :global(html[data-active-lang='TypeScript']) .hero-install[data-lang='Python'] {
+  :global(html[data-active-lang='Python']) .hero-section[data-audience='humans'] .hero-install[data-lang='TypeScript'],
+  :global(html[data-active-lang='TypeScript']) .hero-section[data-audience='humans'] .hero-install[data-lang='Python'] {
     opacity: 0.6;
   }
 
@@ -322,6 +334,61 @@ await agent.invoke('Research AI agent frameworks')`
 
   .hero-code {
     min-width: 0;
+  }
+
+  .audience-toggle {
+    display: inline-flex;
+    align-items: stretch;
+    border-bottom: 2px solid var(--sl-color-gray-5);
+    margin-bottom: 0.75rem;
+  }
+
+  .audience-option {
+    padding: 0.25rem 0.625rem;
+    border: none;
+    background: transparent;
+    color: var(--sl-color-gray-3);
+    font-size: 0.8125rem;
+    font-weight: 400;
+    font-family: var(--sl-font);
+    cursor: pointer;
+    transition: color 0.15s ease, box-shadow 0.15s ease;
+    white-space: nowrap;
+    box-shadow: 0 2px 0 0 var(--sl-color-gray-5);
+    margin-bottom: -2px;
+  }
+
+  .audience-option:hover {
+    color: var(--sl-color-white);
+  }
+
+  .audience-option[aria-checked='true'] {
+    font-weight: 600;
+    color: var(--sl-color-text-accent);
+    box-shadow: 0 2px 0 0 var(--sl-color-text-accent);
+  }
+
+  /* Stack the two panels in one grid cell and cross-fade on swap */
+  .hero-panels {
+    display: grid;
+  }
+
+  .hero-panel {
+    grid-area: 1 / 1;
+    min-width: 0;
+    transition: opacity 0.3s ease, visibility 0.3s;
+  }
+
+  .hero-section[data-audience='humans'] .hero-panel[data-panel='agents'],
+  .hero-section[data-audience='agents'] .hero-panel[data-panel='humans'] {
+    opacity: 0;
+    visibility: hidden;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero-panel {
+      transition: none;
+    }
   }
 
   @media (max-width: 768px) {
@@ -394,5 +461,20 @@ await agent.invoke('Research AI agent frameworks')`
         if (e.target !== btn && !btn.contains(e.target as Node)) copy()
       })
     })
+
+    const section = document.querySelector<HTMLElement>('.hero-section')
+    if (section) {
+      const options = section.querySelectorAll<HTMLButtonElement>('.audience-option')
+      options.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const audience = btn.dataset.audience
+          if (!audience) return
+          section.dataset.audience = audience
+          options.forEach((opt) => {
+            opt.setAttribute('aria-checked', opt === btn ? 'true' : 'false')
+          })
+        })
+      })
+    }
   })
 </script>
