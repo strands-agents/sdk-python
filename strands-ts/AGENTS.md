@@ -19,11 +19,11 @@ See [CONTRIBUTING.md - TypeScript SDK](../CONTRIBUTING.md#typescript-sdk) for:
 3. **Run quality checks** before committing (pre-commit hooks will run automatically)
 4. **Commit with conventional commits**: `feat:`, `fix:`, `refactor:`, `docs:`, etc.
 5. **Push to remote**: `git push origin agent-tasks/{ISSUE_NUMBER}`
-6. **Create pull request** following [PR.md](../dev-docs/PR.md) guidelines
+6. **Create pull request** following [PR.md](../team/PR.md) guidelines
 
 ### 3. Pull Request Guidelines
 
-When creating pull requests, you **MUST** follow the guidelines in [PR.md](../dev-docs/PR.md) and use the [PR template](../.github/PULL_REQUEST_TEMPLATE.md). Key principles:
+When creating pull requests, you **MUST** follow the guidelines in [PR.md](../team/PR.md) and use the [PR template](../.github/PULL_REQUEST_TEMPLATE.md). Key principles:
 
 - **Focus on WHY**: Explain motivation and user impact, not implementation details
 - **Document public API changes**: Show before/after code examples
@@ -31,7 +31,7 @@ When creating pull requests, you **MUST** follow the guidelines in [PR.md](../de
 - **Target senior engineers**: Assume familiarity with the SDK
 - **Exclude implementation details**: Leave these to code comments and diffs
 
-See [PR.md](../dev-docs/PR.md) for the complete guidance and template.
+See [PR.md](../team/PR.md) for the complete guidance and template.
 
 ### 4. Quality Gates
 
@@ -48,7 +48,7 @@ All checks must pass before commit is allowed.
 
 ### 5. Testing Guidelines
 
-When writing tests, you **MUST** follow the guidelines in [dev-docs/TESTING.md](../dev-docs/TESTING.md). Key topics covered:
+When writing tests, you **MUST** follow the guidelines in [docs/TESTING.md](./docs/TESTING.md). Key topics covered:
 
 - Test organization and file location
 - Test batching strategy
@@ -56,7 +56,7 @@ When writing tests, you **MUST** follow the guidelines in [dev-docs/TESTING.md](
 - Test coverage requirements
 - Multi-environment testing (Node.js and browser)
 
-See [TESTING.md](../dev-docs/TESTING.md) for the complete testing reference.
+See [TESTING.md](./docs/TESTING.md) for the complete testing reference.
 
 ## Coding Patterns and Best Practices
 
@@ -233,7 +233,7 @@ export class AgentSkillsPlugin implements Plugin { ... }
 
 ### Dependency Management
 
-When adding or modifying dependencies, you **MUST** follow the guidelines in [dev-docs/DEPENDENCIES.md](../dev-docs/DEPENDENCIES.md). Key points:
+When adding or modifying dependencies, you **MUST** follow the guidelines in [docs/DEPENDENCIES.md](./docs/DEPENDENCIES.md). Key points:
 
 - **`dependencies`**: Core SDK functionality that users don't interact with directly
 - **`peerDependencies`**: Dependencies that cross API boundaries (users construct/pass instances)
@@ -297,8 +297,8 @@ npm run build         # Compile TypeScript
 ### Integration with Other Files
 
 - **CONTRIBUTING.md**: Contains testing/setup commands and human contribution guidelines
-- **dev-docs/TESTING.md**: Comprehensive testing guidelines (MUST follow when writing tests)
-- **dev-docs/PR.md**: Pull request guidelines and template
+- **docs/TESTING.md**: Comprehensive testing guidelines (MUST follow when writing tests)
+- **team/PR.md**: Pull request guidelines and template
 - **package.json**: Root workspace config that delegates to strands-ts
 - **strands-ts/package.json**: SDK package config, dependencies, and npm scripts
 

@@ -20,9 +20,7 @@ strands-agents/
 ├── strands-py-wasm/    # Python ↔ WASM bridge
 ├── strandly/           # CLI tooling
 ├── site/               # Documentation site (Astro) — see site/AGENTS.md
-├── designs/            # Design proposals
-├── dev-docs/           # Cross-SDK development docs (PR guidelines, etc.)
-├── team/               # Team governance (tenets, decisions, API bar-raising)
+├── team/               # Governance + cross-SDK process (tenets, decisions, API bar-raising, PR & compatibility guidelines, designs/ proposals)
 ├── test-infra/         # CDK stack for integ tests that require provisioned AWS infra
 ├── .agents/            # Agent skills and references
 ├── package.json        # npm workspace root
@@ -34,6 +32,15 @@ When working on code, determine which sub-project you're in and follow its conve
 - **TypeScript SDK**: See `strands-ts/AGENTS.md`
 - **Documentation site**: See `site/AGENTS.md`
 - **Test infrastructure**: See `test-infra/README.md`
+
+### Where the "why" lives: `team/`
+
+Before designing a feature or changing an API, read the relevant context in `team/`. It captures the reasoning the code itself doesn't:
+
+- **`team/designs/`** — RFC-style proposals for significant features (numbered `NNNN-*.md`). The richest source of architectural context: problem framing, the chosen approach, alternatives considered, and consequences. If you're touching a major subsystem, find its design doc first.
+- **`team/DECISIONS.md`** — lightweight architecture decision records for smaller calls.
+- **`team/TENETS.md`** — the principles a contribution should align with.
+- **`team/API_BAR_RAISING.md`** and **`team/FEATURE_LIFECYCLE.md`** — the bar and process for API changes and feature deprecation.
 
 ### test-infra/ guardrails
 
@@ -47,7 +54,7 @@ The `test-infra/` CDK stack deploys real AWS resources (Bedrock KBs, EC2 instanc
 
 - **Branching**: `git checkout -b agent-tasks/{ISSUE_NUMBER}`
 - **Commits**: Use [conventional commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, etc.
-- **Pull requests**: See [PR guidelines](./dev-docs/PR.md). Use the `pr-create` and `pr-writer` skills under `.agents/skills/` to draft and open PRs.
+- **Pull requests**: See [PR guidelines](./team/PR.md). Use the `pr-create` and `pr-writer` skills under `.agents/skills/` to draft and open PRs.
 - **CI**: The `ci.yml` merge gate detects which paths changed and runs only relevant checks
 
 ## Quality Bar for PRs

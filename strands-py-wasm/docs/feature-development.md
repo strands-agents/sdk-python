@@ -2,7 +2,7 @@
 
 Follow this guide when developing new features or modifying existing implementations across the WASM bridge. Changes that cross the WASM boundary touch multiple files across layers.
 
-For general development standards (conventional commits, test coverage, formatting, linting, TSDoc), see [CONTRIBUTING.md](../../CONTRIBUTING.md). For the SDK's compatibility policy on non-breaking changes (union type extensions, getter/setter conversions), see [COMPATIBILITY.MD](../../COMPATIBILITY.MD).
+For general development standards (conventional commits, test coverage, formatting, linting, TSDoc), see [CONTRIBUTING.md](../../CONTRIBUTING.md). For the SDK's compatibility policy on non-breaking changes (union type extensions, getter/setter conversions), see [COMPATIBILITY.md](../../team/COMPATIBILITY.md).
 
 ## File ownership
 
@@ -95,7 +95,7 @@ record my-feature-config {
 
 **Pattern: adding a field to `agent-config`.** Add the new config as `option<my-feature-config>` to the `agent-config` record.
 
-**Extending existing WIT variants.** Adding a new variant case to an existing WIT `variant` type (e.g., a new model provider to `model-config`, or a new tag to `stream-event`) is a non-breaking change per the project's [compatibility policy](../../COMPATIBILITY.MD). Existing host code that pattern-matches on known tags will ignore the new tag. Do not add backwards-compatibility shims for new variant cases.
+**Extending existing WIT variants.** Adding a new variant case to an existing WIT `variant` type (e.g., a new model provider to `model-config`, or a new tag to `stream-event`) is a non-breaking change per the project's [compatibility policy](../../team/COMPATIBILITY.md). Existing host code that pattern-matches on known tags will ignore the new tag. Do not add backwards-compatibility shims for new variant cases.
 
 **Regenerate types** after updating `wit/agent.wit`: run `npm run dev -- generate`. This updates `strands-wasm/generated/` and `strands-py-wasm/strands/_generated/types.py` to match the new contract.
 
@@ -189,7 +189,7 @@ The project requires 80% test coverage (see [CONTRIBUTING.md](../../CONTRIBUTING
 
 ### Step 6: Document the change
 
-**`strands-wasm/docs/python-api-changes.md`** — For each Python API change, document:
+**`strands-py-wasm/docs/python-api-changes.md`** — For each Python API change, document:
 1. The TS SDK design (with code)
 2. The WASM bridge implementation
 3. The Python API (before/after code snippets)

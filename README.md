@@ -45,7 +45,7 @@ This monorepo contains the Python SDK, TypeScript SDK, documentation site, and s
 | `strands-py-wasm/` | Python host for WASM components (bridges WIT interfaces to Python) |
 | `strandly/` | Developer CLI for local builds, codegen, and workspace tooling |
 | `site/` | Source for the [strandsagents.com](https://strandsagents.com) documentation site (Astro/Starlight) |
-| `designs/` | Design proposals for significant features (RFC-style) |
+| `team/` | Governance and cross-SDK process docs (tenets, decisions, PR & compatibility guidelines, and `designs/` proposals) |
 
 ## Why Strands
 

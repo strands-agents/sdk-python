@@ -56,7 +56,7 @@ graph TD
 | `strands-wasm/` | TypeScript | Bridges the TS SDK to WIT exports, compiles to a WASM component    |
 | `strands-py-wasm/`  | Python     | Python wrapper: Agent class, @tool decorator, direct WASM host      |
 | `strandly/`    | TypeScript | Dev CLI that orchestrates build, test, lint, and CI                 |
-| `dev-docs/`    | Markdown   | Design proposals and team decisions                                 |
+| `team/`        | Markdown   | Governance and cross-SDK process docs (tenets, decisions, PR guidelines, `designs/` proposals) |
 
 ### Generated code
 

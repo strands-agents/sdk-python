@@ -362,5 +362,5 @@ hatch build                    # Build package
 - [docs/](./docs/) - Developer documentation
   - [STYLE_GUIDE.md](./docs/STYLE_GUIDE.md) - Code style conventions
   - [HOOKS.md](./docs/HOOKS.md) - Hooks system guide
-  - [PR.md](../dev-docs/PR.md) - PR description guidelines
+  - [PR.md](../team/PR.md) - PR description guidelines
   - [MCP_CLIENT_ARCHITECTURE.md](./docs/MCP_CLIENT_ARCHITECTURE.md) - MCP threading design
