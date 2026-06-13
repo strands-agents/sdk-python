@@ -214,6 +214,36 @@ def test_format_request_tool_message():
     assert tru_result == exp_result
 
 
+def test_format_request_message_tool_call_preserves_non_ascii():
+    """Test that non-ASCII tool-call arguments are not escaped in the request sent to the model."""
+    tool_use = {
+        "input": {"city": "東京"},
+        "name": "search",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_message_tool_call(tool_use)
+    arguments = tru_result["function"]["arguments"]
+
+    assert "\\u" not in arguments
+    assert '"city": "東京"' in arguments
+
+
+def test_format_request_tool_message_preserves_non_ascii():
+    """Test that non-ASCII tool-result json content is not escaped in the request sent to the model."""
+    tool_result = {
+        "content": [{"json": {"city": "東京"}}],
+        "status": "success",
+        "toolUseId": "c1",
+    }
+
+    tru_result = OpenAIModel.format_request_tool_message(tool_result)
+    content = tru_result["content"]
+
+    assert "\\u" not in content
+    assert '"city": "東京"' in content
+
+
 def test_format_request_tool_message_single_text_returns_string():
     """Test that single text content is returned as string for model compatibility."""
     tool_result = {

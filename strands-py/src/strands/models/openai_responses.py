@@ -694,7 +694,7 @@ class OpenAIResponsesModel(Model):
             "type": "function_call",
             "call_id": tool_use["toolUseId"],
             "name": tool_use["name"],
-            "arguments": json.dumps(tool_use["input"]),
+            "arguments": json.dumps(tool_use["input"], ensure_ascii=False),
         }
 
     @classmethod
@@ -720,7 +720,7 @@ class OpenAIResponsesModel(Model):
 
         for content in tool_result["content"]:
             if "json" in content:
-                output_parts.append({"type": "input_text", "text": json.dumps(content["json"])})
+                output_parts.append({"type": "input_text", "text": json.dumps(content["json"], ensure_ascii=False)})
             elif "text" in content:
                 output_parts.append({"type": "input_text", "text": content["text"]})
             elif "image" in content:

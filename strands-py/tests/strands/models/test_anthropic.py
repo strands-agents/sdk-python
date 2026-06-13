@@ -397,6 +397,30 @@ def test_format_request_with_tool_results(model, model_id, max_tokens):
     assert tru_request == exp_request
 
 
+def test_format_request_with_tool_results_preserves_non_ascii(model):
+    """Test that non-ASCII tool-result json content is not escaped in the request sent to the model."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "c1",
+                        "status": "success",
+                        "content": [{"json": {"city": "東京"}}],
+                    }
+                }
+            ],
+        }
+    ]
+
+    tru_request = model.format_request(messages)
+    text = tru_request["messages"][0]["content"][0]["content"][0]["text"]
+
+    assert "\\u" not in text
+    assert '"city": "東京"' in text
+
+
 def test_format_request_with_unsupported_type(model):
     messages = [
         {

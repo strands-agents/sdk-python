@@ -162,7 +162,7 @@ class AnthropicModel(Model):
             return {
                 "content": [
                     self._format_request_message_content(
-                        {"text": json.dumps(tool_result_content["json"])}
+                        {"text": json.dumps(tool_result_content["json"], ensure_ascii=False)}
                         if "json" in tool_result_content
                         else cast(ContentBlock, tool_result_content)
                     )
