@@ -25,7 +25,7 @@ const areaCounts = getAreaCounts(allEntries)
       <ChangelogFilters areas={areaCounts} />
       <div class="cl-feed">
         <p class="cl-sr-status" role="status" aria-live="polite" data-cl-sr-status></p>
-        <div class="cl-feed-inner" data-cl-feed>
+        <div class="cl-feed-inner">
           <ol class="cl-feed-list" role="list">
             {releases.map((release) => (
               <li class="cl-version-item"><ChangelogVersion release={release} /></li>

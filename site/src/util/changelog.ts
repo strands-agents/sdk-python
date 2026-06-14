@@ -12,7 +12,7 @@ export async function getReleases(): Promise<ChangelogRelease[]> {
   return releases.sort((a, b) => b.data.date.getTime() - a.data.date.getTime())
 }
 
-export interface GroupedEntries {
+interface GroupedEntries {
   features: ChangelogEntry[]
   fixes: ChangelogEntry[]
   other: ChangelogEntry[]
