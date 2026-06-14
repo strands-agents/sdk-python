@@ -334,38 +334,55 @@ await agent.invoke('Research AI agent frameworks')`
 
   .hero-code {
     min-width: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .audience-toggle {
     display: inline-flex;
-    align-items: stretch;
-    border-bottom: 2px solid var(--sl-color-gray-5);
+    align-self: flex-start;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    padding: 2px;
     margin-bottom: 0.75rem;
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  :global([data-theme='light']) .audience-toggle {
+    border-color: rgba(0, 0, 0, 0.12);
+    background: rgba(0, 0, 0, 0.03);
   }
 
   .audience-option {
-    padding: 0.25rem 0.625rem;
+    padding: 0.25rem 0.875rem;
     border: none;
+    border-radius: 999px;
     background: transparent;
     color: var(--sl-color-gray-3);
     font-size: 0.8125rem;
-    font-weight: 400;
-    font-family: var(--sl-font);
+    font-weight: 500;
+    font-family: 'Figtree', sans-serif;
     cursor: pointer;
-    transition: color 0.15s ease, box-shadow 0.15s ease;
+    transition: background 0.2s ease, color 0.2s ease;
     white-space: nowrap;
-    box-shadow: 0 2px 0 0 var(--sl-color-gray-5);
-    margin-bottom: -2px;
   }
 
   .audience-option:hover {
     color: var(--sl-color-white);
   }
 
+  :global([data-theme='light']) .audience-option:hover {
+    color: var(--sl-color-gray-1);
+  }
+
   .audience-option[aria-checked='true'] {
+    background: var(--strands-green);
+    color: #0e0e0e;
     font-weight: 600;
-    color: var(--sl-color-text-accent);
-    box-shadow: 0 2px 0 0 var(--sl-color-text-accent);
+  }
+
+  .audience-option[aria-checked='true']:hover {
+    color: #0e0e0e;
   }
 
   /* Stack the two panels in one grid cell and cross-fade on swap */
@@ -379,10 +396,14 @@ await agent.invoke('Research AI agent frameworks')`
     transition: opacity 0.3s ease, visibility 0.3s;
   }
 
+  /* pointer-events guards against descendants that reset visibility
+     (LangCodeBlock keeps its active variant visibility: visible), which would
+     otherwise capture clicks through the hidden panel */
   .hero-section[data-audience='humans'] .hero-panel[data-panel='agents'],
   .hero-section[data-audience='agents'] .hero-panel[data-panel='humans'] {
     opacity: 0;
     visibility: hidden;
+    pointer-events: none;
   }
 
   @media (prefers-reduced-motion: reduce) {
