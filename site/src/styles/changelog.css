@@ -149,7 +149,8 @@
 /* Entry separators: gray-5 is theme-aware (#333 dark / #d0d7de light), clearly
    visible in dark mode where the hairline token all but disappears. */
 .cl-entry + .cl-entry { border-top: 1px solid var(--sl-color-gray-5); }
-.cl-entry-title { flex: 1; min-width: 140px; }
+/* min() guard: a hard 140px floor can overflow the narrow mobile drawer/feed. */
+.cl-entry-title { flex: 1; min-width: min(140px, 100%); }
 .cl-entry a { color: var(--sl-color-accent); text-decoration: none; }
 /* Linked titles keep body color (a page of accent-colored titles is unreadable);
    hover reveals the affordance. */
@@ -238,3 +239,9 @@ a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underli
 .cl-version[hidden], .cl-version-item[hidden], .cl-entry[hidden], .cl-group[hidden],
 .cl-area[hidden], .cl-area-item[hidden], .cl-empty[hidden], .cl-novel[hidden],
 .cl-badge[hidden], .cl-more[hidden], .cl-lang button[hidden] { display: none; }
+
+/* Respect reduced-motion: drop the cosmetic transitions (rail color, anchor
+   fade, tooltip, drawer slide). Functional state changes still apply instantly. */
+@media (prefers-reduced-motion: reduce) {
+  .cl-dot, .cl-line, .cl-anchor, .cl-anchor-tip, .cl-rail { transition: none; }
+}
