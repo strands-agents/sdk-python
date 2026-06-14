@@ -5,7 +5,7 @@ interface Props { entry: ChangelogEntry }
 const { entry } = Astro.props
 const isBreaking = entry.breaking || entry.type === 'breaking'
 ---
-<div
+<li
   class="cl-entry"
   data-areas={entry.areas.join(' ')}
   data-type={entry.type}
@@ -30,4 +30,4 @@ const isBreaking = entry.breaking || entry.type === 'breaking'
     )}
     {entry.author && <span class="cl-entry-author">@{entry.author}</span>}
   </span>
-</div>
+</li>

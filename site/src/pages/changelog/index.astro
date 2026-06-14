@@ -25,7 +25,11 @@ const areaCounts = getAreaCounts(allEntries)
       <ChangelogFilters areas={areaCounts} />
       <div class="cl-feed">
         <div class="cl-feed-inner" data-cl-feed>
-          {releases.map((release) => <ChangelogVersion release={release} />)}
+          <ol class="cl-feed-list" role="list">
+            {releases.map((release) => (
+              <li class="cl-version-item"><ChangelogVersion release={release} /></li>
+            ))}
+          </ol>
           <p class="cl-empty" data-cl-empty hidden>No releases match the current filters.</p>
           <div class="cl-novel" data-cl-ts-evals hidden>
             <div class="cl-novel-emoji">🛸</div>
@@ -150,8 +154,9 @@ const areaCounts = getAreaCounts(allEntries)
       const n = counts.get(area) ?? 0
       const cE = btn.querySelector<HTMLElement>('.cl-count')
       if (cE) cE.textContent = String(n)
-      // Hide chips with no releases in this stream; deselect them too.
-      btn.hidden = n === 0
+      // Hide chips with no releases in this stream; deselect them too. Hide the
+      // wrapping <li> so the flex gap collapses with the chip.
+      ;(btn.closest('li') || btn).hidden = n === 0
       if (n === 0 && state.areas.has(area)) {
         state.areas.delete(area)
         btn.setAttribute('aria-pressed', 'false')

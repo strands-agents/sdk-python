@@ -39,9 +39,9 @@ const highlightsHtml = d.highlights ? md.renderInline(d.highlights.trim()) : ''
 // above is escaped (html:false); the body is not.
 const { Content } = await render(release)
 ---
-<article class="cl-version" id={anchorId} data-sdk={d.sdk} data-language={d.language ?? ''}>
+<article class="cl-version" id={anchorId} data-sdk={d.sdk} data-language={d.language ?? ''} aria-labelledby={`${anchorId}-h`}>
   <div class="cl-version-meta">
-    <div class="cl-version-num">
+    <h2 class="cl-version-num" id={`${anchorId}-h`}>
       <button
         class="cl-anchor"
         type="button"
@@ -55,7 +55,7 @@ const { Content } = await render(release)
         </svg>
         <span class="cl-anchor-tip" aria-hidden="true">✓ Copied</span>
       </button>v{d.version}
-    </div>
+    </h2>
     <div class="cl-version-date">{formatChangelogDate(d.date)}</div>
     <div class="cl-version-links">
       <a href={d.releaseUrl} target="_blank" rel="noopener">GitHub release ↗</a>
@@ -92,24 +92,32 @@ const { Content } = await render(release)
     )}
     {features.length > 0 && (
       <>
-        <div class="cl-group">✦ Features <span class="cl-n">{features.length}</span></div>
-        {feat.visible.map((e) => <ChangelogEntry entry={e} />)}
+        <h3 class="cl-group">✦ Features <span class="cl-n">{features.length}</span></h3>
+        <ul class="cl-entries">
+          {feat.visible.map((e) => <ChangelogEntry entry={e} />)}
+        </ul>
         {feat.overflow.length > 0 && (
           <details class="cl-more">
             <summary>Show {feat.overflow.length} more features</summary>
-            {feat.overflow.map((e) => <ChangelogEntry entry={e} />)}
+            <ul class="cl-entries">
+              {feat.overflow.map((e) => <ChangelogEntry entry={e} />)}
+            </ul>
           </details>
         )}
       </>
     )}
     {fixes.length > 0 && (
       <>
-        <div class="cl-group fixes">⊘ Fixes <span class="cl-n">{fixes.length}</span></div>
-        {fix.visible.map((e) => <ChangelogEntry entry={e} />)}
+        <h3 class="cl-group fixes">⊘ Fixes <span class="cl-n">{fixes.length}</span></h3>
+        <ul class="cl-entries">
+          {fix.visible.map((e) => <ChangelogEntry entry={e} />)}
+        </ul>
         {fix.overflow.length > 0 && (
           <details class="cl-more">
             <summary>Show {fix.overflow.length} more fixes</summary>
-            {fix.overflow.map((e) => <ChangelogEntry entry={e} />)}
+            <ul class="cl-entries">
+              {fix.overflow.map((e) => <ChangelogEntry entry={e} />)}
+            </ul>
           </details>
         )}
       </>
@@ -117,7 +125,9 @@ const { Content } = await render(release)
     {other.length > 0 && (
       <details class="cl-more cl-other">
         <summary>⋯ {other.length} more change{other.length === 1 ? '' : 's'} (chores, docs, tests)</summary>
-        {other.map((e) => <ChangelogEntry entry={e} />)}
+        <ul class="cl-entries">
+          {other.map((e) => <ChangelogEntry entry={e} />)}
+        </ul>
       </details>
     )}
     {!hasEntries && !d.highlights && (

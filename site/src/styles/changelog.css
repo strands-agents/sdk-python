@@ -27,7 +27,7 @@
 /* Reset Starlight's .sl-markdown-content spacing/typography on our subtree.
    The page renders inside .sl-markdown-content, which adds top margins to
    headings/lists and can deform the inline-flex toggle. */
-.cl-page :where(h1, h2, p, div, button, ul, li) { margin-top: 0; }
+.cl-page :where(h1, h2, h3, h4, p, div, button, ul, li) { margin-top: 0; }
 .cl-page :where(svg) { margin: 0; }
 
 /* Controls stack: SDK toggle on top, language toggle beneath, right-aligned. */
@@ -59,13 +59,17 @@
 .cl-rail { width: 220px; flex-shrink: 0; border-right: 1px solid var(--sl-color-hairline); padding: 1.25rem 1rem; }
 .cl-feed { flex: 1; padding: 1.25rem 0; display: flex; justify-content: center; }
 .cl-feed-inner { width: 100%; max-width: 740px; padding: 0 1.75rem; }
+/* The release feed is a semantic list; strip list chrome (markers/indent). */
+.cl-feed-list { list-style: none; margin: 0; padding: 0; }
+.cl-version-item { margin: 0; }
 
 .cl-search { width: 100%; padding: 0.5rem 0.7rem; font-size: 0.9rem; border-radius: 8px;
   border: 1px solid var(--sl-color-gray-5); background: var(--sl-color-bg); color: var(--sl-color-white); margin-bottom: 1.1rem; }
 .cl-rail-label { font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--sl-color-gray-3); font-weight: 700; margin-bottom: 0.55rem; }
 
-/* area chips */
-.cl-areas { display: flex; flex-direction: column; gap: 0.4rem; }
+/* area chips (semantic list) */
+.cl-areas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.cl-area-item { margin: 0; display: flex; }
 .cl-area { display: flex; align-items: center; gap: 0.5rem; width: 100%; box-sizing: border-box;
   font-size: 0.875rem; padding: 0.5rem 0.75rem; border-radius: 8px; border: 1px solid var(--sl-color-gray-5);
   color: var(--sl-color-gray-2); background: transparent; cursor: pointer; text-align: left; }
@@ -84,7 +88,7 @@
 .cl-version-meta { min-width: 104px; text-align: right; }
 /* Version number row: copy-link icon sits inline, immediately left of the
    number (mirrors the docs heading anchor affordance, but copies the link). */
-.cl-version-num { color: var(--sl-color-white); font-weight: 700; font-size: 1.3rem;
+.cl-version-num { color: var(--sl-color-white); font-weight: 700; font-size: 1.3rem; margin: 0;
   position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; }
 .cl-anchor { display: inline-flex; align-items: center; padding: 0.15rem;
   background: transparent; border: 0; cursor: pointer; color: var(--sl-color-gray-4);
@@ -139,6 +143,8 @@
 .cl-group .cl-n { color: var(--sl-color-gray-3); font-weight: 600; font-size: 0.8rem; }
 .cl-group.fixes { color: var(--sl-color-gray-1); border-top: 1px dashed var(--sl-color-hairline); padding-top: 1.1rem; }
 
+/* Each group's entries are a semantic list; strip list chrome. */
+.cl-entries { list-style: none; margin: 0; padding: 0; }
 .cl-entry { font-size: 0.95rem; color: var(--sl-color-gray-1); padding: 0.45rem 0; display: flex; gap: 0.5rem; align-items: baseline; flex-wrap: wrap; }
 /* Entry separators: gray-5 is theme-aware (#333 dark / #d0d7de light), clearly
    visible in dark mode where the hairline token all but disappears. */
