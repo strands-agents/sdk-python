@@ -197,6 +197,7 @@ const areaCounts = getAreaCounts(allEntries)
     const q = state.search.trim().toLowerCase()
     const hasEntryFilter = state.areas.size > 0 || q.length > 0
     let visible = 0
+    let latestMarked = false // versions are pre-sorted newest-first per stream
     for (const v of versions) {
       if (tsEvals) { v.hidden = true; continue }
       const vSdk = v.dataset.sdk
@@ -204,6 +205,15 @@ const areaCounts = getAreaCounts(allEntries)
       // Version-level gate: SDK, and (for harness) one language at a time.
       let show = vSdk === state.sdk
       if (show && vSdk === 'harness') show = vLang === lang
+      // "Latest" badge: the newest version in the current stream, so filtering
+      // or scrolling can't make you mistake an older release for the newest.
+      // Independent of area/search — it marks the stream's true latest.
+      const latestBadge = v.querySelector<HTMLElement>('[data-cl-latest]')
+      if (latestBadge) {
+        const isLatest = show && !latestMarked
+        latestBadge.hidden = !isLatest
+        if (isLatest) latestMarked = true
+      }
       // Per-entry filtering by area + search; a version survives only if it
       // still has at least one visible entry when entry-level filters are active.
       const entries = Array.from(v.querySelectorAll<HTMLElement>('.cl-entry'))

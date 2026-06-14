@@ -94,7 +94,11 @@
 /* Version number row: copy-link icon sits inline, immediately left of the
    number (mirrors the docs heading anchor affordance, but copies the link). */
 .cl-version-num { color: var(--sl-color-white); font-weight: 700; font-size: 1.3rem; margin: 0;
-  position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; }
+  position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; flex-wrap: wrap; }
+/* "Latest" badge — marks the newest release of the active stream. */
+.cl-latest { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 0.1rem 0.4rem; border-radius: var(--cl-radius-pill);
+  background: var(--sl-color-accent); color: var(--sl-color-text-invert); }
 .cl-anchor { display: inline-flex; align-items: center; padding: 0.15rem;
   background: transparent; border: 0; cursor: pointer; color: var(--sl-color-gray-4);
   opacity: 0; transition: opacity 0.12s ease; }
