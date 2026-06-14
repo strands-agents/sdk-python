@@ -5,16 +5,7 @@
 import LangCodeBlock from './LangCodeBlock.astro'
 import AgentSetupCard from './AgentSetupCard.astro'
 import { getStarCount } from '../../util/github'
-
-interface Props {
-  baseUrl: string
-}
-
-const { baseUrl } = Astro.props
-const withBase = (path: string) => {
-  const b = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-  return b + path
-}
+import { pathWithBase } from '../../util/links'
 
 const stars = await getStarCount()
 
@@ -83,7 +74,7 @@ await agent.invoke('Research AI agent frameworks')`
         <span class="hero-highlight">production agents.</span>
       </h1>
       <div class="hero-cta">
-        <a href={withBase('/docs/user-guide/quickstart/overview/')} class="cta-button primary">Get Started</a>
+        <a href={pathWithBase('/docs/user-guide/quickstart/overview/')} class="cta-button primary">Get Started</a>
         <a href="https://github.com/strands-agents/harness-sdk" class="cta-button secondary">GitHub</a>
       </div>
       <div class="hero-install-group">
