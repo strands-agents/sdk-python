@@ -502,9 +502,11 @@ class TestStdioMode:
 
     def test_stdio_ask_includes_trust_option_when_enabled(self, monkeypatch):
         prompts = []
+        executed = []
 
         @tool(name="my_tool")
         def my_tool() -> str:
+            executed.append(True)
             return "executed"
 
         def fake_input(prompt: str) -> str:
@@ -519,3 +521,5 @@ class TestStdioMode:
         agent("Run tool")
 
         assert "(y/n/t)" in prompts[0]
+        # "n" must actually deny: the tool should never run in stdio mode.
+        assert executed == []
