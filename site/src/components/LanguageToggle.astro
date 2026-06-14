@@ -2,10 +2,11 @@
 /**
  * Global Python/TypeScript language toggle for the site header.
  *
- * Reads and writes the same localStorage key used by AutoSyncTabs
- * (starlight-synced-tabs__jarkqt) so the header toggle and inline
- * code tabs stay in sync.
+ * Reads and writes the same localStorage key used by AutoSyncTabs so the
+ * header toggle and inline code tabs stay in sync. The key is passed into the
+ * inline script via define:vars from the shared language-preference module.
  */
+import { LANGUAGE_STORAGE_KEY } from '../util/language-preference'
 ---
 
 <language-toggle class="language-toggle" role="radiogroup" aria-label="Preferred language">
@@ -84,7 +85,7 @@
 
 </style>
 
-<script is:inline>
+<script is:inline define:vars={{ STORAGE_KEY: LANGUAGE_STORAGE_KEY }}>
   (function () {
     // Idempotency guard: <LanguageToggle /> can render in multiple places
     // (desktop right-group + mobile dropdown menu). Astro inlines this script
@@ -92,12 +93,9 @@
     // sync logic only need to run once. Skip on subsequent invocations.
     if (window.__strandsLanguageToggleInit) return;
     window.__strandsLanguageToggleInit = true;
-    // This key must match the one Starlight generates for synced tabs.
-    // Derived from: AutoSyncTabs.astro hashes the tab labels "Python|TypeScript"
-    // using a djb2 hash, producing "jarkqt". Starlight stores the selected label
-    // at "starlight-synced-tabs__" + syncKey. If Starlight changes its key format
-    // or AutoSyncTabs changes its hash function, this will need updating.
-    var STORAGE_KEY = 'starlight-synced-tabs__jarkqt';
+    // STORAGE_KEY is injected via define:vars from the shared
+    // language-preference module (single source of truth for the Starlight
+    // synced-tabs key).
     var DEFAULT_LANG = 'TypeScript';
 
     // IMPORTANT: Keep in sync with navigation.yml navbar entries.

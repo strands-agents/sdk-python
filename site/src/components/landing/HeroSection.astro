@@ -438,6 +438,8 @@ await agent.invoke('Research AI agent frameworks')`
 </style>
 
 <script>
+  import { LANGUAGE_STORAGE_KEY, copyToClipboard } from '../../util/language-preference'
+
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll<HTMLElement>('.hero-install').forEach((install) => {
       const btn = install.querySelector<HTMLButtonElement>('.install-copy')
@@ -447,12 +449,9 @@ await agent.invoke('Research AI agent frameworks')`
       const lang = install.dataset.lang
 
       const copy = async () => {
-        try {
-          await navigator.clipboard.writeText(text)
+        if (await copyToClipboard(text)) {
           btn.classList.add('copied')
           setTimeout(() => btn.classList.remove('copied'), 2000)
-        } catch {
-          // Clipboard unavailable (non-secure context or denied); still pin below.
         }
 
         if (lang) {
@@ -463,7 +462,7 @@ await agent.invoke('Research AI agent frameworks')`
 
           // Set the site-wide preference so docs pages match what was copied
           try {
-            localStorage.setItem('starlight-synced-tabs__jarkqt', lang)
+            localStorage.setItem(LANGUAGE_STORAGE_KEY, lang)
             document
               .querySelectorAll<HTMLElement>('language-toggle .lang-option')
               .forEach((opt) => {
