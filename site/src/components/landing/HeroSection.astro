@@ -361,9 +361,13 @@ await agent.invoke('Research AI agent frameworks')`
       const lang = install.dataset.lang
 
       const copy = async () => {
-        await navigator.clipboard.writeText(text)
-        btn.classList.add('copied')
-        setTimeout(() => btn.classList.remove('copied'), 2000)
+        try {
+          await navigator.clipboard.writeText(text)
+          btn.classList.add('copied')
+          setTimeout(() => btn.classList.remove('copied'), 2000)
+        } catch {
+          // Clipboard unavailable (non-secure context or denied); still pin below.
+        }
 
         if (lang) {
           // Pin the homepage code examples to this language
