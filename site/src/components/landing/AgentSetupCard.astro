@@ -62,19 +62,23 @@ const tools = [
 <div class="agent-setup-card">
   <p class="agent-setup-heading">Set up with your coding agent</p>
 
-  <div class="agent-tool-tabs" role="tablist" aria-label="Coding tool">
-    {tools.map((tool, i) => (
-      <button
-        class="agent-tool-tab"
-        role="tab"
-        aria-selected={i === 0 ? 'true' : 'false'}
-        data-tool={tool.id}
-        id={'agent-tab-' + tool.id}
-        aria-controls={'agent-panel-' + tool.id}
-      >
-        {tool.label}
-      </button>
-    ))}
+  <div class="agent-tool-tabrow">
+    <div class="agent-tool-tabs" role="tablist" aria-label="Coding tool">
+      {tools.map((tool, i) => (
+        <button
+          class="agent-tool-tab"
+          type="button"
+          role="tab"
+          aria-selected={i === 0 ? 'true' : 'false'}
+          tabindex={i === 0 ? '0' : '-1'}
+          data-tool={tool.id}
+          id={'agent-tab-' + tool.id}
+          aria-controls={'agent-panel-' + tool.id}
+        >
+          {tool.label}
+        </button>
+      ))}
+    </div>
     <a class="agent-tool-other" href={withBase('/docs/user-guide/build-with-ai/')}>Other</a>
   </div>
 
@@ -132,10 +136,15 @@ const tools = [
   }
 
   /* Tabs mirror the LanguageToggle underline pattern */
-  .agent-tool-tabs {
+  .agent-tool-tabrow {
     display: flex;
     align-items: stretch;
     border-bottom: 2px solid var(--sl-color-gray-5);
+  }
+
+  .agent-tool-tabs {
+    display: flex;
+    align-items: stretch;
   }
 
   .agent-tool-tab {
@@ -246,15 +255,35 @@ const tools = [
 <script>
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll<HTMLElement>('.agent-setup-card').forEach((card) => {
-      // Tool tab switching
-      const tabs = card.querySelectorAll<HTMLButtonElement>('.agent-tool-tab')
+      // Tool tab switching with the ARIA tablist keyboard pattern:
+      // roving tabindex plus arrow/Home/End navigation that moves focus
+      // and selects in one step (automatic activation).
+      const tabs = Array.from(card.querySelectorAll<HTMLButtonElement>('.agent-tool-tab'))
       const panels = card.querySelectorAll<HTMLElement>('.agent-tool-panel')
-      tabs.forEach((tab) => {
-        tab.addEventListener('click', () => {
-          tabs.forEach((t) => t.setAttribute('aria-selected', t === tab ? 'true' : 'false'))
-          panels.forEach((p) => {
-            p.hidden = p.dataset.tool !== tab.dataset.tool
-          })
+
+      const selectTab = (tab: HTMLButtonElement, focus = false) => {
+        tabs.forEach((t) => {
+          const selected = t === tab
+          t.setAttribute('aria-selected', selected ? 'true' : 'false')
+          t.tabIndex = selected ? 0 : -1
+        })
+        panels.forEach((p) => {
+          p.hidden = p.dataset.tool !== tab.dataset.tool
+        })
+        if (focus) tab.focus()
+      }
+
+      tabs.forEach((tab, i) => {
+        tab.addEventListener('click', () => selectTab(tab))
+        tab.addEventListener('keydown', (e) => {
+          let next = -1
+          if (e.key === 'ArrowRight') next = (i + 1) % tabs.length
+          else if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length
+          else if (e.key === 'Home') next = 0
+          else if (e.key === 'End') next = tabs.length - 1
+          else return
+          e.preventDefault()
+          selectTab(tabs[next], true)
         })
       })
 

@@ -121,9 +121,9 @@ await agent.invoke('Research AI agent frameworks')`
       </p>
     </div>
     <div class="hero-code">
-      <div class="audience-toggle" role="radiogroup" aria-label="Audience">
-        <button class="audience-option" role="radio" aria-checked="true" data-audience="humans">For humans</button>
-        <button class="audience-option" role="radio" aria-checked="false" data-audience="agents">For agents</button>
+      <div class="audience-toggle" role="group" aria-label="Audience">
+        <button class="audience-option" type="button" aria-pressed="true" data-audience="humans">For humans</button>
+        <button class="audience-option" type="button" aria-pressed="false" data-audience="agents">For agents</button>
       </div>
       <div class="hero-panels">
         <div class="hero-panel" data-panel="humans">
@@ -375,13 +375,13 @@ await agent.invoke('Research AI agent frameworks')`
     color: var(--sl-color-gray-1);
   }
 
-  .audience-option[aria-checked='true'] {
+  .audience-option[aria-pressed='true'] {
     background: var(--strands-green);
     color: #0e0e0e;
     font-weight: 600;
   }
 
-  .audience-option[aria-checked='true']:hover {
+  .audience-option[aria-pressed='true']:hover {
     color: #0e0e0e;
   }
 
@@ -492,7 +492,7 @@ await agent.invoke('Research AI agent frameworks')`
           if (!audience) return
           section.dataset.audience = audience
           options.forEach((opt) => {
-            opt.setAttribute('aria-checked', opt === btn ? 'true' : 'false')
+            opt.setAttribute('aria-pressed', opt === btn ? 'true' : 'false')
           })
         })
       })
