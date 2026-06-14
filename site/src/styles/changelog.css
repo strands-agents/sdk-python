@@ -188,6 +188,10 @@ a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underli
 .cl-nc:hover { color: var(--sl-color-accent); }
 .cl-nc img { display: block; border-radius: 999px; flex-shrink: 0; }
 
+/* visually-hidden live region announcing filter result changes to AT */
+.cl-sr-status { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
 /* empty state (e.g. evals + typescript) */
 .cl-empty { color: var(--sl-color-gray-3); font-size: 0.85rem; padding: 2rem 0; text-align: center; }
 .cl-note { color: var(--sl-color-gray-3); font-size: 0.72rem; margin-bottom: 1rem; }

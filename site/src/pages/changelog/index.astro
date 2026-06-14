@@ -24,6 +24,7 @@ const areaCounts = getAreaCounts(allEntries)
     <div class="cl-body">
       <ChangelogFilters areas={areaCounts} />
       <div class="cl-feed">
+        <p class="cl-sr-status" role="status" aria-live="polite" data-cl-sr-status></p>
         <div class="cl-feed-inner" data-cl-feed>
           <ol class="cl-feed-list" role="list">
             {releases.map((release) => (
@@ -81,6 +82,7 @@ const areaCounts = getAreaCounts(allEntries)
   const emptyEl = root.querySelector<HTMLElement>('[data-cl-empty]')
   const tsEvalsEl = root.querySelector<HTMLElement>('[data-cl-ts-evals]')
   const countEl = root.querySelector<HTMLElement>('[data-cl-count]')
+  const srStatusEl = root.querySelector<HTMLElement>('[data-cl-sr-status]')
   const activeCountEl = root.querySelector<HTMLElement>('[data-cl-active-count]')
 
   const params = new URLSearchParams(location.search)
@@ -252,10 +254,18 @@ const areaCounts = getAreaCounts(allEntries)
     }
     // Generic empty state only when not showing the witty TS/Evals panel.
     if (emptyEl) emptyEl.hidden = tsEvals || visible > 0
-    if (countEl) {
-      countEl.textContent = tsEvals
-        ? 'Python only'
-        : `${visible} release${visible === 1 ? '' : 's'}`
+    const countText = tsEvals
+      ? 'Python only'
+      : `${visible} release${visible === 1 ? '' : 's'}`
+    if (countEl) countEl.textContent = countText
+    // Announce result changes to assistive tech (always-rendered live region,
+    // unlike the count which is hidden on desktop). Skip on first paint.
+    if (srStatusEl) {
+      const msg = tsEvals
+        ? 'Evals has no TypeScript releases.'
+        : `${countText} match the current filters.`
+      if (srStatusEl.dataset.ready) srStatusEl.textContent = msg
+      srStatusEl.dataset.ready = '1'
     }
     if (activeCountEl) {
       activeCountEl.textContent = String(state.areas.size)
