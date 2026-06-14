@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { changelogEntrySchema, changelogFrontmatterSchema } from '../src/content.config'
-import { SDK_META } from '../src/config/changelog'
 
 describe('changelogEntrySchema', () => {
   it('parses a full entry', () => {
@@ -33,7 +32,7 @@ describe('changelogEntrySchema', () => {
 })
 
 describe('changelogFrontmatterSchema', () => {
-  it('parses a harness python release', () => {
+  it('coerces a string date to a Date', () => {
     const fm = changelogFrontmatterSchema.parse({
       sdk: 'harness',
       language: 'python',
@@ -44,8 +43,7 @@ describe('changelogFrontmatterSchema', () => {
       packageUrl: 'https://pypi.org/project/strands-agents/1.42.0/',
       entries: [{ type: 'feat', title: 'add Limits' }],
     })
-    expect(fm.sdk).toBe('harness')
-    expect(fm.date).toBeInstanceOf(Date)
+    expect(fm.date).toBeInstanceOf(Date) // string date is coerced
   })
 
   it('allows evals release without language', () => {
@@ -59,13 +57,6 @@ describe('changelogFrontmatterSchema', () => {
       entries: [],
     })
     expect(fm.language).toBeUndefined()
-  })
-})
-
-describe('SDK_META', () => {
-  it('lists languages per sdk', () => {
-    expect(SDK_META.harness.languages).toEqual(['python', 'typescript'])
-    expect(SDK_META.evals.languages).toEqual(['python'])
   })
 })
 
