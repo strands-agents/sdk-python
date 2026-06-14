@@ -207,12 +207,13 @@ a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underli
 @media (max-width: 800px) {
   .cl-body { display: block; }
   .cl-rail {
-    position: fixed; top: 0; left: 0; bottom: 0; width: 260px; z-index: 60;
+    /* Start below the sticky site header so the search bar isn't hidden by it. */
+    position: fixed; top: var(--sl-nav-height, 3.5rem); left: 0; bottom: 0; width: 260px; z-index: 60;
     background: var(--sl-color-bg-nav); border-right: 1px solid var(--sl-color-hairline);
     transform: translateX(-100%); transition: transform 0.2s ease; overflow: auto;
   }
   .cl-rail[data-open='true'] { transform: translateX(0); }
-  .cl-scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 55; }
+  .cl-scrim { display: none; position: fixed; inset: var(--sl-nav-height, 3.5rem) 0 0 0; background: rgba(0,0,0,0.5); z-index: 55; }
   .cl-scrim[data-open='true'] { display: block; }
   .cl-mobile-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
   .cl-filter-btn { display: inline-flex; align-items: center; gap: 0.4rem; font-size: var(--cl-text-meta);
