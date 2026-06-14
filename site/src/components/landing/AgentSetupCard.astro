@@ -7,16 +7,7 @@
  * kept in sync with it.
  */
 import CodeBlock from './CodeBlock.astro'
-
-interface Props {
-  baseUrl: string
-}
-
-const { baseUrl } = Astro.props
-const withBase = (path: string) => {
-  const b = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
-  return b + path
-}
+import { pathWithBase } from '../../util/links'
 
 const PROMPT = 'Add the Strands Agents SDK to my project. Docs: https://strandsagents.com/llms.txt'
 
@@ -79,7 +70,7 @@ const tools = [
         </button>
       ))}
     </div>
-    <a class="agent-tool-other" href={withBase('/docs/user-guide/build-with-ai/')}>Other</a>
+    <a class="agent-tool-other" href={pathWithBase('/docs/user-guide/build-with-ai/')}>Other</a>
   </div>
 
   {tools.map((tool, i) => (
@@ -106,9 +97,9 @@ const tools = [
   </div>
 
   <p class="agent-setup-links">
-    <a href={withBase('/llms.txt')}>llms.txt</a>
-    <a href={withBase('/llms-full.txt')}>llms-full.txt</a>
-    <a href={withBase('/docs/user-guide/build-with-ai/')}>Build with AI guide</a>
+    <a href={pathWithBase('/llms.txt')}>llms.txt</a>
+    <a href={pathWithBase('/llms-full.txt')}>llms-full.txt</a>
+    <a href={pathWithBase('/docs/user-guide/build-with-ai/')}>Build with AI guide</a>
   </p>
 </div>
 
@@ -292,7 +283,11 @@ const tools = [
       const copyBtn = card.querySelector<HTMLButtonElement>('.agent-prompt-copy')
       if (prompt && copyBtn) {
         copyBtn.addEventListener('click', async () => {
-          await navigator.clipboard.writeText(prompt.dataset.copy || '')
+          try {
+            await navigator.clipboard.writeText(prompt.dataset.copy || '')
+          } catch {
+            return
+          }
           copyBtn.classList.add('copied')
           setTimeout(() => copyBtn.classList.remove('copied'), 2000)
         })
