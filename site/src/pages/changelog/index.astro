@@ -49,7 +49,7 @@ const areaCounts = getAreaCounts(allEntries)
                 href="https://github.com/strands-agents/evals/issues/new?title=Feature%20request%3A%20TypeScript%20support%20for%20Strands%20Evals&body=I%27d%20like%20to%20use%20Strands%20Evals%20from%20TypeScript."
                 target="_blank"
                 rel="noopener"
-              >Request TypeScript support ↗</a>
+              >Request TypeScript support <span aria-hidden="true">↗</span></a>
               <button class="cl-novel-link" type="button" data-cl-switch-python>
                 …or show me the Python releases
               </button>
@@ -340,13 +340,19 @@ const areaCounts = getAreaCounts(allEntries)
   // Copy-link buttons: write the version's deep link to the clipboard and
   // flash a "Copied!" tip. Also set the hash so the URL reflects the version.
   root.querySelectorAll<HTMLElement>('[data-cl-copy-link]').forEach((btn) => {
+    const restoreLabel = btn.getAttribute('aria-label')
     btn.addEventListener('click', async () => {
       const id = btn.dataset.clCopyLink!
       const url = `${location.origin}${location.pathname}${location.search}#${id}`
       try { await navigator.clipboard.writeText(url) } catch { /* clipboard unavailable */ }
       history.replaceState(null, '', `#${id}`)
       btn.classList.add('copied')
-      setTimeout(() => btn.classList.remove('copied'), 1200)
+      // Announce the confirmation to AT (the visible "✓ Copied" tip is aria-hidden).
+      btn.setAttribute('aria-label', 'Link copied')
+      setTimeout(() => {
+        btn.classList.remove('copied')
+        if (restoreLabel) btn.setAttribute('aria-label', restoreLabel)
+      }, 1200)
     })
   })
 
