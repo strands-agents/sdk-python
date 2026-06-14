@@ -231,7 +231,10 @@ a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underli
 .cl-novel-link { background: transparent; border: 0; color: var(--sl-color-gray-3); font: inherit; font-size: 0.8rem; cursor: pointer; text-decoration: underline; }
 .cl-novel-link:hover { color: var(--sl-color-accent); }
 
-/* hidden by filtering */
-.cl-version[hidden], .cl-entry[hidden], .cl-group[hidden], .cl-area[hidden],
-.cl-empty[hidden], .cl-novel[hidden], .cl-badge[hidden],
-.cl-more[hidden], .cl-lang button[hidden] { display: none !important; }
+/* Hidden by filtering. Each selector is class+[hidden] (specificity 0,2,0),
+   which outranks the plain-class display rules (e.g. .cl-area { display:flex }
+   at 0,1,0) — so no !important is needed. .cl-area-item / .cl-version-item
+   also carry their own display, hence listed here too. */
+.cl-version[hidden], .cl-version-item[hidden], .cl-entry[hidden], .cl-group[hidden],
+.cl-area[hidden], .cl-area-item[hidden], .cl-empty[hidden], .cl-novel[hidden],
+.cl-badge[hidden], .cl-more[hidden], .cl-lang button[hidden] { display: none; }
