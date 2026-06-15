@@ -339,7 +339,7 @@ class Agent(AgentBase):
 
         # Inject the model-driven context-management tools when running in agentic mode.
         if context_manager == "agentic":
-            from .conversation_manager.modes.agentic.agentic_context import (
+            from ..context_manager.modes.agentic.agentic_context import (
                 pin_context,
                 summarize_context,
                 truncate_context,
@@ -378,7 +378,7 @@ class Agent(AgentBase):
         # In agentic mode, surface live token usage to the model so it can decide when to compress.
         if context_manager == "agentic":
             from .._middleware.stages import InvokeModelStage
-            from .conversation_manager.modes.agentic.agentic_context import create_token_usage_middleware
+            from ..context_manager.modes.agentic.agentic_context import create_token_usage_middleware
 
             self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware(self.model))
 
@@ -512,9 +512,7 @@ class Agent(AgentBase):
                 proactive_compression={"compression_threshold": _CONTEXT_MANAGER_COMPRESSION_THRESHOLD},
             )
         elif context_manager == "agentic":
-            # No proactive compression: the agent manages its context via injected tools, so the
-            # conversation manager only reacts to genuine context-window overflow. The offloader
-            # keeps more inline since the model is responsible for compressing its own context.
+            # No proactive compression: the model manages context via injected tools.
             offloader_max_result_tokens = _AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS
             default_conversation_manager = SummarizingConversationManager(
                 summary_ratio=_CONTEXT_MANAGER_SUMMARY_RATIO,

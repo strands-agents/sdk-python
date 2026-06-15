@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createTokenUsageMiddleware } from '../modes/agentic/agentic-context.js'
+import { createTokenUsageMiddleware } from '../../context-manager/modes/agentic/agentic-context.js'
 import { Message, TextBlock } from '../../types/messages.js'
 import type { InvokeModelContext } from '../../middleware/stages.js'
 import type { Model } from '../../models/model.js'

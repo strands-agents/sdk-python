@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from strands.agent.conversation_manager.compression.pin_message import pin_message
-from strands.agent.conversation_manager.modes.agentic.agentic_context import (
+from strands.context_manager.modes.agentic.agentic_context import (
     pin_context,
     summarize_context,
     truncate_context,
@@ -324,6 +324,22 @@ class TestPinContextIndices:
         assert "Pinned" in result
         assert "1 message(s)" in result
         assert messages[1]["metadata"]["custom"]["pinned"] is True
+
+    async def test_rejects_negative_indices(self, alist):
+        messages = make_messages(5)
+        agent = make_agent(messages)
+        result = await invoke_tool(pin_context, agent, alist, select=[-1], action="pin")
+        assert "All indices out of range" in result
+        # The negative index must not wrap around and pin the last message.
+        assert all("metadata" not in m for m in messages)
+
+    async def test_pins_valid_indices_and_drops_negative_ones(self, alist):
+        messages = make_messages(5)
+        agent = make_agent(messages)
+        result = await invoke_tool(pin_context, agent, alist, select=[-1, 2], action="pin")
+        assert "1 message(s)" in result
+        assert messages[2]["metadata"]["custom"]["pinned"] is True
+        assert "metadata" not in messages[4]
 
 
 @pytest.mark.asyncio

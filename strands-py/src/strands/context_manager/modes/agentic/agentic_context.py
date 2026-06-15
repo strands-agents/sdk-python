@@ -10,24 +10,24 @@ import logging
 from dataclasses import replace
 from typing import TYPE_CHECKING, Literal
 
-from ....._middleware.stages import InvokeModelContext
-from ....._middleware.types import MiddlewareInputHandler
-from .....tools.decorator import tool
-from .....types.content import Message
-from .....types.exceptions import ContextWindowOverflowException
-from .....types.tools import ToolContext
-from ...compression.context_compression import (
+from ...._middleware.stages import InvokeModelContext
+from ...._middleware.types import MiddlewareInputHandler
+from ....agent.conversation_manager.compression.context_compression import (
     MessageType,
     adjust_split_point_for_tool_pairs,
     find_valid_trim_point,
     generate_summary,
     matches_message_type,
 )
-from ...compression.pin_message import is_pinned, pin_message, unpin_message
-from ...conversation_manager import DEFAULT_CONTEXT_WINDOW_LIMIT
+from ....agent.conversation_manager.compression.pin_message import is_pinned, pin_message, unpin_message
+from ....agent.conversation_manager.conversation_manager import DEFAULT_CONTEXT_WINDOW_LIMIT
+from ....tools.decorator import tool
+from ....types.content import Message
+from ....types.exceptions import ContextWindowOverflowException
+from ....types.tools import ToolContext
 
 if TYPE_CHECKING:
-    from .....models.model import Model
+    from ....models.model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,7 @@ async def summarize_context(
     original_message_count = len(messages)
     filter: MessageType = message_type or "all"
     preserve_recent = keep_recent if keep_recent is not None else _DEFAULT_KEEP_RECENT_MESSAGES
+    preserve_recent = max(_MIN_MESSAGES_FOR_COMPRESSION, preserve_recent)
     ratio = max(
         _MIN_SUMMARY_RATIO,
         min(_MAX_SUMMARY_RATIO, summary_ratio if summary_ratio is not None else _DEFAULT_SUMMARY_RATIO),
@@ -169,6 +170,7 @@ def truncate_context(
     original_message_count = len(messages)
     filter: MessageType = message_type or "all"
     window_size = keep_recent if keep_recent is not None else _DEFAULT_KEEP_RECENT_MESSAGES
+    window_size = max(_MIN_MESSAGES_FOR_COMPRESSION, window_size)
 
     if len(messages) <= _MIN_MESSAGES_FOR_COMPRESSION or len(messages) <= window_size:
         return f"No messages dropped: conversation only has {original_message_count} messages."
@@ -243,10 +245,12 @@ def pin_context(
                 break
             i -= 1
     elif isinstance(select, int):
-        count = min(select, len(messages))
+        # Clamp to [0, len]: a negative or zero N selects nothing rather than wrapping around.
+        count = min(max(0, select), len(messages))
         candidate_indices = [len(messages) - 1 - k for k in range(count)]
     else:
-        candidate_indices = [i for i in select if i < len(messages)]
+        # Keep only valid forward indices; negative values must not wrap to the tail.
+        candidate_indices = [i for i in select if 0 <= i < len(messages)]
         if not candidate_indices:
             return f"All indices out of range (conversation has {len(messages)} messages)."
 

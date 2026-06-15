@@ -1,5 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
-import { summarizeContextTool, truncateContextTool, pinContextTool } from '../modes/agentic/agentic-context.js'
+import {
+  summarizeContextTool,
+  truncateContextTool,
+  pinContextTool,
+} from '../../context-manager/modes/agentic/agentic-context.js'
 import { pinMessage } from '../compression/pin-message.js'
 import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '../../types/messages.js'
 

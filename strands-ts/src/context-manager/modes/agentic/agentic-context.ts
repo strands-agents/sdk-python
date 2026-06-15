@@ -1,18 +1,18 @@
 import { z } from 'zod'
 import { Message, TextBlock } from '../../../types/messages.js'
 import { tool } from '../../../tools/tool-factory.js'
-import { pinMessage, unpinMessage, isPinned } from '../../compression/pin-message.js'
+import { pinMessage, unpinMessage, isPinned } from '../../../conversation-manager/compression/pin-message.js'
 import {
   generateSummary,
   adjustSplitPointForToolPairs,
   findValidTrimPoint,
   matchesMessageType,
   type MessageTypeFilter,
-} from '../../compression/context-compression.js'
+} from '../../../conversation-manager/compression/context-compression.js'
 import type { InvokeModelContext } from '../../../middleware/stages.js'
 import type { MiddlewareInputHandler } from '../../../middleware/types.js'
 import type { Model } from '../../../models/model.js'
-import { DEFAULT_CONTEXT_WINDOW_LIMIT } from '../../conversation-manager.js'
+import { DEFAULT_CONTEXT_WINDOW_LIMIT } from '../../../conversation-manager/conversation-manager.js'
 
 /** Default number of recent messages to preserve verbatim during summarization or truncation. */
 const DEFAULT_KEEP_RECENT_MESSAGES = 10
