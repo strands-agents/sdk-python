@@ -523,3 +523,82 @@ class TestStdioMode:
         assert "(y/n/t)" in prompts[0]
         # "n" must actually deny: the tool should never run in stdio mode.
         assert executed == []
+
+
+class TestPublicCallbackProtocols:
+    """The callback Protocols are part of the public API so customers know what to pass."""
+
+    def test_protocols_are_exported(self):
+        from strands.vended_interventions import AskCallback, EvaluateCallback, HumanInTheLoop
+        from strands.vended_interventions.hitl import AskCallback as AskFromHitl
+        from strands.vended_interventions.hitl import EvaluateCallback as EvaluateFromHitl
+
+        # Re-exported from both the package and the submodule so either import works.
+        assert AskCallback is AskFromHitl
+        assert EvaluateCallback is EvaluateFromHitl
+        assert HumanInTheLoop.name == "strands:human-in-the-loop"
+
+    def test_callbacks_are_runtime_checkable(self):
+        from strands.vended_interventions import AskCallback, EvaluateCallback
+
+        class MyAsk:
+            def __call__(self, prompt: str, **kwargs) -> str:
+                return "y"
+
+        class MyEvaluate:
+            def __call__(self, response, **kwargs) -> bool:
+                return response == "approve"
+
+        assert isinstance(MyAsk(), AskCallback)
+        assert isinstance(MyEvaluate(), EvaluateCallback)
+
+    def test_custom_evaluate_accepting_kwargs_is_used(self):
+        executed = []
+
+        @tool(name="my_tool")
+        def my_tool() -> str:
+            executed.append(True)
+            return "ok"
+
+        # A forward-compatible callback that accepts **kwargs (the Protocol shape).
+        def approve_on_emoji(response, **kwargs) -> bool:
+            return response == "👍"
+
+        model = MockedModelProvider([tool_use_message("my_tool"), text_message("Done")])
+        agent = Agent(model=model, tools=[my_tool], interventions=[HumanInTheLoop(evaluate=approve_on_emoji)])
+
+        result = agent("Run tool")
+        assert result.stop_reason == "interrupt"
+
+        interrupt_id = result.interrupts[0].id
+        resumed = agent([{"interruptResponse": {"interruptId": interrupt_id, "response": "👍"}}])
+        assert resumed.stop_reason == "end_turn"
+        assert executed == [True]
+
+
+class TestSyncCustomInterventionHandler:
+    """A custom handler may override before_tool_call as sync OR async (no type: ignore needed)."""
+
+    def test_async_handler_returning_proceed(self):
+        from strands.interventions.actions import Proceed
+        from strands.interventions.handler import InterventionHandler
+
+        executed = []
+
+        @tool(name="ok_tool")
+        def ok_tool() -> str:
+            executed.append(True)
+            return "ran"
+
+        class AsyncAllow(InterventionHandler):
+            name = "test:async-allow"
+
+            async def before_tool_call(self, event, **kwargs):
+                return Proceed()
+
+        model = MockedModelProvider([tool_use_message("ok_tool"), text_message("Done")])
+        agent = Agent(model=model, tools=[ok_tool], interventions=[AsyncAllow()])
+
+        result = agent("Run tool")
+        assert result.stop_reason == "end_turn"
+        assert executed == [True]

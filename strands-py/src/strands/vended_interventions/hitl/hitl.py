@@ -1,15 +1,14 @@
 """Human-in-the-loop intervention handler.
 
-Pauses agent execution before tool calls to request human approval. Port of the
-TypeScript ``HumanInTheLoop`` vended intervention.
+Pauses agent execution before tool calls so a human can approve or deny them.
 """
 
 import asyncio
 import inspect
 import json
 import threading
-from collections.abc import Awaitable, Callable
-from typing import Any, Literal
+from collections.abc import Awaitable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from ...hooks.events import BeforeToolCallEvent
 from ...interventions.actions import Confirm, InterventionAction, Proceed, default_evaluate
@@ -18,15 +17,71 @@ from ...interventions.handler import InterventionHandler
 _TRUST_RESPONSES = {"t", "trust"}
 _TRUSTED_TOOLS_KEY = "hitl:trusted_tools"
 
-# An ``ask`` callback receives the approval prompt and returns the human's response,
-# either directly or as an awaitable (so both sync and async UIs are supported).
-AskCallable = Callable[[str], Any | Awaitable[Any]]
-# An ``evaluate``/``evaluate_trust`` callback inspects the human's response and
-# returns whether it approves (or trusts) the pending tool call.
-EvaluateCallable = Callable[[Any], bool]
+
+@runtime_checkable
+class AskCallback(Protocol):
+    """Collects a human's approval response for a pending tool call.
+
+    Implement this to wire approvals to any UI (Slack, a web app, a custom CLI).
+    The callback may be sync or async; an async implementation lets the agent
+    keep serving its event loop while waiting on the human.
+
+    Example:
+        ```python
+        async def slack_ask(prompt: str) -> str:
+            return await slack_dm(user_id, prompt)
+
+        agent = Agent(interventions=[HumanInTheLoop(ask=slack_ask)])
+        ```
+    """
+
+    def __call__(self, prompt: str, **kwargs: Any) -> Any | Awaitable[Any]:
+        """Prompt the human and return their response.
+
+        Args:
+            prompt: Human-readable description of the tool call awaiting approval.
+            **kwargs: Reserved for future keyword arguments; implementations
+                should accept and ignore unknown keywords.
+
+        Returns:
+            The human's response, directly or as an awaitable. The response is
+            passed to the configured ``evaluate``/``evaluate_trust`` callbacks.
+        """
+        ...
 
 
-def _create_stdio_ask(include_trust: bool) -> AskCallable:
+@runtime_checkable
+class EvaluateCallback(Protocol):
+    """Decides whether a human's response approves (or trusts) a tool call.
+
+    Implement this to customize what counts as approval. The default accepts
+    ``True`` and ``"y"``/``"yes"`` for approval, and ``"t"``/``"trust"`` for trust.
+
+    Example:
+        ```python
+        def approve_on_emoji(response: object) -> bool:
+            return response == "👍"
+
+        agent = Agent(interventions=[HumanInTheLoop(evaluate=approve_on_emoji)])
+        ```
+    """
+
+    def __call__(self, response: Any, **kwargs: Any) -> bool:
+        """Return whether the response approves (or trusts) the tool call.
+
+        Args:
+            response: The value returned by the ``ask`` callback or supplied when
+                resuming an interrupt.
+            **kwargs: Reserved for future keyword arguments; implementations
+                should accept and ignore unknown keywords.
+
+        Returns:
+            True to approve (or trust) the pending tool call, False otherwise.
+        """
+        ...
+
+
+def _create_stdio_ask(include_trust: bool) -> AskCallback:
     """Build an ``ask`` callback that prompts the human on the terminal.
 
     Each prompt is serialized behind a ``threading.Lock`` so concurrent tool calls
@@ -54,7 +109,7 @@ def _create_stdio_ask(include_trust: bool) -> AskCallable:
         with lock:
             return input(f"{prompt} {options}: ").strip()
 
-    async def ask(prompt: str) -> Any:
+    async def ask(prompt: str, **kwargs: Any) -> Any:
         return await asyncio.to_thread(_blocking_ask, prompt)
 
     return ask
@@ -89,14 +144,16 @@ class HumanInTheLoop(InterventionHandler):
         ```
     """
 
+    name = "strands:human-in-the-loop"
+
     def __init__(
         self,
         *,
         allowed_tools: list[str] | None = None,
         enable_trust: bool = False,
-        evaluate_trust: EvaluateCallable | None = None,
-        evaluate: EvaluateCallable | None = None,
-        ask: AskCallable | Literal["stdio"] | None = None,
+        evaluate_trust: EvaluateCallback | None = None,
+        evaluate: EvaluateCallback | None = None,
+        ask: AskCallback | Literal["stdio"] | None = None,
     ) -> None:
         """Initialize the handler.
 
@@ -132,21 +189,13 @@ class HumanInTheLoop(InterventionHandler):
         self._evaluate = evaluate if evaluate is not None else default_evaluate
         self._ask = _create_stdio_ask(enable_trust) if ask == "stdio" else ask
 
-    @property
-    def name(self) -> str:
-        """Unique name identifying this handler."""
-        return "strands:human-in-the-loop"
-
-    async def before_tool_call(  # type: ignore[override]
-        self, event: BeforeToolCallEvent, **kwargs: Any
-    ) -> InterventionAction:
+    async def before_tool_call(self, event: BeforeToolCallEvent, **kwargs: Any) -> InterventionAction:
         """Request human approval before executing a tool that is not allow-listed or trusted.
 
-        The override is intentionally ``async`` even though the base class declares
-        ``before_tool_call`` as sync: ``InterventionRegistry`` awaits handlers whose
-        override is a coroutine function, which lets the inline ``ask`` path await a
-        user's response without blocking the event loop. The ``type: ignore`` covers
-        that deliberate signature widening.
+        Implemented as ``async`` so the inline ``ask`` path can await a human's
+        response (e.g. an HTTP round-trip to a Slack/web UI) without blocking the
+        agent's event loop. When no ``ask`` is configured this returns a ``Confirm``
+        that pauses the agent via interrupt instead.
 
         Args:
             event: The tool call event under evaluation.

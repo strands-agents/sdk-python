@@ -3,6 +3,6 @@
 Ready-to-use InterventionHandler implementations for common control patterns.
 """
 
-from .hitl import HumanInTheLoop
+from .hitl import AskCallback, EvaluateCallback, HumanInTheLoop
 
-__all__ = ["HumanInTheLoop"]
+__all__ = ["AskCallback", "EvaluateCallback", "HumanInTheLoop"]
