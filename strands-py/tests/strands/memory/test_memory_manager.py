@@ -1049,6 +1049,12 @@ async def test_flush_does_not_re_extract_messages_already_processed():
     store.add_messages.assert_called_once()
 
 
+def test_flush_on_invocation_end_defaults_true_and_is_configurable():
+    store = _store("s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig(trigger=InvocationTrigger()))
+    assert MemoryManager(stores=[store]).flush_on_invocation_end is True
+    assert MemoryManager(stores=[store], flush_on_invocation_end=False).flush_on_invocation_end is False
+
+
 @pytest.mark.asyncio
 async def test_init_agent_background_save_does_not_block_hook_and_flush_awaits_it():
     release = asyncio.Event()
@@ -1075,73 +1081,3 @@ async def test_init_agent_background_save_does_not_block_hook_and_flush_awaits_i
     release.set()
     await flushed
     assert completed["v"] is True
-
-
-@pytest.mark.asyncio
-async def test_flush_on_invocation_end_registers_hook_that_awaits_flush():
-    extraction_store = _store(
-        "s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig(trigger=InvocationTrigger())
-    )
-    memory_manager = MemoryManager(stores=[extraction_store], flush_on_invocation_end=True)
-    agent = _FakeAgent()
-    memory_manager.init_agent(agent)
-
-    flush_hooks = [
-        callback
-        for callback, event_type, _order in agent.hooks
-        if event_type is AfterInvocationEvent and callback == memory_manager._flush_after_invocation
-    ]
-    assert len(flush_hooks) == 1
-
-    await _add_messages(agent, _user_msg("I prefer dark mode"), _assistant_msg("Noted"))
-    # Fire the invocation event only; the registered flush hook awaits flush, so
-    # the store write persists WITHOUT an explicit ``memory_manager.flush()`` call.
-    await _invoke_all(agent, AfterInvocationEvent(agent=agent))
-
-    extraction_store.add_messages.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_flush_on_invocation_end_disabled_by_default_registers_no_flush_hook():
-    extraction_store = _store(
-        "s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig(trigger=InvocationTrigger())
-    )
-    memory_manager = MemoryManager(stores=[extraction_store])
-    agent = _FakeAgent()
-    memory_manager.init_agent(agent)
-
-    # Only the recorder (MessageAddedEvent) + trigger (AfterInvocationEvent) hooks
-    # are registered; the flush method is not among them.
-    registered_callbacks = [callback for callback, _event_type, _order in agent.hooks]
-    assert memory_manager._flush_after_invocation not in registered_callbacks
-
-    await _add_messages(agent, _user_msg("I prefer dark mode"), _assistant_msg("Noted"))
-    # The event alone schedules a background save but does not await it (no flush
-    # hook), so the store has not been written synchronously by the event.
-    await _invoke_all(agent, AfterInvocationEvent(agent=agent))
-
-    extraction_store.add_messages.assert_not_called()
-
-
-def test_init_agent_warns_when_extraction_configured_without_flush_on_invocation_end(caplog):
-    extraction_store = _store(
-        "s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig(trigger=InvocationTrigger())
-    )
-    memory_manager = MemoryManager(stores=[extraction_store])
-
-    with caplog.at_level(logging.WARNING):
-        memory_manager.init_agent(_FakeAgent())
-
-    assert "flush_on_invocation_end" in caplog.text
-
-
-def test_init_agent_does_not_warn_when_flush_on_invocation_end_enabled(caplog):
-    extraction_store = _store(
-        "s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig(trigger=InvocationTrigger())
-    )
-    memory_manager = MemoryManager(stores=[extraction_store], flush_on_invocation_end=True)
-
-    with caplog.at_level(logging.WARNING):
-        memory_manager.init_agent(_FakeAgent())
-
-    assert "flush_on_invocation_end" not in caplog.text

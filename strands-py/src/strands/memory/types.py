@@ -115,14 +115,15 @@ class MemoryManagerConfig:
         add_tool_config: Add tool configuration. Defaults to ``False`` (opt-in);
             ``True`` allows all writable stores, or pass a
             :class:`MemoryAddToolConfig` to restrict it.
-        flush_on_invocation_end: When ``True``, await pending extraction writes at
-            the end of each agent invocation. Defaults to ``False``.
+        flush_on_invocation_end: When ``True`` (default), the synchronous
+            ``Agent(...)`` entry point flushes pending extraction writes after
+            each invocation. Set ``False`` to opt out.
     """
 
     stores: list[MemoryStore]
     search_tool_config: MemoryToolConfig | bool = True
     add_tool_config: MemoryAddToolConfig | bool = False
-    flush_on_invocation_end: bool = False
+    flush_on_invocation_end: bool = True
 
 
 class MemoryStoreConfig(Protocol):

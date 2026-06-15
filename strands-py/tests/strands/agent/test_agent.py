@@ -23,6 +23,7 @@ from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.hooks import BeforeInvocationEvent, BeforeModelCallEvent, BeforeToolCallEvent
 from strands.interrupt import Interrupt
+from strands.memory import MemoryManager, MemoryManagerConfig
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
@@ -2755,7 +2756,88 @@ def test_agent_plugins_can_register_hooks():
     )
 
     agent("test")
+
     assert len(hook_called) == 1
+
+
+class _SearchOnlyStore:
+    """Minimal read-only memory store for exercising Agent's memory_manager wiring."""
+
+    name = "notes"
+    description = None
+    max_search_results = None
+    writable = False
+    extraction = None
+
+    async def search(self, query, options=None):
+        return []
+
+
+def test_agent_memory_manager_instance_registers_tools_and_is_exposed():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=memory_manager,
+    )
+
+    assert agent.memory_manager is memory_manager
+    assert "search_memory" in agent.tool_names
+
+
+def test_agent_memory_manager_config_is_wrapped():
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=MemoryManagerConfig(stores=[_SearchOnlyStore()]),
+    )
+
+    assert isinstance(agent.memory_manager, MemoryManager)
+    assert "search_memory" in agent.tool_names
+
+
+def test_agent_memory_manager_defaults_to_none():
+    agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]))
+
+    assert agent.memory_manager is None
+
+
+def test_agent_sync_call_flushes_memory_manager():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    memory_manager.flush = unittest.mock.AsyncMock()
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=memory_manager,
+    )
+
+    agent("test")
+
+    memory_manager.flush.assert_awaited_once()
+
+
+def test_agent_sync_call_does_not_flush_when_opted_out():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()], flush_on_invocation_end=False)
+    memory_manager.flush = unittest.mock.AsyncMock()
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=memory_manager,
+    )
+
+    agent("test")
+
+    memory_manager.flush.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_agent_async_invoke_does_not_flush_memory_manager():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    memory_manager.flush = unittest.mock.AsyncMock()
+    agent = Agent(
+        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+        memory_manager=memory_manager,
+    )
+
+    await agent.invoke_async("test")
+
+    memory_manager.flush.assert_not_awaited()
 
 
 def test_as_tool_returns_agent_tool():

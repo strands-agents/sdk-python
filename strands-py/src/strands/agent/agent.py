@@ -42,6 +42,7 @@ from ..types._snapshot import (
 )
 
 if TYPE_CHECKING:
+    from ..memory import MemoryManager, MemoryManagerConfig
     from ..tools import ToolProvider
 from .._middleware import MiddlewareRegistry
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
@@ -166,6 +167,7 @@ class Agent(AgentBase):
         hooks: list[HookProvider | HookCallback] | None = None,
         interventions: list[InterventionHandler] | None = None,
         session_manager: SessionManager | None = None,
+        memory_manager: "MemoryManager | MemoryManagerConfig | None" = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
@@ -240,6 +242,12 @@ class Agent(AgentBase):
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
+            memory_manager: Cross-session memory manager. Accepts a
+                :class:`~strands.memory.MemoryManager` instance or a
+                :class:`~strands.memory.MemoryManagerConfig` (auto-wrapped). When set, its
+                search/add tools are registered and the synchronous ``Agent(...)`` entry point
+                awaits pending extraction writes after each invocation unless the manager sets
+                ``flush_on_invocation_end=False``. Defaults to None.
             structured_output_prompt: Custom prompt message used when forcing structured output.
                 When using structured output, if the model doesn't automatically use the output tool,
                 the agent sends a follow-up message to request structured formatting. This parameter
@@ -431,6 +439,12 @@ class Agent(AgentBase):
             for plugin in plugins_to_register:
                 self._plugin_registry.add_and_init(plugin)
 
+        # Resolve and register the memory manager (a Plugin); keep a reference so the
+        # synchronous entry point can flush pending extraction writes.
+        self.memory_manager = self._resolve_memory_manager(memory_manager)
+        if self.memory_manager is not None:
+            self._plugin_registry.add_and_init(self.memory_manager)
+
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
     @staticmethod
@@ -462,18 +476,14 @@ class Agent(AgentBase):
 
         supported = get_args(ContextManagerStrategy)
         if context_manager not in supported:
-            raise ValueError(
-                f"Unsupported context_manager value: {context_manager!r}. Supported values: {supported}"
-            )
+            raise ValueError(f"Unsupported context_manager value: {context_manager!r}. Supported values: {supported}")
 
         from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
         from .conversation_manager import SummarizingConversationManager
 
         resolved_plugins = list(plugins) if plugins else []
 
-        has_offloader = any(
-            isinstance(p, ContextOffloader) for p in resolved_plugins
-        )
+        has_offloader = any(isinstance(p, ContextOffloader) for p in resolved_plugins)
         if not has_offloader:
             offloader = ContextOffloader(
                 storage=InMemoryStorage(),
@@ -491,6 +501,30 @@ class Agent(AgentBase):
             )
 
         return resolved_conversation_manager, resolved_plugins
+
+    def _resolve_memory_manager(
+        self, memory_manager: "MemoryManager | MemoryManagerConfig | None"
+    ) -> "MemoryManager | None":
+        """Resolve the ``memory_manager`` argument into a MemoryManager instance or None.
+
+        A :class:`~strands.memory.MemoryManagerConfig` is wrapped into a
+        :class:`~strands.memory.MemoryManager`; an instance passes through.
+        """
+        if memory_manager is None:
+            return None
+
+        from ..memory import MemoryManager, MemoryManagerConfig
+
+        if isinstance(memory_manager, MemoryManager):
+            return memory_manager
+        if isinstance(memory_manager, MemoryManagerConfig):
+            return MemoryManager(
+                stores=memory_manager.stores,
+                search_tool_config=memory_manager.search_tool_config,
+                add_tool_config=memory_manager.add_tool_config,
+                flush_on_invocation_end=memory_manager.flush_on_invocation_end,
+            )
+        raise ValueError("memory_manager must be a MemoryManager or MemoryManagerConfig")
 
     def cancel(self) -> None:
         """Cancel the currently running agent invocation.
@@ -634,7 +668,7 @@ class Agent(AgentBase):
                 - structured_output: Parsed structured output when structured_output_model was specified
         """
         return run_async(
-            lambda: self.invoke_async(
+            lambda: self._invoke_async_and_flush(
                 prompt,
                 invocation_state=invocation_state,
                 structured_output_model=structured_output_model,
@@ -643,6 +677,19 @@ class Agent(AgentBase):
                 **kwargs,
             )
         )
+
+    async def _invoke_async_and_flush(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
+        """Run ``invoke_async`` then flush the memory manager within this loop.
+
+        The synchronous entry point runs each invocation in its own event loop, which would
+        cancel background extraction saves on close. Flushing here persists them. The async
+        path does not flush, leaving extraction on its trigger cadence.
+        """
+        try:
+            return await self.invoke_async(prompt, **kwargs)
+        finally:
+            if self.memory_manager is not None and self.memory_manager.flush_on_invocation_end:
+                await self.memory_manager.flush()
 
     async def invoke_async(
         self,
