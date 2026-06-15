@@ -136,7 +136,8 @@ class ExtractionCoordinator:
     async def flush(self) -> None:
         """Save every store's remaining buffered messages and wait for completion.
 
-        Bypasses backoff. Never raises.
+        Bypasses backoff and also waits out saves that start while waiting.
+        Never raises.
         """
         for store in self._stores:
             self._enqueue(store)
