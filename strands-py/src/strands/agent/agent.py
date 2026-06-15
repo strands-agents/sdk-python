@@ -506,8 +506,9 @@ class Agent(AgentBase):
 
         return resolved_conversation_manager, resolved_plugins
 
+    @staticmethod
     def _resolve_memory_manager(
-        self, memory_manager: MemoryManager | MemoryManagerConfig | None
+        memory_manager: MemoryManager | MemoryManagerConfig | None,
     ) -> MemoryManager | None:
         """Resolve the ``memory_manager`` argument into a MemoryManager instance or None.
 
