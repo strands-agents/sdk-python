@@ -167,6 +167,7 @@ dependencies = [
     "pytest-xdist>=3.0.0,<4.0.0",
     "pytest-timeout>=2.0.0,<3.0.0",
     "moto>=5.1.0,<6.0.0",
+    "cedarpy==4.8.0",
 ]
 
 [[tool.hatch.envs.hatch-test.matrix]]
