@@ -27,6 +27,7 @@ import { GoalLoop } from '@strands-agents/sdk/vended-plugins/goal'
 import { Agent } from '@strands-agents/sdk'
 import {
   GoalLoop,
+  ValidationOutcome,
   buildJudgePrompt,
   JUDGE_SYSTEM_PROMPT,
   JUDGE_OUTCOME_SCHEMA,

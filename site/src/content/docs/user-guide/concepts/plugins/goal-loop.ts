@@ -2,6 +2,7 @@ import { Agent, Message } from '@strands-agents/sdk'
 import { BedrockModel } from '@strands-agents/sdk'
 import {
   GoalLoop,
+  ValidationOutcome,
   buildJudgePrompt,
   JUDGE_SYSTEM_PROMPT,
   JUDGE_OUTCOME_SCHEMA,
@@ -184,7 +185,7 @@ const execAsync = promisify(exec)
 {
   // --8<-- [start:custom_judge]
   const plugin = new GoalLoop({
-    goal: async (_response, agent) => {
+    goal: async (_response, agent): Promise<ValidationOutcome> => {
       const judge = new Agent({
         printer: false,
         systemPrompt: JUDGE_SYSTEM_PROMPT,
@@ -193,7 +194,7 @@ const execAsync = promisify(exec)
         buildJudgePrompt('Be concise.', agent.messages),
         { structuredOutputSchema: JUDGE_OUTCOME_SCHEMA }
       )
-      return result.structuredOutput ?? { passed: false }
+      return (result.structuredOutput as ValidationOutcome) ?? { passed: false, feedback: 'Judge produced no structured outcome.' }
     },
     maxAttempts: 3,
   })
