@@ -65,6 +65,10 @@ class _PluginRegistry:
             raise ReferenceError("Agent has been garbage collected")
         return agent
 
+    def __contains__(self, name: str) -> bool:
+        """Return whether a plugin with the given name is registered."""
+        return name in self._plugins
+
     def add_and_init(self, plugin: Plugin) -> None:
         """Add and initialize a plugin with the agent.
 

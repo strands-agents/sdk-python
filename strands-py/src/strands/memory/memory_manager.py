@@ -69,7 +69,7 @@ class MemoryManager(Plugin):
         from strands.memory import MemoryManager
 
         memory_manager = MemoryManager(stores=[my_store])
-        agent = Agent(model=model, plugins=[memory_manager])
+        agent = Agent(model=model, memory_manager=memory_manager)
         agent("Remember I prefer dark mode")
 
         results = await memory_manager.search("user preferences")

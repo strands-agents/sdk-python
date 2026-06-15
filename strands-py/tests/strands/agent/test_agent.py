@@ -2800,6 +2800,16 @@ def test_agent_memory_manager_defaults_to_none():
     assert agent.memory_manager is None
 
 
+def test_agent_memory_manager_passed_via_both_paths_raises():
+    memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
+    with pytest.raises(ValueError, match="either the memory_manager parameter or plugins, not both"):
+        Agent(
+            model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
+            plugins=[memory_manager],
+            memory_manager=memory_manager,
+        )
+
+
 def test_agent_sync_call_flushes_memory_manager():
     memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
     memory_manager.flush = unittest.mock.AsyncMock()
