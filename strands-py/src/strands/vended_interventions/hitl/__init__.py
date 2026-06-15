@@ -19,6 +19,6 @@ Example:
     ```
 """
 
-from .hitl import AskFunction, EvaluateFunction, HumanInTheLoop
+from .hitl import HumanInTheLoop
 
-__all__ = ["AskFunction", "EvaluateFunction", "HumanInTheLoop"]
+__all__ = ["HumanInTheLoop"]

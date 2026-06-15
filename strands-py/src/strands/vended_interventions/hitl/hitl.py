@@ -8,8 +8,8 @@ import asyncio
 import inspect
 import json
 import threading
-from collections.abc import Awaitable
-from typing import Any, Literal, Protocol
+from collections.abc import Awaitable, Callable
+from typing import Any, Literal
 
 from ...hooks.events import BeforeToolCallEvent
 from ...interventions.actions import Confirm, InterventionAction, Proceed, default_evaluate
@@ -18,56 +18,34 @@ from ...interventions.handler import InterventionHandler
 _TRUST_RESPONSES = {"t", "trust"}
 _TRUSTED_TOOLS_KEY = "hitl:trusted_tools"
 
-
-class AskFunction(Protocol):
-    """Callable that presents a prompt to a human and returns their response.
-
-    May be a plain function or a coroutine function; the returned value (awaited
-    if necessary) is passed to the configured evaluate functions. Defined as a
-    ``Protocol`` with ``**kwargs`` (per ``docs/STYLE_GUIDE.md``) so the interface
-    can grow new optional keyword arguments without breaking existing callables.
-    """
-
-    def __call__(self, prompt: str, **kwargs: Any) -> Any | Awaitable[Any]:
-        """Present ``prompt`` to a human and return (or await) their response."""
-        ...
+# An ``ask`` callback receives the approval prompt and returns the human's response,
+# either directly or as an awaitable (so both sync and async UIs are supported).
+AskCallable = Callable[[str], Any | Awaitable[Any]]
+# An ``evaluate``/``evaluate_trust`` callback inspects the human's response and
+# returns whether it approves (or trusts) the pending tool call.
+EvaluateCallable = Callable[[Any], bool]
 
 
-class EvaluateFunction(Protocol):
-    """Callable that decides whether a human's response approves a tool call.
+def _create_stdio_ask(include_trust: bool) -> AskCallable:
+    """Build an ``ask`` callback that prompts the human on the terminal.
 
-    Receives the (already-awaited) response and returns ``True`` to approve.
-    Defined as a ``Protocol`` with ``**kwargs`` (per ``docs/STYLE_GUIDE.md``) so
-    the interface can grow new optional keyword arguments without breaking
-    existing implementations.
-    """
+    Each prompt is serialized behind a ``threading.Lock`` so concurrent tool calls
+    can't interleave their reads from a single stdin. The blocking ``input`` call is
+    offloaded to a worker thread so the event loop keeps running while waiting. A
+    plain ``threading.Lock`` (rather than ``asyncio.Lock``) is used deliberately: the
+    same handler instance may be reused across agent invocations that each spin up
+    their own event loop, and a threading lock is the only kind that spans them.
 
-    def __call__(self, response: Any, **kwargs: Any) -> bool:
-        """Return True if ``response`` approves the tool call."""
-        ...
-
-
-def _create_stdio_ask(include_trust: bool) -> AskFunction:
-    """Create a CLI prompt that reads from stdin.
-
-    Serializes prompts with a lock so concurrent tool calls don't collide on stdin.
-    The blocking ``input`` call runs in a worker thread (via ``asyncio.to_thread``)
-    to avoid stalling the event loop. A ``threading.Lock`` is used instead of an
-    ``asyncio.Lock`` so the same handler instance works across multiple agent
-    invocations, each of which may run its own event loop.
-
-    .. note::
-        The worker thread blocking on ``input()`` cannot be cancelled. If the agent
-        run is cancelled or times out while a stdio prompt is pending, the thread
-        stays blocked until the user presses enter, so the process won't exit
-        cleanly. ``ask="stdio"`` is intended for interactive CLI use, not for
-        environments where the run may be cancelled out from under the prompt.
+    A worker thread blocked on ``input`` cannot be cancelled, so if the agent run is
+    cancelled or times out mid-prompt the thread stays parked until the user presses
+    enter and the process won't exit cleanly. ``ask="stdio"`` is therefore meant for
+    interactive CLI sessions, not for runs that may be cancelled out from under it.
 
     Args:
-        include_trust: Whether to show the trust option in the prompt suffix.
+        include_trust: Show the trust option (``t``) in the prompt suffix when True.
 
     Returns:
-        An async ask function that prompts via stdin.
+        An async ``ask`` callback that reads a response from stdin.
     """
     options = "(y/n/t)" if include_trust else "(y/n)"
     lock = threading.Lock()
@@ -76,7 +54,7 @@ def _create_stdio_ask(include_trust: bool) -> AskFunction:
         with lock:
             return input(f"{prompt} {options}: ").strip()
 
-    async def ask(prompt: str, **kwargs: Any) -> Any:
+    async def ask(prompt: str) -> Any:
         return await asyncio.to_thread(_blocking_ask, prompt)
 
     return ask
@@ -116,9 +94,9 @@ class HumanInTheLoop(InterventionHandler):
         *,
         allowed_tools: list[str] | None = None,
         enable_trust: bool = False,
-        evaluate_trust: EvaluateFunction | None = None,
-        evaluate: EvaluateFunction | None = None,
-        ask: AskFunction | Literal["stdio"] | None = None,
+        evaluate_trust: EvaluateCallable | None = None,
+        evaluate: EvaluateCallable | None = None,
+        ask: AskCallable | Literal["stdio"] | None = None,
     ) -> None:
         """Initialize the handler.
 
@@ -159,12 +137,16 @@ class HumanInTheLoop(InterventionHandler):
         """Unique name identifying this handler."""
         return "strands:human-in-the-loop"
 
-    # The base class types this method as sync, but InterventionRegistry explicitly
-    # supports coroutine overrides (it awaits them when iscoroutinefunction is true).
     async def before_tool_call(  # type: ignore[override]
         self, event: BeforeToolCallEvent, **kwargs: Any
     ) -> InterventionAction:
         """Request human approval before executing a tool that is not allow-listed or trusted.
+
+        The override is intentionally ``async`` even though the base class declares
+        ``before_tool_call`` as sync: ``InterventionRegistry`` awaits handlers whose
+        override is a coroutine function, which lets the inline ``ask`` path await a
+        user's response without blocking the event loop. The ``type: ignore`` covers
+        that deliberate signature widening.
 
         Args:
             event: The tool call event under evaluation.
@@ -182,6 +164,9 @@ class HumanInTheLoop(InterventionHandler):
 
         is_negated = f"!{tool_name}" in self._allowed_tools
 
+        # No ``ask`` configured: defer to interrupt/resume. The evaluate closure runs
+        # later when the caller resumes with a response, so trust must be recorded
+        # there rather than now.
         if self._ask is None:
 
             def evaluate(response: Any) -> bool:
@@ -192,6 +177,9 @@ class HumanInTheLoop(InterventionHandler):
 
             return Confirm(prompt=prompt, evaluate=evaluate)
 
+        # Inline mode: collect the response now (awaiting async ``ask`` callbacks). A
+        # trust response short-circuits to Proceed; anything else is handed to the
+        # standard evaluator via Confirm so the normal approve/deny path applies.
         response = self._ask(prompt)
         if inspect.isawaitable(response):
             response = await response
@@ -243,12 +231,11 @@ class HumanInTheLoop(InterventionHandler):
             event.agent.state.set(_TRUSTED_TOOLS_KEY, [*trusted, tool_name])
 
     @staticmethod
-    def _is_trust_response(response: Any, **kwargs: Any) -> bool:
+    def _is_trust_response(response: Any) -> bool:
         """Check whether a response is a trust response (``"t"``/``"trust"``, case-insensitive).
 
         Args:
             response: The human's response value.
-            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             True if the response is a trust response.
