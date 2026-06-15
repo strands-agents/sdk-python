@@ -1,0 +1,98 @@
+# Multi-agent TypeScript PR reviewer, triggered by `/strands-ts <command>`.
+# Mirrors strands-command.yml (the Python /strands handler) but invokes the
+# strands-ts actions. Runs ALONGSIDE /strands; nothing is replaced.
+#
+# BLOCKED BY: strands-agents/devtools#68 — the strands-ts-* actions referenced
+# below only exist on devtools@main AFTER that PR merges. Do not merge this
+# until #68 is merged, or the runner/finalize steps will 404.
+name: Strands-TS Command Handler
+
+on:
+  issue_comment:
+    types: [created]
+
+# No workflow-level write perms: the read/write split is enforced per job so
+# the agent job never holds a write-capable token.
+permissions: {}
+
+jobs:
+  authorization-check:
+    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/strands-ts') }}
+    name: Check access
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    outputs:
+      approval-env: ${{ steps.auth.outputs.approval-env }}
+    steps:
+      - name: Check Authorization
+        id: auth
+        uses: strands-agents/devtools/authorization-check@main
+        with:
+          username: ${{ github.event.comment.user.login || 'invalid' }}
+          allowed-roles: 'maintain,triage,write,admin'
+
+  mark-running:
+    needs: [authorization-check]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Add strands-running label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.issue.number }}
+        run: gh pr edit "$PR_NUM" --repo "${{ github.repository }}" --add-label strands-running || true
+
+  execute-readonly-agent:
+    needs: [authorization-check, mark-running]
+    environment: ${{ needs.authorization-check.outputs.approval-env }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write   # AWS OIDC role assumption only
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve PR head SHA
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.issue.number }}
+        run: echo "sha=$(gh pr view "$PR_NUM" --json headRefOid -q .headRefOid)" >> "$GITHUB_OUTPUT"
+      - name: Run Strands-TS Agent
+        uses: strands-agents/devtools/strands-command/actions/strands-ts-runner@main
+        with:
+          command: ${{ github.event.comment.body }}
+          pr_number: ${{ github.event.issue.number }}
+          pr_head_sha: ${{ steps.pr.outputs.sha }}
+          aws_role_arn: ${{ secrets.AWS_ROLE_ARN }}
+          agents_config: ${{ vars.STRANDS_TS_AGENTS || '' }}
+
+  finalize:
+    needs: [execute-readonly-agent]
+    if: ${{ needs.execute-readonly-agent.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # the ONLY job that can write; replays vetted artifact ops
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replay deferred writes
+        uses: strands-agents/devtools/strands-command/actions/strands-ts-finalize@main
+
+  clear-running:
+    needs: [mark-running, execute-readonly-agent, finalize]
+    if: ${{ always() && needs.mark-running.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Remove strands-running label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUM: ${{ github.event.issue.number }}
+        run: gh pr edit "$PR_NUM" --repo "${{ github.repository }}" --remove-label strands-running || true

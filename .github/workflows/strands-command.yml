@@ -22,7 +22,9 @@ on:
 
 jobs:
   authorization-check:
-    if: startsWith(github.event.comment.body, '/strands') || github.event_name == 'workflow_dispatch'
+    # Exclude '/strands-ts' so strands-ts-command.yml handles it (the '/strands'
+    # prefix would otherwise match and fire both workflows on one comment).
+    if: (startsWith(github.event.comment.body, '/strands') && !startsWith(github.event.comment.body, '/strands-ts')) || github.event_name == 'workflow_dispatch'
     name: Check access
     permissions:
       contents: read
@@ -82,7 +84,7 @@ jobs:
           write_permission: 'false'
 
   finalize:
-    if: always() && (startsWith(github.event.comment.body, '/strands') || github.event_name == 'workflow_dispatch')
+    if: always() && ((startsWith(github.event.comment.body, '/strands') && !startsWith(github.event.comment.body, '/strands-ts')) || github.event_name == 'workflow_dispatch')
     needs: [setup-and-process, execute-readonly-agent]
     permissions:
       contents: write
