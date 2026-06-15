@@ -144,30 +144,9 @@ agent = Agent(plugins=[
 <Tab label="TypeScript">
 
 ```typescript
-import { Agent } from '@strands-agents/sdk'
-import {
-  ContextOffloader,
-  InMemoryStorage,
-} from '@strands-agents/sdk/vended-plugins/context-offloader'
+--8<-- "user-guide/concepts/plugins/context-offloader_imports.ts:in_memory_storage"
 
-// Default: entries evicted after 20 cycles of disuse
-const agent = new Agent({
-  plugins: [new ContextOffloader({ storage: new InMemoryStorage() })],
-})
-
-// Custom eviction window
-const agent2 = new Agent({
-  plugins: [
-    new ContextOffloader({ storage: new InMemoryStorage(50) }),
-  ],
-})
-
-// Disable eviction (accumulates until clear() is called)
-const agent3 = new Agent({
-  plugins: [
-    new ContextOffloader({ storage: new InMemoryStorage(null) }),
-  ],
-})
+--8<-- "user-guide/concepts/plugins/context-offloader.ts:in_memory_storage"
 ```
 </Tab>
 </Tabs>
