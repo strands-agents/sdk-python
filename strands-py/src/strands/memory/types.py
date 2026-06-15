@@ -133,15 +133,22 @@ class MemoryStoreConfig(Protocol):
         writable: Whether this store accepts writes. A writable store requires at
             least one write sink (:meth:`MemoryStore.add` or
             :meth:`MemoryStore.add_messages`).
-        extraction: Automatic-extraction configuration. Requires the store to be
-            writable.
+        extraction: Automatic-extraction configuration for this writable store, as
+            a ``bool | config`` shorthand. ``True`` enables it with defaults; an
+            :class:`ExtractionConfig` defaults any unset field; ``False``/``None``
+            is off. The defaults run every 5 turns, and the extraction method
+            depends on the store's write methods: a store implementing only ``add``
+            uses a :class:`~strands.memory.extraction.model_extractor.ModelExtractor`
+            for client-side extraction (a model call to distill facts, stored via
+            ``add``), while a store implementing ``add_messages`` uses server-side
+            extraction (the backend extracts the raw messages, no model call).
     """
 
     name: str
     description: str | None
     max_search_results: int | None
     writable: bool
-    extraction: ExtractionConfig | None
+    extraction: ExtractionConfig | bool | None
 
 
 class MemoryStore(MemoryStoreConfig, Protocol):

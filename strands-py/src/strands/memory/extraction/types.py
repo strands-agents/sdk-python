@@ -127,18 +127,22 @@ class ExtractionConfig:
     """Per-store automatic-extraction configuration.
 
     Attributes:
-        trigger: When to run extraction. A single trigger or a non-empty list;
-            multiple triggers compose (extraction runs whenever any fires).
+        trigger: When to run extraction. A single trigger or a list; multiple
+            triggers compose (extraction runs whenever any fires). Omit to default
+            to every 5 turns; an explicit empty list is rejected at construction.
         extractor: How to turn messages into entries. When set, the store must
-            implement ``add``. When omitted, the manager hands the filtered
-            messages straight to the store's ``add_messages`` (for backends that
-            extract server-side).
+            implement ``add``. When omitted, the default depends on the store's
+            write methods: a store implementing only ``add`` defaults to a
+            :class:`~strands.memory.extraction.model_extractor.ModelExtractor`
+            that distills facts client-side, while a store implementing
+            ``add_messages`` uses server-side extraction (the manager hands the
+            filtered messages straight to ``add_messages``, no model call).
         filter: Content blocks to strip before extraction. Defaults to
             :data:`DEFAULT_MEMORY_MESSAGE_FILTER` (excludes ``toolUse`` /
             ``toolResult``). Pass ``MemoryMessageFilter(exclude=[])`` to keep tool
             blocks.
     """
 
-    trigger: ExtractionTrigger | list[ExtractionTrigger]
+    trigger: ExtractionTrigger | list[ExtractionTrigger] | None = None
     extractor: Extractor | None = None
     filter: MemoryMessageFilter | None = None

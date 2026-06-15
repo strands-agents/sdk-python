@@ -27,7 +27,9 @@ from strands.memory.extraction.coordinator import (
     BACKOFF_PROBE_INTERVAL,
     SAVE_FAILURES_BEFORE_BACKOFF,
     ExtractionCoordinator,
+    _ExtractionBinding,
 )
+from strands.memory.extraction.resolve_extraction_config import _resolve_extraction_config
 from strands.memory.extraction.types import (
     ExtractionConfig,
     ExtractionResult,
@@ -105,6 +107,19 @@ def _make_extractor(entries: list[ExtractionResult]) -> Any:
     return extractor
 
 
+def _coordinator(*stores: Any) -> ExtractionCoordinator:
+    """Build an ``ExtractionCoordinator`` over the given fake stores.
+
+    Resolves each store's ``extraction`` setting through the real
+    :func:`_resolve_extraction_config` (the manager's job in production) so the
+    coordinator receives ``_ExtractionBinding``s, matching how it is wired.
+    """
+    bindings = [
+        _ExtractionBinding(store=store, config=_resolve_extraction_config(store.extraction, store)) for store in stores
+    ]
+    return ExtractionCoordinator(bindings, _DEFAULT_MODEL)
+
+
 def _user_msg(text: str) -> Message:
     return {"role": "user", "content": [{"text": text}]}
 
@@ -167,7 +182,7 @@ async def _drive(coordinator: ExtractionCoordinator, store: Any) -> None:
 @pytest.mark.asyncio
 async def test_no_extractor_passthrough_hands_raw_batch_to_add_messages():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("I prefer dark mode"))
     coordinator.record(_assistant_msg("Noted"))
@@ -191,7 +206,7 @@ async def test_extractor_route_calls_extractor_and_writes_each_entry_via_add():
         [ExtractionResult(content="fact one"), ExtractionResult(content="fact two", metadata={"k": "v"})]
     )
     store = _make_store("s", ExtractionConfig(trigger=_trigger(), extractor=extractor), sink="both")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("something happened"))
     await _drive(coordinator, store)
@@ -209,7 +224,7 @@ async def test_extractor_route_calls_extractor_and_writes_each_entry_via_add():
 async def test_extractor_route_passes_default_model_in_context():
     extractor = _make_extractor([])
     store = _make_store("s", ExtractionConfig(trigger=_trigger(), extractor=extractor), sink="both")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("hi"))
     await _drive(coordinator, store)
@@ -242,7 +257,7 @@ async def test_extractor_route_writes_entries_concurrently():
     extractor = _make_extractor([ExtractionResult(content="a"), ExtractionResult(content="b")])
     store = _make_store("s", ExtractionConfig(trigger=_trigger(), extractor=extractor), sink="add")
     store.add.side_effect = add_impl
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("x"))
     await _drive(coordinator, store)
@@ -257,7 +272,7 @@ async def test_extractor_route_rolls_back_and_retries_batch_on_entry_failure():
     store = _make_store("s", ExtractionConfig(trigger=_trigger(), extractor=extractor), sink="add")
     # First batch: second entry write fails -> whole batch rolled back.
     store.add.side_effect = [None, RuntimeError("write failed"), None, None]
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("x"))
     await _drive(coordinator, store)  # fails, mark rolled back
@@ -276,7 +291,7 @@ async def test_extractor_route_rolls_back_and_retries_batch_on_entry_failure():
 @pytest.mark.asyncio
 async def test_filter_drops_tool_blocks_by_default_and_empties():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("keep me"))
     coordinator.record(_tool_use_msg())  # tool-only message -> emptied -> dropped
@@ -295,7 +310,7 @@ async def test_filter_honors_a_custom_filter():
         ExtractionConfig(trigger=_trigger(), filter=MemoryMessageFilter(exclude=["text"])),
         sink="add_messages",
     )
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("this is text and should be excluded"))
     await _drive(coordinator, store)
@@ -312,7 +327,7 @@ async def test_filter_honors_a_custom_filter():
 @pytest.mark.asyncio
 async def test_hwm_processes_only_messages_added_since_the_last_save():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("turn one"))
     await _drive(coordinator, store)
@@ -329,7 +344,7 @@ async def test_hwm_processes_only_messages_added_since_the_last_save():
 @pytest.mark.asyncio
 async def test_hwm_does_nothing_when_no_new_messages_since_the_mark():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("only turn"))
     await _drive(coordinator, store)
@@ -342,7 +357,7 @@ async def test_hwm_does_nothing_when_no_new_messages_since_the_mark():
 async def test_hwm_retries_the_same_messages_on_the_next_save_if_a_write_fails():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
     store.add_messages.side_effect = [RuntimeError("backend down"), None]
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("important"))
     await _drive(coordinator, store)  # fails, mark rolled back
@@ -361,7 +376,7 @@ async def test_hwm_retries_the_same_messages_on_the_next_save_if_a_write_fails()
 async def test_backs_off_to_periodic_probes_after_threshold_failures():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
     store.add_messages.side_effect = RuntimeError("backend down")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     # Each call buffers a message and requests a save; every save fails. Run
     # enough backed-off requests for exactly two probe intervals.
@@ -379,7 +394,7 @@ async def test_backs_off_to_periodic_probes_after_threshold_failures():
 async def test_recovers_and_saves_the_buffered_backlog_when_the_store_comes_back():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
     store.add_messages.side_effect = RuntimeError("down")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     # Drive the store into backoff.
     for index in range(SAVE_FAILURES_BEFORE_BACKOFF):
@@ -406,7 +421,7 @@ async def test_a_healthy_store_keeps_saving_every_request_while_a_sibling_is_bac
     bad = _make_store("bad", ExtractionConfig(trigger=_trigger()), sink="add_messages")
     bad.add_messages.side_effect = RuntimeError("down")
     good = _make_store("good", ExtractionConfig(trigger=_trigger()), sink="add_messages")
-    coordinator = ExtractionCoordinator([bad, good], _DEFAULT_MODEL)
+    coordinator = _coordinator(bad, good)
 
     probes = 2
     requests = SAVE_FAILURES_BEFORE_BACKOFF + BACKOFF_PROBE_INTERVAL * probes
@@ -424,7 +439,7 @@ async def test_a_healthy_store_keeps_saving_every_request_while_a_sibling_is_bac
 async def test_flush_resolves_even_when_a_store_is_failing():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
     store.add_messages.side_effect = RuntimeError("down")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("x"))
     await _drive(coordinator, store)  # fails (swallowed)
@@ -436,7 +451,7 @@ async def test_flush_resolves_even_when_a_store_is_failing():
 async def test_flush_bypasses_backoff_and_writes_the_backlog_of_a_recovered_store():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
     store.add_messages.side_effect = RuntimeError("down")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     # Drive the store into backoff.
     for index in range(SAVE_FAILURES_BEFORE_BACKOFF):
@@ -466,7 +481,7 @@ async def test_a_fully_filtered_empty_turn_does_not_reset_the_failure_streak():
     # by showing backoff still engages and the next request is probe-gated.
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
     store.add_messages.side_effect = RuntimeError("down")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     # One short of backoff.
     for index in range(SAVE_FAILURES_BEFORE_BACKOFF - 1):
@@ -496,7 +511,7 @@ async def test_a_fully_filtered_empty_turn_does_not_reset_the_failure_streak():
 @pytest.mark.asyncio
 async def test_flush_force_extracts_a_buffered_tail_whose_trigger_never_fired():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     # Buffer messages but never call process (the trigger never fired).
     coordinator.record(_user_msg("a"))
@@ -512,7 +527,7 @@ async def test_flush_force_extracts_a_buffered_tail_whose_trigger_never_fired():
 @pytest.mark.asyncio
 async def test_flush_does_not_re_extract_messages_already_processed():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("a"))
     await _drive(coordinator, store)  # already extracted
@@ -525,7 +540,7 @@ async def test_flush_does_not_re_extract_messages_already_processed():
 @pytest.mark.asyncio
 async def test_flush_is_a_no_op_when_nothing_is_buffered():
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     await coordinator.flush()
 
@@ -543,7 +558,7 @@ async def test_flush_awaits_an_in_flight_write():
 
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
     store.add_messages.side_effect = add_messages_impl
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("hello"))
     coordinator.schedule(store)  # non-blocking background save
@@ -575,7 +590,7 @@ async def test_background_save_does_not_block_scheduling_and_flush_awaits_it():
 
     store = _make_store("s", ExtractionConfig(trigger=_trigger()), sink="add_messages")
     store.add_messages.side_effect = add_messages_impl
-    coordinator = ExtractionCoordinator([store], _DEFAULT_MODEL)
+    coordinator = _coordinator(store)
 
     coordinator.record(_user_msg("hello"))
     coordinator.schedule(store)  # returns immediately, write runs in background

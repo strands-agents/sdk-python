@@ -42,6 +42,7 @@ import pytest
 from strands.hooks.events import AfterInvocationEvent, MessageAddedEvent
 from strands.hooks.registry import HookOrder
 from strands.memory import AggregateMemoryError
+from strands.memory.extraction.model_extractor import ModelExtractor
 from strands.memory.extraction.triggers import IntervalTrigger, InvocationTrigger
 from strands.memory.extraction.types import ExtractionConfig, ExtractionResult
 from strands.memory.memory_manager import DEFAULT_MAX_SEARCH_RESULTS, MemoryManager
@@ -361,10 +362,71 @@ def test_constructor_raises_when_extraction_has_extractor_but_no_add():
         MemoryManager(stores=[store])
 
 
-def test_constructor_raises_when_extraction_no_extractor_but_no_add_messages():
+def test_constructor_defaults_add_only_store_to_model_extractor():
+    # An add-only store with no explicit extractor resolves to a ModelExtractor
+    # (capability-based default), so it is accepted -- its distilled entries are
+    # written via ``add``. (In TS this is the ``boolean | ExtractionConfig`` shape;
+    # Python mirrors it by resolving the same default extractor.)
     store = _store("s", writable=True, sinks={"add"}, extraction=ExtractionConfig(trigger=InvocationTrigger()))
-    with pytest.raises(Exception, match="without an extractor but no add_messages"):
-        MemoryManager(stores=[store])
+    mm = MemoryManager(stores=[store])
+    binding = mm._extraction_stores[0]
+    assert isinstance(binding.config.extractor, ModelExtractor)
+
+
+def test_constructor_accepts_extraction_true_shorthand_on_add_messages_store():
+    # ``extraction=True`` resolves to defaults: an add_messages store uses the
+    # server-side passthrough (no extractor) and so requires only add_messages.
+    store = _store("s", writable=True, sinks={"add_messages"}, extraction=True)
+    # Should not raise.
+    MemoryManager(stores=[store])
+
+
+def test_constructor_accepts_extraction_true_shorthand_on_add_only_store():
+    # ``extraction=True`` on an add-only store resolves to a ModelExtractor, whose
+    # entries are written via ``add`` -- so the add-only sink satisfies validation.
+    store = _store("s", writable=True, sinks={"add"}, extraction=True)
+    # Should not raise.
+    MemoryManager(stores=[store])
+
+
+def test_constructor_accepts_extraction_config_with_omitted_trigger():
+    # An ``ExtractionConfig`` with no trigger defaults to an interval cadence, so it
+    # has triggers and passes the "no triggers" validation.
+    store = _store("s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig())
+    # Should not raise.
+    MemoryManager(stores=[store])
+
+
+@pytest.mark.asyncio
+async def test_init_agent_extraction_true_defaults_to_interval_of_five():
+    # With the default IntervalTrigger(turns=5), four invocations do not fire; the
+    # fifth does. Drive the raw hook so interval gating is observable.
+    store = _store("s", writable=True, sinks={"add_messages"}, extraction=True)
+    mm = MemoryManager(stores=[store])
+    agent = _FakeAgent()
+    mm.init_agent(agent)
+
+    await _add_messages(agent, _user_msg("a"))
+    for _turn in range(4):
+        await _invoke_all(agent, AfterInvocationEvent(agent=agent))
+    store.add_messages.assert_not_called()
+
+    await _invoke_all(agent, AfterInvocationEvent(agent=agent))  # fifth invocation fires
+    await mm.flush()
+    store.add_messages.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_init_agent_extraction_true_on_add_only_store_uses_model_extractor():
+    # ``extraction=True`` on an add-only store resolves to a ModelExtractor, which
+    # calls the agent's model and writes distilled entries via ``add``.
+    store = _store("s", writable=True, sinks={"add"}, extraction=True)
+    mm = MemoryManager(stores=[store])
+    agent = _FakeAgent()
+    mm.init_agent(agent)
+
+    binding = mm._extraction_stores[0]
+    assert isinstance(binding.config.extractor, ModelExtractor)
 
 
 # --------------------------------------------------------------------------- #
