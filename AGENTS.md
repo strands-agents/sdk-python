@@ -57,6 +57,15 @@ The `test-infra/` CDK stack deploys real AWS resources (Bedrock KBs, EC2 instanc
 - **Pull requests**: See [PR guidelines](./team/PR.md). Use the `pr-create` and `pr-writer` skills under `.agents/skills/` to draft and open PRs.
 - **CI**: The `ci.yml` merge gate detects which paths changed and runs only relevant checks
 
+## Reviewing Documentation Changes
+
+When a change touches documentation under `site/`, apply the documentation skills in `.agents/skills/` in addition to standard code review:
+
+- **`.agents/skills/docs-reviewer/SKILL.md`** — voice consistency, structure, terminology, and code-example quality.
+- **`.agents/skills/docs-audit/SKILL.md`** — technical accuracy against live SDK sources (import paths, method signatures, API correctness).
+
+Verify terminology against `.agents/references/terminology.md` and MDX authoring patterns against `.agents/references/mdx-authoring.md`. It is critical that you actually read these referenced source files before reviewing — their criteria do not apply if you only skim this summary.
+
 ## Quality Bar for PRs
 
 If you are opening a PR on behalf of a contributor, the human is the author and is accountable for everything you submit. A small, focused change that its author fully understands is the single biggest predictor of a fast review and an accepted PR. (See [CONTRIBUTING.md](./CONTRIBUTING.md#using-ai-tools) for the human-facing version.)
