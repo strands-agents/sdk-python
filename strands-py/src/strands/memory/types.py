@@ -1,9 +1,4 @@
-"""Core types for the Strands memory module.
-
-Defines the data shapes and the store contract the rest of the memory subsystem
-builds on: the :class:`MemoryEntry` record, the option/config dataclasses, and
-the :class:`MemoryStore` runtime contract that backends implement.
-"""
+"""Core types for the Strands memory module."""
 
 from __future__ import annotations
 

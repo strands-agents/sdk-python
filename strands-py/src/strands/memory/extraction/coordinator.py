@@ -81,9 +81,6 @@ class ExtractionCoordinator:
 
         Dispatches the save and returns immediately. A no-op when the store is
         backed off and this request is not a probe.
-
-        Args:
-            store: The store to save for.
         """
         task = self.process(store)
         if task is None:
@@ -105,12 +102,6 @@ class ExtractionCoordinator:
 
         Returns the task running the save, or ``None`` when the store is backed
         off and this request is not a probe.
-
-        Args:
-            store: The store to save for.
-
-        Returns:
-            The queued save task, or ``None`` if the save was skipped.
         """
         if not self._should_attempt(store):
             return None
@@ -135,12 +126,6 @@ class ExtractionCoordinator:
         A healthy store always attempts. A backed-off store attempts only once
         every :data:`BACKOFF_PROBE_INTERVAL` requests (a probe) and skips the
         rest.
-
-        Args:
-            store: The store to check.
-
-        Returns:
-            ``True`` if a save should be attempted now.
         """
         if self._consecutive_failures.get(id(store), 0) < SAVE_FAILURES_BEFORE_BACKOFF:
             return True
@@ -149,11 +134,9 @@ class ExtractionCoordinator:
         return count % BACKOFF_PROBE_INTERVAL == 0
 
     async def flush(self) -> None:
-        """Save every store's remaining messages and wait for all to finish.
+        """Save every store's remaining buffered messages and wait for completion.
 
-        Call this at a boundary you control (typically app shutdown) so nothing
-        buffered is lost. Bypasses backoff, then waits until no new save has
-        started so saves that begin while waiting are also covered. Never raises.
+        Bypasses backoff. Never raises.
         """
         for store in self._stores:
             self._enqueue(store)
@@ -171,9 +154,6 @@ class ExtractionCoordinator:
         """Save the store's messages newer than its high-water mark.
 
         On failure the mark is rolled back so the batch retries next time.
-
-        Args:
-            store: The store to save for.
         """
         mark = self._marks.get(id(store), -1)
         fresh = [buffered for buffered in self._pending if buffered.seq > mark]
@@ -212,11 +192,6 @@ class ExtractionCoordinator:
           retried later, so stores should expect duplicate writes.
         - Without an extractor: hand the raw messages to ``add_messages``.
 
-        Args:
-            store: The store to write to.
-            messages: The filtered messages to save.
-            extractor: The store's extractor, or ``None`` for the passthrough route.
-
         Raises:
             AggregateMemoryError: If any concurrent ``add`` write fails.
         """
@@ -237,18 +212,9 @@ class ExtractionCoordinator:
         await store.add_messages(messages)
 
     def _filter_messages(self, messages: list[Message], message_filter: MemoryMessageFilter) -> list[Message]:
-        """Remove excluded content blocks and drop any emptied message.
+        """Remove excluded content blocks, dropping any message left empty.
 
-        Pure: builds new message dicts rather than mutating the inputs,
-        preserving ``role`` and carrying ``metadata`` when present.
-
-        Args:
-            messages: The messages to filter.
-            message_filter: The filter whose ``exclude`` kinds are stripped.
-
-        Returns:
-            New messages with excluded blocks removed and emptied messages
-            dropped.
+        Builds new message dicts rather than mutating the inputs.
         """
         exclude = set(message_filter.exclude)
         result: list[Message] = []
@@ -271,11 +237,6 @@ class ExtractionCoordinator:
         Rolls the mark back so the messages retry next time. After
         :data:`SAVE_FAILURES_BEFORE_BACKOFF` consecutive failures the store
         enters backoff and logs an error; before that it logs a warning.
-
-        Args:
-            store: The store whose save failed.
-            mark_before_save: The high-water mark to restore.
-            error: The underlying failure.
         """
         failures = self._consecutive_failures.get(id(store), 0) + 1
         self._consecutive_failures[id(store)] = failures

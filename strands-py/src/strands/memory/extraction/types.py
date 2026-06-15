@@ -1,11 +1,4 @@
-"""Primitive types for the memory extraction subsystem.
-
-Defines the building blocks of automatic extraction: the
-:class:`ExtractionResult` an extractor produces, the :class:`Extractor` contract,
-the :class:`MemoryMessageFilter` that prunes content blocks, the
-:class:`ExtractionTrigger` that decides when extraction runs, and the
-:class:`ExtractionConfig` that ties them together on a store.
-"""
+"""Primitive types for the memory extraction subsystem."""
 
 from __future__ import annotations
 

@@ -1,11 +1,4 @@
-"""Cross-session memory retrieval and storage for agents.
-
-The :class:`MemoryManager` manages one or more
-:class:`~strands.memory.types.MemoryStore` backends and exposes ``search_memory``
-/ ``add_memory`` tools, alongside any tools the stores provide. As a
-:class:`~strands.plugins.plugin.Plugin`, it builds its tools at construction and
-wires automatic extraction in :meth:`MemoryManager.init_agent`.
-"""
+"""Cross-session memory retrieval and storage for agents."""
 
 from __future__ import annotations
 
@@ -71,10 +64,6 @@ def _flatten_reasons(reasons: list[BaseException]) -> list[BaseException]:
 class MemoryManager(Plugin):
     """Provides cross-session memory retrieval and storage for agents.
 
-    Manages one or more :class:`~strands.memory.types.MemoryStore` backends,
-    exposing ``search_memory`` and ``add_memory`` tools plus any tools the stores
-    provide.
-
     When using the synchronous ``Agent(...)`` entry point, set
     ``flush_on_invocation_end=True`` so extraction writes persist across its
     per-invocation event loop.
@@ -84,13 +73,10 @@ class MemoryManager(Plugin):
         from strands import Agent
         from strands.memory import MemoryManager
 
-        # Synchronous Agent(...) entry point: enable flush_on_invocation_end so
-        # extraction writes persist across each invocation's event loop.
         memory_manager = MemoryManager(stores=[my_store], flush_on_invocation_end=True)
         agent = Agent(model=model, plugins=[memory_manager])
         agent("Remember I prefer dark mode")
 
-        # search/add/flush are coroutines; await them from async code.
         results = await memory_manager.search("user preferences")
         ```
     """
