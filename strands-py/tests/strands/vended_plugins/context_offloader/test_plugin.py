@@ -624,4 +624,3 @@ class TestBeforeModelCallHook:
         plugin._on_before_model_call(self._make_event(3))
         with pytest.raises(KeyError):
             storage.retrieve(ref)
-

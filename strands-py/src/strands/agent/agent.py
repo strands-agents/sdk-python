@@ -462,18 +462,14 @@ class Agent(AgentBase):
 
         supported = get_args(ContextManagerStrategy)
         if context_manager not in supported:
-            raise ValueError(
-                f"Unsupported context_manager value: {context_manager!r}. Supported values: {supported}"
-            )
+            raise ValueError(f"Unsupported context_manager value: {context_manager!r}. Supported values: {supported}")
 
         from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
         from .conversation_manager import SummarizingConversationManager
 
         resolved_plugins = list(plugins) if plugins else []
 
-        has_offloader = any(
-            isinstance(p, ContextOffloader) for p in resolved_plugins
-        )
+        has_offloader = any(isinstance(p, ContextOffloader) for p in resolved_plugins)
         if not has_offloader:
             offloader = ContextOffloader(
                 storage=InMemoryStorage(),

@@ -76,6 +76,7 @@ the dict form ``{"passed": bool, "feedback": str}`` or ``ValidationOutcome``
 when you have actionable feedback for the next attempt.
 """
 
+
 @runtime_checkable
 class Validator(Protocol):
     """Programmatic validator callable.
@@ -88,11 +89,10 @@ class Validator(Protocol):
     the validator needs.
     """
 
-    def __call__(
-        self, response: Message, agent: Agent, **kwargs: Any
-    ) -> ValidatorReturn | Awaitable[ValidatorReturn]:
+    def __call__(self, response: Message, agent: Agent, **kwargs: Any) -> ValidatorReturn | Awaitable[ValidatorReturn]:
         """Validate the agent's response."""
         ...
+
 
 GoalStopReason = Literal["satisfied", "max_attempts", "timeout"]
 """Why a goal run ended."""

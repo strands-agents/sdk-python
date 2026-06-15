@@ -530,9 +530,7 @@ async def _handle_model_execution(
             # Build middleware context with defensive copies to prevent accidental mutation.
             # invocation_state is intentionally shared by reference (hooks/tools write to it).
             system_prompt_value = (
-                agent._system_prompt_content
-                if agent._system_prompt_content is not None
-                else agent.system_prompt
+                agent._system_prompt_content if agent._system_prompt_content is not None else agent.system_prompt
             )
             middleware_context = InvokeModelContext(
                 agent=agent,
@@ -679,12 +677,14 @@ def _make_invoke_model_terminal(
 
                 stop_reason, message, usage, metrics = event["stop"]
                 tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
-                yield MiddlewareResult(InvokeModelResult(
-                    stop_reason=stop_reason,
-                    message=message,
-                    usage=usage,
-                    metrics=metrics,
-                ))
+                yield MiddlewareResult(
+                    InvokeModelResult(
+                        stop_reason=stop_reason,
+                        message=message,
+                        usage=usage,
+                        metrics=metrics,
+                    )
+                )
             except Exception as e:
                 tracer.end_span_with_error(model_invoke_span, str(e), e)
                 raise

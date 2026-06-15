@@ -328,9 +328,7 @@ class InMemoryStorage:
             if self._evict_after_turns is None:
                 return
             threshold = cycle - self._evict_after_turns
-            stale_refs = [
-                ref for ref, (_, _, last_cycle) in self._store.items() if last_cycle < threshold
-            ]
+            stale_refs = [ref for ref, (_, _, last_cycle) in self._store.items() if last_cycle < threshold]
             for ref in stale_refs:
                 del self._store[ref]
             if stale_refs:

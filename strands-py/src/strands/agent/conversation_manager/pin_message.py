@@ -55,7 +55,6 @@ def is_pinned(messages: Messages, index: int) -> bool:
     return False
 
 
-
 def apply_pin_first(messages: Messages, count: int) -> None:
     """Pin the first N messages in the array permanently.
 

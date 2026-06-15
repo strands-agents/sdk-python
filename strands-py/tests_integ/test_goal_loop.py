@@ -46,11 +46,7 @@ class TestStandardRefinementLoop:
         roles = [m["role"] for m in agent.messages]
         assert roles == ["user", "assistant", "user", "assistant"]
         user_texts = [
-            block["text"]
-            for m in agent.messages
-            if m["role"] == "user"
-            for block in m["content"]
-            if "text" in block
+            block["text"] for m in agent.messages if m["role"] == "user" for block in m["content"] if "text" in block
         ]
         assert any("TRIGGER_RETRY_MARKER" in t for t in user_texts)
 

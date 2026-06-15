@@ -872,9 +872,7 @@ async def test_stream_response_max_tokens(gemini_client, model, messages, agener
 
 
 @pytest.mark.asyncio
-async def test_stream_response_safety_block_with_missing_counts(
-    gemini_client, model, messages, agenerator, alist
-):
+async def test_stream_response_safety_block_with_missing_counts(gemini_client, model, messages, agenerator, alist):
     gemini_client.aio.models.generate_content_stream.return_value = agenerator(
         [
             genai.types.GenerateContentResponse(
