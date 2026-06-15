@@ -23,7 +23,7 @@
     "@bytecodealliance/jco": "^1.16.1",
     "@bytecodealliance/preview2-shim": "^0.17.9",
     "@chaynabors/componentize-js": "^0.19.3",
-    "esbuild": "^0.27.4",
+    "esbuild": "^0.28.1",
     "typescript": "^6.0.2",
     "vitest": "^4.1.6"
   }
