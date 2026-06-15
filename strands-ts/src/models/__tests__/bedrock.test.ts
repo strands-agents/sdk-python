@@ -714,6 +714,38 @@ describe('BedrockModel', () => {
       })
     })
 
+    it('formats a signature-only reasoning block', async () => {
+      const provider = new BedrockModel()
+      const messages = [
+        new Message({
+          role: 'assistant',
+          content: [new ReasoningBlock({ signature: 'sig-abc' }), new TextBlock('the answer')],
+        }),
+      ]
+
+      collectIterator(provider.stream(messages))
+
+      expect(mockConverseStreamCommand).toHaveBeenLastCalledWith({
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              {
+                reasoningContent: {
+                  reasoningText: {
+                    text: '',
+                    signature: 'sig-abc',
+                  },
+                },
+              },
+              { text: 'the answer' },
+            ],
+          },
+        ],
+        modelId: expect.any(String),
+      })
+    })
+
     it('formats cache point blocks in messages', async () => {
       const provider = new BedrockModel()
       const messages = [
@@ -1126,6 +1158,20 @@ describe('BedrockModel', () => {
         const messages = [new Message({ role: 'user', content: [new TextBlock('Hello')] })]
 
         await expect(collectIterator(provider.stream(messages))).rejects.toThrow(expected)
+      })
+
+      it('throws for a reasoning block with no text, signature, or redacted content', async () => {
+        const provider = new BedrockModel()
+        const messages = [
+          new Message({
+            role: 'assistant',
+            content: [new ReasoningBlock({})],
+          }),
+        ]
+
+        await expect(collectIterator(provider.stream(messages))).rejects.toThrow(
+          "reasoning content requires one of 'text', 'signature', or 'redactedContent' to be set"
+        )
       })
     })
   })

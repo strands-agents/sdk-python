@@ -87,9 +87,9 @@ Each model invocation ends with a stop reason that determines what happens next:
 - **End turn**: The model has finished its response and has no further actions to take. This is the normal successful termination. The loop exits and returns the model's final message.
 - **Tool use**: The model wants to execute one or more tools before continuing. The loop executes the requested tools, appends the results to the conversation history, and invokes the model again.
 - **Cancelled**: The agent was stopped externally via `agent.cancel()`. See [Cancellation](#cancellation) below.
-- **Limit turns** (`limit_turns` / `limitTurns`): The per-invocation turn budget was exhausted. See [Invocation Limits](#invocation-limits).
-- **Limit total tokens** (`limit_total_tokens` / `limitTotalTokens`): The cumulative token budget was exhausted. See [Invocation Limits](#invocation-limits).
-- **Limit output tokens** (`limit_output_tokens` / `limitOutputTokens`): The output token budget was exhausted. See [Invocation Limits](#invocation-limits).
+- **Limit turns** (<Syntax py="limit_turns" ts="limitTurns" />): The per-invocation turn budget was exhausted. See [Invocation Limits](#invocation-limits).
+- **Limit total tokens** (<Syntax py="limit_total_tokens" ts="limitTotalTokens" />): The cumulative token budget was exhausted. See [Invocation Limits](#invocation-limits).
+- **Limit output tokens** (<Syntax py="limit_output_tokens" ts="limitOutputTokens" />): The output token budget was exhausted. See [Invocation Limits](#invocation-limits).
 - **Max tokens**: The model's response was truncated because it hit the token limit. This is unrecoverable within the current loop. The model cannot continue from a partial response, and the loop terminates with an error.
 - **Stop sequence**: The model encountered a configured stop sequence. Like end turn, this terminates the loop normally.
 - **Content filtered**: The response was blocked by safety mechanisms.

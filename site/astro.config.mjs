@@ -76,7 +76,7 @@ export default defineConfig({
         replacesTitle: false,
       },
       editLink: {
-        baseUrl: 'https://github.com/strands-agents/docs/edit/main/',
+        baseUrl: 'https://github.com/strands-agents/harness-sdk/edit/main/site/',
       },
       components: {
         Head: './src/components/overrides/Head.astro',
@@ -101,6 +101,9 @@ export default defineConfig({
           ],
           './src/components/AutoSyncTabs.astro': [
             ['default', "Tabs"]
+          ],
+          './src/components/Syntax.astro': [
+            ['default', 'Syntax']
           ]
         },
       ],

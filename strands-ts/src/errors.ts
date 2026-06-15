@@ -242,3 +242,15 @@ export class CancelledError extends Error {
     this.name = 'CancelledError'
   }
 }
+
+/**
+ * Thrown when a default value is read before one has been configured.
+ *
+ * Catch it to distinguish a missing-default condition from other runtime errors.
+ */
+export class DefaultNotConfiguredError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DefaultNotConfiguredError'
+  }
+}

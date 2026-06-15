@@ -52,7 +52,9 @@ Write each section following the outline.
 
 ### Step 3b: Apply MDX formatting
 
-Apply MDX formatting patterns from `../../references/mdx-authoring.md` — especially Tabs/Tab syntax, snippet includes, and callout syntax.
+Apply MDX formatting patterns from `../../references/mdx-authoring.md` — especially Tabs/Tab syntax, the `<Syntax>` component for inline language-specific identifiers, snippet includes, and callout syntax.
+
+When shared prose needs to reference a language-specific identifier (method name, parameter, class, etc.), use `<Syntax py="..." ts="..." />`. This keeps prose clean and adapts to the reader's language selection. Never spell out both variants manually in prose.
 
 Code examples longer than a few lines live in runnable `.ts`/`.py` source files alongside the MDX page, not inline. Pull them in via the `--8<--` include syntax. See "Snippet Inclusion" and "TypeScript Snippet Scoping" in `mdx-authoring.md` for the imports/body file pattern and naming conventions.
 

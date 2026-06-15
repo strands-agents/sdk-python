@@ -5,6 +5,7 @@
  */
 
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager'
+import { SSMClient, GetParametersCommand } from '@aws-sdk/client-ssm'
 import { fromNodeProviderChain } from '@aws-sdk/credential-providers'
 import express from 'express'
 import type { TestProject } from 'vitest/node'
@@ -13,6 +14,26 @@ import type { ProvidedContext } from 'vitest'
 import { Agent } from '../../../src/agent/agent.js'
 import { A2AExpressServer } from '../../../src/a2a/express-server.js'
 import { BedrockModel } from '../../../src/models/bedrock.js'
+
+/**
+ * Batch-reads SSM parameters by name and returns a key→value map.
+ * Parameters that don't exist in SSM resolve to `undefined`.
+ */
+async function getSSMParameters<T extends Record<string, string>>(
+  params: T
+): Promise<{ [K in keyof T]: string | undefined } | null> {
+  const client = new SSMClient({ region: process.env.AWS_REGION || 'us-east-1' })
+  try {
+    const response = await client.send(new GetParametersCommand({ Names: Object.values(params) }))
+    const byName = new Map((response.Parameters ?? []).map((p) => [p.Name, p.Value]))
+    return Object.fromEntries(Object.entries(params).map(([key, name]) => [key, byName.get(name)])) as {
+      [K in keyof T]: string | undefined
+    }
+  } catch (e) {
+    console.warn('Error retrieving SSM parameters', e)
+    return null
+  }
+}
 
 /**
  * Load API keys as environment variables from AWS Secrets Manager
@@ -75,6 +96,7 @@ export async function setup(project: TestProject): Promise<() => void> {
   project.provide('isCI', isCI)
   project.provide('provider-openai', await getOpenAITestContext(isCI))
   project.provide('provider-bedrock', await getBedrockTestContext(isCI))
+  project.provide('provider-bedrock-kb', await getBedrockKnowledgeBaseTestContext())
   project.provide('provider-anthropic', await getAnthropicTestContext(isCI))
   project.provide('provider-gemini', await getGeminiTestContext(isCI))
 
@@ -142,6 +164,42 @@ async function getBedrockTestContext(isCI: boolean): Promise<ProvidedContext['pr
       shouldSkip: true,
       credentials: undefined,
     }
+  }
+}
+
+async function getBedrockKnowledgeBaseTestContext(): Promise<ProvidedContext['provider-bedrock-kb']> {
+  const skip = (): ProvidedContext['provider-bedrock-kb'] => ({
+    shouldSkip: true,
+    knowledgeBaseId: undefined,
+    customDataSourceId: undefined,
+    s3DataSourceId: undefined,
+    s3Bucket: undefined,
+  })
+
+  const resolved = await getSSMParameters({
+    knowledgeBaseId: '/strands/test-infra/bedrock-knowledge-base/knowledge-base-id',
+    customDataSourceId: '/strands/test-infra/bedrock-knowledge-base/custom-data-source-id',
+    s3DataSourceId: '/strands/test-infra/bedrock-knowledge-base/s3-data-source-id',
+    s3Bucket: '/strands/test-infra/bedrock-knowledge-base/s3-source-bucket-name',
+  })
+
+  if (!resolved) {
+    console.log('⏭️  Bedrock KB SSM parameters not available - KB integration tests will be skipped')
+    return skip()
+  }
+
+  if (!resolved.knowledgeBaseId) {
+    console.log('⏭️  Bedrock KB id not found in SSM - KB integration tests will be skipped')
+    return skip()
+  }
+
+  console.log('⏭️  Bedrock KB parameters available - KB integration tests will run')
+  return {
+    shouldSkip: false,
+    knowledgeBaseId: resolved.knowledgeBaseId,
+    customDataSourceId: resolved.customDataSourceId,
+    s3DataSourceId: resolved.s3DataSourceId,
+    s3Bucket: resolved.s3Bucket,
   }
 }
 

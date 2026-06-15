@@ -3,6 +3,7 @@ import type { LocalAgent } from '../types/agent.js'
 import type { Tool } from '../tools/tool.js'
 import type {
   MemoryEntry,
+  MemoryInjectionConfig,
   MemoryManagerConfig,
   MemorySearchOptions,
   MemoryStore,
@@ -11,10 +12,17 @@ import type {
   MemoryAddToolConfig,
 } from './types.js'
 import type { JSONValue } from '../types/json.js'
+import type { MessageData } from '../types/messages.js'
+import { MessageAddedEvent } from '../hooks/events.js'
+import { ExtractionCoordinator, type ExtractionBinding } from './extraction/coordinator.js'
+import { resolveExtractionConfig } from './extraction/resolve-extraction-config.js'
 import { tool } from '../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../logging/logger.js'
 import { normalizeError } from '../errors.js'
+import { isUserTurn, createInjectionMiddleware } from '../injection/message-injection.js'
+import { escapeXmlText, escapeXmlAttr } from '../injection/xml.js'
+import { InvokeModelStage } from '../middleware/index.js'
 
 const SEARCH_TOOL_DESCRIPTION =
   'Search long-term memory for facts, preferences, or context from previous conversations. Use when you need background about the user or topic that may have been discussed before.'
@@ -28,9 +36,27 @@ const ADD_TOOL_DESCRIPTION =
  */
 export const DEFAULT_MAX_SEARCH_RESULTS = 3
 
+/**
+ * Default number of entries injected per model call when injection does not specify one.
+ *
+ * A memory store ranks by semantic (embedding) similarity, which is not the same as contextual
+ * usefulness — the top hit is not reliably the most useful entry for the turn. Injecting the top few
+ * gives the model a small candidate set to pick from rather than betting on the store's first result.
+ * Five balances that recall against context bloat; lower it for a tighter prepend.
+ */
+const DEFAULT_MAX_ENTRIES = 5
+
 /** Flattens nested AggregateErrors so the leaves are concrete reasons, not errors-of-errors. */
 function _flattenReasons(reasons: unknown[]): unknown[] {
   return reasons.flatMap((reason) => (reason instanceof AggregateError ? _flattenReasons(reason.errors) : [reason]))
+}
+
+/**
+ * Whether a store has any write sink. The `add_memory` tool and programmatic `add` use `add`;
+ * extraction additionally accepts `addMessages`. A writable store must have at least one.
+ */
+function _hasWriteSink(store: MemoryStore): boolean {
+  return typeof store.add === 'function' || typeof store.addMessages === 'function'
 }
 
 /**
@@ -65,6 +91,12 @@ export class MemoryManager implements Plugin {
   private readonly _searchToolConfig: MemoryToolConfig | false
   private readonly _addToolConfig: MemoryAddToolConfig | false
   private readonly _addToolStores: MemoryStore[]
+  /** Stores with extraction enabled, each paired with its resolved config; wired up in {@link initAgent}. */
+  private readonly _extractionStores: ExtractionBinding[]
+  /** Background extraction coordinator, created in {@link initAgent} when extraction is configured. */
+  private _coordinator: ExtractionCoordinator | undefined
+  /** Resolved injection config, or `false` when injection is disabled. */
+  private readonly _injectionConfig: MemoryInjectionConfig | false
 
   constructor(config: MemoryManagerConfig) {
     if (config.stores.length === 0) {
@@ -72,20 +104,47 @@ export class MemoryManager implements Plugin {
     }
 
     const seenNames = new Set<string>()
+    const extractionStores: ExtractionBinding[] = []
     for (const store of config.stores) {
       if (seenNames.has(store.name)) {
         throw new Error(`MemoryManager: duplicate store name '${store.name}'`)
       }
       seenNames.add(store.name)
 
-      if (store.writable && !store.add) {
-        throw new Error(`MemoryManager: store '${store.name}' is writable but has no add method`)
+      if (store.writable && !_hasWriteSink(store)) {
+        throw new Error(`MemoryManager: store '${store.name}' is writable but has no add or addMessages method`)
+      }
+
+      if (store.extraction) {
+        if (!store.writable) {
+          throw new Error(`MemoryManager: store '${store.name}' has extraction config but is not writable`)
+        }
+        const resolved = resolveExtractionConfig(store.extraction, store)!
+        if (resolved.triggers.length === 0) {
+          throw new Error(`MemoryManager: store '${store.name}' has extraction config but no triggers`)
+        }
+        // Each extraction shape needs its matching write sink. An extractor produces discrete entries
+        // written via `add`; without an extractor the raw message batch goes to `addMessages`.
+        if (resolved.extractor) {
+          if (typeof store.add !== 'function') {
+            throw new Error(
+              `MemoryManager: store '${store.name}' has an extractor but no add method (extracted entries are written via add)`
+            )
+          }
+        } else if (typeof store.addMessages !== 'function') {
+          throw new Error(
+            `MemoryManager: store '${store.name}' has extraction config without an extractor but no addMessages method`
+          )
+        }
+        extractionStores.push({ store, config: resolved })
       }
     }
 
     this._config = config
     this._searchStores = config.stores
-    this._addStores = config.stores.filter((s) => s.writable)
+    // `add`-targeting paths (tool / programmatic) need an `add` method specifically.
+    this._addStores = config.stores.filter((s) => s.writable && typeof s.add === 'function')
+    this._extractionStores = extractionStores
 
     this._searchToolConfig =
       config.searchToolConfig === false
@@ -98,18 +157,26 @@ export class MemoryManager implements Plugin {
       this._addToolConfig = false
       this._addToolStores = []
     } else {
+      // The `add_memory` tool writes via `add` (not `addMessages`), so it needs an `add`-capable store.
       if (this._addStores.length === 0) {
-        throw new Error('MemoryManager: addToolConfig is enabled but no stores are writable')
+        throw new Error('MemoryManager: addToolConfig is enabled but no writable stores implement add')
       }
       this._addToolConfig = typeof config.addToolConfig === 'object' ? config.addToolConfig : {}
       this._addToolStores = this._resolveAddToolStores(this._addToolConfig)
     }
+
+    this._injectionConfig =
+      config.injection === undefined || config.injection === false
+        ? false
+        : typeof config.injection === 'object'
+          ? config.injection
+          : {}
   }
 
   /**
    * Resolves the writable stores the `add_memory` tool may write to. When `stores` is given, each
    * entry (a store name or a {@link MemoryStore} instance) must resolve by name to a configured,
-   * writable store (else throws). Omitted means all writable stores.
+   * `add`-capable writable store (else throws). Omitted means all such stores.
    */
   private _resolveAddToolStores(toolConfig: MemoryAddToolConfig): MemoryStore[] {
     if (toolConfig.stores === undefined) {
@@ -126,6 +193,9 @@ export class MemoryManager implements Plugin {
       if (!found.writable) {
         throw new Error(`MemoryManager: addToolConfig store '${name}' is not writable`)
       }
+      if (typeof found.add !== 'function') {
+        throw new Error(`MemoryManager: addToolConfig store '${name}' has no add method (only addMessages)`)
+      }
       return found
     })
   }
@@ -133,11 +203,167 @@ export class MemoryManager implements Plugin {
   /**
    * Initializes the plugin with the agent.
    *
-   * No lifecycle hooks are registered in this version.
+   * Wires up two independent behaviors:
+   * - **Extraction**: for any store configured with {@link ExtractionConfig}, buffers conversation
+   *   messages and attaches each store's triggers. A no-op when no store uses extraction.
+   * - **Injection**: when enabled, registers an `InvokeModelStage` middleware that folds retrieved
+   *   memory into the model input for each call without touching durable history. See
+   *   {@link _provideMemoryContext}, the `renderContent` callback the middleware invokes.
    *
-   * @param _agent - The agent this plugin is being attached to
+   * @param agent - The agent this plugin is being attached to
    */
-  initAgent(_agent: LocalAgent): void {}
+  initAgent(agent: LocalAgent): void {
+    this._initExtraction(agent)
+    this._initInjection(agent)
+  }
+
+  /** Wires background extraction for stores configured with {@link ExtractionConfig}. */
+  private _initExtraction(agent: LocalAgent): void {
+    if (this._extractionStores.length === 0) {
+      return
+    }
+
+    const coordinator = new ExtractionCoordinator(this._extractionStores, agent.model)
+    this._coordinator = coordinator
+
+    // Buffer every message the agent adds, so extraction has its own copy to save from.
+    agent.addHook(MessageAddedEvent, (event) => {
+      coordinator.record(event.message.toJSON())
+    })
+
+    for (const { store, config } of this._extractionStores) {
+      for (const trigger of config.triggers) {
+        trigger.attach({ agent, fire: () => void coordinator.process(store) })
+      }
+    }
+  }
+
+  /**
+   * Registers the injection middleware when injection is enabled. Folds retrieved memory into the
+   * model input for each call via {@link _provideMemoryContext}, without touching durable history. A
+   * no-op when injection is disabled.
+   */
+  private _initInjection(agent: LocalAgent): void {
+    const config = this._injectionConfig
+    if (config === false) {
+      return
+    }
+    agent.addMiddleware(
+      InvokeModelStage.Input,
+      createInjectionMiddleware({
+        ...(config.trigger !== undefined && { trigger: config.trigger }),
+        renderContent: (context) => this._provideMemoryContext(context.messages, config),
+      })
+    )
+  }
+
+  /**
+   * Produces the memory context text to inject for a model call, or `undefined` to skip. This is the
+   * `renderContent` callback the injection middleware invokes (see {@link initAgent}).
+   *
+   * Derives a query (the configured callback or an adaptive default), searches memory, and renders the
+   * top entries. Skips silently (returns `undefined`) when no query can be derived or the search
+   * returns nothing. The rendering callback throwing fails open (returns `undefined`).
+   *
+   * @param messages - The current conversation, as data
+   * @param config - The resolved injection configuration
+   * @returns The injected text, or `undefined` when there is nothing to inject
+   */
+  private async _provideMemoryContext(
+    messages: MessageData[],
+    config: MemoryInjectionConfig
+  ): Promise<string | undefined> {
+    const query = this._resolveInjectionQuery(messages, config)
+    if (!query?.trim()) {
+      return undefined
+    }
+
+    const maxResults = config.maxEntries ?? DEFAULT_MAX_ENTRIES
+    const entries = (await this.search(query, { maxSearchResults: maxResults })).slice(0, maxResults)
+    if (entries.length === 0) {
+      return undefined
+    }
+
+    try {
+      return config.format ? config.format({ entries }) : this._defaultInjectionFormat(entries)
+    } catch (error) {
+      logger.warn(`reason=<${normalizeError(error).message}> | injection format threw; skipping injection`)
+      return undefined
+    }
+  }
+
+  /**
+   * Saves every store's remaining messages and waits for all saves to finish. No-op when no store has
+   * extraction configured.
+   *
+   * Extraction normally runs in the background, so the most recent turn may not be saved yet when the
+   * agent responds. Call this once at a boundary you control - typically your app's shutdown handler -
+   * so nothing is lost. A process killed before then (crash, hard timeout) may still lose the last
+   * unsaved turn; a more frequent trigger narrows that window.
+   *
+   * Do not call this after every turn alongside a periodic trigger: it forces a save each time and so
+   * defeats the trigger's schedule.
+   */
+  async flush(): Promise<void> {
+    await this._coordinator?.flush()
+  }
+
+  /**
+   * Derives the injection search query. Uses the configured `query` callback when provided (a throw
+   * fails open, skipping injection); otherwise an adaptive default: the latest user message's text on
+   * a user turn, or the most recent assistant message's text otherwise (the previous autonomous step).
+   *
+   * @param messages - The current conversation, as data
+   * @param config - The resolved injection configuration
+   * @returns The query string, or `undefined` when none is available
+   */
+  private _resolveInjectionQuery(messages: MessageData[], config: MemoryInjectionConfig): string | undefined {
+    if (config.query) {
+      try {
+        return config.query({ messages })
+      } catch (error) {
+        logger.warn(`reason=<${normalizeError(error).message}> | injection query threw; skipping injection`)
+        return undefined
+      }
+    }
+
+    const role = isUserTurn(messages) ? 'user' : 'assistant'
+    const index = this._findLastIndex(messages, (message) => message.role === role)
+    if (index < 0) {
+      return undefined
+    }
+    const text = messages[index]!.content.filter((block) => 'text' in block)
+      .map((block) => (block as { text: string }).text)
+      .join('\n')
+      .trim()
+    return text.length > 0 ? text : undefined
+  }
+
+  /**
+   * Default injection format: a `<memory>` block with one `<entry>` per result. Each entry carries a
+   * `source` attribute naming the originating store (when known) so the model can attribute memories.
+   *
+   * @param entries - The retrieved memory entries to render
+   * @returns The rendered `<memory>` block
+   */
+  private _defaultInjectionFormat(entries: MemoryEntry[]): string {
+    const items = entries.map((entry) =>
+      entry.storeName
+        ? `<entry source="${escapeXmlAttr(entry.storeName)}">${escapeXmlText(entry.content)}</entry>`
+        : `<entry>${escapeXmlText(entry.content)}</entry>`
+    )
+    return `<memory>\n${items.join('\n')}\n</memory>`
+  }
+
+  /** Returns the index of the last element matching `predicate`, or -1. */
+  private _findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (predicate(items[i]!)) {
+        return i
+      }
+    }
+    return -1
+  }
 
   /**
    * Returns tools registered by this plugin.

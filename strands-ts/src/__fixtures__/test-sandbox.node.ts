@@ -1,4 +1,5 @@
-import { buildShellEnvPrefix, PosixShellSandbox, shellQuote } from '../sandbox/posix-shell.js'
+import { buildShellEnvPrefix, PosixShellSandbox } from '../sandbox/posix-shell.js'
+import { shellQuote } from '../sandbox/constants.js'
 import { streamProcess } from '../sandbox/stream-process.js'
 import type { ExecuteOptions } from '../sandbox/base.js'
 import type { ExecutionResult, StreamChunk } from '../sandbox/types.js'

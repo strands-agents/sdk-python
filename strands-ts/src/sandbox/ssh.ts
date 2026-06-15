@@ -3,9 +3,13 @@
  */
 
 import type { ExecuteOptions } from './base.js'
-import { buildShellEnvPrefix, PosixShellSandbox, shellQuote } from './posix-shell.js'
+import { buildShellEnvPrefix, PosixShellSandbox } from './posix-shell.js'
+import { shellQuote } from './constants.js'
 import { streamProcess } from './stream-process.js'
 import type { ExecutionResult, StreamChunk } from './types.js'
+import type { Tool } from '../tools/tool.js'
+import { makeFileEditor, DEFAULT_FILE_EDITOR_DESCRIPTION } from '../vended-tools/file-editor/index.js'
+import { makeBash, SANDBOX_BASH_DESCRIPTION } from '../vended-tools/bash/index.js'
 
 // Known-safe SSH options. Options that execute commands, tunnel traffic, or load
 // external config are excluded. Reviewed and approved by AppSec.
@@ -148,5 +152,16 @@ export class SshSandbox extends PosixShellSandbox {
       signal: options?.signal,
       enoentMessage: 'ssh is not installed or not on PATH',
     })
+  }
+
+  override getTools(): Tool[] {
+    return [
+      makeFileEditor(this, {
+        description: `${DEFAULT_FILE_EDITOR_DESCRIPTION} Files are on host "${this.host}".`,
+      }),
+      makeBash(this, {
+        description: `${SANDBOX_BASH_DESCRIPTION} Runs on host "${this.host}". Working directory: ${this.workingDir}.`,
+      }),
+    ]
   }
 }

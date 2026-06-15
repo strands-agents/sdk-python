@@ -4,12 +4,12 @@
 
 **Date**: 2026-04-16
 
-**Issue**: [#1296: Large Tool Result Externalization](https://github.com/strands-agents/sdk-python/issues/1296)
+**Issue**: [#1296: Large Tool Result Externalization](https://github.com/strands-agents/harness-sdk/issues/1296)
 
 **Related**:
-- [#1678: Large Content Aliasing](https://github.com/strands-agents/sdk-python/issues/1678)
+- [#1678: Large Content Aliasing](https://github.com/strands-agents/harness-sdk/issues/1678)
 
-**Scope**: Cross-SDK design. Python implementation in [#2162](https://github.com/strands-agents/sdk-python/pull/2162).
+**Scope**: Cross-SDK design. Python implementation in [#2162](https://github.com/strands-agents/harness-sdk/pull/2162).
 
 ## Context
 

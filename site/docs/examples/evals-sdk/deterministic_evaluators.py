@@ -30,8 +30,8 @@ experiment = Experiment(
         Equals(),  # compares against expected_output
     ],
 )
-reports = experiment.run_evaluations(get_response)
-reports[0].run_display()
+report = experiment.run_evaluations(get_response)
+report.run_display()
 
 # --- Trajectory evaluator ---
 
@@ -54,5 +54,5 @@ tool_experiment = Experiment(
     cases=tool_cases,
     evaluators=[ToolCalled(tool_name="calculator")],
 )
-tool_reports = tool_experiment.run_evaluations(get_response_with_tools)
-tool_reports[0].run_display()
+tool_report = tool_experiment.run_evaluations(get_response_with_tools)
+tool_report.run_display()

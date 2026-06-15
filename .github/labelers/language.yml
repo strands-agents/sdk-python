@@ -1,0 +1,17 @@
+# .github/labelers/language.yml
+# Identifies which SDK language the issue relates to.
+# Use max_labels: 1 since most issues target one language.
+
+instructions: |
+  This is a monorepo with Python and TypeScript SDKs.
+  Look for language-specific keywords: Python paths (strands-py/, .py files, pip, pyproject.toml),
+  TypeScript paths (strands-ts/, .ts files, npm, package.json).
+  If the issue clearly targets both languages equally, prefer the language where the bug or feature originates.
+  If the issue is language-agnostic or unclear, do not assign a label.
+  Issues about general agent behavior, documentation content, or feature requests without language-specific file paths or package managers should not receive a language label.
+
+labels:
+  python:
+    description: "Issue relates to the Python SDK (strands-py/, .py files, pip, pyproject.toml)"
+  typescript:
+    description: "Issue relates to the TypeScript SDK (strands-ts/, .ts files, npm, package.json)"

@@ -13,6 +13,13 @@ declare module 'vitest' {
       shouldSkip: boolean
       credentials: AwsCredentialIdentity | undefined
     }
+    ['provider-bedrock-kb']: {
+      shouldSkip: boolean
+      knowledgeBaseId: string | undefined
+      customDataSourceId: string | undefined
+      s3DataSourceId: string | undefined
+      s3Bucket: string | undefined
+    }
     ['provider-anthropic']: {
       shouldSkip: boolean
       apiKey: string | undefined

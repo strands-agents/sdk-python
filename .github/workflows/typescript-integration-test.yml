@@ -35,7 +35,9 @@ jobs:
     name: Run integration tests
     runs-on: ubuntu-latest
     needs: authorization-check
-    environment: ${{ needs.authorization-check.outputs.approval-env }}
+    environment:
+      name: ${{ needs.authorization-check.outputs.approval-env }}
+      deployment: false
     permissions:
       id-token: write
       pull-requests: read
@@ -44,7 +46,7 @@ jobs:
       - name: Configure Credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
-         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+         role-to-assume: ${{ secrets.STRANDS_INTEG_TEST_ROLE }}
          aws-region: us-east-1
          mask-aws-account-id: true
 

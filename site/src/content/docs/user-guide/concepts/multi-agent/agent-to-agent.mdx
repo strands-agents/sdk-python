@@ -291,16 +291,17 @@ from strands.multiagent.a2a import A2AServer
 
 logging.basicConfig(level=logging.INFO)
 
-# Create a Strands agent
-strands_agent = Agent(
-    name="Calculator Agent",
-    description="A calculator agent that can perform basic arithmetic operations.",
-    tools=[calculator],
-    callback_handler=None
-)
+# Build a fresh agent for each A2A context so callers stay isolated
+def create_agent(context_id: str) -> Agent:
+    return Agent(
+        name="Calculator Agent",
+        description="A calculator agent that can perform basic arithmetic operations.",
+        tools=[calculator],
+        callback_handler=None
+    )
 
-# Create A2A server (streaming enabled by default)
-a2a_server = A2AServer(agent=strands_agent)
+# Create A2A server with a per context agent factory (streaming enabled by default)
+a2a_server = A2AServer(agent_factory=create_agent)
 
 # Start the server
 a2a_server.serve()
@@ -310,6 +311,7 @@ a2a_server.serve()
 <Tab label="TypeScript">
 
 ```typescript
+import { Agent } from '@strands-agents/sdk'
 import { A2AExpressServer } from '@strands-agents/sdk/a2a/express'
 
 --8<-- "user-guide/concepts/multi-agent/agent-to-agent.ts:basic_server"
@@ -320,6 +322,55 @@ import { A2AExpressServer } from '@strands-agents/sdk/a2a/express'
 
 The server serves the agent card at `/.well-known/agent-card.json` and handles JSON-RPC requests at the root path. Streaming is supported by default.
 
+### Conversation Isolation
+
+The A2A protocol identifies each conversation with a `context_id`. The server isolates conversation state per `context_id` so that callers in different contexts never read or influence each other's history. Two modes control how that isolation works.
+
+The recommended mode is `agent_factory` - you provide a callable that takes a `context_id` and returns a dedicated agent for each conversation, reusing it for later requests in that context. This enables different conversations to run concurrently because each owns an independent agent.
+
+The factory is also where you wire per-conversation concerns such as a `session_manager` to persist that conversation's history.
+
+<Tabs>
+<Tab label="Python">
+
+```python
+from strands import Agent
+from strands.multiagent.a2a import A2AServer
+
+def create_agent(context_id: str) -> Agent:
+    return Agent(
+        name="Calculator Agent",
+        description="A calculator agent.",
+        callback_handler=None
+    )
+
+a2a_server = A2AServer(agent_factory=create_agent)
+a2a_server.serve()
+```
+
+</Tab>
+<Tab label="TypeScript">
+
+```typescript
+import { Agent, SessionManager, FileStorage } from '@strands-agents/sdk'
+import { A2AExpressServer } from '@strands-agents/sdk/a2a/express'
+
+--8<-- "user-guide/concepts/multi-agent/agent-to-agent.ts:factory_server"
+```
+
+</Tab>
+</Tabs>
+
+The server retains at most `max_contexts` contexts at once (default 1000). When that cap is exceeded, the server evicts the least recently used context, and a later request that reuses the evicted `context_id` starts a fresh conversation. Tune this cap to bound memory in long running servers.
+
+:::caution[`context_id` is not an authentication boundary]
+Contexts are keyed on the client supplied `context_id`. A caller who knows another caller's `context_id` can attach to that conversation. Multi-tenant deployments must enforce authenticated identity at the transport or gateway layer.
+:::
+
+:::caution[Passing a single `agent` is deprecated]
+In single-agent mode the server reuses one agent across every context, swapping each context's saved state on and off the shared instance under a lock, which serializes all requests. A single `agent` with a configured `session_manager` is rejected, because the session manager would persist every context into one interleaved session. Prefer `agent_factory` for any deployment that serves more than one conversation.
+:::
+
 ### Server Configuration Options
 
 <Tabs>
@@ -327,7 +378,9 @@ The server serves the agent card at `/.well-known/agent-card.json` and handles J
 
 The `A2AServer` constructor accepts several configuration options:
 
-- `agent`: The Strands agent to wrap with A2A compatibility
+- `agent_factory`: Callable that takes a `context_id` and returns a fresh agent per context (recommended)
+- `agent`: A single Strands agent reused across contexts (deprecated; prefer `agent_factory`)
+- `max_contexts`: Maximum number of per context agents to retain concurrently (default: 1000, must be at least 1)
 - `host`: Hostname or IP address to bind to (default: "127.0.0.1")
 - `port`: Port to bind to (default: 9000)
 - `version`: Version of the agent (default: "0.0.1")
@@ -339,17 +392,21 @@ The `A2AServer` constructor accepts several configuration options:
 - `push_config_store`: Custom push notification configuration storage (optional)
 - `push_sender`: Custom push notification sender implementation (optional)
 
+Provide exactly one of `agent_factory` or `agent`, recommend `agent_factory`.
+
 </Tab>
 <Tab label="TypeScript">
 
 The TypeScript SDK provides two server classes:
 
-- **`A2AServer`** — Base class that manages the agent card and request handler. Use this when integrating with your own HTTP framework.
-- **`A2AExpressServer`** — Express-based server with `serve()` and `createMiddleware()` methods.
+- **`A2AServer`**: Base class that manages the agent card and request handler. Use this when integrating with your own HTTP framework.
+- **`A2AExpressServer`**: Express based server with `serve()` and `createMiddleware()` methods.
 
 The `A2AExpressServer` constructor accepts a config object:
 
-- `agent`: The Strands Agent to serve via A2A protocol
+- `agentFactory`: Callable that takes a `contextId` and returns a fresh agent per context (recommended)
+- `agent`: A single Strands Agent reused across contexts (deprecated; prefer `agentFactory`)
+- `maxContexts`: Maximum number of per context agents to retain concurrently (default: 1000, must be at least 1)
 - `name` (required): Human-readable name for the agent
 - `description`: Description of the agent's purpose
 - `host`: Host to bind the server to (default: `'127.0.0.1'`)
@@ -359,6 +416,8 @@ The `A2AExpressServer` constructor accepts a config object:
 - `skills`: Skills to advertise in the agent card
 - `taskStore`: Task store for persisting task state (defaults to InMemoryTaskStore)
 - `userBuilder`: User builder for authentication (default: no authentication)
+
+Provide exactly one of `agentFactory` or `agent`, recommend `agentFactory`.
 
 ```typescript
 --8<-- "user-guide/concepts/multi-agent/agent-to-agent.ts:server_config"
@@ -380,9 +439,11 @@ from strands import Agent
 from strands.multiagent.a2a import A2AServer
 import uvicorn
 
-# Create your agent and A2A server
-agent = Agent(name="My Agent", description="A customizable agent", callback_handler=None)
-a2a_server = A2AServer(agent=agent)
+# Create your agent factory and A2A server
+def create_agent(context_id: str) -> Agent:
+    return Agent(name="My Agent", description="A customizable agent", callback_handler=None)
+
+a2a_server = A2AServer(agent_factory=create_agent)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -447,11 +508,12 @@ class CustomQueueManager(QueueManager):
     # Implementation details...
     pass
 
-# Create agent with custom components
-agent = Agent(name="My Agent", description="A customizable agent", callback_handler=None)
+# Create an agent factory with custom components
+def create_agent(context_id: str) -> Agent:
+    return Agent(name="My Agent", description="A customizable agent", callback_handler=None)
 
 a2a_server = A2AServer(
-    agent=agent,
+    agent_factory=create_agent,
     task_store=CustomTaskStore(),
     queue_manager=CustomQueueManager(),
     push_config_store=MyPushConfigStore(),
@@ -477,10 +539,8 @@ The TypeScript `A2AExpressServer` supports a custom `taskStore` for persisting t
 import { Agent } from '@strands-agents/sdk'
 import { A2AExpressServer } from '@strands-agents/sdk/a2a/express'
 
-const agent = new Agent({ systemPrompt: 'You are a helpful agent.' })
-
 const server = new A2AExpressServer({
-  agent,
+  agentFactory: (contextId) => new Agent({ systemPrompt: 'You are a helpful agent.' }),
   name: 'My Agent',
   taskStore: myCustomTaskStore, // Must implement TaskStore from @a2a-js/sdk/server
 })
@@ -500,23 +560,24 @@ The `A2AServer` supports automatic path-based mounting for deployment scenarios 
 from strands import Agent
 from strands.multiagent.a2a import A2AServer
 
-# Create an agent
-agent = Agent(
-    name="Calculator Agent",
-    description="A calculator agent",
-    callback_handler=None
-)
+# Create an agent factory
+def create_agent(context_id: str) -> Agent:
+    return Agent(
+        name="Calculator Agent",
+        description="A calculator agent",
+        callback_handler=None
+    )
 
 # Deploy with path-based mounting
 # The agent will be accessible at http://my-alb.amazonaws.com/calculator/
 a2a_server = A2AServer(
-    agent=agent,
+    agent_factory=create_agent,
     http_url="http://my-alb.amazonaws.com/calculator"
 )
 
 # For load balancers that strip path prefixes, use serve_at_root=True
 a2a_server_with_root = A2AServer(
-    agent=agent,
+    agent_factory=create_agent,
     http_url="http://my-alb.amazonaws.com/calculator",
     serve_at_root=True  # Serves at root even though URL has /calculator path
 )
@@ -531,10 +592,8 @@ Use the `httpUrl` option to set the public URL for the agent card. For custom pa
 import { Agent } from '@strands-agents/sdk'
 import { A2AExpressServer } from '@strands-agents/sdk/a2a/express'
 
-const agent = new Agent({ systemPrompt: 'A calculator agent.' })
-
 const server = new A2AExpressServer({
-  agent,
+  agentFactory: (contextId) => new Agent({ systemPrompt: 'A calculator agent.' }),
   name: 'Calculator Agent',
   httpUrl: 'http://my-alb.amazonaws.com/calculator',
 })

@@ -28,7 +28,9 @@ jobs:
   trigger-review:
     name: Trigger Strands Review
     needs: authorization-check
-    environment: ${{ needs.authorization-check.outputs.approval-env }}
+    environment:
+      name: ${{ needs.authorization-check.outputs.approval-env }}
+      deployment: false
     permissions:
       actions: write
       contents: read

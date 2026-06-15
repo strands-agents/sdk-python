@@ -23,6 +23,7 @@ export default defineConfig({
     projects: [
       {
         test: {
+          setupFiles: ['./src/__fixtures__/register-node-defaults.ts'],
           include: [
             'src/**/__tests__/**/*.test.ts',
             'src/**/__tests__/**/*.test.node.ts',
@@ -74,7 +75,10 @@ export default defineConfig({
           testTimeout: 60 * 1000,
           retry: 1,
           globalSetup: './test/integ/__fixtures__/_setup-global.ts',
-          setupFiles: './test/integ/__fixtures__/_setup-test.ts',
+          setupFiles: [
+            './test/integ/__fixtures__/_setup-test.ts',
+            './test/integ/__fixtures__/register-node-defaults.ts',
+          ],
           sequence: {
             concurrent: true,
           },

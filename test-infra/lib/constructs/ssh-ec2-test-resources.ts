@@ -3,16 +3,9 @@ import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
-import { TestFeatureConstruct } from './test-feature-construct';
+import { TestFeatureConstruct, TestFeatureConstructProps } from './test-feature-construct';
 
-export interface SshEc2TestResourcesProps {
-  /**
-   * Shared integration-test role granted permission to open an SSM session to
-   * the instance and read its SSH private key. When omitted the usage grant is
-   * skipped.
-   */
-  readonly role?: iam.IRole;
-}
+export interface SshEc2TestResourcesProps extends TestFeatureConstructProps {}
 
 /**
  * The smallest reachable Linux instance the SSH sandbox integration test can

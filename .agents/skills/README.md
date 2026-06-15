@@ -1,0 +1,42 @@
+# Agent Skills
+
+Skills for this repository. See [agentskills.io](https://agentskills.io/home) for the general format.
+
+## PR workflow
+
+| Skill | Purpose |
+|-------|---------|
+| **pr-writer** | Generates PR titles and descriptions following our Conventional Commits format, PR template, and `dev-docs/PR.md` writing guidelines. Captures design decisions from the conversation so reviewers get the "why" without reading the full thread. |
+| **pr-create** | Orchestrates the full PR creation flow: description generation, pre-flight checks from CONTRIBUTING.md, conditional push, and `gh pr create --draft`. Prevents common agent mistakes like creating non-draft PRs or using incompatible flags. |
+| **pr-feedback** | Fetches all unresolved PR comments (inline threads, reviews, issue-level) via a bundled script using GitHub's GraphQL API. Surfaces reaction data and author replies to distinguish "agreed to fix" from "open discussion", then presents a prioritized list for selective addressing. |
+
+## Documentation
+
+| Skill | Purpose |
+|-------|---------|
+| **docs-writer** | Drafts or rewrites documentation pages following the project's voice and structure guidelines. |
+| **docs-reviewer** | Reviews drafts for voice consistency, structure, and terminology before PR submission. |
+| **docs-audit** | Assesses published pages for quality, accuracy, and voice compliance. |
+| **docs-planner** | Identifies documentation gaps and prioritizes the backlog. |
+
+## Code review
+
+| Skill | Purpose |
+|-------|---------|
+| **strands-review** | Local preview of the `/strands review` GitHub Action. Runs the same Task Reviewer SOP so you can anticipate what the remote agent will flag before pushing. |
+
+## Adding a new skill
+
+Create a directory under `.agents/skills/<skill-name>/` with at least a `SKILL.md` file:
+
+```
+.agents/skills/my-skill/
+├── SKILL.md           # Required: frontmatter + instructions
+└── helper-script.sh   # Optional: bundled scripts the skill references
+```
+
+Guidelines:
+- Name skills as `{domain}-{action}` (e.g. `pr-create`, `docs-audit`)
+- Keep instructions specific to this repo — reference actual file paths and conventions
+- If a workflow involves unreliable CLI commands, bundle a tested script rather than inlining commands
+- The `description` field is what the agent uses to decide whether to load the skill — make it specific about trigger conditions

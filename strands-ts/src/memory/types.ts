@@ -1,5 +1,8 @@
 import type { JSONValue } from '../types/json.js'
+import type { MessageData } from '../types/messages.js'
 import type { Tool } from '../tools/tool.js'
+import type { ExtractionConfig } from './extraction/types.js'
+import type { InjectionConfig } from '../injection/index.js'
 
 /**
  * A single memory entry retrieved from or stored to a memory store.
@@ -32,6 +35,23 @@ export interface SearchOptions {
 }
 
 /**
+ * Context the {@link MemoryManager} supplies to {@link MemoryStore.addMessages} alongside a batch.
+ *
+ * An extension point: fields are added here without changing the {@link MemoryStore.addMessages}
+ * signature.
+ */
+export interface AddMessagesContext {
+  /**
+   * Per-message identities aligned one-to-one with `messages` (`sequenceNumbers[i]` identifies
+   * `messages[i]`). A retried batch reuses the same numbers, so a store can build an idempotency key
+   * that survives retries - unlike a content hash, which collides when two messages share text (e.g.
+   * "ok"). Numbers increase with order but may have gaps, and reset to 0 each agent run, so a durable
+   * dedup token must combine one with a run-unique id.
+   */
+  readonly sequenceNumbers?: readonly number[]
+}
+
+/**
  * Declarative properties shared by every memory store and its config.
  *
  * This is the single source of truth for a store's identity and behavior knobs. Both the runtime
@@ -55,6 +75,19 @@ export interface MemoryStoreConfig {
    * @defaultValue false
    */
   readonly writable?: boolean
+  /**
+   * Automatic-extraction config for this writable store, as a `boolean | config` shorthand. `true`
+   * enables it with defaults; an {@link ExtractionConfig} defaults any unset field; `false`/omitted is off.
+   *
+   * The defaults run every 5 turns, and the extraction method depends on the store's write methods. A
+   * store implementing `addMessages` uses server-side extraction: the manager hands it the raw messages
+   * and the backend extracts them, with no model call. A store implementing only `add` uses a
+   * {@link ModelExtractor} for client-side extraction: it calls the agent's model to distill facts and
+   * stores each one via `add`.
+   *
+   * @defaultValue false
+   */
+  readonly extraction?: boolean | ExtractionConfig
 }
 
 /**
@@ -69,20 +102,49 @@ export interface MemoryStore extends MemoryStoreConfig {
   /**
    * Whether this store accepts writes.
    * - `false`: searchable only; never written to.
-   * - `true`: searchable and writable. Requires `add` to be implemented.
+   * - `true`: searchable and writable. Requires at least one write sink — `add`, `addMessages`,
+   *   or both — to be implemented.
    */
   readonly writable: boolean
   /** Search the store for entries matching the query, ordered by relevance. */
   search(query: string, options?: SearchOptions): Promise<MemoryEntry[]>
   /**
-   * Add content to the store. Required when `writable` is `true`; ignored otherwise.
-   * A store may implement `add` while declaring `writable: false`, in which case it is never invoked.
+   * Add a single piece of content to the store. Used by the `add_memory` tool, the programmatic
+   * {@link MemoryManager.add}, and by extraction when an {@link ExtractionConfig.extractor} produces
+   * discrete entries (an extraction config with an extractor requires this method).
+   *
+   * A store satisfies `writable: true` with `add`, {@link addMessages}, or both. A store may also
+   * implement `add` while declaring `writable: false`, in which case it is never invoked.
+   *
+   * Extraction writes are at-least-once: if one entry in a batch fails, the whole batch is retried, so
+   * `add` may be called again with content it already stored. Implementations used with extraction
+   * should tolerate duplicate writes (e.g. dedupe, or accept that retries may re-store an entry).
    *
    * The resolved value is store-specific (e.g. a created record id or a write receipt) — each backend
-   * may return whatever shape fits it. {@link MemoryManager.add} does not consume this value (it only
+   * may return whatever shape fits it. The {@link MemoryManager} does not consume this value (it only
    * awaits completion); callers using a store directly can read it.
    */
   add?(content: string, metadata?: Record<string, JSONValue>): Promise<unknown>
+  /**
+   * Ingest a batch of conversation messages, preserving their role structure. This is the sink for
+   * automatic extraction that does not distill facts client-side: the manager hands the filtered
+   * {@link MessageData} batch straight here in one call — no serialization, no model call. Backends
+   * that turn raw turns into memory themselves (e.g. role-aware conversational APIs that summarize
+   * server-side) implement this so the user/assistant structure survives. A store using extraction
+   * implements this method, unless it configures an {@link ExtractionConfig.extractor} (which produces
+   * discrete entries written via {@link add} instead).
+   *
+   * Satisfies `writable: true` the same way {@link add} does. The resolved value is store-specific
+   * and not consumed by the manager.
+   *
+   * A store scopes its writes (e.g. by tenant or namespace) through its own configuration. The
+   * {@link AddMessagesContext} parameter lets the manager pass additional per-batch context to the
+   * store.
+   *
+   * @param messages - The filtered messages to ingest, in order
+   * @param context - Manager-supplied per-batch context (see {@link AddMessagesContext})
+   */
+  addMessages?(messages: MessageData[], context?: AddMessagesContext): Promise<unknown>
   /**
    * Returns store-specific tools to register with the agent, through a {@link MemoryManager}. Registers
    * tools alongside `search_memory` / `add_memory` tools if enabled on the {@link MemoryManager}.
@@ -146,6 +208,51 @@ export interface MemoryAddToolConfig extends MemoryToolConfig {
 }
 
 /**
+ * Configuration for memory context injection.
+ *
+ * When enabled on a {@link MemoryManager}, the manager searches memory before a model call and makes
+ * the top results available to the model for that call, so relevant knowledge is present without the
+ * model choosing to search. The injected text is ephemeral: it augments the model input for that call
+ * only and never persists into the durable conversation or session.
+ *
+ * Extends the generic {@link InjectionConfig} (which carries `trigger`) with the memory-owned knobs:
+ * how many entries to retrieve, how to derive the query, and how to render the results.
+ */
+export interface MemoryInjectionConfig extends InjectionConfig {
+  /**
+   * Maximum number of entries to retrieve and inject per model call.
+   *
+   * A store ranks by semantic similarity, which is not the same as contextual usefulness, so the
+   * default injects a small candidate set rather than betting on the top hit. Raising this improves
+   * recall at the cost of a larger prepend (context bloat); lower it for a tighter injection.
+   *
+   * With multiple stores, results are concatenated in store-registration order with no cross-store
+   * ranking, so this cap can favor entries from earlier-registered stores.
+   *
+   * @defaultValue 5
+   */
+  maxEntries?: number
+  /**
+   * Derives the search query from the current conversation. Return `undefined` or an empty string to
+   * skip injection for this call. A callback that throws fails open (injection is skipped).
+   *
+   * Defaults to an adaptive query: the latest user message's text on a user turn, otherwise the most
+   * recent assistant message's text (the previous step on an autonomous turn).
+   */
+  query?: (context: { messages: MessageData[] }) => string | undefined
+  /**
+   * Renders retrieved entries into the injected text. A callback that throws fails open (injection is
+   * skipped).
+   *
+   * Defaults to a `<memory>` XML block with one `<entry>` per result, carrying a `source` attribute
+   * naming the originating store (when known) so the model can attribute and weigh each memory. The
+   * default escapes entry content and source, so a custom `format` that emits markup is responsible
+   * for its own escaping.
+   */
+  format?: (context: { entries: MemoryEntry[] }) => string
+}
+
+/**
  * Configuration for the {@link MemoryManager}.
  */
 export interface MemoryManagerConfig {
@@ -158,4 +265,19 @@ export interface MemoryManagerConfig {
    * writable stores; pass a {@link MemoryAddToolConfig} with `stores` to restrict it to specific ones.
    */
   addToolConfig?: MemoryAddToolConfig | boolean
+  /**
+   * Memory context injection. Defaults to `false` (opt-in). `true` uses the default injection
+   * settings; pass a {@link MemoryInjectionConfig} to customize retrieval, timing, and formatting.
+   *
+   * `true` is equivalent to:
+   * ```ts
+   * {
+   *   trigger: 'userTurn',          // inject only on a fresh user ask
+   *   maxEntries: 5,                // retrieve and inject up to 5 entries
+   *   // query:  the latest user text on a user turn, else the most recent assistant text
+   *   // format: a <memory> block with one <entry source="STORE_NAME"> per result (content escaped)
+   * }
+   * ```
+   */
+  injection?: boolean | MemoryInjectionConfig
 }

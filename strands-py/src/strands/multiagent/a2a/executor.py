@@ -10,7 +10,6 @@ streamed requests to the A2AServer.
 
 import asyncio
 import base64
-import copy
 import json
 import logging
 import mimetypes
@@ -50,11 +49,7 @@ AgentFactory = Callable[[str], SAAgent]
 
 @dataclass
 class _StreamState:
-    """Per-invocation A2A-compliant streaming state.
-
-    Held locally per request rather than on the executor: in factory mode different contexts run
-    concurrently, so shared instance attributes would corrupt each other's artifact tracking.
-    """
+    """Per-invocation A2A-compliant streaming state."""
 
     artifact_id: str
     is_first_chunk: bool = True
@@ -62,11 +57,7 @@ class _StreamState:
 
 @dataclass
 class _ContextEntry:
-    """Per-context bookkeeping for factory mode: a dedicated agent and its serializing lock.
-
-    Keeping the agent and lock in one entry means the LRU map has a single source of truth; there
-    is no second map to keep in sync on insert, reorder, or eviction.
-    """
+    """Per-context bookkeeping for factory mode: a dedicated agent and its serializing lock."""
 
     agent: SAAgent
     lock: asyncio.Lock
@@ -151,8 +142,7 @@ class StrandsA2AExecutor(AgentExecutor):
         self._contexts_lock = asyncio.Lock()
 
         if agent_factory is not None:
-            # Factory mode: a dedicated agent and lock per context. The per-context lock serializes
-            # only same-context requests, so different contexts run concurrently.
+            # Factory mode: a dedicated agent and lock per context.
             self.agent: SAAgent | None = None
             self._contexts: OrderedDict[str, _ContextEntry] = OrderedDict()
         else:
@@ -170,7 +160,6 @@ class StrandsA2AExecutor(AgentExecutor):
                 DeprecationWarning,
                 stacklevel=2,
             )
-            # The template snapshot is the agent's clean state, captured before any request mutates it.
             self.agent = agent
             self._template_snapshot = self._capture_state(agent)  # type: ignore[arg-type]
             self._snapshots: OrderedDict[str, Snapshot] = OrderedDict()
@@ -180,12 +169,8 @@ class StrandsA2AExecutor(AgentExecutor):
         return agent.take_snapshot(preset="session")
 
     def _restore_state(self, agent: SAAgent, snapshot: Snapshot) -> None:
-        """Load a snapshot into an agent, restoring its session state.
-
-        Deep-copies once at the boundary so a run never mutates a stored or template snapshot in
-        place (snapshots, including the template, are restored repeatedly).
-        """
-        agent.load_snapshot(copy.deepcopy(snapshot))
+        """Load a snapshot into an agent, restoring its session state."""
+        agent.load_snapshot(snapshot)
 
     def _evict_excess_contexts(self) -> None:
         """Evict least-recently-used contexts beyond ``max_contexts``. Caller holds the lock."""
@@ -227,18 +212,13 @@ class StrandsA2AExecutor(AgentExecutor):
         updater: TaskUpdater,
         stream_state: _StreamState | None,
     ) -> None:
-        """Single-agent mode: swap this context's snapshot on/off the shared agent under a lock.
-
-        The lock serializes all requests (a single ``Agent`` cannot be invoked concurrently). The
-        agent is reset to the template afterward so no context's data lingers on it.
-        """
+        """Single-agent mode: swap this context's snapshot on/off the shared agent under a lock."""
         async with self._contexts_lock:
             self._restore_state(self.agent, self._snapshots.get(context_id, self._template_snapshot))  # type: ignore[arg-type]
             try:
                 await self._stream_agent(self.agent, content_blocks, invocation_state, updater, stream_state)  # type: ignore[arg-type]
             finally:
-                # Persist this context's updated history (even on error/cancel, to retain partial
-                # turns), evict beyond the cap, then reset the shared agent for the next caller.
+                # Persist updated history (even on error), evict, then reset the agent for the next caller.
                 self._snapshots[context_id] = self._capture_state(self.agent)  # type: ignore[arg-type]
                 self._snapshots.move_to_end(context_id)
                 self._evict_excess_contexts()
@@ -364,17 +344,13 @@ class StrandsA2AExecutor(AgentExecutor):
                 stacklevel=3,
             )
 
-        # Per-invocation streaming state (None in legacy mode). Local to this request so concurrent
-        # requests in factory mode cannot corrupt each other's artifact tracking.
+        # Per-invocation streaming state (None in legacy mode).
         stream_state = _StreamState(artifact_id=str(uuid.uuid4())) if self.enable_a2a_compliant_streaming else None
 
-        # Pass the A2A RequestContext through invocation state so downstream
-        # tools and hooks can access request metadata, task info, configuration, etc.
+        # Forward the A2A RequestContext so downstream tools and hooks can read request metadata.
         invocation_state: dict[str, Any] = {"a2a_request_context": context}
 
-        # The A2A framework populates context_id for every request before execute() runs
-        # (client-supplied, generated when absent, or inferred from the referenced task) and
-        # surfaces a generated id in the response. We rely on that and key isolation on it.
+        # The framework always populates context_id before execute() runs; isolation is keyed on it.
         context_id = context.context_id
         if not context_id:
             raise ServerError(error=InternalError(message="Request is missing a context_id")) from None

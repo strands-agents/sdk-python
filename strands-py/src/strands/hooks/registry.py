@@ -31,7 +31,9 @@ class HookOrder:
     """
 
     SDK_FIRST: int = -100
+    INTERVENTION_OUTPUT: int = -90
     DEFAULT: int = 0
+    INTERVENTION_INPUT: int = 90
     SDK_LAST: int = 100
 
 

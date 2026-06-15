@@ -43,6 +43,7 @@ from ..types._snapshot import (
 
 if TYPE_CHECKING:
     from ..tools import ToolProvider
+from .._middleware import MiddlewareRegistry
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -56,6 +57,8 @@ from ..hooks import (
 )
 from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
+from ..interventions.handler import InterventionHandler
+from ..interventions.registry import InterventionRegistry
 from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
@@ -71,7 +74,7 @@ from ..tools.structured_output._structured_output_context import StructuredOutpu
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput, ConcurrentInvocationMode, Limits
-from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
+from ..types.content import ContentBlock, Message, Messages, SystemContentBlock, split_system_prompt
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
@@ -161,6 +164,7 @@ class Agent(AgentBase):
         context_manager: ContextManagerStrategy | None = None,
         plugins: list[Plugin] | None = None,
         hooks: list[HookProvider | HookCallback] | None = None,
+        interventions: list[InterventionHandler] | None = None,
         session_manager: SessionManager | None = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
@@ -228,6 +232,12 @@ class Agent(AgentBase):
             hooks: Hooks to be added to the agent hook registry. Accepts HookProvider instances
                 or plain callable hook callbacks (functions with typed event parameters).
                 Defaults to None.
+            interventions: List of InterventionHandler instances for agent control.
+                Handlers are evaluated in registration order at each lifecycle event.
+                Cheapest handlers (authorization, guardrails) should be listed first;
+                expensive ones (LLM steering) last. Deny short-circuits immediately,
+                Guide feedback accumulates across handlers.
+                Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
             structured_output_prompt: Custom prompt message used when forcing structured output.
@@ -258,7 +268,7 @@ class Agent(AgentBase):
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
         # initializing self._system_prompt for backwards compatibility
-        self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(system_prompt)
+        self._system_prompt, self._system_prompt_content = split_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
         self._structured_output_prompt = structured_output_prompt
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
@@ -343,6 +353,8 @@ class Agent(AgentBase):
 
         self.hooks = HookRegistry()
 
+        self._middleware_registry = MiddlewareRegistry()
+
         self._plugin_registry = _PluginRegistry(self)
 
         self._interrupt_state = _InterruptState()
@@ -407,6 +419,9 @@ class Agent(AgentBase):
                     raise ValueError(
                         f"Invalid hook: {hook!r}. Must be a HookProvider instance or a callable hook callback."
                     )
+
+        # Register intervention handlers
+        self._intervention_registry = InterventionRegistry(interventions or [], self.hooks)
 
         # Register built-in plugins
         self._plugin_registry.add_and_init(_ModelPlugin())
@@ -535,7 +550,7 @@ class Agent(AgentBase):
                   - list[SystemContentBlock]: Content blocks with features like caching
                   - None: Clear the system prompt
         """
-        self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(value)
+        self._system_prompt, self._system_prompt_content = split_system_prompt(value)
 
     @property
     def system_prompt_content(self) -> list[SystemContentBlock] | None:
@@ -1054,6 +1069,23 @@ class Agent(AgentBase):
             before_invocation_event, _interrupts = await self.hooks.invoke_callbacks_async(
                 BeforeInvocationEvent(agent=self, invocation_state=invocation_state, messages=current_messages)
             )
+
+            if before_invocation_event.cancel:
+                cancel_text = (
+                    before_invocation_event.cancel
+                    if isinstance(before_invocation_event.cancel, str)
+                    else "invocation denied by hook"
+                )
+                cancel_message: Message = {"role": "assistant", "content": [{"text": cancel_text}]}
+                await self._append_messages(cancel_message)
+                yield EventLoopStopEvent(
+                    "end_turn", cancel_message, self.event_loop_metrics, invocation_state.get("request_state", {})
+                )
+                await self.hooks.invoke_callbacks_async(
+                    AfterInvocationEvent(agent=self, invocation_state=invocation_state)
+                )
+                return
+
             current_messages = (
                 before_invocation_event.messages if before_invocation_event.messages is not None else current_messages
             )
@@ -1297,30 +1329,6 @@ class Agent(AgentBase):
             value = limits[key]
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise TypeError(f"limits[{key!r}] must be a positive int, got {value!r}")
-
-    def _initialize_system_prompt(
-        self, system_prompt: str | list[SystemContentBlock] | None
-    ) -> tuple[str | None, list[SystemContentBlock] | None]:
-        """Initialize system prompt fields from constructor input.
-
-        Maintains backwards compatibility by keeping system_prompt as str when string input
-        provided, avoiding breaking existing consumers.
-
-        Maps system_prompt input to both string and content block representations:
-        - If string: system_prompt=string, _system_prompt_content=[{text: string}]
-        - If list with text elements: system_prompt=concatenated_text, _system_prompt_content=list
-        - If list without text elements: system_prompt=None, _system_prompt_content=list
-        - If None: system_prompt=None, _system_prompt_content=None
-        """
-        if isinstance(system_prompt, str):
-            return system_prompt, [{"text": system_prompt}]
-        elif isinstance(system_prompt, list):
-            # Concatenate all text elements for backwards compatibility, None if no text found
-            text_parts = [block["text"] for block in system_prompt if "text" in block]
-            system_prompt_str = "\n".join(text_parts) if text_parts else None
-            return system_prompt_str, system_prompt
-        else:
-            return None, None
 
     async def _append_messages(self, *messages: Message) -> None:
         """Appends messages to history and invoke the callbacks for the MessageAddedEvent."""

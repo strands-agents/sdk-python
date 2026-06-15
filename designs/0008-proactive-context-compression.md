@@ -4,15 +4,15 @@
 
 **Date**: 2026-04-08
 
-**Issue**: [#555: Proactive Context Compression](https://github.com/strands-agents/sdk-python/issues/555)
+**Issue**: [#555: Proactive Context Compression](https://github.com/strands-agents/harness-sdk/issues/555)
 
 **Dependencies**:
-- [#1295: Context Limit Property on Model](https://github.com/strands-agents/sdk-python/issues/1295) (in progress)
-- [#2125: Message metadata for stateful context tracking](https://github.com/strands-agents/sdk-python/pull/2125) (merged)
+- [#1295: Context Limit Property on Model](https://github.com/strands-agents/harness-sdk/issues/1295) (in progress)
+- [#2125: Message metadata for stateful context tracking](https://github.com/strands-agents/harness-sdk/pull/2125) (merged)
 
 **Related**:
 - [#790: Track agent.messages token size](https://github.com/strands-agents/sdk-typescript/pull/790)
-- [#2031: Token estimation via tiktoken](https://github.com/strands-agents/sdk-python/pull/2031)
+- [#2031: Token estimation via tiktoken](https://github.com/strands-agents/harness-sdk/pull/2031)
 
 **Scope**: TypeScript SDK. A parallel Python design will follow.
 
@@ -74,7 +74,7 @@ abstract class ConversationManager {
 }
 ```
 
-Because `BeforeModelCallEvent` fires before every model call, including calls within a tool-use cycle, this naturally provides in-loop context management ([#298](https://github.com/strands-agents/sdk-python/issues/298)). If an agent makes five tool calls in a single invocation and context grows past the threshold between calls three and four, the base class triggers `reduceOnThreshold()` before call four.
+Because `BeforeModelCallEvent` fires before every model call, including calls within a tool-use cycle, this naturally provides in-loop context management ([#298](https://github.com/strands-agents/harness-sdk/issues/298)). If an agent makes five tool calls in a single invocation and context grows past the threshold between calls three and four, the base class triggers `reduceOnThreshold()` before call four.
 
 The following diagram shows the cycle of the agent loop and where each token signal becomes available:
 
@@ -104,7 +104,7 @@ sequenceDiagram
     end
 ```
 
-After the model call, the framework attaches `usage` (containing `inputTokens` and `outputTokens`) to the assistant message as metadata ([#2125](https://github.com/strands-agents/sdk-python/pull/2125)). This metadata is part of the message itself, so it survives session persistence and restore. At the start of the next cycle, the base class reads it directly from `agent.messages`:
+After the model call, the framework attaches `usage` (containing `inputTokens` and `outputTokens`) to the assistant message as metadata ([#2125](https://github.com/strands-agents/harness-sdk/pull/2125)). This metadata is part of the message itself, so it survives session persistence and restore. At the start of the next cycle, the base class reads it directly from `agent.messages`:
 
 - **Known**: `inputTokens + outputTokens` from the last assistant message's metadata. This is the exact token count for everything the model saw, plus everything it generated (which is now part of the messages).
 - **Unknown**: any messages appended after that assistant message, primarily tool results. These need to be estimated.
@@ -134,13 +134,13 @@ if tokenCount / contextWindowLimit >= threshold:
 
 This approach uses known values wherever possible and only estimates what it does not know. In the common case (no tool results between calls), no estimation runs at all. When tool results are appended, only those new messages are estimated, not the entire history.
 
-Because message metadata survives session persistence ([#2125](https://github.com/strands-agents/sdk-python/pull/2125)), the known baseline is available even after session restore. The cold-start fallback (estimating everything) only applies when no assistant message with metadata exists in the history.
+Because message metadata survives session persistence ([#2125](https://github.com/strands-agents/harness-sdk/pull/2125)), the known baseline is available even after session restore. The cold-start fallback (estimating everything) only applies when no assistant message with metadata exists in the history.
 
 ### SDK Changes Required
 
 This feature requires changes to the `ConversationManager` base class and the two built-in managers.
 
-**Context window limit on Model ([#1295](https://github.com/strands-agents/sdk-python/issues/1295)).** The threshold check needs to know the model's context window size. [#1295](https://github.com/strands-agents/sdk-python/issues/1295) adds an optional `contextWindowLimit` to `BaseModelConfig` with per-provider lookup tables. Users can always override:
+**Context window limit on Model ([#1295](https://github.com/strands-agents/harness-sdk/issues/1295)).** The threshold check needs to know the model's context window size. [#1295](https://github.com/strands-agents/harness-sdk/issues/1295) adds an optional `contextWindowLimit` to `BaseModelConfig` with per-provider lookup tables. Users can always override:
 
 ```typescript
 const model = new BedrockModel({
@@ -149,7 +149,7 @@ const model = new BedrockModel({
 })
 ```
 
-**Message metadata ([#2125](https://github.com/strands-agents/sdk-python/pull/2125), [#815](https://github.com/strands-agents/sdk-typescript/pull/815)).** The token counting strategy reads `inputTokens` and `outputTokens` from the last assistant message's metadata. This is merged in both the Python SDK ([#2125](https://github.com/strands-agents/sdk-python/pull/2125)) and the TypeScript SDK ([#815](https://github.com/strands-agents/sdk-typescript/pull/815)).
+**Message metadata ([#2125](https://github.com/strands-agents/harness-sdk/pull/2125), [#815](https://github.com/strands-agents/sdk-typescript/pull/815)).** The token counting strategy reads `inputTokens` and `outputTokens` from the last assistant message's metadata. This is merged in both the Python SDK ([#2125](https://github.com/strands-agents/harness-sdk/pull/2125)) and the TypeScript SDK ([#815](https://github.com/strands-agents/sdk-typescript/pull/815)).
 
 **Token estimation.** The `Model` base class exposes an `estimateTokens(messages: Message[])` method. Each model provider should implement this using its native token counting API (for example, Anthropic's `count_tokens()` or Bedrock's `CountTokens`). All TypeScript SDK providers have access to native counting APIs, so provider-level implementations are the expected default. The base class provides a heuristic fallback (`chars / 4` for text, `chars / 2` for JSON) for providers that do not implement native counting or when the native API fails (e.g., cross-region inference profiles on Bedrock). Users can also pass a custom estimator via the `tokenEstimator` config option to override any provider's implementation:
 

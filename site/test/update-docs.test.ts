@@ -12,7 +12,7 @@ describe('API link conversion', () => {
   function convertApiLinks(content: string): string {
     // Match markdown links with potentially nested brackets in the text
     // This handles cases like [`list[ToolSpec]`](url)
-    const markdownLinkPattern = /\[([^\]]*(?:\[[^\]]*\][^\]]*)*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
+    const markdownLinkPattern = /\[((?:[^\[\]]|\[[^\]]*\])*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g
 
     return content.replace(markdownLinkPattern, (match, text, url) => {
       if (isOldApiLink(url)) {

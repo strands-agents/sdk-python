@@ -18,7 +18,7 @@ Write for senior engineers familiar with the SDK. Assume your reader:
 Every PR description should have:
 
 1. **Motivation** — Why is this change needed?
-2. **Public API Changes** — What changes to the public API (with code snippets)?
+2. **Public API Changes** — What changes to the public API (with code snippets)? Only include when introducing or modifying public API surface.
 3. **Use Cases** (optional) — When would developers use this feature? Only include for non-obvious functionality; skip for trivial changes or obvious fixes.
 4. **Breaking Changes** (if applicable) — What breaks and how to migrate?
 
@@ -26,23 +26,23 @@ Every PR description should have:
 
 **Focus on WHY, not HOW:**
 
-- ✅ "The OpenAI SDK supports dynamic API keys, but we don't expose this capability"
-- ❌ "Added ApiKeySetter type import from openai/client"
+- "Hook providers need access to the agent's result to perform post-invocation actions like logging or analytics"
+- Not: "Added result field to AfterInvocationEvent dataclass"
 
 **Document public API changes with example code snippets:**
 
-- ✅ Show before/after code snippets for API changes
-- ❌ List every file or line changed
+- Show before/after code snippets for API changes
+- Not: List every file or line changed
 
 **Be concise:**
 
-- ✅ Use prose over bullet lists when possible
-- ❌ Create exhaustive implementation checklists
+- Use prose over bullet lists when possible
+- Not: Create exhaustive implementation checklists
 
 **Emphasize user impact:**
 
-- ✅ "Enables secret manager integration for credential rotation"
-- ❌ "Updated error message to mention 'string or function'"
+- "Enables hooks to log conversation outcomes or trigger follow-up actions based on the result"
+- Not: "Updated AfterInvocationEvent to include optional AgentResult field"
 
 ## What to Skip
 
@@ -56,81 +56,81 @@ Leave these out of your PR description:
 
 ## Anti-patterns
 
-❌ **Over-detailed checklists:**
+**Over-detailed checklists:**
 
 ```markdown
 ### Type Definition Updates
 
-- Added ApiKeySetter type import from 'openai/client'
-- Updated OpenAIModelOptions interface apiKey type
+- Added result field to AfterInvocationEvent dataclass
+- Updated Agent._run_loop to capture and pass AgentResult
 ```
 
-❌ **Implementation notes reviewers don't need:**
+**Implementation notes reviewers don't need:**
 
 ```markdown
 ## Implementation Notes
 
-- No breaking changes - all existing string-based usage continues to work
-- OpenAI SDK handles validation of function return values
+- Result field defaults to None
+- AgentResult is captured from EventLoopStopEvent before invoking hooks
 ```
 
-❌ **Test coverage bullets:**
+**Test coverage bullets:**
 
 ```markdown
 ### Test Coverage
 
-- Added test: accepts function-based API key
-- Added test: accepts async function-based API key
+- Added test: AfterInvocationEvent includes AgentResult
+- Added test: result is None when structured_output is used
 ```
 
 ## Good Examples
 
-✅ **Motivation section:**
+**Motivation section:**
 
 ```markdown
 ## Motivation
 
-The OpenAI SDK supports dynamic API key resolution through async functions,
-enabling use cases like credential rotation and secret manager integration.
-However, our SDK currently only accepts static strings for the apiKey parameter,
-preventing users from leveraging these capabilities.
+Hook providers often need to perform actions based on the outcome of an agent's
+invocation, such as logging results, updating metrics, or triggering follow-up
+workflows. Currently, the `AfterInvocationEvent` doesn't provide access to the
+`AgentResult`, forcing hook implementations to track state externally or miss
+this information entirely.
 ```
 
-✅ **Public API Changes section:**
+**Public API Changes section:**
 
 ````markdown
 ## Public API Changes
 
-The `OpenAIModelOptions.apiKey` parameter now accepts either a string or an
-async function:
+`AfterInvocationEvent` now includes an optional `result` attribute containing
+the `AgentResult`:
 
-```typescript
-// Before: only string supported
-const model = new OpenAIModel({
-  modelId: 'gpt-4o',
-  apiKey: 'sk-...',
-})
+```python
+# Before: no access to result
+class MyHook(HookProvider):
+    def on_after_invocation(self, event: AfterInvocationEvent) -> None:
+        # Could only access event.agent, no result available
+        logger.info("Invocation completed")
 
-// After: function also supported
-const model = new OpenAIModel({
-  modelId: 'gpt-4o',
-  apiKey: async () => await secretManager.getApiKey(),
-})
+# After: result available for inspection
+class MyHook(HookProvider):
+    def on_after_invocation(self, event: AfterInvocationEvent) -> None:
+        if event.result:
+            logger.info(f"Completed with stop_reason: {event.result.stop_reason}")
 ```
 
-The change is backward compatible—all existing string-based usage continues
-to work without modification.
-
+The `result` field is `None` when invoked from `structured_output` methods.
 ````
 
-✅ **Use Cases section:**
+**Use Cases section:**
+
 ```markdown
 ## Use Cases
 
-- **API key rotation**: Rotate keys without application restart
-- **Secret manager integration**: Fetch credentials from AWS Secrets Manager, Vault, etc.
-- **Multi-tenant systems**: Dynamically select API keys based on context
-````
+- **Result logging**: Log conversation outcomes including stop reasons and token usage
+- **Analytics**: Track agent performance metrics based on invocation results
+- **Conditional workflows**: Trigger follow-up actions based on how the agent completed
+```
 
 ## Template
 
@@ -145,13 +145,13 @@ Resolves: #[issue-number]
 ## Public API Changes
 
 [Document changes to public APIs with before/after code snippets. If no public
-API changes, state "No public API changes."]
+API changes, omit this section entirely.]
 
-```typescript
-// Before
+```python
+# Before
 [existing API usage]
 
-// After
+# After
 [new API usage]
 ```
 
@@ -160,7 +160,7 @@ API changes, state "No public API changes."]
 ## Use Cases (optional)
 
 [Only include for non-obvious functionality. Provide 1-3 concrete use cases
-showing when developers would use this feature. Skip for trivial changes obvious fixes..]
+showing when developers would use this feature. Skip for trivial changes or obvious fixes.]
 
 ## Breaking Changes (if applicable)
 
@@ -168,11 +168,11 @@ showing when developers would use this feature. Skip for trivial changes obvious
 
 ### Migration
 
-```typescript
-// Before
+```python
+# Before
 [old code]
 
-// After
+# After
 [new code]
 ```
 
@@ -194,7 +194,7 @@ showing when developers would use this feature. Skip for trivial changes obvious
 ## Checklist Items
 
  - [ ] Does the PR description target a Senior Engineer familiar with the project?
- - [ ] Does the PR description give an overview of the feature being implemented, including any notes on key implemention decisions
+ - [ ] Does the PR description give an overview of the feature being implemented, including any notes on key implementation decisions?
  - [ ] Does the PR include a "Resolves #<ISSUE NUMBER>" in the body and is not bolded?
  - [ ] Does the PR contain the motivation or use-cases behind the change?
- - [ ] Does the PR omit irrelevent details not needed for historical reference?
+ - [ ] Does the PR omit irrelevant details not needed for historical reference?

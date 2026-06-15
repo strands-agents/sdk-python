@@ -211,7 +211,7 @@ evaluator = OutputEvaluator(
 )
 
 # Create experiment
-experiment = Experiment(cases=cases, evaluator=evaluator)
+experiment = Experiment(cases=cases, evaluators=[evaluator])
 
 # Define your task function
 def my_agent_task(case: Case) -> str:
@@ -220,7 +220,7 @@ def my_agent_task(case: Case) -> str:
     return f"Response to: {case.input}"
 
 # Run evaluations
-reports = experiment.run_evaluations(my_agent_task)
+report = experiment.run_evaluations(my_agent_task)
 
 print(f"Overall Score: {report.overall_score}")
 print(f"Pass Rate: {sum(report.test_passes)}/{len(report.test_passes)}")
@@ -353,7 +353,7 @@ class CustomEvaluator(Evaluator):
         
         return [EvaluationOutput(
             score=score,
-            passed=(score >= self.threshold),
+            test_pass=(score >= self.threshold),
             reason=f"Quality check: {label}"
         )]
     

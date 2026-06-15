@@ -9,22 +9,9 @@
 
 import { Sandbox } from './base.js'
 import type { ExecuteOptions } from './base.js'
-import { ENV_KEY_PATTERN, LANGUAGE_PATTERN } from './constants.js'
+import { ENV_KEY_PATTERN, LANGUAGE_PATTERN, shellQuote } from './constants.js'
+import { SandboxPathNotFoundError } from './errors.js'
 import type { ExecutionResult, FileInfo, StreamChunk } from './types.js'
-
-/**
- * Shell-escape a string for safe inclusion in a shell command.
- *
- * Wraps the value in single quotes and escapes any embedded single quotes
- * using the '\'' pattern. Single quotes disable all shell expansion
- * (variables, backticks, globbing), making this safe against injection.
- *
- * @param value - The string to escape.
- * @returns The shell-escaped string wrapped in single quotes.
- */
-export function shellQuote(value: string): string {
-  return "'" + value.replace(/'/g, "'\\''") + "'"
-}
 
 /**
  * Validate environment variable names against {@link ENV_KEY_PATTERN}.
@@ -117,7 +104,11 @@ export abstract class PosixShellSandbox extends Sandbox {
 
   async listFiles(path: string): Promise<FileInfo[]> {
     const quoted = shellQuote(path)
-    const result = await this.execute(`test -d ${quoted} || exit 1; env QUOTING_STYLE=literal ls -1ap ${quoted}`)
+    // Exit 77 distinguishes a missing directory from ls's own failures (locale-independent).
+    const result = await this.execute(`test -d ${quoted} || exit 77; env QUOTING_STYLE=literal ls -1ap ${quoted}`)
+    if (result.exitCode === 77) {
+      throw new SandboxPathNotFoundError(path)
+    }
     if (result.exitCode !== 0) {
       throw new Error(result.stderr || `Failed to list directory: ${path}`)
     }

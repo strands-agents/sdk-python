@@ -120,16 +120,17 @@ The secret codeword for this skill is: ${ALT_SECRET_CODEWORD}.`,
         skills: [testDir],
       })
 
-      // Verify the skill was loaded from the directory
-      const availableSkills = await plugin.getAvailableSkills()
-      expect(availableSkills).toHaveLength(1)
-      expect(availableSkills[0]!.name).toBe('code-review')
-
       const agent = new Agent({
         model: createModel(),
         plugins: [plugin],
         printer: false,
       })
+      await agent.initialize()
+
+      // Verify the skill was loaded from the directory (path-based skills load during initAgent)
+      const availableSkills = await plugin.getAvailableSkills(agent)
+      expect(availableSkills).toHaveLength(1)
+      expect(availableSkills[0]!.name).toBe('code-review')
 
       const result = await agent.invoke(
         'Activate the code-review skill and tell me the secret codeword from its instructions.'

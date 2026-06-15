@@ -1062,12 +1062,12 @@ export class BedrockModel extends Model<BedrockModelConfig> {
       }
 
       case 'reasoningBlock': {
-        if (block.text) {
+        if (block.text !== undefined || block.signature !== undefined) {
           return {
             reasoningContent: {
               reasoningText: {
-                text: block.text,
-                signature: block.signature,
+                text: block.text ?? '',
+                ...(block.signature !== undefined && { signature: block.signature }),
               },
             },
           }
@@ -1078,7 +1078,7 @@ export class BedrockModel extends Model<BedrockModelConfig> {
             },
           }
         } else {
-          throw Error("reasoning content format incorrect. Either 'text' or 'redactedContent' must be set.")
+          throw Error("reasoning content requires one of 'text', 'signature', or 'redactedContent' to be set")
         }
       }
 

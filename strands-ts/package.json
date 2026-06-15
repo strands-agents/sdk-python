@@ -6,6 +6,10 @@
   "module": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
   "type": "module",
+  "sideEffects": [
+    "./dist/src/index.node.js",
+    "./src/index.node.ts"
+  ],
   "files": [
     "dist",
     "README.md",
@@ -14,6 +18,7 @@
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",
+      "node": "./dist/src/index.node.js",
       "default": "./dist/src/index.js"
     },
     "./models/anthropic": {
@@ -68,6 +73,10 @@
       "types": "./dist/src/session/s3-storage.d.ts",
       "default": "./dist/src/session/s3-storage.js"
     },
+    "./vended-memory-stores/bedrock-knowledge-base": {
+      "types": "./dist/src/vended-memory-stores/bedrock-knowledge-base/index.d.ts",
+      "default": "./dist/src/vended-memory-stores/bedrock-knowledge-base/index.js"
+    },
     "./telemetry": {
       "types": "./dist/src/telemetry/index.d.ts",
       "default": "./dist/src/telemetry/index.js"
@@ -79,6 +88,10 @@
     "./vended-plugins/context-offloader": {
       "types": "./dist/src/vended-plugins/context-offloader/index.d.ts",
       "default": "./dist/src/vended-plugins/context-offloader/index.js"
+    },
+    "./vended-plugins/context-injector": {
+      "types": "./dist/src/vended-plugins/context-injector/index.d.ts",
+      "default": "./dist/src/vended-plugins/context-injector/index.js"
     },
     "./vended-plugins/goal": {
       "types": "./dist/src/vended-plugins/goal/index.d.ts",
@@ -159,8 +172,11 @@
     "@ai-sdk/provider": "^3.0.0",
     "@anthropic-ai/sdk": "^0.92.0",
     "@aws-sdk/client-bedrock": "^3.943.0",
+    "@aws-sdk/client-bedrock-agent": "^3.943.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.943.0",
     "@aws-sdk/client-s3": "^3.943.0",
     "@aws-sdk/client-secrets-manager": "^3.943.0",
+    "@aws-sdk/client-ssm": "^3.943.0",
     "@aws-sdk/client-sts": "^3.996.0",
     "@aws-sdk/credential-providers": "^3.943.0",
     "@aws/bedrock-token-generator": "^1.1.0",
@@ -214,6 +230,8 @@
     "@a2a-js/sdk": "^0.3.10",
     "@ai-sdk/provider": "^3.0.0",
     "@anthropic-ai/sdk": "^0.92.0",
+    "@aws-sdk/client-bedrock-agent": "^3.943.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.943.0",
     "@aws-sdk/client-s3": "^3.943.0",
     "@aws/bedrock-token-generator": "^1.1.0",
     "@cedar-policy/cedar-wasm": "^4.0.0",
@@ -249,6 +267,12 @@
       "optional": true
     },
     "express": {
+      "optional": true
+    },
+    "@aws-sdk/client-bedrock-agent": {
+      "optional": true
+    },
+    "@aws-sdk/client-bedrock-agent-runtime": {
       "optional": true
     },
     "@aws-sdk/client-s3": {

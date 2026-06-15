@@ -3,6 +3,7 @@
  */
 
 import { spawn } from 'child_process'
+import { SandboxAbortError, SandboxTimeoutError } from './errors.js'
 import type { ExecutionResult, StreamChunk } from './types.js'
 
 const SIGNAL_CODES: Record<string, number> = {
@@ -119,7 +120,7 @@ export async function* streamProcess(
     }
   })
 
-  const onAbort = (): void => terminate(new Error('Execution aborted'))
+  const onAbort = (): void => terminate(new SandboxAbortError())
 
   if (options?.signal) {
     if (options.signal.aborted) {
@@ -131,7 +132,7 @@ export async function* streamProcess(
 
   if (options?.timeout !== undefined) {
     timeoutHandle = setTimeout(() => {
-      terminate(new Error(`Execution timed out after ${options.timeout} seconds`))
+      terminate(new SandboxTimeoutError(options.timeout!))
     }, options.timeout * 1000)
   }
 

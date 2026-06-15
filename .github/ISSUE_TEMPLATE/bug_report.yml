@@ -1,7 +1,7 @@
 name: Bug Report
 description: Report a bug in the Strands Agents SDK
 title: "[BUG] "
-labels: ["bug", "triage"]
+labels: ["triage"]
 assignees: []
 body:
   - type: markdown

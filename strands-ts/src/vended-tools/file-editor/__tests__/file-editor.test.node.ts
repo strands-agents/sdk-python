@@ -3,7 +3,8 @@ import { fileEditor } from '../file-editor.js'
 import type { ToolContext } from '../../../index.js'
 import { StateStore } from '../../../state-store.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
-import { promises as fs } from 'fs'
+import { TestSandbox } from '../../../__fixtures__/test-sandbox.node.js'
+import { promises as fs, mkdtempSync } from 'fs'
 import * as path from 'path'
 import { tmpdir } from 'os'
 
@@ -163,6 +164,12 @@ describe('fileEditor tool', () => {
       it('throws when path is not absolute', async () => {
         await expect(fileEditor.invoke({ command: 'view', path: 'relative/path.txt' }, context)).rejects.toThrow(
           'not an absolute path'
+        )
+      })
+
+      it('throws on path traversal with absolute path', async () => {
+        await expect(fileEditor.invoke({ command: 'view', path: '/tmp/../etc/passwd' }, context)).rejects.toThrow(
+          'path traversal'
         )
       })
 
@@ -501,5 +508,94 @@ describe('fileEditor tool', () => {
       // Tabs should be expanded to spaces
       expect(result).not.toContain('\t')
     })
+  })
+})
+
+describe.skipIf(process.platform === 'win32')('fileEditor tool (sandbox path)', () => {
+  let testDir: string
+  let context: ToolContext
+
+  beforeEach(() => {
+    testDir = mkdtempSync(path.join(tmpdir(), 'file-editor-sandbox-test-'))
+    const sandbox = new TestSandbox(testDir)
+    const agent = createMockAgent({ extra: { sandbox } as any })
+    context = {
+      toolUse: { name: 'fileEditor', toolUseId: 'test-id', input: {} },
+      agent,
+      invocationState: {},
+      interrupt: () => {
+        throw new Error('interrupt not available in mock context')
+      },
+    }
+  })
+
+  afterEach(async () => {
+    await fs.rm(testDir, { recursive: true, force: true }).catch(() => {})
+  })
+
+  it('views a file through the sandbox', async () => {
+    const filePath = path.join(testDir, 'hello.txt')
+    await fs.writeFile(filePath, 'line 1\nline 2\n')
+    const result = await fileEditor.invoke({ command: 'view', path: filePath }, context)
+    expect(result).toContain('line 1')
+    expect(result).toContain('line 2')
+  })
+
+  it('creates a file through the sandbox', async () => {
+    const filePath = path.join(testDir, 'new.txt')
+    await fileEditor.invoke({ command: 'create', path: filePath, file_text: 'created' }, context)
+    expect(await fs.readFile(filePath, 'utf-8')).toBe('created')
+  })
+
+  it('performs str_replace through the sandbox', async () => {
+    const filePath = path.join(testDir, 'edit.txt')
+    await fs.writeFile(filePath, 'hello world')
+    await fileEditor.invoke({ command: 'str_replace', path: filePath, old_str: 'world', new_str: 'sandbox' }, context)
+    expect(await fs.readFile(filePath, 'utf-8')).toBe('hello sandbox')
+  })
+
+  it('inserts a line through the sandbox', async () => {
+    const filePath = path.join(testDir, 'insert.txt')
+    await fs.writeFile(filePath, 'line 1\nline 3\n')
+    await fileEditor.invoke({ command: 'insert', path: filePath, insert_line: 1, new_str: 'line 2' }, context)
+    expect(await fs.readFile(filePath, 'utf-8')).toBe('line 1\nline 2\nline 3\n')
+  })
+
+  it('reports non-existent path', async () => {
+    const filePath = path.join(testDir, 'nope.txt')
+    await expect(fileEditor.invoke({ command: 'view', path: filePath }, context)).rejects.toThrow('does not exist')
+  })
+
+  it('propagates non-not-found listFiles errors instead of reporting non-existence', async () => {
+    const sandbox = new TestSandbox(testDir)
+    sandbox.listFiles = async () => {
+      throw new Error('EACCES: permission denied')
+    }
+    const agent = createMockAgent({ extra: { sandbox } as any })
+    const errContext: ToolContext = {
+      toolUse: { name: 'fileEditor', toolUseId: 'test-id', input: {} },
+      agent,
+      invocationState: {},
+      interrupt: () => {
+        throw new Error('interrupt not available in mock context')
+      },
+    }
+    const promise = fileEditor.invoke({ command: 'view', path: path.join(testDir, 'x.txt') }, errContext)
+    await expect(promise).rejects.toThrow('permission denied')
+  })
+
+  it('detects directory via sandbox listFiles', async () => {
+    const dirPath = path.join(testDir, 'subdir')
+    await fs.mkdir(dirPath)
+    await fs.writeFile(path.join(dirPath, 'a.txt'), 'a')
+    const result = await fileEditor.invoke({ command: 'view', path: dirPath }, context)
+    expect(result).toContain('a.txt')
+  })
+
+  it('handles trailing slash on file path', async () => {
+    const filePath = path.join(testDir, 'trailing.txt')
+    await fs.writeFile(filePath, 'content here')
+    const result = await fileEditor.invoke({ command: 'view', path: `${filePath}/` }, context)
+    expect(result).toContain('content here')
   })
 })

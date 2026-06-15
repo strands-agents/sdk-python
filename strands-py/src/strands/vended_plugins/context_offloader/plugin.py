@@ -36,12 +36,12 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from ...hooks.events import AfterToolCallEvent
+from ...hooks.events import AfterToolCallEvent, BeforeModelCallEvent
 from ...plugins import Plugin, hook
 from ...tools.decorator import tool
 from ...types.content import Message
 from ...types.tools import ToolContext, ToolResult, ToolResultContent
-from .storage import Storage
+from .storage import InMemoryStorage, Storage
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -140,10 +140,18 @@ class ContextOffloader(Plugin):
         super().__init__()
 
     def init_agent(self, agent: Agent) -> None:
-        """Conditionally register the retrieval tool."""
+        """Conditionally register the retrieval tool and bind storage."""
+        if isinstance(self._storage, InMemoryStorage):
+            self._storage._bind(id(agent))
         if not self._include_retrieval_tool:
             # Remove the auto-discovered retrieval tool
             self._tools = [t for t in self._tools if t.tool_name != "retrieve_offloaded_content"]
+
+    @hook
+    def _on_before_model_call(self, event: BeforeModelCallEvent) -> None:
+        """Trigger eviction of stale entries based on the agent's cycle count."""
+        if isinstance(self._storage, InMemoryStorage):
+            self._storage._evict(event.agent.event_loop_metrics.cycle_count)
 
     @tool(context=True)
     def retrieve_offloaded_content(

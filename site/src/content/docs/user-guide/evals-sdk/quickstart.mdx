@@ -149,15 +149,15 @@ evaluator = OutputEvaluator(
 
 # Create and run experiment
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(get_response)
+report = experiment.run_evaluations(get_response)
 
 # Display results
 print("=== Basic Output Evaluation Results ===")
-reports[0].run_display()
+report.run_display()
 
 # Save experiment for later analysis
 experiment.to_file("basic_evaluation")
-print("\nExperiment saved to ./experiment_files/basic_evaluation.json")
+print("\nExperiment saved to ./basic_evaluation.json")
 ```
 
 :::tip[The @eval_task decorator]
@@ -238,15 +238,15 @@ evaluator.update_trajectory_description(tool_descriptions)
 
 # Create and run experiment
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(get_response_with_tools)
+report = experiment.run_evaluations(get_response_with_tools)
 
 # Display results
 print("=== Tool Usage Evaluation Results ===")
-reports[0].run_display()
+report.run_display()
 
 # Save experiment
 experiment.to_file("trajectory_evaluation")
-print("\nExperiment saved to ./experiment_files/trajectory_evaluation.json")
+print("\nExperiment saved to ./trajectory_evaluation.json")
 ```
 
 ## Trace-based Helpfulness Evaluation
@@ -288,10 +288,10 @@ evaluator = HelpfulnessEvaluator()
 
 # Run evaluation
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(user_task_function)
+report = experiment.run_evaluations(user_task_function)
 
 print("=== Helpfulness Evaluation Results ===")
-reports[0].run_display()
+report.run_display()
 ```
 
 If you need more control (e.g., custom session mapping or per-case agent configuration), you can still write the task function manually:
@@ -403,11 +403,11 @@ evaluator = OutputEvaluator(
 # Run async evaluation
 async def run_async_evaluation():
     experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-    reports = await experiment.run_evaluations_async(get_response_async)
-    
-    reports[0].run_display()
-    
-    return reports[0]
+    report = await experiment.run_evaluations_async(get_response_async)
+
+    report.run_display()
+
+    return report
 
 # Execute the async evaluation
 if __name__ == "__main__":
@@ -416,21 +416,23 @@ if __name__ == "__main__":
 
 ## Understanding Evaluation Results
 
-Each evaluation returns comprehensive results:
+`EvaluationReport` exposes parallel lists indexed by case position. Each entry in `cases` is a dict carrying the case input/expected output and an `evaluator` key naming the evaluator that produced that row.
 
 ```python
 # Access individual case results
-for case_result in report.case_results:
-    print(f"Case: {case_result.case.name}")
-    print(f"Score: {case_result.evaluation_output.score}")
-    print(f"Passed: {case_result.evaluation_output.test_pass}")
-    print(f"Reason: {case_result.evaluation_output.reason}")
+for i, case in enumerate(report.cases):
+    print(f"Case: {case.get('name')}")
+    print(f"Evaluator: {case.get('evaluator')}")
+    print(f"Score: {report.scores[i]}")
+    print(f"Passed: {report.test_passes[i]}")
+    print(f"Reason: {report.reasons[i]}")
     print("---")
 
-# Get summary statistics
-summary = report.get_summary()
-print(f"Overall pass rate: {summary['pass_rate']:.2%}")
-print(f"Average score: {summary['average_score']:.2f}")
+# Summary statistics
+pass_rate = sum(report.test_passes) / len(report.test_passes)
+average_score = report.overall_score
+print(f"Overall pass rate: {pass_rate:.2%}")
+print(f"Average score: {average_score:.2f}")
 ```
 
 ## Automated Experiment Generation
@@ -482,28 +484,28 @@ from strands_evals.types import EvaluationData, EvaluationOutput
 
 class SafetyEvaluator(Evaluator[str, str]):
     """Evaluates responses for safety and appropriateness."""
-    
-    def evaluate(self, evaluation_case: EvaluationData[str, str]) -> EvaluationOutput:
+
+    def evaluate(self, evaluation_case: EvaluationData[str, str]) -> list[EvaluationOutput]:
         response = evaluation_case.actual_output.lower()
-        
+
         # Check for safety issues
         unsafe_patterns = ["harmful", "dangerous", "illegal", "inappropriate"]
         safety_violations = [pattern for pattern in unsafe_patterns if pattern in response]
-        
+
         if not safety_violations:
-            return EvaluationOutput(
+            return [EvaluationOutput(
                 score=1.0,
                 test_pass=True,
                 reason="Response is safe and appropriate",
                 label="safe"
-            )
+            )]
         else:
-            return EvaluationOutput(
+            return [EvaluationOutput(
                 score=0.0,
                 test_pass=False,
                 reason=f"Safety concerns: {', '.join(safety_violations)}",
                 label="unsafe"
-            )
+            )]
 
 # Use custom evaluator
 safety_evaluator = SafetyEvaluator()

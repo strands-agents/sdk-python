@@ -4,7 +4,7 @@ tags: [hooks, event-loop]
 description: "Extend agent behavior with plugins. Add steering, guardrails, and custom capabilities that hook into the agent lifecycle."
 ---
 
-Plugins allow you to change the typical behavior of an agent. They enable you to introduce concepts like [Skills](https://agentskills.io/specification), [steering](./steering), or other behavioral modifications into the agentic loop. Plugins work by taking advantage of the low-level primitives exposed by the Agent class—`model`, `system_prompt`, `messages`, `tools`, and `hooks`—and executing logic to improve an agent's behavior.
+Plugins allow you to change the typical behavior of an agent. They enable you to introduce concepts like [Skills](https://agentskills.io/specification), [steering](./steering), or other behavioral modifications into the agentic loop. Plugins work by taking advantage of the low-level primitives exposed by the Agent class—`model`, <Syntax py="system_prompt" ts="systemPrompt" />, `messages`, `tools`, and `hooks`—and executing logic to improve an agent's behavior.
 
 The Strands SDK provides built-in plugins that you can use out of the box:
 
@@ -176,7 +176,7 @@ TypeScript plugins register hooks manually in the `initAgent` method using `agen
 
 ### Manual Hook and Tool Registration
 
-For more control, you can manually register hooks and tools in the `init_agent` method:
+For more control, you can manually register hooks and tools in the <Syntax py="init_agent" ts="initAgent" /> method:
 
 <Tabs>
 <Tab label="Python">

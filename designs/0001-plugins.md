@@ -153,7 +153,7 @@ agent = Agent(plugins=[log_calls])
 - Revisit and align on ["Simple `hook` callback authoring"](#simple-hook-callback-authoring)
 - Explore how persistence and state will be handled for `Plugins`
 - Build out and improve the `Plugin` protocol (like including convenience methods for adding hooks to the agent)
-- Provide a mechanism to order how `Plugins` are applied: https://github.com/strands-agents/sdk-python/issues/1593
+- Provide a mechanism to order how `Plugins` are applied: https://github.com/strands-agents/harness-sdk/issues/1593
 
 # Appendix
 

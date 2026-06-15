@@ -53,7 +53,7 @@ def third_party_example():
 
     # 3. Create evaluators
     class LangChainCriteriaEvaluator(Evaluator[str, str]):
-        def evaluate(self, evaluation_case: EvaluationData[str, str]) -> EvaluationOutput:
+        def evaluate(self, evaluation_case: EvaluationData[str, str]) -> list[EvaluationOutput]:
             ## Follow LangChain's Docs: https://python.langchain.com/api_reference/langchain/evaluation/langchain.evaluation.criteria.eval_chain.CriteriaEvalChain.html
             # Initialize Bedrock LLM
             bedrock_llm = BedrockLLM(
@@ -72,20 +72,24 @@ def third_party_example():
             result = evaluator.evaluate_strings(prediction=evaluation_case.actual_output, input=evaluation_case.input)
 
             # Make sure to return the correct type
-            return EvaluationOutput(
-                score=result["score"], test_pass=True if result["score"] > 0.5 else False, reason=result["reasoning"]
-            )
+            return [
+                EvaluationOutput(
+                    score=result["score"],
+                    test_pass=True if result["score"] > 0.5 else False,
+                    reason=result["reasoning"],
+                )
+            ]
 
     # 4. Create an experiment
     experiment = Experiment[str, str](
         cases=[test_case1, test_case2, test_case3, test_case4], evaluators=[LangChainCriteriaEvaluator()]
     )
 
-    experiment.to_file("third_party_dataset", "json")
+    experiment.to_file("third_party_dataset")
 
     # 5. Run evaluations
-    reports = experiment.run_evaluations(get_response)
-    return reports[0]
+    report = experiment.run_evaluations(get_response)
+    return report
 
 
 async def async_third_party_example():
@@ -128,7 +132,7 @@ async def async_third_party_example():
 
     # 3. Create evaluators
     class LangChainCriteriaEvaluator(Evaluator[str, str]):
-        def evaluate(self, evaluation_case: EvaluationData[str, str]) -> EvaluationOutput:
+        def evaluate(self, evaluation_case: EvaluationData[str, str]) -> list[EvaluationOutput]:
             ## Follow LangChain's Docs: https://python.langchain.com/api_reference/langchain/evaluation/langchain.evaluation.criteria.eval_chain.CriteriaEvalChain.html
             # Initialize Bedrock LLM
             bedrock_llm = BedrockLLM(
@@ -151,11 +155,15 @@ async def async_third_party_example():
             result = evaluator.evaluate_strings(prediction=evaluation_case.actual_output, input=evaluation_case.input)
 
             # Make sure to return the correct type
-            return EvaluationOutput(
-                score=result["score"], test_pass=True if result["score"] > 0.5 else False, reason=result["reasoning"]
-            )
+            return [
+                EvaluationOutput(
+                    score=result["score"],
+                    test_pass=True if result["score"] > 0.5 else False,
+                    reason=result["reasoning"],
+                )
+            ]
 
-        async def evaluate_async(self, evaluation_case: EvaluationData[str, str]) -> EvaluationOutput:
+        async def evaluate_async(self, evaluation_case: EvaluationData[str, str]) -> list[EvaluationOutput]:
             return self.evaluate(evaluation_case)
 
     # 4. Create an experiment
@@ -167,8 +175,8 @@ async def async_third_party_example():
     experiment.to_file("async_third_party_dataset")
 
     # 5. Run evaluations
-    reports = await experiment.run_evaluations_async(get_response)
-    return reports[0]
+    report = await experiment.run_evaluations_async(get_response)
+    return report
 
 
 if __name__ == "__main__":

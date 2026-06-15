@@ -95,8 +95,8 @@ cases = [
 ]
 
 experiment = Experiment(cases=cases, evaluators=[CoherenceEvaluator()])
-reports = experiment.run_evaluations(task_function)
-reports[0].run_display()
+report = experiment.run_evaluations(task_function)
+report.run_display()
 ```
 
 ## Related Evaluators

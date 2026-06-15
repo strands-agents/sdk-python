@@ -322,7 +322,7 @@ Strands ships both a Python and TypeScript SDK. Most doc pages show code in both
 - Python has `from strands import Agent`, TypeScript has `import { Agent } from '@strands-agents/sdk'` (verify current package name)
 - Error handling differs: Python raises exceptions, TypeScript may use different patterns
 
-**Prose between tabs should be language-neutral.** Don't write "Pass the `retry_strategy` parameter..." when the tabs show both Python and TypeScript. Write "Configure a retry strategy:" and let the code speak for itself. Language-specific parameter names belong in the code blocks, not in the prose.
+**Prose between tabs should be language-neutral — or use `<Syntax>`.** When shared prose needs to reference a language-specific identifier, use the `<Syntax>` component rather than spelling out both variants manually. This adapts to the reader's language selection and keeps prose clean. For introductory sentences before tabs, you can also write language-neutral prose ("Configure a retry strategy:") and let the code speak for itself.
 
 **Never name the language inside its own tab.** The reader selected the tab; they know which language they're reading. State facts directly without prefixing the language name. The tab itself provides that context.
 

@@ -15,7 +15,7 @@ import { createOpenAI } from '@ai-sdk/openai'
  * Feature support flags for model providers.
  * Used to conditionally run tests based on model capabilities.
  *
- * TODO: after https://github.com/strands-agents/sdk-python/issues/780 this config should be in src not test
+ * TODO: after https://github.com/strands-agents/harness-sdk/issues/780 this config should be in src not test
  */
 export interface ProviderFeatures {
   reasoning: boolean
@@ -43,7 +43,7 @@ export const bedrock = {
   models: {
     default: {},
     reasoning: {
-      modelId: 'us.anthropic.claude-sonnet-4-20250514-v1:0',
+      modelId: 'global.anthropic.claude-sonnet-4-6',
       additionalRequestFields: { thinking: { type: 'enabled', budget_tokens: 1024 } },
     },
     video: { modelId: 'us.amazon.nova-pro-v1:0' },
@@ -245,7 +245,7 @@ export const vercelBedrock = {
       providerOptions?: Record<string, unknown>
     }
     return new VercelModel({
-      provider: provider('us.anthropic.claude-sonnet-4-20250514-v1:0'),
+      provider: provider('global.anthropic.claude-sonnet-4-6'),
       ...rest,
       ...(providerOptions && { providerOptions }),
     })

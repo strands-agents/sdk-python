@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import { TestSandbox } from '../../__fixtures__/test-sandbox.node.js'
 import { buildShellEnvPrefix } from '../posix-shell.js'
+import { SandboxPathNotFoundError } from '../errors.js'
 import { streamProcess } from '../stream-process.js'
 import type { ExecutionResult, StreamChunk } from '../types.js'
 
@@ -219,13 +220,13 @@ describe.skipIf(process.platform === 'win32')('PosixShellSandbox', () => {
       expect(names).not.toContain('..')
     })
 
-    it('throws on nonexistent directory', async () => {
-      await expect(sandbox.listFiles('/tmp/nonexistent-dir-xyz')).rejects.toThrow()
+    it('throws SandboxPathNotFoundError on nonexistent directory', async () => {
+      await expect(sandbox.listFiles('/tmp/nonexistent-dir-xyz')).rejects.toBeInstanceOf(SandboxPathNotFoundError)
     })
 
-    it('throws when path is a file, not a directory', async () => {
+    it('throws SandboxPathNotFoundError when path is a file, not a directory', async () => {
       await sandbox.writeText('not-a-dir.txt', 'hello')
-      await expect(sandbox.listFiles('not-a-dir.txt')).rejects.toThrow()
+      await expect(sandbox.listFiles('not-a-dir.txt')).rejects.toBeInstanceOf(SandboxPathNotFoundError)
     })
   })
 

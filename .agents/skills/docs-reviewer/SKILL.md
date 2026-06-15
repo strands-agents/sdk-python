@@ -27,7 +27,7 @@ Reference `../../references/voice-guide.md` for the full layer definitions. Chec
 - **Narrative flow:** Start with why the topic matters and what use-case problems it solves. Throughout, show how to implement using Strands SDK in a self-contained, concise way.
 - **Framing:** Does the first sentence of every section describe the developer's goal? Flag sections leading with API descriptions.
 - **Register:** Is the tone appropriate for the content type?
-- **Constraints:** Scan for banned phrases, em-dashes, passive voice, hedging. Apply type-aware overrides (passive in reference is fine; longer sentences in explanation are fine). Flag any prose inside a `<Tab>` that names the language of that tab (e.g., "Python requires..." inside the Python tab, "In TypeScript..." inside the TypeScript tab). The reader chose the tab; they know what language they're reading.
+- **Constraints:** Scan for banned phrases, em-dashes, passive voice, hedging. Apply type-aware overrides (passive in reference is fine; longer sentences in explanation are fine). Flag any prose inside a `<Tab>` that names the language of that tab (e.g., "Python requires..." inside the Python tab, "In TypeScript..." inside the TypeScript tab). The reader chose the tab; they know what language they're reading. Flag language-specific identifiers spelled out manually in shared prose — these should use the `<Syntax>` component to adapt to the reader's language selection.
 - **Authenticity:** Structural variety, visible editorial choices, concision.
 
 ### 2. Terminology Consistency

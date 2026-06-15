@@ -152,3 +152,13 @@
   name: Haibo Ding
   role: "Principal Applied Scientist, Amazon"
   bio: Haibo Ding is a Principal Applied Scientist at Amazon Agentic AI working on agent evaluation, tool optimization, and foundation model evaluation and critic models. He holds a Ph.D. from the University of Utah and has served as an area chair for AAAI and ACL.
+
+- id: ian-holtz
+  name: Ian Holtz
+  role: "Sr. GTM Specialist, Agentic Coding, AWS"
+  bio: Ian Holtz is a Sr. GTM Specialist for Agentic Coding at AWS, helping developers discover and adopt AI-powered development tools and agentic frameworks.
+
+- id: ed-fraga
+  name: Ed Fraga
+  role: "Sr. Specialist SA, Bedrock, AWS"
+  bio: Ed Fraga is a Sr. Specialist Solutions Architect for Amazon Bedrock at AWS, helping customers design and build generative AI solutions with foundation models.

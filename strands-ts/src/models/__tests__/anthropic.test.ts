@@ -11,6 +11,7 @@ import {
   GuardContentBlock,
   ToolResultBlock,
   JsonBlock,
+  ReasoningBlock,
 } from '../../types/messages.js'
 import { ImageBlock, DocumentBlock, VideoBlock } from '../../types/media.js'
 import { warnOnce } from '../../logging/warn-once.js'
@@ -485,6 +486,24 @@ describe('AnthropicModel', () => {
         input_schema: { type: 'object', properties: {} },
       })
       expect(captured.request.tool_choice).toEqual({ type: 'auto' })
+    })
+
+    it('formats a signature-only reasoning block', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ client: mockClient })
+      const messages = [
+        new Message({
+          role: 'assistant',
+          content: [new ReasoningBlock({ signature: 'sig-abc' }), new TextBlock('answer')],
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      expect(captured.request.messages[0].content).toEqual([
+        { type: 'thinking', thinking: '', signature: 'sig-abc' },
+        { type: 'text', text: 'answer' },
+      ])
     })
 
     describe('Prompt Caching (Lookahead logic)', () => {

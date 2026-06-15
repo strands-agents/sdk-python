@@ -78,4 +78,5 @@ CLAUDE.md
 
 # dev
 .vitest*
+.local/
 

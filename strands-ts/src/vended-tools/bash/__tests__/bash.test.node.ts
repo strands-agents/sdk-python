@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { bash } from '../index.js'
+import { bash, makeBash } from '../index.js'
 import { BashTimeoutError, BashSessionError, type BashOutput } from '../index.js'
 import type { ToolContext } from '../../../index.js'
 import { StateStore } from '../../../state-store.js'
 import { createMockAgent } from '../../../__fixtures__/agent-helpers.js'
-import { realpathSync } from 'fs'
+import { TestSandbox } from '../../../__fixtures__/test-sandbox.node.js'
+import { realpathSync, mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
 // Skip tests on Windows (bash not available)
 describe.skipIf(process.platform === 'win32')('bash tool', () => {
@@ -47,10 +50,8 @@ describe.skipIf(process.platform === 'win32')('bash tool', () => {
 
     it('rejects invalid mode', async () => {
       const { context } = createFreshContext()
-      await expect(
-        // @ts-expect-error - Testing invalid input
-        bash.invoke({ mode: 'invalid' }, context)
-      ).rejects.toThrow()
+      // @ts-expect-error - Testing invalid input
+      await expect(bash.invoke({ mode: 'invalid' }, context)).rejects.toThrow()
     })
 
     it('rejects execute without command', async () => {
@@ -471,5 +472,51 @@ describe.skipIf(process.platform === 'win32')('bash tool', () => {
       expect(exitMock).toHaveBeenCalledWith(0)
       exitMock.mockRestore()
     })
+  })
+})
+
+describe.skipIf(process.platform === 'win32')('makeBash', () => {
+  const createSandboxBash = (): { sandboxBash: ReturnType<typeof makeBash>; context: ToolContext } => {
+    const workDir = mkdtempSync(join(tmpdir(), 'bash-sandbox-test-'))
+    const sandbox = new TestSandbox(workDir)
+    const sandboxBash = makeBash(sandbox)
+    const agent = createMockAgent()
+    const context: ToolContext = {
+      toolUse: { name: 'bash', toolUseId: 'test-id', input: {} },
+      agent,
+      invocationState: {},
+      interrupt: () => {
+        throw new Error('interrupt not available in mock context')
+      },
+    }
+    return { sandboxBash, context }
+  }
+
+  it('executes command via sandbox', async () => {
+    const { sandboxBash, context } = createSandboxBash()
+    const result = await sandboxBash.invoke({ command: 'echo "hello sandbox"' }, context)
+
+    expect((result as BashOutput).output).toContain('hello sandbox')
+    expect((result as BashOutput).error).toBe('')
+  })
+
+  it('captures stderr via sandbox', async () => {
+    const { sandboxBash, context } = createSandboxBash()
+    const result = await sandboxBash.invoke({ command: 'echo "oops" >&2' }, context)
+
+    expect((result as BashOutput).error).toContain('oops')
+  })
+
+  it('does not persist state between calls (stateless)', async () => {
+    const { sandboxBash, context } = createSandboxBash()
+    await sandboxBash.invoke({ command: 'export MY_VAR=hello' }, context)
+    const result = await sandboxBash.invoke({ command: 'echo "${MY_VAR:-empty}"' }, context)
+
+    expect((result as BashOutput).output.trim()).toBe('empty')
+  })
+
+  it('respects timeout', async () => {
+    const { sandboxBash, context } = createSandboxBash()
+    await expect(sandboxBash.invoke({ command: 'sleep 10', timeout: 0.1 }, context)).rejects.toThrow()
   })
 })

@@ -26,6 +26,7 @@ Example:
 """
 
 import json
+import logging
 import re
 import threading
 import time
@@ -35,6 +36,8 @@ from typing import Any, Protocol, runtime_checkable
 import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
+
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_id(raw_id: str) -> str:
@@ -213,17 +216,47 @@ class InMemoryStorage:
     Useful for testing and serverless environments where disk access
     is not available or not desired. Thread-safe.
 
+    Supports turn-based eviction: entries not accessed (stored or retrieved)
+    within ``evict_after_turns`` agent loop cycles are automatically removed.
+    The ``ContextOffloader`` plugin triggers eviction on each model invocation
+    cycle. Eviction is enabled by default (20 cycles). Pass ``None`` to disable.
+
     Note:
-        Content accumulates for the lifetime of this instance. For long-running
-        agents, consider creating a new instance per session or switching to
-        ``FileStorage`` or ``S3Storage`` for persistent storage with external
-        lifecycle management.
+        Content does not survive process restarts. For multi-session
+        persistence, use ``FileStorage`` or ``S3Storage``. Each agent should
+        use its own ``InMemoryStorage`` instance — sharing one across multiple
+        agents is not supported when eviction is enabled.
+
+        Evicted entries are permanently deleted from memory. The agent will
+        receive an error if it attempts to retrieve evicted content. The
+        original tool result is not preserved in the conversation history
+        after offloading — only the preview and references remain in context.
+
+    Args:
+        evict_after_turns: Number of cycles of inactivity before an entry is
+            evicted. Defaults to 20. ``None`` disables eviction.
     """
 
-    def __init__(self) -> None:
-        """Initialize in-memory storage."""
-        self._store: dict[str, tuple[bytes, str]] = {}
+    _DEFAULT_EVICT_AFTER_TURNS = 20
+
+    def __init__(self, evict_after_turns: int | None = _DEFAULT_EVICT_AFTER_TURNS) -> None:
+        """Initialize in-memory storage.
+
+        Args:
+            evict_after_turns: Number of cycles of inactivity before an entry is
+                evicted. Defaults to 20. ``None`` disables eviction.
+
+        Raises:
+            ValueError: If evict_after_turns is not a positive integer.
+        """
+        if evict_after_turns is not None and evict_after_turns < 1:
+            raise ValueError("evict_after_turns must be a positive integer")
+
+        self._store: dict[str, tuple[bytes, str, int]] = {}
         self._counter: int = 0
+        self._current_cycle: int = 0
+        self._evict_after_turns: int | None = evict_after_turns
+        self._bound_agent_id: int | None = None
         self._lock = threading.Lock()
 
     def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
@@ -240,11 +273,14 @@ class InMemoryStorage:
         with self._lock:
             self._counter += 1
             reference = f"mem_{self._counter}_{key}"
-            self._store[reference] = (content, content_type)
+            self._store[reference] = (content, content_type, self._current_cycle)
         return reference
 
     def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve content from memory.
+
+        Refreshes the last-accessed turn so the entry stays alive longer
+        when eviction is enabled.
 
         Args:
             reference: The reference returned by store().
@@ -253,12 +289,52 @@ class InMemoryStorage:
             A tuple of (content bytes, content type).
 
         Raises:
-            KeyError: If the reference is not found.
+            KeyError: If the reference is not found (or was evicted).
         """
         with self._lock:
             if reference not in self._store:
                 raise KeyError(f"Reference not found: {reference}")
-            return self._store[reference]
+            content, content_type, _ = self._store[reference]
+            self._store[reference] = (content, content_type, self._current_cycle)
+            return content, content_type
+
+    def _bind(self, agent_id: int) -> None:
+        """Claim this storage for a single agent.
+
+        Raises:
+            ValueError: If already bound to a different agent.
+        """
+        with self._lock:
+            if self._bound_agent_id is None:
+                self._bound_agent_id = agent_id
+            elif self._bound_agent_id != agent_id:
+                raise ValueError(
+                    "InMemoryStorage cannot be shared across multiple agents. "
+                    "Use a separate InMemoryStorage instance per agent."
+                )
+
+    def _evict(self, cycle: int) -> None:
+        """Update current cycle and evict stale entries.
+
+        Called by the ContextOffloader plugin on each ``BeforeModelCallEvent``.
+        Entries whose last-accessed cycle is more than ``evict_after_turns``
+        behind the current cycle are removed.
+
+        Args:
+            cycle: The agent's current event loop cycle count.
+        """
+        with self._lock:
+            self._current_cycle = cycle
+            if self._evict_after_turns is None:
+                return
+            threshold = cycle - self._evict_after_turns
+            stale_refs = [
+                ref for ref, (_, _, last_cycle) in self._store.items() if last_cycle < threshold
+            ]
+            for ref in stale_refs:
+                del self._store[ref]
+            if stale_refs:
+                logger.debug("evicted=<%d>, cycle=<%d> | stale entries removed", len(stale_refs), cycle)
 
     def clear(self) -> None:
         """Remove all stored content.

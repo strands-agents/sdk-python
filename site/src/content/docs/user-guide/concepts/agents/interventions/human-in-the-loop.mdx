@@ -13,7 +13,7 @@ The `HumanInTheLoop` intervention handler pauses agent execution before tool cal
 
 ## How It Works
 
-The handler uses the [`confirm` action](./interventions) to pause for human input. Under the hood it builds on the SDK's [interrupt mechanism](../interrupts), but abstracts away the manual interrupt/resume loop when you provide an `ask` option.
+The handler uses the [`confirm` action](./index.mdx) to pause for human input. Under the hood it builds on the SDK's [interrupt mechanism](../../interrupts), but abstracts away the manual interrupt/resume loop when you provide an `ask` option.
 
 ```mermaid
 flowchart LR
@@ -30,12 +30,12 @@ flowchart LR
 
 ### Interrupt/Resume Mode (Default)
 
-Without an `ask` option, the handler raises an interrupt and the agent pauses. The caller presents the interrupt to the user, collects their response, and resumes the agent. This is the same [interrupt/resume pattern](../interrupts#hooks) used throughout the SDK. For stateless deployments, combine with a [session manager](./session-management) to persist state between requests.
+Without an `ask` option, the handler raises an interrupt and the agent pauses. The caller presents the interrupt to the user, collects their response, and resumes the agent. This is the same [interrupt/resume pattern](../../interrupts#hooks) used throughout the SDK. For stateless deployments, combine with a [session manager](../session-management) to persist state between requests.
 
 ```typescript
---8<-- "user-guide/concepts/agents/human-in-the-loop_imports.ts:basic_interrupt_imports"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop_imports.ts:basic_interrupt_imports"
 
---8<-- "user-guide/concepts/agents/human-in-the-loop.ts:basic_interrupt"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop.ts:basic_interrupt"
 ```
 
 ### Stdio Mode
@@ -43,9 +43,9 @@ Without an `ask` option, the handler raises an interrupt and the agent pauses. T
 For CLI applications, pass `ask: 'stdio'` to prompt the user inline via Node.js readline. The agent blocks until the user responds, so no interrupt handling is needed on the caller side.
 
 ```typescript
---8<-- "user-guide/concepts/agents/human-in-the-loop_imports.ts:stdio_mode_imports"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop_imports.ts:stdio_mode_imports"
 
---8<-- "user-guide/concepts/agents/human-in-the-loop.ts:stdio_mode"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop.ts:stdio_mode"
 ```
 
 ### Custom UI Callback
@@ -53,9 +53,9 @@ For CLI applications, pass `ask: 'stdio'` to prompt the user inline via Node.js 
 For web UIs, Slack bots, or other custom interfaces, pass an async function to `ask`. The function receives a prompt string describing the tool call and must return the user's response.
 
 ```typescript
---8<-- "user-guide/concepts/agents/human-in-the-loop_imports.ts:custom_ask_imports"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop_imports.ts:custom_ask_imports"
 
---8<-- "user-guide/concepts/agents/human-in-the-loop.ts:custom_ask"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop.ts:custom_ask"
 ```
 
 ## Configuration
@@ -73,9 +73,9 @@ For web UIs, Slack bots, or other custom interfaces, pass an async function to `
 Use `allowedTools` to skip approval for safe, read-only tools:
 
 ```typescript
---8<-- "user-guide/concepts/agents/human-in-the-loop_imports.ts:allowed_tools_imports"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop_imports.ts:allowed_tools_imports"
 
---8<-- "user-guide/concepts/agents/human-in-the-loop.ts:allowed_tools"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop.ts:allowed_tools"
 ```
 
 ### Trust Mode
@@ -85,9 +85,9 @@ When `enableTrust` is `true`, a human can respond with `'t'` or `'trust'` to app
 Trust state is stored in `agent.appState` and persists across turns within a session but resets when the agent is re-created. Negated tools (`'!toolName'`) cannot be trusted and always prompt.
 
 ```typescript
---8<-- "user-guide/concepts/agents/human-in-the-loop_imports.ts:trust_mode_imports"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop_imports.ts:trust_mode_imports"
 
---8<-- "user-guide/concepts/agents/human-in-the-loop.ts:trust_mode"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop.ts:trust_mode"
 ```
 
 ### Custom Evaluate
@@ -95,18 +95,18 @@ Trust state is stored in `agent.appState` and persists across turns within a ses
 By default, the handler accepts `true`, `'y'`, or `'yes'` as approval. Use `evaluate` to define your own approval logic, for example requiring the user to type "confirm":
 
 ```typescript
---8<-- "user-guide/concepts/agents/human-in-the-loop_imports.ts:custom_evaluate_imports"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop_imports.ts:custom_evaluate_imports"
 
---8<-- "user-guide/concepts/agents/human-in-the-loop.ts:custom_evaluate"
+--8<-- "user-guide/concepts/agents/interventions/human-in-the-loop.ts:custom_evaluate"
 ```
 
 ## When to Use
 
-Use `HumanInTheLoop` when you want tool-level approval gating with minimal code: it handles allow-lists, trust, and collection mode out of the box. Use [raw interrupts](../interrupts) when you need full control: custom interrupt shapes, multi-step interactions, or workflows beyond simple approve/deny.
+Use `HumanInTheLoop` when you want tool-level approval gating with minimal code: it handles allow-lists, trust, and collection mode out of the box. Use [raw interrupts](../../interrupts) when you need full control: custom interrupt shapes, multi-step interactions, or workflows beyond simple approve/deny.
 
 ## Related Topics
 
-- [Interventions](./interventions): The intervention handler framework that HITL is built on
-- [Interrupts](../interrupts): Low-level interrupt/resume mechanism
-- [Agent State](./state): How trust decisions persist via `appState`
-- [Session Management](./session-management): Persisting interrupt state across sessions
+- [Interventions](./index.mdx): The intervention handler framework that HITL is built on
+- [Interrupts](../../interrupts): Low-level interrupt/resume mechanism
+- [Agent State](../state): How trust decisions persist via `appState`
+- [Session Management](../session-management): Persisting interrupt state across sessions
