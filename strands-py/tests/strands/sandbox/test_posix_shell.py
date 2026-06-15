@@ -26,6 +26,7 @@ from strands.sandbox import (
     PosixShellSandbox,
     StreamChunk,
 )
+from strands.sandbox.errors import SandboxPathNotFoundError
 from strands.sandbox.posix_shell import (
     build_shell_env_prefix,
     validate_env_keys,
@@ -435,14 +436,14 @@ async def test_list_excludes_dot_entries(sandbox):
 
 @pytest.mark.asyncio
 async def test_list_nonexistent_directory_raises(sandbox):
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(SandboxPathNotFoundError):
         await sandbox.list_files("/tmp/nonexistent-dir-xyz-12345")
 
 
 @pytest.mark.asyncio
 async def test_list_on_file_raises(sandbox):
     await sandbox.write_text("not-a-dir.txt", "hello")
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(SandboxPathNotFoundError):
         await sandbox.list_files("not-a-dir.txt")
 
 

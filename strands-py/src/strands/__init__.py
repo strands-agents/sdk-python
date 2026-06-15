@@ -15,6 +15,7 @@ from .sandbox import (
     StreamChunk,
     StreamType,
 )
+from .sandbox.errors import SandboxPathNotFoundError, SandboxTimeoutError
 from .tools.decorator import tool
 from .types._snapshot import Snapshot
 from .types.tools import ToolContext
@@ -35,6 +36,8 @@ __all__ = [
     "Plugin",
     "PosixShellSandbox",
     "Sandbox",
+    "SandboxPathNotFoundError",
+    "SandboxTimeoutError",
     "Skill",
     "Snapshot",
     "StreamChunk",

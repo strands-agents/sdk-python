@@ -17,6 +17,7 @@ import os
 import signal
 from collections.abc import AsyncGenerator
 
+from .errors import SandboxTimeoutError
 from .types import ExecutionResult, StreamChunk, StreamType
 
 _READ_CHUNK_SIZE = 65536
@@ -65,7 +66,7 @@ async def stream_process(
         :class:`ExecutionResult`.
 
     Raises:
-        TimeoutError: If execution exceeds ``timeout`` seconds.
+        SandboxTimeoutError: If execution exceeds ``timeout`` seconds.
         FileNotFoundError: If ``program`` is not found and ``enoent_message`` is ``None``.
     """
     try:
@@ -118,7 +119,7 @@ async def stream_process(
             yield item
 
         if timed_out:
-            raise TimeoutError(f"Execution timed out after {timeout} seconds")
+            raise SandboxTimeoutError(timeout)
 
         returncode = proc.returncode if proc.returncode is not None else 1
         exit_code = _SIGNAL_EXIT_BASE - returncode if returncode < 0 else returncode

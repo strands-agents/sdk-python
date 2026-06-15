@@ -60,7 +60,7 @@ class DockerSandbox(PosixShellSandbox):
 
         Raises:
             ValueError: If an environment variable name is invalid.
-            TimeoutError: If execution exceeds ``timeout`` seconds.
+            SandboxTimeoutError: If execution exceeds ``timeout`` seconds.
         """
         args = ["exec"]
 

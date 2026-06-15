@@ -6,31 +6,29 @@ from ``strands-ts/src/sandbox/not-a-sandbox-local-environment.ts``) is a warning
 this is the fallback an :class:`~strands.agent.agent.Agent` uses when no sandbox
 is passed, not a security boundary.
 
-Idiomatic divergences from the TypeScript oracle:
-
-- TS's ``NotASandboxLocalEnvironment`` extends ``Sandbox`` directly and reimplements
-  the base64 heredoc code-execution logic. Python already factored that into
-  :class:`~strands.sandbox.posix_shell.PosixShellSandbox`, so this class extends it,
-  inherits :meth:`~strands.sandbox.posix_shell.PosixShellSandbox.execute_code_streaming`,
-  and implements only the shell :meth:`execute_streaming`.
-- File operations are overridden with **native** :mod:`pathlib`/:mod:`os` calls
-  rather than the shell-based defaults, so they avoid spawning a shell and report
-  real ``size`` metadata in :meth:`list_files` (the shell-based base always returns
-  ``None``).
+Mirroring the TypeScript oracle, this extends :class:`~strands.sandbox.base.Sandbox`
+directly: file operations use **native** :mod:`pathlib`/:mod:`os` calls (avoiding a
+shell and reporting real ``size`` metadata), while command and code execution spawn a
+local ``sh``.
 """
 
+import base64
 import os
 import shlex
+import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
-from .posix_shell import PosixShellSandbox, build_shell_env_prefix
+from .base import Sandbox
+from .constants import LANGUAGE_PATTERN
+from .errors import SandboxPathNotFoundError
+from .posix_shell import build_shell_env_prefix
 from .stream_process import stream_process
 from .types import ExecutionResult, FileInfo, StreamChunk
 
 
-class NotASandboxLocalEnvironment(PosixShellSandbox):
+class NotASandboxLocalEnvironment(Sandbox):
     """Run commands, code, and file operations on the host with no isolation.
 
     Used as the default execution environment when an :class:`Agent` is created
@@ -73,12 +71,56 @@ class NotASandboxLocalEnvironment(PosixShellSandbox):
 
         Raises:
             ValueError: If an environment variable name is invalid.
-            TimeoutError: If execution exceeds ``timeout`` seconds.
+            SandboxTimeoutError: If execution exceeds ``timeout`` seconds.
         """
         target_cwd = cwd if cwd is not None else os.getcwd()
         env_prefix = build_shell_env_prefix(env)
         full_command = f"cd {shlex.quote(target_cwd)} && {env_prefix}{command}"
         async for chunk in stream_process("sh", ["-c", full_command], timeout=timeout):
+            yield chunk
+
+    async def execute_code_streaming(
+        self,
+        code: str,
+        language: str,
+        *,
+        timeout: float | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[StreamChunk | ExecutionResult, None]:
+        """Execute code on the host by piping it to a language interpreter via ``sh``.
+
+        The code is base64-encoded and decoded inside a quoted heredoc, then piped to
+        the interpreter (``base64 -d << 'EOF' | <lang>``), so arbitrary source —
+        including shell metacharacters, quotes, and newlines — reaches the interpreter
+        without injection risk. ``language`` is validated against
+        :data:`~strands.sandbox.constants.LANGUAGE_PATTERN` first.
+
+        Args:
+            code: The source code to execute.
+            language: The interpreter to use (e.g., ``"python3"``, ``"node"``).
+            timeout: Maximum execution time in seconds. ``None`` means no timeout.
+            cwd: Working directory for execution. Defaults to the process's current
+                working directory.
+            env: Environment variables to set, applied via a shell ``export`` prefix.
+            **kwargs: Additional keyword arguments for forward compatibility.
+
+        Yields:
+            :class:`StreamChunk` objects for output, then a final
+            :class:`ExecutionResult`.
+
+        Raises:
+            ValueError: If ``language`` contains invalid characters or an environment
+                variable name is invalid.
+            SandboxTimeoutError: If execution exceeds ``timeout`` seconds.
+        """
+        if not LANGUAGE_PATTERN.fullmatch(language):
+            raise ValueError(f"language parameter contains invalid characters: {language}")
+        encoded = base64.b64encode(code.encode()).decode("ascii")
+        eof = f"STRANDS_EOF_{uuid.uuid4().hex[:16]}"
+        command = f"base64 -d << '{eof}' | {language}\n{encoded}\n{eof}"
+        async for chunk in self.execute_streaming(command, timeout=timeout, cwd=cwd, env=env, **kwargs):
             yield chunk
 
     async def read_file(self, path: str, **kwargs: Any) -> bytes:
@@ -143,12 +185,19 @@ class NotASandboxLocalEnvironment(PosixShellSandbox):
             A list of :class:`FileInfo` entries for the directory contents.
 
         Raises:
-            FileNotFoundError: If the directory does not exist.
-            NotADirectoryError: If ``path`` is not a directory.
+            SandboxPathNotFoundError: If the directory does not exist or ``path``
+                is not a directory. Permission and other errors propagate so
+                callers can surface them.
         """
         full_path = self._resolve_path(path)
         results: list[FileInfo] = []
-        with os.scandir(full_path) as entries:
+        try:
+            scanner = os.scandir(full_path)
+        except (FileNotFoundError, NotADirectoryError) as e:
+            # A missing path (or a file where a directory was expected) is non-existence;
+            # permission and other errors propagate so callers can surface them.
+            raise SandboxPathNotFoundError(path) from e
+        with scanner as entries:
             for entry in sorted(entries, key=lambda e: e.name):
                 try:
                     stat = entry.stat()

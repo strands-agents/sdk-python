@@ -64,7 +64,8 @@ from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
 from ..plugins.registry import _PluginRegistry
-from ..sandbox import Sandbox, default_sandbox
+from ..sandbox import Sandbox
+from ..sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
@@ -177,7 +178,7 @@ class Agent(AgentBase):
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
         concurrent_invocation_mode: ConcurrentInvocationMode = ConcurrentInvocationMode.THROW,
         checkpointing: bool = False,
-        sandbox: Sandbox | Literal[False] | None = None,
+        sandbox: Sandbox | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -275,22 +276,19 @@ class Agent(AgentBase):
                 Defaults to False. See :mod:`strands.experimental.checkpoint`.
             sandbox: Execution environment for running commands, code, and file operations.
                 When provided, sandbox-aware tools route operations through it via
-                ``context.agent.sandbox``. Two distinct intents that currently resolve to the
-                same host execution:
-
-                - ``None`` (omitted): use the host default
-                  (:class:`~strands.sandbox.NotASandboxLocalEnvironment`, no isolation).
-                - ``False``: explicitly opt out of a managed sandbox and run on the host.
-
-                ``False`` is kept distinct from ``None`` so the opt-out stays stable even if
-                the default changes. Defaults to None.
+                ``context.agent.sandbox``. Defaults to ``None``, which falls back to a
+                :class:`~strands.sandbox.NotASandboxLocalEnvironment` that runs on the host
+                with no isolation.
 
         Raises:
             ValueError: If agent id contains path separators.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
-        self._sandbox = sandbox
+        if sandbox is not None and not isinstance(sandbox, Sandbox):
+            raise TypeError(f"sandbox must be a Sandbox instance or None, got {type(sandbox).__name__}")
+        # Resolve once: configured sandbox, or this agent's own host default (not shared across agents).
+        self._sandbox: Sandbox = sandbox or NotASandboxLocalEnvironment()
         # initializing self._system_prompt for backwards compatibility
         self._system_prompt, self._system_prompt_content = split_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
@@ -608,12 +606,11 @@ class Agent(AgentBase):
     def sandbox(self) -> Sandbox:
         """Execution environment for running commands, code, and file operations.
 
-        Returns the configured sandbox, or a host default
+        Returns the configured sandbox, or a per-agent host default
         (:class:`~strands.sandbox.NotASandboxLocalEnvironment`, no isolation) when none was
-        configured or ``sandbox=False`` was passed.
+        configured.
         """
-        # isinstance, not truthiness: a custom Sandbox could be falsy. False/None fall through.
-        return self._sandbox if isinstance(self._sandbox, Sandbox) else default_sandbox()
+        return self._sandbox
 
     @property
     def system_prompt(self) -> str | None:

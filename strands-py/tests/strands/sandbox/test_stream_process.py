@@ -13,6 +13,7 @@ import sys
 
 import pytest
 
+from strands.sandbox.errors import SandboxTimeoutError
 from strands.sandbox.stream_process import stream_process
 from strands.sandbox.types import ExecutionResult, StreamChunk
 
@@ -60,7 +61,7 @@ async def test_timeout_is_wall_clock_even_with_steady_output():
     # the timeout is measured from spawn, not reset per chunk.
     loop = asyncio.get_event_loop()
     start = loop.time()
-    with pytest.raises(TimeoutError, match="timed out after 0.3 seconds"):
+    with pytest.raises(SandboxTimeoutError, match="timed out after 0.3 seconds"):
         await _collect(stream_process("sh", ["-c", "while true; do echo x; sleep 0.02; done"], timeout=0.3))
     assert loop.time() - start < 3
 
@@ -73,7 +74,7 @@ async def test_timeout_kills_child_processes_that_outlive_the_parent():
     # process group.
     loop = asyncio.get_event_loop()
     start = loop.time()
-    with pytest.raises(TimeoutError, match="timed out after 0.5 seconds"):
+    with pytest.raises(SandboxTimeoutError, match="timed out after 0.5 seconds"):
         await _collect(stream_process("sh", ["-c", "echo hi; sleep 60"], timeout=0.5))
     assert loop.time() - start < 3
 

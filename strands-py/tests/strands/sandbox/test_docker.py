@@ -9,7 +9,7 @@ import unittest.mock
 
 import pytest
 
-from strands.sandbox import DockerSandbox
+from strands.sandbox.docker import DockerSandbox
 from strands.sandbox.types import ExecutionResult
 
 

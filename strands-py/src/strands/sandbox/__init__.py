@@ -9,13 +9,14 @@ interface from ``strands-ts/src/sandbox/`` (the behavioral oracle):
 - :class:`PosixShellSandbox` — an abstract sandbox that implements file and code
   operations via shell commands; subclasses implement only
   :meth:`~strands.sandbox.base.Sandbox.execute_streaming`.
-- :class:`DockerSandbox` — run commands in a Docker container via ``docker exec``.
-- :class:`SshSandbox` — run commands on a remote host via OpenSSH.
 - Data types: :class:`StreamChunk`, :class:`FileInfo`, :class:`OutputFile`,
   :class:`ExecutionResult`, and the :data:`StreamType` literal.
 - :data:`LANGUAGE_PATTERN` — interpreter-name validation pattern.
 
-Commonly-used symbols are also re-exported from the top-level ``strands`` package.
+Concrete sandboxes are imported from their own modules
+(e.g. ``from strands.sandbox.docker import DockerSandbox``), mirroring the TS oracle.
+The sandbox error types (:class:`SandboxTimeoutError`, :class:`SandboxPathNotFoundError`)
+are re-exported from the top-level ``strands`` package, as in the TS oracle.
 
 Example:
     A minimal shell-backed sandbox needs only ``execute_streaming``::
@@ -29,31 +30,16 @@ Example:
 
 from .base import Sandbox
 from .constants import LANGUAGE_PATTERN
-from .docker import DockerSandbox
-from .not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 from .posix_shell import PosixShellSandbox
-from .ssh import SshSandbox
 from .types import ExecutionResult, FileInfo, OutputFile, StreamChunk, StreamType
 
-# One shared, stateless instance, mirroring the TS oracle's module-level default.
-_default_sandbox = NotASandboxLocalEnvironment()
-
-
-def default_sandbox() -> Sandbox:
-    """Return the shared host default used when an Agent has no sandbox configured."""
-    return _default_sandbox
-
-
 __all__ = [
-    "DockerSandbox",
     "ExecutionResult",
     "FileInfo",
     "LANGUAGE_PATTERN",
-    "NotASandboxLocalEnvironment",
     "OutputFile",
     "PosixShellSandbox",
     "Sandbox",
-    "SshSandbox",
     "StreamChunk",
     "StreamType",
 ]

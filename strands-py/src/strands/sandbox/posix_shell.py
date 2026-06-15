@@ -18,6 +18,7 @@ from typing import Any
 
 from .base import Sandbox
 from .constants import ENV_KEY_PATTERN, LANGUAGE_PATTERN
+from .errors import SandboxPathNotFoundError
 from .types import ExecutionResult, FileInfo, StreamChunk
 
 logger = logging.getLogger(__name__)
@@ -216,13 +217,17 @@ class PosixShellSandbox(Sandbox, ABC):
             this shell-based listing).
 
         Raises:
-            FileNotFoundError: If the directory does not exist (or ``path`` is
-                not a directory).
+            SandboxPathNotFoundError: If the directory does not exist (or ``path``
+                is not a directory).
+            OSError: If the listing fails for another reason.
         """
         quoted = shlex.quote(path)
-        result = await self.execute(f"test -d {quoted} || exit 1; env QUOTING_STYLE=literal ls -1ap {quoted}")
+        # Exit 77 distinguishes a missing directory from ls's own failures (locale-independent).
+        result = await self.execute(f"test -d {quoted} || exit 77; env QUOTING_STYLE=literal ls -1ap {quoted}")
+        if result.exit_code == 77:
+            raise SandboxPathNotFoundError(path)
         if result.exit_code != 0:
-            raise FileNotFoundError(result.stderr or f"Failed to list directory: {path}")
+            raise OSError(result.stderr or f"Failed to list directory: {path}")
 
         entries: list[FileInfo] = []
         for raw in result.stdout.split("\n"):

@@ -10,7 +10,9 @@ import sys
 
 import pytest
 
-from strands.sandbox import FileInfo, NotASandboxLocalEnvironment
+from strands.sandbox import FileInfo
+from strands.sandbox.errors import SandboxPathNotFoundError
+from strands.sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell required")
 
@@ -147,16 +149,17 @@ async def test_list_files_sorted_with_is_dir_and_size(sandbox, tmp_path):
 
 @pytest.mark.asyncio
 async def test_list_nonexistent_directory_raises(sandbox, tmp_path):
-    with pytest.raises(FileNotFoundError):
+    # Missing path (ENOENT) maps to SandboxPathNotFoundError, mirroring the TS oracle.
+    with pytest.raises(SandboxPathNotFoundError):
         await sandbox.list_files(str(tmp_path / "no-such-dir"))
 
 
 @pytest.mark.asyncio
 async def test_list_files_on_a_file_path_raises(sandbox, tmp_path):
-    # Mirrors the TS oracle's "path component is a file" case (ENOTDIR -> NotADirectoryError).
+    # Mirrors the TS oracle's "path component is a file" case (ENOTDIR -> SandboxPathNotFoundError).
     file = tmp_path / "file.txt"
     await sandbox.write_text(str(file), "x")
-    with pytest.raises(NotADirectoryError):
+    with pytest.raises(SandboxPathNotFoundError):
         await sandbox.list_files(str(file / "nested"))
 
 

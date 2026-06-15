@@ -15,7 +15,7 @@ import unittest.mock
 
 import pytest
 
-from strands.sandbox import SshSandbox
+from strands.sandbox.ssh import SshSandbox
 from strands.sandbox.types import ExecutionResult
 
 # Leading SSH flags shared by every invocation, with default host-key checking.
