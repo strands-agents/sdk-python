@@ -15,13 +15,15 @@ Create an intervention handler by extending `InterventionHandler` and overriding
 <Tab label="Python">
 
 ```python
---8<-- "user-guide/concepts/agents/interventions/index.py:basic_usage"
+--8<-- "user-guide/concepts/agents/interventions/interventions.py:basic_usage"
 ```
 </Tab>
 <Tab label="TypeScript">
 
 ```typescript
---8<-- "user-guide/concepts/agents/interventions/index.ts:basic_usage"
+--8<-- "user-guide/concepts/agents/interventions/interventions_imports.ts:basic_usage_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/interventions.ts:basic_usage"
 ```
 </Tab>
 </Tabs>
@@ -61,13 +63,15 @@ The following examples show each action type in a realistic handler:
 <Tab label="Python">
 
 ```python
---8<-- "user-guide/concepts/agents/interventions/index.py:action_types"
+--8<-- "user-guide/concepts/agents/interventions/interventions.py:action_types"
 ```
 </Tab>
 <Tab label="TypeScript">
 
 ```typescript
---8<-- "user-guide/concepts/agents/interventions/index.ts:action_types"
+--8<-- "user-guide/concepts/agents/interventions/interventions_imports.ts:action_types_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/interventions.ts:action_types"
 ```
 </Tab>
 </Tabs>
@@ -103,13 +107,15 @@ Handlers evaluate in **registration order**. If any handler returns `Deny`, rema
 <Tab label="Python">
 
 ```python
---8<-- "user-guide/concepts/agents/interventions/index.py:short_circuiting"
+--8<-- "user-guide/concepts/agents/interventions/interventions.py:short_circuiting"
 ```
 </Tab>
 <Tab label="TypeScript">
 
 ```typescript
---8<-- "user-guide/concepts/agents/interventions/index.ts:short_circuiting"
+--8<-- "user-guide/concepts/agents/interventions/interventions_imports.ts:short_circuiting_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/interventions.ts:short_circuiting"
 ```
 </Tab>
 </Tabs>
@@ -130,13 +136,15 @@ The <Syntax py="on_error" ts="onError" /> property controls what happens when a 
 <Tab label="Python">
 
 ```python
---8<-- "user-guide/concepts/agents/interventions/index.py:error_handling"
+--8<-- "user-guide/concepts/agents/interventions/interventions.py:error_handling"
 ```
 </Tab>
 <Tab label="TypeScript">
 
 ```typescript
---8<-- "user-guide/concepts/agents/interventions/index.ts:error_handling"
+--8<-- "user-guide/concepts/agents/interventions/interventions_imports.ts:error_handling_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/interventions.ts:error_handling"
 ```
 </Tab>
 </Tabs>
@@ -158,7 +166,7 @@ The `Confirm` action is only supported on <Syntax py="before_tool_call" ts="befo
 The `evaluate` function determines whether the response counts as approval. The default accepts `True`, `"y"`, or `"yes"` (case-insensitive).
 
 ```python
---8<-- "user-guide/concepts/agents/interventions/index.py:confirm"
+--8<-- "user-guide/concepts/agents/interventions/interventions.py:confirm"
 ```
 </Tab>
 <Tab label="TypeScript">
@@ -166,7 +174,9 @@ The `evaluate` function determines whether the response counts as approval. The 
 `Confirm` pauses the agent loop via the interrupt system. The agent resumes when the interrupt is resolved externally.
 
 ```typescript
---8<-- "user-guide/concepts/agents/interventions/index.ts:confirm"
+--8<-- "user-guide/concepts/agents/interventions/interventions_imports.ts:confirm_imports"
+
+--8<-- "user-guide/concepts/agents/interventions/interventions.ts:confirm"
 ```
 
 See [Human in the Loop](./human-in-the-loop.mdx) for ready-to-use approval workflows with configurable modes for CLI, web, and custom UIs.
