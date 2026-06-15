@@ -92,6 +92,7 @@ sidebar:
             items:
               - label: "Overview"
                 slug: docs/user-guide/concepts/agents/interventions
+              - docs/user-guide/concepts/agents/interventions/cedar-authorization
               - docs/user-guide/concepts/agents/interventions/steering
               - docs/user-guide/concepts/agents/interventions/human-in-the-loop
           - label: Streaming
