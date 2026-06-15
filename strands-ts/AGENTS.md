@@ -220,6 +220,7 @@ export class AgentSkillsPlugin implements Plugin { ... }
 - Do NOT include `@example` for type definitions, interfaces, or internal types
 - Interface properties MUST have single-line descriptions
 - TSDoc validation enforced by ESLint
+- Mark exported symbols that are not part of the public API with the `@internal` TSDoc tag. Use this for exports that other modules need but SDK consumers should not depend on.
 
 ### Code Style Guidelines
 

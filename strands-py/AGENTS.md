@@ -179,7 +179,7 @@ from .tools import Tool
 - **Variables/Functions**: `snake_case`
 - **Classes**: `PascalCase`
 - **Constants**: `UPPER_SNAKE_CASE`
-- **Private members**: Prefix with `_`
+- **Private members, functions, and modules**: Prefix with `_` (e.g. `_helper()`, `_internal.py`)
 
 ### Error Handling
 
