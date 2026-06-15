@@ -96,5 +96,5 @@ Trust will build incrementally. Each reviewed and approved PR gives us more evid
 
 ## References
 
-- **[Adversarial and cross-language differential testing](https://gist.github.com/agent-of-mkmeral/5a4d0ce16a1242a711d77d7e01c19902#6-adversarial--cross-language-differential-testing).** Design notes on building an agentic multi-language SDK (from @murmeral), whose differential testing section argues for proving behavioral equivalence with failing tests as "non-hallucinatable evidence" rather than agent opinion.
+- **[Adversarial and cross-language differential testing](https://gist.github.com/agent-of-mkmeral/5a4d0ce16a1242a711d77d7e01c19902#6-adversarial--cross-language-differential-testing).** Design notes on building an agentic multi-language SDK (from @mkmeral), whose differential testing section argues for proving behavioral equivalence with failing tests as "non-hallucinatable evidence" rather than agent opinion.
 - **[ReCodeAgent (arXiv:2604.07341)](https://arxiv.org/abs/2604.07341).** Paper on an autonomous multi-agent system that translates and validates entire code repositories across languages, reporting high translation success rates over 118 real-world projects.
