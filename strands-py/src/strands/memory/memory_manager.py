@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
+from .._middleware.stages import InvokeModelStage
 from ..hooks.events import MessageAddedEvent
+from ..injection.message_injection import create_injection_middleware, is_user_turn
+from ..injection.xml import escape_xml_attr, escape_xml_text
 from ..plugins.plugin import Plugin
 from ..tools.decorator import tool
 from ..types.exceptions import AggregateMemoryError
@@ -15,9 +18,12 @@ from ..types.tools import AgentTool
 from .extraction.coordinator import ExtractionCoordinator
 from .extraction.types import ExtractionTrigger, ExtractionTriggerContext
 from .types import (
+    InjectionFormatContext,
+    InjectionQueryContext,
     MemoryAddOptions,
     MemoryAddToolConfig,
     MemoryEntry,
+    MemoryInjectionConfig,
     MemorySearchOptions,
     MemoryStore,
     MemoryToolConfig,
@@ -27,6 +33,7 @@ from .types import (
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..types.content import Messages
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +49,9 @@ ADD_TOOL_DESCRIPTION = (
 
 # Default maximum results per store when neither caller nor store specifies one.
 DEFAULT_MAX_SEARCH_RESULTS = 3
+
+# Default number of entries injected per model call when injection does not specify one.
+DEFAULT_MAX_ENTRIES = 5
 
 
 def _normalize_triggers(trigger: ExtractionTrigger | list[ExtractionTrigger]) -> list[ExtractionTrigger]:
@@ -83,6 +93,7 @@ class MemoryManager(Plugin):
         stores: list[MemoryStore],
         search_tool_config: MemoryToolConfig | bool = True,
         add_tool_config: MemoryAddToolConfig | bool = False,
+        injection: MemoryInjectionConfig | bool = True,
     ) -> None:
         """Initialize the memory manager.
 
@@ -94,6 +105,11 @@ class MemoryManager(Plugin):
             add_tool_config: Add tool configuration. ``False`` (default) disables
                 the add tool; ``True`` lets it write to all writable stores; a
                 :class:`MemoryAddToolConfig` restricts/customizes it.
+            injection: Memory context injection. ``True`` (default) uses the
+                default injection settings; a :class:`MemoryInjectionConfig`
+                customizes retrieval, timing, and formatting; ``False`` disables
+                it. When enabled, retrieved memory is folded into the model input
+                before each call without touching durable history.
 
         Raises:
             ValueError: If ``stores`` is empty, a store name is duplicated, a
@@ -169,6 +185,16 @@ class MemoryManager(Plugin):
 
         # Extraction coordinator, created in ``init_agent`` when configured.
         self._coordinator: ExtractionCoordinator | None = None
+
+        # Resolved injection config, or ``False`` when injection is disabled. ``True`` resolves
+        # to a default ``MemoryInjectionConfig``; a config object passes through unchanged.
+        self._injection_config: MemoryInjectionConfig | Literal[False]
+        if injection is False:
+            self._injection_config = False
+        elif isinstance(injection, MemoryInjectionConfig):
+            self._injection_config = injection
+        else:
+            self._injection_config = MemoryInjectionConfig()
 
         # Build tools now; surfaced via the ``tools`` property.
         self._memory_tools: list[AgentTool] = self._build_tools()
@@ -508,14 +534,23 @@ class MemoryManager(Plugin):
     def init_agent(self, agent: Agent) -> None:
         """Initialize the plugin with the agent.
 
-        Wires up automatic extraction for any store configured with an
-        ``ExtractionConfig``. A no-op when no store uses extraction.
+        Wires up two independent behaviors:
 
-        Extraction runs in the background. The synchronous ``Agent(...)`` entry
-        point awaits :meth:`flush` after each invocation so writes persist;
-        callers driving the agent through their own event loop should await
-        :meth:`flush` at a shutdown boundary.
+        - **Extraction**: for any store configured with an ``ExtractionConfig``,
+          buffers conversation messages and attaches each store's triggers. A
+          no-op when no store uses extraction. Extraction runs in the background;
+          the synchronous ``Agent(...)`` entry point awaits :meth:`flush` after
+          each invocation so writes persist, and callers driving the agent through
+          their own event loop should await :meth:`flush` at a shutdown boundary.
+        - **Injection**: when enabled, registers an ``InvokeModelStage`` middleware
+          that folds retrieved memory into the model input for each call without
+          touching durable history. A no-op when injection is disabled.
         """
+        self._init_extraction(agent)
+        self._init_injection(agent)
+
+    def _init_extraction(self, agent: Agent) -> None:
+        """Wire background extraction for stores configured with an ``ExtractionConfig``."""
         if len(self._extraction_stores) == 0:
             return
 
@@ -529,6 +564,112 @@ class MemoryManager(Plugin):
             assert store.extraction is not None  # noqa: S101 - extraction stores always configure this.
             for trigger in _normalize_triggers(store.extraction.trigger):
                 trigger.attach(ExtractionTriggerContext(agent=agent, fire=self._make_fire(coordinator, store)))
+
+    def _init_injection(self, agent: Agent) -> None:
+        """Register the injection middleware when injection is enabled.
+
+        Folds retrieved memory into the model input for each call via
+        :meth:`_provide_memory_context`, without touching durable history. A no-op
+        when injection is disabled.
+        """
+        config = self._injection_config
+        if config is False:
+            return
+
+        agent._middleware_registry.add_middleware(
+            InvokeModelStage.Input,
+            create_injection_middleware(
+                lambda context: self._provide_memory_context(context.messages, config),
+                trigger=config.trigger,
+            ),
+        )
+
+    async def _provide_memory_context(self, messages: Messages, config: MemoryInjectionConfig) -> str | None:
+        """Produce the memory context text to inject for a model call, or ``None`` to skip.
+
+        This is the ``render_content`` callback the injection middleware invokes (see
+        :meth:`_init_injection`). Derives a query (the configured callback or an adaptive
+        default), searches memory, and renders the top entries. Skips silently
+        (returns ``None``) when no query can be derived or the search returns
+        nothing. The rendering callback raising fails open (returns ``None``).
+
+        Args:
+            messages: The current conversation, as data.
+            config: The resolved injection configuration.
+
+        Returns:
+            The injected text, or ``None`` when there is nothing to inject.
+        """
+        query = self._resolve_injection_query(messages, config)
+        if query is None or not query.strip():
+            return None
+
+        max_results = config.max_entries if config.max_entries is not None else DEFAULT_MAX_ENTRIES
+        # search caps each store at max_results; the slice caps the concatenation across stores.
+        entries = (await self.search(query, MemorySearchOptions(max_search_results=max_results)))[:max_results]
+        if len(entries) == 0:
+            return None
+
+        try:
+            if config.format is not None:
+                return config.format(InjectionFormatContext(entries=entries))
+            return self._default_injection_format(entries)
+        except Exception as error:  # noqa: BLE001 - fail open: a bad formatter must not abort the model call.
+            logger.warning("reason=<%s> | injection format raised | skipping injection", error)
+            return None
+
+    def _resolve_injection_query(self, messages: Messages, config: MemoryInjectionConfig) -> str | None:
+        """Derive the injection search query.
+
+        Uses the configured ``query`` callback when provided (a raise fails open,
+        skipping injection); otherwise an adaptive default: the latest user
+        message's text on a user turn, or the most recent assistant message's text
+        otherwise (the previous autonomous step).
+
+        Args:
+            messages: The current conversation, as data.
+            config: The resolved injection configuration.
+
+        Returns:
+            The query string, or ``None`` when none is available.
+        """
+        if config.query is not None:
+            try:
+                return config.query(InjectionQueryContext(messages=messages))
+            except Exception as error:  # noqa: BLE001 - fail open: a bad query must not abort the model call.
+                logger.warning("reason=<%s> | injection query raised | skipping injection", error)
+                return None
+
+        role = "user" if is_user_turn(messages) else "assistant"
+        index = next((index for index in range(len(messages) - 1, -1, -1) if messages[index]["role"] == role), -1)
+        if index < 0:
+            return None
+
+        text = "\n".join(block["text"] for block in messages[index]["content"] if "text" in block).strip()
+        return text if text else None
+
+    def _default_injection_format(self, entries: list[MemoryEntry]) -> str:
+        """Render the default injection format: a ``<memory>`` block with one ``<entry>`` per result.
+
+        Each entry carries a ``source`` attribute naming the originating store (when
+        known) so the model can attribute memories.
+
+        Args:
+            entries: The retrieved memory entries to render.
+
+        Returns:
+            The rendered ``<memory>`` block.
+        """
+        items = [
+            (
+                f'<entry source="{escape_xml_attr(entry.store_name)}">{escape_xml_text(entry.content)}</entry>'
+                if entry.store_name
+                else f"<entry>{escape_xml_text(entry.content)}</entry>"
+            )
+            for entry in entries
+        ]
+        joined = "\n".join(items)
+        return f"<memory>\n{joined}\n</memory>"
 
     @staticmethod
     def _make_fire(coordinator: ExtractionCoordinator, store: MemoryStore) -> Callable[[], None]:

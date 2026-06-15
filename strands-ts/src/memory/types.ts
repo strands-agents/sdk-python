@@ -266,8 +266,9 @@ export interface MemoryManagerConfig {
    */
   addToolConfig?: MemoryAddToolConfig | boolean
   /**
-   * Memory context injection. Defaults to `false` (opt-in). `true` uses the default injection
-   * settings; pass a {@link MemoryInjectionConfig} to customize retrieval, timing, and formatting.
+   * Memory context injection. Defaults to `true`. `true` uses the default injection settings;
+   * pass a {@link MemoryInjectionConfig} to customize retrieval, timing, and formatting; `false`
+   * disables it.
    *
    * `true` is equivalent to:
    * ```ts

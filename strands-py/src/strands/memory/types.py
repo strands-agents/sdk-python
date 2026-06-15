@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
-from ..types.content import Message
+from ..injection import InjectionConfig
+from ..types.content import Message, Messages
 from ..types.tools import AgentTool
 
 if TYPE_CHECKING:
@@ -106,6 +108,93 @@ class MemoryAddToolConfig(MemoryToolConfig):
 
 
 @dataclass
+class InjectionQueryContext:
+    """Context passed to :attr:`MemoryInjectionConfig.query`.
+
+    Attributes:
+        messages: The current conversation, as data.
+    """
+
+    messages: Messages
+
+
+@dataclass
+class InjectionFormatContext:
+    """Context passed to :attr:`MemoryInjectionConfig.format`.
+
+    Attributes:
+        entries: The retrieved memory entries to render.
+    """
+
+    entries: list[MemoryEntry]
+
+
+class InjectionQueryCallback(Protocol):
+    """Derives the injection search query from the current conversation.
+
+    Implemented by a plain function as well — the ``**kwargs`` tail lets the calling convention
+    grow new keyword arguments without breaking existing callbacks.
+    """
+
+    def __call__(self, context: InjectionQueryContext, **kwargs: Any) -> str | None:
+        """Return the search query, or ``None``/``""`` to skip injection this call."""
+        ...
+
+
+class InjectionFormatCallback(Protocol):
+    """Renders retrieved memory entries into the injected text.
+
+    Implemented by a plain function as well — the ``**kwargs`` tail lets the calling convention
+    grow new keyword arguments without breaking existing callbacks.
+    """
+
+    def __call__(self, context: InjectionFormatContext, **kwargs: Any) -> str:
+        """Return the text to inject for the given entries."""
+        ...
+
+
+# The bare ``Callable`` arms keep the happy path (``lambda context: ...``) ergonomic; the
+# ``*Callback`` Protocol arms are the forward-compatible shape for callers that opt into future
+# keyword arguments.
+InjectionQuery = Callable[[InjectionQueryContext], "str | None"] | InjectionQueryCallback
+InjectionFormat = Callable[[InjectionFormatContext], str] | InjectionFormatCallback
+
+
+@dataclass
+class MemoryInjectionConfig(InjectionConfig):
+    """Configuration for memory context injection.
+
+    Extends the generic :class:`~strands.injection.InjectionConfig` (which carries ``trigger``)
+    with the memory-owned knobs: how many entries to retrieve, how to derive the query, and how
+    to render the results.
+
+    Attributes:
+        max_entries: Maximum number of entries to retrieve and inject per model call. A store
+            ranks by semantic similarity, which is not the same as contextual usefulness, so the
+            default injects a small candidate set rather than betting on the top hit. Raising it
+            improves recall at the cost of a larger prepend (context bloat); lower it for a
+            tighter injection. With multiple stores, results are concatenated in
+            store-registration order with no cross-store ranking, so this cap can favor entries
+            from earlier-registered stores. Defaults to 5.
+        query: Derives the search query from the current conversation. Return ``None`` or an
+            empty string to skip injection for this call. A callback that raises fails open
+            (injection is skipped). Defaults to an adaptive query: the latest user message's
+            text on a user turn, otherwise the most recent assistant message's text (the
+            previous step on an autonomous turn).
+        format: Renders retrieved entries into the injected text. A callback that raises fails
+            open (injection is skipped). Defaults to a ``<memory>`` XML block with one
+            ``<entry>`` per result, carrying a ``source`` attribute naming the originating store
+            (when known) so the model can attribute and weigh each memory. The default escapes
+            entry content and source, so a custom ``format`` that emits markup is responsible
+            for its own escaping.
+    """
+
+    max_entries: int | None = None
+    query: InjectionQuery | None = None
+    format: InjectionFormat | None = None
+
+
+@dataclass
 class MemoryManagerConfig:
     """Configuration for the ``MemoryManager``, mirroring the constructor kwargs.
 
@@ -115,11 +204,15 @@ class MemoryManagerConfig:
         add_tool_config: Add tool configuration. Defaults to ``False`` (opt-in);
             ``True`` allows all writable stores, or pass a
             :class:`MemoryAddToolConfig` to restrict it.
+        injection: Memory context injection. Defaults to ``True``. ``True`` uses the default
+            injection settings; pass a :class:`MemoryInjectionConfig` to customize retrieval,
+            timing, and formatting; ``False`` disables it.
     """
 
     stores: list[MemoryStore]
     search_tool_config: MemoryToolConfig | bool = True
     add_tool_config: MemoryAddToolConfig | bool = False
+    injection: MemoryInjectionConfig | bool = True
 
 
 class MemoryStoreConfig(Protocol):

@@ -39,16 +39,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from strands._middleware.stages import InvokeModelContext, InvokeModelStage
 from strands.hooks.events import AfterInvocationEvent, MessageAddedEvent
 from strands.hooks.registry import HookOrder
 from strands.memory import AggregateMemoryError
 from strands.memory.extraction.triggers import IntervalTrigger, InvocationTrigger
 from strands.memory.extraction.types import ExtractionConfig, ExtractionResult
-from strands.memory.memory_manager import DEFAULT_MAX_SEARCH_RESULTS, MemoryManager
+from strands.memory.memory_manager import DEFAULT_MAX_ENTRIES, DEFAULT_MAX_SEARCH_RESULTS, MemoryManager
 from strands.memory.types import (
     MemoryAddOptions,
     MemoryAddToolConfig,
     MemoryEntry,
+    MemoryInjectionConfig,
     MemorySearchOptions,
     MemoryToolConfig,
 )
@@ -195,14 +197,18 @@ def _assistant_msg(text: str) -> dict:
 class _FakeAgent:
     """Minimal agent stand-in for ``init_agent`` wiring.
 
-    The manager only uses ``agent.add_hook(callback, event_type, *, order=...)``
-    and ``agent.model``. Recorded hooks are kept as ``(callback, event_type,
-    order)`` triples so tests can fire the matching events manually.
+    The manager uses ``agent.add_hook(callback, event_type, *, order=...)``,
+    ``agent.model``, and ``agent._middleware_registry.add_middleware(...)`` (for
+    default-on injection). Recorded hooks are kept as ``(callback, event_type,
+    order)`` triples so tests can fire the matching events manually; the
+    middleware registry is a mock so injection registration is a no-op here.
     """
 
     def __init__(self, model: Any = None) -> None:
         self.model = model
+        self.state = MagicMock()
         self.hooks: list[tuple[Any, Any, float]] = []
+        self._middleware_registry = MagicMock()
 
     def add_hook(self, callback: Any, event_type: Any = None, *, order: float = HookOrder.DEFAULT) -> None:
         self.hooks.append((callback, event_type, order))
@@ -1075,3 +1081,307 @@ async def test_init_agent_background_save_does_not_block_hook_and_flush_awaits_i
     release.set()
     await flushed
     assert completed["v"] is True
+
+
+# --------------------------------------------------------------------------- #
+# Injection
+#
+# Ported from the ``initAgent`` (injection registration) and ``injection``
+# describe blocks of ``strands-ts/src/memory/__tests__/memory-manager.test.ts``.
+#
+# The injection delivery (folding text into the model input) is wired through the
+# ``InvokeModelStage`` input middleware; the memory-owned provide pipeline (query
+# derivation, search, formatting) is exercised directly via
+# ``_provide_memory_context`` / ``_default_injection_format``, the callbacks the
+# middleware invokes.
+# --------------------------------------------------------------------------- #
+
+
+def _tool_use_msg() -> dict:
+    return {"role": "assistant", "content": [{"toolUse": {"toolUseId": "t1", "name": "x", "input": {}}}]}
+
+
+def _tool_result_msg() -> dict:
+    return {
+        "role": "user",
+        "content": [{"toolResult": {"toolUseId": "t1", "status": "success", "content": [{"text": "done"}]}}],
+    }
+
+
+class _InjectionAgent:
+    """Agent stand-in that captures ``InvokeModelStage.Input`` middleware registrations."""
+
+    def __init__(self) -> None:
+        self.state = MagicMock()
+        self._middleware_registry = MagicMock()
+
+    @property
+    def add_middleware_calls(self) -> Any:
+        return self._middleware_registry.add_middleware.call_args_list
+
+
+def _invoke_ctx(messages: list[dict], agent: Any) -> Any:
+    return InvokeModelContext(
+        agent=agent,
+        messages=messages,
+        system_prompt=None,
+        tool_specs=[],
+        tool_choice=None,
+        invocation_state={},
+    )
+
+
+async def _provide(mm: MemoryManager, messages: list[dict]) -> str | None:
+    """Call the manager's provide pipeline with its resolved injection config (TS ``provide`` helper)."""
+    config = mm._injection_config if mm._injection_config is not False else MemoryInjectionConfig()
+    return await mm._provide_memory_context(messages, config)
+
+
+# --- config resolution ---
+
+
+def test_injection_defaults_to_enabled_when_omitted():
+    assert MemoryManager(stores=[_store("s")])._injection_config == MemoryInjectionConfig()
+
+
+def test_injection_is_disabled_when_explicitly_false():
+    assert MemoryManager(stores=[_store("s")], injection=False)._injection_config is False
+
+
+def test_injection_true_resolves_to_default_config():
+    config = MemoryManager(stores=[_store("s")], injection=True)._injection_config
+    assert config == MemoryInjectionConfig()
+
+
+def test_injection_config_object_passes_through_unchanged():
+    cfg = MemoryInjectionConfig(max_entries=5)
+    assert MemoryManager(stores=[_store("s")], injection=cfg)._injection_config is cfg
+
+
+# --- init_agent registration ---
+
+
+def test_init_agent_does_not_register_injection_middleware_when_disabled():
+    agent = _InjectionAgent()
+    MemoryManager(stores=[_store("s")], injection=False).init_agent(agent)
+    agent._middleware_registry.add_middleware.assert_not_called()
+
+
+def test_init_agent_registers_invoke_model_input_middleware_when_enabled():
+    agent = _InjectionAgent()
+    MemoryManager(stores=[_store("s")], injection=True).init_agent(agent)
+
+    agent._middleware_registry.add_middleware.assert_called_once()
+    stage_or_phase, handler = agent.add_middleware_calls[0].args
+    assert stage_or_phase is InvokeModelStage.Input
+    assert callable(handler)
+
+
+@pytest.mark.asyncio
+async def test_init_agent_wires_middleware_to_provide_pipeline_folds_a_search_hit():
+    store = _store("s", entries=[MemoryEntry(content="dark mode preferred")])
+    agent = _InjectionAgent()
+    MemoryManager(stores=[store], injection=True).init_agent(agent)
+
+    handler = agent.add_middleware_calls[0].args[1]
+    messages = [_assistant_msg("prior"), _user_msg("what is my plan")]
+    result = await handler(_invoke_ctx(messages, agent))
+
+    assert result.messages == [
+        {"role": "assistant", "content": [{"text": "prior"}]},
+        {
+            "role": "user",
+            "content": [
+                {"text": '<memory>\n<entry source="s">dark mode preferred</entry>\n</memory>'},
+                {"text": "what is my plan"},
+            ],
+        },
+    ]
+    store.search.assert_called_once()
+    assert store.search.call_args.args[0] == "what is my plan"
+
+
+@pytest.mark.asyncio
+async def test_init_agent_forwards_trigger_to_registered_middleware():
+    # Default 'userTurn' would skip a tool-result turn; 'everyTurn' must fold on it, proving the
+    # configured trigger is forwarded into the registered middleware.
+    store = _store("s", entries=[MemoryEntry(content="fact")])
+    agent = _InjectionAgent()
+    MemoryManager(stores=[store], injection=MemoryInjectionConfig(trigger="everyTurn")).init_agent(agent)
+
+    handler = agent.add_middleware_calls[0].args[1]
+    tool_result = _tool_result_msg()
+    result = await handler(_invoke_ctx([_user_msg("task"), _assistant_msg("prev"), tool_result], agent))
+
+    # everyTurn folds on the tool-result turn; the memory block is appended *after* the tool result
+    # (which must stay first), and the query is derived from the most recent assistant text.
+    assert result.messages == [
+        {"role": "user", "content": [{"text": "task"}]},
+        {"role": "assistant", "content": [{"text": "prev"}]},
+        {
+            "role": "user",
+            "content": [tool_result["content"][0], {"text": '<memory>\n<entry source="s">fact</entry>\n</memory>'}],
+        },
+    ]
+    assert store.search.call_args.args[0] == "prev"
+
+
+@pytest.mark.asyncio
+async def test_init_agent_default_trigger_skips_tool_result_turn():
+    # Default trigger is 'userTurn': a tool-result turn must be left untouched (no search, no fold).
+    store = _store("s", entries=[MemoryEntry(content="fact")])
+    agent = _InjectionAgent()
+    MemoryManager(stores=[store], injection=True).init_agent(agent)
+
+    handler = agent.add_middleware_calls[0].args[1]
+    messages = [_user_msg("task"), _assistant_msg("prev"), _tool_result_msg()]
+    result = await handler(_invoke_ctx(messages, agent))
+
+    assert result.messages == messages
+    store.search.assert_not_called()
+
+
+# --- query derivation ---
+
+
+@pytest.mark.asyncio
+async def test_injection_query_uses_latest_user_ask_on_user_turn():
+    store = _store("s", entries=[MemoryEntry(content="fact")])
+    mm = MemoryManager(stores=[store], injection=True)
+
+    await _provide(mm, [_assistant_msg("prior step"), _user_msg("what is my plan")])
+
+    assert store.search.call_args.args[0] == "what is my plan"
+    assert _forwarded_max(store.search) == DEFAULT_MAX_ENTRIES
+
+
+@pytest.mark.asyncio
+async def test_injection_query_uses_recent_assistant_text_on_tool_result_turn():
+    store = _store("s", entries=[MemoryEntry(content="fact")])
+    mm = MemoryManager(stores=[store], injection=True)
+
+    await _provide(mm, [_user_msg("task"), _assistant_msg("the previous step result"), _tool_result_msg()])
+
+    assert store.search.call_args.args[0] == "the previous step result"
+
+
+@pytest.mark.asyncio
+async def test_injection_honors_a_custom_query():
+    store = _store("s", entries=[MemoryEntry(content="fact")])
+    mm = MemoryManager(stores=[store], injection=MemoryInjectionConfig(query=lambda context: "custom query"))
+
+    await _provide(mm, [_assistant_msg("prior"), _user_msg("ask")])
+
+    assert store.search.call_args.args[0] == "custom query"
+
+
+@pytest.mark.asyncio
+async def test_injection_skips_when_custom_query_returns_none():
+    store = _store("s", entries=[MemoryEntry(content="fact")])
+    mm = MemoryManager(stores=[store], injection=MemoryInjectionConfig(query=lambda context: None))
+
+    assert await _provide(mm, [_assistant_msg("prior"), _user_msg("ask")]) is None
+    store.search.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_injection_fails_open_when_custom_query_raises():
+    def boom(context: Any) -> str:
+        raise ValueError("boom")
+
+    store = _store("s", entries=[MemoryEntry(content="fact")])
+    mm = MemoryManager(stores=[store], injection=MemoryInjectionConfig(query=boom))
+
+    assert await _provide(mm, [_assistant_msg("prior"), _user_msg("ask")]) is None
+    store.search.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_injection_skips_when_latest_assistant_message_has_no_text():
+    store = _store("s", entries=[MemoryEntry(content="fact")])
+    mm = MemoryManager(stores=[store], injection=True)
+
+    assert await _provide(mm, [_tool_use_msg(), _tool_result_msg()]) is None
+    store.search.assert_not_called()
+
+
+# --- search ---
+
+
+@pytest.mark.asyncio
+async def test_injection_returns_none_when_search_yields_no_entries():
+    store = _store("s", entries=[])
+    mm = MemoryManager(stores=[store], injection=True)
+
+    assert await _provide(mm, [_assistant_msg("prior"), _user_msg("ask")]) is None
+    store.search.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_injection_honors_max_entries_and_caps_rendered_entries():
+    store = _store("s", entries=[MemoryEntry(content="A"), MemoryEntry(content="B"), MemoryEntry(content="C")])
+    mm = MemoryManager(
+        stores=[store],
+        injection=MemoryInjectionConfig(
+            max_entries=2,
+            format=lambda context: ",".join(entry.content for entry in context.entries),
+        ),
+    )
+
+    text = await _provide(mm, [_assistant_msg("prior"), _user_msg("ask")])
+
+    assert store.search.call_args.args[0] == "ask"
+    assert _forwarded_max(store.search) == 2
+    assert text == "A,B"
+
+
+# --- format ---
+
+
+@pytest.mark.asyncio
+async def test_injection_default_format_renders_memory_block_with_source():
+    store = _store("s", entries=[MemoryEntry(content="dark mode preferred")])
+    mm = MemoryManager(stores=[store], injection=True)
+
+    # search() stamps store_name onto each entry, so the default format attributes the source.
+    text = await _provide(mm, [_assistant_msg("prior"), _user_msg("ask")])
+    assert text == '<memory>\n<entry source="s">dark mode preferred</entry>\n</memory>'
+
+
+def test_injection_default_format_omits_source_when_no_store_name():
+    mm = MemoryManager(stores=[_store("s")], injection=True)
+    text = mm._default_injection_format([MemoryEntry(content="no source")])
+    assert text == "<memory>\n<entry>no source</entry>\n</memory>"
+
+
+def test_injection_default_format_escapes_xml_in_content_and_source():
+    mm = MemoryManager(stores=[_store("s")], injection=True)
+    text = mm._default_injection_format([MemoryEntry(content="a < b & c > d </entry>", store_name='pre"f')])
+    assert text == '<memory>\n<entry source="pre&quot;f">a &lt; b &amp; c &gt; d &lt;/entry&gt;</entry>\n</memory>'
+
+
+@pytest.mark.asyncio
+async def test_injection_honors_a_custom_format():
+    store = _store("s", entries=[MemoryEntry(content="A")])
+    mm = MemoryManager(
+        stores=[store],
+        injection=MemoryInjectionConfig(
+            format=lambda context: f"[{'|'.join(entry.content for entry in context.entries)}]"
+        ),
+    )
+
+    text = await _provide(mm, [_assistant_msg("prior"), _user_msg("ask")])
+    assert text == "[A]"
+
+
+@pytest.mark.asyncio
+async def test_injection_fails_open_when_custom_format_raises(caplog):
+    def boom(context: Any) -> str:
+        raise ValueError("boom")
+
+    store = _store("s", entries=[MemoryEntry(content="A")])
+    mm = MemoryManager(stores=[store], injection=MemoryInjectionConfig(format=boom))
+
+    with caplog.at_level(logging.WARNING):
+        assert await _provide(mm, [_assistant_msg("prior"), _user_msg("ask")]) is None
+    assert "skipping injection" in caplog.text
