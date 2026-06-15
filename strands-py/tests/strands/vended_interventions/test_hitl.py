@@ -133,6 +133,27 @@ class TestInlineAskMode:
         assert result.stop_reason == "end_turn"
         assert executed == []
 
+    def test_async_ask_returning_none_denies_instead_of_pausing(self):
+        # Same fail-closed contract as the sync case, but exercising the awaited
+        # branch where the async ``ask`` resolves to None.
+        executed = []
+
+        @tool(name="my_tool")
+        def my_tool() -> str:
+            executed.append(True)
+            return "executed"
+
+        async def ask(prompt: str):
+            return None
+
+        model = MockedModelProvider([tool_use_message("my_tool"), text_message("Understood")])
+        agent = Agent(model=model, tools=[my_tool], interventions=[HumanInTheLoop(ask=ask)])
+
+        result = agent("Run tool")
+
+        assert result.stop_reason == "end_turn"
+        assert executed == []
+
     def test_supports_async_ask_function(self):
         executed = []
 
