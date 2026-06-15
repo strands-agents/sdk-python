@@ -46,7 +46,10 @@ def basic_usage_example():
 
         def before_tool_call(self, event: BeforeToolCallEvent):
             if event.tool_use["name"] in self.blocked_tools:
-                return Deny(reason=f"Tool '{event.tool_use['name']}' is not allowed in this environment")
+                name = event.tool_use["name"]
+                return Deny(
+                    reason=f"Tool '{name}' is not allowed"
+                )
             return Proceed()
 
     agent = Agent(
@@ -68,7 +71,10 @@ def basic_usage_example():
 
 def action_types_example():
     # --8<-- [start:action_types]
-    from strands.interventions import Confirm, Deny, Guide, InterventionHandler, Proceed, Transform
+    from strands.interventions import (
+        Confirm, Deny, Guide, InterventionHandler,
+        Proceed, Transform,
+    )
 
     # Deny — block tool calls that access production resources
     class EnvironmentGuard(InterventionHandler):
@@ -111,7 +117,11 @@ def action_types_example():
 
                 def redact(e: BeforeToolCallEvent):
                     tool_input = e.tool_use.get("input", {})
-                    tool_input["body"] = re.sub(r"\b\d{3}-\d{2}-\d{4}\b", "[REDACTED]", tool_input.get("body", ""))
+                    body = tool_input.get("body", "")
+                    ssn_pattern = r"\b\d{3}-\d{2}-\d{4}\b"
+                    tool_input["body"] = re.sub(
+                        ssn_pattern, "[REDACTED]", body
+                    )
 
                 return Transform(apply=redact)
             return Proceed()
@@ -167,8 +177,7 @@ def short_circuiting_example():
 
 def error_handling_example():
     # --8<-- [start:error_handling]
-    from strands.interventions import Deny, InterventionHandler, Proceed
-    from strands.interventions.handler import OnError
+    from strands.interventions import Deny, InterventionHandler, OnError, Proceed
 
     # 'proceed' — if this handler throws, continue as if Proceed() was returned
     class BestEffortLogger(InterventionHandler):
