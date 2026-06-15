@@ -26,7 +26,7 @@ Create an intervention handler by extending `InterventionHandler` and overriding
 </Tab>
 </Tabs>
 
-Handlers only need to override the lifecycle methods relevant to their concern — all methods default to `Proceed()` in Python and `proceed()` in TypeScript.
+Handlers only need to override the lifecycle methods relevant to their concern — all methods default to <Syntax py="Proceed()" ts="proceed()" />.
 
 ## Action Types
 
@@ -78,24 +78,22 @@ Intervention handlers can override five lifecycle methods. Each method supports 
 
 | Method | Valid Actions | When it Runs |
 |--------|-------------|--------------|
-| `before_invocation` / `beforeInvocation` | Proceed, Deny, Guide, Transform | Before the agent loop starts |
-| `before_tool_call` / `beforeToolCall` | Proceed, Deny, Guide, Confirm, Transform | Before each tool execution |
-| `after_tool_call` / `afterToolCall` | Proceed, Transform | After each tool execution |
-| `before_model_call` / `beforeModelCall` | Proceed, Deny, Guide, Transform | Before each model API call |
-| `after_model_call` / `afterModelCall` | Proceed, Guide, Transform | After each model response |
+| <Syntax py="before_invocation" ts="beforeInvocation" /> | Proceed, Deny, Guide, Transform | Before the agent loop starts |
+| <Syntax py="before_tool_call" ts="beforeToolCall" /> | Proceed, Deny, Guide, Confirm, Transform | Before each tool execution |
+| <Syntax py="after_tool_call" ts="afterToolCall" /> | Proceed, Transform | After each tool execution |
+| <Syntax py="before_model_call" ts="beforeModelCall" /> | Proceed, Deny, Guide, Transform | Before each model API call |
+| <Syntax py="after_model_call" ts="afterModelCall" /> | Proceed, Guide, Transform | After each model response |
 
 How actions behave depends on the lifecycle method:
 
 | Action | Before events | After events |
 |--------|--------------|--------------|
 | **Deny** | Sets `event.cancel`, short-circuits remaining handlers | No effect (warns at runtime) |
-| **Guide** | On `before_tool_call`/`before_invocation`: cancels with accumulated feedback. On `before_model_call`: injects feedback as user message | Injects feedback and retries |
+| **Guide** | On <Syntax py="before_tool_call" ts="beforeToolCall" />/<Syntax py="before_invocation" ts="beforeInvocation" />: cancels with accumulated feedback. On <Syntax py="before_model_call" ts="beforeModelCall" />: injects feedback as user message | Injects feedback and retries |
 | **Confirm** | Pauses agent via interrupt/resume for human approval; denied responses set `event.cancel` | Not supported |
 | **Transform** | Calls `action.apply(event)` — later handlers see modified content | Calls `action.apply(event)` |
 
-:::caution[Guide on after_model_call]
-On `after_model_call`, `Guide` triggers a model retry. Handlers must ensure convergence (e.g., by tracking retry count and escalating to `Deny` after repeated failures). The framework imposes no retry cap on guide-triggered retries.
-:::
+On <Syntax py="after_model_call" ts="afterModelCall" />, `Guide` triggers a model retry. Handlers must ensure convergence (e.g., by tracking retry count and escalating to `Deny` after repeated failures). The framework imposes no retry cap on guide-triggered retries.
 
 ## Evaluation Order and Short-Circuiting
 
@@ -120,7 +118,7 @@ For `Guide` actions, all handlers continue to run and their feedback is accumula
 
 ## Error Handling
 
-The `on_error` property controls what happens when a handler throws an exception:
+The <Syntax py="on_error" ts="onError" /> property controls what happens when a handler throws an exception:
 
 | Value | Behavior |
 |-------|----------|
@@ -147,7 +145,7 @@ Use `'deny'` for security-critical handlers where a failure should block executi
 
 ## Confirm Action
 
-The `Confirm` action is only supported on `before_tool_call`. It integrates with the SDK's interrupt/resume system to pause for human approval before a tool executes.
+The `Confirm` action is only supported on <Syntax py="before_tool_call" ts="beforeToolCall" />. It integrates with the SDK's interrupt/resume system to pause for human approval before a tool executes.
 
 <Tabs>
 <Tab label="Python">
@@ -214,7 +212,7 @@ Interventions return typed actions that the framework interprets. This enables:
 - **Feedback accumulation** — multiple handlers can return `Guide` and their feedback is combined into a single message to the model, rather than overwriting each other.
 - **Human-in-the-loop** — `Confirm` integrates with the SDK's interrupt/resume system to pause for approval without the handler needing to manage interrupt lifecycle.
 - **Ordered evaluation** — handlers always run in registration order with well-defined precedence (deny > confirm > guide > transform > proceed).
-- **Error policies** — each handler declares its own failure mode via `on_error`. A logging handler can use `'proceed'` (skip on failure), while an auth handler can use `'deny'` (fail closed). Hooks have no equivalent — a thrown error always propagates.
+- **Error policies** — each handler declares its own failure mode via <Syntax py="on_error" ts="onError" />. A logging handler can use `'proceed'` (skip on failure), while an auth handler can use `'deny'` (fail closed). Hooks have no equivalent — a thrown error always propagates.
 
 ## Related topics
 
