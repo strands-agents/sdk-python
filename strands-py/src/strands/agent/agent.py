@@ -524,7 +524,6 @@ class Agent(AgentBase):
                 stores=memory_manager.stores,
                 search_tool_config=memory_manager.search_tool_config,
                 add_tool_config=memory_manager.add_tool_config,
-                flush_on_invocation_end=memory_manager.flush_on_invocation_end,
             )
         raise ValueError("memory_manager must be a MemoryManager or MemoryManagerConfig")
 
@@ -690,7 +689,7 @@ class Agent(AgentBase):
         try:
             return await self.invoke_async(prompt, **kwargs)
         finally:
-            if self.memory_manager is not None and self.memory_manager.flush_on_invocation_end:
+            if self.memory_manager is not None:
                 await self.memory_manager.flush()
 
     async def invoke_async(

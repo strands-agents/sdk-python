@@ -2823,19 +2823,6 @@ def test_agent_sync_call_flushes_memory_manager():
     memory_manager.flush.assert_awaited_once()
 
 
-def test_agent_sync_call_does_not_flush_when_opted_out():
-    memory_manager = MemoryManager(stores=[_SearchOnlyStore()], flush_on_invocation_end=False)
-    memory_manager.flush = unittest.mock.AsyncMock()
-    agent = Agent(
-        model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
-        memory_manager=memory_manager,
-    )
-
-    agent("test")
-
-    memory_manager.flush.assert_not_awaited()
-
-
 @pytest.mark.asyncio
 async def test_agent_async_invoke_does_not_flush_memory_manager():
     memory_manager = MemoryManager(stores=[_SearchOnlyStore()])

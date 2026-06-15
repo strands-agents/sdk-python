@@ -83,7 +83,6 @@ class MemoryManager(Plugin):
         stores: list[MemoryStore],
         search_tool_config: MemoryToolConfig | bool = True,
         add_tool_config: MemoryAddToolConfig | bool = False,
-        flush_on_invocation_end: bool = True,
     ) -> None:
         """Initialize the memory manager.
 
@@ -95,10 +94,6 @@ class MemoryManager(Plugin):
             add_tool_config: Add tool configuration. ``False`` (default) disables
                 the add tool; ``True`` lets it write to all writable stores; a
                 :class:`MemoryAddToolConfig` restricts/customizes it.
-            flush_on_invocation_end: When True (default), the synchronous
-                ``Agent(...)`` entry point awaits pending extraction writes after
-                each invocation so they persist across its per-invocation event
-                loop. Set False to opt out and flush manually.
 
         Raises:
             ValueError: If ``stores`` is empty, a store name is duplicated, a
@@ -174,9 +169,6 @@ class MemoryManager(Plugin):
 
         # Extraction coordinator, created in ``init_agent`` when configured.
         self._coordinator: ExtractionCoordinator | None = None
-
-        # Gates the synchronous Agent(...) auto-flush; see Agent.memory_manager.
-        self.flush_on_invocation_end = flush_on_invocation_end
 
         # Build tools now; surfaced via the ``tools`` property.
         self._memory_tools: list[AgentTool] = self._build_tools()

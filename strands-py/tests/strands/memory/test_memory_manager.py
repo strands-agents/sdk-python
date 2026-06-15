@@ -1049,12 +1049,6 @@ async def test_flush_does_not_re_extract_messages_already_processed():
     store.add_messages.assert_called_once()
 
 
-def test_flush_on_invocation_end_defaults_true_and_is_configurable():
-    store = _store("s", writable=True, sinks={"add_messages"}, extraction=ExtractionConfig(trigger=InvocationTrigger()))
-    assert MemoryManager(stores=[store]).flush_on_invocation_end is True
-    assert MemoryManager(stores=[store], flush_on_invocation_end=False).flush_on_invocation_end is False
-
-
 @pytest.mark.asyncio
 async def test_init_agent_background_save_does_not_block_hook_and_flush_awaits_it():
     release = asyncio.Event()
