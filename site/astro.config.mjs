@@ -101,6 +101,9 @@ export default defineConfig({
           ],
           './src/components/AutoSyncTabs.astro': [
             ['default', "Tabs"]
+          ],
+          './src/components/Syntax.astro': [
+            ['default', 'Syntax']
           ]
         },
       ],

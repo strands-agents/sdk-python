@@ -20,6 +20,16 @@ logging.basicConfig(
 
 
 @pytest.fixture
+def quiet_strands_logging():
+    """Suppress strands DEBUG/INFO logging for tests that produce very long output."""
+    strands_logger = logging.getLogger("strands")
+    original_level = strands_logger.level
+    strands_logger.setLevel(logging.WARNING)
+    yield
+    strands_logger.setLevel(original_level)
+
+
+@pytest.fixture
 def moto_env(monkeypatch):
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")

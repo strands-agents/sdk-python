@@ -6,6 +6,27 @@ sidebar:
 
 Good documentation helps developers succeed with Strands. We welcome contributions that make our docs clearer, more complete, or more helpful. Our documentation lives in the `site/` directory of the [Strands SDK repository](https://github.com/strands-agents/harness-sdk).
 
+## Agent skills
+
+The repository ships agent skills in `.agents/skills/` that encode our documentation conventions, site components, and quality standards. If you're using an AI coding assistant, activate these skills before making documentation changes — they'll produce output that matches our style without you needing to internalize everything on this page.
+
+| Skill | What it does |
+|-------|--------------|
+| `docs-writer` | Drafts or rewrites documentation pages following site conventions |
+| `docs-reviewer` | Reviews drafts for voice, structure, and terminology before PR |
+| `docs-audit` | Assesses a page for quality, accuracy, and voice compliance |
+| `docs-planner` | Identifies documentation gaps and prioritizes the backlog |
+
+Use them by giving your agent a goal that references the skill:
+
+```
+Write a new doc page for the retry strategies feature. Use the docs-writer skill.
+```
+
+```
+Audit the context management page for accuracy and voice issues. Use the docs-audit skill.
+```
+
 ## What we accept
 
 We're looking for contributions that improve the developer experience. Documentation changes can range from small typo fixes to complete new guides.
@@ -114,4 +135,5 @@ agent("What's the weather like?")
 ```
 </Tab>
 </Tabs>
+
 

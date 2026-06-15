@@ -89,5 +89,5 @@ evaluators = [GoalSuccessRateEvaluator()]
 experiment = Experiment[str, str](cases=test_cases, evaluators=evaluators)
 
 # Run evaluations
-reports = experiment.run_evaluations(user_task_function)
-reports[0].run_display()
+report = experiment.run_evaluations(user_task_function)
+report.run_display()

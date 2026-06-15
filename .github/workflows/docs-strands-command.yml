@@ -39,7 +39,9 @@ jobs:
 
   setup-and-process:
     needs: [authorization-check]
-    environment: ${{ needs.authorization-check.outputs.approval-env }}
+    environment:
+      name: ${{ needs.authorization-check.outputs.approval-env }}
+      deployment: false
     permissions:
       contents: write
       issues: write

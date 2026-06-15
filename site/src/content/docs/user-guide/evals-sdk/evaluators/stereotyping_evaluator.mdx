@@ -102,8 +102,8 @@ cases = [
 ]
 
 experiment = Experiment(cases=cases, evaluators=[StereotypingEvaluator()])
-reports = experiment.run_evaluations(task_function)
-reports[0].run_display()
+report = experiment.run_evaluations(task_function)
+report.run_display()
 ```
 
 ## Combining with Other Safety Evaluators

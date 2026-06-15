@@ -137,8 +137,8 @@ evaluator = InteractionsEvaluator(
 
 # Run evaluation
 experiment = Experiment[str, str](cases=test_cases, evaluators=[evaluator])
-reports = experiment.run_evaluations(multi_agent_task)
-reports[0].run_display()
+report = experiment.run_evaluations(multi_agent_task)
+report.run_display()
 ```
 
 ## Evaluation Output

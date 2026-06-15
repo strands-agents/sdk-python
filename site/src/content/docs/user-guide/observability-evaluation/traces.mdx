@@ -414,7 +414,7 @@ with tracer.start_as_current_span("my-custom-operation") as span:
 </Tabs>
 
 :::tip
-`getTracer()` (TypeScript) and `trace.get_tracer()` (Python) use the global tracer provider. When you use `setupTracer()` or `StrandsTelemetry()` without a custom provider, it's automatically registered as global — so your custom spans will use the same provider as the agent's auto-instrumented spans.
+<Syntax py="trace.get_tracer()" ts="getTracer()" /> uses the global tracer provider. When you use <Syntax py="StrandsTelemetry()" ts="setupTracer()" /> without a custom provider, it's automatically registered as global — so your custom spans will use the same provider as the agent's auto-instrumented spans.
 :::
 
 ### Configuring the exporters from source code

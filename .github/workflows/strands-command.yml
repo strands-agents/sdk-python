@@ -40,7 +40,9 @@ jobs:
   
   setup-and-process:
     needs: [authorization-check]
-    environment: ${{ needs.authorization-check.outputs.approval-env }}
+    environment:
+      name: ${{ needs.authorization-check.outputs.approval-env }}
+      deployment: false
     permissions:
       # Needed to create a branch for the Implementer Agent
       contents: write

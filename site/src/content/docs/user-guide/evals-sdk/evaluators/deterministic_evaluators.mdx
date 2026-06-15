@@ -126,8 +126,8 @@ def get_response(case: Case) -> str:
     return str(agent(case.input))
 
 experiment = Experiment(cases=cases, evaluators=evaluators)
-reports = experiment.run_evaluations(get_response)
-reports[0].run_display()
+report = experiment.run_evaluations(get_response)
+report.run_display()
 ```
 
 ## Combining with LLM Evaluators

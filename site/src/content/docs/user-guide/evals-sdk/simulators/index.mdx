@@ -102,12 +102,6 @@ Key capabilities:
 
 The simulator framework is designed to be extensible. `ActorSimulator` and `ToolSimulator` provide general-purpose foundations, and additional specialized simulators can be built for specific evaluation patterns as needs emerge.
 
-## ToolSimulator
-
-The `ToolSimulator` replaces real tool execution with LLM-generated responses, enabling you to test tool-using agents without live infrastructure. It supports Pydantic output schemas and shared state between related tools.
-
-[Complete Tool Simulation Guide →](tool_simulation.md)
-
 ## Simulators vs Evaluators
 
 Understanding when to use simulators versus evaluators:
@@ -190,7 +184,7 @@ test_cases = [
 ]
 
 experiment = Experiment(cases=test_cases, evaluators=evaluators)
-reports = experiment.run_evaluations(task_function)
+report = experiment.run_evaluations(task_function)
 ```
 
 ## Best Practices
@@ -252,21 +246,24 @@ while simulator.has_next():
 
 ### Pattern 1: Goal Completion Testing
 
+The simulator sets `result.structured_output.stop = True` (and its own `simulator.stop` flag) when the actor signals it has completed the goal. Inspect that flag rather than scanning the message text:
+
 ```python
 def test_goal_completion(case: Case) -> bool:
     simulator = ActorSimulator.from_case_for_user_simulator(case=case)
     agent = Agent(system_prompt="Your prompt")
-    
+
     user_message = case.input
     while simulator.has_next():
         agent_response = agent(user_message)
         user_result = simulator.act(str(agent_response))
         user_message = str(user_result.structured_output.message)
-        
-        if "<stop/>" in user_message:
-            return True
-    
-    return False
+
+    # has_next() is False either because the simulator stopped (goal reached)
+    # or because max_turns was hit. Distinguish via stop_reason if needed.
+    return user_result.structured_output.stop and (
+        getattr(user_result.structured_output, "stop_reason", "") == "goal_completed"
+    )
 ```
 
 ### Pattern 2: Conversation Flow Analysis

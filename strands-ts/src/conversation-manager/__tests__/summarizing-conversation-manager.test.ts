@@ -451,7 +451,7 @@ describe('SummarizingConversationManager', () => {
     })
 
     it('pinned message in middle survives summarization', async () => {
-      const { pinMessage } = await import('../pin-message.js')
+      const { pinMessage } = await import('../compression/pin-message.js')
       const model = new MockMessageModel()
       model.addTurn({ type: 'textBlock', text: 'Summary' })
 

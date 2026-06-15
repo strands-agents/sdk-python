@@ -202,9 +202,7 @@ class SummarizingConversationManager(ConversationManager):
         protected_to_preserve, to_summarize = partition_pinned(agent.messages, 0, messages_to_summarize_count)
 
         if not to_summarize:
-            raise ContextWindowOverflowException(
-                "Cannot summarize: all messages in summarize range are pinned"
-            )
+            raise ContextWindowOverflowException("Cannot summarize: all messages in summarize range are pinned")
 
         remaining_messages = agent.messages[messages_to_summarize_count:]
 
@@ -379,4 +377,3 @@ class SummarizingConversationManager(ConversationManager):
             raise ContextWindowOverflowException("Unable to trim conversation context!")
 
         return split_point
-

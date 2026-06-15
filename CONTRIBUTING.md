@@ -48,6 +48,8 @@ Our team follows these core principles when designing and implementing features.
 
 When proposing solutions or reviewing code, we reference these principles to guide our decisions. If two approaches seem equally valid, we choose the one that best aligns with our tenets.
 
+The `team/` folder holds the rest of our shared context: the full [tenets](./team/TENETS.md), [decision records](./team/DECISIONS.md), the [API bar-raising](./team/API_BAR_RAISING.md) and [feature lifecycle](./team/FEATURE_LIFECYCLE.md) processes, and our [design proposals](./team/designs/). For a significant feature or a breaking change, start with a design proposal in [`team/designs/`](./team/designs/) — see its [README](./team/designs/README.md) for the template and process.
+
 ## Development Environment
 
 This is a monorepo containing the Python SDK, TypeScript SDK, and documentation site. Each has its own toolchain:
@@ -189,7 +191,7 @@ Contributions via pull requests are much appreciated. Before sending us a pull r
 2. You check existing open, and recently merged, pull requests to make sure someone else hasn't addressed the problem already.
 3. You open an issue to discuss any significant work - we would hate for your time to be wasted.
 
-For guidance on writing effective PR descriptions, see our PR Description Guidelines ([Python](./strands-py/docs/PR.md), [TypeScript](./dev-docs/PR.md)).
+For guidance on writing effective PR descriptions, see our [PR Description Guidelines](./team/PR.md).
 
 To send us a pull request, please:
 

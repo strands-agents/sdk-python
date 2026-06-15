@@ -45,7 +45,7 @@
     "p-limit": "^7.3.0",
     "prettier": "^3.6.2",
     "reading-time": "^1.5.0",
-    "sanitize-html": "^2.17.1",
+    "sanitize-html": "^2.17.5",
     "turndown": "^7.2.2",
     "turndown-plugin-gfm": "^1.0.2",
     "typedoc": "^0.28.14",

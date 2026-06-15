@@ -73,6 +73,7 @@ sidebar:
           - docs/user-guide/concepts/agents/prompts
           - docs/user-guide/concepts/agents/hooks
           - docs/user-guide/concepts/agents/conversation-management
+          - docs/user-guide/concepts/context-management
           - docs/user-guide/concepts/agents/retry-strategies
           - docs/user-guide/concepts/interrupts
           - label: Tools
@@ -87,6 +88,7 @@ sidebar:
               - docs/user-guide/concepts/plugins/skills
               - docs/user-guide/concepts/plugins/steering
               - docs/user-guide/concepts/plugins/context-offloader
+              - docs/user-guide/concepts/plugins/goal-loop
           - label: Interventions
             items:
               - label: "Overview"
@@ -217,6 +219,7 @@ sidebar:
           - label: Remote Trace Providers
             items:
               - docs/user-guide/evals-sdk/how-to/trace_providers
+          - docs/user-guide/evals-sdk/cli
           - label: How-To Guides
             items:
               - docs/user-guide/evals-sdk/how-to/eval_task

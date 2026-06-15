@@ -23,11 +23,12 @@ import {
   type ToolResultBlockData,
   ToolUseBlock,
 } from '../types/messages.js'
+import { deepCopy } from '../types/json.js'
 import type { JSONValue } from '../types/json.js'
 import { McpClient } from '../mcp.js'
 import { isValidToolName, type Tool, type ToolContext } from '../tools/tool.js'
 import type { ToolChoice, ToolSpec } from '../tools/types.js'
-import { systemPromptFromData } from '../types/messages.js'
+import { cloneSystemPrompt, systemPromptFromData } from '../types/messages.js'
 import { normalizeError, ConcurrentInvocationError, StructuredOutputError } from '../errors.js'
 import { Model } from '../models/model.js'
 import type { BaseModelConfig, StreamAggregatedResult, StreamOptions } from '../models/model.js'
@@ -35,6 +36,7 @@ import { ModelPlugin } from '../plugins/model-plugin.js'
 import { isModelStreamEvent } from '../models/streaming.js'
 import { ToolRegistry } from '../registry/tool-registry.js'
 import { StateStore } from '../state-store.js'
+import { serializeStateSerializable, loadStateSerializable } from '../types/serializable.js'
 import { AgentPrinter, getDefaultAppender, type Printer } from './printer.js'
 import type { Plugin } from '../plugins/plugin.js'
 import type { InterventionHandler } from '../interventions/handler.js'
@@ -117,6 +119,12 @@ import type { TakeSnapshotOptions } from './snapshot.js'
 import type { Snapshot } from '../types/snapshot.js'
 import type { Sandbox } from '../sandbox/base.js'
 import { defaultSandbox } from '../sandbox/default.js'
+import {
+  summarizeContextTool,
+  truncateContextTool,
+  pinContextTool,
+  createTokenUsageMiddleware,
+} from '../conversation-manager/modes/agentic/agentic-context.js'
 
 /**
  * Recursive type definition for nested tool arrays.
@@ -146,10 +154,13 @@ export type ToolExecutorStrategy = 'sequential' | 'concurrent'
 /**
  * Supported values for the `contextManager` parameter.
  */
-export type ContextManagerStrategy = 'auto'
+export const CONTEXT_MANAGER_STRATEGIES = ['auto', 'agentic'] as const
+export type ContextManagerStrategy = (typeof CONTEXT_MANAGER_STRATEGIES)[number]
 
 /** Benchmark-validated token threshold for offloading tool results. */
 const CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
+/** Higher offload threshold for agentic mode — the model manages its own context, so we preserve more inline. */
+const AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS = 8_000
 /** Benchmark-validated preview token count for offloaded results. */
 const CONTEXT_MANAGER_PREVIEW_TOKENS = 750
 /** Benchmark-validated ratio of messages to summarize on overflow. */
@@ -215,11 +226,13 @@ export type AgentConfig = {
    */
   conversationManager?: ConversationManager
   /**
-   * Context management strategy. When set to `"auto"`, composes a ContextOffloader
-   * plugin (maxResultTokens=1500, previewTokens=750) with a SummarizingConversationManager
-   * (summaryRatio=0.3, compressionThreshold=0.85) using benchmark-validated defaults.
+   * Context management strategy.
+   *
+   * - `"auto"`: SummarizingConversationManager with proactive compression + ContextOffloader.
+   * - `"agentic"`: Lets the model drive context management via injected tools.
+   *
    * If `conversationManager` is also provided, the user's conversation manager is used instead.
-   * Defaults to undefined (no context management).
+   * Defaults to undefined (SlidingWindowConversationManager, no offloader).
    *
    * @remarks The offloader uses in-memory storage that does not persist across process
    * restarts. For agents using `sessionManager`, provide an explicit `ContextOffloader`
@@ -302,15 +315,21 @@ export type AgentConfig = {
  * Resolve the contextManager facade into a concrete ConversationManager.
  *
  * When contextManager is undefined, falls back to the default SlidingWindowConversationManager.
- * When "auto", uses SummarizingConversationManager with benchmark-validated defaults,
- * unless the user already provided a conversationManager.
+ * When "auto", uses SummarizingConversationManager with proactive compression.
+ * When "agentic", uses SummarizingConversationManager without proactive compression
+ * (the agent manages its context via tools; the context manager is only a reactive safety net).
  */
 function resolveConversationManager(
   contextManager: ContextManagerStrategy | undefined,
   conversationManager: ConversationManager | undefined
 ): ConversationManager {
-  if (contextManager !== undefined && contextManager !== 'auto') {
-    throw new Error(`Unsupported contextManager value: "${contextManager}". Supported values: "auto"`)
+  if (contextManager === 'agentic') {
+    return (
+      conversationManager ??
+      new SummarizingConversationManager({
+        summaryRatio: CONTEXT_MANAGER_SUMMARY_RATIO,
+      })
+    )
   }
   if (contextManager === 'auto') {
     return (
@@ -319,6 +338,11 @@ function resolveConversationManager(
         summaryRatio: CONTEXT_MANAGER_SUMMARY_RATIO,
         proactiveCompression: { compressionThreshold: CONTEXT_MANAGER_COMPRESSION_THRESHOLD },
       })
+    )
+  }
+  if (contextManager !== undefined) {
+    throw new Error(
+      `Unsupported contextManager value: "${contextManager}". Supported values: ${CONTEXT_MANAGER_STRATEGIES.map((s) => `"${s}"`).join(', ')}`
     )
   }
   return conversationManager ?? new SlidingWindowConversationManager({ windowSize: 40 })
@@ -499,6 +523,9 @@ export class Agent implements LocalAgent, InvokableAgent {
     }
 
     const { tools, mcpClients } = flattenTools(config?.tools ?? [])
+    if (config?.contextManager === 'agentic') {
+      tools.push(summarizeContextTool, truncateContextTool, pinContextTool)
+    }
     this._toolRegistry = new ToolRegistry(tools)
     this._mcpClients = mcpClients
 
@@ -509,6 +536,10 @@ export class Agent implements LocalAgent, InvokableAgent {
 
     // Initialize middleware registry
     this._middlewareRegistry = new MiddlewareRegistry()
+
+    if (config?.contextManager === 'agentic') {
+      this._middlewareRegistry.addInput(InvokeModelStage.Input, createTokenUsageMiddleware(this.model))
+    }
 
     // `undefined` (omitted) → install the default; `null`/`[]` → explicit opt-out.
     const retryStrategies: RetryStrategy[] =
@@ -535,11 +566,14 @@ export class Agent implements LocalAgent, InvokableAgent {
       this._conversationManager,
       ...retryStrategies,
       ...(config?.plugins ?? []),
-      ...(config?.contextManager === 'auto' && !hasOffloader
+      ...((config?.contextManager === 'auto' || config?.contextManager === 'agentic') && !hasOffloader
         ? [
             new ContextOffloader({
               storage: new InMemoryStorage(),
-              maxResultTokens: CONTEXT_MANAGER_MAX_RESULT_TOKENS,
+              maxResultTokens:
+                config?.contextManager === 'agentic'
+                  ? AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS
+                  : CONTEXT_MANAGER_MAX_RESULT_TOKENS,
               previewTokens: CONTEXT_MANAGER_PREVIEW_TOKENS,
             }),
           ]
@@ -1832,7 +1866,7 @@ export class Agent implements LocalAgent, InvokableAgent {
       }
 
       try {
-        const result = yield* this._invokeModelWithMiddleware(invocationState, toolChoice)
+        const result = yield* this._invokeModelWithMiddleware(invocationState, toolChoice, projectedInputTokens)
 
         // Accumulate token usage and model latency metrics
         this._meter.updateCycle(result.metadata)
@@ -1915,17 +1949,24 @@ export class Agent implements LocalAgent, InvokableAgent {
    */
   private async *_invokeModelWithMiddleware(
     invocationState: InvocationState,
-    toolChoice?: ToolChoice
+    toolChoice?: ToolChoice,
+    projectedInputTokens?: number
   ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
     const context: InvokeModelContext = {
       agent: this,
-      messages: this.messages,
-      ...(this.systemPrompt !== undefined && { systemPrompt: this.systemPrompt }),
-      toolSpecs: this._toolRegistry.list().map((tool) => tool.toolSpec),
-      ...(toolChoice !== undefined && { toolChoice }),
-      modelState: this.modelState,
+      messages: this.messages.map((msg) => msg.clone()),
+      ...(this.systemPrompt !== undefined && { systemPrompt: cloneSystemPrompt(this.systemPrompt) }),
+      toolSpecs: deepCopy(this._toolRegistry.list().map((tool) => tool.toolSpec)) as unknown as ToolSpec[],
+      ...(toolChoice !== undefined && { toolChoice: deepCopy(toolChoice) as unknown as ToolChoice }),
       invocationState,
+      ...(projectedInputTokens !== undefined && { projectedInputTokens }),
     }
+
+    // Snapshot model state before middleware runs so concurrent mutations don't leak in.
+    // The writeback happens after the entire middleware chain completes, so middleware
+    // cannot affect modelState at any point (before or after next()).
+    const modelStateSnapshot = this.modelState.getAll()
+    let tempModelState: StateStore | undefined
 
     // async function* doesn't bind lexical `this`; capture for the terminal callback.
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -1942,9 +1983,12 @@ export class Agent implements LocalAgent, InvokableAgent {
         })
 
         try {
+          // Wrap the snapshot into a StateStore for the model provider, which expects
+          // get/set methods.
+          tempModelState = new StateStore(modelStateSnapshot)
           const streamOptions: StreamOptions = {
             toolSpecs: ctx.toolSpecs as ToolSpec[],
-            modelState: ctx.modelState,
+            modelState: tempModelState,
             ...(ctx.systemPrompt !== undefined && { systemPrompt: ctx.systemPrompt }),
             ...(ctx.toolChoice && { toolChoice: ctx.toolChoice }),
           }
@@ -1971,6 +2015,14 @@ export class Agent implements LocalAgent, InvokableAgent {
         }
       }
     )
+
+    // Sync model state after the entire middleware chain has completed, so no
+    // middleware mutation to agent.modelState (before or after next()) takes effect.
+    // Intentionally skipped on error — partial provider writes should not persist.
+    if (tempModelState) {
+      loadStateSerializable(this.modelState, serializeStateSerializable(tempModelState))
+    }
+
     return middlewareResult.result
   }
 
@@ -2455,11 +2507,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     const context: ExecuteToolContext = {
       agent: this,
       tool,
-      toolUse: {
-        name: toolUse.name,
-        toolUseId: toolUse.toolUseId,
-        input: toolUse.input,
-      },
+      toolUse: deepCopy(toolUse) as unknown as ToolUseData,
       invocationState,
       interrupt: createMiddlewareInterrupt(this._interruptState, `middleware:executeTool:${toolUse.toolUseId}`),
     }

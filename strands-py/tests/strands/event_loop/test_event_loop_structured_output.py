@@ -10,6 +10,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from opentelemetry.trace import StatusCode
 from pydantic import BaseModel
 
+from strands._middleware import MiddlewareRegistry
 from strands.event_loop.event_loop import event_loop_cycle, recurse_event_loop
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.telemetry.tracer import Tracer
@@ -61,6 +62,8 @@ def mock_agent():
     agent._interrupt_state.context = {}
     agent._cancel_signal = threading.Event()
     agent._model_state = {}
+    agent._system_prompt_content = None
+    agent._middleware_registry = MiddlewareRegistry()
     agent._checkpointing = False
     agent._checkpoint = None
     agent._checkpoint_cycle_index = 0
