@@ -19,12 +19,14 @@ from ..hooks.events import (
 from .actions import Confirm, Deny, Guide, Proceed, Transform
 
 _T = TypeVar("_T")
-MaybeAwaitable: TypeAlias = _T | Awaitable[_T]
+_MaybeAwaitable: TypeAlias = _T | Awaitable[_T]
 """A value that may be returned directly or as a coroutine.
 
-Lifecycle methods are annotated with this so an override can be a plain ``def``
-(returning the action) or an ``async def`` (returning a coroutine the registry
-awaits). Mirrors the TypeScript ``Awaitable<T>`` alias in ``interventions/handler.ts``.
+Internal annotation alias (underscore-prefixed, not exported): it only widens
+the lifecycle return signatures so an override can be a plain ``def`` (returning
+the action) or an ``async def`` (returning a coroutine the registry awaits). It
+is an implementation detail of supporting both styles, not part of the public
+contract. Mirrors the TypeScript ``Awaitable<T>`` alias in ``interventions/handler.ts``.
 """
 
 OnError = Literal["throw", "proceed", "deny"]
@@ -50,7 +52,7 @@ class InterventionHandler(ABC):
     The registry awaits any override that returns an awaitable, so an ``async``
     handler can await I/O (a database lookup, an HTTP authorization call, a human
     approval prompt) before deciding on an action. The return annotations use
-    ``MaybeAwaitable`` to reflect that an override is free to return its action
+    ``_MaybeAwaitable`` to reflect that an override is free to return its action
     directly or as a coroutine.
 
     Example:
@@ -78,28 +80,28 @@ class InterventionHandler(ABC):
 
     def before_invocation(
         self, event: BeforeInvocationEvent, **kwargs: Any
-    ) -> MaybeAwaitable[Proceed | Deny | Guide | Transform]:
+    ) -> _MaybeAwaitable[Proceed | Deny | Guide | Transform]:
         """Called before an agent invocation begins."""
         return Proceed()
 
     def before_tool_call(
         self, event: BeforeToolCallEvent, **kwargs: Any
-    ) -> MaybeAwaitable[Proceed | Deny | Guide | Confirm | Transform]:
+    ) -> _MaybeAwaitable[Proceed | Deny | Guide | Confirm | Transform]:
         """Called before a tool is executed."""
         return Proceed()
 
-    def after_tool_call(self, event: AfterToolCallEvent, **kwargs: Any) -> MaybeAwaitable[Proceed | Transform]:
+    def after_tool_call(self, event: AfterToolCallEvent, **kwargs: Any) -> _MaybeAwaitable[Proceed | Transform]:
         """Called after a tool execution completes."""
         return Proceed()
 
     def before_model_call(
         self, event: BeforeModelCallEvent, **kwargs: Any
-    ) -> MaybeAwaitable[Proceed | Deny | Guide | Transform]:
+    ) -> _MaybeAwaitable[Proceed | Deny | Guide | Transform]:
         """Called before the model is invoked."""
         return Proceed()
 
     def after_model_call(
         self, event: AfterModelCallEvent, **kwargs: Any
-    ) -> MaybeAwaitable[Proceed | Guide | Transform]:
+    ) -> _MaybeAwaitable[Proceed | Guide | Transform]:
         """Called after the model invocation completes."""
         return Proceed()

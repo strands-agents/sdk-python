@@ -805,7 +805,7 @@ class TestSyncAndAsyncOverrides:
 
         This is the case iscoroutinefunction(method_fn) misses (the *method* is
         sync) but isawaitable(result) catches (the *value* is awaitable). Guards
-        against the un-awaited-coroutine regression the MaybeAwaitable annotation
+        against the un-awaited-coroutine regression the _MaybeAwaitable annotation
         would otherwise invite.
         """
 
