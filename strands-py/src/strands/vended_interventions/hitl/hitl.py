@@ -191,8 +191,7 @@ class HumanInTheLoop(InterventionHandler):
             ``name`` is a fixed class attribute, so at most one ``HumanInTheLoop`` can be
             registered per agent; layering two policies requires subclassing to rename.
         """
-        # A bare string is iterable, so ``set("read_file")`` would silently become a
-        # per-character set and mis-gate every tool with no error. Reject it up front.
+        # A bare string is iterable, so ``set("read_file")`` would silently become a per-char set; reject it.
         if isinstance(allowed_tools, str):
             raise ValueError("allowed_tools must be a list of tool names, not a single string")
         self._allowed_tools = set(allowed_tools or [])

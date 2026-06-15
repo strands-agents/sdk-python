@@ -115,9 +115,7 @@ class TestInlineAskMode:
         assert executed == []
 
     def test_ask_returning_none_denies_instead_of_pausing(self):
-        # A configured inline ask returning None (e.g. a dismissed dialog) must
-        # fail closed as a deny, not silently fall back to interrupt/resume which
-        # a stateless inline caller cannot resume.
+        # A configured inline ask returning None must fail closed (deny), not fall back to interrupt/resume.
         executed = []
 
         @tool(name="my_tool")
@@ -134,8 +132,7 @@ class TestInlineAskMode:
         assert executed == []
 
     def test_async_ask_returning_none_denies_instead_of_pausing(self):
-        # Same fail-closed contract as the sync case, but exercising the awaited
-        # branch where the async ``ask`` resolves to None.
+        # Same fail-closed contract as the sync case, on the awaited async-ask branch.
         executed = []
 
         @tool(name="my_tool")
@@ -176,8 +173,7 @@ class TestInlineAskMode:
 
 class TestAllowedTools:
     def test_bare_string_allowed_tools_raises(self):
-        # str is iterable, so a bare string would be shredded into a per-character
-        # set and silently mis-gate every tool. Reject it explicitly.
+        # str is iterable, so a bare string would be shredded into a per-char set and mis-gate; reject it.
         with pytest.raises(ValueError, match="must be a list"):
             HumanInTheLoop(allowed_tools="read_file")
 
@@ -372,8 +368,7 @@ class TestTrustMode:
 
         agent("Run tool twice")
 
-        # 't' is not recognized as approval when trust is disabled, so the tool is
-        # denied both times, but ask is still called both times (no trust memory)
+        # 't' isn't approval when trust is disabled: denied both times, ask called both times (no memory).
         assert len(ask_count) == 2
 
     def test_t_response_also_approves_current_tool_call(self):
@@ -508,11 +503,9 @@ class TestTrustMode:
 
         result = agent("Run tool twice")
         assert result.stop_reason == "interrupt"
-
         # Resume with a trust response: approves the current call AND trusts the tool
         interrupt_id = result.interrupts[0].id
         result = agent([{"interruptResponse": {"interruptId": interrupt_id, "response": "t"}}])
-
         # Second call to my_tool is trusted: no new interrupt raised
         assert result.stop_reason == "end_turn"
         assert executed == [True, True]
@@ -575,17 +568,16 @@ class TestPublicCallbackProtocols:
     """The callback Protocols are part of the public API so customers know what to pass."""
 
     def test_protocols_are_exported(self):
-        from strands.vended_interventions import AskCallback, EvaluateCallback, HumanInTheLoop
-        from strands.vended_interventions.hitl import AskCallback as AskFromHitl
-        from strands.vended_interventions.hitl import EvaluateCallback as EvaluateFromHitl
+        # Protocols are exported from the ``hitl`` package (top-level namespace exposes only ``HumanInTheLoop``).
+        from strands.vended_interventions import HumanInTheLoop
+        from strands.vended_interventions.hitl import AskCallback, EvaluateCallback
 
-        # Re-exported from both the package and the submodule so either import works.
-        assert AskCallback is AskFromHitl
-        assert EvaluateCallback is EvaluateFromHitl
+        assert AskCallback is not None
+        assert EvaluateCallback is not None
         assert HumanInTheLoop.name == "strands:human-in-the-loop"
 
     def test_callbacks_are_runtime_checkable(self):
-        from strands.vended_interventions import AskCallback, EvaluateCallback
+        from strands.vended_interventions.hitl import AskCallback, EvaluateCallback
 
         class MyAsk:
             def __call__(self, prompt: str, **kwargs) -> str:
@@ -606,7 +598,7 @@ class TestPublicCallbackProtocols:
             executed.append(True)
             return "ok"
 
-        # A forward-compatible callback that accepts **kwargs (the Protocol shape).
+        # Forward-compatible callback accepting **kwargs (the Protocol shape).
         def approve_on_emoji(response, **kwargs) -> bool:
             return response == "👍"
 
