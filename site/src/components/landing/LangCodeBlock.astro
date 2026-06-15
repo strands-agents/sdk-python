@@ -2,13 +2,14 @@
 /**
  * Language-aware code block for the landing page.
  *
- * All instances on the page cross-fade between Python and TypeScript
- * together, driven by a data-active-lang attribute on <html>. The shared
- * script below cycles the language every 6s, pauses while a block is
- * hovered, and pins permanently when the user makes an explicit language
- * choice: either copying an install command (HeroSection dispatches
- * 'strands-home-lang-pin') or clicking a language option in the header
- * toggle (<language-toggle> .lang-option buttons).
+ * All instances on the page show one language at a time, driven by a
+ * data-active-lang attribute on <html>. The shared script applies the
+ * stored site-wide preference on load (default TypeScript) without
+ * animation, then cross-fades between Python and TypeScript when the user
+ * makes an explicit choice: copying an install command (HeroSection
+ * dispatches 'strands-home-lang-pin') or clicking a language option in the
+ * header toggle (<language-toggle> .lang-option buttons). There is no
+ * auto-cycle.
  *
  * Pass both languages to get switching. Pass only pythonCode for
  * Python-only sections (e.g., steering); those render statically with a
@@ -53,6 +54,12 @@ const hasTs = !!tsCode
   [data-has-ts='true'] > [data-lang-code] {
     grid-area: 1 / 1;
     min-width: 0;
+  }
+
+  /* Only cross-fade once the initial language has been applied, so the
+     first paint (which may restore a stored Python preference) does not
+     animate. data-lang-ready is set on the next frame by the script. */
+  :global(html[data-lang-ready]) [data-has-ts='true'] > [data-lang-code] {
     transition: opacity 0.4s ease, visibility 0.4s;
   }
 
@@ -82,16 +89,17 @@ const hasTs = !!tsCode
 </style>
 
 <script>
-  // Single page-wide language cycle for all landing code blocks. Astro
-  // dedupes this script, so it runs once per page regardless of how many
-  // LangCodeBlock instances render.
+  // All landing code blocks show one language at a time, driven by a
+  // data-active-lang attribute on <html>. Astro dedupes this script, so it
+  // runs once per page regardless of how many LangCodeBlock instances render.
   //
-  // The homepage intentionally does NOT read localStorage on load and does
-  // NOT listen for storage events: cross-tab or global picker changes must
-  // not silently override the cycling experience. Pinning only happens on
-  // an express user action: copying an install command or clicking a
-  // language option in the header toggle. Both are deliberate choices.
-  const CYCLE_MS = 6000
+  // The initial language comes from the stored site-wide preference
+  // (default TypeScript) and is applied without animation. Subsequent
+  // switches from an explicit user action (copying an install command or
+  // clicking the header language toggle) cross-fade smoothly. There is no
+  // auto-cycle, and no storage-event listener: the homepage reflects the
+  // stored preference on load and in-page choices only.
+  const STORAGE_KEY = 'starlight-synced-tabs__jarkqt'
 
   type Lang = 'Python' | 'TypeScript'
 
@@ -99,67 +107,30 @@ const hasTs = !!tsCode
     document.documentElement.dataset.activeLang = lang
   }
 
-  const currentLang = (): Lang =>
-    document.documentElement.dataset.activeLang === 'Python' ? 'Python' : 'TypeScript'
-
-  let pinned = false
-  let hoverCount = 0
-  let timer: number | undefined
-
-  setLang('TypeScript')
-
-  const startCycle = () => {
-    if (timer !== undefined) return
-    timer = window.setInterval(() => {
-      if (pinned || hoverCount > 0) return
-      setLang(currentLang() === 'Python' ? 'TypeScript' : 'Python')
-    }, CYCLE_MS)
+  const storedLang = (): Lang => {
+    try {
+      return localStorage.getItem(STORAGE_KEY) === 'Python' ? 'Python' : 'TypeScript'
+    } catch {
+      return 'TypeScript'
+    }
   }
 
-  const stopCycle = () => {
-    if (timer === undefined) return
-    window.clearInterval(timer)
-    timer = undefined
-  }
-
-  // Shared pin logic: called by both pin sources below.
-  const pin = (lang: Lang) => {
-    pinned = true
-    setLang(lang)
-    stopCycle()
-  }
-
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
-  if (!reducedMotion.matches) startCycle()
-  reducedMotion.addEventListener('change', () => {
-    if (reducedMotion.matches || pinned) stopCycle()
-    else startCycle()
+  // Apply the initial language before enabling transitions so the first
+  // paint does not animate, then turn cross-fade on for later switches.
+  setLang(storedLang())
+  requestAnimationFrame(() => {
+    document.documentElement.dataset.langReady = ''
   })
 
-  // Pause while the reader hovers any switchable block.
-  document
-    .querySelectorAll<HTMLElement>('.lang-code-block[data-has-ts="true"]')
-    .forEach((block) => {
-      block.addEventListener('mouseenter', () => {
-        hoverCount += 1
-      })
-      block.addEventListener('mouseleave', () => {
-        hoverCount = Math.max(0, hoverCount - 1)
-      })
-    })
-
-  // Pin source 1: a copy click on an install command in HeroSection.
+  // Switch source 1: a copy click on an install command in HeroSection.
   window.addEventListener('strands-home-lang-pin', ((e: CustomEvent<{ lang: Lang }>) => {
     const lang = e.detail?.lang
     if (lang !== 'Python' && lang !== 'TypeScript') return
-    pin(lang)
+    setLang(lang)
   }) as EventListener)
 
-  // Pin source 2: an explicit click on a language option in the header
-  // toggle (<language-toggle> .lang-option). Clicking the toggle is a
-  // deliberate choice, so the homepage honors it. Passive sync via
-  // localStorage or storage events is intentionally absent: the homepage
-  // must not react to changes made in other tabs or pages.
+  // Switch source 2: an explicit click on a language option in the header
+  // toggle (<language-toggle> .lang-option).
   document.addEventListener('click', (e: MouseEvent) => {
     const target = e.target as Element | null
     if (!target) return
@@ -167,6 +138,6 @@ const hasTs = !!tsCode
     if (!button) return
     const lang = button.dataset.lang
     if (lang !== 'Python' && lang !== 'TypeScript') return
-    pin(lang)
+    setLang(lang)
   })
 </script>
