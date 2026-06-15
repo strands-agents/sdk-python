@@ -113,7 +113,7 @@ Choose a storage backend based on your needs:
 
 All backends implement the `Storage` protocol and preserve content type metadata, so you can also build your own.
 
-**In-memory storage**: stores content in process memory. Entries not accessed within `evict_after_turns` agent loop cycles are automatically evicted to prevent unbounded memory growth. The default is 20 cycles. Retrieving content resets the counter for that entry, so frequently accessed content stays alive.
+**In-memory storage**: stores content in process memory. Entries not accessed within `evict_after_turns` agent loop cycles are automatically evicted to prevent unbounded memory growth. The default is 20 cycles. Retrieving content resets the counter for that entry, so frequently accessed content stays alive. To disable eviction and manage memory manually, pass `None`/`null` and call `clear()` when entries are no longer needed.
 
 <Tabs>
 <Tab label="Python">
