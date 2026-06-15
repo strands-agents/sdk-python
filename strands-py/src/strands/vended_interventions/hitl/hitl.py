@@ -189,7 +189,9 @@ class HumanInTheLoop(InterventionHandler):
         self._evaluate = evaluate if evaluate is not None else default_evaluate
         self._ask = _create_stdio_ask(enable_trust) if ask == "stdio" else ask
 
-    async def before_tool_call(self, event: BeforeToolCallEvent, **kwargs: Any) -> InterventionAction:
+    async def before_tool_call(  # type: ignore[override]
+        self, event: BeforeToolCallEvent, **kwargs: Any
+    ) -> InterventionAction:
         """Request human approval before executing a tool that is not allow-listed or trusted.
 
         Implemented as ``async`` so the inline ``ask`` path can await a human's

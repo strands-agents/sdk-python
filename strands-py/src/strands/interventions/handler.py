@@ -6,7 +6,6 @@ registers hook callbacks for those.
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable
 from typing import Any, Literal
 
 from ..hooks.events import (
@@ -37,13 +36,6 @@ class InterventionHandler(ABC):
     methods are overridden and only calls those. Instance-level assignments
     (e.g., ``handler.before_tool_call = my_func``) are not detected.
 
-    Lifecycle methods may be implemented as either sync or ``async`` functions.
-    The registry awaits coroutine overrides, so an ``async`` handler can await
-    I/O (a database lookup, an HTTP authorization call, a human approval prompt)
-    before deciding on an action. The return annotations include ``Awaitable``
-    to reflect that an override is free to return its action directly or as a
-    coroutine.
-
     Example:
         ```python
         class CedarAuth(InterventionHandler):
@@ -67,32 +59,24 @@ class InterventionHandler(ABC):
         """What to do when this handler throws. Defaults to 'throw'."""
         return "throw"
 
-    def before_invocation(
-        self, event: BeforeInvocationEvent, **kwargs: Any
-    ) -> Proceed | Deny | Guide | Transform | Awaitable[Proceed | Deny | Guide | Transform]:
+    def before_invocation(self, event: BeforeInvocationEvent, **kwargs: Any) -> Proceed | Deny | Guide | Transform:
         """Called before an agent invocation begins."""
         return Proceed()
 
     def before_tool_call(
         self, event: BeforeToolCallEvent, **kwargs: Any
-    ) -> Proceed | Deny | Guide | Confirm | Transform | Awaitable[Proceed | Deny | Guide | Confirm | Transform]:
+    ) -> Proceed | Deny | Guide | Confirm | Transform:
         """Called before a tool is executed."""
         return Proceed()
 
-    def after_tool_call(
-        self, event: AfterToolCallEvent, **kwargs: Any
-    ) -> Proceed | Transform | Awaitable[Proceed | Transform]:
+    def after_tool_call(self, event: AfterToolCallEvent, **kwargs: Any) -> Proceed | Transform:
         """Called after a tool execution completes."""
         return Proceed()
 
-    def before_model_call(
-        self, event: BeforeModelCallEvent, **kwargs: Any
-    ) -> Proceed | Deny | Guide | Transform | Awaitable[Proceed | Deny | Guide | Transform]:
+    def before_model_call(self, event: BeforeModelCallEvent, **kwargs: Any) -> Proceed | Deny | Guide | Transform:
         """Called before the model is invoked."""
         return Proceed()
 
-    def after_model_call(
-        self, event: AfterModelCallEvent, **kwargs: Any
-    ) -> Proceed | Guide | Transform | Awaitable[Proceed | Guide | Transform]:
+    def after_model_call(self, event: AfterModelCallEvent, **kwargs: Any) -> Proceed | Guide | Transform:
         """Called after the model invocation completes."""
         return Proceed()
