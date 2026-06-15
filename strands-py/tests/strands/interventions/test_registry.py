@@ -761,3 +761,94 @@ class TestUnsupportedActionWarning:
             await hook_registry.invoke_callbacks_async(event)
 
         assert any("has no effect" in record.message for record in caplog.records)
+
+
+class TestSyncAndAsyncOverrides:
+    """The lifecycle contract (MaybeAwaitable) allows sync or async overrides.
+
+    The registry awaits based on whether the *returned value* is awaitable
+    (inspect.isawaitable), not whether the method is `async def`. These tests
+    lock in that all three shapes resolve to the same action.
+    """
+
+    @pytest.mark.asyncio
+    async def test_sync_def_override_is_applied(self, hook_registry, agent):
+        """A plain `def` override returning an action directly is honored."""
+
+        class SyncDeny(InterventionHandler):
+            name = "sync-deny"
+
+            def before_tool_call(self, event):
+                return Deny(reason="sync denial")
+
+        InterventionRegistry([SyncDeny()], hook_registry)
+
+        event = make_before_tool_call_event(agent)
+        await hook_registry.invoke_callbacks_async(event)
+        assert event.cancel_tool == "DENIED: sync denial"
+
+    @pytest.mark.asyncio
+    async def test_async_def_override_is_awaited(self, hook_registry, agent):
+        """An `async def` override is awaited and applied."""
+
+        class AsyncDeny(InterventionHandler):
+            name = "async-deny"
+
+            async def before_tool_call(self, event):
+                return Deny(reason="async denial")
+
+        InterventionRegistry([AsyncDeny()], hook_registry)
+
+        event = make_before_tool_call_event(agent)
+        await hook_registry.invoke_callbacks_async(event)
+        assert event.cancel_tool == "DENIED: async denial"
+
+    @pytest.mark.asyncio
+    async def test_sync_def_returning_coroutine_is_awaited(self, hook_registry, agent):
+        """A sync `def` that returns a coroutine has it awaited, not passed through.
+
+        This is the case the previous `iscoroutinefunction(method_fn)` dispatch
+        missed: the method itself is sync, so the coroutine it returned would
+        have leaked through un-awaited (RuntimeWarning + a non-action value).
+        """
+
+        async def _decide():
+            return Deny(reason="deferred denial")
+
+        class SyncReturnsCoroutine(InterventionHandler):
+            name = "sync-returns-coro"
+
+            def before_tool_call(self, event):
+                return _decide()
+
+        InterventionRegistry([SyncReturnsCoroutine()], hook_registry)
+
+        event = make_before_tool_call_event(agent)
+        await hook_registry.invoke_callbacks_async(event)
+        assert event.cancel_tool == "DENIED: deferred denial"
+
+    @pytest.mark.asyncio
+    async def test_sync_proceed_does_not_short_circuit(self, hook_registry, agent):
+        """A sync Proceed lets later handlers run (no accidental short-circuit)."""
+        later_called = False
+
+        class SyncProceed(InterventionHandler):
+            name = "sync-proceed"
+
+            def before_tool_call(self, event):
+                return Proceed()
+
+        class LaterDeny(InterventionHandler):
+            name = "later-deny"
+
+            def before_tool_call(self, event):
+                nonlocal later_called
+                later_called = True
+                return Deny(reason="blocked by later handler")
+
+        InterventionRegistry([SyncProceed(), LaterDeny()], hook_registry)
+
+        event = make_before_tool_call_event(agent)
+        await hook_registry.invoke_callbacks_async(event)
+        assert later_called
+        assert event.cancel_tool == "DENIED: blocked by later handler"
