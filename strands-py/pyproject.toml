@@ -222,6 +222,10 @@ ignore_missing_imports = false
 exclude = ["src/strands/experimental/bidi"]
 
 [[tool.mypy.overrides]]
+module = ["cedarpy", "cedar_mcp_schema_generator"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = ["strands.experimental.bidi.*"]
 follow_imports = "skip"
 

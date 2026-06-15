@@ -43,6 +43,7 @@ def load_entities(source: list[dict[str, Any]] | str | None) -> list[dict[str, A
     if source is None:
         return []
 
+    parsed: list[dict[str, Any]]
     if isinstance(source, str):
         stripped = source.strip()
         if stripped.startswith("["):
