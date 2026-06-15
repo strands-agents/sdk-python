@@ -220,3 +220,37 @@ def error_handling_example():
             return Proceed()
 
     # --8<-- [end:error_handling]
+
+
+# =====================
+# Confirm Action
+# =====================
+
+
+def confirm_example():
+    # --8<-- [start:confirm]
+    from strands.interventions import Confirm, InterventionHandler, Proceed
+
+    class SensitiveToolApproval(InterventionHandler):
+        name = "sensitive-tool-approval"
+
+        def before_tool_call(self, event: BeforeToolCallEvent):
+            if event.tool_use["name"] in ("delete_file", "send_email"):
+                return Confirm(
+                    prompt=f"Allow {event.tool_use['name']}?"
+                )
+            return Proceed()
+
+    # Preemptive approval — agent doesn't pause
+    class AutoApprove(InterventionHandler):
+        name = "auto-approve"
+
+        def before_tool_call(self, event: BeforeToolCallEvent):
+            if event.tool_use["name"] == "search":
+                return Confirm(
+                    prompt="Allow search?",
+                    response="yes",
+                )
+            return Proceed()
+
+    # --8<-- [end:confirm]

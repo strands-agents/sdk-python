@@ -230,8 +230,31 @@ async function errorHandlingExample() {
   // --8<-- [end:error_handling]
 }
 
+// =====================
+// Confirm Action
+// =====================
+
+async function confirmExample() {
+  // --8<-- [start:confirm]
+  class DeleteApproval extends InterventionHandler {
+    readonly name = 'delete-approval'
+
+    override beforeToolCall(event: BeforeToolCallEvent) {
+      if (event.toolUse.name === 'delete_file') {
+        const input = event.toolUse.input as Record<string, string>
+        return InterventionActions.confirm(
+          `Approve deleting "${input.path}"?`
+        )
+      }
+      return InterventionActions.proceed()
+    }
+  }
+  // --8<-- [end:confirm]
+}
+
 // Suppress unused function warnings
 void basicUsageExample
 void actionTypesExample
 void shortCircuitingExample
 void errorHandlingExample
+void confirmExample
