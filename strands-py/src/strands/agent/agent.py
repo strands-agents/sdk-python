@@ -442,7 +442,7 @@ class Agent(AgentBase):
         # synchronous entry point can flush pending extraction writes.
         self.memory_manager = self._resolve_memory_manager(memory_manager)
         if self.memory_manager is not None:
-            if self.memory_manager.name in self._plugin_registry:
+            if self.memory_manager.name in self._plugin_registry._plugins:
                 raise ValueError(
                     "MemoryManager is already registered; pass it through either the memory_manager "
                     "parameter or plugins, not both"
