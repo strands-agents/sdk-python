@@ -175,7 +175,8 @@ class MemoryManager(Plugin):
         # Extraction coordinator, created in ``init_agent`` when configured.
         self._coordinator: ExtractionCoordinator | None = None
 
-        self._flush_on_invocation_end = flush_on_invocation_end
+        # Gates the synchronous Agent(...) auto-flush; see Agent.memory_manager.
+        self.flush_on_invocation_end = flush_on_invocation_end
 
         # Build tools now; surfaced via the ``tools`` property.
         self._memory_tools: list[AgentTool] = self._build_tools()
@@ -231,11 +232,6 @@ class MemoryManager(Plugin):
                 tools.extend(store.get_tools())
 
         return tools
-
-    @property
-    def flush_on_invocation_end(self) -> bool:
-        """Whether the synchronous ``Agent(...)`` entry point flushes after each invocation."""
-        return self._flush_on_invocation_end
 
     @property
     def tools(self) -> list[AgentTool]:  # type: ignore[override]

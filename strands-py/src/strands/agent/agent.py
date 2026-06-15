@@ -242,12 +242,11 @@ class Agent(AgentBase):
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
-            memory_manager: Cross-session memory manager. Accepts a
-                :class:`~strands.memory.MemoryManager` instance or a
-                :class:`~strands.memory.MemoryManagerConfig` (auto-wrapped). When set, its
-                search/add tools are registered and the synchronous ``Agent(...)`` entry point
-                awaits pending extraction writes after each invocation unless the manager sets
-                ``flush_on_invocation_end=False``. Defaults to None.
+            memory_manager: Cross-session memory manager, as a
+                :class:`~strands.memory.MemoryManager` or a
+                :class:`~strands.memory.MemoryManagerConfig` (auto-wrapped). Registers its
+                memory tools; the synchronous ``Agent(...)`` entry point flushes pending
+                extraction after each invocation. Defaults to None.
             structured_output_prompt: Custom prompt message used when forcing structured output.
                 When using structured output, if the model doesn't automatically use the output tool,
                 the agent sends a follow-up message to request structured formatting. This parameter
