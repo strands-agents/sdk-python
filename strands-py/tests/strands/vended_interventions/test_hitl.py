@@ -576,8 +576,13 @@ class TestPublicCallbackProtocols:
         assert executed == [True]
 
 
-class TestSyncCustomInterventionHandler:
-    """A custom handler may override before_tool_call as sync OR async (no type: ignore needed)."""
+class TestCustomInterventionHandler:
+    """A custom handler may override before_tool_call as async and be awaited at runtime.
+
+    The registry awaits coroutine overrides, so an ``async def`` handler runs
+    end-to-end. Widening the base class so async overrides also type-check
+    without a per-file ``# type: ignore`` is tracked in harness-sdk#2800.
+    """
 
     def test_async_handler_returning_proceed(self):
         from strands.interventions.actions import Proceed

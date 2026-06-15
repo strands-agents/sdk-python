@@ -189,6 +189,9 @@ class HumanInTheLoop(InterventionHandler):
         self._evaluate = evaluate if evaluate is not None else default_evaluate
         self._ask = _create_stdio_ask(enable_trust) if ask == "stdio" else ask
 
+    # async override of a base method typed as sync. The registry awaits coroutine
+    # overrides at runtime, so this is correct; the type: ignore goes away once the
+    # base class widens to MaybeAwaitable (strands-agents/harness-sdk#2800).
     async def before_tool_call(  # type: ignore[override]
         self, event: BeforeToolCallEvent, **kwargs: Any
     ) -> InterventionAction:
