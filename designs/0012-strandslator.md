@@ -1,5 +1,11 @@
 # Strandslator
 
+**Status**: Proposed
+
+**Date**: 2026-06-12
+
+**Issue**: https://github.com/strands-agents/harness-sdk/issues/2666
+
 ## Overview
 
 Every feature we build in one language eventually needs to exist in all the others. If Strands supports N languages with M features, keeping them in sync becomes an N * M cost.
