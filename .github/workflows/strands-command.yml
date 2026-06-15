@@ -51,21 +51,6 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout prompt files
-        if: startsWith(inputs.command, 'review') || contains(github.event.comment.body, '/strands review')
-        uses: actions/checkout@v4
-        with:
-          sparse-checkout: .github/prompts
-
-      - name: Load reviewer suffix
-        if: startsWith(inputs.command, 'review') || contains(github.event.comment.body, '/strands review')
-        id: suffix
-        run: |
-          delimiter="$(openssl rand -hex 8)"
-          echo "value<<$delimiter" >> "$GITHUB_OUTPUT"
-          cat .github/prompts/reviewer-suffix.md >> "$GITHUB_OUTPUT"
-          echo "$delimiter" >> "$GITHUB_OUTPUT"
-
       - name: Parse input
         id: parse
         uses: strands-agents/devtools/strands-command/actions/strands-input-parser@main
@@ -73,7 +58,6 @@ jobs:
           issue_id: ${{ inputs.issue_id }}
           command: ${{ inputs.command }}
           session_id: ${{ inputs.session_id }}
-          system_prompt_suffix: ${{ steps.suffix.outputs.value }}
 
   execute-readonly-agent:
     needs: [setup-and-process]
