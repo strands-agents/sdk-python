@@ -28,4 +28,5 @@ from .actions import InterventionAction as InterventionAction
 from .actions import Proceed as Proceed
 from .actions import Transform as Transform
 from .handler import InterventionHandler as InterventionHandler
+from .handler import MaybeAwaitable as MaybeAwaitable
 from .handler import OnError as OnError

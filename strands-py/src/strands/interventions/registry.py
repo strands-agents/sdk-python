@@ -206,7 +206,10 @@ class InterventionRegistry:
             try:
                 method_fn = getattr(handler, method)
                 result = method_fn(event)
-                action = await result if inspect.iscoroutinefunction(method_fn) else result
+                # Await based on the *returned value*, not iscoroutinefunction(method_fn):
+                # lifecycle overrides may be sync or async (the base class annotates them
+                # as MaybeAwaitable), and a sync def can still hand back a coroutine/future.
+                action = await result if inspect.isawaitable(result) else result
             except Exception as error:
                 action = self._handle_error(handler, method, error)
                 if action is None:
