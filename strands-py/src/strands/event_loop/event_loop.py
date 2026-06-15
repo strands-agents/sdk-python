@@ -539,6 +539,7 @@ async def _handle_model_execution(
                 tool_specs=copy.deepcopy(tool_specs),
                 tool_choice=copy.deepcopy(structured_output_context.tool_choice),
                 invocation_state=invocation_state,
+                projected_input_tokens=projected_input_tokens,
             )
 
             # Run through middleware chain (terminal includes span tracking)

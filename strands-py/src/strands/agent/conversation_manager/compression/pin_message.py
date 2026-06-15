@@ -1,6 +1,6 @@
 """Message pinning utilities for protecting messages from context eviction."""
 
-from ...types.content import Message, Messages
+from ....types.content import Message, Messages
 
 
 def _get_tool_use_ids(message: Message) -> set[str]:

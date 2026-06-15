@@ -6,14 +6,18 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 from typing_extensions import override
 
 from ..._async import run_async
-from ...event_loop.streaming import process_stream
 from ...tools._tool_helpers import noop_tool
 from ...tools.registry import ToolRegistry
 from ...types.content import Message
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import AgentTool
+from .compression.context_compression import (
+    DEFAULT_SUMMARIZATION_PROMPT,
+    adjust_split_point_for_tool_pairs,
+    generate_summary,
+)
+from .compression.pin_message import apply_pin_first, partition_pinned
 from .conversation_manager import ConversationManager, ProactiveCompressionConfig
-from .pin_message import apply_pin_first, partition_pinned
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -21,35 +25,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-
-DEFAULT_SUMMARIZATION_PROMPT = """You are a conversation summarizer. Provide a concise summary of the conversation \
-history.
-
-Format Requirements:
-- You MUST create a structured and concise summary in bullet-point format.
-- You MUST NOT respond conversationally.
-- You MUST NOT address the user directly.
-- You MUST NOT comment on tool availability.
-
-Assumptions:
-- You MUST NOT assume tool executions failed unless otherwise stated.
-
-Task:
-Your task is to create a structured summary document:
-- It MUST contain bullet points with key topics and questions covered
-- It MUST contain bullet points for all significant tools executed and their results
-- It MUST contain bullet points for any code or technical information shared
-- It MUST contain a section of key insights gained
-- It MUST format the summary in the third person
-
-Example format:
-
-## Conversation Summary
-* Topic 1: Key information
-* Topic 2: Key information
-*
-## Tools Executed
-* Tool X: Result Y"""
+# ``DEFAULT_SUMMARIZATION_PROMPT`` is re-exported here for backward compatibility; the
+# canonical definition now lives in ``compression.context_compression``.
+__all__ = ["DEFAULT_SUMMARIZATION_PROMPT", "SummarizingConversationManager"]
 
 
 class SummarizingConversationManager(ConversationManager):
@@ -297,7 +275,9 @@ class SummarizingConversationManager(ConversationManager):
         """Generate a summary by calling the agent's model directly.
 
         This bypasses the full agent pipeline (lock, metrics, traces, tool loop) and
-        simply asks the underlying model to summarize the conversation.
+        simply asks the underlying model to summarize the conversation. Delegates the
+        actual model call to the shared :func:`generate_summary` helper, wrapping it in
+        ``run_async`` because this method is invoked from a synchronous context.
 
         Args:
             messages: The messages to summarize.
@@ -306,40 +286,13 @@ class SummarizingConversationManager(ConversationManager):
         Returns:
             A message containing the conversation summary.
         """
-        system_prompt = (
-            self.summarization_system_prompt
-            if self.summarization_system_prompt is not None
-            else DEFAULT_SUMMARIZATION_PROMPT
-        )
-
-        # Build the message list: conversation history + summarization request
-        summarization_messages = list(messages) + [
-            {"role": "user", "content": [{"text": "Please summarize this conversation."}]}
-        ]
-
-        async def _call_model() -> Message:
-            chunks = agent.model.stream(
-                summarization_messages,
-                tool_specs=None,
-                system_prompt=system_prompt,
-            )
-
-            result_message: Message | None = None
-            async for event in process_stream(chunks):
-                if "stop" in event:
-                    _, result_message, _, _ = event["stop"]
-
-            if result_message is None:
-                raise RuntimeError("Failed to generate summary: no response from model")
-            return result_message
-
-        message = run_async(_call_model)
-        return cast(Message, {**message, "role": "user"})
+        return run_async(lambda: generate_summary(messages, agent.model, self.summarization_system_prompt))
 
     def _adjust_split_point_for_tool_pairs(self, messages: list[Message], split_point: int) -> int:
         """Adjust the split point to avoid breaking ToolUse/ToolResult pairs.
 
-        Uses the same logic as SlidingWindowConversationManager for consistency.
+        Thin wrapper around the shared :func:`adjust_split_point_for_tool_pairs` helper,
+        kept as a method so subclasses and tests can call or override it directly.
 
         Args:
             messages: The full list of messages.
@@ -351,29 +304,4 @@ class SummarizingConversationManager(ConversationManager):
         Raises:
             ContextWindowOverflowException: If no valid split point can be found.
         """
-        if split_point > len(messages):
-            raise ContextWindowOverflowException("Split point exceeds message array length")
-
-        if split_point == len(messages):
-            return split_point
-
-        # Find the next valid split_point
-        while split_point < len(messages):
-            if (
-                # Oldest message cannot be a toolResult because it needs a toolUse preceding it
-                any("toolResult" in content for content in messages[split_point]["content"])
-                or (
-                    # Oldest message can be a toolUse only if a toolResult immediately follows it.
-                    any("toolUse" in content for content in messages[split_point]["content"])
-                    and split_point + 1 < len(messages)
-                    and not any("toolResult" in content for content in messages[split_point + 1]["content"])
-                )
-            ):
-                split_point += 1
-            else:
-                break
-        else:
-            # If we didn't find a valid split_point, then we throw
-            raise ContextWindowOverflowException("Unable to trim conversation context!")
-
-        return split_point
+        return adjust_split_point_for_tool_pairs(messages, split_point)

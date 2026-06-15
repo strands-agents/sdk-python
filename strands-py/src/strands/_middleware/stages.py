@@ -30,6 +30,7 @@ class InvokeModelContext:
     tool_specs: list[ToolSpec]
     tool_choice: Any | None
     invocation_state: dict[str, Any]
+    projected_input_tokens: int | None = None
 
 
 @dataclass

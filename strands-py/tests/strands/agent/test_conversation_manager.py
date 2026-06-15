@@ -1118,7 +1118,7 @@ def test_pin_first_only_applies_once():
 
 
 def test_pinned_message_in_middle_survives_trimming():
-    from strands.agent.conversation_manager.pin_message import pin_message
+    from strands.agent.conversation_manager.compression.pin_message import pin_message
 
     manager = SlidingWindowConversationManager(window_size=4, should_truncate_results=False)
     messages = [

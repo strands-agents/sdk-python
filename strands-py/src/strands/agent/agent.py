@@ -113,11 +113,14 @@ _DEFAULT_RETRY_STRATEGY = _DefaultRetryStrategySentinel()
 _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
-ContextManagerStrategy = Literal["auto"]
+ContextManagerStrategy = Literal["auto", "agentic"]
 """Supported values for the ``context_manager`` parameter."""
 
 _CONTEXT_MANAGER_MAX_RESULT_TOKENS = 1_500
 """Benchmark-validated token threshold for offloading tool results."""
+
+_AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS = 8_000
+"""Higher offload threshold for agentic mode - the model manages its own context, so we preserve more inline."""
 
 _CONTEXT_MANAGER_PREVIEW_TOKENS = 750
 """Benchmark-validated preview token count for offloaded results."""
@@ -334,6 +337,16 @@ class Agent(AgentBase):
         if tools is not None:
             self.tool_registry.process_tools(tools)
 
+        # Inject the model-driven context-management tools when running in agentic mode.
+        if context_manager == "agentic":
+            from .conversation_manager.modes.agentic.agentic_context import (
+                pin_context,
+                summarize_context,
+                truncate_context,
+            )
+
+            self.tool_registry.process_tools([summarize_context, truncate_context, pin_context])
+
         # Initialize tools and configuration
         self.tool_registry.initialize_tools(self.load_tools_from_directory)
         if load_tools_from_directory:
@@ -361,6 +374,13 @@ class Agent(AgentBase):
         self.hooks = HookRegistry()
 
         self._middleware_registry = MiddlewareRegistry()
+
+        # In agentic mode, surface live token usage to the model so it can decide when to compress.
+        if context_manager == "agentic":
+            from .._middleware.stages import InvokeModelStage
+            from .conversation_manager.modes.agentic.agentic_context import create_token_usage_middleware
+
+            self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware(self.model))
 
         self._plugin_registry = _PluginRegistry(self)
 
@@ -460,11 +480,15 @@ class Agent(AgentBase):
         """Resolve context_manager facade into concrete conversation_manager and plugins.
 
         When context_manager is None, returns (None, None) and no resolution occurs.
-        When "auto", constructs a SummarizingConversationManager and ContextOffloader
-        with benchmark-validated defaults, unless the user already provided those.
+        When "auto", constructs a SummarizingConversationManager with proactive compression
+        plus a ContextOffloader, using benchmark-validated defaults.
+        When "agentic", constructs a SummarizingConversationManager *without* proactive
+        compression (the model drives context management via injected tools; the conversation
+        manager is only a reactive overflow safety net) plus a ContextOffloader with a higher
+        offload threshold. In both cases a user-provided conversation_manager / offloader wins.
 
         Args:
-            context_manager: The facade value ("auto" or None).
+            context_manager: The facade value ("auto", "agentic", or None).
             conversation_manager: User-provided conversation manager, takes precedence if set.
             plugins: User-provided plugin list; offloader is appended if not already present.
 
@@ -478,31 +502,44 @@ class Agent(AgentBase):
         if context_manager is None:
             return None, None
 
-        supported = get_args(ContextManagerStrategy)
-        if context_manager not in supported:
-            raise ValueError(f"Unsupported context_manager value: {context_manager!r}. Supported values: {supported}")
-
         from ..vended_plugins.context_offloader import ContextOffloader, InMemoryStorage
         from .conversation_manager import SummarizingConversationManager
+
+        if context_manager == "auto":
+            offloader_max_result_tokens = _CONTEXT_MANAGER_MAX_RESULT_TOKENS
+            default_conversation_manager = SummarizingConversationManager(
+                summary_ratio=_CONTEXT_MANAGER_SUMMARY_RATIO,
+                proactive_compression={"compression_threshold": _CONTEXT_MANAGER_COMPRESSION_THRESHOLD},
+            )
+        elif context_manager == "agentic":
+            # No proactive compression: the agent manages its context via injected tools, so the
+            # conversation manager only reacts to genuine context-window overflow. The offloader
+            # keeps more inline since the model is responsible for compressing its own context.
+            offloader_max_result_tokens = _AGENTIC_CONTEXT_MANAGER_MAX_RESULT_TOKENS
+            default_conversation_manager = SummarizingConversationManager(
+                summary_ratio=_CONTEXT_MANAGER_SUMMARY_RATIO,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported context_manager value: {context_manager!r}. "
+                f"Supported values: {get_args(ContextManagerStrategy)}"
+            )
 
         resolved_plugins = list(plugins) if plugins else []
 
         has_offloader = any(isinstance(p, ContextOffloader) for p in resolved_plugins)
         if not has_offloader:
-            offloader = ContextOffloader(
-                storage=InMemoryStorage(),
-                max_result_tokens=_CONTEXT_MANAGER_MAX_RESULT_TOKENS,
-                preview_tokens=_CONTEXT_MANAGER_PREVIEW_TOKENS,
+            resolved_plugins.append(
+                ContextOffloader(
+                    storage=InMemoryStorage(),
+                    max_result_tokens=offloader_max_result_tokens,
+                    preview_tokens=_CONTEXT_MANAGER_PREVIEW_TOKENS,
+                )
             )
-            resolved_plugins.append(offloader)
 
-        if conversation_manager is not None:
-            resolved_conversation_manager = conversation_manager
-        else:
-            resolved_conversation_manager = SummarizingConversationManager(
-                summary_ratio=_CONTEXT_MANAGER_SUMMARY_RATIO,
-                proactive_compression={"compression_threshold": _CONTEXT_MANAGER_COMPRESSION_THRESHOLD},
-            )
+        resolved_conversation_manager = (
+            conversation_manager if conversation_manager is not None else default_conversation_manager
+        )
 
         return resolved_conversation_manager, resolved_plugins
 
