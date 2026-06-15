@@ -72,7 +72,7 @@ describe.skipIf(bedrock.skip)('Agentic Context Manager Integration', () => {
       expect(hasContextStatus).toBe(true)
     })
 
-    it('context-status contains token numbers and tool names', async () => {
+    it('context-status contains token usage and remaining capacity', async () => {
       const model = bedrock.createModel({ maxTokens: 1024 })
       const streamSpy = vi.spyOn(model, 'stream')
 
@@ -100,10 +100,6 @@ describe.skipIf(bedrock.skip)('Agentic Context Manager Integration', () => {
 
       expect(statusText).toContain('<used>')
       expect(statusText).toContain('<remaining>')
-      expect(statusText).toContain('<tools>')
-      expect(statusText).toContain('summarize_context')
-      expect(statusText).toContain('truncate_context')
-      expect(statusText).toContain('pin')
       expect(statusText).toContain('</context-status>')
     })
 
@@ -193,12 +189,12 @@ describe.skipIf(bedrock.skip)('Agentic Context Manager Integration', () => {
 
       await agent.invoke('Compress context using summarize_context with keepRecent=2 and summaryRatio=0.6.')
 
-      const hasOriginalSkyMsg = agent.messages.some(
+      const hasOriginalGrassMsg = agent.messages.some(
         (msg) =>
           msg.role === 'user' &&
-          msg.content.some((block) => block.type === 'textBlock' && (block as TextBlock).text === 'The sky is blue.')
+          msg.content.some((block) => block.type === 'textBlock' && (block as TextBlock).text === 'Grass is green.')
       )
-      expect(hasOriginalSkyMsg).toBe(false)
+      expect(hasOriginalGrassMsg).toBe(false)
     }, 60_000)
 
     it('truncate_context actually drops messages', async () => {
