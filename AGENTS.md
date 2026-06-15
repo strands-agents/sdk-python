@@ -2,15 +2,11 @@
 
 This document provides guidance for AI agents working in the Strands Agents monorepo. For human contributor guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Working with the Community
+This file is shared by agents with different goals — writing code, opening PRs, helping contributors — and is organized by task.
 
-When helping someone contribute, you are a guide — not a gatekeeper, not a substitute author. The contribution is theirs; help them make it good and learn along the way. The standard for what makes a good contribution lives in [CONTRIBUTING.md](CONTRIBUTING.md#using-ai-tools); this is about the people.
+## Context
 
-- **Point people to the community.** Real questions and design discussion belong with people — the [Discord](https://discord.gg/strands) and [GitHub Discussions](https://github.com/strands-agents/harness-sdk/discussions).
-- **Assume good faith.** Most contributors are learning; meet them where they are. Good first issues are for bringing newcomers in, not just tickets to close.
-- **Talk with contributors, not at them.** Warm, plain, concise. One question at a time, no walls of text, never patronizing. Explain the *why* so it teaches rather than dictates.
-
-## Monorepo Layout
+### Monorepo Layout
 
 ```
 strands-agents/
@@ -27,11 +23,7 @@ strands-agents/
 └── .github/workflows/  # CI (ci.yml is the merge gate)
 ```
 
-When working on code, determine which sub-project you're in and follow its conventions:
-- **Python SDK**: See `strands-py/AGENTS.md`
-- **TypeScript SDK**: See `strands-ts/AGENTS.md`
-- **Documentation site**: See `site/AGENTS.md`
-- **Test infrastructure**: See `test-infra/README.md`
+Determine which sub-project you're in and follow its conventions — each has its own `AGENTS.md`.
 
 ### Where the "why" lives: `team/`
 
@@ -42,31 +34,27 @@ Before designing a feature or changing an API, read the relevant context in `tea
 - **`team/TENETS.md`** — the principles a contribution should align with.
 - **`team/API_BAR_RAISING.md`** and **`team/FEATURE_LIFECYCLE.md`** — the bar and process for API changes and feature deprecation.
 
-### test-infra/ guardrails
+## Writing Code
 
-The `test-infra/` CDK stack deploys real AWS resources (Bedrock KBs, EC2 instances) that a small subset of integration tests depend on. Most tests do not need it — they run without provisioned infrastructure.
+- **Code conventions**: Follow the conventions in the sub-project's own `AGENTS.md` (`strands-py/AGENTS.md`, `strands-ts/AGENTS.md`, `site/AGENTS.md`) — they define the style, patterns, and directory layout for that toolchain.
+- **Branching**: `git checkout -b agent-tasks/{ISSUE_NUMBER}`
+- **Commits**: Use [conventional commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, etc.
+- **CI**: The `ci.yml` merge gate detects which paths changed and runs only relevant checks.
+- **Skills**: Reusable, repo-specific workflows live under `.agents/skills/` — for PRs (`pr-create`, `pr-writer`, `pr-feedback`), docs (`docs-writer`, `docs-reviewer`, `docs-audit`, `docs-planner`), and code review (`strands-review`). See [`.agents/skills/README.md`](./.agents/skills/README.md) for what each does and when to use it.
+
+### Testing
+
+When writing tests, follow the sub-project's testing guidance — e.g. `strands-ts/docs/TESTING.md` for the TypeScript SDK.
+
+**`test-infra/` guardrails.** The `test-infra/` CDK stack deploys real AWS resources (Bedrock KBs, EC2 instances) that a small subset of integration tests depend on. Most tests do not need it — they run without provisioned infrastructure.
 
 - **Do not deploy this stack** unless you are explicitly working on the test infrastructure itself or iterating on tests that resolve SSM parameters from it.
 - **Never set `STRANDS_TEST_INFRA_INTERNAL=true`** unless deploying to the Strands team's own test account. This attaches a broad internal policy and GitHub OIDC trust that is meaningless (and wasteful) outside the internal account.
 - **To run infrastructure-dependent integ tests without deploying anything**, open a PR — CI runs them against pre-provisioned resources automatically.
 
-## Shared Conventions
+## Creating PRs
 
-- **Branching**: `git checkout -b agent-tasks/{ISSUE_NUMBER}`
-- **Commits**: Use [conventional commits](https://www.conventionalcommits.org/) — `feat:`, `fix:`, `refactor:`, `docs:`, etc.
-- **Pull requests**: See [PR guidelines](./team/PR.md). Use the `pr-create` and `pr-writer` skills under `.agents/skills/` to draft and open PRs.
-- **CI**: The `ci.yml` merge gate detects which paths changed and runs only relevant checks
-
-## Reviewing Documentation Changes
-
-When a change touches documentation under `site/`, apply the documentation skills in `.agents/skills/` in addition to standard code review:
-
-- **`.agents/skills/docs-reviewer/SKILL.md`** — voice consistency, structure, terminology, and code-example quality.
-- **`.agents/skills/docs-audit/SKILL.md`** — technical accuracy against live SDK sources (import paths, method signatures, API correctness).
-
-Verify terminology against `.agents/references/terminology.md` and MDX authoring patterns against `.agents/references/mdx-authoring.md`. It is critical that you actually read these referenced source files before reviewing — their criteria do not apply if you only skim this summary.
-
-## Quality Bar for PRs
+See [PR guidelines](./team/PR.md). Use the `pr-create` and `pr-writer` skills under `.agents/skills/` to draft and open PRs.
 
 If you are opening a PR on behalf of a contributor, the human is the author and is accountable for everything you submit. A small, focused change that its author fully understands is the single biggest predictor of a fast review and an accepted PR. (See [CONTRIBUTING.md](./CONTRIBUTING.md#using-ai-tools) for the human-facing version.)
 
@@ -77,3 +65,22 @@ If you are opening a PR on behalf of a contributor, the human is the author and 
 - **Verify before opening.** Run the relevant sub-project's checks (see [Development Environment](./CONTRIBUTING.md#development-environment), or the sub-project's own `AGENTS.md`) and make sure the change passes the `ci.yml` merge gate locally. Don't open a PR with known lint, type, or test failures.
 - **Actually exercise the change, don't just rely on the gate.** Automated checks confirm the code is *valid*, not that the feature *works*. Run the behavior end to end — a manual script, a REPL snippet, the CLI, or an example — and confirm it does what the PR claims, including edge cases. If you can't exercise it (e.g. requires provisioned infra), say so explicitly in the PR rather than implying it was tested. Where it helps a reviewer, include the script or commands you ran.
 - **Self-review the diff** end to end as if you were the reviewer, and confirm you can truthfully check every box in the PR template — including the item attesting that you have reviewed and understand every line of code in the PR, including any generated by AI tools. Then use the `pr-writer` skill so the description explains the **why**.
+
+## Reviewing
+
+### Documentation changes
+
+When a change touches documentation under `site/`, apply the documentation skills in `.agents/skills/` in addition to standard code review:
+
+- **`.agents/skills/docs-reviewer/SKILL.md`** — voice consistency, structure, terminology, and code-example quality.
+- **`.agents/skills/docs-audit/SKILL.md`** — technical accuracy against live SDK sources (import paths, method signatures, API correctness).
+
+Verify terminology against `.agents/references/terminology.md` and MDX authoring patterns against `.agents/references/mdx-authoring.md`. It is critical that you actually read these referenced source files before reviewing — their criteria do not apply if you only skim this summary.
+
+## Working with the Community
+
+When helping someone contribute, you are a guide — not a gatekeeper, not a substitute author. The contribution is theirs; help them make it good and learn along the way. The standard for what makes a good contribution lives in [CONTRIBUTING.md](CONTRIBUTING.md#using-ai-tools); this is about the people.
+
+- **Point people to the community.** Real questions and design discussion belong with people — the [Discord](https://discord.gg/strands) and [GitHub Discussions](https://github.com/strands-agents/harness-sdk/discussions).
+- **Assume good faith.** Most contributors are learning; meet them where they are. Good first issues are for bringing newcomers in, not just tickets to close.
+- **Talk with contributors, not at them.** Warm, plain, concise. One question at a time, no walls of text, never patronizing. Explain the *why* so it teaches rather than dictates.
