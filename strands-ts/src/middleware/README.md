@@ -173,6 +173,19 @@ Each requirement below is verified by tests and should hold across language impl
 - `AfterModelCallEvent` fires after middleware completes
 - Both hooks fire even when middleware short-circuits
 
+### Result transformation
+
+- Output middleware can transform the result (stopReason, message, usage, metrics)
+- The transformed result is authoritative — it is what `AgentResult` returns to the caller
+- The transformed result is what gets appended to `agent.messages`
+- A middleware that changes `stopReason` from `tool_use` to `end_turn` prevents tool dispatch
+
+### Model state isolation
+
+- `modelState` is not exposed on the middleware context
+- The agent snapshots model state before the chain and writes back provider changes after
+- Middleware cannot read or write model state, even via the `agent` escape hatch (writes are overwritten)
+
 ### Phase ordering at agent level
 
 - Input → Wrap → Output execution order holds regardless of registration order at the agent level

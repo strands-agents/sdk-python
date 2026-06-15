@@ -16,8 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace as trace_api
 
-from .._middleware.stages import InvokeModelContext, InvokeModelResult, InvokeModelStage
-from .._middleware.types import MiddlewareResult
+from .._middleware.stages import InvokeModelContext, InvokeModelStage
 from ..experimental.checkpoint import Checkpoint, CheckpointPosition
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
@@ -529,6 +528,9 @@ async def _handle_model_execution(
 
             # Build middleware context with defensive copies to prevent accidental mutation.
             # invocation_state is intentionally shared by reference (hooks/tools write to it).
+            # Prefer the content-block form when present: it is the authoritative superset
+            # (it carries the text AND structural blocks like cachePoints). Falling back to the
+            # plain string would silently drop cachePoints.
             system_prompt_value = (
                 agent._system_prompt_content if agent._system_prompt_content is not None else agent.system_prompt
             )
@@ -542,27 +544,27 @@ async def _handle_model_execution(
                 projected_input_tokens=projected_input_tokens,
             )
 
-            # Run through middleware chain (terminal includes span tracking)
-            model_result: InvokeModelResult | None = None
+            # Snapshot model state before the chain so middleware mutations to
+            # agent._model_state (before or after next()) cannot leak into the model call.
+            # The terminal streams against this snapshot; we write it back after the entire
+            # chain completes (success only). model_state is intentionally NOT on the context.
+            model_state_snapshot = copy.deepcopy(agent._model_state)
+
+            # Run through middleware chain. The last yielded event is ModelStopReason
+            # which serves as both the streaming result event and the middleware result.
             async for event in agent._middleware_registry.invoke(
                 InvokeModelStage,
                 middleware_context,
-                _make_invoke_model_terminal(agent, cycle_span, tracer),
+                _make_invoke_model_terminal(agent, cycle_span, tracer, model_state_snapshot),
             ):
-                if isinstance(event, MiddlewareResult):
-                    model_result = event.value
-                else:
-                    yield event
+                yield event
 
-            if model_result is None:
-                raise RuntimeError(
-                    "Middleware chain did not produce a MiddlewareResult. "
-                    "Ensure all middleware forwards the result from next()."
-                )
-            stop_reason = model_result.stop_reason
-            message = model_result.message
-            usage = model_result.usage
-            metrics = model_result.metrics
+            # Write the post-stream model state back to the agent. Skipped on error
+            # (exception propagates and we never reach here), matching TS semantics.
+            agent._model_state = model_state_snapshot
+
+            # The last event from the chain is ModelStopReason (the authoritative result)
+            stop_reason, message, usage, metrics = event["stop"]
 
             invocation_state.setdefault("request_state", {})
 
@@ -645,9 +647,14 @@ async def _handle_model_execution(
 
 
 def _make_invoke_model_terminal(
-    agent: "Agent", cycle_span: Any, tracer: Tracer
+    agent: "Agent", cycle_span: Any, tracer: Tracer, model_state: dict[str, Any]
 ) -> "Callable[[InvokeModelContext], AsyncGenerator[Any, None]]":
-    """Create the terminal function for InvokeModelStage middleware."""
+    """Create the terminal function for InvokeModelStage middleware.
+
+    Streams against ``model_state`` (a snapshot owned by the caller) rather than
+    ``agent._model_state`` directly, so middleware cannot influence model state. The
+    caller writes this dict back to the agent after the chain completes successfully.
+    """
 
     async def terminal(ctx: InvokeModelContext) -> AsyncGenerator[Any, None]:
         system_prompt_str, system_prompt_content = split_system_prompt(ctx.system_prompt)
@@ -671,21 +678,13 @@ def _make_invoke_model_terminal(
                     system_prompt_content=system_prompt_content,
                     tool_choice=ctx.tool_choice,
                     invocation_state=ctx.invocation_state,
-                    model_state=agent._model_state,
+                    model_state=model_state,
                     cancel_signal=agent._cancel_signal,
                 ):
                     yield event
 
                 stop_reason, message, usage, metrics = event["stop"]
                 tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
-                yield MiddlewareResult(
-                    InvokeModelResult(
-                        stop_reason=stop_reason,
-                        message=message,
-                        usage=usage,
-                        metrics=metrics,
-                    )
-                )
             except Exception as e:
                 tracer.end_span_with_error(model_invoke_span, str(e), e)
                 raise

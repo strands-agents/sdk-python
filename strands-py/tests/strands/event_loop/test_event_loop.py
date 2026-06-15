@@ -834,6 +834,7 @@ async def test_request_state_initialization(alist):
     mock_agent._cancel_signal = threading.Event()
     mock_agent._system_prompt_content = None
     mock_agent.system_prompt = None
+    mock_agent._model_state = {}
     mock_agent._middleware_registry = strands._middleware.MiddlewareRegistry()
     mock_agent.messages = []
     mock_agent.tool_registry.get_all_tool_specs.return_value = []
