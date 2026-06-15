@@ -7,8 +7,8 @@ import asyncio
 import inspect
 import json
 import threading
-from collections.abc import Awaitable
-from typing import Any, Literal, Protocol, runtime_checkable
+from collections.abc import Awaitable, Callable
+from typing import Any, Literal
 
 from ...hooks.events import BeforeToolCallEvent
 from ...interventions.actions import Confirm, Deny, InterventionAction, Proceed, default_evaluate
@@ -18,70 +18,14 @@ _TRUST_RESPONSES = {"t", "trust"}
 _TRUSTED_TOOLS_KEY = "hitl:trusted_tools"
 
 
-@runtime_checkable
-class AskCallback(Protocol):
-    """Collects a human's approval response for a pending tool call.
+AskCallable = Callable[[str], Any | Awaitable[Any]]
+"""A callable that prompts a human for approval and returns their response (sync or async)."""
 
-    Implement this to wire approvals to any UI (Slack, a web app, a custom CLI).
-    The callback may be sync or async; an async implementation lets the agent
-    keep serving its event loop while waiting on the human.
-
-    Example:
-        ```python
-        async def slack_ask(prompt: str) -> str:
-            return await slack_dm(user_id, prompt)
-
-        agent = Agent(interventions=[HumanInTheLoop(ask=slack_ask)])
-        ```
-    """
-
-    def __call__(self, prompt: str, **kwargs: Any) -> Any | Awaitable[Any]:
-        """Prompt the human and return their response.
-
-        Args:
-            prompt: Human-readable description of the tool call awaiting approval.
-            **kwargs: Reserved for future keyword arguments; implementations
-                should accept and ignore unknown keywords.
-
-        Returns:
-            The human's response, directly or as an awaitable. The response is
-            passed to the configured ``evaluate``/``evaluate_trust`` callbacks.
-        """
-        ...
+EvaluateCallable = Callable[[Any], bool]
+"""A callable that decides whether a human's response approves a tool call."""
 
 
-@runtime_checkable
-class EvaluateCallback(Protocol):
-    """Decides whether a human's response approves (or trusts) a tool call.
-
-    Implement this to customize what counts as approval. The default accepts
-    ``True`` and ``"y"``/``"yes"`` for approval, and ``"t"``/``"trust"`` for trust.
-
-    Example:
-        ```python
-        def approve_on_emoji(response: object) -> bool:
-            return response == "👍"
-
-        agent = Agent(interventions=[HumanInTheLoop(evaluate=approve_on_emoji)])
-        ```
-    """
-
-    def __call__(self, response: Any, **kwargs: Any) -> bool:
-        """Return whether the response approves (or trusts) the tool call.
-
-        Args:
-            response: The value returned by the ``ask`` callback or supplied when
-                resuming an interrupt.
-            **kwargs: Reserved for future keyword arguments; implementations
-                should accept and ignore unknown keywords.
-
-        Returns:
-            True to approve (or trust) the pending tool call, False otherwise.
-        """
-        ...
-
-
-def _create_stdio_ask(include_trust: bool) -> AskCallback:
+def _create_stdio_ask(include_trust: bool) -> AskCallable:
     """Build an ``ask`` callback that prompts the human on the terminal.
 
     Each prompt is serialized behind a ``threading.Lock`` so concurrent tool calls
@@ -151,9 +95,9 @@ class HumanInTheLoop(InterventionHandler):
         *,
         allowed_tools: list[str] | None = None,
         enable_trust: bool = False,
-        evaluate_trust: EvaluateCallback | None = None,
-        evaluate: EvaluateCallback | None = None,
-        ask: AskCallback | Literal["stdio"] | None = None,
+        evaluate_trust: EvaluateCallable | None = None,
+        evaluate: EvaluateCallable | None = None,
+        ask: AskCallable | Literal["stdio"] | None = None,
     ) -> None:
         """Initialize the handler.
 

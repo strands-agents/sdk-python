@@ -4,9 +4,6 @@ Pauses agent execution before tool calls to request human approval.
 Defaults to interrupt/resume mode for stateless deployments.
 Pass ``ask="stdio"`` for CLI prompting or a custom ``ask`` callable for other UIs.
 
-Implement ``AskCallback`` to collect approvals from a custom UI and
-``EvaluateCallback`` to customize what counts as approval.
-
 Example:
     ```python
     from strands import Agent
@@ -22,6 +19,6 @@ Example:
     ```
 """
 
-from .hitl import AskCallback, EvaluateCallback, HumanInTheLoop
+from .hitl import HumanInTheLoop
 
-__all__ = ["AskCallback", "EvaluateCallback", "HumanInTheLoop"]
+__all__ = ["HumanInTheLoop"]

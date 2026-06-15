@@ -564,31 +564,17 @@ class TestStdioMode:
         assert executed == []
 
 
-class TestPublicCallbackProtocols:
-    """The callback Protocols are part of the public API so customers know what to pass."""
+class TestPublicExports:
+    """Only HumanInTheLoop is public; ask/evaluate take plain callables (no exported types)."""
 
-    def test_protocols_are_exported(self):
-        # Protocols are exported from the ``hitl`` package (top-level namespace exposes only ``HumanInTheLoop``).
-        from strands.vended_interventions import HumanInTheLoop
-        from strands.vended_interventions.hitl import AskCallback, EvaluateCallback
+    def test_only_human_in_the_loop_is_exported(self):
+        import strands.vended_interventions as vended
+        import strands.vended_interventions.hitl as hitl
 
-        assert AskCallback is not None
-        assert EvaluateCallback is not None
-        assert HumanInTheLoop.name == "strands:human-in-the-loop"
-
-    def test_callbacks_are_runtime_checkable(self):
-        from strands.vended_interventions.hitl import AskCallback, EvaluateCallback
-
-        class MyAsk:
-            def __call__(self, prompt: str, **kwargs) -> str:
-                return "y"
-
-        class MyEvaluate:
-            def __call__(self, response, **kwargs) -> bool:
-                return response == "approve"
-
-        assert isinstance(MyAsk(), AskCallback)
-        assert isinstance(MyEvaluate(), EvaluateCallback)
+        assert vended.__all__ == ["HumanInTheLoop"]
+        assert hitl.__all__ == ["HumanInTheLoop"]
+        assert vended.HumanInTheLoop is hitl.HumanInTheLoop
+        assert hitl.HumanInTheLoop.name == "strands:human-in-the-loop"
 
     def test_custom_evaluate_accepting_kwargs_is_used(self):
         executed = []
@@ -598,7 +584,7 @@ class TestPublicCallbackProtocols:
             executed.append(True)
             return "ok"
 
-        # Forward-compatible callback accepting **kwargs (the Protocol shape).
+        # A custom evaluate callback may accept **kwargs for forward compatibility.
         def approve_on_emoji(response, **kwargs) -> bool:
             return response == "👍"
 
