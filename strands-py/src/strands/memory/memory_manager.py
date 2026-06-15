@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from .._middleware.stages import InvokeModelStage
 from ..hooks.events import MessageAddedEvent
-from ..injection.message_injection import create_injection_middleware, is_user_turn
-from ..injection.xml import escape_xml_attr, escape_xml_text
+from ..injection.message_injection import _create_injection_middleware, _is_user_turn
+from ..injection.xml import _escape_xml_attr, _escape_xml_text
 from ..plugins.plugin import Plugin
 from ..tools.decorator import tool
 from ..types.exceptions import AggregateMemoryError
@@ -578,7 +578,7 @@ class MemoryManager(Plugin):
 
         agent._middleware_registry.add_middleware(
             InvokeModelStage.Input,
-            create_injection_middleware(
+            _create_injection_middleware(
                 lambda context: self._provide_memory_context(context.messages, config),
                 trigger=config.trigger,
             ),
@@ -640,7 +640,7 @@ class MemoryManager(Plugin):
                 logger.warning("reason=<%s> | injection query raised | skipping injection", error)
                 return None
 
-        role = "user" if is_user_turn(messages) else "assistant"
+        role = "user" if _is_user_turn(messages) else "assistant"
         index = next((index for index in range(len(messages) - 1, -1, -1) if messages[index]["role"] == role), -1)
         if index < 0:
             return None
@@ -662,9 +662,9 @@ class MemoryManager(Plugin):
         """
         items = [
             (
-                f'<entry source="{escape_xml_attr(entry.store_name)}">{escape_xml_text(entry.content)}</entry>'
+                f'<entry source="{_escape_xml_attr(entry.store_name)}">{_escape_xml_text(entry.content)}</entry>'
                 if entry.store_name
-                else f"<entry>{escape_xml_text(entry.content)}</entry>"
+                else f"<entry>{_escape_xml_text(entry.content)}</entry>"
             )
             for entry in entries
         ]

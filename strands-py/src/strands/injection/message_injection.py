@@ -42,7 +42,7 @@ class RenderContentCallback(Protocol):
 RenderContent = Callable[[InjectionContext], "str | None | Awaitable[str | None]"] | RenderContentCallback
 
 
-def create_injection_middleware(
+def _create_injection_middleware(
     render_content: RenderContent,
     *,
     trigger: InjectionTriggerPredicate | None = None,
@@ -67,7 +67,7 @@ def create_injection_middleware(
     Returns:
         An ``InvokeModelStage.Input`` handler that returns a (possibly) folded context.
     """
-    resolved_trigger = resolve_trigger(trigger)
+    resolved_trigger = _resolve_trigger(trigger)
 
     async def handler(context: InvokeModelContext) -> InvokeModelContext:
         agent = context.agent
@@ -90,15 +90,15 @@ def create_injection_middleware(
         if text is None or not text.strip():
             return context
 
-        return replace(context, messages=fold_into_last_user_message(context.messages, text))
+        return replace(context, messages=_fold_into_last_user_message(context.messages, text))
 
     return handler
 
 
-def resolve_trigger(trigger: InjectionTriggerPredicate | None) -> Callable[[InjectionContext], bool]:
+def _resolve_trigger(trigger: InjectionTriggerPredicate | None) -> Callable[[InjectionContext], bool]:
     """Resolve an ``InjectionTrigger`` name or predicate into a single gate predicate.
 
-    ``"userTurn"`` maps to ``is_user_turn`` (over ``context.messages``); ``"everyTurn"`` to an
+    ``"userTurn"`` maps to ``_is_user_turn`` (over ``context.messages``); ``"everyTurn"`` to an
     always-true gate; a user-supplied predicate is wrapped so that a raise fails open (logs and
     skips injection rather than aborting the model call).
 
@@ -109,7 +109,7 @@ def resolve_trigger(trigger: InjectionTriggerPredicate | None) -> Callable[[Inje
         A predicate that, given the ``InjectionContext``, returns whether to inject this call.
     """
     if trigger is None or trigger == "userTurn":
-        return lambda context: is_user_turn(context.messages)
+        return lambda context: _is_user_turn(context.messages)
     if trigger == "everyTurn":
         return lambda context: True
 
@@ -125,7 +125,7 @@ def resolve_trigger(trigger: InjectionTriggerPredicate | None) -> Callable[[Inje
     return guarded
 
 
-def is_user_turn(messages: Messages) -> bool:
+def _is_user_turn(messages: Messages) -> bool:
     """Whether the latest message is a fresh user ask: a ``user`` message carrying no tool result.
 
     This is the ``"userTurn"`` policy — it distinguishes a new chat ask from an autonomous
@@ -143,7 +143,7 @@ def is_user_turn(messages: Messages) -> bool:
     return last["role"] == "user" and not any("toolResult" in block for block in last["content"])
 
 
-def fold_into_last_user_message(messages: Messages, text: str) -> Messages:
+def _fold_into_last_user_message(messages: Messages, text: str) -> Messages:
     """Fold ``text`` into the most recent ``user`` message as a text block, returning a NEW list.
 
     Folding into the existing user message (rather than inserting a standalone message) keeps

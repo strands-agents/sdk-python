@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ..._middleware.stages import InvokeModelStage
-from ...injection.message_injection import RenderContent, create_injection_middleware
+from ...injection.message_injection import RenderContent, _create_injection_middleware
 from ...injection.types import InjectionTriggerPredicate
 from ...plugins import Plugin
 
@@ -96,5 +96,5 @@ class ContextInjector(Plugin):
         """Register the injection middleware on the agent's ``InvokeModelStage`` input phase."""
         agent._middleware_registry.add_middleware(
             InvokeModelStage.Input,
-            create_injection_middleware(self._render_content, trigger=self._trigger),
+            _create_injection_middleware(self._render_content, trigger=self._trigger),
         )

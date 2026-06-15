@@ -9,7 +9,7 @@ enough to keep a ``<memory>`` block well-formed, not a general-purpose serialize
 from __future__ import annotations
 
 
-def escape_xml_text(value: str) -> str:
+def _escape_xml_text(value: str) -> str:
     """Escape text content for placement between XML tags.
 
     Escapes ``&`` first (so later replacements are not double-escaped), then ``<`` and ``>``.
@@ -23,10 +23,10 @@ def escape_xml_text(value: str) -> str:
     return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def escape_xml_attr(value: str) -> str:
+def _escape_xml_attr(value: str) -> str:
     """Escape a value for placement inside a double-quoted XML attribute.
 
-    Applies the :func:`escape_xml_text` rules plus ``"`` and ``'``.
+    Applies the :func:`_escape_xml_text` rules plus ``"`` and ``'``.
 
     Args:
         value: The raw attribute value to escape.
@@ -34,4 +34,4 @@ def escape_xml_attr(value: str) -> str:
     Returns:
         The escaped value, safe to place inside a quoted attribute.
     """
-    return escape_xml_text(value).replace('"', "&quot;").replace("'", "&#39;")
+    return _escape_xml_text(value).replace('"', "&quot;").replace("'", "&#39;")
