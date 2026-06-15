@@ -114,6 +114,25 @@ class TestInlineAskMode:
         assert result.stop_reason == "end_turn"
         assert executed == []
 
+    def test_ask_returning_none_denies_instead_of_pausing(self):
+        # A configured inline ask returning None (e.g. a dismissed dialog) must
+        # fail closed as a deny, not silently fall back to interrupt/resume which
+        # a stateless inline caller cannot resume.
+        executed = []
+
+        @tool(name="my_tool")
+        def my_tool() -> str:
+            executed.append(True)
+            return "executed"
+
+        model = MockedModelProvider([tool_use_message("my_tool"), text_message("Understood")])
+        agent = Agent(model=model, tools=[my_tool], interventions=[HumanInTheLoop(ask=lambda prompt: None)])
+
+        result = agent("Run tool")
+
+        assert result.stop_reason == "end_turn"
+        assert executed == []
+
     def test_supports_async_ask_function(self):
         executed = []
 
@@ -135,6 +154,12 @@ class TestInlineAskMode:
 
 
 class TestAllowedTools:
+    def test_bare_string_allowed_tools_raises(self):
+        # str is iterable, so a bare string would be shredded into a per-character
+        # set and silently mis-gate every tool. Reject it explicitly.
+        with pytest.raises(ValueError, match="must be a list"):
+            HumanInTheLoop(allowed_tools="read_file")
+
     def test_does_not_prompt_for_tools_in_allowed_tools(self):
         executed = []
 

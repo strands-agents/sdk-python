@@ -11,7 +11,7 @@ from collections.abc import Awaitable
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from ...hooks.events import BeforeToolCallEvent
-from ...interventions.actions import Confirm, InterventionAction, Proceed, default_evaluate
+from ...interventions.actions import Confirm, Deny, InterventionAction, Proceed, default_evaluate
 from ...interventions.handler import InterventionHandler
 
 _TRUST_RESPONSES = {"t", "trust"}
@@ -181,8 +181,20 @@ class HumanInTheLoop(InterventionHandler):
                 worker thread that cannot be cancelled, so it is intended for
                 interactive CLI use rather than runs that may be cancelled mid-prompt.
                 Custom callable: your own (optionally async) prompt logic (Slack, web
-                UI, etc.). Agent blocks inline.
+                UI, etc.). Agent blocks inline. A custom ``ask`` should return a concrete
+                response; returning ``None`` (e.g. a dismissed dialog) is treated as an
+                explicit deny. If it raises, the exception propagates and aborts the run
+                (fail-closed) -- catch and return a deny value inside your callback if you
+                prefer to proceed on error.
+
+        Note:
+            ``name`` is a fixed class attribute, so at most one ``HumanInTheLoop`` can be
+            registered per agent; layering two policies requires subclassing to rename.
         """
+        # A bare string is iterable, so ``set("read_file")`` would silently become a
+        # per-character set and mis-gate every tool with no error. Reject it up front.
+        if isinstance(allowed_tools, str):
+            raise ValueError("allowed_tools must be a list of tool names, not a single string")
         self._allowed_tools = set(allowed_tools or [])
         self._enable_trust = enable_trust
         self._evaluate_trust = evaluate_trust if evaluate_trust is not None else self._is_trust_response
@@ -237,6 +249,14 @@ class HumanInTheLoop(InterventionHandler):
         response = self._ask(prompt)
         if inspect.isawaitable(response):
             response = await response
+
+        # A configured inline ``ask`` is expected to return a concrete response. ``None``
+        # (e.g. a dismissed dialog) is treated as a fail-closed deny rather than passed
+        # to ``Confirm``: ``Confirm`` reads ``response=None`` as "no preemptive value"
+        # and falls back to interrupt/resume, which a stateless inline caller (Slack/web)
+        # has no way to resume. Denying is the safe default for an approval gate.
+        if response is None:
+            return Deny(reason=f'Tool "{tool_name}" denied: approval callback returned no response.')
 
         if not is_negated and self._enable_trust and self._evaluate_trust(response):
             self._trust_tool(event, tool_name)
