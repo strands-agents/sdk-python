@@ -42,7 +42,6 @@ from ..types._snapshot import (
 )
 
 if TYPE_CHECKING:
-    from ..memory import MemoryManager, MemoryManagerConfig
     from ..tools import ToolProvider
 from .._middleware import MiddlewareRegistry
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
@@ -60,6 +59,7 @@ from ..hooks.registry import TEvent
 from ..interrupt import _InterruptState
 from ..interventions.handler import InterventionHandler
 from ..interventions.registry import InterventionRegistry
+from ..memory import MemoryManager, MemoryManagerConfig
 from ..models.bedrock import BedrockModel
 from ..models.model import Model, _ModelPlugin
 from ..plugins import Plugin
@@ -167,7 +167,7 @@ class Agent(AgentBase):
         hooks: list[HookProvider | HookCallback] | None = None,
         interventions: list[InterventionHandler] | None = None,
         session_manager: SessionManager | None = None,
-        memory_manager: "MemoryManager | MemoryManagerConfig | None" = None,
+        memory_manager: MemoryManager | MemoryManagerConfig | None = None,
         structured_output_prompt: str | None = None,
         tool_executor: ToolExecutor | None = None,
         retry_strategy: ModelRetryStrategy | _DefaultRetryStrategySentinel | None = _DEFAULT_RETRY_STRATEGY,
@@ -444,8 +444,8 @@ class Agent(AgentBase):
         if self.memory_manager is not None:
             if self.memory_manager.name in self._plugin_registry._plugins:
                 raise ValueError(
-                    "MemoryManager is already registered; pass it through either the memory_manager "
-                    "parameter or plugins, not both"
+                    "A MemoryManager is already registered via plugins; pass it through the "
+                    "memory_manager parameter instead"
                 )
             self._plugin_registry.add_and_init(self.memory_manager)
 
@@ -507,8 +507,8 @@ class Agent(AgentBase):
         return resolved_conversation_manager, resolved_plugins
 
     def _resolve_memory_manager(
-        self, memory_manager: "MemoryManager | MemoryManagerConfig | None"
-    ) -> "MemoryManager | None":
+        self, memory_manager: MemoryManager | MemoryManagerConfig | None
+    ) -> MemoryManager | None:
         """Resolve the ``memory_manager`` argument into a MemoryManager instance or None.
 
         A :class:`~strands.memory.MemoryManagerConfig` is wrapped into a
@@ -516,8 +516,6 @@ class Agent(AgentBase):
         """
         if memory_manager is None:
             return None
-
-        from ..memory import MemoryManager, MemoryManagerConfig
 
         if isinstance(memory_manager, MemoryManager):
             return memory_manager

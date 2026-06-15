@@ -2802,7 +2802,7 @@ def test_agent_memory_manager_defaults_to_none():
 
 def test_agent_memory_manager_passed_via_both_paths_raises():
     memory_manager = MemoryManager(stores=[_SearchOnlyStore()])
-    with pytest.raises(ValueError, match="either the memory_manager parameter or plugins, not both"):
+    with pytest.raises(ValueError, match="pass it through the memory_manager parameter instead"):
         Agent(
             model=MockedModelProvider([{"role": "assistant", "content": [{"text": "response"}]}]),
             plugins=[memory_manager],
