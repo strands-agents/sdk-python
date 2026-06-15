@@ -565,7 +565,7 @@ class TestStdioMode:
 
 
 class TestPublicExports:
-    """Only HumanInTheLoop is public; ask/evaluate take plain callables (no exported types)."""
+    """Only HumanInTheLoop is exported; the callback Protocols stay defined but unexported."""
 
     def test_only_human_in_the_loop_is_exported(self):
         import strands.vended_interventions as vended
@@ -575,6 +575,36 @@ class TestPublicExports:
         assert hitl.__all__ == ["HumanInTheLoop"]
         assert vended.HumanInTheLoop is hitl.HumanInTheLoop
         assert hitl.HumanInTheLoop.name == "strands:human-in-the-loop"
+
+    def test_callback_protocols_are_defined_but_not_exported(self):
+        """The typed callable contracts exist (for hints + runtime checks) but are not public API.
+
+        Removing the *exports* (per review) is distinct from removing the *types*:
+        the Protocols remain importable from the module and runtime-checkable, they
+        are just absent from both ``__all__`` lists so customers don't import them.
+        """
+        import strands.vended_interventions as vended
+        import strands.vended_interventions.hitl as hitl
+        from strands.vended_interventions.hitl.hitl import AskCallback, EvaluateCallback
+
+        # Defined and runtime-checkable (still usable as type hints / isinstance checks).
+        assert isinstance(AskCallback, type)
+        assert isinstance(EvaluateCallback, type)
+
+        def ask(prompt, **kwargs):
+            return "y"
+
+        def evaluate(response, **kwargs):
+            return True
+
+        assert isinstance(ask, AskCallback)
+        assert isinstance(evaluate, EvaluateCallback)
+
+        # But NOT exported from either namespace.
+        assert "AskCallback" not in vended.__all__
+        assert "EvaluateCallback" not in vended.__all__
+        assert "AskCallback" not in hitl.__all__
+        assert "EvaluateCallback" not in hitl.__all__
 
     def test_custom_evaluate_accepting_kwargs_is_used(self):
         executed = []

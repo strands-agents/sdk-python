@@ -7,8 +7,8 @@ import asyncio
 import inspect
 import json
 import threading
-from collections.abc import Awaitable, Callable
-from typing import Any, Literal
+from collections.abc import Awaitable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from ...hooks.events import BeforeToolCallEvent
 from ...interventions.actions import Confirm, Deny, InterventionAction, Proceed, default_evaluate
@@ -18,14 +18,35 @@ _TRUST_RESPONSES = {"t", "trust"}
 _TRUSTED_TOOLS_KEY = "hitl:trusted_tools"
 
 
-AskCallable = Callable[[str], Any | Awaitable[Any]]
-"""A callable that prompts a human for approval and returns their response (sync or async)."""
+@runtime_checkable
+class AskCallback(Protocol):
+    """Typed contract for an ``ask`` callback: prompt a human and return their response.
 
-EvaluateCallable = Callable[[Any], bool]
-"""A callable that decides whether a human's response approves a tool call."""
+    May be sync or async (an async impl lets the agent keep serving its event loop
+    while waiting). Documents the expected signature for type-checkers/IDEs; it is
+    intentionally not exported -- customers just pass a function.
+    """
+
+    def __call__(self, prompt: str, **kwargs: Any) -> Any | Awaitable[Any]:
+        """Prompt the human and return their response (directly or as an awaitable)."""
+        ...
 
 
-def _create_stdio_ask(include_trust: bool) -> AskCallable:
+@runtime_checkable
+class EvaluateCallback(Protocol):
+    """Typed contract for an ``evaluate``/``evaluate_trust`` callback.
+
+    Decides whether a response approves (or trusts) a tool call. Documents the
+    expected signature for type-checkers/IDEs; intentionally not exported --
+    customers just pass a function.
+    """
+
+    def __call__(self, response: Any, **kwargs: Any) -> bool:
+        """Return whether the response approves (or trusts) the pending tool call."""
+        ...
+
+
+def _create_stdio_ask(include_trust: bool) -> AskCallback:
     """Build an ``ask`` callback that prompts the human on the terminal.
 
     Each prompt is serialized behind a ``threading.Lock`` so concurrent tool calls
@@ -95,9 +116,9 @@ class HumanInTheLoop(InterventionHandler):
         *,
         allowed_tools: list[str] | None = None,
         enable_trust: bool = False,
-        evaluate_trust: EvaluateCallable | None = None,
-        evaluate: EvaluateCallable | None = None,
-        ask: AskCallable | Literal["stdio"] | None = None,
+        evaluate_trust: EvaluateCallback | None = None,
+        evaluate: EvaluateCallback | None = None,
+        ask: AskCallback | Literal["stdio"] | None = None,
     ) -> None:
         """Initialize the handler.
 
