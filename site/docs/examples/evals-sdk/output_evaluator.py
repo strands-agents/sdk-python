@@ -73,8 +73,8 @@ async def async_safety_output_judge_example():
     experiment.to_file("async_safety_judge_output_experiment.json")
 
     # 5. Run evaluations
-    reports = await experiment.run_evaluations_async(get_response)
-    return reports[0]
+    report = await experiment.run_evaluations_async(get_response)
+    return report
 
 
 if __name__ == "__main__":

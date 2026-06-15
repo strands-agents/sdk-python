@@ -141,7 +141,7 @@ experiment = Experiment(
     ),
 )
 
-reports = experiment.run_evaluations(my_agent_task)
+report = experiment.run_evaluations(my_agent_task)
 ```
 
 ### Viewing Recommendations
@@ -150,13 +150,12 @@ Display recommendations in the evaluation report:
 
 ```python
 # Display with recommendations column
-reports[0].display(include_recommendations=True)
+report.display(include_recommendations=True)
 ```
 
 Or access them programmatically:
 
 ```python
-report = reports[0]
 for i, rec in enumerate(report.recommendations):
     if rec is not None:
         case_name = report.cases[i].get("name", f"case_{i}")
@@ -170,7 +169,6 @@ for i, rec in enumerate(report.recommendations):
 The full diagnosis dict (failures + root causes) is available per case:
 
 ```python
-report = reports[0]
 for i, diagnosis in enumerate(report.diagnoses):
     if diagnosis is not None:
         case_name = report.cases[i].get("name", f"case_{i}")
@@ -246,13 +244,11 @@ experiment = Experiment(
     ),
 )
 
-reports = experiment.run_evaluations(math_agent)
+report = experiment.run_evaluations(math_agent)
 
-# Flatten all evaluator reports into one and display
-from strands_evals.types.evaluation_report import EvaluationReport
-
-combined = EvaluationReport.flatten(reports)
-combined.display(include_recommendations=True)
+# The experiment already returns a single combined report across all evaluators —
+# each row in `report.cases` carries an `evaluator` key naming the producer.
+report.display(include_recommendations=True)
 ```
 
 ## Best Practices

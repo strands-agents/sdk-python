@@ -75,7 +75,6 @@ describe('Agent middleware integration — InvokeModelStage', () => {
         systemPrompt: 'Be helpful',
         messages: expect.arrayContaining([expect.any(Message)]),
         toolSpecs: expect.arrayContaining([expect.objectContaining({ name: 'testTool' })]),
-        modelState: expect.anything(),
         invocationState: expect.anything(),
       })
     })

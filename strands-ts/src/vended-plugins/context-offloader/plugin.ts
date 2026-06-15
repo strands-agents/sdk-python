@@ -1,7 +1,7 @@
 import type { Plugin } from '../../plugins/plugin.js'
 import type { Tool, ToolContext } from '../../tools/tool.js'
 import type { LocalAgent } from '../../types/agent.js'
-import { AfterToolCallEvent } from '../../hooks/events.js'
+import { AfterToolCallEvent, BeforeModelCallEvent } from '../../hooks/events.js'
 import { TextBlock, JsonBlock, ToolResultBlock, Message } from '../../types/messages.js'
 import type { ToolResultContent } from '../../types/messages.js'
 import { ImageBlock, VideoBlock, DocumentBlock } from '../../types/media.js'
@@ -10,7 +10,7 @@ import { tool } from '../../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../../logging/logger.js'
 import type { JSONValue } from '../../types/json.js'
-import { FileStorage, type Storage } from './storage.js'
+import { FileStorage, InMemoryStorage, type Storage } from './storage.js'
 import { isSearchableContent, searchContent } from './search.js'
 
 const CHARS_PER_TOKEN = 4
@@ -155,8 +155,18 @@ export class ContextOffloader implements Plugin {
   }
 
   initAgent(agent: LocalAgent): void {
+    if (this._storage instanceof InMemoryStorage) {
+      this._storage._bind(agent)
+    }
     this._storageForAgent(agent)
     agent.addHook(AfterToolCallEvent, (event) => this._handleToolResult(event))
+    let cycleCount = 0
+    agent.addHook(BeforeModelCallEvent, () => {
+      cycleCount++
+      if (this._storage instanceof InMemoryStorage) {
+        this._storage._evict(cycleCount)
+      }
+    })
   }
 
   getTools(): Tool[] {

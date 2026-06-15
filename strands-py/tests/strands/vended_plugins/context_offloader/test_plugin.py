@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from strands.hooks.events import AfterToolCallEvent
+from strands.hooks.events import AfterToolCallEvent, BeforeModelCallEvent
 from strands.types.tools import ToolContext, ToolUse
 from strands.vended_plugins.context_offloader import (
     ContextOffloader,
@@ -84,8 +84,10 @@ class TestContextOffloader:
         assert plugin.name == "context_offloader"
 
     def test_hooks_auto_discovered(self, plugin):
-        assert len(plugin.hooks) == 1
-        assert plugin.hooks[0].__name__ == "_handle_tool_result"
+        assert len(plugin.hooks) == 2
+        hook_names = {h.__name__ for h in plugin.hooks}
+        assert "_handle_tool_result" in hook_names
+        assert "_on_before_model_call" in hook_names
 
     def test_raises_on_non_positive_max_result_tokens(self):
         with pytest.raises(ValueError, match="max_result_tokens must be positive"):
@@ -589,3 +591,37 @@ class TestActionableReferences:
 
         result_text = event.result["content"][0]["text"]
         assert "mem_" in result_text
+
+
+class TestBeforeModelCallHook:
+    @staticmethod
+    def _make_event(cycle_count):
+        agent = MagicMock()
+        agent.event_loop_metrics.cycle_count = cycle_count
+        return BeforeModelCallEvent(agent=agent, invocation_state={})
+
+    def test_calls_evict_with_cycle_count(self):
+        storage = InMemoryStorage(evict_after_turns=5)
+        plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+
+        plugin._on_before_model_call(self._make_event(7))
+
+        assert storage._current_cycle == 7
+
+    def test_does_not_crash_on_storage_without_evict(self):
+        storage = MagicMock(spec=["store", "retrieve"])
+        plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+
+        plugin._on_before_model_call(self._make_event(1))
+
+    def test_eviction_triggered_via_hook(self):
+        storage = InMemoryStorage(evict_after_turns=2)
+        plugin = ContextOffloader(storage=storage, max_result_tokens=25, preview_tokens=10)
+
+        ref = storage.store("key_1", b"content")
+
+        # stored at cycle 0, evict at cycle 3: threshold = 3 - 2 = 1, 0 < 1 → evicted
+        plugin._on_before_model_call(self._make_event(3))
+        with pytest.raises(KeyError):
+            storage.retrieve(ref)
+

@@ -35,8 +35,8 @@ cases = [
     )
 ]
 
-# Filter by metadata
-easy_cases = [c for c in cases if c.metadata.get("difficulty") == "easy"]
+# Filter by metadata (Case.metadata defaults to None — guard with `or {}`)
+easy_cases = [c for c in cases if (c.metadata or {}).get("difficulty") == "easy"]
 ```
 
 ### Naming Conventions
@@ -63,7 +63,7 @@ experiments = {
 # Run all
 for name, exp in experiments.items():
     print(f"Running {name}...")
-    reports = exp.run_evaluations(task_function)
+    report = exp.run_evaluations(task_function)
 ```
 
 ### Combining Experiments
@@ -76,28 +76,33 @@ combined = Experiment(
 )
 ```
 
-### Flattening Reports
+### Combining Reports From Different Experiments
 
-When running multiple evaluators, you get one report per evaluator. Use `EvaluationReport.flatten` to combine them into a single view:
+`run_evaluations` already returns a single `EvaluationReport` even when the experiment has multiple evaluators — each row in `report.cases` carries an `evaluator` key naming the evaluator that produced it.
+
+If you've run separate experiments and want to merge their reports into one table, use `EvaluationReport.flatten`:
 
 ```python
-reports = experiment.run_evaluations(task_function)
+report_a = experiment_a.run_evaluations(task_function)
+report_b = experiment_b.run_evaluations(task_function)
 
 from strands_evals.types.evaluation_report import EvaluationReport
-combined = EvaluationReport.flatten(reports)
-combined.run_display()  # Shows all evaluators in one table
+combined = EvaluationReport.flatten([report_a, report_b])
+combined.run_display()  # All cases from both runs in one table
 ```
 
 ## Modifying Experiments
 
 ### Adding Cases
 
+`Experiment.cases` returns a deep copy on read, so `.append` / `.extend` on the property are silently dropped. Use the setter to replace the list:
+
 ```python
 # Add single case
-experiment.cases.append(new_case)
+experiment.cases = experiment.cases + [new_case]
 
 # Add multiple
-experiment.cases.extend(additional_cases)
+experiment.cases = experiment.cases + additional_cases
 ```
 
 ### Updating Evaluators

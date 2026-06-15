@@ -73,6 +73,7 @@ sidebar:
           - docs/user-guide/concepts/agents/prompts
           - docs/user-guide/concepts/agents/hooks
           - docs/user-guide/concepts/agents/conversation-management
+          - docs/user-guide/concepts/context-management
           - docs/user-guide/concepts/agents/retry-strategies
           - docs/user-guide/concepts/interrupts
           - label: Tools

@@ -38,10 +38,12 @@ Also consider the current conversation context. If the author made design decisi
 
 ### 3. Apply Project Conventions
 
-Read the following files — these are the **source of truth** for PR style and structure:
+Read these two files — they work together:
 
-- **PR guidelines**: Use `strands-py/docs/PR.md` when the changes are exclusively within `strands-py/`. Otherwise use `dev-docs/PR.md`. These define writing principles, anti-patterns, and checklist items. Always defer to them over general conventions.
-- **PR template**: `.github/PULL_REQUEST_TEMPLATE.md`. This is the structural template — fill in every section it defines, in order.
+- **PR template** (`.github/PULL_REQUEST_TEMPLATE.md`): The structural skeleton. Fill in every section it defines, in order.
+- **PR guidelines** (`dev-docs/PR.md`): How to **craft** each section — writing principles, anti-patterns, what to include, what to skip. This is the source of truth for content quality. Always defer to it over general conventions.
+
+When the PR introduces or modifies public API surface, `dev-docs/PR.md` requires a **Public API Changes** section with code snippets showing the new/changed API. Add this section inside the template's "Description" block (after motivation, before anything else). Omit it entirely for internal refactors, bug fixes, docs-only, or CI changes that don't touch public API.
 
 ### 4. Write the PR
 

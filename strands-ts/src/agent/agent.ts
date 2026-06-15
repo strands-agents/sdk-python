@@ -23,11 +23,12 @@ import {
   type ToolResultBlockData,
   ToolUseBlock,
 } from '../types/messages.js'
+import { deepCopy } from '../types/json.js'
 import type { JSONValue } from '../types/json.js'
 import { McpClient } from '../mcp.js'
 import { isValidToolName, type Tool, type ToolContext } from '../tools/tool.js'
 import type { ToolChoice, ToolSpec } from '../tools/types.js'
-import { systemPromptFromData } from '../types/messages.js'
+import { cloneSystemPrompt, systemPromptFromData } from '../types/messages.js'
 import { normalizeError, ConcurrentInvocationError, StructuredOutputError } from '../errors.js'
 import { Model } from '../models/model.js'
 import type { BaseModelConfig, StreamAggregatedResult, StreamOptions } from '../models/model.js'
@@ -35,6 +36,7 @@ import { ModelPlugin } from '../plugins/model-plugin.js'
 import { isModelStreamEvent } from '../models/streaming.js'
 import { ToolRegistry } from '../registry/tool-registry.js'
 import { StateStore } from '../state-store.js'
+import { serializeStateSerializable, loadStateSerializable } from '../types/serializable.js'
 import { AgentPrinter, getDefaultAppender, type Printer } from './printer.js'
 import type { Plugin } from '../plugins/plugin.js'
 import type { InterventionHandler } from '../interventions/handler.js'
@@ -1919,13 +1921,18 @@ export class Agent implements LocalAgent, InvokableAgent {
   ): AsyncGenerator<AgentStreamEvent, StreamAggregatedResult, undefined> {
     const context: InvokeModelContext = {
       agent: this,
-      messages: this.messages,
-      ...(this.systemPrompt !== undefined && { systemPrompt: this.systemPrompt }),
-      toolSpecs: this._toolRegistry.list().map((tool) => tool.toolSpec),
-      ...(toolChoice !== undefined && { toolChoice }),
-      modelState: this.modelState,
+      messages: this.messages.map((msg) => msg.clone()),
+      ...(this.systemPrompt !== undefined && { systemPrompt: cloneSystemPrompt(this.systemPrompt) }),
+      toolSpecs: deepCopy(this._toolRegistry.list().map((tool) => tool.toolSpec)) as unknown as ToolSpec[],
+      ...(toolChoice !== undefined && { toolChoice: deepCopy(toolChoice) as unknown as ToolChoice }),
       invocationState,
     }
+
+    // Snapshot model state before middleware runs so concurrent mutations don't leak in.
+    // The writeback happens after the entire middleware chain completes, so middleware
+    // cannot affect modelState at any point (before or after next()).
+    const modelStateSnapshot = this.modelState.getAll()
+    let tempModelState: StateStore | undefined
 
     // async function* doesn't bind lexical `this`; capture for the terminal callback.
     // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -1942,9 +1949,12 @@ export class Agent implements LocalAgent, InvokableAgent {
         })
 
         try {
+          // Wrap the snapshot into a StateStore for the model provider, which expects
+          // get/set methods.
+          tempModelState = new StateStore(modelStateSnapshot)
           const streamOptions: StreamOptions = {
             toolSpecs: ctx.toolSpecs as ToolSpec[],
-            modelState: ctx.modelState,
+            modelState: tempModelState,
             ...(ctx.systemPrompt !== undefined && { systemPrompt: ctx.systemPrompt }),
             ...(ctx.toolChoice && { toolChoice: ctx.toolChoice }),
           }
@@ -1971,6 +1981,14 @@ export class Agent implements LocalAgent, InvokableAgent {
         }
       }
     )
+
+    // Sync model state after the entire middleware chain has completed, so no
+    // middleware mutation to agent.modelState (before or after next()) takes effect.
+    // Intentionally skipped on error — partial provider writes should not persist.
+    if (tempModelState) {
+      loadStateSerializable(this.modelState, serializeStateSerializable(tempModelState))
+    }
+
     return middlewareResult.result
   }
 
@@ -2455,11 +2473,7 @@ export class Agent implements LocalAgent, InvokableAgent {
     const context: ExecuteToolContext = {
       agent: this,
       tool,
-      toolUse: {
-        name: toolUse.name,
-        toolUseId: toolUse.toolUseId,
-        input: toolUse.input,
-      },
+      toolUse: deepCopy(toolUse) as unknown as ToolUseData,
       invocationState,
       interrupt: createMiddlewareInterrupt(this._interruptState, `middleware:executeTool:${toolUse.toolUseId}`),
     }

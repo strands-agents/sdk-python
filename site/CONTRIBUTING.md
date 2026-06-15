@@ -28,6 +28,7 @@ npm run build      # generates static site
 - Content lives in `docs/` as standard Markdown files
 - Navigation structure is defined in `src/config/navigation.yml`
 - Use `<Tabs>` / `<Tab label="...">` for Python/TypeScript code tabs (auto-imported)
+- Use `<Syntax py="python_name" ts="tsName" />` for inline language-specific identifiers in prose (auto-imported). Renders as `<code>` by default; pass `plain` for plain text. Reacts live to the global language toggle.
 - Use `--8<-- "path/to/file.ts:snippet_name"` to pull in code snippets from external files
 - Relative file links (e.g. `../tools/index.md`) resolve automatically — no need to use slugs
 - Link to API reference pages with the `@api` shorthand: `[@api/python/strands.agent.agent](#Class)`

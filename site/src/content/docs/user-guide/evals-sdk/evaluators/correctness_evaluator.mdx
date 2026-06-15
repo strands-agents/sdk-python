@@ -99,8 +99,8 @@ cases = [
 ]
 
 experiment = Experiment(cases=cases, evaluators=[CorrectnessEvaluator()])
-reports = experiment.run_evaluations(task_function)
-reports[0].run_display()
+report = experiment.run_evaluations(task_function)
+report.run_display()
 ```
 
 ### With Reference (binary scoring)
@@ -120,7 +120,7 @@ cases = [
 ]
 
 experiment = Experiment(cases=cases, evaluators=[CorrectnessEvaluator()])
-reports = experiment.run_evaluations(task_function)
+report = experiment.run_evaluations(task_function)
 ```
 
 When `expected_assertion` is set on the case, the evaluator automatically switches to reference mode and uses binary CORRECT/INCORRECT scoring.

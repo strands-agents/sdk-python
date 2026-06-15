@@ -31,5 +31,5 @@ cases = [
 ]
 
 experiment = Experiment(cases=cases, evaluators=[ResponseRelevanceEvaluator()])
-reports = experiment.run_evaluations(task_function)
-reports[0].run_display()
+report = experiment.run_evaluations(task_function)
+report.run_display()

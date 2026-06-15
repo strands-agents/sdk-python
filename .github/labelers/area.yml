@@ -11,7 +11,11 @@ instructions: |
   Documentation content issues belong to documentation, not area-devx.
   Storage backend implementation issues (S3, DynamoDB, file) belong to area-persistence. Session lifecycle and interface issues belong to area-sessions.
   Context window/token management belongs to area-context.
-  General agent class behavior (invocation, streaming, result handling) belongs to area-agent.
+  General agent class behavior (invocation, streaming, result handling) belongs to area-agent. Do not assign area-agent merely because an issue mentions "agent"; require evidence it concerns the core agent class itself.
+  area-community is NOT a catch-all. Use it only for repo health, governance, contributor process, release process, and CI dependency bumps. If no area clearly applies, assign no area label rather than defaulting to area-community.
+  area-devx covers how it feels to use the SDK: papercuts, confusing or awkward public APIs, error-message quality, ergonomics, surprising behavior that does not match what a developer would reasonably expect, and usability of the developer-facing interface. It is appropriate even for a specific subsystem when the issue is about that subsystem's public API being confusing, awkward, or surprising to use (as opposed to a clear functional bug in its internal behavior). It is NOT a catch-all for any generic "make it better" request that lacks a concrete usability concern.
+  Order matters: list the most important label first, because at most 2 labels are kept. Rank by specificity — concrete feature areas (area-mcp, area-model, area-agent, area-persistence, etc.) come before softer cross-cutting labels (area-devx, area-community) that are not tied to one feature area. When an issue reports a bug in a concrete area, that area takes priority.
+  Example: "the MCPClient constructor arguments are confusing and the error when a server is unreachable is unhelpful" -> area-mcp, then area-devx (concrete area first, usability second). But "MCPClient drops messages under concurrent calls" -> area-mcp only (functional bug in internals; no devx concern).
 
 labels:
   area-a2a:
@@ -23,13 +27,13 @@ labels:
   area-bidirectional-streaming:
     description: "Bidirectional streaming, BidiAgent, real-time audio/video, WebRTC, WebSocket, Nova Sonic, voice agents"
   area-community:
-    description: "Community health, monorepo consolidation, contributor guides, governance, CI dependency bumps, release process"
+    description: "Repo health, governance, contributor guides, release process, and CI dependency bumps. Not a fallback for issues that fit no other area."
   area-config:
     description: "Config-based agents, agent config files, mcp-config, declarative agent/graph/swarm definitions from YAML"
   area-context:
     description: "Conversation management, context windows, context reduction, sliding window, token management, compression strategies"
   area-devx:
-    description: "Developer experience improvements, better APIs, ergonomics, helper methods, error messages, SDK usability"
+    description: "Developer experience: papercuts, confusing or awkward public APIs, error messages, ergonomics, surprising behavior that doesn't match expectations, helper methods, and usability of the SDK's developer-facing interface"
   area-hil:
     description: "Human-in-the-loop, interrupt/resume, suspend/resume, approval workflows, callback-based tool execution"
   area-hooks:

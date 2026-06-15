@@ -103,7 +103,7 @@ for failure in result.failures:
 from strands.models.bedrock import BedrockModel
 from strands_evals.detectors import detect_failures
 
-model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+model = BedrockModel(model_id="global.anthropic.claude-sonnet-4-6")
 result = detect_failures(session, model=model)
 ```
 

@@ -9,7 +9,6 @@ import type {
 } from '../types/agent.js'
 import type { Message, SystemPrompt, ToolResultBlock } from '../types/messages.js'
 import type { ToolSpec, ToolChoice } from '../tools/types.js'
-import type { StateStore } from '../state-store.js'
 import type { StreamAggregatedResult } from '../models/model.js'
 import type { ToolUseData } from '../hooks/events.js'
 import type { Tool } from '../tools/tool.js'
@@ -83,9 +82,7 @@ export interface InvokeModelContext {
   readonly toolSpecs: readonly ToolSpec[]
   /** Controls how the model selects tools. */
   readonly toolChoice?: ToolChoice
-  /** Runtime state for stateful model providers. */
-  readonly modelState: StateStore
-  /** Per-invocation state shared across hooks and tools. */
+  /** Per-invocation state. Shared by reference — mutations are visible to hooks, tools, and AgentResult. */
   readonly invocationState: InvocationState
 }
 
@@ -109,7 +106,7 @@ export interface ExecuteToolContext extends MiddlewareInterruptible {
   readonly tool: Tool | undefined
   /** The tool use request (name, toolUseId, input). */
   readonly toolUse: ToolUseData
-  /** Per-invocation state shared across hooks and tools. */
+  /** Per-invocation state. Shared by reference — mutations are visible to hooks, tools, and AgentResult. */
   readonly invocationState: InvocationState
 }
 
@@ -125,19 +122,24 @@ export interface ExecuteToolResult {
 /**
  * Context passed to agent-stream-stage middleware.
  * Wraps the entire agent output stream at the outermost interception point.
+ *
+ * @internal Not part of the public API. The contract for this context (particularly
+ * around copy vs. reference semantics for `args` and `options`) is not yet finalized.
  */
 export interface AgentStreamContext extends MiddlewareInterruptible {
   /** The agent instance (escape hatch for advanced use cases). */
   readonly agent: LocalAgent
-  /** The invocation arguments passed to agent.stream(). */
+  /** The invocation arguments passed to agent.stream(). Shared by reference. */
   readonly args: InvokeArgs
-  /** Per-invocation options (cancel signal, structured output, etc.). */
+  /** Per-invocation options (cancel signal, structured output, etc.). Shared by reference. */
   readonly options?: InvokeOptions
 }
 
 /**
  * Result from agent-stream-stage middleware.
  * The return value of the async generator.
+ *
+ * @internal Not part of the public API.
  */
 export interface AgentStreamResult {
   /** The final agent result from the stream. */
@@ -159,5 +161,8 @@ export const ExecuteToolStage = createStage<ExecuteToolContext, ExecuteToolResul
 /**
  * Built-in stage wrapping the entire agent output stream.
  * Middleware registered for this stage can filter, transform, or inject events.
+ *
+ * @internal Not part of the public API. The context contract for this stage is not
+ * yet finalized — particularly around copy vs. reference semantics for args/options.
  */
 export const AgentStreamStage = createStage<AgentStreamContext, AgentStreamResult, AgentStreamEvent>('agentStream')

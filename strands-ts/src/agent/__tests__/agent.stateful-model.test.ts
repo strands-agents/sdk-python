@@ -73,11 +73,11 @@ describe('Agent with stateful model', () => {
   })
 
   describe('invocation', () => {
-    it('passes agent.modelState to the model via streamOptions.modelState', async () => {
+    it('passes modelState snapshot to the model and writes back changes', async () => {
       const model = new StatefulMockModel(['resp_first']).addTurn({ type: 'textBlock', text: 'Hi' })
       const agent = new Agent({ model, printer: false })
       await agent.invoke('Hello')
-      expect(model.receivedOptions[0]?.modelState).toBe(agent.modelState)
+      expect(model.receivedOptions[0]?.modelState).not.toBe(agent.modelState)
       expect(agent.modelState.getAll()).toEqual({ responseId: 'resp_first' })
     })
 

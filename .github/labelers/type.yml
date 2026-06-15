@@ -3,9 +3,14 @@
 # Use max_labels: 1 in the workflow since these are mutually exclusive.
 
 instructions: |
-  Choose exactly one type. If the title starts with [BUG] it is a bug.
-  If the title starts with [FEATURE] it is an enhancement.
-  CI/dependency PRs that open as issues are chores.
+  Choose exactly one type. You are given only the title and body — there is no diff or file list, so judge from those.
+  The conventional-commit prefix in the title is authoritative when present, including its optional scope (e.g. "feat(core):" counts as "feat:"). Match the prefix regardless of scope:
+  - "feat" -> enhancement
+  - "fix" -> bug
+  - "chore", "ci", "build", "refactor", "perf", "style", "test" -> chore
+  - "docs" -> follow the documentation rules below
+  The prefix wins even when the description sounds user-facing: a "perf:" or "refactor:" title is a chore. When no conventional-commit prefix is present, fall back to the body: maintenance with no user-facing impact (dependency bumps, CI config, internal refactors) is a chore, while anything that adds or changes user-facing functionality is an enhancement.
+  If the title starts with [BUG] it is a bug. If the title starts with [FEATURE] it is an enhancement.
   Documentation improvements or corrections are bugs. Requests for new docs or content additions are enhancements. Documentation questions are questions.
 
 labels:

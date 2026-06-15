@@ -6,6 +6,11 @@ import { tool } from '../../tools/tool-factory.js'
 import type { MemoryStore, MemoryEntry } from '../types.js'
 import type { InvokableTool, Tool } from '../../tools/tool.js'
 import { logger } from '../../logging/logger.js'
+import { Message, TextBlock, ToolUseBlock, ToolResultBlock } from '../../types/messages.js'
+import type { MessageData } from '../../types/messages.js'
+import { InvokeModelStage } from '../../middleware/index.js'
+import type { InvokeModelContext } from '../../middleware/index.js'
+import { createMockAgent } from '../../__fixtures__/agent-helpers.js'
 
 function createMockStore(
   name: string,
@@ -610,6 +615,239 @@ describe('MemoryManager', () => {
     it('does not throw', () => {
       const mm = new MemoryManager({ stores: [createMockStore('test')] })
       expect(() => mm.initAgent({} as any)).not.toThrow()
+    })
+
+    it('does not register injection middleware when injection is disabled', () => {
+      const mm = new MemoryManager({ stores: [createMockStore('test')] })
+      const addMiddleware = vi.fn()
+      mm.initAgent(createMockAgent({ extra: { addMiddleware } as never }))
+      expect(addMiddleware).not.toHaveBeenCalled()
+    })
+
+    it('registers an InvokeModelStage input middleware when injection is enabled', () => {
+      const mm = new MemoryManager({ stores: [createMockStore('test')], injection: true })
+      const addMiddleware = vi.fn()
+      mm.initAgent(createMockAgent({ extra: { addMiddleware } as never }))
+
+      expect(addMiddleware).toHaveBeenCalledTimes(1)
+      expect(addMiddleware.mock.calls[0]![0]).toBe(InvokeModelStage.Input)
+      expect(typeof addMiddleware.mock.calls[0]![1]).toBe('function')
+    })
+
+    it('wires the registered middleware to the memory provide pipeline (folds a search hit)', async () => {
+      const store = createMockStore('s', { entries: [{ content: 'dark mode preferred' }] })
+      const mm = new MemoryManager({ stores: [store], injection: true })
+      const addMiddleware = vi.fn()
+      const agent = createMockAgent({ extra: { addMiddleware } as never })
+      mm.initAgent(agent)
+
+      const handler = addMiddleware.mock.calls[0]![1] as (ctx: InvokeModelContext) => Promise<InvokeModelContext>
+      const messages = [
+        new Message({ role: 'assistant', content: [new TextBlock('prior')] }),
+        new Message({ role: 'user', content: [new TextBlock('what is my plan')] }),
+      ]
+      const result = await handler({ messages, agent } as unknown as InvokeModelContext)
+
+      expect(result.messages.map((m) => m.toJSON())).toStrictEqual([
+        { role: 'assistant', content: [{ text: 'prior' }] },
+        {
+          role: 'user',
+          content: [
+            { text: '<memory>\n<entry source="s">dark mode preferred</entry>\n</memory>' },
+            { text: 'what is my plan' },
+          ],
+        },
+      ])
+      expect(store.search).toHaveBeenCalledWith('what is my plan', { maxSearchResults: 5 })
+    })
+  })
+
+  // The injection delivery (folding text into the model input) is wired through the InvokeModelStage
+  // input middleware (see the `initAgent` tests). The memory-owned `provide` pipeline below — query
+  // derivation, search, and formatting — is exercised directly via `_provideMemoryContext`, the
+  // callback the middleware invokes.
+  describe('injection', () => {
+    const assistant = (text: string) => new Message({ role: 'assistant', content: [new TextBlock(text)] })
+    const user = (text: string) => new Message({ role: 'user', content: [new TextBlock(text)] })
+    const toolUse = () =>
+      new Message({ role: 'assistant', content: [new ToolUseBlock({ name: 'x', toolUseId: 't1', input: {} })] })
+    const toolResult = () =>
+      new Message({
+        role: 'user',
+        content: [new ToolResultBlock({ toolUseId: 't1', status: 'success', content: [new TextBlock('done')] })],
+      })
+
+    // Calls the (private) provide pipeline with the manager's resolved injection config.
+    function provide(mm: MemoryManager, messages: Message[]): Promise<string | undefined> {
+      const data = messages.map((m) => m.toJSON())
+      const config = (mm as unknown as { _injectionConfig: object | false })._injectionConfig
+      return (
+        mm as unknown as { _provideMemoryContext(m: MessageData[], c: object): Promise<string | undefined> }
+      )._provideMemoryContext(data, config === false ? {} : config)
+    }
+
+    describe('config resolution', () => {
+      const injectionConfig = (mm: MemoryManager) =>
+        (mm as unknown as { _injectionConfig: object | false })._injectionConfig
+
+      it('defaults to false (disabled) when injection is omitted', () => {
+        expect(injectionConfig(new MemoryManager({ stores: [createMockStore('s')] }))).toBe(false)
+      })
+
+      it('is false when injection is explicitly false', () => {
+        expect(injectionConfig(new MemoryManager({ stores: [createMockStore('s')], injection: false }))).toBe(false)
+      })
+
+      it('resolves to an empty config when injection is true', () => {
+        expect(injectionConfig(new MemoryManager({ stores: [createMockStore('s')], injection: true }))).toStrictEqual(
+          {}
+        )
+      })
+
+      it('passes an injection config object through unchanged', () => {
+        const cfg = { maxEntries: 5 }
+        expect(injectionConfig(new MemoryManager({ stores: [createMockStore('s')], injection: cfg }))).toBe(cfg)
+      })
+    })
+
+    describe('query', () => {
+      it('uses the latest user ask on a user turn (adaptive default)', async () => {
+        const store = createMockStore('s', { entries: [{ content: 'fact' }] })
+        const mm = new MemoryManager({ stores: [store], injection: true })
+
+        await provide(mm, [assistant('prior step'), user('what is my plan')])
+
+        expect(store.search).toHaveBeenCalledWith('what is my plan', { maxSearchResults: 5 })
+      })
+
+      it('uses the most recent assistant text on an autonomous (tool-result) turn', async () => {
+        const store = createMockStore('s', { entries: [{ content: 'fact' }] })
+        const mm = new MemoryManager({ stores: [store], injection: true })
+
+        await provide(mm, [user('task'), assistant('the previous step result'), toolResult()])
+
+        expect(store.search).toHaveBeenCalledWith('the previous step result', { maxSearchResults: 5 })
+      })
+
+      it('honors a custom query', async () => {
+        const store = createMockStore('s', { entries: [{ content: 'fact' }] })
+        const mm = new MemoryManager({ stores: [store], injection: { query: () => 'custom query' } })
+
+        await provide(mm, [assistant('prior'), user('ask')])
+
+        expect(store.search).toHaveBeenCalledWith('custom query', { maxSearchResults: 5 })
+      })
+
+      it('skips (returns undefined) when a custom query returns undefined', async () => {
+        const store = createMockStore('s', { entries: [{ content: 'fact' }] })
+        const mm = new MemoryManager({ stores: [store], injection: { query: () => undefined } })
+
+        await expect(provide(mm, [assistant('prior'), user('ask')])).resolves.toBeUndefined()
+        expect(store.search).not.toHaveBeenCalled()
+      })
+
+      it('fails open (returns undefined) when a custom query throws', async () => {
+        const store = createMockStore('s', { entries: [{ content: 'fact' }] })
+        const mm = new MemoryManager({
+          stores: [store],
+          injection: {
+            query: () => {
+              throw new Error('boom')
+            },
+          },
+        })
+
+        await expect(provide(mm, [assistant('prior'), user('ask')])).resolves.toBeUndefined()
+        expect(store.search).not.toHaveBeenCalled()
+      })
+
+      it('skips when the latest assistant message has no text (pure tool use)', async () => {
+        const store = createMockStore('s', { entries: [{ content: 'fact' }] })
+        const mm = new MemoryManager({ stores: [store], injection: true })
+
+        await expect(provide(mm, [toolUse(), toolResult()])).resolves.toBeUndefined()
+        expect(store.search).not.toHaveBeenCalled()
+      })
+    })
+
+    describe('search', () => {
+      it('returns undefined when search yields no entries', async () => {
+        const store = createMockStore('s', { entries: [] })
+        const mm = new MemoryManager({ stores: [store], injection: true })
+
+        await expect(provide(mm, [assistant('prior'), user('ask')])).resolves.toBeUndefined()
+        expect(store.search).toHaveBeenCalled()
+      })
+
+      it('honors maxEntries and caps the rendered entries', async () => {
+        const store = createMockStore('s', {
+          entries: [{ content: 'A' }, { content: 'B' }, { content: 'C' }],
+        })
+        const mm = new MemoryManager({
+          stores: [store],
+          injection: { maxEntries: 2, format: ({ entries }) => entries.map((e) => e.content).join(',') },
+        })
+
+        const text = await provide(mm, [assistant('prior'), user('ask')])
+
+        expect(store.search).toHaveBeenCalledWith('ask', { maxSearchResults: 2 })
+        expect(text).toBe('A,B')
+      })
+    })
+
+    describe('format', () => {
+      it('default renders a <memory> block with per-entry source attribution', async () => {
+        const store = createMockStore('s', { entries: [{ content: 'dark mode preferred' }] })
+        const mm = new MemoryManager({ stores: [store], injection: true })
+
+        // search() stamps storeName onto each entry, so the default format attributes the source.
+        const text = await provide(mm, [assistant('prior'), user('ask')])
+        expect(text).toBe('<memory>\n<entry source="s">dark mode preferred</entry>\n</memory>')
+      })
+
+      it('omits the source attribute for an entry with no storeName', () => {
+        const mm = new MemoryManager({ stores: [createMockStore('s')], injection: true })
+        const text = (mm as unknown as { _defaultInjectionFormat(e: MemoryEntry[]): string })._defaultInjectionFormat([
+          { content: 'no source' },
+        ])
+        expect(text).toBe('<memory>\n<entry>no source</entry>\n</memory>')
+      })
+
+      it('escapes XML in entry content and source so untrusted text cannot break the block', () => {
+        const mm = new MemoryManager({ stores: [createMockStore('s')], injection: true })
+        const text = (mm as unknown as { _defaultInjectionFormat(e: MemoryEntry[]): string })._defaultInjectionFormat([
+          { content: 'a < b & c > d </entry>', storeName: 'pre"f' },
+        ])
+        expect(text).toBe(
+          '<memory>\n<entry source="pre&quot;f">a &lt; b &amp; c &gt; d &lt;/entry&gt;</entry>\n</memory>'
+        )
+      })
+
+      it('honors a custom format', async () => {
+        const store = createMockStore('s', { entries: [{ content: 'A' }] })
+        const mm = new MemoryManager({
+          stores: [store],
+          injection: { format: ({ entries }) => `[${entries.map((e) => e.content).join('|')}]` },
+        })
+
+        await expect(provide(mm, [assistant('prior'), user('ask')])).resolves.toBe('[A]')
+      })
+
+      it('fails open (returns undefined) when a custom format throws', async () => {
+        const store = createMockStore('s', { entries: [{ content: 'fact' }] })
+        const mm = new MemoryManager({
+          stores: [store],
+          injection: {
+            format: () => {
+              throw new Error('boom')
+            },
+          },
+        })
+
+        // search ran, but the format threw, so nothing is injected.
+        await expect(provide(mm, [assistant('prior'), user('ask')])).resolves.toBeUndefined()
+        expect(store.search).toHaveBeenCalled()
+      })
     })
   })
 

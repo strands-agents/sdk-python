@@ -146,8 +146,8 @@ async def async_descriptive_tools_trajectory_example():
     experiment.to_file("async_bank_tools_trajectory_experiment")
 
     # 5. Run evaluations
-    reports = await experiment.run_evaluations_async(get_response)
-    return reports[0]
+    report = await experiment.run_evaluations_async(get_response)
+    return report
 
 
 if __name__ == "__main__":

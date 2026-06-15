@@ -90,10 +90,8 @@ async def async_graph_example():
     trajectory_experiment = Experiment(cases=[test1, test2], evaluators=[trajectory_eval])
 
     ### Step 5: Run evaluation ###
-    interaction_reports = await interaction_experiment.run_evaluations_async(research_graph)
-    trajectory_reports = await trajectory_experiment.run_evaluations_async(research_graph)
-    interaction_report = interaction_reports[0]
-    trajectory_report = trajectory_reports[0]
+    interaction_report = await interaction_experiment.run_evaluations_async(research_graph)
+    trajectory_report = await trajectory_experiment.run_evaluations_async(research_graph)
 
     return trajectory_report, interaction_report
 

@@ -94,6 +94,125 @@ class TestInMemoryStorage:
         storage.clear()
 
 
+class TestInMemoryStorageEviction:
+    def test_evict_after_turns_validation(self):
+        with pytest.raises(ValueError, match="evict_after_turns must be a positive integer"):
+            InMemoryStorage(evict_after_turns=0)
+        with pytest.raises(ValueError, match="evict_after_turns must be a positive integer"):
+            InMemoryStorage(evict_after_turns=-1)
+
+
+    def test_eviction_enabled_by_default(self):
+        storage = InMemoryStorage()
+        assert storage._evict_after_turns == 20
+        ref = storage.store("key_1", b"content")
+        for _ in range(21):
+            storage._evict(storage._current_cycle + 1)
+        with pytest.raises(KeyError):
+            storage.retrieve(ref)
+
+    def test_eviction_disabled_with_none(self):
+        storage = InMemoryStorage(evict_after_turns=None)
+        ref = storage.store("key_1", b"content")
+        for _ in range(100):
+            storage._evict(storage._current_cycle + 1)
+        assert storage.retrieve(ref) == (b"content", "text/plain")
+
+    def test_entry_evicted_after_n_turns(self):
+        storage = InMemoryStorage(evict_after_turns=3)
+        ref = storage.store("key_1", b"content")
+
+        storage._evict(storage._current_cycle + 1)  # turn 1
+        storage._evict(storage._current_cycle + 1)  # turn 2
+        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 3 - 3 = 0, stored at 0, 0 < 0 is false
+        assert storage.retrieve(ref) == (b"content", "text/plain")
+
+        storage._evict(storage._current_cycle + 1)  # turn 4 — refreshed by retrieve to 3, 3 < 1 is false
+        assert storage.retrieve(ref) == (b"content", "text/plain")
+
+    def test_entry_evicted_without_access(self):
+        storage = InMemoryStorage(evict_after_turns=2)
+        ref = storage.store("key_1", b"content")
+
+        storage._evict(storage._current_cycle + 1)  # turn 1
+        storage._evict(storage._current_cycle + 1)  # turn 2 — threshold = 2 - 2 = 0, stored at 0, 0 < 0 is false
+        # Entry still alive at exact boundary
+        content, _ = storage.retrieve(ref)
+        assert content == b"content"
+
+    def test_entry_evicted_past_boundary(self):
+        storage = InMemoryStorage(evict_after_turns=2)
+        ref = storage.store("key_1", b"content")
+
+        storage._evict(storage._current_cycle + 1)  # turn 1
+        storage._evict(storage._current_cycle + 1)  # turn 2
+        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 1, 0 < 1 → evicted
+        with pytest.raises(KeyError):
+            storage.retrieve(ref)
+
+    def test_retrieve_refreshes_last_accessed(self):
+        storage = InMemoryStorage(evict_after_turns=2)
+        ref = storage.store("key_1", b"content")
+
+        storage._evict(storage._current_cycle + 1)  # turn 1
+        storage.retrieve(ref)  # refreshes last_accessed to turn 1
+
+        storage._evict(storage._current_cycle + 1)  # turn 2
+        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 1, last_accessed = 1, 1 < 1 is false
+        assert storage.retrieve(ref) == (b"content", "text/plain")
+
+    def test_multiple_entries_evicted_independently(self):
+        storage = InMemoryStorage(evict_after_turns=2)
+        ref1 = storage.store("key_1", b"first")
+
+        storage._evict(storage._current_cycle + 1)  # turn 1
+        ref2 = storage.store("key_2", b"second")
+
+        storage._evict(storage._current_cycle + 1)  # turn 2
+        storage._evict(storage._current_cycle + 1)  # turn 3 — threshold = 1. ref1 evicted, ref2 survives
+        with pytest.raises(KeyError):
+            storage.retrieve(ref1)
+        assert storage.retrieve(ref2) == (b"second", "text/plain")
+
+    def test_evict_updates_current_cycle(self):
+        storage = InMemoryStorage()
+        assert storage._current_cycle == 0
+        storage._evict(5)
+        assert storage._current_cycle == 5
+
+    def test_rejects_shared_storage_across_agents(self):
+        storage = InMemoryStorage()
+        storage._bind(1)
+        with pytest.raises(ValueError, match="cannot be shared"):
+            storage._bind(2)
+
+    def test_allows_same_agent_repeated_bind(self):
+        storage = InMemoryStorage()
+        storage._bind(42)
+        storage._bind(42)
+
+    def test_thread_safety_with_eviction(self):
+        storage = InMemoryStorage(evict_after_turns=5)
+        refs: list[str] = []
+        errors: list[Exception] = []
+
+        def store_and_tick(i: int):
+            try:
+                ref = storage.store(f"key_{i}", f"content_{i}".encode())
+                refs.append(ref)
+                storage._evict(storage._current_cycle + 1)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=store_and_tick, args=(i,)) for i in range(50)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+
+
 class TestFileStorage:
     def test_round_trip(self, tmp_path):
         storage = FileStorage(artifact_dir=str(tmp_path / "artifacts"))

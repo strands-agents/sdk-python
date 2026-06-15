@@ -28,7 +28,7 @@ Key benefits:
 
 ## Basic Usage
 
-Define an output structure using a schema. In Python, use a Pydantic model and pass it to `structured_output_model`. In TypeScript, use a Zod schema and pass it to `structuredOutputSchema`. Then, access the validated output from the `AgentResult`.
+Define an output structure using a schema and pass it to <Syntax py="structured_output_model" ts="structuredOutputSchema" />. Then, access the validated output from the `AgentResult`.
 
 <Tabs>
 <Tab label="Python">
@@ -97,7 +97,7 @@ result = asyncio.run(
 
 The structured output system converts your schema definitions into tool specifications that guide the language model to produce correctly formatted responses. All of the model providers supported in Strands can work with Structured Output.
 
-In Python, Strands accepts the `structured_output_model` parameter in agent invocations, which manages the conversion, validation, and response processing automatically. In TypeScript, the `structuredOutputSchema` parameter (either at agent initialization or per-invocation) handles this process. The validated result is available in the `AgentResult.structured_output` (Python) or `AgentResult.structuredOutput` (TypeScript) field.
+Strands accepts the <Syntax py="structured_output_model" ts="structuredOutputSchema" /> parameter in agent invocations, which manages the conversion, validation, and response processing automatically. The validated result is available in the <Syntax py="AgentResult.structured_output" ts="AgentResult.structuredOutput" /> field.
 
 
 ### Error Handling

@@ -115,10 +115,10 @@ experiment = Experiment(
     diagnosis_config=DiagnosisConfig(trigger=DiagnosisTrigger.ON_FAILURE),
 )
 
-reports = experiment.run_evaluations(my_task)
+report = experiment.run_evaluations(my_task)
 
 # View recommendations for failing cases
-reports[0].display(include_recommendations=True)
+report.display(include_recommendations=True)
 ```
 
 See the [Session Diagnosis guide](diagnosis.md) for the full integration walkthrough.

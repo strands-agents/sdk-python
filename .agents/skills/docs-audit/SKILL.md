@@ -59,6 +59,7 @@ Specific checks:
 - Is essential context at the top?
 - Is inline code properly formatted with backticks?
 - Is terminology consistent with the terminology lock?
+- Are language-specific identifiers in shared prose using the `<Syntax>` component rather than being spelled out manually with language labels?
 
 ### Step 5: Competitive comparison (optional)
 

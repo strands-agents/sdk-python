@@ -3,6 +3,7 @@ import type { LocalAgent } from '../types/agent.js'
 import type { Tool } from '../tools/tool.js'
 import type {
   MemoryEntry,
+  MemoryInjectionConfig,
   MemoryManagerConfig,
   MemorySearchOptions,
   MemoryStore,
@@ -11,6 +12,7 @@ import type {
   MemoryAddToolConfig,
 } from './types.js'
 import type { JSONValue } from '../types/json.js'
+import type { MessageData } from '../types/messages.js'
 import { MessageAddedEvent } from '../hooks/events.js'
 import { ExtractionCoordinator, type ExtractionBinding } from './extraction/coordinator.js'
 import { resolveExtractionConfig } from './extraction/resolve-extraction-config.js'
@@ -18,6 +20,9 @@ import { tool } from '../tools/tool-factory.js'
 import { z } from 'zod'
 import { logger } from '../logging/logger.js'
 import { normalizeError } from '../errors.js'
+import { isUserTurn, createInjectionMiddleware } from '../injection/message-injection.js'
+import { escapeXmlText, escapeXmlAttr } from '../injection/xml.js'
+import { InvokeModelStage } from '../middleware/index.js'
 
 const SEARCH_TOOL_DESCRIPTION =
   'Search long-term memory for facts, preferences, or context from previous conversations. Use when you need background about the user or topic that may have been discussed before.'
@@ -30,6 +35,16 @@ const ADD_TOOL_DESCRIPTION =
  * Resolved by the {@link MemoryManager}.
  */
 export const DEFAULT_MAX_SEARCH_RESULTS = 3
+
+/**
+ * Default number of entries injected per model call when injection does not specify one.
+ *
+ * A memory store ranks by semantic (embedding) similarity, which is not the same as contextual
+ * usefulness — the top hit is not reliably the most useful entry for the turn. Injecting the top few
+ * gives the model a small candidate set to pick from rather than betting on the store's first result.
+ * Five balances that recall against context bloat; lower it for a tighter prepend.
+ */
+const DEFAULT_MAX_ENTRIES = 5
 
 /** Flattens nested AggregateErrors so the leaves are concrete reasons, not errors-of-errors. */
 function _flattenReasons(reasons: unknown[]): unknown[] {
@@ -80,6 +95,8 @@ export class MemoryManager implements Plugin {
   private readonly _extractionStores: ExtractionBinding[]
   /** Background extraction coordinator, created in {@link initAgent} when extraction is configured. */
   private _coordinator: ExtractionCoordinator | undefined
+  /** Resolved injection config, or `false` when injection is disabled. */
+  private readonly _injectionConfig: MemoryInjectionConfig | false
 
   constructor(config: MemoryManagerConfig) {
     if (config.stores.length === 0) {
@@ -147,6 +164,13 @@ export class MemoryManager implements Plugin {
       this._addToolConfig = typeof config.addToolConfig === 'object' ? config.addToolConfig : {}
       this._addToolStores = this._resolveAddToolStores(this._addToolConfig)
     }
+
+    this._injectionConfig =
+      config.injection === undefined || config.injection === false
+        ? false
+        : typeof config.injection === 'object'
+          ? config.injection
+          : {}
   }
 
   /**
@@ -179,12 +203,22 @@ export class MemoryManager implements Plugin {
   /**
    * Initializes the plugin with the agent.
    *
-   * Wires up automatic extraction for any store configured with {@link ExtractionConfig}: buffers
-   * conversation messages and attaches each store's triggers. A no-op when no store uses extraction.
+   * Wires up two independent behaviors:
+   * - **Extraction**: for any store configured with {@link ExtractionConfig}, buffers conversation
+   *   messages and attaches each store's triggers. A no-op when no store uses extraction.
+   * - **Injection**: when enabled, registers an `InvokeModelStage` middleware that folds retrieved
+   *   memory into the model input for each call without touching durable history. See
+   *   {@link _provideMemoryContext}, the `renderContent` callback the middleware invokes.
    *
    * @param agent - The agent this plugin is being attached to
    */
   initAgent(agent: LocalAgent): void {
+    this._initExtraction(agent)
+    this._initInjection(agent)
+  }
+
+  /** Wires background extraction for stores configured with {@link ExtractionConfig}. */
+  private _initExtraction(agent: LocalAgent): void {
     if (this._extractionStores.length === 0) {
       return
     }
@@ -205,6 +239,60 @@ export class MemoryManager implements Plugin {
   }
 
   /**
+   * Registers the injection middleware when injection is enabled. Folds retrieved memory into the
+   * model input for each call via {@link _provideMemoryContext}, without touching durable history. A
+   * no-op when injection is disabled.
+   */
+  private _initInjection(agent: LocalAgent): void {
+    const config = this._injectionConfig
+    if (config === false) {
+      return
+    }
+    agent.addMiddleware(
+      InvokeModelStage.Input,
+      createInjectionMiddleware({
+        ...(config.trigger !== undefined && { trigger: config.trigger }),
+        renderContent: (context) => this._provideMemoryContext(context.messages, config),
+      })
+    )
+  }
+
+  /**
+   * Produces the memory context text to inject for a model call, or `undefined` to skip. This is the
+   * `renderContent` callback the injection middleware invokes (see {@link initAgent}).
+   *
+   * Derives a query (the configured callback or an adaptive default), searches memory, and renders the
+   * top entries. Skips silently (returns `undefined`) when no query can be derived or the search
+   * returns nothing. The rendering callback throwing fails open (returns `undefined`).
+   *
+   * @param messages - The current conversation, as data
+   * @param config - The resolved injection configuration
+   * @returns The injected text, or `undefined` when there is nothing to inject
+   */
+  private async _provideMemoryContext(
+    messages: MessageData[],
+    config: MemoryInjectionConfig
+  ): Promise<string | undefined> {
+    const query = this._resolveInjectionQuery(messages, config)
+    if (!query?.trim()) {
+      return undefined
+    }
+
+    const maxResults = config.maxEntries ?? DEFAULT_MAX_ENTRIES
+    const entries = (await this.search(query, { maxSearchResults: maxResults })).slice(0, maxResults)
+    if (entries.length === 0) {
+      return undefined
+    }
+
+    try {
+      return config.format ? config.format({ entries }) : this._defaultInjectionFormat(entries)
+    } catch (error) {
+      logger.warn(`reason=<${normalizeError(error).message}> | injection format threw; skipping injection`)
+      return undefined
+    }
+  }
+
+  /**
    * Saves every store's remaining messages and waits for all saves to finish. No-op when no store has
    * extraction configured.
    *
@@ -218,6 +306,63 @@ export class MemoryManager implements Plugin {
    */
   async flush(): Promise<void> {
     await this._coordinator?.flush()
+  }
+
+  /**
+   * Derives the injection search query. Uses the configured `query` callback when provided (a throw
+   * fails open, skipping injection); otherwise an adaptive default: the latest user message's text on
+   * a user turn, or the most recent assistant message's text otherwise (the previous autonomous step).
+   *
+   * @param messages - The current conversation, as data
+   * @param config - The resolved injection configuration
+   * @returns The query string, or `undefined` when none is available
+   */
+  private _resolveInjectionQuery(messages: MessageData[], config: MemoryInjectionConfig): string | undefined {
+    if (config.query) {
+      try {
+        return config.query({ messages })
+      } catch (error) {
+        logger.warn(`reason=<${normalizeError(error).message}> | injection query threw; skipping injection`)
+        return undefined
+      }
+    }
+
+    const role = isUserTurn(messages) ? 'user' : 'assistant'
+    const index = this._findLastIndex(messages, (message) => message.role === role)
+    if (index < 0) {
+      return undefined
+    }
+    const text = messages[index]!.content.filter((block) => 'text' in block)
+      .map((block) => (block as { text: string }).text)
+      .join('\n')
+      .trim()
+    return text.length > 0 ? text : undefined
+  }
+
+  /**
+   * Default injection format: a `<memory>` block with one `<entry>` per result. Each entry carries a
+   * `source` attribute naming the originating store (when known) so the model can attribute memories.
+   *
+   * @param entries - The retrieved memory entries to render
+   * @returns The rendered `<memory>` block
+   */
+  private _defaultInjectionFormat(entries: MemoryEntry[]): string {
+    const items = entries.map((entry) =>
+      entry.storeName
+        ? `<entry source="${escapeXmlAttr(entry.storeName)}">${escapeXmlText(entry.content)}</entry>`
+        : `<entry>${escapeXmlText(entry.content)}</entry>`
+    )
+    return `<memory>\n${items.join('\n')}\n</memory>`
+  }
+
+  /** Returns the index of the last element matching `predicate`, or -1. */
+  private _findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (predicate(items[i]!)) {
+        return i
+      }
+    }
+    return -1
   }
 
   /**

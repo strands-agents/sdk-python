@@ -164,3 +164,16 @@ async function proactiveSummarizing() {
   })
   // --8<-- [end:proactive_summarizing]
 }
+
+async function pinFirstExample() {
+  // --8<-- [start:pin_first]
+  const agent = new Agent({
+    conversationManager: new SlidingWindowConversationManager({
+      windowSize: 40,
+      pinFirst: 1,
+    }),
+  })
+  // --8<-- [end:pin_first]
+}
+
+

@@ -1,5 +1,5 @@
 import type { JSONValue, Serialized, MaybeSerializedInput, JSONSerializable } from './json.js'
-import { omitUndefined } from './json.js'
+import { deepCopy, omitUndefined } from './json.js'
 import type { ImageBlockData, VideoBlockData, DocumentBlockData } from './media.js'
 import { ImageBlock, VideoBlock, DocumentBlock, encodeBase64, decodeBase64 } from './media.js'
 import type { CitationsBlockData } from './citations.js'
@@ -116,6 +116,13 @@ export class Message implements JSONSerializable<MessageData> {
    */
   static fromJSON(data: MessageData): Message {
     return Message.fromMessageData(data)
+  }
+
+  /**
+   * Creates a deep copy of this Message (round-trips through serialization).
+   */
+  clone(): Message {
+    return Message.fromMessageData(deepCopy(this.toJSON()) as unknown as MessageData)
   }
 }
 
@@ -751,6 +758,13 @@ export function systemPromptToData(prompt: SystemPrompt): SystemPromptData {
   }
   // Convert content blocks to their data representation
   return prompt.map((block: SystemContentBlock) => block.toJSON()) as SystemContentBlockData[]
+}
+
+/**
+ * Creates a deep copy of a SystemPrompt by round-tripping through serialization.
+ */
+export function cloneSystemPrompt(prompt: SystemPrompt): SystemPrompt {
+  return systemPromptFromData(systemPromptToData(prompt))
 }
 
 /**

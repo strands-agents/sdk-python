@@ -89,6 +89,10 @@
       "types": "./dist/src/vended-plugins/context-offloader/index.d.ts",
       "default": "./dist/src/vended-plugins/context-offloader/index.js"
     },
+    "./vended-plugins/context-injector": {
+      "types": "./dist/src/vended-plugins/context-injector/index.d.ts",
+      "default": "./dist/src/vended-plugins/context-injector/index.js"
+    },
     "./vended-plugins/goal": {
       "types": "./dist/src/vended-plugins/goal/index.d.ts",
       "default": "./dist/src/vended-plugins/goal/index.js"
@@ -100,6 +104,10 @@
     "./vended-interventions/steering": {
       "types": "./dist/src/vended-interventions/steering/index.d.ts",
       "default": "./dist/src/vended-interventions/steering/index.js"
+    },
+    "./vended-interventions/cedar": {
+      "types": "./dist/src/vended-interventions/cedar/index.d.ts",
+      "default": "./dist/src/vended-interventions/cedar/index.js"
     },
     "./vended-tools": {
       "types": "./dist/src/vended-tools/index.d.ts",
@@ -172,6 +180,8 @@
     "@aws-sdk/client-sts": "^3.996.0",
     "@aws-sdk/credential-providers": "^3.943.0",
     "@aws/bedrock-token-generator": "^1.1.0",
+    "@cedar-policy/cedar-wasm": "^4.11.0",
+    "@cedar-policy/mcp-schema-generator-wasm": "^0.6.0",
     "@eslint/js": "^9.39.4",
     "@google/genai": "^1.40.0",
     "@opentelemetry/api": "^1.9.0",
@@ -224,6 +234,8 @@
     "@aws-sdk/client-bedrock-agent-runtime": "^3.943.0",
     "@aws-sdk/client-s3": "^3.943.0",
     "@aws/bedrock-token-generator": "^1.1.0",
+    "@cedar-policy/cedar-wasm": "^4.0.0",
+    "@cedar-policy/mcp-schema-generator-wasm": "^0.6.0",
     "@google/genai": "^1.40.0",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@opentelemetry/api": "^1.9.0",
@@ -288,6 +300,12 @@
       "optional": true
     },
     "@opentelemetry/exporter-metrics-otlp-http": {
+      "optional": true
+    },
+    "@cedar-policy/cedar-wasm": {
+      "optional": true
+    },
+    "@cedar-policy/mcp-schema-generator-wasm": {
       "optional": true
     }
   },

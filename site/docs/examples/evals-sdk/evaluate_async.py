@@ -1,10 +1,11 @@
-import json
 import asyncio
+
 from strands import Agent
-from strands_tools import calculator, retrieve, file_read, diagram, journal,generate_image, image_reader
+from strands_tools import calculator
 
 from strands_evals import Case, Experiment
-from strands_evals.evaluators import OutputEvaluator
+from strands_evals.evaluators import ToolSelectionAccuracyEvaluator
+from strands_evals.mappers import StrandsInMemorySessionMapper
 from strands_evals.telemetry import StrandsEvalsTelemetry
 
 telemetry = StrandsEvalsTelemetry().setup_in_memory_exporter()
@@ -12,17 +13,16 @@ memory_exporter = telemetry.in_memory_exporter
 
 async def async_example():
     """
-    Demonstrates evaluating graph-based agent workflows for research tasks.
+    Demonstrates running evaluations asynchronously with run_evaluations_async.
 
     This example:
-    1. Defines a task function with a graph of specialized research agents
-    2. Creates test cases for research and report generation scenarios
-    3. Creates TrajectoryEvaluator and InteractionsEvaluator to assess graph execution
-    4. Creates datasets with the test cases and evaluators
-    5. Runs evaluations and analyzes the reports
+    1. Defines a task function that uses an agent with the calculator tool
+    2. Creates test cases for math scenarios
+    3. Creates a ToolSelectionAccuracyEvaluator
+    4. Runs evaluations asynchronously and returns the report
 
     Returns:
-        tuple[EvaluationReport, EvaluationReport]: The trajectory and interaction evaluation results
+        EvaluationReport: The evaluation results
     """
 
     ### Step 1: Define task ###
@@ -54,13 +54,13 @@ async def async_example():
 
     evaluators = [ToolSelectionAccuracyEvaluator()]
     experiment = Experiment[str, str](cases=test_cases, evaluators=evaluators)
-    reports = await experiment.run_evaluations_async(research_graph)
-    return reports
-    
+    report = await experiment.run_evaluations_async(user_task_function)
+    return report
+
 
 if __name__ == "__main__":
-    # run the file as a module: eg. python -m examples.evaluate_graph
-    reports = asyncio.run(async_graph_example())
+    # run the file as a module: eg. python -m examples.evaluate_async
+    report = asyncio.run(async_example())
 
     # report.to_file("tool_selection_accuracy_async")
-    reports[0].run_display(include_actual_trajectory=True)
+    report.run_display(include_actual_trajectory=True)

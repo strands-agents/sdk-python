@@ -70,9 +70,9 @@ async def async_swarm_example():
     interaction_experiment = Experiment(cases=[test1], evaluators=[interaction_evaluator])
 
     ### Step 5: Run evaluation ###
-    trajectory_reports = await trajectory_experiment.run_evaluations_async(sde_swarm)
-    interaction_reports = await interaction_experiment.run_evaluations_async(sde_swarm)
-    return trajectory_reports[0], interaction_reports[0]
+    trajectory_report = await trajectory_experiment.run_evaluations_async(sde_swarm)
+    interaction_report = await interaction_experiment.run_evaluations_async(sde_swarm)
+    return trajectory_report, interaction_report
 
 
 if __name__ == "__main__":
@@ -81,8 +81,8 @@ if __name__ == "__main__":
     trajectory_report, interaction_report = asyncio.run(async_swarm_example())
     end = datetime.datetime.now()
 
-    trajectory_report.to_file("async_swarm_trajectory_report", "json")
-    interaction_report.to_file("async_swarm_interaction_report", "json")
+    trajectory_report.to_file("async_swarm_trajectory_report")
+    interaction_report.to_file("async_swarm_interaction_report")
 
     trajectory_report.run_display(include_actual_trajectory=True)
     interaction_report.run_display(include_actual_interactions=True, include_expected_interactions=True)

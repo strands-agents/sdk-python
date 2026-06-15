@@ -168,6 +168,20 @@ npm run typecheck:snippets # type check code examples
 
 For docs contribution guidelines, see [site/CONTRIBUTING.md](./site/CONTRIBUTING.md).
 
+## Using AI Tools
+
+We love AI. We build with coding agents every day, and you're welcome to use them too — they're a great way to move fast and explore a codebase.
+
+That said, **you are the author of your pull request, not your agent.** Before you open a PR, make sure you understand the code well enough to explain why it works, defend the design choices, and maintain it if asked. If you couldn't walk a reviewer through it line by line, it's not ready yet.
+
+A few things that help us help you:
+
+- **Keep changes small and incremental.** A focused PR that does one thing is far easier for us to understand, guide, and merge than a large one that touches many areas. When in doubt, split it up.
+- **Open an issue first for anything significant**, so we can align on the approach before you (or your agent) invest the time.
+- **Review every line your agent generates.** Delete what you don't need, simplify what's over-engineered, and make sure tests actually exercise the behavior — not just pass.
+
+High-quality PRs get reviewed faster and are far more likely to be accepted. Taking the time to understand and trim your changes is the single best thing you can do to get them merged.
+
 ## Contributing via Pull Requests
 Contributions via pull requests are much appreciated. Before sending us a pull request, please ensure that:
 

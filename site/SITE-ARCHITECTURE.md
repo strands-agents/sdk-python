@@ -246,7 +246,7 @@ Available: `Tabs`/`TabItem`, `Aside`, `Card`/`CardGrid`, `LinkCard`, `Icon`, `Ba
 
 ### Auto-Imported Components
 
-We use [astro-auto-import](https://github.com/delucis/astro-auto-import) to make `Tabs` and `Tab` available globally without explicit imports. Since language tabs appear on nearly every page, this reduces boilerplate.
+We use [astro-auto-import](https://github.com/delucis/astro-auto-import) to make `Tabs`, `Tab`, and `Syntax` available globally without explicit imports. Since language tabs and inline language-specific identifiers appear on nearly every page, this reduces boilerplate.
 
 ```mdx
 <!-- No import needed — just use directly -->
@@ -265,6 +265,25 @@ For other components, use [explicit imports](https://starlight.astro.build/compo
 ### `AutoSyncTabs`
 
 A wrapper around Starlight's `Tabs` that auto-generates a `syncKey` from tab labels. Tabs with identical label sets automatically sync together across the page. Auto-imported as `Tabs` (see above).
+
+### `Syntax`
+
+Inline component for language-specific identifiers in prose. Renders the Python or TypeScript variant based on the global language toggle, avoiding the `"python_name (Python) or tsName (TypeScript)"` pattern. Auto-imported.
+
+```mdx
+Pass <Syntax py="context_manager" ts="contextManager" /> to configure...
+```
+
+Props:
+- `py` (required): Python syntax variant
+- `ts` (required): TypeScript syntax variant
+- `plain` (default: `false`): Renders as plain text instead of `<code>`.
+
+The component reads the same `localStorage` key as the language toggle and swaps live without page reload.
+
+**When to use:** Any time a single identifier, method name, or parameter differs between Python and TypeScript and you're writing shared prose (not inside a `<Tab>` section).
+
+**When NOT to use:** For code blocks (use `<Tabs>`), for conceptual differences between SDKs that aren't simple name swaps, or for content that only applies to one language.
 
 ### `PageLink`
 
