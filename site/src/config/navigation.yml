@@ -210,6 +210,14 @@ sidebar:
               - docs/user-guide/evals-sdk/detectors/failure_detection
               - docs/user-guide/evals-sdk/detectors/root_cause_analysis
               - docs/user-guide/evals-sdk/detectors/diagnosis
+          - label: Red teaming
+            items:
+              - docs/user-guide/evals-sdk/red-teaming
+              - docs/user-guide/evals-sdk/red-teaming/quickstart
+              - docs/user-guide/evals-sdk/red-teaming/strategies
+              - docs/user-guide/evals-sdk/red-teaming/custom_cases
+              - docs/user-guide/evals-sdk/red-teaming/evaluators
+              - docs/user-guide/evals-sdk/red-teaming/reading_the_report
           - docs/user-guide/evals-sdk/experiment_generator
           - label: Simulators
             items:
