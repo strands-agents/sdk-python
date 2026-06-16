@@ -1,6 +1,6 @@
 """Bash tools for executing shell commands.
 
-Two tools are provided, mirroring ``strands-ts/src/vended-tools/bash/``:
+Two tools are provided:
 
 - :data:`bash` — a host-session tool whose shell state (variables, working
   directory) persists across calls. Runs on the host without sandboxing.
@@ -20,14 +20,9 @@ Example Usage:
     ```
 """
 
-from .bash import DEFAULT_BASH_DESCRIPTION, bash, make_bash
-from .types import SANDBOX_BASH_DESCRIPTION, BashSessionError, BashTimeoutError
+from .bash import bash, make_bash
 
 __all__ = [
-    "DEFAULT_BASH_DESCRIPTION",
-    "SANDBOX_BASH_DESCRIPTION",
-    "BashSessionError",
-    "BashTimeoutError",
     "bash",
     "make_bash",
 ]

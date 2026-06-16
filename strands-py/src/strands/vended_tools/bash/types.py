@@ -1,6 +1,6 @@
 """Shared types and constants for the bash tools.
 
-Mirrors ``strands-ts/src/vended-tools/bash/types.ts``. Used by both the
+Shared types and constants for the bash tools. Used by both the
 host-session :data:`~strands.vended_tools.bash.bash.bash` tool and the
 sandbox-routed :func:`~strands.vended_tools.bash.bash.make_bash` factory.
 """

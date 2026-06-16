@@ -1,6 +1,6 @@
 """Sandbox-routed file editor tool.
 
-Mirrors ``strands-ts/src/vended-tools/file-editor/file-editor.ts``. Provides
+Provides
 ``view`` (with line ranges), ``create``, ``str_replace``, and ``insert``
 operations, all routed through a :class:`~strands.sandbox.base.Sandbox`: either
 one bound at creation (as the built-in Docker/SSH sandboxes do when vending
@@ -79,7 +79,7 @@ def make_file_editor(
             insert_line: Line number where text should be inserted (0-indexed, required for insert command).
         """
         active = sandbox if sandbox is not None else tool_context.agent.sandbox
-        # Strip trailing slashes, matching the TS oracle's input.path.replace(/[/\\]+$/, '').
+        # Strip trailing slashes from the path.
         file_path = re.sub(r"[/\\]+$", "", path)
 
         if command == "view":
@@ -324,7 +324,7 @@ async def _list_directory(sandbox: Sandbox, dir_path: str) -> str:
         try:
             entries = await sandbox.list_files(current_path)
         except Exception:
-            # Ignore permission errors and continue, matching the TS oracle.
+            # Ignore permission errors and continue.
             return
         for entry in entries:
             if entry.name.startswith("."):

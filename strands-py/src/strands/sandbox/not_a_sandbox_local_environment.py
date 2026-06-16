@@ -24,7 +24,7 @@ from .base import Sandbox
 from .constants import LANGUAGE_PATTERN
 from .errors import SandboxPathNotFoundError
 from .posix_shell import build_shell_env_prefix
-from .stream_process import stream_process
+from .stream_process import _stream_process
 from .types import ExecutionResult, FileInfo, StreamChunk
 
 
@@ -76,7 +76,7 @@ class NotASandboxLocalEnvironment(Sandbox):
         target_cwd = cwd if cwd is not None else os.getcwd()
         env_prefix = build_shell_env_prefix(env)
         full_command = f"cd {shlex.quote(target_cwd)} && {env_prefix}{command}"
-        async for chunk in stream_process("sh", ["-c", full_command], timeout=timeout):
+        async for chunk in _stream_process("sh", ["-c", full_command], timeout=timeout):
             yield chunk
 
     async def execute_code_streaming(

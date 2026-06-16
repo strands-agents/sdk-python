@@ -1,8 +1,8 @@
 """Bash tools for executing shell commands.
 
-Mirrors ``strands-ts/src/vended-tools/bash/`` (``bash.ts`` + ``make-bash.ts``,
-combined here since Python has no browser target requiring the Node-dependency
-split). Provides two tools:
+Provides both the host-session bash tool and the sandbox-routed factory (
+combined here since Python has no browser target requiring a
+dependency split). Two tools:
 
 - :data:`bash` — a persistent host session per agent: variables and the working
   directory are retained between calls. Supports ``execute`` and ``restart``
@@ -13,14 +13,17 @@ split). Provides two tools:
 The persistent shell is driven with a single :class:`subprocess.Popen` process,
 background reader threads, and a unique sentinel echoed after each command to
 detect completion. stdout and stderr are captured separately to match the
-TypeScript oracle's ``BashOutput``.
+the ``BashOutput`` type.
 """
 
 from __future__ import annotations
 
+import asyncio
 import atexit
 import os
+import subprocess
 import threading
+import time
 import uuid
 import weakref
 from typing import TYPE_CHECKING, Any, Literal
@@ -31,8 +34,6 @@ from ...types.tools import ToolContext
 from .types import SANDBOX_BASH_DESCRIPTION, BashOutput, BashSessionError, BashTimeoutError
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from ...sandbox.base import Sandbox
     from ...tools.decorator import DecoratedFunctionTool
 
@@ -67,12 +68,10 @@ class _BashSession:
 
     def start(self) -> None:
         """Start the bash process if it is not already running."""
-        import subprocess
-
         if self._process is not None and self._process.poll() is None:
             return
         try:
-            env: Mapping[str, str] = {**os.environ, "PS1": "", "PS2": ""}
+            env = {**os.environ, "PS1": "", "PS2": ""}
             self._process = subprocess.Popen(
                 ["bash", "--noprofile", "--norc"],
                 stdin=subprocess.PIPE,
@@ -127,6 +126,9 @@ class _BashSession:
                 for raw in iter(stream.readline, b""):
                     line = raw.decode("utf-8", errors="replace")
                     if sentinel in line:
+                        # Keep any output that shares the sentinel's line (e.g. `printf foo`
+                        # with no trailing newline), dropping only the sentinel itself.
+                        chunks.append(line.split(sentinel, 1)[0])
                         break
                     chunks.append(line)
                 done.set()
@@ -154,10 +156,13 @@ class _BashSession:
                 self.stop()
                 raise BashSessionError(f"Failed to write command: {e}") from e
 
-            deadline = effective_timeout
-            if not stdout_done.wait(timeout=deadline) or not stderr_done.wait(timeout=deadline):
-                self.stop()
-                raise BashTimeoutError(f"Command timed out after {effective_timeout} seconds")
+            # Single absolute deadline so the total wait is bounded by effective_timeout
+            # (waiting on both events sequentially must not let the timeout double).
+            deadline = time.monotonic() + effective_timeout
+            for event in (stdout_done, stderr_done):
+                if not event.wait(timeout=max(0.0, deadline - time.monotonic())):
+                    self.stop()
+                    raise BashTimeoutError(f"Command timed out after {effective_timeout} seconds")
 
             # The process died before emitting the sentinel.
             if proc.poll() is not None:
@@ -199,8 +204,6 @@ async def bash(  # noqa: D417
         command: The bash command to execute (required when mode is "execute").
         timeout: Timeout in seconds (default: 120, applies only to execute mode).
     """
-    import asyncio
-
     agent = tool_context.agent
 
     if mode == "restart":

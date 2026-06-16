@@ -14,7 +14,7 @@ import sys
 import pytest
 
 from strands.sandbox.errors import SandboxTimeoutError
-from strands.sandbox.stream_process import stream_process
+from strands.sandbox.stream_process import _stream_process
 from strands.sandbox.types import ExecutionResult, StreamChunk
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell required")
@@ -34,7 +34,7 @@ async def _collect(gen) -> tuple[list[StreamChunk], ExecutionResult | None]:
 
 @pytest.mark.asyncio
 async def test_captures_stdout_stderr_and_exit_code():
-    chunks, result = await _collect(stream_process("sh", ["-c", "echo out; echo err >&2; exit 3"]))
+    chunks, result = await _collect(_stream_process("sh", ["-c", "echo out; echo err >&2; exit 3"]))
     assert result == ExecutionResult(exit_code=3, stdout="out\n", stderr="err\n")
     # Output is also delivered incrementally as typed chunks.
     assert any(c.stream_type == "stdout" and "out" in c.data for c in chunks)
@@ -44,14 +44,14 @@ async def test_captures_stdout_stderr_and_exit_code():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("code", [0, 1, 2, 42, 255])
 async def test_exit_codes_preserved(code):
-    _, result = await _collect(stream_process("sh", ["-c", f"exit {code}"]))
+    _, result = await _collect(_stream_process("sh", ["-c", f"exit {code}"]))
     assert result.exit_code == code
 
 
 @pytest.mark.asyncio
 async def test_signal_termination_maps_to_128_plus_signal():
     # The shell kills itself with SIGKILL (9); Python reports returncode -9 -> 137.
-    _, result = await _collect(stream_process("sh", ["-c", "kill -9 $$"]))
+    _, result = await _collect(_stream_process("sh", ["-c", "kill -9 $$"]))
     assert result.exit_code == 137
 
 
@@ -62,7 +62,7 @@ async def test_timeout_is_wall_clock_even_with_steady_output():
     loop = asyncio.get_event_loop()
     start = loop.time()
     with pytest.raises(SandboxTimeoutError, match="timed out after 0.3 seconds"):
-        await _collect(stream_process("sh", ["-c", "while true; do echo x; sleep 0.02; done"], timeout=0.3))
+        await _collect(_stream_process("sh", ["-c", "while true; do echo x; sleep 0.02; done"], timeout=0.3))
     assert loop.time() - start < 3
 
 
@@ -75,13 +75,13 @@ async def test_timeout_kills_child_processes_that_outlive_the_parent():
     loop = asyncio.get_event_loop()
     start = loop.time()
     with pytest.raises(SandboxTimeoutError, match="timed out after 0.5 seconds"):
-        await _collect(stream_process("sh", ["-c", "echo hi; sleep 60"], timeout=0.5))
+        await _collect(_stream_process("sh", ["-c", "echo hi; sleep 60"], timeout=0.5))
     assert loop.time() - start < 3
 
 
 @pytest.mark.asyncio
 async def test_fast_command_completes_under_timeout():
-    _, result = await _collect(stream_process("sh", ["-c", "echo fast"], timeout=5))
+    _, result = await _collect(_stream_process("sh", ["-c", "echo fast"], timeout=5))
     assert result.exit_code == 0
     assert result.stdout == "fast\n"
 
@@ -89,7 +89,7 @@ async def test_fast_command_completes_under_timeout():
 @pytest.mark.asyncio
 async def test_enoent_with_message_returns_127():
     _, result = await _collect(
-        stream_process("definitely_not_a_real_binary_xyz", [], enoent_message="nope not installed")
+        _stream_process("definitely_not_a_real_binary_xyz", [], enoent_message="nope not installed")
     )
     assert result.exit_code == 127
     assert result.stderr == "nope not installed"
@@ -98,7 +98,7 @@ async def test_enoent_with_message_returns_127():
 @pytest.mark.asyncio
 async def test_enoent_without_message_propagates():
     with pytest.raises(FileNotFoundError):
-        await _collect(stream_process("definitely_not_a_real_binary_xyz", []))
+        await _collect(_stream_process("definitely_not_a_real_binary_xyz", []))
 
 
 @pytest.mark.asyncio
@@ -107,7 +107,7 @@ async def test_cancellation_kills_the_process():
     pid_box: dict[str, int] = {}
 
     async def consume() -> None:
-        async for item in stream_process("sh", ["-c", "echo $$; sleep 60"]):
+        async for item in _stream_process("sh", ["-c", "echo $$; sleep 60"]):
             if isinstance(item, StreamChunk) and item.data.strip().isdigit():
                 pid_box["pid"] = int(item.data.strip())
 

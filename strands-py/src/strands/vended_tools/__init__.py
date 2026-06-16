@@ -1,6 +1,6 @@
 """Built-in tools for executing commands and editing files.
 
-These tools mirror ``strands-ts/src/vended-tools/``. The :data:`bash` tool runs a
+The :data:`bash` tool runs a
 persistent shell on the host; the :func:`make_bash` and :func:`make_file_editor`
 factories produce sandbox-routed tools that either bind to a
 :class:`~strands.sandbox.base.Sandbox` at creation (as the built-in Docker/SSH
@@ -15,22 +15,10 @@ Example Usage:
     ```
 """
 
-from .bash import (
-    DEFAULT_BASH_DESCRIPTION,
-    SANDBOX_BASH_DESCRIPTION,
-    BashSessionError,
-    BashTimeoutError,
-    bash,
-    make_bash,
-)
-from .file_editor import DEFAULT_FILE_EDITOR_DESCRIPTION, file_editor, make_file_editor
+from .bash import bash, make_bash
+from .file_editor import file_editor, make_file_editor
 
 __all__ = [
-    "DEFAULT_BASH_DESCRIPTION",
-    "DEFAULT_FILE_EDITOR_DESCRIPTION",
-    "SANDBOX_BASH_DESCRIPTION",
-    "BashSessionError",
-    "BashTimeoutError",
     "bash",
     "file_editor",
     "make_bash",

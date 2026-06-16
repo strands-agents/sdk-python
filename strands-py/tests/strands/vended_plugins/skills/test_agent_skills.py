@@ -7,7 +7,6 @@ plugin.init_agent(agent)``, and assert via ``get_available_skills(agent)`` (the
 per-agent skill set). Skill instances and URLs remain available at construction
 via ``get_available_skills()`` with no agent.
 
-Mirrors ``strands-ts/src/vended-plugins/skills/__tests__/agent-skills.test.node.ts``.
 """
 
 import logging
@@ -44,8 +43,8 @@ def _mock_agent():
 
     Exposes a real ``NotASandboxLocalEnvironment`` as ``.sandbox`` so filesystem
     skill loading and resource listing exercise the actual sandbox code paths,
-    mirroring the TypeScript fixture's ``createMockAgent`` (which returns the
-    environment default sandbox).
+    exposing a real sandbox (which returns the
+    default host sandbox).
     """
     agent = MagicMock()
     agent._system_prompt = "You are an agent."
@@ -973,3 +972,58 @@ class TestImports:
 
         plugin = AgentSkills(skills=[])
         assert isinstance(plugin, Plugin)
+
+
+def _make_skill_dir_named(parent: Path, dir_name: str, skill_name: str) -> Path:
+    """Create a skill directory whose SKILL.md ``name`` differs from the directory name."""
+    skill_dir = parent / dir_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(f"---\nname: {skill_name}\ndescription: A skill\n---\n# Body\n")
+    return skill_dir
+
+
+class TestSkillPathLoadingEdgeCases:
+    """Coverage for sandbox path-loading branches: name/dir mismatch and resource nesting."""
+
+    @pytest.mark.asyncio
+    async def test_name_dir_mismatch_warns_but_loads(self, tmp_path, caplog):
+        # Non-strict: a skill whose name doesn't match its directory loads with a warning.
+        _make_skill_dir_named(tmp_path, dir_name="wrong-dir", skill_name="actual-name")
+        plugin = AgentSkills(skills=[str(tmp_path / "wrong-dir")])
+        agent = _mock_agent()
+        with caplog.at_level(logging.WARNING):
+            await plugin.init_agent(agent)
+        assert "does not match parent directory name" in caplog.text
+        assert {s.name for s in plugin.get_available_skills(agent)} == {"actual-name"}
+
+    @pytest.mark.asyncio
+    async def test_name_dir_mismatch_strict_skips(self, tmp_path):
+        # Strict: the mismatch raises, is caught per-skill, and the skill is skipped.
+        _make_skill_dir_named(tmp_path, dir_name="wrong-dir", skill_name="actual-name")
+        plugin = AgentSkills(skills=[str(tmp_path / "wrong-dir")], strict=True)
+        agent = _mock_agent()
+        await plugin.init_agent(agent)
+        assert plugin.get_available_skills(agent) == []
+
+    @pytest.mark.asyncio
+    async def test_lists_nested_resource_directories(self, tmp_path):
+        # Resource listing recurses into subdirectories under scripts/.
+        skill_dir = _make_skill_dir(tmp_path, "nested-skill")
+        nested = skill_dir / "scripts" / "helpers"
+        nested.mkdir(parents=True)
+        (nested / "util.py").write_text("# util")
+        skill = _make_skill(name="nested-skill")
+        skill.path = skill_dir
+        result = await AgentSkills(skills=[skill])._format_skill_response(skill, NotASandboxLocalEnvironment())
+        assert "scripts/helpers/util.py" in result
+
+
+class TestSetStateField:
+    """Coverage for the agent-state type guard."""
+
+    def test_rejects_non_dict_state(self):
+        plugin = AgentSkills(skills=[])
+        agent = _mock_agent()
+        agent.state.set(plugin._state_key, "not-a-dict")
+        with pytest.raises(TypeError, match="expected dict for state key"):
+            plugin._set_state_field(agent, "k", "v")

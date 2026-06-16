@@ -1,9 +1,9 @@
 """Tests for the sandbox-routed file editor tool.
 
-Mirrors ``strands-ts/src/vended-tools/file-editor/__tests__/file-editor.test.node.ts``.
+Tests for the sandbox-routed file editor tool.
 The tool is exercised against a real ``NotASandboxLocalEnvironment`` (host
-filesystem), the same way the TS tests use ``TestSandbox``, and called directly
-(like a normal async function) mirroring TS's ``fileEditor.invoke(...)``. Errors
+filesystem), and called directly
+(like a normal async function). Errors
 surface as raised ``ValueError`` (the raw function raises; the error->status
 wrapping only happens through the tool's ``stream`` path). Path semantics assume
 POSIX, so these are skipped on Windows.
@@ -16,7 +16,8 @@ import pytest
 
 from strands.sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 from strands.types.tools import ToolContext
-from strands.vended_tools.file_editor import DEFAULT_FILE_EDITOR_DESCRIPTION, file_editor, make_file_editor
+from strands.vended_tools.file_editor import file_editor, make_file_editor
+from strands.vended_tools.file_editor.file_editor import DEFAULT_FILE_EDITOR_DESCRIPTION
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX path semantics assumed")
 
@@ -39,7 +40,7 @@ def _write(path, content: str) -> str:
 
 @pytest.fixture
 def editor():
-    """A file editor bound to a host sandbox, mirroring TS's makeFileEditor(new TestSandbox(...))."""
+    """A file editor bound to a host sandbox, bound to a host sandbox."""
     return make_file_editor(NotASandboxLocalEnvironment())
 
 
@@ -260,7 +261,7 @@ class TestStrReplace:
 
     @pytest.mark.asyncio
     async def test_preserves_dollar_patterns_literally(self, editor, ctx, tmp_path):
-        # Python's str.replace is literal, so $&/$1/$$ must survive verbatim (TS guards against regex semantics).
+        # Python's str.replace is literal, so $&/$1/$$ must survive verbatim
         file_path = _write(tmp_path / "test.txt", "const value = getPrice()")
         await editor(
             command="str_replace", path=file_path, tool_context=ctx, old_str="getPrice()", new_str="$& is not $1 or $$"

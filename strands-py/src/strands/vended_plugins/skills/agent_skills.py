@@ -9,12 +9,8 @@ container) at ``init_agent`` time, not at construction, so each agent sees the
 skills present on its own filesystem. Skill instances and ``https://`` URLs are
 sandbox-independent and resolve eagerly at construction.
 
-Mirrors ``strands-ts/src/vended-plugins/skills/agent-skills.ts``. One idiomatic
-divergence: TypeScript defers URL loading behind a ``ready`` promise and resolves
-it in ``initAgent`` because ``Skill.fromUrl`` is async; Python's
 :meth:`Skill.from_url` is synchronous, so URLs resolve at construction and no
 readiness barrier is needed. The observable effect is benign: URL skills are
-available from ``get_available_skills()`` slightly earlier than in TypeScript.
 """
 
 from __future__ import annotations
@@ -140,7 +136,7 @@ class AgentSkills(Plugin):
         # available, so a path may resolve differently per agent (host vs. container).
         self._skills, self._skill_paths = self._resolve_skills(_normalize_sources(skills))
         # Per-agent full skill set (base skills + path-loaded skills from that agent's sandbox).
-        # WeakKeyDictionary mirrors the TypeScript oracle's WeakMap<agent, ...>: a single plugin
+        # Per-agent map (WeakKeyDictionary) so a single plugin
         # instance can serve multiple agents without leaking references once an agent is collected.
         self._agent_skills: weakref.WeakKeyDictionary[Agent, dict[str, Skill]] = weakref.WeakKeyDictionary()
         super().__init__()
@@ -209,7 +205,7 @@ class AgentSkills(Plugin):
         agent = event.agent
 
         # Lazily load filesystem skills if this agent has not been initialized yet
-        # (mirrors the TypeScript oracle's before-invocation hook). Keeps skills correct
+        # Keeps skills correct
         # after set_available_skills, which clears the per-agent cache.
         if agent not in self._agent_skills:
             await self._load_skill_paths(agent)
@@ -327,7 +323,7 @@ class AgentSkills(Plugin):
                 skill = Skill.from_content(await sandbox.read_text(md_path), strict=self._strict)
                 # Set the sandbox path as-is (not host-resolved): the file may live in a container.
                 # Then replicate Skill.from_file's directory-name check, which from_content does not
-                # perform (Python's from_content takes no path, unlike the TS oracle's fromContent).
+                # perform (Python's from_content takes no path parameter).
                 skill.path = Path(skill_dir)
                 if skill.path.name != skill.name:
                     msg = "name=<%s>, directory=<%s> | skill name does not match parent directory name"

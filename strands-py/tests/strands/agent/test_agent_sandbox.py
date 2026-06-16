@@ -1,8 +1,8 @@
 """Tests for the ``Agent.sandbox`` getter.
 
 A configured sandbox is returned as-is; an unconfigured agent falls back to a per-agent
-:class:`NotASandboxLocalEnvironment`. Unlike the TS oracle's module-level singleton, each
-agent gets its own default instance so state can't leak across agents. The TS browser-throw
+:class:`NotASandboxLocalEnvironment`. Each
+agent gets its own default instance so state can't leak across agents. The browser-throw
 case has no Python analog (core Python always runs on a host), so it is omitted.
 """
 
@@ -48,7 +48,7 @@ def test_invalid_sandbox_raises_type_error():
 
 
 def test_configured_sandbox_vends_prefixed_tools():
-    # An explicitly-configured sandbox registers its tools, prefixed with its tool_prefix.
+    # A configured sandbox registers its tools (named by the sandbox's get_tools implementation).
     agent = Agent(model="nonsense", sandbox=DockerSandbox("my-container"))
     registered = _registered(agent)
     assert "sandbox_bash" in registered
@@ -59,14 +59,6 @@ def test_host_default_vends_nothing():
     # The unconfigured host default must not auto-register any tools.
     agent = Agent(model="nonsense")
     assert _registered(agent) == []
-
-
-def test_tool_prefix_none_registers_unprefixed():
-    sandbox = DockerSandbox("my-container")
-    sandbox.tool_prefix = None
-    registered = _registered(Agent(model="nonsense", sandbox=sandbox))
-    assert "bash" in registered
-    assert "file_editor" in registered
 
 
 def test_user_registered_tool_wins_over_vended():

@@ -18,6 +18,7 @@ from strands.vended_plugins.context_offloader import (
     InMemoryStorage,
     S3Storage,
 )
+from tests.fixtures.sandbox import TestSandbox
 
 
 class TestInMemoryStorage:
@@ -462,3 +463,67 @@ class TestS3Storage:
 
         with pytest.raises(ClientError, match="Forbidden"):
             await storage.retrieve("some_key")
+
+
+class TestFileStorageWithSandbox:
+    """FileStorage routed through a sandbox (the path the plugin uses per agent)."""
+
+    @pytest.fixture
+    def storage(self, tmp_path):
+        return FileStorage(artifact_dir=str(tmp_path / "artifacts"), sandbox=TestSandbox(str(tmp_path)))
+
+    @pytest.mark.asyncio
+    async def test_round_trip_through_sandbox(self, storage):
+        ref = await storage.store("key_1", b"hello sandbox", "text/plain")
+        content, content_type = await storage.retrieve(ref)
+        assert content == b"hello sandbox"
+        assert content_type == "text/plain"
+
+    @pytest.mark.asyncio
+    async def test_preserves_content_type_through_sandbox(self, storage):
+        ref = await storage.store("key_1", b"\x89PNG", "image/png")
+        content, content_type = await storage.retrieve(ref)
+        assert content == b"\x89PNG"
+        assert content_type == "image/png"
+
+    @pytest.mark.asyncio
+    async def test_reference_under_artifact_dir(self, storage, tmp_path):
+        ref = await storage.store("key_1", b"data")
+        assert ref.startswith(f"{tmp_path / 'artifacts'}/")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_rejects_path_outside_artifact_dir(self, storage):
+        with pytest.raises(KeyError, match="Reference not found"):
+            await storage.retrieve("/etc/passwd")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_rejects_path_traversal(self, storage, tmp_path):
+        with pytest.raises(KeyError, match="Reference not found"):
+            await storage.retrieve(f"{tmp_path / 'artifacts'}/../secret.txt")
+
+    @pytest.mark.asyncio
+    async def test_retrieve_missing_reference(self, storage, tmp_path):
+        with pytest.raises(KeyError, match="Reference not found"):
+            await storage.retrieve(f"{tmp_path / 'artifacts'}/nope.txt")
+
+    @pytest.mark.asyncio
+    async def test_metadata_survives_across_instances(self, tmp_path):
+        artifact_dir = str(tmp_path / "artifacts")
+        sandbox = TestSandbox(str(tmp_path))
+        ref = await FileStorage(artifact_dir=artifact_dir, sandbox=sandbox).store("key_1", b"hello", "image/png")
+
+        # A fresh instance lazily loads the content-type sidecar from the sandbox.
+        _, content_type = await FileStorage(artifact_dir=artifact_dir, sandbox=sandbox).retrieve(ref)
+        assert content_type == "image/png"
+
+    def test_for_sandbox_keeps_explicit_sandbox(self, tmp_path):
+        # An instance constructed with a sandbox is returned unchanged by for_sandbox.
+        sandbox = TestSandbox(str(tmp_path))
+        storage = FileStorage(artifact_dir=str(tmp_path), sandbox=sandbox)
+        assert storage.for_sandbox(TestSandbox(str(tmp_path))) is storage
+
+    def test_for_sandbox_binds_detached_instance(self, tmp_path):
+        # A host instance (no sandbox) produces a new, sandbox-bound instance.
+        host = FileStorage(artifact_dir=str(tmp_path))
+        bound = host.for_sandbox(TestSandbox(str(tmp_path)))
+        assert bound is not host

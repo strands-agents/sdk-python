@@ -1,14 +1,14 @@
 """Tests for the bash tools.
 
-Mirrors ``strands-ts/src/vended-tools/bash/__tests__/bash.test.node.ts``:
+Tests for the bash tools:
 
 - ``TestBash`` covers the host-session :data:`bash` tool (persistent shell,
   execute/restart, state persistence, stderr, timeout).
 - ``TestMakeBash`` covers the stateless sandbox-routed :func:`make_bash` factory,
   exercised against a real ``NotASandboxLocalEnvironment``.
 
-Tools are called directly (like a normal async function), mirroring TS's
-``bash.invoke(...)``. These spawn a shell and require POSIX, so they are skipped
+Tools are called directly (like a normal async function), equivalent to
+calling the tool with arguments. These spawn a shell and require POSIX, so they are skipped
 on Windows.
 """
 
@@ -19,13 +19,8 @@ import pytest
 
 from strands.sandbox.not_a_sandbox_local_environment import NotASandboxLocalEnvironment
 from strands.types.tools import ToolContext
-from strands.vended_tools.bash import (
-    SANDBOX_BASH_DESCRIPTION,
-    BashSessionError,
-    BashTimeoutError,
-    bash,
-    make_bash,
-)
+from strands.vended_tools.bash import bash, make_bash
+from strands.vended_tools.bash.types import SANDBOX_BASH_DESCRIPTION, BashSessionError, BashTimeoutError
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell required")
 
@@ -127,6 +122,13 @@ class TestBash:
         assert result["error"] == ""
 
     @pytest.mark.asyncio
+    async def test_output_without_trailing_newline(self):
+        # Output with no trailing newline shares the line with the completion sentinel;
+        # only the sentinel is stripped, not the preceding output.
+        result = await bash(mode="execute", command="printf foo", tool_context=_host_context())
+        assert result["output"] == "foo"
+
+    @pytest.mark.asyncio
     async def test_long_output(self):
         result = await bash(
             mode="execute", command='for i in $(seq 1 100); do echo "Line $i"; done', tool_context=_host_context()
@@ -180,6 +182,17 @@ class TestMakeBash:
         unbound = make_bash()
         result = await unbound(command="echo via-context", tool_context=_sandbox_context())
         assert "via-context" in result["output"]
+
+    @pytest.mark.asyncio
+    async def test_wraps_sandbox_error_as_session_error(self):
+        # A non-timeout failure from the sandbox surfaces as BashSessionError.
+        class _BoomSandbox(NotASandboxLocalEnvironment):
+            async def execute(self, *args, **kwargs):
+                raise RuntimeError("boom")
+
+        tool = make_bash(_BoomSandbox())
+        with pytest.raises(BashSessionError, match="boom"):
+            await tool(command="echo hi", tool_context=_sandbox_context())
 
 
 class TestToolMetadata:

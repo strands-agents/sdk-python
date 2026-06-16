@@ -271,22 +271,6 @@ class AgentTool(ABC):
         """
         ...
 
-    def with_prefix(self, prefix: str) -> "AgentTool":
-        """Return a view of this tool with ``{prefix}_`` prepended to its name.
-
-        Used when registering vended tools on an agent so their names are
-        namespaced (e.g. ``sandbox_bash``), mirroring how MCP prefixes
-        server-vended tools. The returned view delegates execution to this tool
-        and overrides only the name; the original is left unchanged.
-
-        Args:
-            prefix: The prefix to prepend (the separating underscore is added).
-
-        Returns:
-            A tool that behaves identically but reports the prefixed name.
-        """
-        return _PrefixedTool(self, prefix)
-
     @property
     def is_dynamic(self) -> bool:
         """Whether the tool was dynamically loaded during runtime.
@@ -314,48 +298,3 @@ class AgentTool(ABC):
             "Name": self.tool_name,
             "Type": self.tool_type,
         }
-
-
-class _PrefixedTool(AgentTool):
-    """A view of another tool that reports a prefixed name.
-
-    Overrides only the name (and the ``name`` field of the tool spec). The other
-    abstract members (``tool_type``, ``stream``) must be defined to satisfy the
-    ABC, so they delegate to the wrapped tool; everything else delegates via
-    ``__getattr__``. Created by :meth:`AgentTool.with_prefix`; not instantiated
-    directly.
-    """
-
-    def __init__(self, wrapped: AgentTool, prefix: str) -> None:
-        """Initialize the prefixed view.
-
-        Args:
-            wrapped: The tool to delegate to.
-            prefix: The prefix prepended to the wrapped tool's name.
-        """
-        super().__init__()
-        self._wrapped = wrapped
-        self._prefixed_name = f"{prefix}_{wrapped.tool_name}"
-
-    @property
-    def tool_name(self) -> str:
-        """The wrapped tool's name with the prefix applied."""
-        return self._prefixed_name
-
-    @property
-    def tool_spec(self) -> ToolSpec:
-        """The wrapped tool's spec with the prefixed name."""
-        return {**self._wrapped.tool_spec, "name": self._prefixed_name}
-
-    @property
-    def tool_type(self) -> str:
-        """The wrapped tool's type (delegated)."""
-        return self._wrapped.tool_type
-
-    def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
-        """Delegate execution to the wrapped tool."""
-        return self._wrapped.stream(tool_use, invocation_state, **kwargs)
-
-    def __getattr__(self, name: str) -> Any:
-        """Delegate any non-overridden attribute to the wrapped tool."""
-        return getattr(self._wrapped, name)

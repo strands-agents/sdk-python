@@ -39,7 +39,7 @@ def _kill_tree(proc: asyncio.subprocess.Process) -> None:
             proc.kill()
 
 
-async def stream_process(
+async def _stream_process(
     program: str,
     args: list[str],
     *,

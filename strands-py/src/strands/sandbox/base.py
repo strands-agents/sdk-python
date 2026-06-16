@@ -32,9 +32,6 @@ from .types import ExecutionResult, FileInfo, StreamChunk
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TOOL_PREFIX = "sandbox"
-"""Default prefix applied to sandbox-vended tool names (e.g. ``sandbox_bash``)."""
-
 
 class Sandbox(ABC):
     """Abstract execution environment.
@@ -205,16 +202,17 @@ class Sandbox(ABC):
 
     # ---- Tool vending ----
 
-    tool_prefix: str | None = DEFAULT_TOOL_PREFIX
-    """Prefix applied to tool names when registered on an agent (e.g. ``"sandbox"`` produces
-    ``sandbox_bash``). Set to ``None`` to disable prefixing. Defaults to ``"sandbox"``."""
+    @staticmethod
+    def _prefixed_name(name: str, prefix: str | None = "sandbox") -> str:
+        """Build a prefixed tool name (e.g. ``("bash", "sandbox")`` -> ``"sandbox_bash"``)."""
+        return f"{prefix}_{name}" if prefix else name
 
     def get_tools(self) -> list[AgentTool]:
         """Tools this sandbox vends to an agent.
 
-        Returned tools are registered when the agent initializes, with
-        :attr:`tool_prefix` applied to their names. A tool is skipped if the user
-        already registered one with the same (prefixed) name. The base
+        Returned tools are registered when the agent initializes; a tool is
+        skipped if the user already registered one with the same name. Overrides
+        use :meth:`_prefixed_name` to build namespaced tool names. The base
         implementation vends nothing; concrete sandboxes override this to provide
         sandbox-routed tools (e.g. bash, file editor).
 
