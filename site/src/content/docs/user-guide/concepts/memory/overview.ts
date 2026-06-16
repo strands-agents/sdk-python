@@ -24,7 +24,7 @@ declare const myBackend: {
 }
 
 // =====================
-// Getting Started (config shorthand)
+// Getting Started (minimal happy path)
 // =====================
 
 function gettingStarted() {
@@ -38,10 +38,7 @@ function gettingStarted() {
 
   const agent = new Agent({
     model: new BedrockModel(),
-    memoryManager: {
-      stores: [store],
-      addToolConfig: true, // opt in to the add_memory tool
-    },
+    memoryManager: { stores: [store] },
   })
   // --8<-- [end:getting_started]
 
@@ -50,29 +47,30 @@ function gettingStarted() {
 void gettingStarted
 
 // =====================
-// Instance form (programmatic access)
+// Turn on writes: add_memory tool + extraction, both with defaults
 // =====================
 
-async function instanceForm() {
-  // --8<-- [start:instance_form]
+function turnOnWrites() {
+  // --8<-- [start:turn_on_writes]
   const store = new BedrockKnowledgeBaseStore({
     name: 'preferences',
     writable: true,
+    extraction: true, // capture memories from the conversation, every 5 turns
     config: { knowledgeBaseId: 'KB123', dataSourceType: 'CUSTOM', dataSourceId: 'DS456' },
   })
 
-  const memoryManager = new MemoryManager({ stores: [store], addToolConfig: true })
-  const agent = new Agent({ model: new BedrockModel(), memoryManager })
-
-  // Search and write directly, outside the agent loop.
-  const results = await memoryManager.search('user preferences')
-  await memoryManager.add('User prefers dark mode')
-  // --8<-- [end:instance_form]
+  const agent = new Agent({
+    model: new BedrockModel(),
+    memoryManager: {
+      stores: [store],
+      addToolConfig: true, // let the agent save memories itself
+    },
+  })
+  // --8<-- [end:turn_on_writes]
 
   void agent
-  void results
 }
-void instanceForm
+void turnOnWrites
 
 // =====================
 // Multiple stores
@@ -167,6 +165,20 @@ async function programmatic(memoryManager: MemoryManager) {
 void programmatic
 
 // =====================
+// Flush pending writes at shutdown
+// =====================
+
+async function flushExample(memoryManager: MemoryManager) {
+  // --8<-- [start:flush]
+  // At a shutdown boundary you control, before the process exits.
+  process.on('beforeExit', async () => {
+    await memoryManager.flush()
+  })
+  // --8<-- [end:flush]
+}
+void flushExample
+
+// =====================
 // Extraction: enable with defaults
 // =====================
 
@@ -247,7 +259,7 @@ void injectionCustom
 
 // --8<-- [start:custom_store]
 class InMemoryStore implements MemoryStore {
-  readonly name = 'in-memory'
+  readonly name = 'preferences'
   readonly writable = true
   private readonly _entries: string[] = []
 

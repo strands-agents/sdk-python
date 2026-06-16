@@ -52,7 +52,7 @@ By default the plugin injects only on a fresh user turn, the common case for cha
 
 The trigger controls when the callback runs:
 
-- `'userTurn'` (the default) injects only when the latest message is a fresh user ask. This is the common case for chat agents.
+- `'userTurn'` (the default) injects only when the latest message is a fresh user ask, a user message carrying no tool result. This is the common case for chat agents.
 - `'everyTurn'` injects before every model call, including mid-task tool-result turns. Use it for autonomous agents that should consult the injected context at each step.
 
 <Tabs>
@@ -80,13 +80,13 @@ clock = ContextInjector(
 </Tab>
 </Tabs>
 
-For finer control, pass a predicate. It receives the injection context (the current messages, durable agent state, and the agent) and returns whether to inject this call. A predicate that throws fails open, so the model call still proceeds:
+For finer control, pass a predicate: a function that receives the injection context and returns whether to inject this call. The context carries the current messages, durable state shared across calls via <Syntax py="context.state" ts="context.appState" />, and the agent. A predicate that throws fails open, so the model call still proceeds:
 
 <Tabs>
 <Tab label="Python">
 
 ```python
-from strands.vended_plugins.context_injector import ContextInjector, InjectionContext
+from strands.vended_plugins.context_injector import ContextInjector
 
 injector = ContextInjector(
     lambda context: f"<context>{len(context.messages)} turns so far</context>",
@@ -109,7 +109,7 @@ injector = ContextInjector(
 
 | Field | Purpose |
 |-------|---------|
-| <Syntax py="render_content" ts="renderContent" /> | Returns the text to inject for this call, or an empty value to skip. Required. |
+| <Syntax py="render_content" ts="renderContent" /> | Returns the text to inject for this call, or <Syntax py="None / empty string" ts="undefined / empty string" /> to skip. Required, and the only positional argument. |
 | `trigger` | `'userTurn'` (default), `'everyTurn'`, or a predicate over the injection context. |
 | `name` | Plugin name for logging and duplicate detection. Defaults to `'strands:context-injector'`. Set a distinct name when registering more than one. |
 

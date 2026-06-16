@@ -5,10 +5,10 @@ import { Agent, BedrockModel } from '@strands-agents/sdk'
 import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
 // --8<-- [end:getting_started_imports]
 
-// --8<-- [start:instance_form_imports]
-import { Agent, MemoryManager, BedrockModel } from '@strands-agents/sdk'
+// --8<-- [start:turn_on_writes_imports]
+import { Agent, BedrockModel } from '@strands-agents/sdk'
 import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
-// --8<-- [end:instance_form_imports]
+// --8<-- [end:turn_on_writes_imports]
 
 // --8<-- [start:multi_store_imports]
 import { Agent, BedrockModel } from '@strands-agents/sdk'
