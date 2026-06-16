@@ -4,5 +4,6 @@ Ready-to-use InterventionHandler implementations for common control patterns.
 """
 
 from .hitl import HumanInTheLoop
+from .presidio import PresidioRedaction
 
-__all__ = ["HumanInTheLoop"]
+__all__ = ["HumanInTheLoop", "PresidioRedaction"]
