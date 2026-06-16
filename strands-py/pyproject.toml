@@ -86,7 +86,7 @@ bidi-openai = ["websockets>=15.0.0,<17.0.0"]
 
 cedar = ["cedarpy==4.8.0", "cedar-policy-mcp-schema-generator==0.6.0"]
 
-all = ["strands-agents[a2a,anthropic,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
+all = ["strands-agents[a2a,anthropic,cedar,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
 bidi-all = ["strands-agents[a2a,bidi,bidi-io,bidi-gemini,bidi-openai,docs,otel]"]
 
 dev = [
@@ -161,7 +161,6 @@ dependencies = [
     "pytest-xdist>=3.0.0,<4.0.0",
     "pytest-timeout>=2.0.0,<3.0.0",
     "moto>=5.1.0,<6.0.0",
-    "cedarpy==4.8.0",
 ]
 
 [[tool.hatch.envs.hatch-test.matrix]]

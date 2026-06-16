@@ -2,8 +2,7 @@
 
 import pytest
 
-# Skip entire module if cedarpy not installed (importing the cedar package requires it)
-cedarpy = pytest.importorskip("cedarpy", reason="cedarpy not installed")
+from strands.vended_interventions.cedar._schema_generator import generate_cedar_schema
 
 try:
     from cedar_mcp_schema_generator import generate_schema_or_raise  # noqa: F401
@@ -11,8 +10,6 @@ try:
     HAS_SCHEMA_GENERATOR = True
 except ImportError:
     HAS_SCHEMA_GENERATOR = False
-
-from strands.vended_interventions.cedar._schema_generator import generate_cedar_schema  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     not HAS_SCHEMA_GENERATOR, reason="cedar-policy-mcp-schema-generator not installed"

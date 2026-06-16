@@ -1,12 +1,8 @@
 """Integration tests for Cedar authorization handler with a real model."""
 
-import pytest
-
-cedarpy = pytest.importorskip("cedarpy", reason="cedarpy not installed")
-
-from strands import Agent, tool  # noqa: E402
-from strands.vended_interventions.cedar import CedarAuthorization  # noqa: E402
-from tests_integ.conftest import retry_on_flaky  # noqa: E402
+from strands import Agent, tool
+from strands.vended_interventions.cedar import CedarAuthorization
+from tests_integ.conftest import retry_on_flaky
 
 
 @tool

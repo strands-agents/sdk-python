@@ -6,14 +6,10 @@ verifying that Cedar policies are enforced end-to-end within the agent lifecycle
 
 from pathlib import Path
 
-import pytest
-
-pytest.importorskip("cedarpy", reason="cedarpy not installed")
-
-import strands  # noqa: E402
-from strands import Agent  # noqa: E402
-from strands.vended_interventions.cedar import CedarAuthorization  # noqa: E402
-from tests.fixtures.mocked_model_provider import MockedModelProvider  # noqa: E402
+import strands
+from strands import Agent
+from strands.vended_interventions.cedar import CedarAuthorization
+from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -5,9 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-cedarpy = pytest.importorskip("cedarpy", reason="cedarpy not installed")
-
-from strands.vended_interventions.cedar import CedarAuthorization  # noqa: E402
+from strands.vended_interventions.cedar import CedarAuthorization
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
