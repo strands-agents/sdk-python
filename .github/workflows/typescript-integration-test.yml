@@ -5,10 +5,7 @@ on:
     branches: [main]
     paths:
       - 'strands-ts/**'
-      - 'strands-wasm/**'
-      - 'strands-py-wasm/**'
       - 'strandly/**'
-      - 'wit/**'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/typescript-*'

@@ -39,7 +39,6 @@ Pre-commit hooks automatically run:
 
 - Build (via npm run build, required for workspace type resolution)
 - Unit tests with coverage (via npm run test:coverage)
-- WASM unit tests (via npm run test -w strands-wasm)
 - Linting (via npm run lint)
 - Format checking (via npm run format:check)
 - Type checking (via npm run type-check)

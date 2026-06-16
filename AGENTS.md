@@ -12,8 +12,6 @@ This file is shared by agents with different goals — writing code, opening PRs
 strands-agents/
 ├── strands-py/         # Python SDK (hatch) — see strands-py/AGENTS.md
 ├── strands-ts/         # TypeScript SDK (npm workspace) — see strands-ts/AGENTS.md
-├── strands-wasm/       # WASM bindings
-├── strands-py-wasm/    # Python ↔ WASM bridge
 ├── strandly/           # CLI tooling
 ├── site/               # Documentation site (Astro) — see site/AGENTS.md
 ├── team/               # Governance + cross-SDK process (tenets, decisions, API bar-raising, PR & compatibility guidelines, designs/ proposals)

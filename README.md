@@ -41,9 +41,7 @@ This monorepo contains the Python SDK, TypeScript SDK, documentation site, and s
 |-----------|-------------|
 | `strands-py/` | Python SDK: agent loop, model providers, tools ([PyPI](https://pypi.org/project/strands-agents/) · [releases](https://github.com/strands-agents/harness-sdk/releases?q=python%2F&expanded=false)) |
 | `strands-ts/` | TypeScript SDK: agent loop, model providers, tools ([npm](https://www.npmjs.com/package/@strands-agents/sdk) · [releases](https://github.com/strands-agents/harness-sdk/releases?q=typescript%2F&expanded=false)) |
-| `strands-wasm/` | WebAssembly bindings for running Python tools from TypeScript agents |
-| `strands-py-wasm/` | Python host for WASM components (bridges WIT interfaces to Python) |
-| `strandly/` | Developer CLI for local builds, codegen, and workspace tooling |
+| `strandly/` | Developer CLI for local builds and workspace tooling |
 | `site/` | Source for the [strandsagents.com](https://strandsagents.com) documentation site (Astro/Starlight) |
 | `team/` | Governance and cross-SDK process docs (tenets, decisions, PR & compatibility guidelines, and `designs/` proposals) |
 

@@ -49,15 +49,6 @@ updates:
       - "typescript"
     commit-message:
       prefix: "ci(docs)"
-  - package-ecosystem: "pip"
-    directory: "/strands-py-wasm"
-    schedule:
-      interval: "daily"
-    labels:
-      - "dependencies"
-      - "python"
-    commit-message:
-      prefix: "ci(python)"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

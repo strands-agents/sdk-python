@@ -33,14 +33,10 @@ jobs:
               - '.github/workflows/ci.yml'
             typescript:
               - 'strands-ts/**'
-              - 'strands-wasm/**'
-              - 'strands-py-wasm/**'
               - 'strandly/**'
-              - 'wit/**'
               - 'package.json'
               - 'package-lock.json'
               - '.github/workflows/typescript-*'
-              - '.github/workflows/wasm-*'
               - '.github/workflows/ci.yml'
             docs:
               - 'site/**'
