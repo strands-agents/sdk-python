@@ -7,13 +7,8 @@ from .event_loop._retry import ModelRetryStrategy
 from .interventions import InterventionHandler
 from .plugins import MultiAgentPlugin, Plugin
 from .sandbox import (
-    ExecutionResult,
-    FileInfo,
-    OutputFile,
     PosixShellSandbox,
     Sandbox,
-    StreamChunk,
-    StreamType,
 )
 from .sandbox.errors import SandboxPathNotFoundError, SandboxTimeoutError
 from .tools.decorator import tool
@@ -25,14 +20,11 @@ __all__ = [
     "Agent",
     "AgentBase",
     "AgentSkills",
-    "ExecutionResult",
-    "FileInfo",
     "InterventionHandler",
     "agent",
     "models",
     "ModelRetryStrategy",
     "MultiAgentPlugin",
-    "OutputFile",
     "Plugin",
     "PosixShellSandbox",
     "Sandbox",
@@ -40,8 +32,6 @@ __all__ = [
     "SandboxTimeoutError",
     "Skill",
     "Snapshot",
-    "StreamChunk",
-    "StreamType",
     "tool",
     "ToolContext",
     "types",
