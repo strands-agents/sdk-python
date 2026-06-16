@@ -25,6 +25,5 @@ import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-sto
 // --8<-- [end:search_imports]
 
 // --8<-- [start:extraction_imports]
-import { InvocationTrigger } from '@strands-agents/sdk'
 import { BedrockKnowledgeBaseStore } from '@strands-agents/sdk/vended-memory-stores/bedrock-knowledge-base'
 // --8<-- [end:extraction_imports]

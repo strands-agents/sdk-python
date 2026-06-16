@@ -1,4 +1,4 @@
-import { Agent, BedrockModel, InvocationTrigger } from '@strands-agents/sdk'
+import { Agent, BedrockModel } from '@strands-agents/sdk'
 import {
   BedrockKnowledgeBaseStore,
   type BedrockKnowledgeBaseConfig,
@@ -139,7 +139,7 @@ function extraction() {
   const store = new BedrockKnowledgeBaseStore({
     name: 'preferences',
     writable: true,
-    extraction: { trigger: new InvocationTrigger() },
+    extraction: true,
     config: { knowledgeBaseId: 'KB123', dataSourceType: 'CUSTOM', dataSourceId: 'DS456' },
   })
   // --8<-- [end:extraction]

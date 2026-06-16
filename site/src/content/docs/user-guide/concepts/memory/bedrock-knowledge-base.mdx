@@ -9,13 +9,9 @@ sidebar:
     variant: tip
 ---
 
-`BedrockKnowledgeBaseStore` is a [`MemoryStore`](./overview#stores) backed by Amazon Bedrock Knowledge Bases. Point it at a knowledge base and your agent gets semantic recall over it: Amazon Bedrock owns the embedding, indexing, and retrieval, so memory scales as a managed service rather than something you operate.
+`BedrockKnowledgeBaseStore` is a [`MemoryStore`](./overview#stores) backed by [Amazon Bedrock Knowledge Bases](https://docs.aws.amazon.com/bedrock/latest/userguide/knowledge-base.html).
 
-## Getting Started
-
-The store connects to a knowledge base you have already set up; it does not create one. You need its ID, and for writes, a `CUSTOM` or `S3` data source attached to it (see [Data Source Types and Writability](#data-source-types-and-writability)). The store reaches Bedrock with the standard AWS credential chain, the same as the [Amazon Bedrock model provider](../model-providers/amazon-bedrock).
-
-A store with only a knowledge base ID is read-only: the agent can search it but never writes to it. This is the minimal setup:
+Connect the store to a knowledge base you have already set up. It does not provision one for you. Configure your store with its knowledge base ID and data source (see [Data Source Types and Writability](#data-source-types-and-writability)). A store with only a knowledge base ID is read-only. The store reaches Bedrock with the standard AWS credential chain, the same as the [Amazon Bedrock model provider](../model-providers/amazon-bedrock).
 
 <Tabs>
 <Tab label="Python">
@@ -44,7 +40,7 @@ agent = Agent(memory_manager=MemoryManager(stores=[store]))
 </Tab>
 </Tabs>
 
-To let the agent (or extraction) write memories, mark the store writable and point it at a data source that accepts ingestion:
+To enable writing memories through the [`add_memory` tool](./overview#memory-tools) or [automatic extraction](./overview#automatic-extraction), mark the store writable and point it at a data source that accepts ingestion:
 
 <Tabs>
 <Tab label="Python">
@@ -75,6 +71,10 @@ store = BedrockKnowledgeBaseStore(
 </Tabs>
 
 ## Configuration
+
+### Scope and namespaces
+
+`scope` isolates documents within a single knowledge base. It is stamped on every write (under <Syntax py="scope_metadata_key" ts="scopeMetadataKey" />, default `'namespace'`) and applied as a metadata filter on search. Unlike `name`, scope is not a routing identity, so it never affects which store the `MemoryManager` targets. For per-tenant isolation, construct one store per scope; since they share a connection, this is cheap.
 
 ### Store config
 
@@ -221,28 +221,22 @@ Each entry's `metadata` carries the document's own attributes plus two reserved 
 
 The document id from `add` is the generated UUID for a `CUSTOM` document, or the `s3://` URI of the uploaded object for `S3`. Writes require a data source ID (and an `s3` config for S3 data sources); a write against a missing or read-only configuration raises.
 
-Ingestion is eventually consistent: a successful write does not mean the content is immediately searchable. Bedrock indexes ingested documents asynchronously, so a freshly added memory may not appear in `search` results for a short time. Do not write a memory and expect to retrieve it on the very next turn.
-
-## Scope and Namespaces
-
-`scope` isolates documents within a single knowledge base. It is stamped on every write (under <Syntax py="scope_metadata_key" ts="scopeMetadataKey" />, default `'namespace'`) and applied as a metadata filter on search. Unlike `name`, scope is not a routing identity, so it never affects which store the `MemoryManager` targets. For per-tenant isolation, construct one store per scope; since they share a connection, this is cheap.
+Ingestion is eventually consistent: a successful write does not mean the content is immediately searchable.
 
 ## Extraction
 
-Enable [automatic extraction](./overview#automatic-extraction) on a writable store to capture memories from the conversation. By default it distills facts client-side with a `ModelExtractor` every 5 turns. Turn it on with defaults, or pass a config to customize the trigger and extractor:
+Enable [automatic extraction](./overview#automatic-extraction) on a writable store to capture memories from the conversation. By default it runs every 5 turns, distilling facts client-side with a `ModelExtractor` that uses the agent's own model:
 
 <Tabs>
 <Tab label="Python">
 
 ```python
-from strands.memory.extraction.triggers import InvocationTrigger
-from strands.memory.extraction.types import ExtractionConfig
 from strands.vended_memory_stores.bedrock_knowledge_base import BedrockKnowledgeBaseStore
 
 store = BedrockKnowledgeBaseStore(
     name="preferences",
     writable=True,
-    extraction=ExtractionConfig(trigger=InvocationTrigger()),
+    extraction=True,
     config={
         "knowledge_base_id": "KB123",
         "data_source_type": "CUSTOM",
@@ -261,7 +255,7 @@ store = BedrockKnowledgeBaseStore(
 </Tab>
 </Tabs>
 
-See [Automatic Extraction](./overview#automatic-extraction) on the Memory page for triggers, extractors, and flushing.
+To change the cadence, swap the extractor, or extract server-side, see [Automatic Extraction](./overview#automatic-extraction) on the Memory page.
 
 ## Required IAM Permissions
 
