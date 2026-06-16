@@ -290,7 +290,10 @@ class TestS3DataSource:
         wait_for_indexed(kb_clients["agent"], kb_id, ds_id, {"dataSourceType": "S3", "s3": {"uri": result.document_id}})
 
         entries = await store.search(marker, SearchOptions(max_search_results=10))
-        assert any(marker in entry.content for entry in entries)
+        match = next((entry for entry in entries if marker in entry.content), None)
+        assert match is not None
+        assert match.metadata is not None
+        assert match.metadata.get("namespace") == scope
 
     async def test_scope_isolates_s3_documents_from_other_scopes(
         self, skip_if_no_kb, bedrock_kb_context, kb_clients, cleanup_registrar
@@ -350,7 +353,7 @@ class TestS3DataSource:
     async def test_adds_with_metadata_in_the_sidecar(
         self, skip_if_no_kb, bedrock_kb_context, kb_clients, cleanup_registrar
     ):
-        """Caller metadata supplied to an S3 ``add`` is persisted via the sidecar, and the content stays searchable."""
+        """Caller metadata supplied to an S3 ``add`` round-trips through search via the sidecar."""
         kb_id = bedrock_kb_context.knowledge_base_id
         ds_id = bedrock_kb_context.s3_data_source_id
         bucket = bedrock_kb_context.s3_bucket
@@ -378,7 +381,11 @@ class TestS3DataSource:
         wait_for_indexed(kb_clients["agent"], kb_id, ds_id, {"dataSourceType": "S3", "s3": {"uri": result.document_id}})
 
         entries = await store.search(marker, SearchOptions(max_search_results=10))
-        assert any(marker in entry.content for entry in entries)
+        match = next((entry for entry in entries if marker in entry.content), None)
+        assert match is not None
+        assert match.metadata is not None
+        assert match.metadata.get("category") == "testing"
+        assert match.metadata.get("count") == 7
 
 
 # --------------------------------------------------------------------------- #
