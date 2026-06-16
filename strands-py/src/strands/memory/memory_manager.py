@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from .._middleware.stages import InvokeModelStage
 from ..hooks.events import MessageAddedEvent
-from ..injection.message_injection import _create_injection_middleware, _is_user_turn
-from ..injection.xml import _escape_xml_attr, _escape_xml_text
+from ..injection._message_injection import _create_injection_middleware, _is_user_turn
+from ..injection._xml import _escape_xml_attr, _escape_xml_text
 from ..plugins.plugin import Plugin
 from ..tools.decorator import tool
 from ..types.exceptions import AggregateMemoryError

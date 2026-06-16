@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock
 
 from strands.memory.extraction.model_extractor import ModelExtractor
 from strands.memory.extraction.resolve_extraction_config import (
-    DEFAULT_EXTRACTION_TRIGGER_TURNS,
+    _DEFAULT_EXTRACTION_TRIGGER_TURNS,
     _resolve_extraction_config,
 )
 from strands.memory.extraction.triggers import IntervalTrigger, InvocationTrigger
@@ -78,8 +78,8 @@ def test_defaults_an_omitted_trigger_to_interval_of_default_turns():
     assert len(resolved_config.triggers) == 1
     trigger = resolved_config.triggers[0]
     assert isinstance(trigger, IntervalTrigger)
-    assert trigger._turns == DEFAULT_EXTRACTION_TRIGGER_TURNS
-    assert DEFAULT_EXTRACTION_TRIGGER_TURNS == 5
+    assert trigger._turns == _DEFAULT_EXTRACTION_TRIGGER_TURNS
+    assert _DEFAULT_EXTRACTION_TRIGGER_TURNS == 5
 
 
 def test_wraps_a_single_trigger_into_a_list():

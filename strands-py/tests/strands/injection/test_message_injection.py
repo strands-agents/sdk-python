@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from strands._middleware.stages import InvokeModelContext
-from strands.injection.message_injection import (
+from strands.injection._message_injection import (
     _create_injection_middleware,
     _fold_into_last_user_message,
     _is_user_turn,

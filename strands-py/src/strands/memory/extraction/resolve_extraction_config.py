@@ -22,7 +22,7 @@ from .types import (
 )
 
 # Default cadence when an ``ExtractionConfig`` omits its ``trigger``: extract every N turns.
-DEFAULT_EXTRACTION_TRIGGER_TURNS = 5
+_DEFAULT_EXTRACTION_TRIGGER_TURNS = 5
 
 
 @dataclass
@@ -57,7 +57,7 @@ def _resolve_extraction_config(
     ``False``/``None`` is off (returns ``None``), ``True`` enables all defaults, an
     :class:`ExtractionConfig` defaults its unset fields. The defaults are:
 
-    - **triggers**: every :data:`DEFAULT_EXTRACTION_TRIGGER_TURNS` turns. An
+    - **triggers**: every :data:`_DEFAULT_EXTRACTION_TRIGGER_TURNS` turns. An
       explicit empty list is left empty for the ``MemoryManager`` to reject.
     - **extractor**: chosen from the methods the store implements. A store that
       implements only ``add`` cannot extract server-side, so it defaults to a
@@ -82,7 +82,7 @@ def _resolve_extraction_config(
 
     triggers: list[ExtractionTrigger]
     if config.trigger is None:
-        triggers = [IntervalTrigger(turns=DEFAULT_EXTRACTION_TRIGGER_TURNS)]
+        triggers = [IntervalTrigger(turns=_DEFAULT_EXTRACTION_TRIGGER_TURNS)]
     elif isinstance(config.trigger, list):
         triggers = config.trigger
     else:

@@ -2,7 +2,7 @@
 
 This package provides the configuration types for context injection — folding just-in-time text
 into the model input before a call without touching durable history. The delivery primitives
-(in ``message_injection``) are internal; reach injection through the ``ContextInjector`` plugin
+(in ``_message_injection``) are internal; reach injection through the ``ContextInjector`` plugin
 or the ``MemoryManager`` rather than using them directly.
 """
 
