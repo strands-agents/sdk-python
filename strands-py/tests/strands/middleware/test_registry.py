@@ -370,6 +370,17 @@ async def test_output_runs_after_wrap(registry, stage, alist):
     assert result == "base_out"
 
 
+@pytest.mark.asyncio
+async def test_output_handler_must_return_middleware_result(registry, stage, alist):
+    def bad_handler(result):
+        return result.value  # returns raw value instead of MiddlewareResult
+
+    registry.add_middleware(stage.Output, bad_handler)
+    terminal = _make_terminal(result="base")
+    with pytest.raises(TypeError, match="Output handler must return a MiddlewareResult"):
+        await alist(registry.invoke(stage, {}, terminal))
+
+
 # --- error propagation ---
 
 

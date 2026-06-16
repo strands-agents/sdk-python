@@ -552,19 +552,27 @@ async def _handle_model_execution(
 
             # Run through middleware chain. The last yielded event is ModelStopReason
             # which serves as both the streaming result event and the middleware result.
+            last_event = None
             async for event in agent._middleware_registry.invoke(
                 InvokeModelStage,
                 middleware_context,
                 _make_invoke_model_terminal(agent, cycle_span, tracer, model_state_snapshot),
             ):
+                last_event = event
                 yield event
+
+            if last_event is None:
+                raise RuntimeError(
+                    "Middleware chain did not yield a result event. "
+                    "Ensure middleware forwards events from next()."
+                )
 
             # Write the post-stream model state back to the agent. Skipped on error
             # (exception propagates and we never reach here), matching TS semantics.
             agent._model_state = model_state_snapshot
 
             # The last event from the chain is ModelStopReason (the authoritative result)
-            stop_reason, message, usage, metrics = event["stop"]
+            stop_reason, message, usage, metrics = last_event["stop"]
 
             invocation_state.setdefault("request_state", {})
 

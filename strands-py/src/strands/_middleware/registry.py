@@ -90,6 +90,10 @@ class MiddlewareRegistry:
                 transformed = handler(MiddlewareResult(value=last_event))
                 if inspect.isawaitable(transformed):
                     transformed = await transformed
+                if not isinstance(transformed, MiddlewareResult):
+                    raise TypeError(
+                        f"Output handler must return a MiddlewareResult, got {type(transformed).__name__}"
+                    )
                 yield transformed.value
 
         handlers = self._handlers.setdefault(stage, [])

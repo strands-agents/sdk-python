@@ -228,6 +228,18 @@ def test_wrap_short_circuit_skips_model_call(agent):
     assert result.message["content"][0]["text"] == "Cached!"
 
 
+def test_wrap_yields_nothing_raises_runtime_error(agent):
+    """Middleware that yields zero events produces an actionable RuntimeError."""
+
+    async def silent(context, next_fn):
+        if False:
+            yield  # noqa: B901
+
+    agent._middleware_registry.add_middleware(InvokeModelStage, silent)
+    with pytest.raises(RuntimeError, match="did not yield a result event"):
+        agent("test")
+
+
 def test_wrap_multiple_middleware_compose_correctly(agent):
     order: list[str] = []
 
