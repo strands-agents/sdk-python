@@ -110,7 +110,7 @@ Each store carries its own identity and behavior:
 | <Syntax py="max_search_results" ts="maxSearchResults" /> | Default result cap per search when a caller does not pass one. The manager falls back to `3` if neither is set. |
 | `writable` | Whether the store accepts writes. |
 
-The manager attaches each store's `name` to its results, so the model (and your code) can tell which store produced each entry and target follow-up queries.
+The manager attaches each store's `name` to its results, so the model and your code can tell which store produced each entry and target follow-up queries.
 
 ## Memory Tools
 
@@ -427,7 +427,7 @@ For a reference implementation backed by a managed service, see the [Bedrock Kno
 - **Give the agent context.** Add a meaningful description to each store, so the agent knows what type of knowledge each store contains.
 - **Tolerate duplicate writes** in custom stores used with extraction, since failed batches are retried.
 
-## How Memory Relates to Other State
+## How Memory Relates to Other Strands Constructs
 
 Three SDK features manage different kinds of state; memory is the one that crosses sessions:
 
