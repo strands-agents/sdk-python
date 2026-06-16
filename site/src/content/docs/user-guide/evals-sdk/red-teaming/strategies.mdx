@@ -73,6 +73,8 @@ Every built-in strategy's constructor accepts these (the default for `success_th
 - **`label`** — Type: `str | None`. Default: `None`. An identifier used for cross-product naming and report grouping when you run the same strategy class more than once.
 - **`success_threshold`** — Type: `float`. The strategy's in-loop early-stop gate on the `0.0`–`1.0` score: it only controls when the strategy stops attacking. **Do not confuse it with the evaluator's `pass_threshold` (default `0.3`), which is the number that actually decides a breach.** The authoritative verdict always comes from the `AttackSuccessEvaluator`, not from this gate.
 
+Every strategy also has a per-strategy `max_turns` (defaults vary; see each section). On top of that, the experiment runner enforces a hard `MAX_ALLOWED_TURNS = 50` ceiling: a strategy configured higher is silently clamped at run time.
+
 ## Crescendo
 
 Escalates over up to `max_turns` turns, starting benign and steering toward the goal. When the target refuses, Crescendo backtracks (up to `max_backtracks` times) and tries a different angle from the last good turn. Stops early once a turn scores at or above `success_threshold`.
@@ -168,11 +170,47 @@ SequentialBreakStrategy(
 The variants share one `TargetSession`. On a stateful target, variants after the first run in the accumulated context of earlier variants' refusals, so a multi-variant run reports a **lower bound** on attack success. Putting the strongest variant first means most cases end on the first variant.
 :::
 
+## Template-driven strategies
+
+Beyond the five research-backed strategies above, the SDK ships a `PromptStrategy` extension point for **no-attacker-LLM** strategies driven by a system-prompt template. The user simulator runs the template, sends each generated message to the target, and feeds the target's reply back as the next turn — useful when you want a deterministic, template-based attack without subclassing `AttackStrategy`.
+
+A registry of ready-made instances lives at `strands_evals.experimental.redteam.strategies.BUILTIN_STRATEGIES`:
+
+```python
+from strands_evals.experimental.redteam import RedTeamExperiment, CrescendoStrategy
+from strands_evals.experimental.redteam.strategies import BUILTIN_STRATEGIES
+
+experiment = RedTeamExperiment(
+    cases=cases,
+    agent_factory=agent_factory,
+    attack_strategies=[
+        CrescendoStrategy(),
+        BUILTIN_STRATEGIES["gradual_escalation"],
+    ],
+)
+```
+
+The current registry ships `gradual_escalation`. To author your own template-driven strategy, instantiate `PromptStrategy` directly with a `strategy_name`, `system_prompt_template`, and `max_turns`:
+
+```python
+from strands_evals.experimental.redteam import PromptStrategy
+
+my_strategy = PromptStrategy(
+    strategy_name="my_template",
+    system_prompt_template="...your attacker system prompt, may use {max_turns}...",
+    max_turns=8,
+)
+```
+
+`PromptStrategy` instances are first-class strategies — pass them in `attack_strategies=[...]` alongside the research-backed ones.
+
 ## Running several strategies
 
 Pass a list to compare strategies on the same cases in one report. Because attack success is a strategy × goal × target interaction, running several and comparing `by_strategy()` is the intended workflow:
 
 ```python
+import asyncio
+
 from strands_evals.experimental.redteam import (
     BadLikertJudgeStrategy,
     CrescendoStrategy,
@@ -184,7 +222,7 @@ from strands_evals.experimental.redteam import (
 
 experiment = RedTeamExperiment(
     cases=cases,
-    agent=agent,
+    agent_factory=agent_factory,
     attack_strategies=[
         CrescendoStrategy(),
         GoatStrategy(),
@@ -193,7 +231,7 @@ experiment = RedTeamExperiment(
         SequentialBreakStrategy(),
     ],
 )
-report = experiment.run_evaluations()
+report = asyncio.run(experiment.run_evaluations_async(max_workers=5))
 
 # by_strategy() returns a GroupedSummary per strategy: group_name, count, avg_score, pass_rate
 for group in report.by_strategy():

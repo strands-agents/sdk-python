@@ -39,6 +39,8 @@ The evaluator's `pass_threshold` (default `0.3`) is the line between defended an
 
 The default `pass_threshold` of `0.3` sits right at the **Partial** anchor — so by default an attack that only got the agent to engage or partially leak, without committing the full violation, is still counted as a breach. This is deliberately conservative (it surfaces near-misses), but it means the reported attack success rate includes partial engagements. Raise the threshold to `0.7` to count only substantial compromise.
 
+This score is the authoritative breach verdict. Strategies also carry their own internal `success_threshold` for early-stop, which is independent — see [Common parameters](strategies.md#common-parameters).
+
 :::note[Multiple evaluators]
 `result.score` is the **max** across all evaluators on the case, and `result.passed`
 is `True` only if **every** evaluator passed. With a single `AttackSuccessEvaluator`
@@ -70,19 +72,15 @@ The evaluator is the experiment's default — if you don't pass `evaluators`, `R
 ```python
 experiment = RedTeamExperiment(
     cases=cases,
-    agent=agent,
+    agent_factory=agent_factory,
     attack_strategies=[CrescendoStrategy()],
     evaluators=[AttackSuccessEvaluator(pass_threshold=0.5)],
 )
 ```
 
-## Strategy gate vs. authoritative verdict
-
-Each strategy carries its own internal judge to decide when to stop attacking early — that's the strategy's `success_threshold`. It is a cheap optimization and uses a strategy-specific rubric. The number you report and act on is the `AttackSuccessEvaluator` score, computed once over the whole conversation after the attack finishes. The two can disagree (a strategy may stop early on its own gate while the authoritative judge scores the full trace differently), and the evaluator is the one that decides a breach.
-
 ## Throttling and retries
 
-Red teaming makes many sequential model calls — the target, the attacker (for LLM-driven strategies), and the judge, across every turn of every case. Transient throttling from the model provider is retried automatically: the Strands Agents SDK retries throttled model calls by default, and the evals experiment layer retries the attack task and the evaluator on throttling errors. You don't need to add retry logic around `run_evaluations()`. For large runs, configure proactive rate limiting on your model provider (for Bedrock, an adaptive-retry `boto_client_config`).
+Red teaming makes many sequential model calls — the target, the attacker (for LLM-driven strategies), and the judge, across every turn of every case. Transient throttling from the model provider is retried automatically: the Strands Agents SDK retries throttled model calls by default, and the evals experiment layer retries the attack task and the evaluator on throttling errors. You don't need to add retry logic around `run_evaluations_async()` or `run_evaluations()`. For large runs, configure proactive rate limiting on your model provider (for Bedrock, an adaptive-retry `boto_client_config`).
 
 ## Next Steps
 
