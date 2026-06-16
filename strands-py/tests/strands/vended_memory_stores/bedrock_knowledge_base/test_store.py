@@ -6,6 +6,8 @@ Test scaffolding:
 - boto3 clients are ``MagicMock``s; ``retrieve`` / ``ingest_knowledge_base_documents`` / ``put_object``
   return values (and ``side_effect`` for failures) are programmed per test. Calls are inspected via
   ``.call_args.kwargs``.
+- ``make_store`` / ``make_custom_store`` / ``make_s3_store`` are factory fixtures that build a store
+  from a base connection config plus per-store fields.
 - The generated document id is pinned by monkeypatching ``store_module._new_id``.
 - Default-client construction is observed by patching ``boto3.client``.
 """
@@ -26,6 +28,7 @@ from strands.hooks.registry import HookOrder
 from strands.memory.extraction.triggers import InvocationTrigger
 from strands.memory.extraction.types import ExtractionConfig, ExtractionResult
 from strands.memory.memory_manager import MemoryManager
+from strands.memory.types import SearchOptions
 from strands.vended_memory_stores.bedrock_knowledge_base import (
     BedrockKnowledgeBaseConfig,
     BedrockKnowledgeBaseS3Config,
@@ -48,62 +51,83 @@ def _mock_client() -> MagicMock:
     return MagicMock()
 
 
-def _make_store(
-    overrides: dict[str, Any] | None = None,
-    config_overrides: dict[str, Any] | None = None,
-) -> tuple[BedrockKnowledgeBaseStore, MagicMock, MagicMock]:
-    """Build a store from a base connection config plus per-store fields.
+@pytest.fixture
+def make_store():
+    """Factory building a store from a base connection config plus per-store fields.
 
-    Returns ``(store, runtime, agent)``: the injected ``runtime`` / ``agent`` spies, ready to program
-    and inspect. ``retrieve`` defaults to an empty result set; ``ingest_knowledge_base_documents``
-    defaults to ``{}``.
+    Returns a callable ``(overrides, config_overrides) -> (store, runtime, agent)``: the injected
+    ``runtime`` / ``agent`` spies are ready to program and inspect. ``retrieve`` defaults to an empty
+    result set; ``ingest_knowledge_base_documents`` defaults to ``{}``.
     """
-    overrides = overrides or {}
-    config_overrides = config_overrides or {}
 
-    runtime = _mock_client()
-    runtime.retrieve.return_value = {"retrievalResults": []}
-    agent = _mock_client()
-    agent.ingest_knowledge_base_documents.return_value = {}
+    def _make(
+        overrides: dict[str, Any] | None = None,
+        config_overrides: dict[str, Any] | None = None,
+    ) -> tuple[BedrockKnowledgeBaseStore, MagicMock, MagicMock]:
+        overrides = overrides or {}
+        config_overrides = config_overrides or {}
 
-    config = BedrockKnowledgeBaseConfig(
-        knowledge_base_id="kb-1",
-        runtime_client=runtime,
-        agent_client=agent,
-        **config_overrides,
-    )
-    name = overrides.pop("name", "kb")
-    store = BedrockKnowledgeBaseStore(config=config, name=name, **overrides)
-    return store, runtime, agent
+        runtime = _mock_client()
+        runtime.retrieve.return_value = {"retrievalResults": []}
+        agent = _mock_client()
+        agent.ingest_knowledge_base_documents.return_value = {}
 
+        config = BedrockKnowledgeBaseConfig(
+            knowledge_base_id="kb-1",
+            runtime_client=runtime,
+            agent_client=agent,
+            **config_overrides,
+        )
+        name = overrides.pop("name", "kb")
+        store = BedrockKnowledgeBaseStore(config=config, name=name, **overrides)
+        return store, runtime, agent
 
-def _make_custom_store(
-    overrides: dict[str, Any] | None = None,
-    config_overrides: dict[str, Any] | None = None,
-) -> tuple[BedrockKnowledgeBaseStore, MagicMock]:
-    """A writable CUSTOM store built via :func:`_make_store`, with the data source wired into config."""
-    overrides = {"writable": True, **(overrides or {})}
-    config_overrides = {"data_source_type": "CUSTOM", "data_source_id": "ds-1", **(config_overrides or {})}
-    store, _runtime, agent = _make_store(overrides, config_overrides)
-    return store, agent
+    return _make
 
 
-def _make_s3_store(
-    overrides: dict[str, Any] | None = None,
-    config_overrides: dict[str, Any] | None = None,
-) -> tuple[BedrockKnowledgeBaseStore, MagicMock, MagicMock]:
-    """A writable S3 store built via :func:`_make_store`, with the data source + bucket wired into config."""
-    s3 = _mock_client()
-    s3.put_object.return_value = {}
-    overrides = {"writable": True, **(overrides or {})}
-    config_overrides = {
-        "data_source_type": "S3",
-        "data_source_id": "ds-1",
-        "s3": BedrockKnowledgeBaseS3Config(bucket="my-bucket", client=s3, prefix="memories"),
-        **(config_overrides or {}),
-    }
-    store, _runtime, agent = _make_store(overrides, config_overrides)
-    return store, agent, s3
+@pytest.fixture
+def make_custom_store(make_store):
+    """Factory for a writable CUSTOM store, with the data source wired into config.
+
+    Returns a callable ``(overrides, config_overrides) -> (store, agent)``.
+    """
+
+    def _make(
+        overrides: dict[str, Any] | None = None,
+        config_overrides: dict[str, Any] | None = None,
+    ) -> tuple[BedrockKnowledgeBaseStore, MagicMock]:
+        overrides = {"writable": True, **(overrides or {})}
+        config_overrides = {"data_source_type": "CUSTOM", "data_source_id": "ds-1", **(config_overrides or {})}
+        store, _runtime, agent = make_store(overrides, config_overrides)
+        return store, agent
+
+    return _make
+
+
+@pytest.fixture
+def make_s3_store(make_store):
+    """Factory for a writable S3 store, with the data source + bucket wired into config.
+
+    Returns a callable ``(overrides, config_overrides) -> (store, agent, s3)``.
+    """
+
+    def _make(
+        overrides: dict[str, Any] | None = None,
+        config_overrides: dict[str, Any] | None = None,
+    ) -> tuple[BedrockKnowledgeBaseStore, MagicMock, MagicMock]:
+        s3 = _mock_client()
+        s3.put_object.return_value = {}
+        overrides = {"writable": True, **(overrides or {})}
+        config_overrides = {
+            "data_source_type": "S3",
+            "data_source_id": "ds-1",
+            "s3": BedrockKnowledgeBaseS3Config(bucket="my-bucket", client=s3, prefix="memories"),
+            **(config_overrides or {}),
+        }
+        store, _runtime, agent = make_store(overrides, config_overrides)
+        return store, agent, s3
+
+    return _make
 
 
 def _last_search_filter(runtime: MagicMock) -> Any:
@@ -127,43 +151,43 @@ def _last_inline_attributes(agent: MagicMock) -> list[Any]:
 
 
 class TestConstructor:
-    def test_exposes_name_and_defaults_writable_to_false(self):
-        store, _runtime, _agent = _make_store()
+    def test_exposes_name_and_defaults_writable_to_false(self, make_store):
+        store, _runtime, _agent = make_store()
         assert store.name == "kb"
         assert store.writable is False
         assert store.description is None
         assert store.max_search_results is None
 
-    def test_keeps_name_and_scope_as_independent_fields(self):
-        store, _runtime, _agent = _make_store({"name": "explicit", "scope": "user-abc"})
+    def test_keeps_name_and_scope_as_independent_fields(self, make_store):
+        store, _runtime, _agent = make_store({"name": "explicit", "scope": "user-abc"})
         assert store.name == "explicit"
         assert store.scope == "user-abc"
 
-    def test_carries_through_description_and_max_search_results(self):
-        store, _runtime, _agent = _make_store({"description": "product docs", "max_search_results": 7})
+    def test_carries_through_description_and_max_search_results(self, make_store):
+        store, _runtime, _agent = make_store({"description": "product docs", "max_search_results": 7})
         assert store.description == "product docs"
         assert store.max_search_results == 7
 
-    def test_throws_when_writable_true_but_data_source_type_omitted(self):
+    def test_throws_when_writable_true_but_data_source_type_omitted(self, make_store):
         with pytest.raises(ValueError, match="add requires data_source_type 'CUSTOM' or 'S3'"):
-            _make_store({"writable": True})
+            make_store({"writable": True})
 
-    def test_throws_when_writable_true_but_data_source_type_other(self):
+    def test_throws_when_writable_true_but_data_source_type_other(self, make_store):
         with pytest.raises(ValueError, match="add requires data_source_type 'CUSTOM' or 'S3'"):
-            _make_store({"writable": True}, {"data_source_type": "OTHER"})
+            make_store({"writable": True}, {"data_source_type": "OTHER"})
 
-    def test_throws_when_max_search_results_less_than_one(self):
+    def test_throws_when_max_search_results_less_than_one(self, make_store):
         with pytest.raises(ValueError, match="max_search_results must be at least 1"):
-            _make_store({"max_search_results": 0})
+            make_store({"max_search_results": 0})
         with pytest.raises(ValueError, match="max_search_results must be at least 1"):
-            _make_store({"max_search_results": -5})
+            make_store({"max_search_results": -5})
 
-    def test_allows_writable_with_custom_data_source(self):
-        store, _agent = _make_custom_store()
+    def test_allows_writable_with_custom_data_source(self, make_custom_store):
+        store, _agent = make_custom_store()
         assert store.writable is True
 
-    def test_allows_writable_with_s3_data_source(self):
-        store, _agent, _s3 = _make_s3_store()
+    def test_allows_writable_with_s3_data_source(self, make_s3_store):
+        store, _agent, _s3 = make_s3_store()
         assert store.writable is True
 
     def test_constructs_a_default_runtime_client_when_none_injected(self):
@@ -171,9 +195,9 @@ class TestConstructor:
             BedrockKnowledgeBaseStore(config=BedrockKnowledgeBaseConfig(knowledge_base_id="kb-1"), name="kb")
             client_fn.assert_called_once_with("bedrock-agent-runtime")
 
-    def test_uses_the_injected_runtime_client_without_constructing_one(self):
+    def test_uses_the_injected_runtime_client_without_constructing_one(self, make_store):
         with patch("boto3.client") as client_fn:
-            _make_store()
+            make_store()
             client_fn.assert_not_called()
 
 
@@ -183,17 +207,17 @@ class TestConstructor:
 
 
 class TestExtractionConfig:
-    def test_defaults_extraction_to_none(self):
-        store, _runtime, _agent = _make_store()
+    def test_defaults_extraction_to_none(self, make_store):
+        store, _runtime, _agent = make_store()
         assert store.extraction is None
 
-    def test_exposes_a_configured_extraction_config_verbatim(self):
+    def test_exposes_a_configured_extraction_config_verbatim(self, make_custom_store):
         extraction = ExtractionConfig(trigger=InvocationTrigger(), extractor=MagicMock())
-        store, _agent = _make_custom_store({"extraction": extraction})
+        store, _agent = make_custom_store({"extraction": extraction})
         assert store.extraction is extraction
 
-    def test_exposes_the_boolean_shorthand_verbatim(self):
-        store, _agent = _make_custom_store({"extraction": True})
+    def test_exposes_the_boolean_shorthand_verbatim(self, make_custom_store):
+        store, _agent = make_custom_store({"extraction": True})
         assert store.extraction is True
 
 
@@ -204,8 +228,8 @@ class TestExtractionConfig:
 
 class TestSearch:
     @pytest.mark.asyncio
-    async def test_issues_retrieve_with_query_and_default_limit_of_10(self):
-        store, runtime, _agent = _make_store()
+    async def test_issues_retrieve_with_query_and_default_limit_of_10(self, make_store):
+        store, runtime, _agent = make_store()
         await store.search("how do refunds work")
         kwargs = runtime.retrieve.call_args.kwargs
         assert kwargs["knowledgeBaseId"] == "kb-1"
@@ -213,28 +237,28 @@ class TestSearch:
         assert kwargs["retrievalConfiguration"] == {"vectorSearchConfiguration": {"numberOfResults": 10}}
 
     @pytest.mark.asyncio
-    async def test_uses_store_max_search_results_when_caller_omits(self):
-        store, runtime, _agent = _make_store({"max_search_results": 5})
+    async def test_uses_store_max_search_results_when_caller_omits(self, make_store):
+        store, runtime, _agent = make_store({"max_search_results": 5})
         await store.search("q")
         config = runtime.retrieve.call_args.kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
         assert config["numberOfResults"] == 5
 
     @pytest.mark.asyncio
-    async def test_per_call_max_search_results_overrides_store_default(self):
-        store, runtime, _agent = _make_store({"max_search_results": 5})
-        await store.search("q", store_module.SearchOptions(max_search_results=2))
+    async def test_per_call_max_search_results_overrides_store_default(self, make_store):
+        store, runtime, _agent = make_store({"max_search_results": 5})
+        await store.search("q", SearchOptions(max_search_results=2))
         config = runtime.retrieve.call_args.kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
         assert config["numberOfResults"] == 2
 
     @pytest.mark.asyncio
-    async def test_per_call_max_search_results_less_than_one_raises(self):
-        store, _runtime, _agent = _make_store()
+    async def test_per_call_max_search_results_less_than_one_raises(self, make_store):
+        store, _runtime, _agent = make_store()
         with pytest.raises(ValueError, match="max_search_results must be at least 1"):
-            await store.search("q", store_module.SearchOptions(max_search_results=0))
+            await store.search("q", SearchOptions(max_search_results=0))
 
     @pytest.mark.asyncio
-    async def test_derives_a_scope_filter_with_default_key_namespace(self):
-        store, runtime, _agent = _make_store({"scope": "user-123"})
+    async def test_derives_a_scope_filter_with_default_key_namespace(self, make_store):
+        store, runtime, _agent = make_store({"scope": "user-123"})
         await store.search("q")
         config = runtime.retrieve.call_args.kwargs["retrievalConfiguration"]["vectorSearchConfiguration"]
         assert config == {
@@ -243,21 +267,21 @@ class TestSearch:
         }
 
     @pytest.mark.asyncio
-    async def test_honors_a_custom_scope_metadata_key(self):
-        store, runtime, _agent = _make_store({"scope": "acme"}, {"scope_metadata_key": "tenant"})
+    async def test_honors_a_custom_scope_metadata_key(self, make_store):
+        store, runtime, _agent = make_store({"scope": "acme"}, {"scope_metadata_key": "tenant"})
         await store.search("q")
         assert _last_search_filter(runtime) == {"equals": {"key": "tenant", "value": "acme"}}
 
     @pytest.mark.asyncio
-    async def test_prefers_an_explicit_filter_over_a_scope_derived_one(self):
+    async def test_prefers_an_explicit_filter_over_a_scope_derived_one(self, make_store):
         explicit = {"equals": {"key": "custom", "value": "v"}}
-        store, runtime, _agent = _make_store({"scope": "ignored", "filter": explicit})
+        store, runtime, _agent = make_store({"scope": "ignored", "filter": explicit})
         await store.search("q")
         assert _last_search_filter(runtime) == explicit
 
     @pytest.mark.asyncio
-    async def test_maps_content_metadata_location_and_score_onto_each_entry(self):
-        store, runtime, _agent = _make_store()
+    async def test_maps_content_metadata_location_and_score_onto_each_entry(self, make_store):
+        store, runtime, _agent = make_store()
         runtime.retrieve.return_value = {
             "retrievalResults": [
                 {
@@ -279,8 +303,8 @@ class TestSearch:
         }
 
     @pytest.mark.asyncio
-    async def test_defaults_missing_content_to_empty_string_and_omits_absent_metadata(self):
-        store, runtime, _agent = _make_store()
+    async def test_defaults_missing_content_to_empty_string_and_omits_absent_metadata(self, make_store):
+        store, runtime, _agent = make_store()
         runtime.retrieve.return_value = {"retrievalResults": [{}]}
 
         results = await store.search("q")
@@ -289,19 +313,19 @@ class TestSearch:
         assert results[0].metadata == {}
 
     @pytest.mark.asyncio
-    async def test_returns_empty_list_when_no_results(self):
-        store, _runtime, _agent = _make_store()
+    async def test_returns_empty_list_when_no_results(self, make_store):
+        store, _runtime, _agent = make_store()
         assert await store.search("q") == []
 
     @pytest.mark.asyncio
-    async def test_returns_empty_list_when_response_omits_retrieval_results(self):
-        store, runtime, _agent = _make_store()
+    async def test_returns_empty_list_when_response_omits_retrieval_results(self, make_store):
+        store, runtime, _agent = make_store()
         runtime.retrieve.return_value = {}
         assert await store.search("q") == []
 
     @pytest.mark.asyncio
-    async def test_logs_and_rethrows_when_retrieve_fails(self, caplog):
-        store, runtime, _agent = _make_store()
+    async def test_logs_and_rethrows_when_retrieve_fails(self, make_store, caplog):
+        store, runtime, _agent = make_store()
         runtime.retrieve.side_effect = RuntimeError("retrieve boom")
 
         with caplog.at_level(logging.ERROR):
@@ -316,34 +340,34 @@ class TestSearch:
 
 
 class TestAddCustom:
-    def test_throws_when_data_source_id_missing(self):
+    def test_throws_when_data_source_id_missing(self, make_store):
         with pytest.raises(ValueError, match="data_source_id is required"):
-            _make_store({"writable": True}, {"data_source_type": "CUSTOM"})
+            make_store({"writable": True}, {"data_source_type": "CUSTOM"})
 
     @pytest.mark.asyncio
-    async def test_throws_when_content_empty_or_whitespace(self):
-        store, _agent = _make_custom_store()
+    async def test_throws_when_content_empty_or_whitespace(self, make_custom_store):
+        store, _agent = make_custom_store()
         with pytest.raises(ValueError, match="content must not be empty"):
             await store.add("")
         with pytest.raises(ValueError, match="content must not be empty"):
             await store.add("   ")
 
     @pytest.mark.asyncio
-    async def test_returns_the_generated_custom_document_id(self):
-        store, _agent = _make_custom_store()
+    async def test_returns_the_generated_custom_document_id(self, make_custom_store):
+        store, _agent = make_custom_store()
         result = await store.add("fact")
         assert result.document_id == "test-uuid-v7"
 
     @pytest.mark.asyncio
-    async def test_uses_same_id_for_document_identifier_and_returned_id(self):
-        store, agent = _make_custom_store()
+    async def test_uses_same_id_for_document_identifier_and_returned_id(self, make_custom_store):
+        store, agent = make_custom_store()
         result = await store.add("fact")
         document = agent.ingest_knowledge_base_documents.call_args.kwargs["documents"][0]
         assert document["content"]["custom"]["customDocumentIdentifier"]["id"] == result.document_id
 
     @pytest.mark.asyncio
-    async def test_ingests_inline_document_with_no_metadata_field_when_no_scope_or_metadata(self):
-        store, agent = _make_custom_store()
+    async def test_ingests_inline_document_with_no_metadata_field_when_no_scope_or_metadata(self, make_custom_store):
+        store, agent = make_custom_store()
         await store.add("remember this")
         kwargs = agent.ingest_knowledge_base_documents.call_args.kwargs
         assert kwargs["knowledgeBaseId"] == "kb-1"
@@ -362,16 +386,16 @@ class TestAddCustom:
         ]
 
     @pytest.mark.asyncio
-    async def test_attaches_scope_as_leading_inline_attribute(self):
-        store, agent = _make_custom_store({"scope": "user-123"})
+    async def test_attaches_scope_as_leading_inline_attribute(self, make_custom_store):
+        store, agent = make_custom_store({"scope": "user-123"})
         await store.add("fact")
         assert _last_inline_attributes(agent) == [
             {"key": "namespace", "value": {"type": "STRING", "stringValue": "user-123"}},
         ]
 
     @pytest.mark.asyncio
-    async def test_drops_metadata_keys_colliding_with_scope_key_and_preserves_scope(self, caplog):
-        store, agent = _make_custom_store({"scope": "tenant-A"})
+    async def test_drops_metadata_keys_colliding_with_scope_key_and_preserves_scope(self, make_custom_store, caplog):
+        store, agent = make_custom_store({"scope": "tenant-A"})
         with caplog.at_level(logging.WARNING):
             await store.add("fact", {"namespace": "tenant-EVIL", "other": "ok"})
         attrs = _last_inline_attributes(agent)
@@ -382,8 +406,8 @@ class TestAddCustom:
         assert "collides with scope_metadata_key" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_maps_supported_metadata_types_and_skips_unsupported(self):
-        store, agent = _make_custom_store()
+    async def test_maps_supported_metadata_types_and_skips_unsupported(self, make_custom_store):
+        store, agent = make_custom_store()
         await store.add(
             "fact",
             {
@@ -404,8 +428,8 @@ class TestAddCustom:
         ]
 
     @pytest.mark.asyncio
-    async def test_logs_and_rethrows_when_ingestion_fails(self, caplog):
-        store, agent = _make_custom_store()
+    async def test_logs_and_rethrows_when_ingestion_fails(self, make_custom_store, caplog):
+        store, agent = make_custom_store()
         agent.ingest_knowledge_base_documents.side_effect = RuntimeError("ingest boom")
 
         with caplog.at_level(logging.ERROR):
@@ -442,19 +466,19 @@ class TestAddCustom:
 
 
 class TestAddS3:
-    def test_throws_when_s3_config_missing(self):
+    def test_throws_when_s3_config_missing(self, make_store):
         with pytest.raises(ValueError, match="s3 config is required"):
-            _make_store({"writable": True}, {"data_source_type": "S3", "data_source_id": "ds-1"})
+            make_store({"writable": True}, {"data_source_type": "S3", "data_source_id": "ds-1"})
 
     @pytest.mark.asyncio
-    async def test_returns_the_uploaded_content_objects_uri_as_document_id(self):
-        store, _agent, _s3 = _make_s3_store()
+    async def test_returns_the_uploaded_content_objects_uri_as_document_id(self, make_s3_store):
+        store, _agent, _s3 = make_s3_store()
         result = await store.add("content")
         assert result.document_id == "s3://my-bucket/memories/test-uuid-v7.txt"
 
     @pytest.mark.asyncio
-    async def test_uploads_content_and_ingests_s3_document_no_sidecar(self):
-        store, agent, s3 = _make_s3_store()
+    async def test_uploads_content_and_ingests_s3_document_no_sidecar(self, make_s3_store):
+        store, agent, s3 = make_s3_store()
         await store.add("s3 content")
 
         assert s3.put_object.call_count == 1
@@ -477,18 +501,18 @@ class TestAddS3:
         ]
 
     @pytest.mark.asyncio
-    async def test_does_not_double_slash_when_prefix_ends_with_one(self):
+    async def test_does_not_double_slash_when_prefix_ends_with_one(self, make_s3_store):
         client = _mock_client()
         client.put_object.return_value = {}
-        store, _agent, _s3 = _make_s3_store(
+        store, _agent, _s3 = make_s3_store(
             {}, {"s3": BedrockKnowledgeBaseS3Config(bucket="my-bucket", client=client, prefix="memories/")}
         )
         await store.add("content")
         assert client.put_object.call_args.kwargs["Key"] == "memories/test-uuid-v7.txt"
 
     @pytest.mark.asyncio
-    async def test_writes_a_sidecar_carrying_scope_and_points_metadata_at_it(self):
-        store, agent, s3 = _make_s3_store({"scope": "team-a"})
+    async def test_writes_a_sidecar_carrying_scope_and_points_metadata_at_it(self, make_s3_store):
+        store, agent, s3 = make_s3_store({"scope": "team-a"})
         await store.add("content")
 
         assert s3.put_object.call_count == 2
@@ -511,8 +535,8 @@ class TestAddS3:
         }
 
     @pytest.mark.asyncio
-    async def test_writes_a_sidecar_built_from_caller_metadata(self):
-        store, _agent, s3 = _make_s3_store()
+    async def test_writes_a_sidecar_built_from_caller_metadata(self, make_s3_store):
+        store, _agent, s3 = make_s3_store()
         await store.add("content", {"priority": "high"})
 
         assert s3.put_object.call_count == 2
@@ -526,8 +550,8 @@ class TestAddS3:
         )
 
     @pytest.mark.asyncio
-    async def test_omits_unsupported_metadata_values_from_the_sidecar(self):
-        store, _agent, s3 = _make_s3_store()
+    async def test_omits_unsupported_metadata_values_from_the_sidecar(self, make_s3_store):
+        store, _agent, s3 = make_s3_store()
         await store.add("content", {"keep": "yes", "drop": {"nested": True}})
 
         assert s3.put_object.call_args_list[1].kwargs["Body"] == json.dumps(
@@ -565,8 +589,8 @@ class TestAddS3:
             assert "bedrock-agent" in service_names
 
     @pytest.mark.asyncio
-    async def test_logs_and_rethrows_when_s3_upload_fails_before_any_ingestion(self, caplog):
-        store, agent, s3 = _make_s3_store()
+    async def test_logs_and_rethrows_when_s3_upload_fails_before_any_ingestion(self, make_s3_store, caplog):
+        store, agent, s3 = make_s3_store()
         s3.put_object.side_effect = RuntimeError("upload boom")
 
         with caplog.at_level(logging.ERROR):
@@ -661,7 +685,7 @@ class TestConfigReuseAcrossNamespaces:
         config = BedrockKnowledgeBaseConfig(knowledge_base_id="kb-1", runtime_client=_mock_client())
         a = BedrockKnowledgeBaseStore(config=config, name="dupe", scope="user-abc")
         b = BedrockKnowledgeBaseStore(config=config, name="dupe", scope="other")
-        with pytest.raises(Exception, match="duplicate store name"):
+        with pytest.raises(ValueError, match="duplicate store name"):
             MemoryManager(stores=[a, b])
 
 
@@ -672,14 +696,14 @@ class TestConfigReuseAcrossNamespaces:
 
 class TestScopeAndFilterResolution:
     @pytest.mark.asyncio
-    async def test_applies_no_filter_when_the_store_has_no_scope(self):
-        store, runtime, _agent = _make_store()
+    async def test_applies_no_filter_when_the_store_has_no_scope(self, make_store):
+        store, runtime, _agent = make_store()
         await store.search("q")
         assert _last_search_filter(runtime) is None
 
     @pytest.mark.asyncio
-    async def test_scopes_writes_by_scope_even_when_explicit_search_filter_set(self):
-        store, agent = _make_custom_store({"scope": "tenant-a", "filter": {"equals": {"key": "custom", "value": "v"}}})
+    async def test_scopes_writes_by_scope_even_when_explicit_search_filter_set(self, make_custom_store):
+        store, agent = make_custom_store({"scope": "tenant-a", "filter": {"equals": {"key": "custom", "value": "v"}}})
         await store.add("fact")
         assert _last_inline_attributes(agent) == [
             {"key": "namespace", "value": {"type": "STRING", "stringValue": "tenant-a"}},
@@ -693,8 +717,8 @@ class TestScopeAndFilterResolution:
 
 class TestMetadataLogging:
     @pytest.mark.asyncio
-    async def test_logs_a_debug_line_when_custom_document_drops_unsupported_value(self, caplog):
-        store, _agent = _make_custom_store()
+    async def test_logs_a_debug_line_when_custom_document_drops_unsupported_value(self, make_custom_store, caplog):
+        store, _agent = make_custom_store()
         # The ``strands`` logger is pinned to INFO in conftest; raise it to DEBUG for this logger so
         # the debug line is captured.
         with caplog.at_level(logging.DEBUG, logger="strands"):
@@ -732,7 +756,7 @@ async def _invoke_all(agent: _FakeAgent, event: Any) -> None:
 
 class TestExtractionViaMemoryManager:
     @pytest.mark.asyncio
-    async def test_ingests_extracted_facts_through_add_when_the_trigger_fires(self):
+    async def test_ingests_extracted_facts_through_add_when_the_trigger_fires(self, make_custom_store):
         extractor = MagicMock()
 
         async def _extract(messages, context=None):
@@ -740,7 +764,7 @@ class TestExtractionViaMemoryManager:
 
         extractor.extract.side_effect = _extract
 
-        store, agent_client = _make_custom_store(
+        store, agent_client = make_custom_store(
             {"extraction": ExtractionConfig(trigger=InvocationTrigger(), extractor=extractor)}
         )
 
