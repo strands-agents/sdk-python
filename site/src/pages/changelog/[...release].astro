@@ -1,0 +1,48 @@
+---
+import type { GetStaticPaths } from 'astro'
+import ChangelogLayout from '../../layouts/ChangelogLayout.astro'
+import ChangelogVersion from '../../components/changelog/ChangelogVersion.astro'
+import { getReleases, getReleasePaths, getStreamNeighbors, formatChangelogDate, releaseSlug } from '../../util/changelog'
+import { pathWithBase } from '../../util/links'
+import { SDK_META, LANGUAGE_META } from '../../config/changelog'
+import '../../styles/changelog.css'
+
+export const getStaticPaths: GetStaticPaths = async () => {
+  return getReleasePaths()
+}
+
+const { release } = Astro.props
+const d = release.data
+const all = await getReleases()
+const { newer, older } = getStreamNeighbors(release, all)
+
+const streamLabel = [SDK_META[d.sdk].label, d.language ? LANGUAGE_META[d.language].label : '']
+  .filter(Boolean)
+  .join(' ')
+const title = `${streamLabel} v${d.version}`
+const description = `Release notes for ${streamLabel} v${d.version}, published ${formatChangelogDate(d.date)}.`
+
+const linkFor = (r: typeof release) => pathWithBase(`/changelog/${releaseSlug(r)}/`)
+---
+<ChangelogLayout title={title} description={description}>
+  <div class="cl-page cl-detail">
+    <a class="cl-back" href={pathWithBase('/changelog/')}><span aria-hidden="true">←</span> All releases</a>
+    <ol class="cl-feed-list" role="list">
+      <li class="cl-version-item"><ChangelogVersion release={release} detail /></li>
+    </ol>
+    <nav class="cl-pager" aria-label={`Other ${streamLabel} releases`}>
+      {older ? (
+        <a class="cl-pager-link cl-pager-prev" href={linkFor(older)} rel="prev">
+          <span class="cl-pager-dir"><span aria-hidden="true">←</span> Older</span>
+          <span class="cl-pager-ver">v{older.data.version}</span>
+        </a>
+      ) : <span />}
+      {newer ? (
+        <a class="cl-pager-link cl-pager-next" href={linkFor(newer)} rel="next">
+          <span class="cl-pager-dir">Newer <span aria-hidden="true">→</span></span>
+          <span class="cl-pager-ver">v{newer.data.version}</span>
+        </a>
+      ) : <span />}
+    </nav>
+  </div>
+</ChangelogLayout>

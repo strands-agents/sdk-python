@@ -2,20 +2,26 @@
 import { render } from 'astro:content'
 import MarkdownIt from 'markdown-it'
 import type { ChangelogRelease } from '../../util/changelog'
-import { groupEntries, formatChangelogDate } from '../../util/changelog'
+import { groupEntries, formatChangelogDate, releaseSlug } from '../../util/changelog'
+import { pathWithBase } from '../../util/links'
 import ChangelogEntry from './ChangelogEntry.astro'
 import { ICONS } from './icons.ts'
 
-interface Props { release: ChangelogRelease }
-const { release } = Astro.props
+// `detail` mode powers the per-release page (/changelog/<id>/): all entries
+// shown (no overflow collapsing), first-time contributors rendered, and the
+// version number self-links. On the combined index (detail=false) sections are
+// capped and the number links out to the detail page.
+interface Props { release: ChangelogRelease; detail?: boolean }
+const { release, detail = false } = Astro.props
 const d = release.data
 const { features, fixes, other } = groupEntries(d.entries)
 const langIcon = d.language ? ICONS[d.language] : undefined
 const isPackagePyPI = d.packageUrl.includes('pypi.org')
 
-// Readability: show the first N entries of a section, tuck the rest behind a
-// native <details> expander so huge releases don't dominate the page.
-const SECTION_CAP = 8
+// Readability: on the combined page show the first N entries of a section and
+// tuck the rest behind a native <details> expander so huge releases don't
+// dominate. The detail page shows everything (no cap).
+const SECTION_CAP = detail ? Infinity : 8
 const split = (list: typeof d.entries) => ({
   visible: list.slice(0, SECTION_CAP),
   overflow: list.slice(SECTION_CAP),
@@ -26,6 +32,9 @@ const hasEntries = d.entries.length > 0
 
 // Stable deep-link anchor, e.g. #harness-python-v1.43.0, #evals-v0.2.1
 const anchorId = [d.sdk, d.language, `v${d.version}`].filter(Boolean).join('-')
+
+// Canonical per-release page URL (e.g. /changelog/harness/python-v1.43.0/).
+const detailUrl = pathWithBase(`/changelog/${releaseSlug(release)}/`)
 
 // Render the optional curated highlights string as inline markdown (code,
 // links, emphasis) so authors can use backticks etc.
@@ -42,19 +51,11 @@ const { Content } = await render(release)
 <article class="cl-version" id={anchorId} data-sdk={d.sdk} data-language={d.language ?? ''} aria-labelledby={`${anchorId}-h`}>
   <div class="cl-version-meta">
     <h2 class="cl-version-num" id={`${anchorId}-h`}>
-      <button
-        class="cl-anchor"
-        type="button"
-        data-cl-copy-link={anchorId}
-        aria-label={`Copy link to v${d.version}`}
-        title="Copy link"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-        </svg>
-        <span class="cl-anchor-tip" aria-hidden="true">✓ Copied</span>
-      </button>v{d.version}
+      {detail ? (
+        <span class="cl-version-numtext">v{d.version}</span>
+      ) : (
+        <a class="cl-version-link" href={detailUrl} aria-label={`View v${d.version} release page`}>v{d.version}</a>
+      )}
       <span class="cl-latest" data-cl-latest hidden>Latest</span>
     </h2>
     <div class="cl-version-date">{formatChangelogDate(d.date)}</div>
@@ -78,7 +79,9 @@ const { Content } = await render(release)
         <p set:html={highlightsHtml} />
       </div>
     )}
-    {d.newContributors.length > 0 && (
+    {/* First-time contributors live on the per-release detail page only — the
+        combined index is a scannable list and doesn't need them. */}
+    {detail && d.newContributors.length > 0 && (
       <div class="cl-new-contributors">
         <span class="cl-nc-label">🎉 First-time contributors</span>
         <span class="cl-nc-list">
@@ -123,14 +126,21 @@ const { Content } = await render(release)
         )}
       </>
     )}
-    {other.length > 0 && (
+    {other.length > 0 && (detail ? (
+      <>
+        <h3 class="cl-group fixes">⋯ Other <span class="cl-n">{other.length}</span></h3>
+        <ul class="cl-entries">
+          {other.map((e) => <ChangelogEntry entry={e} />)}
+        </ul>
+      </>
+    ) : (
       <details class="cl-more cl-other">
         <summary>⋯ {other.length} more change{other.length === 1 ? '' : 's'} (chores, docs, tests)</summary>
         <ul class="cl-entries">
           {other.map((e) => <ChangelogEntry entry={e} />)}
         </ul>
       </details>
-    )}
+    ))}
     {!hasEntries && !d.highlights && (
       <p class="cl-no-entries">
         Itemized notes weren't generated for this release —

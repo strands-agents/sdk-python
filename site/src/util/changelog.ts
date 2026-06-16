@@ -12,6 +12,61 @@ export async function getReleases(): Promise<ChangelogRelease[]> {
   return releases.sort((a, b) => b.data.date.getTime() - a.data.date.getTime())
 }
 
+/**
+ * URL slug for a release, e.g. `harness/python-v1.43.0`, `evals/v0.2.1`.
+ * Derived from frontmatter (NOT collection `id`): the glob loader slugifies ids
+ * with github-slugger, which strips the dots from version numbers and would
+ * make `/changelog/harness/python-v1430/` (ugly and ambiguous). This keeps the
+ * dotted version the team chose. Used for both the route param and links so
+ * they always match.
+ */
+export function releaseSlug(r: ChangelogRelease): string {
+  const file = r.data.language ? `${r.data.language}-v${r.data.version}` : `v${r.data.version}`
+  return `${r.data.sdk}/${file}`
+}
+
+/**
+ * Build the getStaticPaths array for the per-release routes, asserting slug
+ * uniqueness. Two files mapping to the same slug (e.g. a duplicated sdk+lang+
+ * version) would otherwise collide into one route silently; fail the build fast
+ * with a clear message instead.
+ */
+export async function getReleasePaths(): Promise<Array<{ params: { release: string }; props: { release: ChangelogRelease } }>> {
+  const releases = await getReleases()
+  const seen = new Map<string, string>()
+  return releases.map((release) => {
+    const slug = releaseSlug(release)
+    if (seen.has(slug)) {
+      throw new Error(`changelog: duplicate release slug "${slug}" from ${release.id} and ${seen.get(slug)}`)
+    }
+    seen.set(slug, release.id)
+    return { params: { release: slug }, props: { release } }
+  })
+}
+
+/** A release belongs to a stream identified by sdk + language (evals has none). */
+function streamKey(r: ChangelogRelease): string {
+  return `${r.data.sdk}:${r.data.language ?? ''}`
+}
+
+/**
+ * Newer/older neighbours of `release` within its own stream (same sdk+language),
+ * for prev/next links on the detail page. `newer`/`older` are relative to date;
+ * either may be null at the ends of the stream.
+ */
+export function getStreamNeighbors(
+  release: ChangelogRelease,
+  all: ChangelogRelease[]
+): { newer: ChangelogRelease | null; older: ChangelogRelease | null } {
+  const key = streamKey(release)
+  const stream = all.filter((r) => streamKey(r) === key) // `all` is newest-first
+  const i = stream.findIndex((r) => r.id === release.id)
+  return {
+    newer: i > 0 ? stream[i - 1] ?? null : null,
+    older: i >= 0 && i < stream.length - 1 ? stream[i + 1] ?? null : null,
+  }
+}
+
 interface GroupedEntries {
   features: ChangelogEntry[]
   fixes: ChangelogEntry[]
@@ -34,6 +89,11 @@ export interface AreaCount {
   count: number
 }
 
+// Areas suppressed from the facet sidebar and entry tags. `community` is a
+// contribution-origin label, not a product area — surfacing it implied
+// community work was a separate track from the rest of the changelog.
+export const HIDDEN_AREAS = new Set(['community'])
+
 /**
  * Count entries per area across the given entries, sorted by count desc then
  * name. Only the curated `areas` field counts — raw conventional-commit scopes
@@ -46,6 +106,7 @@ export function getAreaCounts(entries: ChangelogEntry[]): AreaCount[] {
   const map = new Map<string, number>()
   for (const e of entries) {
     for (const area of e.areas) {
+      if (HIDDEN_AREAS.has(area)) continue
       map.set(area, (map.get(area) ?? 0) + 1)
     }
   }

@@ -347,25 +347,6 @@ const areaCounts = getAreaCounts(allEntries)
     rail?.removeAttribute('data-open'); scrim?.removeAttribute('data-open')
   })
 
-  // Copy-link buttons: write the version's deep link to the clipboard and
-  // flash a "Copied!" tip. Also set the hash so the URL reflects the version.
-  root.querySelectorAll<HTMLElement>('[data-cl-copy-link]').forEach((btn) => {
-    const restoreLabel = btn.getAttribute('aria-label')
-    btn.addEventListener('click', async () => {
-      const id = btn.dataset.clCopyLink!
-      const url = `${location.origin}${location.pathname}${location.search}#${id}`
-      try { await navigator.clipboard.writeText(url) } catch { /* clipboard unavailable */ }
-      history.replaceState(null, '', `#${id}`)
-      btn.classList.add('copied')
-      // Announce the confirmation to AT (the visible "✓ Copied" tip is aria-hidden).
-      btn.setAttribute('aria-label', 'Link copied')
-      setTimeout(() => {
-        btn.classList.remove('copied')
-        if (restoreLabel) btn.setAttribute('aria-label', restoreLabel)
-      }, 1200)
-    })
-  })
-
   // Scroll-spy: light up the timeline rail of the version currently in the
   // top band of the viewport. Observer callbacks only report elements whose
   // intersection CHANGED, so track the full intersecting set across calls and

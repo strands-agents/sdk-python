@@ -10,8 +10,15 @@
   --changelog-danger: #b60205;
 }
 
+/* Starlight's splash template wraps our slot in .sl-container (max-width 1080px)
+   and .sl-markdown-content. Both cap the page far short of full width, so opt
+   out here. This stylesheet only loads on /changelog, so the override is scoped
+   to this page in practice. */
+.sl-markdown-content :where(.cl-page) { max-width: none; }
+.content-panel .sl-container { max-width: none; }
+
 .cl-page {
-  max-width: 1200px;
+  max-width: 1600px;
   margin: 0 auto;
   padding: 2rem 1.5rem 4rem;
   font-family: var(--sl-font);
@@ -61,9 +68,11 @@
 
 /* layout: rail + feed */
 .cl-body { display: flex; border: 1px solid var(--sl-color-hairline); border-radius: 12px; overflow: hidden; }
-.cl-rail { width: 220px; flex-shrink: 0; border-right: 1px solid var(--sl-color-hairline); padding: 1.25rem 1rem; }
+.cl-rail { width: 200px; flex-shrink: 0; border-right: 1px solid var(--sl-color-hairline); padding: 1.25rem 0.85rem; }
 .cl-feed { flex: 1; padding: 1.25rem 0; display: flex; justify-content: center; }
-.cl-feed-inner { width: 100%; max-width: 740px; padding: 0 1.75rem; }
+/* Fill the feed column (no narrow reading cap) so the wide layout is actually
+   used; generous right padding keeps titles/area tags off the card border. */
+.cl-feed-inner { width: 100%; max-width: none; padding: 0 3rem; }
 /* The release feed is a semantic list; strip list chrome (markers/indent). */
 .cl-feed-list { list-style: none; margin: 0; padding: 0; }
 .cl-version-item { margin: 0; }
@@ -73,12 +82,13 @@
 .cl-rail-label { font-size: var(--cl-text-meta); letter-spacing: 0.09em; text-transform: uppercase; color: var(--sl-color-gray-3); font-weight: 700; margin-bottom: 0.55rem; }
 
 /* area chips (semantic list) */
-.cl-areas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.cl-areas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.1rem; }
 .cl-area-item { margin: 0; display: flex; }
 .cl-area { display: flex; align-items: center; gap: 0.5rem; width: 100%; box-sizing: border-box;
-  font-size: 0.875rem; padding: 0.5rem 0.75rem; border-radius: var(--cl-radius-control); border: 1px solid var(--sl-color-gray-5);
+  font-size: 0.8rem; line-height: 1.2; padding: 0.28rem 0.5rem; border-radius: var(--cl-radius-control); border: 1px solid transparent;
   color: var(--sl-color-gray-2); background: transparent; cursor: pointer; text-align: left; }
-.cl-area .cl-count { margin-left: auto; color: var(--sl-color-gray-3); font-size: var(--cl-text-meta); }
+.cl-area:hover { background: color-mix(in srgb, var(--sl-color-gray-5) 40%, transparent); }
+.cl-area .cl-count { margin-left: auto; color: var(--sl-color-gray-3); font-size: var(--cl-text-meta); font-variant-numeric: tabular-nums; }
 .cl-area[aria-pressed='true'] { border-color: var(--sl-color-accent); color: var(--sl-color-accent);
   background: color-mix(in srgb, var(--sl-color-accent) 8%, transparent); }
 
@@ -90,32 +100,21 @@
   content-visibility: auto; contain-intrinsic-size: auto 320px;
   /* Anchored version lands clear of the site header. */
   scroll-margin-top: 5.5rem; }
-.cl-version-meta { min-width: 104px; text-align: right; }
-/* Version number row: copy-link icon sits inline, immediately left of the
-   number (mirrors the docs heading anchor affordance, but copies the link). */
+/* Fixed width (not min-width): the "Latest" badge must not widen this column,
+   or the rail dot/line jogs right and the scroll line looks discontinuous
+   between the latest release and the rest. The badge wraps below the number. */
+.cl-version-meta { width: 104px; flex-shrink: 0; text-align: right; }
 .cl-version-num { color: var(--sl-color-white); font-weight: 700; font-size: 1.3rem; margin: 0;
   position: relative; display: flex; align-items: center; justify-content: flex-end; gap: 0.3rem; flex-wrap: wrap; }
 /* "Latest" badge — marks the newest release of the active stream. */
 .cl-latest { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
   padding: 0.1rem 0.4rem; border-radius: var(--cl-radius-pill);
   background: var(--sl-color-accent); color: var(--sl-color-text-invert); }
-.cl-anchor { display: inline-flex; align-items: center; padding: 0.15rem;
-  background: transparent; border: 0; cursor: pointer; color: var(--sl-color-gray-4);
-  opacity: 0; transition: opacity 0.12s ease; }
-.cl-version:hover .cl-anchor, .cl-anchor:focus-visible { opacity: 1; }
-.cl-anchor:hover { color: var(--sl-color-accent); }
-/* "✓ Copied" floats as a tooltip BELOW the version number — absolutely
-   positioned (no layout shift). It must point DOWN into the box interior:
-   the version number sits at the box's top edge, so anything positioned
-   above it escapes the box and gets clipped by content-visibility's
-   paint containment. Below = inside the box = visible. */
-.cl-anchor-tip { position: absolute; top: calc(100% + 0.25rem); right: 0; z-index: 2;
-  padding: 0.15rem 0.5rem; border-radius: 6px; font-size: 0.7rem; font-weight: 600;
-  background: var(--sl-color-accent); color: var(--sl-color-text-invert);
-  white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity 0.15s ease; }
-.cl-anchor.copied .cl-anchor-tip { opacity: 1; }
-/* Touch devices have no hover — keep the affordance visible. */
-@media (hover: none) { .cl-anchor { opacity: 0.6; } }
+/* The version number links to its per-release page on the combined index;
+   inherits the heading color, accent + underline on hover. On the detail page
+   it's plain text (.cl-version-numtext). */
+.cl-version-link { color: inherit; text-decoration: none; }
+.cl-version-link:hover, .cl-version-link:focus-visible { color: var(--sl-color-accent); text-decoration: underline; text-underline-offset: 3px; }
 .cl-version-date { color: var(--sl-color-gray-3); font-size: 0.8rem; margin-top: 2px; }
 .cl-version-links { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.5rem; align-items: flex-end; }
 .cl-version-links a { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem; color: var(--sl-color-gray-3); text-decoration: none; }
@@ -150,7 +149,7 @@
   margin: 1.4rem 0 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
 .cl-version-body > .cl-group:first-child { margin-top: 0.4rem; }
 .cl-group .cl-n { color: var(--sl-color-gray-3); font-weight: 600; font-size: 0.8rem; }
-.cl-group.fixes { color: var(--sl-color-gray-1); border-top: 1px dashed var(--sl-color-hairline); padding-top: 1.1rem; }
+.cl-group.fixes { color: var(--sl-color-gray-1); border-top: 1px solid var(--sl-color-gray-5); padding-top: 1.1rem; }
 
 /* Each group's entries are a semantic list; strip list chrome. */
 .cl-entries { list-style: none; margin: 0; padding: 0; }
@@ -165,12 +164,6 @@
    hover reveals the affordance. */
 a.cl-entry-title { color: var(--sl-color-gray-1); }
 a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underline; text-underline-offset: 3px; }
-/* metadata quieter than titles so titles scan cleanly */
-.cl-entry-links { display: inline-flex; gap: 0.5rem; white-space: nowrap; align-items: baseline; opacity: 0.75; }
-.cl-entry:hover .cl-entry-links { opacity: 1; }
-.cl-entry-links a { font-size: var(--cl-text-meta); color: var(--sl-color-gray-4); display: inline-flex; align-items: center; gap: 0.2rem; }
-.cl-entry-links a:hover { color: var(--sl-color-accent); }
-.cl-entry-author { color: var(--sl-color-gray-4); font-size: var(--cl-text-meta); }
 .cl-atag { font-size: var(--cl-text-meta); padding: 0.1rem 0.5rem; border-radius: var(--cl-radius-pill); border: 1px solid var(--sl-color-gray-5); color: var(--sl-color-gray-3); white-space: nowrap; }
 .cl-break { font-size: 0.65rem; font-weight: 700; color: var(--changelog-danger);
   border: 1px solid color-mix(in srgb, var(--changelog-danger) 45%, transparent); border-radius: 4px;
@@ -180,7 +173,7 @@ a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underli
 .cl-more { margin: 0.2rem 0 0.4rem; }
 .cl-more > summary { cursor: pointer; font-size: 0.8rem; color: var(--sl-color-gray-3); padding: 0.3rem 0; list-style-position: inside; }
 .cl-more > summary:hover { color: var(--sl-color-accent); }
-.cl-more.cl-other { border-top: 1px dashed var(--sl-color-hairline); padding-top: 0.5rem; margin-top: 0.9rem; }
+.cl-more.cl-other { border-top: 1px solid var(--sl-color-gray-5); padding-top: 0.5rem; margin-top: 0.9rem; }
 
 /* fallback when a release has no parsed entries (e.g. upstream notes omitted) */
 .cl-no-entries { color: var(--sl-color-gray-3); font-size: 0.9rem; margin: 0.5rem 0; }
@@ -197,6 +190,27 @@ a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underli
   color: var(--sl-color-gray-2); text-decoration: none; }
 .cl-nc:hover { color: var(--sl-color-accent); }
 .cl-nc img { display: block; border-radius: var(--cl-radius-pill); flex-shrink: 0; }
+
+/* per-release detail page: narrower reading column, no timeline rail (a single
+   release has nothing to scroll-spy), meta reads left-aligned above the body. */
+.cl-detail { max-width: 880px; }
+.cl-detail .cl-version { flex-direction: column; gap: 0.5rem; }
+.cl-detail .cl-version-meta { width: auto; text-align: left; }
+.cl-detail .cl-version-num { justify-content: flex-start; }
+.cl-detail .cl-version-links { align-items: flex-start; }
+.cl-detail .cl-rail-line { display: none; }
+.cl-back { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.85rem;
+  color: var(--sl-color-gray-3); text-decoration: none; margin-bottom: 1.25rem; }
+.cl-back:hover { color: var(--sl-color-accent); }
+/* prev/next within the same stream */
+.cl-pager { display: flex; justify-content: space-between; gap: 1rem; margin-top: 2rem;
+  padding-top: 1.5rem; border-top: 1px solid var(--sl-color-gray-5); }
+.cl-pager-link { display: inline-flex; flex-direction: column; gap: 0.15rem; text-decoration: none;
+  padding: 0.6rem 0.9rem; border-radius: var(--cl-radius-control); border: 1px solid var(--sl-color-gray-5); }
+.cl-pager-next { text-align: right; }
+.cl-pager-link:hover { border-color: var(--sl-color-accent); }
+.cl-pager-dir { font-size: 0.72rem; color: var(--sl-color-gray-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.cl-pager-ver { font-size: 0.95rem; font-weight: 600; color: var(--sl-color-white); }
 
 /* visually-hidden live region announcing filter result changes to AT */
 .cl-sr-status { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
@@ -225,7 +239,21 @@ a.cl-entry-title:hover { color: var(--sl-color-accent); text-decoration: underli
     color: var(--sl-color-white); background: transparent; cursor: pointer; }
   .cl-filter-btn .cl-badge { background: var(--sl-color-accent); color: var(--sl-color-text-invert);
     font-weight: 700; border-radius: var(--cl-radius-pill); font-size: 0.55rem; padding: 0 0.3rem; }
-  .cl-feed-inner { padding: 0; max-width: none; }
+  /* Keep entry text off the card border so it doesn't look cramped. */
+  .cl-feed-inner { padding: 0 1.1rem; }
+  /* Stack title over controls so the SDK/language toggles don't run off the
+     right edge on narrow screens. */
+  .cl-head { flex-direction: column; align-items: stretch; }
+  .cl-controls { align-items: flex-start; }
+  .cl-control-label { min-width: 0; text-align: left; }
+  /* Stack the version block: the right-aligned meta column starves entry titles
+     into one-word-per-line wraps on narrow screens. Single column gives titles
+     the full width; meta reads left-aligned above the body. */
+  .cl-version { flex-direction: column; gap: 0.5rem; }
+  .cl-version-meta { width: auto; text-align: left; }
+  .cl-version-num { justify-content: flex-start; }
+  .cl-version-links { align-items: flex-start; }
+  .cl-rail-line { display: none; }
 }
 
 /* witty "Evals isn't on TypeScript yet" panel */
