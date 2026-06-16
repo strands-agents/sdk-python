@@ -1,4 +1,4 @@
-"""Adapter for cedar-mcp-schema-generator package."""
+"""Adapter for cedar-policy-mcp-schema-generator package."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class ToolDefinition(TypedDict, total=False):
 
 
 def generate_cedar_schema(tools: list[ToolDefinition]) -> str:
-    """Generate a Cedar schema from tool definitions using cedar-mcp-schema-generator.
+    """Generate a Cedar schema from tool definitions using cedar-policy-mcp-schema-generator.
 
     Args:
         tools: List of MCP-format tool definitions.
@@ -40,15 +40,15 @@ def generate_cedar_schema(tools: list[ToolDefinition]) -> str:
         Cedar schema text with namespace wrapper stripped.
 
     Raises:
-        ImportError: If cedar-mcp-schema-generator is not installed.
+        ImportError: If cedar-policy-mcp-schema-generator is not installed.
         RuntimeError: If schema generation fails.
     """
     try:
         from cedar_mcp_schema_generator import SchemaGeneratorError, generate_schema_or_raise
     except ImportError as e:
         raise ImportError(
-            "cedar-mcp-schema-generator is required for auto schema generation. "
-            "Install it with: pip install cedar-mcp-schema-generator"
+            "cedar-policy-mcp-schema-generator is required for auto schema generation. "
+            "Install it with: pip install cedar-policy-mcp-schema-generator"
         ) from e
 
     try:

@@ -15,7 +15,7 @@ except ImportError:
 from strands.vended_interventions.cedar._schema_generator import generate_cedar_schema  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
-    not HAS_SCHEMA_GENERATOR, reason="cedar-mcp-schema-generator not installed"
+    not HAS_SCHEMA_GENERATOR, reason="cedar-policy-mcp-schema-generator not installed"
 )
 
 
