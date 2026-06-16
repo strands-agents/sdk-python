@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from strands.agent.conversation_manager.compression.pin_message import pin_message
-from strands.context_manager.modes.agentic.agentic_context import (
+from strands._context_manager.modes.agentic.agentic_context import (
     pin_context,
     summarize_context,
     truncate_context,

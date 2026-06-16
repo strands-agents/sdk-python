@@ -339,7 +339,7 @@ class Agent(AgentBase):
 
         # Inject the model-driven context-management tools when running in agentic mode.
         if context_manager == "agentic":
-            from ..context_manager.modes.agentic.agentic_context import (
+            from .._context_manager.modes.agentic.agentic_context import (
                 pin_context,
                 summarize_context,
                 truncate_context,
@@ -377,8 +377,8 @@ class Agent(AgentBase):
 
         # In agentic mode, surface live token usage to the model so it can decide when to compress.
         if context_manager == "agentic":
+            from .._context_manager.modes.agentic.agentic_context import create_token_usage_middleware
             from .._middleware.stages import InvokeModelStage
-            from ..context_manager.modes.agentic.agentic_context import create_token_usage_middleware
 
             self._middleware_registry.add_middleware(InvokeModelStage.Input, create_token_usage_middleware(self.model))
 
