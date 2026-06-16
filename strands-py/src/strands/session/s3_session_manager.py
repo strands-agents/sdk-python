@@ -16,6 +16,8 @@ from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
 if TYPE_CHECKING:
+    from mypy_boto3_s3.type_defs import ObjectIdentifierTypeDef
+
     from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
@@ -193,7 +195,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             paginator = self.client.get_paginator("list_objects_v2")
             pages = paginator.paginate(Bucket=self.bucket, Prefix=session_prefix)
 
-            objects_to_delete = []
+            objects_to_delete: list[ObjectIdentifierTypeDef] = []
             for page in pages:
                 if "Contents" in page:
                     objects_to_delete.extend([{"Key": obj["Key"]} for obj in page["Contents"]])

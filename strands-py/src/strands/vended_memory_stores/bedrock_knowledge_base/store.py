@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from mypy_boto3_bedrock_agent.type_defs import KnowledgeBaseDocumentTypeDef
     from mypy_boto3_bedrock_agent_runtime import AgentsforBedrockRuntimeClient
     from mypy_boto3_bedrock_agent_runtime.type_defs import KnowledgeBaseVectorSearchConfigurationTypeDef
+    from mypy_boto3_s3 import S3Client
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ class BedrockKnowledgeBaseStore(MemoryStore):
         self._config = kb_config
         self._agent_client: AgentsforBedrockClient | None = kb_config.get("agent_client")
         s3_config = kb_config.get("s3")
-        self._s3_client: Any | None = s3_config.get("client") if s3_config else None
+        self._s3_client: S3Client | None = s3_config.get("client") if s3_config else None
         self._s3_config = s3_config
         self._knowledge_base_id = kb_config["knowledge_base_id"]
         self._data_source_type = kb_config.get("data_source_type")
@@ -425,7 +426,7 @@ class BedrockKnowledgeBaseStore(MemoryStore):
             )
         return self._data_source_id, self._data_source_type
 
-    def _get_s3_client(self) -> Any:
+    def _get_s3_client(self) -> S3Client:
         """Return the S3 client, constructing a default one lazily on first use.
 
         A default client is built with no extra configuration. Callers needing a specific region,

@@ -12,6 +12,7 @@ from ...memory.types import MemoryStoreConfig
 if TYPE_CHECKING:
     from mypy_boto3_bedrock_agent import AgentsforBedrockClient
     from mypy_boto3_bedrock_agent_runtime import AgentsforBedrockRuntimeClient
+    from mypy_boto3_s3 import S3Client
 
 
 class BedrockKnowledgeBaseS3Config(TypedDict, total=False):
@@ -47,7 +48,7 @@ class BedrockKnowledgeBaseS3Config(TypedDict, total=False):
 
     bucket: Required[str]
     prefix: Required[str]
-    client: Any
+    client: S3Client
 
 
 class BedrockKnowledgeBaseConfig(TypedDict, total=False):
