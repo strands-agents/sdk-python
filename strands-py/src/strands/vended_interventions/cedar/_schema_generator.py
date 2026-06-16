@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, cast
 
 from typing_extensions import Required, TypedDict
 
@@ -52,7 +52,9 @@ def generate_cedar_schema(tools: list[ToolDefinition]) -> str:
         ) from e
 
     try:
-        result = generate_schema_or_raise(DEFAULT_STUB, tools, config={"flattenNamespaces": True})
+        result = generate_schema_or_raise(
+            DEFAULT_STUB, cast(list[dict[str, Any]], tools), config={"flattenNamespaces": True}
+        )
     except SchemaGeneratorError as e:
         raise RuntimeError(f"Schema generation failed: {e}") from e
 
