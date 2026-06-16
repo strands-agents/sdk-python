@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
+import weakref
 from typing import TYPE_CHECKING
 
 from ...hooks.events import AfterToolCallEvent, BeforeModelCallEvent
@@ -41,7 +42,7 @@ from ...plugins import Plugin, hook
 from ...tools.decorator import tool
 from ...types.content import Message
 from ...types.tools import ToolContext, ToolResult, ToolResultContent
-from .storage import InMemoryStorage, Storage
+from .storage import FileStorage, InMemoryStorage, Storage
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -134,15 +135,41 @@ class ContextOffloader(Plugin):
             raise ValueError("preview_tokens must be less than max_result_tokens")
 
         self._storage = storage
+        # Per-agent FileStorage bound to that agent's sandbox; other backends are shared as-is.
+        self._storage_by_agent: weakref.WeakKeyDictionary[Agent, Storage] = weakref.WeakKeyDictionary()
         self._max_result_tokens = max_result_tokens
         self._preview_tokens = preview_tokens
         self._include_retrieval_tool = include_retrieval_tool
         super().__init__()
 
+    def _storage_for_agent(self, agent: Agent) -> Storage:
+        """Return the storage for an agent, binding FileStorage to its sandbox.
+
+        Non-FileStorage backends are shared across agents unchanged. A FileStorage
+        is bound once per agent to that agent's sandbox via
+        :meth:`FileStorage.for_sandbox`, so a shared plugin isolates artifacts per
+        agent sandbox.
+
+        Args:
+            agent: The agent whose storage to resolve.
+
+        Returns:
+            The storage instance for this agent.
+        """
+        if not isinstance(self._storage, FileStorage):
+            return self._storage
+        storage = self._storage_by_agent.get(agent)
+        if storage is None:
+            storage = self._storage.for_sandbox(agent.sandbox)
+            self._storage_by_agent[agent] = storage
+        return storage
+
     def init_agent(self, agent: Agent) -> None:
         """Conditionally register the retrieval tool and bind storage."""
         if isinstance(self._storage, InMemoryStorage):
             self._storage._bind(id(agent))
+        # Bind FileStorage to this agent's sandbox up front (no-op for other backends).
+        self._storage_for_agent(agent)
         if not self._include_retrieval_tool:
             # Remove the auto-discovered retrieval tool
             self._tools = [t for t in self._tools if t.tool_name != "retrieve_offloaded_content"]
@@ -154,7 +181,7 @@ class ContextOffloader(Plugin):
             self._storage._evict(event.agent.event_loop_metrics.cycle_count)
 
     @tool(context=True)
-    def retrieve_offloaded_content(
+    async def retrieve_offloaded_content(
         self,
         reference: str,
         tool_context: ToolContext,
@@ -169,8 +196,9 @@ class ContextOffloader(Plugin):
             reference: The reference string from the offload placeholder.
             tool_context: Injected by the framework. Not user-facing.
         """
+        storage = self._storage_for_agent(tool_context.agent)
         try:
-            content_bytes, content_type = self._storage.retrieve(reference)
+            content_bytes, content_type = await storage.retrieve(reference)
         except KeyError:
             return f"Error: reference not found: {reference}"
 
@@ -226,23 +254,24 @@ class ContextOffloader(Plugin):
         full_text = "\n".join(text_preview_parts) if text_preview_parts else ""
 
         # Store each content block individually
+        storage = self._storage_for_agent(event.agent)
         references: list[tuple[str, str, str]] = []  # (ref, content_type, description)
         try:
             for i, block in enumerate(content):
                 key = f"{tool_use_id}_{i}"
                 if block.get("text"):
-                    ref = self._storage.store(key, block["text"].encode("utf-8"), "text/plain")
+                    ref = await storage.store(key, block["text"].encode("utf-8"), "text/plain")
                     references.append((ref, "text/plain", f"text, {len(block['text']):,} chars"))
                 elif "json" in block:
                     json_bytes = json.dumps(block["json"], indent=2).encode("utf-8")
-                    ref = self._storage.store(key, json_bytes, "application/json")
+                    ref = await storage.store(key, json_bytes, "application/json")
                     references.append((ref, "application/json", f"json, {len(json_bytes):,} bytes"))
                 elif "image" in block:
                     image = block["image"]
                     img_format = image.get("format", "unknown")
                     img_bytes = image.get("source", {}).get("bytes", b"")
                     if img_bytes:
-                        ref = self._storage.store(key, img_bytes, f"image/{img_format}")
+                        ref = await storage.store(key, img_bytes, f"image/{img_format}")
                         references.append((ref, f"image/{img_format}", f"image/{img_format}, {len(img_bytes):,} bytes"))
                     else:
                         references.append(("", f"image/{img_format}", f"image/{img_format}, 0 bytes"))
@@ -252,7 +281,7 @@ class ContextOffloader(Plugin):
                     doc_name = doc.get("name", "unknown")
                     doc_bytes = doc.get("source", {}).get("bytes", b"")
                     if doc_bytes:
-                        ref = self._storage.store(key, doc_bytes, f"application/{doc_format}")
+                        ref = await storage.store(key, doc_bytes, f"application/{doc_format}")
                         references.append((ref, f"application/{doc_format}", f"{doc_name}, {len(doc_bytes):,} bytes"))
                     else:
                         references.append(("", f"application/{doc_format}", f"{doc_name}, 0 bytes"))

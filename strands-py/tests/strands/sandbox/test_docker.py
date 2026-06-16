@@ -11,6 +11,7 @@ import pytest
 
 from strands.sandbox.docker import DockerSandbox
 from strands.sandbox.types import ExecutionResult
+from strands.vended_tools.bash import SANDBOX_BASH_DESCRIPTION
 
 
 @pytest.fixture
@@ -96,3 +97,15 @@ async def test_forwards_timeout_and_enoent_message(mock_stream_process):
 async def test_rejects_invalid_env_var_names(mock_stream_process):
     with pytest.raises(ValueError, match="Invalid environment variable name"):
         await DockerSandbox("my-container").execute("cmd", env={"FOO=bar BAZ": "val"})
+
+
+def test_get_tools_vends_file_editor_and_bash():
+    tools = DockerSandbox("my-container").get_tools()
+    assert [t.tool_name for t in tools] == ["file_editor", "bash"]
+
+
+def test_get_tools_bash_description_names_container():
+    tools = DockerSandbox("my-container").get_tools()
+    bash_tool = next(t for t in tools if t.tool_name == "bash")
+    assert SANDBOX_BASH_DESCRIPTION in bash_tool.tool_spec["description"]
+    assert "my-container" in bash_tool.tool_spec["description"]

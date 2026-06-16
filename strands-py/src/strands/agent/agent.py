@@ -364,6 +364,21 @@ class Agent(AgentBase):
         if load_tools_from_directory:
             self.tool_watcher = ToolWatcher(tool_registry=self.tool_registry)
 
+        # Register tools vended by an explicitly-configured sandbox, applying the sandbox's
+        # tool_prefix to names (like MCP's prefix for server-vended tools). The host default
+        # vends nothing. A tool is skipped if the user already registered one with that name.
+        if not isinstance(self._sandbox, NotASandboxLocalEnvironment):
+            prefix = self._sandbox.tool_prefix
+            for sandbox_tool in self._sandbox.get_tools():
+                prefixed = sandbox_tool.with_prefix(prefix) if prefix else sandbox_tool
+                if prefixed.tool_name in self.tool_registry.registry:
+                    logger.debug(
+                        "tool_name=<%s> | sandbox-vended tool skipped, user already registered a tool with this name",
+                        prefixed.tool_name,
+                    )
+                else:
+                    self.tool_registry.register_tool(prefixed)
+
         self.event_loop_metrics = EventLoopMetrics()
 
         # Initialize tracer instance (no-op if not configured)

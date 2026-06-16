@@ -8,6 +8,9 @@ import shlex
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from ..types.tools import AgentTool
+from ..vended_tools.bash import SANDBOX_BASH_DESCRIPTION, make_bash
+from ..vended_tools.file_editor import DEFAULT_FILE_EDITOR_DESCRIPTION, make_file_editor
 from .posix_shell import PosixShellSandbox, build_shell_env_prefix
 from .stream_process import stream_process
 from .types import ExecutionResult, StreamChunk
@@ -173,3 +176,22 @@ class SshSandbox(PosixShellSandbox):
             "ssh", args, timeout=timeout, enoent_message="ssh is not installed or not on PATH"
         ):
             yield chunk
+
+    def get_tools(self) -> list[AgentTool]:
+        """Default sandbox-compatible tools auto-registered with this sandbox.
+
+        Returns:
+            The tools bound to this sandbox, with descriptions naming the remote host.
+        """
+        return [
+            make_file_editor(
+                self,
+                description=f'{DEFAULT_FILE_EDITOR_DESCRIPTION} Files are on host "{self.host}".',
+            ),
+            make_bash(
+                self,
+                description=(
+                    f'{SANDBOX_BASH_DESCRIPTION} Runs on host "{self.host}". Working directory: {self.working_dir}.'
+                ),
+            ),
+        ]

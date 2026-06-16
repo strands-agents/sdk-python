@@ -31,11 +31,14 @@ import re
 import threading
 import time
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
+
+if TYPE_CHECKING:
+    from ...sandbox.base import Sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +76,7 @@ class Storage(Protocol):
         backend with built-in lifecycle management (e.g., S3 lifecycle policies).
     """
 
-    def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
+    async def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content and return a reference identifier.
 
         Args:
@@ -87,7 +90,7 @@ class Storage(Protocol):
         """
         ...
 
-    def retrieve(self, reference: str) -> tuple[bytes, str]:
+    async def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve stored content by reference.
 
         Args:
@@ -103,28 +106,60 @@ class Storage(Protocol):
 
 
 class FileStorage:
-    """Store offloaded content as files on disk.
+    """Store offloaded content as files, on the host filesystem or through a sandbox.
 
     Files are written to the configured artifact directory with unique names.
     File extensions are derived from the content type. A ``.metadata.json``
     sidecar file tracks content types so they survive process restarts.
 
+    When constructed without a ``sandbox``, writes go to the host filesystem.
+    When used by :class:`ContextOffloader`, the plugin binds a per-agent copy to
+    that agent's sandbox (which may be the host default) via :meth:`for_sandbox`.
+
     Args:
         artifact_dir: Directory path where artifact files will be stored.
+        sandbox: Optional sandbox to route file I/O through. When ``None``,
+            the host filesystem is used directly.
     """
 
     _METADATA_FILE = ".metadata.json"
 
-    def __init__(self, artifact_dir: str = "./artifacts") -> None:
+    def __init__(self, artifact_dir: str = "./artifacts", *, sandbox: "Sandbox | None" = None) -> None:
         """Initialize file-based storage.
 
         Args:
             artifact_dir: Directory path where artifact files will be stored.
+            sandbox: Optional sandbox to route file I/O through.
         """
         self._artifact_dir = Path(artifact_dir)
+        self._sandbox = sandbox
         self._counter: int = 0
         self._lock = threading.Lock()
-        self._content_types: dict[str, str] = self._load_metadata()
+        self._metadata_loaded = False
+        # Host metadata can load eagerly; sandbox metadata loads lazily on first use
+        # (the sandbox may be remote, so we avoid I/O during construction).
+        if sandbox is None:
+            self._content_types: dict[str, str] = self._load_metadata()
+            self._metadata_loaded = True
+        else:
+            self._content_types = {}
+
+    def for_sandbox(self, sandbox: "Sandbox") -> "FileStorage":
+        """Return a storage instance bound to the given sandbox.
+
+        Instances constructed with an explicit sandbox keep using it (returns
+        ``self``). Otherwise a new instance is returned so a shared
+        :class:`ContextOffloader` can isolate artifacts per agent sandbox.
+
+        Args:
+            sandbox: Sandbox to bind the returned instance to.
+
+        Returns:
+            A FileStorage routed through ``sandbox``.
+        """
+        if self._sandbox is not None:
+            return self
+        return FileStorage(str(self._artifact_dir), sandbox=sandbox)
 
     @staticmethod
     def _extension_for(content_type: str) -> str:
@@ -133,7 +168,11 @@ class FileStorage:
             return ".txt"
         return f".{content_type.split('/')[-1]}"
 
-    def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
+    def _artifact_path(self, filename: str) -> str:
+        """Join a filename onto the artifact dir, preserving its string form."""
+        return f"{str(self._artifact_dir).rstrip('/')}/{filename}"
+
+    async def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content as a file and return the path as reference.
 
         The returned path preserves the form of ``artifact_dir`` passed to
@@ -148,24 +187,34 @@ class FileStorage:
         Returns:
             The file path (e.g., ``./artifacts/1234_1_key.txt``).
         """
-        self._artifact_dir.mkdir(parents=True, exist_ok=True)
-
         sanitized_key = _sanitize_id(key)
         timestamp_ms = int(time.time() * 1000)
         ext = self._extension_for(content_type)
+
+        if self._sandbox is not None:
+            await self._ensure_sandbox_metadata()
+            with self._lock:
+                self._counter += 1
+                filename = f"{timestamp_ms}_{self._counter}_{sanitized_key}{ext}"
+                self._content_types[filename] = content_type
+            # Persist the content-type sidecar, then the artifact itself.
+            await self._sandbox.write_text(self._artifact_path(self._METADATA_FILE), json.dumps(self._content_types))
+            file_path = self._artifact_path(filename)
+            await self._sandbox.write_file(file_path, content)
+            return file_path
+
+        self._artifact_dir.mkdir(parents=True, exist_ok=True)
         with self._lock:
             self._counter += 1
-            counter = self._counter
-            filename = f"{timestamp_ms}_{counter}_{sanitized_key}{ext}"
+            filename = f"{timestamp_ms}_{self._counter}_{sanitized_key}{ext}"
             self._content_types[filename] = content_type
             self._save_metadata()
 
-        file_path = self._artifact_dir / filename
-        file_path.write_bytes(content)
+        host_path = self._artifact_dir / filename
+        host_path.write_bytes(content)
+        return str(host_path)
 
-        return str(file_path)
-
-    def retrieve(self, reference: str) -> tuple[bytes, str]:
+    async def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve content from a stored file.
 
         Accepts both full paths (as returned by ``store()``) and bare
@@ -180,6 +229,18 @@ class FileStorage:
         Raises:
             KeyError: If the file does not exist.
         """
+        if self._sandbox is not None:
+            await self._ensure_sandbox_metadata()
+            prefix = f"{str(self._artifact_dir).rstrip('/')}/"
+            if not reference.startswith(prefix) or ".." in reference:
+                raise KeyError(f"Reference not found: {reference}")
+            filename = reference.split("/")[-1]
+            try:
+                content = await self._sandbox.read_file(reference)
+            except Exception as e:
+                raise KeyError(f"Reference not found: {reference}") from e
+            return content, self._content_types.get(filename, "application/octet-stream")
+
         resolved_dir = self._artifact_dir.resolve()
         ref_path = Path(reference)
         file_path = ref_path.resolve() if len(ref_path.parts) > 1 else (self._artifact_dir / reference).resolve()
@@ -193,8 +254,21 @@ class FileStorage:
         content_type = self._content_types.get(filename, "application/octet-stream")
         return file_path.read_bytes(), content_type
 
+    async def _ensure_sandbox_metadata(self) -> None:
+        """Lazily load the content-type sidecar from the sandbox on first use."""
+        if self._metadata_loaded:
+            return
+        assert self._sandbox is not None
+        try:
+            raw = await self._sandbox.read_text(self._artifact_path(self._METADATA_FILE))
+            loaded = json.loads(raw)
+            self._content_types = loaded if isinstance(loaded, dict) else {}
+        except Exception:
+            self._content_types = {}
+        self._metadata_loaded = True
+
     def _load_metadata(self) -> dict[str, str]:
-        """Load content type metadata from the sidecar file."""
+        """Load content type metadata from the sidecar file (host filesystem)."""
         metadata_path = self._artifact_dir / self._METADATA_FILE
         if metadata_path.is_file():
             try:
@@ -205,7 +279,7 @@ class FileStorage:
         return {}
 
     def _save_metadata(self) -> None:
-        """Save content type metadata to the sidecar file."""
+        """Save content type metadata to the sidecar file (host filesystem)."""
         metadata_path = self._artifact_dir / self._METADATA_FILE
         metadata_path.write_text(json.dumps(self._content_types), encoding="utf-8")
 
@@ -259,7 +333,7 @@ class InMemoryStorage:
         self._bound_agent_id: int | None = None
         self._lock = threading.Lock()
 
-    def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
+    async def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content in memory and return a reference.
 
         Args:
@@ -276,7 +350,7 @@ class InMemoryStorage:
             self._store[reference] = (content, content_type, self._current_cycle)
         return reference
 
-    def retrieve(self, reference: str) -> tuple[bytes, str]:
+    async def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve content from memory.
 
         Refreshes the last-accessed turn so the entry stays alive longer
@@ -405,7 +479,7 @@ class S3Storage:
         self._counter: int = 0
         self._lock = threading.Lock()
 
-    def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
+    async def store(self, key: str, content: bytes, content_type: str = "text/plain") -> str:
         """Store content as an S3 object and return an ``s3://`` URI as reference.
 
         Args:
@@ -436,7 +510,7 @@ class S3Storage:
 
         return f"s3://{self._bucket}/{s3_key}"
 
-    def retrieve(self, reference: str) -> tuple[bytes, str]:
+    async def retrieve(self, reference: str) -> tuple[bytes, str]:
         """Retrieve content from an S3 object.
 
         Accepts both ``s3://`` URIs (as returned by ``store()``) and raw

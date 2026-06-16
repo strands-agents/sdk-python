@@ -27,9 +27,13 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from ..types.tools import AgentTool
 from .types import ExecutionResult, FileInfo, StreamChunk
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_TOOL_PREFIX = "sandbox"
+"""Default prefix applied to sandbox-vended tool names (e.g. ``sandbox_bash``)."""
 
 
 class Sandbox(ABC):
@@ -198,6 +202,26 @@ class Sandbox(ABC):
             FileNotFoundError: If the directory does not exist.
         """
         ...
+
+    # ---- Tool vending ----
+
+    tool_prefix: str | None = DEFAULT_TOOL_PREFIX
+    """Prefix applied to tool names when registered on an agent (e.g. ``"sandbox"`` produces
+    ``sandbox_bash``). Set to ``None`` to disable prefixing. Defaults to ``"sandbox"``."""
+
+    def get_tools(self) -> list[AgentTool]:
+        """Tools this sandbox vends to an agent.
+
+        Returned tools are registered when the agent initializes, with
+        :attr:`tool_prefix` applied to their names. A tool is skipped if the user
+        already registered one with the same (prefixed) name. The base
+        implementation vends nothing; concrete sandboxes override this to provide
+        sandbox-routed tools (e.g. bash, file editor).
+
+        Returns:
+            The tools to register, or an empty list.
+        """
+        return []
 
     # ---- Non-streaming convenience methods ----
 
