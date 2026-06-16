@@ -58,6 +58,7 @@ sagemaker = [
     "openai>=1.68.0,<3.0.0",  # SageMaker uses OpenAI-compatible interface
 ]
 otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
+graphiti = ["graphiti-core>=0.3.0,<1.0.0"]
 docs = [
     "sphinx>=5.0.0,<10.0.0",
     "sphinx-rtd-theme>=1.0.0,<4.0.0",
@@ -221,6 +222,14 @@ exclude = ["src/strands/experimental/bidi"]
 [[tool.mypy.overrides]]
 module = ["strands.experimental.bidi.*"]
 follow_imports = "skip"
+
+# ``graphiti-core`` is an optional dependency (the ``graphiti`` extra) and is intentionally kept
+# out of the ``all`` group because it pulls a heavy backend stack (neo4j, openai, numpy, ...). It is
+# imported lazily in ``strands.memory.stores.graphiti``, so static analysis runs without it
+# installed; ignore the missing import rather than bloat the analysis environment.
+[[tool.mypy.overrides]]
+module = ["graphiti_core.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 120

@@ -20,6 +20,7 @@ from .extraction.types import (
     MemoryMessageFilter,
 )
 from .memory_manager import MemoryManager
+from .stores import GraphitiMemoryStore
 from .types import (
     AddMessagesContext,
     InjectionFormatContext,
@@ -45,6 +46,7 @@ __all__ = [
     "ExtractionTriggerContext",
     "Extractor",
     "ExtractorContext",
+    "GraphitiMemoryStore",
     "InjectionConfig",
     "InjectionContext",
     "InjectionFormatContext",
