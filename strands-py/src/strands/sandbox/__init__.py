@@ -11,6 +11,9 @@ interface from ``strands-ts/src/sandbox/`` (the behavioral oracle):
   :meth:`~strands.sandbox.base.Sandbox.execute_streaming`.
 - :class:`DockerSandbox` — run commands in a Docker container via ``docker exec``.
 - :class:`SshSandbox` — run commands on a remote host via OpenSSH.
+- :class:`BubblewrapSandbox` — run commands inside an unprivileged ``bwrap``
+  Linux user-namespace jail (no daemon, namespace-level isolation, Linux-only),
+  configured via :class:`BubblewrapConfig` and :class:`BindMount`.
 - Data types: :class:`StreamChunk`, :class:`FileInfo`, :class:`OutputFile`,
   :class:`ExecutionResult`, and the :data:`StreamType` literal.
 - :data:`LANGUAGE_PATTERN` — interpreter-name validation pattern.
@@ -32,6 +35,12 @@ Example:
 """
 
 from .base import Sandbox
+from .bubblewrap import (
+    BindMount,
+    BubblewrapConfig,
+    BubblewrapSandbox,
+    is_bubblewrap_available,
+)
 from .constants import LANGUAGE_PATTERN
 from .docker import DockerSandbox
 from .shell import PosixShellSandbox
@@ -39,6 +48,9 @@ from .ssh import SshSandbox
 from .types import ExecutionResult, FileInfo, OutputFile, StreamChunk, StreamType
 
 __all__ = [
+    "BindMount",
+    "BubblewrapConfig",
+    "BubblewrapSandbox",
     "DockerSandbox",
     "ExecutionResult",
     "FileInfo",
@@ -49,4 +61,5 @@ __all__ = [
     "SshSandbox",
     "StreamChunk",
     "StreamType",
+    "is_bubblewrap_available",
 ]
