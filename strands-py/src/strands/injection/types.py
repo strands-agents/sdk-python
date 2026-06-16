@@ -9,6 +9,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
+from typing_extensions import TypedDict
+
 if TYPE_CHECKING:
     from ..agent.agent import Agent
     from ..agent.state import AgentState
@@ -63,8 +65,7 @@ class TriggerCallback(Protocol):
 InjectionTriggerPredicate = InjectionTrigger | Callable[[InjectionContext], bool] | TriggerCallback
 
 
-@dataclass
-class InjectionConfig:
+class InjectionConfig(TypedDict, total=False):
     """Configuration common to every injection consumer: when to inject.
 
     What text to inject is a consumer concern, added by the configs that extend this one
@@ -77,4 +78,4 @@ class InjectionConfig:
             skipped, the model call proceeds). Defaults to ``"userTurn"``.
     """
 
-    trigger: InjectionTriggerPredicate | None = None
+    trigger: InjectionTriggerPredicate | None

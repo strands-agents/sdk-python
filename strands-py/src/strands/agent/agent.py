@@ -520,12 +520,8 @@ class Agent(AgentBase):
 
         if isinstance(memory_manager, MemoryManager):
             return memory_manager
-        if isinstance(memory_manager, MemoryManagerConfig):
-            return MemoryManager(
-                stores=memory_manager.stores,
-                search_tool_config=memory_manager.search_tool_config,
-                add_tool_config=memory_manager.add_tool_config,
-            )
+        if isinstance(memory_manager, dict):
+            return MemoryManager(**memory_manager)
         raise ValueError("memory_manager must be a MemoryManager or MemoryManagerConfig")
 
     def cancel(self) -> None:

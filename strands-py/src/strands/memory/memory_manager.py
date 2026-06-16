@@ -159,15 +159,15 @@ class MemoryManager(Plugin):
         # Stores with extraction enabled, each paired with its resolved config; wired up in ``init_agent``.
         self._extraction_stores = extraction_bindings
 
-        self._search_tool_config: MemoryToolConfig | bool
-        if search_tool_config is False:
-            self._search_tool_config = False
-        elif isinstance(search_tool_config, MemoryToolConfig):
+        self._search_tool_config: MemoryToolConfig | Literal[False]
+        if isinstance(search_tool_config, dict):
             self._search_tool_config = search_tool_config
-        else:
+        elif search_tool_config:
             self._search_tool_config = MemoryToolConfig()
+        else:
+            self._search_tool_config = False
 
-        self._add_tool_config: MemoryAddToolConfig | bool
+        self._add_tool_config: MemoryAddToolConfig | Literal[False]
         self._add_tool_stores: list[MemoryStore]
         if add_tool_config is None or add_tool_config is False:
             self._add_tool_config = False
@@ -176,9 +176,7 @@ class MemoryManager(Plugin):
             # The `add_memory` tool writes via `add`, so needs an `add`-capable store.
             if len(self._add_stores) == 0:
                 raise ValueError("MemoryManager: add_tool_config is enabled but no writable stores implement add")
-            resolved_config = (
-                add_tool_config if isinstance(add_tool_config, MemoryAddToolConfig) else MemoryAddToolConfig()
-            )
+            resolved_config = add_tool_config if isinstance(add_tool_config, dict) else MemoryAddToolConfig()
             self._add_tool_config = resolved_config
             self._add_tool_stores = self._resolve_add_tool_stores(resolved_config)
 
@@ -191,12 +189,12 @@ class MemoryManager(Plugin):
         # Resolved injection config, or ``False`` when injection is disabled. ``True`` resolves
         # to a default ``MemoryInjectionConfig``; a config object passes through unchanged.
         self._injection_config: MemoryInjectionConfig | Literal[False]
-        if injection is False:
-            self._injection_config = False
-        elif isinstance(injection, MemoryInjectionConfig):
+        if isinstance(injection, dict):
             self._injection_config = injection
-        else:
+        elif injection:
             self._injection_config = MemoryInjectionConfig()
+        else:
+            self._injection_config = False
 
         # Build tools now; surfaced via the ``tools`` property.
         self._memory_tools: list[AgentTool] = self._build_tools()
@@ -211,10 +209,11 @@ class MemoryManager(Plugin):
             ValueError: If a referenced store is not configured, not writable, or
                 has no ``add`` method.
         """
-        if tool_config.stores is None:
+        config_stores = tool_config.get("stores")
+        if config_stores is None:
             return self._add_stores
 
-        names = [store if isinstance(store, str) else store.name for store in tool_config.stores]
+        names = [store if isinstance(store, str) else store.name for store in config_stores]
 
         resolved: list[MemoryStore] = []
         seen: set[str] = set()
@@ -241,10 +240,10 @@ class MemoryManager(Plugin):
         """
         tools: list[AgentTool] = []
 
-        if isinstance(self._search_tool_config, MemoryToolConfig):
+        if isinstance(self._search_tool_config, dict):
             tools.append(self._create_search_tool(self._search_tool_config))
 
-        if isinstance(self._add_tool_config, MemoryAddToolConfig):
+        if isinstance(self._add_tool_config, dict):
             tools.append(self._create_add_tool(self._add_tool_config, self._add_tool_stores))
 
         for store in self._stores:
@@ -273,8 +272,8 @@ class MemoryManager(Plugin):
         Raises:
             ValueError: If a named store is not found (raised before querying).
         """
-        requested_stores = options.stores if options is not None else None
-        caller_max = options.max_search_results if options is not None else None
+        requested_stores = options.get("stores") if options is not None else None
+        caller_max = options.get("max_search_results") if options is not None else None
 
         logger.debug(
             "query=<%s>, max_search_results=<%s>, stores=<%s> | searching stores",
@@ -340,8 +339,8 @@ class MemoryManager(Plugin):
                 writable store matched.
             AggregateMemoryError: If any targeted store write fails.
         """
-        requested_stores = options.stores if options is not None else None
-        metadata = options.metadata if options is not None else None
+        requested_stores = options.get("stores") if options is not None else None
+        metadata = options.get("metadata") if options is not None else None
 
         if requested_stores is not None:
             writable_stores: list[MemoryStore] = []
@@ -413,7 +412,8 @@ class MemoryManager(Plugin):
 
     def _create_search_tool(self, config: MemoryToolConfig) -> AgentTool:
         """Build the ``search_memory`` tool."""
-        description = config.description if config.description is not None else SEARCH_TOOL_DESCRIPTION
+        custom_description = config.get("description")
+        description = custom_description if custom_description is not None else SEARCH_TOOL_DESCRIPTION
         store_descriptions = [
             f"- {store.name}: {store.description}" for store in self._search_stores if store.description
         ]
@@ -457,14 +457,16 @@ class MemoryManager(Plugin):
                 payload.append(item)
             return payload
 
+        custom_name = config.get("name")
         return tool(
-            name=config.name if config.name is not None else "search_memory",
+            name=custom_name if custom_name is not None else "search_memory",
             description=description,
         )(search_memory)
 
     def _create_add_tool(self, config: MemoryAddToolConfig, stores: list[MemoryStore]) -> AgentTool:
         """Build the ``add_memory`` tool."""
-        description = config.description if config.description is not None else ADD_TOOL_DESCRIPTION
+        custom_description = config.get("description")
+        description = custom_description if custom_description is not None else ADD_TOOL_DESCRIPTION
         store_descriptions = [f"- {store.name}: {store.description}" for store in stores if store.description]
         if store_descriptions:
             description += "\n\nAvailable writable stores:\n" + "\n".join(store_descriptions)
@@ -474,7 +476,7 @@ class MemoryManager(Plugin):
             )
 
         scoped_names = [store.name for store in stores]
-        wait_for_writes = config.wait_for_writes
+        wait_for_writes = config.get("wait_for_writes", True)
 
         async def add_memory(entries: list[str], stores: list[str] | None = None) -> dict[str, int]:
             """Add data to long-term memory.
@@ -515,8 +517,9 @@ class MemoryManager(Plugin):
 
             return {"stored": len(entries)}
 
+        custom_name = config.get("name")
         return tool(
-            name=config.name if config.name is not None else "add_memory",
+            name=custom_name if custom_name is not None else "add_memory",
             description=description,
         )(add_memory)
 
@@ -581,7 +584,7 @@ class MemoryManager(Plugin):
             InvokeModelStage.Input,
             _create_injection_middleware(
                 lambda context: self._provide_memory_context(context.messages, config),
-                trigger=config.trigger,
+                trigger=config.get("trigger"),
             ),
         )
 
@@ -605,15 +608,17 @@ class MemoryManager(Plugin):
         if query is None or not query.strip():
             return None
 
-        max_results = config.max_entries if config.max_entries is not None else DEFAULT_MAX_ENTRIES
+        max_entries = config.get("max_entries")
+        max_results = max_entries if max_entries is not None else DEFAULT_MAX_ENTRIES
         # search caps each store at max_results; the slice caps the concatenation across stores.
         entries = (await self.search(query, MemorySearchOptions(max_search_results=max_results)))[:max_results]
         if len(entries) == 0:
             return None
 
         try:
-            if config.format is not None:
-                return config.format(InjectionFormatContext(entries=entries))
+            custom_format = config.get("format")
+            if custom_format is not None:
+                return custom_format(InjectionFormatContext(entries=entries))
             return self._default_injection_format(entries)
         except Exception as error:  # noqa: BLE001 - fail open: a bad formatter must not abort the model call.
             logger.warning("reason=<%s> | injection format raised | skipping injection", error)
@@ -634,9 +639,10 @@ class MemoryManager(Plugin):
         Returns:
             The query string, or ``None`` when none is available.
         """
-        if config.query is not None:
+        custom_query = config.get("query")
+        if custom_query is not None:
             try:
-                return config.query(InjectionQueryContext(messages=messages))
+                return custom_query(InjectionQueryContext(messages=messages))
             except Exception as error:  # noqa: BLE001 - fail open: a bad query must not abort the model call.
                 logger.warning("reason=<%s> | injection query raised | skipping injection", error)
                 return None

@@ -6,6 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
+from typing_extensions import Required, TypedDict
+
 from ..injection import InjectionConfig
 from ..types.content import Message, Messages
 from ..types.tools import AgentTool
@@ -33,15 +35,14 @@ class MemoryEntry:
     metadata: Metadata | None = None
 
 
-@dataclass
-class SearchOptions:
+class SearchOptions(TypedDict, total=False):
     """Options passed to :meth:`MemoryStore.search`.
 
     Store implementations may extend this with backend-specific fields; note that
     ``MemoryManager.search`` forwards only these base fields across its stores.
     """
 
-    max_search_results: int | None = None
+    max_search_results: int | None
 
 
 @dataclass
@@ -53,8 +54,7 @@ class AddMessagesContext:
     """
 
 
-@dataclass
-class MemorySearchOptions(SearchOptions):
+class MemorySearchOptions(SearchOptions, total=False):
     """Options for ``MemoryManager.search``.
 
     Attributes:
@@ -64,11 +64,10 @@ class MemorySearchOptions(SearchOptions):
             in-scope stores".
     """
 
-    stores: list[str] | None = None
+    stores: list[str] | None
 
 
-@dataclass
-class MemoryAddOptions:
+class MemoryAddOptions(TypedDict, total=False):
     """Options for ``MemoryManager.add``.
 
     Attributes:
@@ -78,20 +77,18 @@ class MemoryAddOptions:
             in-scope stores".
     """
 
-    metadata: Metadata | None = None
-    stores: list[str] | None = None
+    metadata: Metadata | None
+    stores: list[str] | None
 
 
-@dataclass
-class MemoryToolConfig:
+class MemoryToolConfig(TypedDict, total=False):
     """Configuration for customizing a memory tool's name or description."""
 
-    name: str | None = None
-    description: str | None = None
+    name: str | None
+    description: str | None
 
 
-@dataclass
-class MemoryAddToolConfig(MemoryToolConfig):
+class MemoryAddToolConfig(MemoryToolConfig, total=False):
     """Configuration for the ``add_memory`` tool.
 
     Attributes:
@@ -103,8 +100,8 @@ class MemoryAddToolConfig(MemoryToolConfig):
             are dispatched; per-store failures are logged.
     """
 
-    stores: list[str | MemoryStore] | None = None
-    wait_for_writes: bool = True
+    stores: list[str | MemoryStore] | None
+    wait_for_writes: bool
 
 
 @dataclass
@@ -160,8 +157,7 @@ InjectionQuery = Callable[[InjectionQueryContext], "str | None"] | InjectionQuer
 InjectionFormat = Callable[[InjectionFormatContext], str] | InjectionFormatCallback
 
 
-@dataclass
-class MemoryInjectionConfig(InjectionConfig):
+class MemoryInjectionConfig(InjectionConfig, total=False):
     """Configuration for memory context injection.
 
     Extends the generic :class:`~strands.injection.InjectionConfig` (which carries ``trigger``)
@@ -189,13 +185,12 @@ class MemoryInjectionConfig(InjectionConfig):
             for its own escaping.
     """
 
-    max_entries: int | None = None
-    query: InjectionQuery | None = None
-    format: InjectionFormat | None = None
+    max_entries: int | None
+    query: InjectionQuery | None
+    format: InjectionFormat | None
 
 
-@dataclass
-class MemoryManagerConfig:
+class MemoryManagerConfig(TypedDict, total=False):
     """Configuration for the ``MemoryManager``, mirroring the constructor kwargs.
 
     Attributes:
@@ -209,23 +204,22 @@ class MemoryManagerConfig:
             timing, and formatting; ``False`` disables it.
     """
 
-    stores: list[MemoryStore]
-    search_tool_config: MemoryToolConfig | bool = True
-    add_tool_config: MemoryAddToolConfig | bool = False
-    injection: MemoryInjectionConfig | bool = True
+    stores: Required[list[MemoryStore]]
+    search_tool_config: MemoryToolConfig | bool
+    add_tool_config: MemoryAddToolConfig | bool
+    injection: MemoryInjectionConfig | bool
 
 
-class MemoryStoreConfig(Protocol):
-    """Declarative identity and behavior fields shared by every memory store.
+class MemoryStoreConfig(TypedDict, total=False):
+    """Declarative identity and behavior fields a store is configured with.
 
     Attributes:
         name: Unique identifier for this store, used to target it in tools.
         description: Human-readable description; included in tool descriptions.
         max_search_results: Default maximum results per search, used when a caller
             does not pass a per-call value.
-        writable: Whether this store accepts writes. A writable store requires at
-            least one write sink (:meth:`MemoryStore.add` or
-            :meth:`MemoryStore.add_messages`).
+        writable: Whether this store accepts writes. A writable store requires at least one write
+            sink (:meth:`MemoryStore.add` or :meth:`MemoryStore.add_messages`).
         extraction: Automatic-extraction configuration for this writable store, as
             a ``bool | config`` shorthand. ``True`` enables it with defaults; an
             :class:`ExtractionConfig` defaults any unset field; ``False``/``None``
@@ -237,21 +231,33 @@ class MemoryStoreConfig(Protocol):
             extraction (the backend extracts the raw messages, no model call).
     """
 
-    name: str
+    name: Required[str]
     description: str | None
     max_search_results: int | None
     writable: bool
     extraction: ExtractionConfig | bool | None
 
 
-class MemoryStore(MemoryStoreConfig, Protocol):
+class MemoryStore(Protocol):
     """Runtime contract for a memory store backend.
 
-    Extends :class:`MemoryStoreConfig` with runtime methods. Every store is
-    searchable; ``writable`` declares whether it also accepts writes. A store
-    author implements the config fields plus :meth:`search`, and optionally
-    :meth:`add`, :meth:`add_messages`, and :meth:`get_tools`.
+    A store exposes the :class:`MemoryStoreConfig` fields as attributes and implements :meth:`search`,
+    plus optionally :meth:`add`, :meth:`add_messages`, and :meth:`get_tools`. The fields are
+    re-declared here because a ``Protocol`` cannot extend a ``TypedDict``.
+
+    Attributes:
+        name: Unique identifier for this store, used to target it in tools.
+        description: Human-readable description; included in tool descriptions.
+        max_search_results: Default maximum results per search.
+        writable: Whether this store accepts writes.
+        extraction: Resolved automatic-extraction configuration, or ``None``/``False`` when off.
     """
+
+    name: str
+    description: str | None
+    max_search_results: int | None
+    writable: bool
+    extraction: ExtractionConfig | bool | None
 
     async def search(self, query: str, options: SearchOptions | None = None) -> list[MemoryEntry]:
         """Search the store for entries matching the query, ordered by relevance."""
