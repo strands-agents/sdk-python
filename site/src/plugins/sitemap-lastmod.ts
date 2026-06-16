@@ -80,13 +80,16 @@ function getGitPrefix(): string {
  * e.g., /docs/user-guide/quickstart/python/ → site/src/content/docs/user-guide/quickstart/python.mdx
  *
  * `gitPrefix` is prepended so candidates match the repo-root-relative paths
- * that `git log --name-only` produces.
+ * that `git log --name-only` produces. Uses `path.posix.join` (not `path.join`)
+ * because both the git paths and `gitPrefix` use forward slashes — joining with
+ * the OS-native separator would reintroduce a separator mismatch on Windows,
+ * the same bug class this lookup is built to avoid.
  */
-function urlToContentPaths(urlPath: string, contentDir: string, gitPrefix: string): string[] {
+export function urlToContentPaths(urlPath: string, contentDir: string, gitPrefix: string): string[] {
   const slug = urlPath.replace(/^\//, '').replace(/\/$/, '')
 
-  return [`${slug}.mdx`, `${slug}.md`, path.join(slug, 'index.mdx'), path.join(slug, 'index.md')].map(
-    (rel) => gitPrefix + path.join(contentDir, rel)
+  return [`${slug}.mdx`, `${slug}.md`, path.posix.join(slug, 'index.mdx'), path.posix.join(slug, 'index.md')].map(
+    (rel) => gitPrefix + path.posix.join(contentDir, rel)
   )
 }
 
