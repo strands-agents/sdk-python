@@ -26,11 +26,14 @@
 
   // --- Helpers ---
 
-  // Pipe-delimited page hierarchy from the URL path (the 'docs' prefix is dropped),
-  // e.g. /docs/user-guide/quickstart/ -> "user-guide|quickstart". Used to label code-copy events.
+  // Pipe-delimited page hierarchy from the URL path, used to label code-copy events.
+  // Anchors on the 'docs' segment and takes everything after it, so any leading base
+  // path (e.g. a "/pr-xxxx/" preview deploy) is ignored:
+  // /pr-x/docs/user-guide/quickstart/ -> "user-guide|quickstart".
   function pageHierarchy(pathname) {
     var segments = pathname.replace(/^\/|\/$/g, '').split('/').filter(Boolean)
-    var start = segments[0] === 'docs' ? 1 : 0
+    var docsIndex = segments.indexOf('docs')
+    var start = docsIndex >= 0 ? docsIndex + 1 : 0
     return segments.slice(start).join('|') || 'home'
   }
 
