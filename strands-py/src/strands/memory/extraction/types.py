@@ -7,6 +7,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
+from typing_extensions import TypedDict
+
 from ...models.model import Model
 from ...types.content import Message
 
@@ -122,8 +124,7 @@ class ExtractionTrigger(ABC):
         ...
 
 
-@dataclass
-class ExtractionConfig:
+class ExtractionConfig(TypedDict, total=False):
     """Per-store automatic-extraction configuration.
 
     Attributes:
@@ -143,6 +144,6 @@ class ExtractionConfig:
             blocks.
     """
 
-    trigger: ExtractionTrigger | list[ExtractionTrigger] | None = None
-    extractor: Extractor | None = None
-    filter: MemoryMessageFilter | None = None
+    trigger: ExtractionTrigger | list[ExtractionTrigger] | None
+    extractor: Extractor | None
+    filter: MemoryMessageFilter | None

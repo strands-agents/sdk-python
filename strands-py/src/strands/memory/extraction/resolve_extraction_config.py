@@ -76,19 +76,20 @@ def _resolve_extraction_config(
     Returns:
         The resolved config, or ``None`` when extraction is disabled.
     """
-    if not extraction:
+    if extraction is None or extraction is False:
         return None
     config = ExtractionConfig() if extraction is True else extraction
 
+    config_trigger = config.get("trigger")
     triggers: list[ExtractionTrigger]
-    if config.trigger is None:
+    if config_trigger is None:
         triggers = [IntervalTrigger(turns=_DEFAULT_EXTRACTION_TRIGGER_TURNS)]
-    elif isinstance(config.trigger, list):
-        triggers = config.trigger
+    elif isinstance(config_trigger, list):
+        triggers = config_trigger
     else:
-        triggers = [config.trigger]
+        triggers = [config_trigger]
 
-    extractor = config.extractor
+    extractor = config.get("extractor")
     if extractor is None:
         # Pick the default extractor from the store's write methods:
         # - implements only ``add``: it cannot extract server-side, so default to a
@@ -102,5 +103,5 @@ def _resolve_extraction_config(
     return _ResolvedExtractionConfig(
         triggers=triggers,
         extractor=extractor,
-        filter=config.filter or DEFAULT_MEMORY_MESSAGE_FILTER,
+        filter=config.get("filter") or DEFAULT_MEMORY_MESSAGE_FILTER,
     )
