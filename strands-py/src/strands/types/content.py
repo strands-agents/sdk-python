@@ -6,6 +6,7 @@ SDK. These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
+import uuid
 from typing import Any, Literal
 
 from typing_extensions import NotRequired, TypedDict
@@ -232,16 +233,45 @@ class Message(TypedDict):
     Attributes:
         content: The message content.
         role: The role of the message sender.
+        id: Durable, stable identifier for the message, assigned when the message is added to the
+            conversation. Survives session save/restore and snapshots, and is stripped before model
+            calls. Combined with a session id, it gives memory stores a key to deduplicate messages
+            across sessions.
         metadata: Optional metadata, stripped before model calls.
     """
 
     content: list[ContentBlock]
     role: Role
+    id: NotRequired[str]
     metadata: NotRequired[MessageMetadata]
 
 
 Messages = list[Message]
 """A list of messages representing a conversation."""
+
+
+def _generate_message_id() -> str:
+    """Generate a durable identifier for a message.
+
+    Returns a canonical (hyphenated) UUID v4 string, matching the format the TypeScript SDK
+    produces via ``crypto.randomUUID()``, so message ids have the same shape across both SDKs.
+    """
+    return str(uuid.uuid4())
+
+
+def _ensure_message_id(message: Message) -> None:
+    """Assign a durable id to the message in place if it does not already have one.
+
+    A message that already carries an id (e.g. restored from a session or supplied by a caller)
+    keeps it, so the same message has a stable identifier everywhere it is observed.
+    """
+    if "id" not in message:
+        message["id"] = _generate_message_id()
+
+
+def get_message_id(message: Message) -> str | None:
+    """Get the durable identifier for a message, or None if it has not been assigned one."""
+    return message.get("id")
 
 
 def get_message_metadata(message: Message) -> MessageMetadata:

@@ -201,7 +201,7 @@ async def test_event_loop_cycle_text_response(
     tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
+    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY, "id": ANY}
     exp_request_state = {}
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
@@ -233,7 +233,7 @@ async def test_event_loop_cycle_text_response_throttling(
     tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
+    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY, "id": ANY}
     exp_request_state = {}
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
@@ -272,7 +272,7 @@ async def test_event_loop_cycle_exponential_backoff(
 
     # Verify the final response
     assert tru_stop_reason == "end_turn"
-    assert tru_message == {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
+    assert tru_message == {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY, "id": ANY}
     assert tru_request_state == {}
 
     # Verify that sleep was called with increasing delays
@@ -362,7 +362,7 @@ async def test_event_loop_cycle_tool_result(
     tru_stop_reason, tru_message, _, tru_request_state, _, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY}
+    exp_message = {"role": "assistant", "content": [{"text": "test text"}], "metadata": ANY, "id": ANY}
     exp_request_state = {}
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
@@ -492,6 +492,7 @@ async def test_event_loop_cycle_stop(
             }
         ],
         "metadata": ANY,
+        "id": ANY,
     }
     exp_request_state = {"stop_event_loop": True}
 
@@ -1047,14 +1048,15 @@ async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, 
         agent=agent,
         invocation_state=ANY,
         stop_response=AfterModelCallEvent.ModelStopResponse(
-            message={"content": [{"text": "test text"}], "role": "assistant", "metadata": ANY}, stop_reason="end_turn"
+            message={"content": [{"text": "test text"}], "role": "assistant", "metadata": ANY, "id": ANY},
+            stop_reason="end_turn",
         ),
         exception=None,
     )
 
     # Final message
     assert next(events) == MessageAddedEvent(
-        agent=agent, message={"content": [{"text": "test text"}], "role": "assistant", "metadata": ANY}
+        agent=agent, message={"content": [{"text": "test text"}], "role": "assistant", "metadata": ANY, "id": ANY}
     )
 
 
@@ -1099,6 +1101,7 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
                 ],
                 "role": "assistant",
                 "metadata": ANY,
+                "id": ANY,
             },
         },
         "interrupts": {
@@ -1188,6 +1191,7 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
                 },
             },
         ],
+        "id": ANY,
     }
     assert tru_result_message == exp_result_message
 
@@ -1233,7 +1237,7 @@ async def test_invalid_tool_names_adds_tool_uses(agent, model, alist):
     # ensure that we got end_turn and not tool_use
     assert events[-1] == EventLoopStopEvent(
         stop_reason="end_turn",
-        message={"content": [{"text": "I invoked a tool!"}], "role": "assistant", "metadata": ANY},
+        message={"content": [{"text": "I invoked a tool!"}], "role": "assistant", "metadata": ANY, "id": ANY},
         metrics=ANY,
         request_state={},
     )
@@ -1250,6 +1254,7 @@ async def test_invalid_tool_names_adds_tool_uses(agent, model, alist):
             }
         ],
         "role": "user",
+        "id": ANY,
     }
 
 

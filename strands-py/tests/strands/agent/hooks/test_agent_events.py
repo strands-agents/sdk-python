@@ -148,6 +148,7 @@ async def test_stream_e2e_success(alist):
                 ],
                 "role": "assistant",
                 "metadata": ANY,
+                "id": ANY,
             }
         },
         {
@@ -162,6 +163,7 @@ async def test_stream_e2e_success(alist):
                     },
                 ],
                 "role": "user",
+                "id": ANY,
             }
         },
         # Cycle 2: Invoke async_tool
@@ -207,6 +209,7 @@ async def test_stream_e2e_success(alist):
                 ],
                 "role": "assistant",
                 "metadata": ANY,
+                "id": ANY,
             }
         },
         {
@@ -221,6 +224,7 @@ async def test_stream_e2e_success(alist):
                     },
                 ],
                 "role": "user",
+                "id": ANY,
             }
         },
         # Cycle 3: Invoke streaming_tool
@@ -266,6 +270,7 @@ async def test_stream_e2e_success(alist):
                 ],
                 "role": "assistant",
                 "metadata": ANY,
+                "id": ANY,
             }
         },
         {
@@ -288,6 +293,7 @@ async def test_stream_e2e_success(alist):
                     {"toolResult": {"content": [{"text": "Final result"}], "status": "success", "toolUseId": "12345"}}
                 ],
                 "role": "user",
+                "id": ANY,
             }
         },
         # Cycle 4: Final response
@@ -310,11 +316,16 @@ async def test_stream_e2e_success(alist):
         },
         {"event": {"contentBlockStop": {}}},
         {"event": {"messageStop": {"stopReason": "end_turn"}}},
-        {"message": {"content": [{"text": "I invoked the tools!"}], "role": "assistant", "metadata": ANY}},
+        {"message": {"content": [{"text": "I invoked the tools!"}], "role": "assistant", "metadata": ANY, "id": ANY}},
         {
             "result": AgentResult(
                 stop_reason="end_turn",
-                message={"content": [{"text": "I invoked the tools!"}], "role": "assistant", "metadata": ANY},
+                message={
+                    "content": [{"text": "I invoked the tools!"}],
+                    "role": "assistant",
+                    "metadata": ANY,
+                    "id": ANY,
+                },
                 metrics=ANY,
                 state={},
             ),
@@ -374,11 +385,11 @@ async def test_stream_e2e_throttle_and_redact(alist, mock_sleep):
         },
         {"event": {"contentBlockStop": {}}},
         {"event": {"messageStop": {"stopReason": "guardrail_intervened"}}},
-        {"message": {"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant", "metadata": ANY}},
+        {"message": {"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant", "metadata": ANY, "id": ANY}},
         {
             "result": AgentResult(
                 stop_reason="guardrail_intervened",
-                message={"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant", "metadata": ANY},
+                message={"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant", "metadata": ANY, "id": ANY},
                 metrics=ANY,
                 state={},
             ),
@@ -446,6 +457,7 @@ async def test_stream_e2e_reasoning_redacted_content(alist):
                 ],
                 "role": "assistant",
                 "metadata": ANY,
+                "id": ANY,
             }
         },
         {
@@ -458,6 +470,7 @@ async def test_stream_e2e_reasoning_redacted_content(alist):
                     ],
                     "role": "assistant",
                     "metadata": ANY,
+                    "id": ANY,
                 },
                 metrics=ANY,
                 state={},

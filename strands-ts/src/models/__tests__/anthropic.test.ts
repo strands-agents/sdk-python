@@ -465,6 +465,25 @@ describe('AnthropicModel', () => {
       })
     })
 
+    it('never sends the durable message id to the provider', async () => {
+      const { captured, mockClient } = setupCapture()
+      const provider = new AnthropicModel({ modelId: 'claude-3-opus', maxTokens: 1000, client: mockClient })
+      const messages = [
+        new Message({
+          role: 'user',
+          content: [new TextBlock('Hello')],
+          id: 'durable-1',
+          metadata: { usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } },
+        }),
+      ]
+
+      await collectIterator(provider.stream(messages))
+
+      // The request the provider receives carries only role and content — never id or metadata.
+      expect(captured.request.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }])
+      expect('id' in captured.request.messages[0]).toBe(false)
+    })
+
     it('formats tools correctly', async () => {
       const { captured, mockClient } = setupCapture()
       const provider = new AnthropicModel({ client: mockClient })

@@ -177,6 +177,7 @@ describe('ToolCaller', () => {
       // toolUseId is non-deterministic (UUID), so use expect.stringMatching.
       expect(agent.messages).toEqual([
         new Message({
+          id: expect.any(String) as unknown as string,
           role: 'assistant',
           content: [
             new ToolUseBlock({
@@ -187,6 +188,7 @@ describe('ToolCaller', () => {
           ],
         }),
         new Message({
+          id: expect.any(String) as unknown as string,
           role: 'user',
           content: [
             new ToolResultBlock({
@@ -197,6 +199,7 @@ describe('ToolCaller', () => {
           ],
         }),
         new Message({
+          id: expect.any(String) as unknown as string,
           role: 'assistant',
           content: [new TextBlock('agent.tool.calculator was called.')],
         }),
@@ -568,6 +571,7 @@ describe('MessageAddedEvent hooks', () => {
     expect(firedEvents).toHaveLength(3)
     expect(firedEvents[0]!.message).toEqual(
       new Message({
+        id: expect.any(String) as unknown as string,
         role: 'assistant',
         content: [
           new ToolUseBlock({
@@ -580,6 +584,7 @@ describe('MessageAddedEvent hooks', () => {
     )
     expect(firedEvents[1]!.message).toEqual(
       new Message({
+        id: expect.any(String) as unknown as string,
         role: 'user',
         content: [
           new ToolResultBlock({
@@ -592,6 +597,7 @@ describe('MessageAddedEvent hooks', () => {
     )
     expect(firedEvents[2]!.message).toEqual(
       new Message({
+        id: expect.any(String) as unknown as string,
         role: 'assistant',
         content: [new TextBlock('agent.tool.calculator was called.')],
       })

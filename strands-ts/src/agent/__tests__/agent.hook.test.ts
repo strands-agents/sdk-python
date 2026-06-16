@@ -48,7 +48,11 @@ describe('Agent Hooks Integration', () => {
       expect(lifecyclePlugin.invocations[2]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'user', content: [new TextBlock('Hi')] }),
+          message: new Message({
+            role: 'user',
+            content: [new TextBlock('Hi')],
+            id: expect.any(String) as unknown as string,
+          }),
           invocationState: {},
         })
       )
@@ -68,14 +72,22 @@ describe('Agent Hooks Integration', () => {
           attemptCount: 1,
           stopData: {
             stopReason: 'endTurn',
-            message: new Message({ role: 'assistant', content: [new TextBlock('Hello')] }),
+            message: new Message({
+              role: 'assistant',
+              content: [new TextBlock('Hello')],
+              id: expect.any(String) as unknown as string,
+            }),
           },
         })
       )
       expect(lifecyclePlugin.invocations[5]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'assistant', content: [new TextBlock('Hello')] }),
+          message: new Message({
+            role: 'assistant',
+            content: [new TextBlock('Hello')],
+            id: expect.any(String) as unknown as string,
+          }),
           invocationState: {},
         })
       )
@@ -96,7 +108,11 @@ describe('Agent Hooks Integration', () => {
       expect(lifecyclePlugin.invocations[2]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'user', content: [new TextBlock('Hi')] }),
+          message: new Message({
+            role: 'user',
+            content: [new TextBlock('Hi')],
+            id: expect.any(String) as unknown as string,
+          }),
           invocationState: {},
         })
       )
@@ -116,14 +132,22 @@ describe('Agent Hooks Integration', () => {
           attemptCount: 1,
           stopData: {
             stopReason: 'endTurn',
-            message: new Message({ role: 'assistant', content: [new TextBlock('Hello')] }),
+            message: new Message({
+              role: 'assistant',
+              content: [new TextBlock('Hello')],
+              id: expect.any(String) as unknown as string,
+            }),
           },
         })
       )
       expect(lifecyclePlugin.invocations[5]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'assistant', content: [new TextBlock('Hello')] }),
+          message: new Message({
+            role: 'assistant',
+            content: [new TextBlock('Hello')],
+            id: expect.any(String) as unknown as string,
+          }),
           invocationState: {},
         })
       )
@@ -330,14 +354,22 @@ describe('Agent Hooks Integration', () => {
       expect(messageAddedEvents[0]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'user', content: [new TextBlock('New message')] }),
+          message: new Message({
+            role: 'user',
+            content: [new TextBlock('New message')],
+            id: expect.any(String) as unknown as string,
+          }),
           invocationState: {},
         })
       )
       expect(messageAddedEvents[1]).toEqual(
         new MessageAddedEvent({
           agent,
-          message: new Message({ role: 'assistant', content: [new TextBlock('Response')] }),
+          message: new Message({
+            role: 'assistant',
+            content: [new TextBlock('Response')],
+            id: expect.any(String) as unknown as string,
+          }),
           invocationState: {},
         })
       )

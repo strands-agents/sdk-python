@@ -147,6 +147,7 @@ describe('Agent', () => {
             message: new Message({
               role: 'assistant',
               content: [new ToolUseBlock({ name: 'testTool', toolUseId: 'tool-1', input: {} })],
+              id: expect.any(String) as unknown as string,
             }),
             invocationState: {},
           })
@@ -157,6 +158,7 @@ describe('Agent', () => {
         expect(afterTools?.message).toEqual({
           type: 'message',
           role: 'user',
+          id: expect.any(String) as unknown as string,
           content: [
             {
               type: 'toolResultBlock',
@@ -695,7 +697,11 @@ describe('Agent', () => {
       expect(invokeResult).toEqual(
         expect.objectContaining({
           stopReason: streamResult.stopReason,
-          lastMessage: streamResult.lastMessage,
+          // The two runs are independent agents, so message ids differ; compare role + content only.
+          lastMessage: expect.objectContaining({
+            role: streamResult.lastMessage.role,
+            content: streamResult.lastMessage.content,
+          }),
           traces: streamResult.traces?.map((t) =>
             expect.objectContaining({
               name: t.name,
@@ -999,6 +1005,34 @@ describe('Agent', () => {
     })
   })
 
+  describe('durable message id', () => {
+    it('assigns a durable id to every recorded message', async () => {
+      const model = new MockMessageModel().addTurn(new TextBlock('Response'))
+      const agent = new Agent({ model })
+
+      await agent.invoke('Hello')
+
+      expect(agent.messages).toHaveLength(2)
+      for (const message of agent.messages) {
+        expect(typeof message.id).toBe('string')
+      }
+      // Ids are unique per message.
+      expect(agent.messages[0]!.id).not.toBe(agent.messages[1]!.id)
+    })
+
+    it('preserves a caller-supplied id on input messages', async () => {
+      const model = new MockMessageModel().addTurn(new TextBlock('Response'))
+      const agent = new Agent({
+        model,
+        messages: [{ role: 'user', content: [{ text: 'Earlier' }], id: 'caller-supplied' }],
+      })
+
+      await agent.invoke('Hello')
+
+      expect(agent.messages[0]!.id).toBe('caller-supplied')
+    })
+  })
+
   describe('multimodal input', () => {
     describe('with string input', () => {
       it('creates user message with single TextBlock', async () => {
@@ -1012,6 +1046,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: [new TextBlock('Hello')],
+            id: expect.any(String) as unknown as string,
           })
         )
       })
@@ -1029,6 +1064,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: [new TextBlock('Hello')],
+            id: expect.any(String) as unknown as string,
           })
         )
       })
@@ -1046,6 +1082,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: contentBlocks,
+            id: expect.any(String) as unknown as string,
           })
         )
       })
@@ -1087,6 +1124,7 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: contentBlocks,
+            id: expect.any(String) as unknown as string,
           })
         )
       })
@@ -1229,12 +1267,14 @@ describe('Agent', () => {
           new Message({
             role: 'user',
             content: [new TextBlock('First message')],
+            id: expect.any(String) as unknown as string,
           })
         )
         expect(agent.messages[1]).toEqual(
           new Message({
             role: 'assistant',
             content: [new TextBlock('Second message')],
+            id: expect.any(String) as unknown as string,
           })
         )
       })

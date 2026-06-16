@@ -77,7 +77,14 @@ from ..tools.structured_output._structured_output_context import StructuredOutpu
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput, ConcurrentInvocationMode, Limits
-from ..types.content import ContentBlock, Message, Messages, SystemContentBlock, split_system_prompt
+from ..types.content import (
+    ContentBlock,
+    Message,
+    Messages,
+    SystemContentBlock,
+    _ensure_message_id,
+    split_system_prompt,
+)
 from ..types.exceptions import ConcurrencyException, ContextWindowOverflowException
 from ..types.tools import AgentTool
 from ..types.traces import AttributeValue
@@ -1513,8 +1520,15 @@ class Agent(AgentBase):
                 raise TypeError(f"limits[{key!r}] must be a positive int, got {value!r}")
 
     async def _append_messages(self, *messages: Message) -> None:
-        """Appends messages to history and invoke the callbacks for the MessageAddedEvent."""
+        """Appends messages to history and invoke the callbacks for the MessageAddedEvent.
+
+        Assigns a durable id to any message that does not already have one, so the same message
+        carries a stable identifier everywhere it is observed (MessageAddedEvent subscribers,
+        session persistence, snapshots). A message that arrives with an id (e.g. restored from a
+        session or supplied by a caller) keeps it.
+        """
         for message in messages:
+            _ensure_message_id(message)
             self.messages.append(message)
             await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
 

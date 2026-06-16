@@ -44,9 +44,36 @@ export interface MessageData {
   content: ContentBlockData[]
 
   /**
+   * Durable, stable identifier for the message, assigned when the message is added to the
+   * conversation. Survives session save/restore, and is stripped before model calls.
+   */
+  id?: string
+
+  /**
    * Optional metadata, not sent to model providers.
    */
   metadata?: MessageMetadata
+}
+
+/**
+ * Generate a durable identifier for a message.
+ * @internal
+ */
+export function generateMessageId(): string {
+  return globalThis.crypto.randomUUID()
+}
+
+/**
+ * Assign a durable id to the message in place if it does not already have one.
+ *
+ * A message that already carries an id (e.g. restored from a session or supplied by a caller)
+ * keeps it, so the same message has a stable identifier everywhere it is observed.
+ * @internal
+ */
+export function ensureMessageId(message: Message): void {
+  if (message.id === undefined) {
+    message.id = generateMessageId()
+  }
 }
 
 /**
@@ -70,13 +97,22 @@ export class Message implements JSONSerializable<MessageData> {
   readonly content: ContentBlock[]
 
   /**
+   * Durable, stable identifier for the message, assigned when the message is added to the
+   * conversation. Survives session save/restore, and is stripped before model calls.
+   */
+  id?: string
+
+  /**
    * Optional metadata, not sent to model providers.
    */
   metadata?: MessageMetadata
 
-  constructor(data: { role: Role; content: ContentBlock[]; metadata?: MessageMetadata }) {
+  constructor(data: { role: Role; content: ContentBlock[]; id?: string; metadata?: MessageMetadata }) {
     this.role = data.role
     this.content = data.content
+    if (data.id !== undefined) {
+      this.id = data.id
+    }
     if (data.metadata !== undefined) {
       this.metadata = data.metadata
     }
@@ -91,6 +127,7 @@ export class Message implements JSONSerializable<MessageData> {
     return new Message({
       role: data.role,
       content: contentBlocks,
+      ...(data.id !== undefined && { id: data.id }),
       ...(data.metadata !== undefined && { metadata: data.metadata }),
     })
   }
@@ -103,6 +140,7 @@ export class Message implements JSONSerializable<MessageData> {
     return {
       role: this.role,
       content: this.content.map((block) => block.toJSON() as ContentBlockData),
+      ...(this.id !== undefined && { id: this.id }),
       ...(this.metadata !== undefined && { metadata: this.metadata }),
     }
   }

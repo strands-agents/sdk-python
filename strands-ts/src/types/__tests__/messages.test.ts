@@ -8,6 +8,8 @@ import {
   CachePointBlock,
   GuardContentBlock,
   JsonBlock,
+  ensureMessageId,
+  generateMessageId,
   type MessageData,
   type SystemPromptData,
   systemPromptFromData,
@@ -109,6 +111,60 @@ describe('Message metadata', () => {
     const jsonString = JSON.stringify(original)
     const restored = Message.fromJSON(JSON.parse(jsonString))
     expect(restored.metadata).toStrictEqual(metadata)
+  })
+})
+
+describe('Message id', () => {
+  test('constructor does not assign an id by default', () => {
+    const message = new Message({ role: 'user', content: [new TextBlock('test')] })
+    expect(message.id).toBeUndefined()
+  })
+
+  test('constructor accepts an explicit id', () => {
+    const message = new Message({ role: 'user', content: [new TextBlock('test')], id: 'abc123' })
+    expect(message.id).toBe('abc123')
+  })
+
+  test('generateMessageId produces unique strings', () => {
+    const ids = new Set(Array.from({ length: 1000 }, () => generateMessageId()))
+    expect(ids.size).toBe(1000)
+  })
+
+  test('ensureMessageId assigns an id when absent', () => {
+    const message = new Message({ role: 'user', content: [new TextBlock('test')] })
+    ensureMessageId(message)
+    expect(typeof message.id).toBe('string')
+  })
+
+  test('ensureMessageId preserves an existing id', () => {
+    const message = new Message({ role: 'user', content: [new TextBlock('test')], id: 'caller-supplied' })
+    ensureMessageId(message)
+    expect(message.id).toBe('caller-supplied')
+  })
+
+  test('toJSON includes id when present', () => {
+    const message = new Message({ role: 'assistant', content: [new TextBlock('test')], id: 'abc123' })
+    expect(message.toJSON().id).toBe('abc123')
+  })
+
+  test('toJSON omits id when not present', () => {
+    const message = new Message({ role: 'user', content: [new TextBlock('test')] })
+    expect('id' in message.toJSON()).toBe(false)
+  })
+
+  test('fromMessageData preserves id', () => {
+    const data: MessageData = { role: 'assistant', content: [{ text: 'hello' }], id: 'abc123' }
+    expect(Message.fromMessageData(data).id).toBe('abc123')
+  })
+
+  test('round-trips id through toJSON/fromJSON', () => {
+    const original = new Message({ role: 'assistant', content: [new TextBlock('test')], id: 'durable-1' })
+    expect(Message.fromJSON(original.toJSON()).id).toBe('durable-1')
+  })
+
+  test('clone preserves id', () => {
+    const original = new Message({ role: 'assistant', content: [new TextBlock('test')], id: 'durable-1' })
+    expect(original.clone().id).toBe('durable-1')
   })
 })
 
