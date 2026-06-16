@@ -27,8 +27,10 @@ export default [
       'src/vended-tools/**/*.ts',
       'src/sandbox/docker.ts',
       'src/sandbox/ssh.ts',
+      'src/experimental/sandbox/strands-shell.ts',
       'src/sandbox/__tests__/docker.test.node.ts',
       'src/sandbox/__tests__/ssh.test.node.ts',
+      'src/experimental/sandbox/__tests__/strands-shell.test.node.ts',
     ],
   }),
   // Then unit-test rules to UTs
