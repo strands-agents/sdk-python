@@ -55,27 +55,3 @@ function predicate() {
   void injector
 }
 void predicate
-
-// =====================
-// Stacking multiple injectors
-// =====================
-
-function stacking() {
-  // --8<-- [start:stacking]
-  const agent = new Agent({
-    plugins: [
-      new ContextInjector({
-        name: 'clock',
-        renderContent: async () => `<now>${new Date().toISOString()}</now>`,
-      }),
-      new ContextInjector({
-        name: 'environment',
-        renderContent: async () => `<env>production</env>`,
-      }),
-    ],
-  })
-  // --8<-- [end:stacking]
-
-  void agent
-}
-void stacking

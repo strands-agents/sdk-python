@@ -1,6 +1,6 @@
 ---
 title: Context Injector
-description: "Fold just-in-time text into the model input before each call with the ContextInjector plugin: a clock, environment facts, or a lookup, not stored in history."
+description: "Fold real-time text into the model input before each call with the ContextInjector plugin: a clock, environment facts, or a lookup, not stored in history."
 tags: [token-management]
 sidebar:
   badge:
@@ -8,17 +8,17 @@ sidebar:
     variant: tip
 ---
 
-The `ContextInjector` plugin folds just-in-time text into the model input before each call, without touching the durable conversation. Supply a callback that returns a string, and the plugin makes it available to the model for that one call. Use it for context the agent should always have but that does not belong in the stored history: the current time, a sandbox descriptor, environment facts, or a retrieval lookup.
+The `ContextInjector` plugin folds real-time text into the model input before each call. The text is added to that single call's input only: it is never written to the conversation history, so it is not persisted or replayed on later turns. Use it for context the agent should always have but that does not belong in the stored history: the current time, a sandbox descriptor, environment facts, or a retrieval lookup.
 
 ## How It Works
 
-Before each model call, the plugin asks your callback for text and makes it available to the model for that call. A trigger decides whether to inject on a given call. The injected text is **ephemeral by design**: it augments the model input for that one call and never persists into the durable conversation or session, so it cannot drift out of date the way a stored message would.
+A `ContextInjector` has two parts. The callback function decides **what** text to fold into the next model call's input. The trigger decides **when** the callback is called. The injected text is **ephemeral by design**: it augments the model input for that one call and never persists into the durable conversation or session.
 
-This is the same injection mechanism that powers [memory context injection](../memory/overview#context-injection). `ContextInjector` is the generic surface for any consumer; the memory manager's injection config is that engine specialized to memory search.
+This is the same injection mechanism that powers [memory context injection](../memory/overview#context-injection). `ContextInjector` is the generic surface for any consumer.
 
 ## Getting Started
 
-Pass a `ContextInjector` to your agent's `plugins` list with a callback that renders the text to inject:
+Pass a `ContextInjector` to your agent's `plugins` list with a callback that renders the text to inject. By default it injects only on a fresh user turn, the common case for chat agents:
 
 <Tabs>
 <Tab label="Python">
@@ -45,8 +45,6 @@ agent = Agent(
 ```
 </Tab>
 </Tabs>
-
-By default the plugin injects only on a fresh user turn, the common case for chat agents.
 
 ## When to Inject
 
@@ -116,40 +114,6 @@ injector = ContextInjector(
 :::caution[Injected text reaches the model verbatim]
 The rendered text is a prompt-injection surface. If it interpolates attacker-influenced data (tool output, user-derived state), escape it yourself before returning. A callback that throws fails open: injection is skipped and the model call proceeds.
 :::
-
-## Stacking Injectors
-
-You can register several injectors. Each contributes its text independently, in plugin-registration order. Give each a distinct `name` so they can be told apart in logs:
-
-<Tabs>
-<Tab label="Python">
-
-```python
-from datetime import datetime, timezone
-
-from strands import Agent
-from strands.vended_plugins.context_injector import ContextInjector
-
-agent = Agent(
-    plugins=[
-        ContextInjector(
-            lambda context: f"<now>{datetime.now(timezone.utc).isoformat()}</now>",
-            name="clock",
-        ),
-        ContextInjector(lambda context: "<env>production</env>", name="environment"),
-    ],
-)
-```
-</Tab>
-<Tab label="TypeScript">
-
-```typescript
---8<-- "user-guide/concepts/plugins/context-injector_imports.ts:stacking_imports"
-
---8<-- "user-guide/concepts/plugins/context-injector.ts:stacking"
-```
-</Tab>
-</Tabs>
 
 ## Related
 

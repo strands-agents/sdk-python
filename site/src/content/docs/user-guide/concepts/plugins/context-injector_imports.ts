@@ -13,8 +13,3 @@ import { ContextInjector } from '@strands-agents/sdk/vended-plugins/context-inje
 import { ContextInjector } from '@strands-agents/sdk/vended-plugins/context-injector'
 import type { InjectionContext } from '@strands-agents/sdk/vended-plugins/context-injector'
 // --8<-- [end:predicate_imports]
-
-// --8<-- [start:stacking_imports]
-import { Agent } from '@strands-agents/sdk'
-import { ContextInjector } from '@strands-agents/sdk/vended-plugins/context-injector'
-// --8<-- [end:stacking_imports]
