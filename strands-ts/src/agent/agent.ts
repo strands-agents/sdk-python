@@ -770,23 +770,16 @@ export class Agent implements LocalAgent, InvokableAgent {
       })
     )
 
-    // Register tools vended by an explicitly-configured sandbox, applying the sandbox's
-    // toolPrefix to names (like MCP's prefix for server-vended tools).
+    // Register tools vended by the sandbox. The host default vends nothing. A tool
+    // is skipped if the user already registered one with that name.
     if (this._sandbox) {
-      const prefix = this._sandbox.toolPrefix
-      for (const tool of this._sandbox.getTools()) {
-        const prefixed = prefix
-          ? Object.create(tool, {
-              name: { value: `${prefix}_${tool.name}` },
-              toolSpec: { value: { ...tool.toolSpec, name: `${prefix}_${tool.name}` } },
-            })
-          : tool
-        if (this._toolRegistry.get(prefixed.name)) {
+      for (const sandboxTool of this._sandbox.getTools()) {
+        if (this._toolRegistry.get(sandboxTool.name)) {
           logger.debug(
-            `tool_name=<${prefixed.name}> | sandbox-vended tool skipped, user has already registered tool with this name`
+            `tool_name=<${sandboxTool.name}> | sandbox-vended tool skipped, user already registered a tool with this name`
           )
         } else {
-          this._toolRegistry.add(prefixed)
+          this._toolRegistry.add(sandboxTool)
         }
       }
     }
